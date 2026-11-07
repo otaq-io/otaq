@@ -2,7 +2,6 @@
 import type { ListGalleryState } from "./ListGalleryState";
 
 /**
- * The List's states for the Gallery (`gallery.list_view`), on the example's shop-web: by Stage (Done folded, then
- * opened), by Status, by Agent, and Hide empty stages on. `ListGallery` on the page.
+ * The List's states for the Gallery (`gallery.list_view`), on the example's shop-web. `ListGallery` on the page.
  */
 export type ListGallery = { states: Array<ListGalleryState>, };

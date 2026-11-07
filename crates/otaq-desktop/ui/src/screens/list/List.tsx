@@ -1,27 +1,24 @@
-// The List view (LST-01, LST-02; *24 · The two views* `s24-03`, by status `s24-04`, narrowed by the agent panel
-// `s24-05`): the header TICKET · WHERE IN THE FLOW · WHAT'S HAPPENING · WHO, then the groups of the project's Group by,
-// each with its icon, count and hint, and their rows: the coloured edge, the status icon, key, title, the track (one
-// step per stage, then the place), the card's status line, who, time and the one action (or Start on a Backlog row).
-// A blocked row leads with the link and reads its amber line; a ticket others wait for says "blocks 1" (DPV-01).
-// What's happening takes whatever width is left, so the agent panel open narrows only it. Every word is Rust's
-// (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the menu and the keys: a row is
-// pressed, clicked and dragged as a card is (`board.drag` / `board.drop`), and a group that is a drop target (Group by
-// Stage) registers its element so a row dragged onto Ready queues it with the drop zone's words; Done's "show" sends
-// its fold (`board.set_view`).
+// The List: the board as rows. Board and List are two layouts of the same board, so the groups are the board's
+// columns in its places (each stage in flow order, then Backlog, then Done, folded to one "Done · 3" line as on the
+// board) and a head's chevron folds a group as the column's ⋯ folds the column. A row says what the card says: key,
+// title, the status line with its dot, who, time and the one action; only what needs you has the card's coloured
+// edge. Every word is Rust's (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the
+// menu and the keys: a row is pressed, clicked and dragged as a card is (`board.drag` / `board.drop`), and every group
+// (and the Done line) registers its element as its column's drop target.
 import { type KeyboardEvent, memo, type PointerEvent, useLayoutEffect, useRef } from "react";
 
 import { paletteInk, toneInk } from "../../cards/look";
-import { Button, PriorityChip, ToolAvatar, Tooltip } from "../../components";
+import { Button, CodeText, PriorityChip, Tooltip } from "../../components";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { CardActionKind } from "../../generated/CardActionKind";
 import type { DragVerdict } from "../../generated/DragVerdict";
+import type { ListDoneLine } from "../../generated/ListDoneLine";
 import type { ListGroup } from "../../generated/ListGroup";
 import type { ListRow } from "../../generated/ListRow";
-import type { ListTrack } from "../../generated/ListTrack";
 import type { ListView } from "../../generated/ListView";
 import type { ViewChange } from "../../generated/ViewChange";
 import { Icon } from "../../theme/Icon";
-import { rowsOf } from "./rows";
+import { rowKeys } from "./rows";
 import "./list.css";
 
 /** What the Board does for a row: the same as for a card. */
@@ -29,8 +26,6 @@ export interface ListHandlers {
   press: (key: string, e: PointerEvent) => void;
   key: (key: string, target: BoardDropTarget | null, e: KeyboardEvent) => void;
   action: (key: string, kind: CardActionKind) => void;
-  /** Start on a Backlog row: the drop ⌘D sends. */
-  start: (key: string, target: BoardDropTarget) => void;
   menu: (key: string, at: { left: number; top: number }) => void;
 }
 
@@ -41,28 +36,9 @@ export interface ListProps {
   lifted: string | null;
   verdict: (target: BoardDropTarget) => DragVerdict | undefined;
   handlers: ListHandlers;
-  /** A group that is a drop target, measured when a drag starts. */
+  /** A group (or the Done line), as its column's drop target, measured when a drag starts. */
   group: (id: BoardDropTarget, el: HTMLElement | null) => void;
   onView: (change: ViewChange) => void;
-}
-
-/** A row's track: a step per stage, then its place. */
-export function Track({ track }: { track: ListTrack }) {
-  return (
-    <span className="list-track">
-      <span className="list-track-steps">
-        {track.steps.map((step, i) => (
-          <Tooltip key={`${String(i)}:${step.name}`} text={step.name}>
-            <span
-              className="list-track-step"
-              style={step.fill === null ? undefined : { background: paletteInk(step.fill) }}
-            />
-          </Tooltip>
-        ))}
-      </span>
-      <span className="list-track-label">{track.label}</span>
-    </span>
-  );
 }
 
 export interface RowProps {
@@ -74,11 +50,11 @@ export interface RowProps {
   handlers: ListHandlers;
 }
 
-/** One ticket's row (LST-01). */
+/** One ticket's row: the card in one line. */
 export const Row = memo(function Row({ row, target, selected, lifted, focusable, handlers }: RowProps) {
   const { card } = row;
   const key = card.key;
-  // The buttons keep their own clicks: the row's press (a click opens it, a drag moves it) doesn't start there.
+  // The button keeps its own clicks: the row's press (a click opens it, a drag moves it) doesn't start there.
   const stop = (e: { stopPropagation: () => void }) => {
     e.stopPropagation();
   };
@@ -89,7 +65,6 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
       data-selected={selected || undefined}
       data-lifted={lifted || undefined}
       data-edge={card.edge ?? undefined}
-      style={card.edge === null ? undefined : { borderLeftColor: toneInk(card.edge).fg }}
       role="button"
       tabIndex={focusable ? 0 : -1}
       aria-label={`${card.key} ${card.title}`}
@@ -105,47 +80,34 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
         handlers.menu(key, { left: e.clientX, top: e.clientY });
       }}
     >
-      <span className="list-row-icon" style={{ color: paletteInk(row.palette) }}>
-        <Icon name={row.icon} size={14} />
-      </span>
+      <span
+        className="list-row-edge"
+        aria-hidden
+        style={card.edge === null ? undefined : { background: toneInk(card.edge).fg }}
+      />
       <span className="list-row-key">{card.key}</span>
       <span className="list-row-title">
-        {card.blocks === null && card.priority === null ? (
-          <Tooltip text={card.title}>
-            <span className="list-row-title-text">{card.title}</span>
-          </Tooltip>
-        ) : (
-          <span className="list-row-title-line">
-            {/* The card's priority chip before the title (#39): P1, P2, P4; Normal shows none. */}
-            {card.priority !== null && <PriorityChip priority={card.priority} />}
-            <Tooltip text={card.title}>
-              <span className="list-row-title-text">{card.title}</span>
-            </Tooltip>
-            {card.blocks !== null && (
-              <span className="list-row-blocks">
-                <Icon name="link" size={11} />
-                <span>{card.blocks.tag}</span>
-              </span>
-            )}
-          </span>
+        {card.priority !== null && <PriorityChip priority={card.priority} />}
+        <Tooltip text={card.title}>
+          <span className="list-row-title-text">{card.title}</span>
+        </Tooltip>
+      </span>
+      <span className="list-row-status">
+        {card.status !== null && (
+          <>
+            <span className="list-row-dot" style={{ background: paletteInk(card.status.dot) }} />
+            <span className="list-row-status-text" style={{ color: toneInk(card.status.tone).fg }}>
+              <CodeText text={card.status.text} />
+            </span>
+          </>
         )}
       </span>
-      <Track track={row.track} />
-      <span
-        className="list-row-status"
-        style={card.status === null ? undefined : { color: toneInk(card.status.tone).fg }}
-      >
-        {card.status?.text ?? ""}
-      </span>
-      <span className="list-row-who">
-        {card.avatar && <ToolAvatar avatar={card.avatar} />}
-        <span className="list-row-who-name">{card.who ?? ""}</span>
-      </span>
+      <span className="list-row-who">{card.who ?? ""}</span>
       <span className="list-row-time" data-stale={card.time?.stale || undefined}>
         {card.time?.text ?? ""}
       </span>
       <span className="list-row-action" onPointerDown={stop}>
-        {card.action ? (
+        {card.action && (
           <Button
             label={card.action.label}
             variant={card.action.primary ? "primary" : "secondary"}
@@ -154,17 +116,6 @@ export const Row = memo(function Row({ row, target, selected, lifted, focusable,
               if (card.action) handlers.action(key, card.action.kind);
             }}
           />
-        ) : (
-          row.start && (
-            <Button
-              label={row.start.label}
-              variant="secondary"
-              compact
-              onClick={() => {
-                if (row.start) handlers.start(key, row.start.target);
-              }}
-            />
-          )
         )}
       </span>
     </div>
@@ -184,69 +135,101 @@ interface GroupProps {
 
 function Group({ group, selected, lifted, tabStop, verdict, handlers, element, onView }: GroupProps) {
   const { target, toggle } = group;
+  const head = (
+    <>
+      <Icon name={group.folded ? "chevron-right" : "chevron-down"} size={13} />
+      <span className="list-group-title">{group.title}</span>
+      <span className="list-group-count">{group.count}</span>
+    </>
+  );
   return (
     <section
       className="list-group"
       aria-label={group.title}
+      data-folded={group.folded || undefined}
       data-verdict={verdict?.kind === "home" ? undefined : verdict?.kind}
       ref={(el) => {
-        if (target !== null) element(target, el);
+        element(target, el);
       }}
     >
       <div className="list-group-head">
-        <Icon name={group.icon} size={13} />
-        <span
-          className="list-group-title"
-          style={group.tone === null ? undefined : { color: toneInk(group.tone).fg }}
-        >
-          {group.title}
-        </span>
-        <span className="list-group-count">{group.count}</span>
-        {group.hint !== null && (
-          <>
-            <span className="list-group-dot" aria-hidden>
-              ·
-            </span>
-            {toggle === null ? (
-              <span className="list-group-hint">{group.hint}</span>
-            ) : (
-              <button
-                type="button"
-                className="list-group-hint list-group-toggle"
-                aria-expanded={!group.folded}
-                onClick={() => {
-                  onView(toggle);
-                }}
-              >
-                {group.hint}
-              </button>
-            )}
-          </>
+        {toggle === null ? (
+          <span className="list-group-toggle">{head}</span>
+        ) : (
+          <button
+            type="button"
+            className="list-group-toggle"
+            aria-expanded={!group.folded}
+            onClick={() => {
+              onView(toggle);
+            }}
+          >
+            {head}
+          </button>
         )}
         {verdict?.kind === "forbidden" && <span className="list-group-refused">{verdict.title}</span>}
       </div>
       {group.empty !== null && <div className="list-group-empty">{group.empty}</div>}
-      {group.entries.map(({ row }) => (
-        <Row
-          key={row.card.key}
-          row={row}
-          target={target}
-          selected={row.card.key === selected}
-          lifted={row.card.key === lifted}
-          focusable={row.card.key === tabStop}
-          handlers={handlers}
-        />
-      ))}
+      {group.entries.length > 0 && (
+        <div className="list-group-rows">
+          {group.entries.map(({ row }) => (
+            <Row
+              key={row.card.key}
+              row={row}
+              target={target}
+              selected={row.card.key === selected}
+              lifted={row.card.key === lifted}
+              focusable={row.card.key === tabStop}
+              handlers={handlers}
+            />
+          ))}
+        </div>
+      )}
     </section>
+  );
+}
+
+/** Done folded: "Done · 3" at the end; a click opens it, and it stays Done's drop target. */
+function DoneLine({
+  line,
+  verdict,
+  element,
+  onView,
+}: {
+  line: ListDoneLine;
+  verdict: DragVerdict | undefined;
+  element: ListProps["group"];
+  onView: ListProps["onView"];
+}) {
+  return (
+    <div
+      className="list-done"
+      data-verdict={verdict?.kind === "home" ? undefined : verdict?.kind}
+      ref={(el) => {
+        element(line.target, el);
+      }}
+    >
+      <button
+        type="button"
+        className="list-done-button"
+        aria-expanded={false}
+        onClick={() => {
+          onView(line.unfold);
+        }}
+      >
+        {line.text}
+      </button>
+      {verdict?.kind === "forbidden" && <span className="list-group-refused">{verdict.title}</span>}
+    </div>
   );
 }
 
 export function List({ list, selected, lifted, verdict, handlers, group, onView }: ListProps) {
   const body = useRef<HTMLDivElement>(null);
-  const keys = list.groups.flatMap((g) => rowsOf(g).map((r) => r.card.key));
+  const keys = rowKeys(list);
   // One tab stop: the selected row, else the first.
   const tabStop = selected !== null && keys.includes(selected) ? selected : (keys[0] ?? null);
-  // Switching from the Board keeps the selected ticket in view (BRD-01).
+  // Switching from the columns keeps the selected ticket in view (BRD-01).
   useLayoutEffect(() => {
     if (selected === null) return;
     body.current
@@ -256,12 +239,6 @@ export function List({ list, selected, lifted, verdict, handlers, group, onView 
   }, [selected]);
   return (
     <div className="list" role="region" aria-label="List">
-      <div className="list-header" aria-hidden>
-        <span className="list-header-ticket">{list.header.ticket}</span>
-        <span>{list.header.flow}</span>
-        <span>{list.header.happening}</span>
-        <span>{list.header.who}</span>
-      </div>
       <div className="list-body" ref={body}>
         {list.groups.map((g) => (
           <Group
@@ -270,12 +247,15 @@ export function List({ list, selected, lifted, verdict, handlers, group, onView 
             selected={selected}
             lifted={lifted}
             tabStop={tabStop}
-            verdict={g.target === null ? undefined : verdict(g.target)}
+            verdict={verdict(g.target)}
             handlers={handlers}
             element={group}
             onView={onView}
           />
         ))}
+        {list.done !== null && (
+          <DoneLine line={list.done} verdict={verdict(list.done.target)} element={group} onView={onView} />
+        )}
       </div>
     </div>
   );

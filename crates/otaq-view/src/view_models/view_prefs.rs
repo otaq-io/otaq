@@ -1,10 +1,10 @@
 //! A project's view preferences as the page reads and changes them (SHB-05, BRD-01, BRD-02, BRD-04; T-0460): the
 //! service keeps them in `ProjectSettings.view` ([`ViewPrefs`]); the page gets them with `board.view` ([`Prefs`]) and
 //! changes one at a time with `board.set_view` ([`Change`], applied by [`apply`] and stored with
-//! `project_view.set`). Nothing is kept in the page. The toolbar ([`Toolbar`], *24 · The two views*) is worded here:
-//! Board · List · Files, Group by on the List, Fold empty columns or Hide empty
-//! stages, All tickets and New ticket; on Files (FIL-01, `s28-03`) its subtitle and the Live dot instead. Each option
-//! carries the change it sends.
+//! `project_view.set`). Nothing is kept in the page. The toolbar ([`Toolbar`]) is worded here: the views Board · Files
+//! (Settings after them), then while the board shows, its layout switch (columns or list: Board and List are two
+//! layouts of the same board, not two views), Edit flow, Fold empty columns, All tickets and New ticket; on Files
+//! (FIL-01, `s28-03`) its subtitle and the Live dot instead. Each option carries the change it sends.
 
 use otaq_core::board::settings::{self as core, ViewPrefs};
 use serde::{Deserialize, Serialize};
@@ -14,7 +14,8 @@ use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 
-/// Board, List, the project Files view (BRD-01, FIL-01) or the project's Settings page. `BoardViewKind` on the page.
+/// The board in its columns or as a list, the project Files view (BRD-01, FIL-01) or the project's Settings page.
+/// `BoardViewKind` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BoardViewKind")]
@@ -23,16 +24,6 @@ pub enum ViewKind {
     List,
     Files,
     Settings,
-}
-
-/// The List's grouping (LST-01). `ListGroupBy` on the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "ListGroupBy")]
-pub enum GroupBy {
-    Stage,
-    Status,
-    Agent,
 }
 
 /// When dependencies are drawn (DPV-02). `DependenciesMode` on the page.
@@ -66,26 +57,6 @@ impl From<ViewKind> for core::BoardView {
     }
 }
 
-impl From<core::GroupBy> for GroupBy {
-    fn from(v: core::GroupBy) -> Self {
-        match v {
-            core::GroupBy::Stage => Self::Stage,
-            core::GroupBy::Status => Self::Status,
-            core::GroupBy::Agent => Self::Agent,
-        }
-    }
-}
-
-impl From<GroupBy> for core::GroupBy {
-    fn from(v: GroupBy) -> Self {
-        match v {
-            GroupBy::Stage => Self::Stage,
-            GroupBy::Status => Self::Status,
-            GroupBy::Agent => Self::Agent,
-        }
-    }
-}
-
 impl From<core::Dependencies> for Dependencies {
     fn from(v: core::Dependencies) -> Self {
         match v {
@@ -109,9 +80,7 @@ impl From<Dependencies> for core::Dependencies {
 #[ts(rename = "ViewPrefs")]
 pub struct Prefs {
     pub view: ViewKind,
-    pub group_by: GroupBy,
     pub fold_empty_columns: bool,
-    pub hide_empty_stages: bool,
     pub dependencies: Dependencies,
     /// Column ids folded from their ⋯ ("done" at first).
     pub folded_columns: Vec<String>,
@@ -124,9 +93,7 @@ impl From<&ViewPrefs> for Prefs {
     fn from(p: &ViewPrefs) -> Self {
         Self {
             view: p.view.into(),
-            group_by: p.group_by.into(),
             fold_empty_columns: p.fold_empty_columns,
-            hide_empty_stages: p.hide_empty_stages,
             dependencies: p.dependencies.into(),
             folded_columns: p.folded_columns.clone(),
             folded_sections: p.folded_sections.clone(),
@@ -143,13 +110,7 @@ pub enum Change {
     View {
         view: ViewKind,
     },
-    GroupBy {
-        group_by: GroupBy,
-    },
     FoldEmptyColumns {
-        on: bool,
-    },
-    HideEmptyStages {
         on: bool,
     },
     Dependencies {
@@ -180,10 +141,16 @@ pub fn apply(prefs: &mut ViewPrefs, change: &Change) {
         }
     }
     match change {
-        Change::View { view } => prefs.view = (*view).into(),
-        Change::GroupBy { group_by } => prefs.group_by = (*group_by).into(),
+        Change::View { view } => {
+            prefs.view = (*view).into();
+            // The board's layout is remembered across a visit to Files.
+            match view {
+                ViewKind::Board => prefs.list_layout = false,
+                ViewKind::List => prefs.list_layout = true,
+                ViewKind::Files | ViewKind::Settings => {}
+            }
+        }
         Change::FoldEmptyColumns { on } => prefs.fold_empty_columns = *on,
-        Change::HideEmptyStages { on } => prefs.hide_empty_stages = *on,
         Change::Dependencies { dependencies } => prefs.dependencies = (*dependencies).into(),
         Change::FoldColumn { column, folded } => set(&mut prefs.folded_columns, column, *folded),
         Change::FoldSection { section, folded } => {
@@ -208,30 +175,35 @@ pub struct ToolbarOption {
     pub keys: Option<String>,
 }
 
-/// A segmented switch: "Group by" Stage · Status · Agent. `ToolbarGroup` on the page.
+/// A segmented switch: the views, or the board's layouts. `ToolbarGroup` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ToolbarGroup")]
 pub struct ToolbarGroup {
-    /// The words before it ("Group by"); `null` for Board · List · Files.
+    /// The words before it; `null` for the views and the layouts.
     pub label: Option<String>,
-    /// An icon before the words: the link before "Dependencies".
+    /// An icon before the words.
     pub icon: Option<IconName>,
     pub options: Vec<ToolbarOption>,
 }
 
-/// The toolbar at the top of the board, in every view (*24 · The two views*, `s28-03`). `BoardToolbar` on the page.
+/// The toolbar at the top of the board, in every view (`s28-03`). `BoardToolbar` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardToolbar")]
 pub struct Toolbar {
-    /// Board · List · Files · Settings (BRD-01, FIL-01): Settings is the project's settings page, in the main area.
+    /// Board · Files · Settings (BRD-01, FIL-01; Settings is the project's settings page, in the main area): Board is
+    /// chosen in either layout, and from Files or Settings it goes back to the layout last shown.
     pub views: ToolbarGroup,
-    /// "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
+    /// The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files and
+    /// Settings.
+    pub layouts: Option<ToolbarGroup>,
+    /// "Edit flow" on the board, in either layout: the project's flow, changed from the board (it opens the flow
+    /// editor).
     pub edit_flow: Option<String>,
     /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
     pub subtitle: Option<String>,
     /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
     pub live: Option<String>,
-    /// Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
+    /// Fold empty columns, in either layout (the List folds an empty stage's group): a switch; none on Files.
     pub switch: Option<ToolbarOption>,
     /// "All tickets": the board's filter (`/`); none on Files.
     pub all_tickets: Option<String>,
@@ -240,7 +212,16 @@ pub struct Toolbar {
     pub new_ticket_keys: Option<String>,
 }
 
+pub const BOARD: &str = "Board";
+pub const BOARD_TOOLTIP: &str = "Board view";
+pub const FILES: &str = "Files";
+/// The layout switch's two icons, by their tooltips.
+pub const BOARD_LAYOUT: &str = "Columns";
+pub const LIST_LAYOUT: &str = "List";
+pub const FOLD_EMPTY_COLUMNS: &str = "Fold empty columns";
 pub const ALL_TICKETS: &str = "All tickets";
+pub const SETTINGS: &str = "Settings";
+pub const SETTINGS_TOOLTIP: &str = "The project\u{2019}s settings";
 pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
@@ -251,8 +232,13 @@ pub const LIVE: &str = "Live";
 /// The toolbar for `prefs`, with the user's keys in the tooltips.
 pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
     let view: ViewKind = prefs.view.into();
-    // The Board and the List show tickets: All tickets and New ticket are theirs.
-    let tickets_shown = matches!(view, ViewKind::Board | ViewKind::List);
+    let board = matches!(view, ViewKind::Board | ViewKind::List);
+    // The layout the board shows, or would show again on leaving Files or Settings.
+    let layout = if view == ViewKind::List || (!board && prefs.list_layout) {
+        ViewKind::List
+    } else {
+        ViewKind::Board
+    };
     let option =
         |label: &str, icon: Option<IconName>, selected: bool, change: Change| ToolbarOption {
             label: label.to_owned(),
@@ -262,16 +248,10 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             tooltip: None,
             keys: None,
         };
-    let view_option =
+    let layout_option =
         |kind: ViewKind, label: &str, icon: IconName, action: KeyAction| ToolbarOption {
-            tooltip: Some(format!("{label} view")),
+            tooltip: Some(label.to_owned()),
             keys: keys.label(action),
-            ..option(label, Some(icon), view == kind, Change::View { view: kind })
-        };
-    // A view with no key of its own: the project's Settings.
-    let view_option_plain =
-        |kind: ViewKind, label: &str, icon: IconName, tooltip: &str| ToolbarOption {
-            tooltip: Some(tooltip.to_owned()),
             ..option(label, Some(icon), view == kind, Change::View { view: kind })
         };
     Toolbar {
@@ -279,62 +259,72 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             label: None,
             icon: None,
             options: vec![
-                view_option(
-                    ViewKind::Board,
-                    "Board",
-                    IconName::Columns3,
-                    KeyAction::ShowBoard,
-                ),
-                view_option(ViewKind::List, "List", IconName::List, KeyAction::ShowList),
+                ToolbarOption {
+                    tooltip: Some(BOARD_TOOLTIP.to_owned()),
+                    keys: keys.label(KeyAction::ShowBoard),
+                    ..option(BOARD, None, board, Change::View { view: layout })
+                },
                 // `s28-02`: "Files" over both its keys, "⇧⌘O · g then f".
                 ToolbarOption {
-                    tooltip: Some("Files".to_owned()),
+                    tooltip: Some(FILES.to_owned()),
                     keys: Some(keys.all_labels(KeyAction::ShowFiles).join(" \u{b7} "))
                         .filter(|k| !k.is_empty()),
                     ..option(
-                        "Files",
-                        Some(IconName::FolderOpen),
+                        FILES,
+                        None,
                         view == ViewKind::Files,
                         Change::View {
                             view: ViewKind::Files,
                         },
                     )
                 },
-                view_option_plain(
-                    ViewKind::Settings,
-                    "Settings",
-                    IconName::Settings,
-                    "The project\u{2019}s settings",
-                ),
+                ToolbarOption {
+                    tooltip: Some(SETTINGS_TOOLTIP.to_owned()),
+                    ..option(
+                        SETTINGS,
+                        None,
+                        view == ViewKind::Settings,
+                        Change::View {
+                            view: ViewKind::Settings,
+                        },
+                    )
+                },
             ],
         },
-        edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
+        layouts: board.then(|| ToolbarGroup {
+            label: None,
+            icon: None,
+            options: vec![
+                layout_option(
+                    ViewKind::Board,
+                    BOARD_LAYOUT,
+                    IconName::Columns3,
+                    KeyAction::ShowBoard,
+                ),
+                layout_option(
+                    ViewKind::List,
+                    LIST_LAYOUT,
+                    IconName::List,
+                    KeyAction::ShowList,
+                ),
+            ],
+        }),
+        edit_flow: board.then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
-        switch: match view {
-            ViewKind::Board => Some(option(
-                "Fold empty columns",
+        switch: board.then(|| {
+            option(
+                FOLD_EMPTY_COLUMNS,
                 Some(IconName::FoldHorizontal),
                 prefs.fold_empty_columns,
                 Change::FoldEmptyColumns {
                     on: !prefs.fold_empty_columns,
                 },
-            )),
-            ViewKind::List => Some(option(
-                "Hide empty stages",
-                Some(IconName::FoldHorizontal),
-                prefs.hide_empty_stages,
-                Change::HideEmptyStages {
-                    on: !prefs.hide_empty_stages,
-                },
-            )),
-            ViewKind::Files | ViewKind::Settings => None,
-        },
-        all_tickets: tickets_shown.then(|| ALL_TICKETS.to_owned()),
-        new_ticket: tickets_shown.then(|| NEW_TICKET.to_owned()),
-        new_ticket_keys: tickets_shown
-            .then(|| keys.label(KeyAction::NewTicket))
-            .flatten(),
+            )
+        }),
+        all_tickets: board.then(|| ALL_TICKETS.to_owned()),
+        new_ticket: board.then(|| NEW_TICKET.to_owned()),
+        new_ticket_keys: board.then(|| keys.label(KeyAction::NewTicket)).flatten(),
     }
 }
 
@@ -362,18 +352,11 @@ mod tests {
         );
         apply(
             &mut prefs,
-            &Change::GroupBy {
-                group_by: GroupBy::Status,
-            },
-        );
-        apply(
-            &mut prefs,
             &Change::Dependencies {
                 dependencies: Dependencies::Always,
             },
         );
         apply(&mut prefs, &Change::FoldEmptyColumns { on: true });
-        apply(&mut prefs, &Change::HideEmptyStages { on: true });
         apply(
             &mut prefs,
             &Change::FoldSection {
@@ -384,10 +367,11 @@ mod tests {
         apply(&mut prefs, &Change::DevUnfolded { on: true });
         let page = Prefs::from(&prefs);
         assert_eq!(
-            (page.view, page.group_by, page.dependencies),
-            (ViewKind::List, GroupBy::Status, Dependencies::Always)
+            (page.view, page.dependencies),
+            (ViewKind::List, Dependencies::Always)
         );
-        assert!(page.fold_empty_columns && page.hide_empty_stages && page.dev_unfolded);
+        assert!(prefs.list_layout);
+        assert!(page.fold_empty_columns && page.dev_unfolded);
         assert_eq!(page.folded_sections, ["ship"]);
         // On the wire: `{"kind": "fold_column", "column": "product-spec", "folded": true}`.
         assert_eq!(
@@ -407,16 +391,15 @@ mod tests {
                 .map(|o| (o.label.clone(), o.selected))
                 .collect()
         };
+        // The views are Board · Files; List is a layout of the board beside them.
         assert_eq!(
             labels(&board.views),
             [
                 ("Board".to_owned(), true),
-                ("List".to_owned(), false),
                 ("Files".to_owned(), false),
                 ("Settings".to_owned(), false)
             ]
         );
-        assert_eq!((board.subtitle.as_ref(), board.live.as_ref()), (None, None));
         // Settings is the project's settings page, a view of its own: it carries no board tools.
         let mut on_settings = ViewPrefs::default();
         apply(
@@ -426,18 +409,32 @@ mod tests {
             },
         );
         let settings = toolbar(&on_settings, &keys);
-        assert!(settings.views.options[3].selected);
+        assert!(settings.views.options[2].selected && !settings.views.options[0].selected);
         assert_eq!(
             (
+                settings.layouts.as_ref(),
                 settings.edit_flow.as_ref(),
                 settings.switch.as_ref(),
                 settings.all_tickets.as_ref(),
                 settings.new_ticket.as_ref()
             ),
-            (None, None, None, None)
+            (None, None, None, None, None)
         );
-        assert_eq!(board.views.options[1].tooltip.as_deref(), Some("List view"));
-        assert_eq!(board.views.options[1].keys.as_deref(), Some("g l"));
+        let layouts = board.layouts.as_ref().unwrap();
+        assert_eq!(
+            labels(layouts),
+            [("Columns".to_owned(), true), ("List".to_owned(), false)]
+        );
+        assert_eq!(layouts.options[1].icon, Some(IconName::List));
+        assert_eq!(layouts.options[1].tooltip.as_deref(), Some("List"));
+        assert_eq!(layouts.options[1].keys.as_deref(), Some("g l"));
+        assert_eq!(
+            layouts.options[1].change,
+            Change::View {
+                view: ViewKind::List
+            }
+        );
+        assert_eq!((board.subtitle.as_ref(), board.live.as_ref()), (None, None));
         // The board's only option is Fold empty columns: no Dependencies switch, no Group by.
         let json = serde_json::to_value(&board).unwrap();
         assert!(json.get("dependencies").is_none() && json.get("group_by").is_none());
@@ -455,35 +452,77 @@ mod tests {
             (Some("All tickets"), Some("New ticket"))
         );
 
+        // The List is the same board: Board stays chosen, the list icon is, and the toolbar is the board's.
         let list = toolbar(
             &ViewPrefs {
                 view: core::BoardView::List,
-                hide_empty_stages: true,
+                list_layout: true,
+                fold_empty_columns: true,
                 ..ViewPrefs::default()
             },
             &keys,
         );
+        assert_eq!(
+            labels(&list.views),
+            [
+                ("Board".to_owned(), true),
+                ("Files".to_owned(), false),
+                ("Settings".to_owned(), false)
+            ]
+        );
+        assert_eq!(
+            labels(list.layouts.as_ref().unwrap()),
+            [("Columns".to_owned(), false), ("List".to_owned(), true)]
+        );
+        assert_eq!(list.edit_flow.as_deref(), Some("Edit flow"));
         let switch = list.switch.as_ref().unwrap();
         assert_eq!(
             (switch.label.as_str(), switch.selected, &switch.change),
             (
-                "Hide empty stages",
+                "Fold empty columns",
                 true,
-                &Change::HideEmptyStages { on: false }
+                &Change::FoldEmptyColumns { on: false }
             )
         );
     }
 
-    /// FIL-01, `s28-02`, `s28-03`: Files is the third segment ("Files" over "⇧⌘O · g f"); on Files the toolbar has
+    /// Board and List are layouts of one board: from Files or Settings, Board goes back to the layout last shown.
+    #[test]
+    fn board_goes_back_to_the_last_layout() {
+        let keys = KeyLabels::default();
+        let mut prefs = ViewPrefs::default();
+        for view in [ViewKind::List, ViewKind::Files] {
+            apply(&mut prefs, &Change::View { view });
+        }
+        let files = toolbar(&prefs, &keys);
+        assert_eq!(files.layouts, None);
+        assert_eq!(
+            files.views.options[0].change,
+            Change::View {
+                view: ViewKind::List
+            }
+        );
+        for view in [ViewKind::Board, ViewKind::Settings] {
+            apply(&mut prefs, &Change::View { view });
+        }
+        assert_eq!(
+            toolbar(&prefs, &keys).views.options[0].change,
+            Change::View {
+                view: ViewKind::Board
+            }
+        );
+    }
+
+    /// FIL-01, `s28-02`, `s28-03`: Files is the second segment ("Files" over "⇧⌘O · g f"); on Files the toolbar has
     /// its subtitle and the Live dot and nothing of the Board's or the List's.
     #[test]
     fn the_files_view_has_its_toolbar() {
         let keys = KeyLabels::base(crate::keymap::Platform::Mac);
         let board = toolbar(&ViewPrefs::default(), &keys);
-        let files = &board.views.options[2];
+        let files = &board.views.options[1];
         assert_eq!(
             (files.label.as_str(), files.icon, files.selected),
-            ("Files", Some(IconName::FolderOpen), false)
+            ("Files", None, false)
         );
         assert_eq!(
             (files.tooltip.as_deref(), files.keys.as_deref()),
@@ -502,7 +541,7 @@ mod tests {
             },
             &keys,
         );
-        assert!(shown.views.options[2].selected);
+        assert!(shown.views.options[1].selected);
         assert_eq!(
             shown.subtitle.as_deref(),
             Some("What the base branch looks like, and which agents are changing which files")
@@ -515,7 +554,7 @@ mod tests {
             &ViewPrefs::default(),
             &crate::key_labels::fixtures::letters_off(),
         );
-        assert_eq!(off.views.options[2].keys.as_deref(), Some("⇧⌘O"));
+        assert_eq!(off.views.options[1].keys.as_deref(), Some("⇧⌘O"));
     }
 
     /// SHB-05: Files is stored and read back like the other two views (`ViewPrefs` round-trip).

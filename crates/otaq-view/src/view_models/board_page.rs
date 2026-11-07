@@ -1297,7 +1297,7 @@ fn gallery_toolbars() -> Vec<GalleryToolbar> {
             toolbar: view_prefs::toolbar(&board, &keys),
         },
         GalleryToolbar {
-            name: "List · by Stage".into(),
+            name: "List".into(),
             toolbar: view_prefs::toolbar(&list, &keys),
         },
     ]

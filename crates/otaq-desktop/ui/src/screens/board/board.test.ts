@@ -796,42 +796,36 @@ describe("the toolbar (BRD-01)", () => {
       options: [
         {
           ...option("Board", true, { kind: "view", view: "board" }),
-          icon: "columns-3",
           tooltip: "Board view",
           keys: "g b",
         },
         {
-          ...option("List", false, { kind: "view", view: "list" }),
-          icon: "list",
-          tooltip: "List view",
-          keys: "g l",
-        },
-        {
           ...option("Files", false, { kind: "view", view: "files" }),
-          icon: "folder-open",
           tooltip: "Files",
           keys: "⇧⌘O · g f",
         },
       ],
     },
-    subtitle: null,
-    live: null,
-    group_by: {
-      label: "Group by",
+    layouts: {
+      label: null,
       icon: null,
       options: [
-        option("Stage", true, { kind: "group_by", group_by: "stage" }),
-        option("Status", false, { kind: "group_by", group_by: "status" }),
+        {
+          ...option("Columns", true, { kind: "view", view: "board" }),
+          icon: "columns-3",
+          tooltip: "Columns",
+          keys: "g b",
+        },
+        {
+          ...option("List", false, { kind: "view", view: "list" }),
+          icon: "list",
+          tooltip: "List",
+          keys: "g l",
+        },
       ],
     },
-    dependencies: {
-      label: "Dependencies",
-      icon: "link",
-      options: [
-        option("On hover", true, { kind: "dependencies", dependencies: "on_hover" }),
-        option("Always", false, { kind: "dependencies", dependencies: "always" }),
-      ],
-    },
+    subtitle: null,
+    live: null,
     switch: {
       ...option("Fold empty columns", false, { kind: "fold_empty_columns", on: true }),
       icon: "fold-horizontal",
@@ -841,7 +835,7 @@ describe("the toolbar (BRD-01)", () => {
     new_ticket_keys: "⌘N",
   } as unknown as Parameters<typeof Toolbar>[0]["toolbar"];
 
-  it("draws Board · List, the one switch, All tickets and New ticket as Rust words them", () => {
+  it("draws Board · Files, the layout switch, the one option, All tickets and New ticket as Rust words them", () => {
     const html = renderToStaticMarkup(
       createElement(Toolbar, {
         toolbar: TOOLBAR,
@@ -861,6 +855,10 @@ describe("the toolbar (BRD-01)", () => {
     expect(html).toContain("<span>All tickets</span>");
     expect(html).toContain("<span>New ticket</span>");
     expect(html).toContain("<span>Files</span>");
+    // The layout switch: two icons named by their labels, columns chosen.
+    expect(html).toMatch(/aria-checked="true" aria-label="Columns"/);
+    expect(html).toMatch(/aria-checked="false" aria-label="List"/);
+    expect(html).not.toContain("<span>List</span>");
     expect(html).not.toContain("board-toolbar-live");
   });
 
@@ -871,8 +869,7 @@ describe("the toolbar (BRD-01)", () => {
       views: { ...TOOLBAR.views, options: views },
       subtitle: "What the base branch looks like, and which agents are changing which files",
       live: "Live",
-      group_by: null,
-      dependencies: null,
+      layouts: null,
       switch: null,
       all_tickets: null,
       new_ticket: null,
@@ -894,6 +891,7 @@ describe("the toolbar (BRD-01)", () => {
     expect(html).toMatch(/aria-checked="true" tabindex="0">.*<span>Files<\/span>/);
     expect(html).not.toContain("All tickets");
     expect(html).not.toContain('role="switch"');
+    expect(html).not.toContain('aria-label="Layout"');
   });
 
   it("←/→ step through a segment group, wrapping", () => {

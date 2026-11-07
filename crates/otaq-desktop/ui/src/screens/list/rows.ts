@@ -1,6 +1,6 @@
-// The List's moment of interaction, without the DOM (LST-01, LST-02): its rows in order for ↑/↓, its groups that are
-// drop targets (Group by Stage: a row dragged onto Ready queues it) for the drag, which is the Board's (`board/drag.ts`,
-// the same `board.drag` / `board.drop`), and a lifted row's words. Everything a row says is Rust's (`list_view.rs`).
+// The List's moment of interaction, without the DOM: its rows in order for ↑/↓, its groups as their columns' drop
+// targets for the drag, which is the Board's (`board/drag.ts`, the same `board.drag` / `board.drop`), and a lifted
+// row's words. Everything a row says is Rust's (`list_view.rs`).
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { ListGroup } from "../../generated/ListGroup";
 import type { ListRow } from "../../generated/ListRow";
@@ -26,14 +26,9 @@ export function findRow(list: ListView, key: string): { row: ListRow; group: Lis
   return null;
 }
 
-/** The groups a row can be dropped on, top to bottom, for ↑/↓ while a row is lifted with Space. */
+/** The drop targets top to bottom (every group, then the Done line), for ↑/↓ while a row is lifted with Space. */
 export function listTargets(list: ListView): BoardDropTarget[] {
-  return list.groups.flatMap((g) => (g.target === null ? [] : [g.target]));
-}
-
-/** Whether the List takes drags at all (Group by Stage). */
-export function dragsRows(list: ListView): boolean {
-  return list.groups.some((g) => g.target !== null);
+  return [...list.groups.map((g) => g.target), ...(list.done === null ? [] : [list.done.target])];
 }
 
 /** The key ↑/↓ moves focus to from `key`; `null` at the ends. */
@@ -44,7 +39,7 @@ export function nextRow(keys: readonly string[], key: string, step: -1 | 1): str
 }
 
 /**
- * The drop targets on screen while a row is dragged: each group with a target, from its head to its last row and
+ * The drop targets on screen while a row is dragged: each group from its head to its last row, and the Done line,
  * across the List's width (`ColumnSpan` with a top and bottom, which `columnAt` reads first).
  */
 export function groupSpans(groups: ReadonlyMap<BoardDropTarget, HTMLElement>): ColumnSpan[] {

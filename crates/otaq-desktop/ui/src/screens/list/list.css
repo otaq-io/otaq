@@ -1,51 +1,39 @@
-/* The List view (LST-01; *24 · The two views* `s24-03`): one grid for the header and the rows, so the columns line up;
-   the title and What's happening share what is left (the agent panel open narrows them, down to 230 and 120 px). */
+/* The List layout: each group's head on the board's background, its rows on one panel; one grid for every row so
+   the columns line up, the title and the status line sharing what is left (the agent panel open narrows them). */
 .list {
-  --list-columns: 14px 64px minmax(230px, 1fr) 200px minmax(120px, 1fr) 160px 36px 76px;
+  --list-columns: 3px 64px minmax(200px, 330px) minmax(160px, 1fr) 100px 48px auto;
   display: flex;
   flex: 1;
   flex-direction: column;
   min-width: 0;
   min-height: 0;
-  background: var(--bg-panel);
-}
-
-.list-header,
-.list-row {
-  display: grid;
-  grid-template-columns: var(--list-columns);
-  column-gap: 10px;
-  align-items: center;
-}
-
-.list-header {
-  flex: none;
-  padding: 8px 14px 4px 17px;
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-}
-
-.list-header-ticket {
-  grid-column: 2 / span 2;
 }
 
 .list-body {
   flex: 1;
   min-height: 0;
+  /* Room at the end for the box docked at the bottom of the board. */
+  padding: 4px 16px 88px;
   overflow: auto;
 }
 
-.list-header,
-.list-body > .list-group {
-  min-width: calc(14px + 64px + 230px + 200px + 120px + 160px + 36px + 76px + 70px + 31px);
+.list-body > .list-group,
+.list-body > .list-done {
+  min-width: calc(3px + 64px + 200px + 160px + 100px + 48px + 90px + 6 * 12px + 26px);
 }
 
-.list-group[data-verdict="allowed"] {
+.list-group {
+  border-radius: 8px;
+}
+
+.list-group[data-verdict="allowed"],
+.list-done[data-verdict="allowed"] {
   background: var(--accent-soft);
   box-shadow: inset 0 0 0 2px var(--accent);
 }
 
-.list-group[data-verdict="forbidden"] {
+.list-group[data-verdict="forbidden"],
+.list-done[data-verdict="forbidden"] {
   box-shadow: inset 0 0 0 2px var(--st-error);
   cursor: not-allowed;
 }
@@ -53,10 +41,23 @@
 .list-group-head {
   display: flex;
   align-items: center;
+  gap: 8px;
+  padding: 12px 6px 8px;
+}
+
+.list-group-toggle {
+  display: inline-flex;
+  align-items: center;
   gap: 6px;
-  padding: 12px 14px 4px;
+  padding: 0;
+  border: none;
+  background: none;
   color: var(--text-muted);
-  font: 400 12px var(--font-ui);
+  font: inherit;
+}
+
+button.list-group-toggle {
+  cursor: pointer;
 }
 
 .list-group-title {
@@ -64,21 +65,13 @@
   font: 600 12.5px var(--font-ui);
 }
 
-.list-group-toggle {
-  padding: 0;
-  border: none;
-  background: none;
-  color: inherit;
-  font: inherit;
-  cursor: pointer;
-}
-
-.list-group-toggle:hover {
-  color: var(--text-secondary);
-  text-decoration: underline;
+.list-group-count {
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
 }
 
 .list-group-toggle:focus-visible,
+.list-done-button:focus-visible,
 .list-row:focus-visible {
   outline: 2px solid var(--focus);
   outline-offset: -2px;
@@ -87,24 +80,38 @@
 .list-group-refused {
   margin-left: auto;
   color: var(--st-error);
+  font: 400 12px var(--font-ui);
 }
 
 .list-group-empty {
-  padding: 6px 14px 10px 41px;
-  border-bottom: 1px solid var(--border);
+  padding: 0 6px 6px 25px;
   color: var(--text-muted);
   font: 400 12px var(--font-ui);
 }
 
-/* A row: the 3 px edge (in its colour when it needs you), then the grid. */
+.list-group-rows {
+  overflow: hidden;
+  border-radius: 8px;
+  background: var(--bg-panel);
+  box-shadow: inset 0 0 0 1px var(--border);
+}
+
+/* A row: the edge (in its colour only while it needs you), then the grid. */
 .list-row {
+  display: grid;
+  grid-template-columns: var(--list-columns);
+  column-gap: 12px;
+  align-items: center;
   box-sizing: border-box;
-  min-height: 40px;
-  padding: 9px 14px;
+  min-height: 41px;
+  padding: 6px 12px 6px 12px;
   border-bottom: 1px solid var(--border);
-  border-left: 3px solid transparent;
   background: transparent;
   cursor: default;
+}
+
+.list-row:last-child {
+  border-bottom: none;
 }
 
 .list-row:hover {
@@ -119,12 +126,11 @@
   opacity: 0.4;
 }
 
-.list-row[data-dimmed] {
-  opacity: 0.45;
-}
-
-.list-row-icon {
-  display: flex;
+.list-row-edge {
+  align-self: stretch;
+  width: 3px;
+  margin: 2px 0;
+  border-radius: 2px;
 }
 
 .list-row-key {
@@ -137,13 +143,13 @@
 
 .list-row-title {
   display: flex;
-  flex-direction: column;
+  align-items: center;
+  gap: 6px;
   min-width: 0;
 }
 
 /* The title's tooltip anchor shrinks with the column, so a long title ends in an ellipsis inside it. */
-.list-row-title > .tooltip-anchor,
-.list-row-title-line > .tooltip-anchor {
+.list-row-title > .tooltip-anchor {
   min-width: 0;
   max-width: 100%;
 }
@@ -153,83 +159,41 @@
   min-width: 0;
   overflow: hidden;
   color: var(--text-primary);
-  font: 500 13.5px var(--font-ui);
-  white-space: nowrap;
-  text-overflow: ellipsis;
-}
-
-.list-row-title-line {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
-}
-
-/* "blocks 1" beside the title (DPV-01, `s24-10`): a muted outlined tag with the link. */
-.list-row-blocks {
-  display: inline-flex;
-  flex: none;
-  align-items: center;
-  gap: 3px;
-  padding: 1px 5px;
-  border-radius: 4px;
-  box-shadow: inset 0 0 0 1px var(--border);
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
-  white-space: nowrap;
-}
-
-.list-track {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  min-width: 0;
-}
-
-.list-track-steps {
-  display: flex;
-  flex: none;
-  gap: 3px;
-}
-
-/* A long flow's steps shrink to fit the track's width. */
-.list-track-step {
-  display: block;
-  flex: 0 1 18px;
-  min-width: 4px;
-  width: 18px;
-  height: 6px;
-  border-radius: 3px;
-  background: var(--border);
-}
-
-.list-track-label {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: 400 11.5px var(--font-ui);
+  font: 400 13px var(--font-ui);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
 .list-row-status {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  min-width: 0;
+}
+
+.list-row-dot {
+  flex: none;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+}
+
+.list-row-status-text {
   overflow: hidden;
-  color: var(--text-secondary);
   font: 400 12.5px var(--font-ui);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
 
-.list-row-who {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  min-width: 0;
+.list-row-status-text code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
 }
 
-.list-row-who-name {
+.list-row-who {
   overflow: hidden;
-  color: var(--text-muted);
-  font: 400 12px var(--font-ui);
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
   white-space: nowrap;
   text-overflow: ellipsis;
 }
@@ -246,4 +210,27 @@
 .list-row-action {
   display: flex;
   justify-content: flex-end;
+  min-width: 90px;
+}
+
+/* Done folded: "Done · 3", muted, at the end. */
+.list-done {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 0;
+  border-radius: 8px;
+}
+
+.list-done-button {
+  padding: 0 6px;
+  border: none;
+  background: none;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.list-done-button:hover {
+  color: var(--text-secondary);
 }
