@@ -509,6 +509,11 @@
   cursor: pointer;
 }
 
+/* The layout switch: icons only, square. */
+.board-layout {
+  padding: 4px 6px;
+}
+
 .board-segment[aria-checked="true"] {
   background: var(--bg-panel);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 10%);
@@ -565,8 +570,7 @@
   background: var(--bg-hover);
 }
 
-/* The List view until it arrives (T-0461). */
-/* The List view (LST-01) fills the board edge to edge and scrolls its own rows. */
+/* The List layout fills the board edge to edge and scrolls its own rows. */
 .board[data-view="list"] {
   padding: 0;
 }
