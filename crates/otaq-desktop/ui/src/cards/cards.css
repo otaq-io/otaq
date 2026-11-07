@@ -196,40 +196,29 @@
   flex: none;
 }
 
-/* "You don't have the skill `team-validate`" (no-skill-copies F1): amber, one line under the status line, the name as
-   code, cut with an ellipsis on a narrow card. */
-.card-skill-warning {
-  display: flex;
-  align-items: center;
-  gap: 5px;
-  min-width: 0;
-  color: var(--st-paused);
-  font: 400 11.5px/1.35 var(--font-ui);
-}
-
-.card-skill-warning svg {
-  flex: none;
-}
-
-.card-skill-warning-text {
-  overflow: hidden;
-  min-width: 0;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-skill-warning-text code {
-  font-family: var(--font-mono);
-  font-size: 0.95em;
-}
-
-/* "Blocks SHOP-20" (DPV-01): muted, under the line. */
+/* The muted line under the status line, only when set ("Dev: Light instead of Strong", "Skips Product spec"), and the
+   line a hovered card gains for what waits for it ("SHOP-30 waits for it"). */
+.card-note,
 .card-blocks {
   display: flex;
   align-items: center;
   gap: 5px;
+  min-width: 0;
   color: var(--text-muted);
-  font: 400 11.5px var(--font-ui);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.card-note svg,
+.card-blocks svg {
+  flex: none;
+}
+
+.card-note span,
+.card-blocks span {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .card-status-dot {
@@ -251,76 +240,10 @@
   line-clamp: 2;
 }
 
-/* "Created by Checkout slowness": violet, agent-made (d0068). */
-/* "Plan · 4 pieces", quiet under the line (d0133, `s30-01`). */
-.card-plan {
-  overflow: hidden;
-  color: var(--text-muted);
-  font: 400 11.5px/1.35 var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-/* A build stage's pieces (d0133, `s30-02`): the label, a row per piece, the status in its tone. */
-.card-pieces {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.card-pieces-label {
-  color: var(--text-muted);
-  font: 600 10.5px/1.4 var(--font-ui);
-  letter-spacing: 0.04em;
-}
-
-.card-pieces-back,
-.card-pieces-done {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: 400 11.5px/1.35 var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-piece {
-  display: flex;
-  align-items: baseline;
-  gap: 6px;
-  min-width: 0;
-  font: 400 11.5px/1.35 var(--font-ui);
-}
-
-.card-piece-name {
-  flex: none;
-  color: var(--text-secondary);
+/* A command or a skill's name in the line ("allow `npm install`?") reads as code. */
+.card-status-text code {
   font-family: var(--font-mono);
-  font-size: 11px;
-}
-
-.card-piece-title {
-  overflow: hidden;
-  min-width: 0;
-  color: var(--text-primary);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-piece-status {
-  overflow: hidden;
-  min-width: 0;
-  margin-left: auto;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.card-origin {
-  overflow: hidden;
-  color: var(--st-investigate);
-  font: 400 11.5px/1.35 var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-size: 0.95em;
 }
 
 /* The tool mark (16 px) and the agent's name, the time, the one action on the right. */

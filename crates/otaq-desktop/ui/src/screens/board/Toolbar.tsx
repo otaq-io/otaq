@@ -1,8 +1,7 @@
 // The board's toolbar, in every view (BRD-01, FIL-01; *24 · The two views*, `s28-03`): Board · List · Files ·
-// Settings first (`g b`, `g l`, `g f`; Settings is the project's settings page), then the List's Group by; on the
-// right the Board's Edit flow (the flow editor), then its
-// Dependencies On hover · Always (DPV-02, `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets
-// and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
+// Settings first (`g b`, `g l`, `g f`; Settings is the project's settings page); on the right the Board's Edit flow
+// (the flow editor), its one option Fold empty columns (or the List's Hide empty stages), All tickets and New ticket.
+// On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
 import type { KeyboardEvent } from "react";
@@ -123,7 +122,6 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 const NARROW_MAIN = 760 + 2 * 16;
 
 export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow }: ToolbarProps) {
-  const choices = toolbar.group_by;
   const main = useStore(mainWidth);
   return (
     <div
@@ -133,12 +131,6 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow
       data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}
     >
       <Segments group={toolbar.views} name="View" onView={onView} />
-      {choices && (
-        <>
-          <span className="board-toolbar-divider" aria-hidden />
-          <Segments group={choices} name={choices.label ?? ""} onView={onView} />
-        </>
-      )}
       {toolbar.subtitle !== null && (
         <>
           <span className="board-toolbar-divider board-toolbar-subtitle-divider" aria-hidden />
@@ -157,9 +149,6 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow
           <Icon name="pencil" size={12} />
           <span>{toolbar.edit_flow}</span>
         </button>
-      )}
-      {toolbar.dependencies && (
-        <Segments group={toolbar.dependencies} name={toolbar.dependencies.label ?? ""} onView={onView} />
       )}
       {toolbar.switch && <Switch option={toolbar.switch} onView={onView} />}
       {toolbar.all_tickets !== null && (

@@ -1507,13 +1507,18 @@
                     "status": "Backlog"
                   },
                   "key": "ALL-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Backlog",
                   "who": null
@@ -1539,16 +1544,16 @@
                     "status": "Parked · has work"
                   },
                   "key": "ALL-2",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
-                    "text": "Parked · has work · branch, files and conversation kept",
+                    "text": "Parked · has work in its copy",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -1609,7 +1614,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -1629,12 +1635,12 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Open",
+                      "label": "Decide",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "error",
+                    "edge": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -1642,17 +1648,17 @@
                       "status": "Parent closed"
                     },
                     "key": "ALL-6",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "error",
+                      "dot": "queued",
                       "icon": null,
-                      "text": "Parent closed: A parent was closed without merging",
-                      "tone": "error"
+                      "text": "A parent was closed",
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Parent closed",
@@ -1666,12 +1672,12 @@
                     "action": {
                       "icon": "rotate-ccw",
                       "kind": "retry_start",
-                      "label": "Retry start",
+                      "label": "Retry",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -1679,17 +1685,17 @@
                       "status": "Start failed"
                     },
                     "key": "ALL-7",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Start failed: start didn’t finish · agent never started",
-                      "tone": "attention"
+                      "text": "Start failed",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Start failed",
@@ -1711,12 +1717,12 @@
                       "status": "Waiting to start"
                     },
                     "key": "ALL-3",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -1743,15 +1749,15 @@
                       "status": "Waits for a free agent"
                     },
                     "key": "ALL-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Waits for a free agent · next in line",
                       "tone": "secondary"
                     },
@@ -1775,15 +1781,15 @@
                       "status": "Held"
                     },
                     "key": "ALL-5",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Held",
                       "tone": "secondary"
                     },
@@ -1793,43 +1799,6 @@
                   },
                   "kind": "ticket",
                   "needs_you": false
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Asks you"
-                    },
-                    "key": "ALL-10",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Asks you a question",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Asks you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 },
                 {
                   "card": {
@@ -1846,60 +1815,23 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · permission"
+                      "status": "Asks you"
                     },
-                    "key": "ALL-11",
+                    "key": "ALL-10",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Needs you: waiting for your permission",
+                      "text": "Asks you a question",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Idle"
-                    },
-                    "key": "ALL-12",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Idle: ended its turn",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Idle",
+                    "title": "Asks you",
                     "who": null
                   },
                   "kind": "ticket",
@@ -1920,20 +1852,94 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Keeps conflicting"
+                      "status": "Needs you · permission"
                     },
-                    "key": "ALL-17",
+                    "key": "ALL-11",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Conflicts 1 time: delivery stopped",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Needs you",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Answer",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "attention",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Idle"
+                    },
+                    "key": "ALL-12",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "attn",
+                      "icon": null,
+                      "text": "Idle",
+                      "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Idle",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Open",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "error",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Keeps conflicting"
+                    },
+                    "key": "ALL-17",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "error",
+                      "icon": null,
+                      "text": "Keeps conflicting with main",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Delivery stopped",
@@ -1952,7 +1958,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -1960,17 +1966,17 @@
                       "status": "Interrupted"
                     },
                     "key": "ALL-14",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Interrupted: session lost after reboot",
-                      "tone": "attention"
+                      "text": "Stopped by a restart",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Interrupted",
@@ -1989,7 +1995,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -1997,17 +2003,17 @@
                       "status": "Resume failed"
                     },
                     "key": "ALL-15",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Resume failed · retry or start from scratch",
-                      "tone": "attention"
+                      "text": "Couldn’t resume its conversation",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Resume failed",
@@ -2031,12 +2037,12 @@
                       "status": "Working"
                     },
                     "key": "ALL-8",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -2140,9 +2146,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -2158,7 +2167,7 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Answer",
+                      "label": "Open",
                       "primary": true
                     },
                     "avatar": null,
@@ -2171,16 +2180,16 @@
                       "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Checker asks: waiting for your permission",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
                     },
                     "time": null,
@@ -2208,16 +2217,16 @@
                       "status": "Validation failed 1 time"
                     },
                     "key": "ALL-20",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validation failed 1 time",
+                      "text": "Validate failed 1 times · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -2245,16 +2254,16 @@
                       "status": "Validation ended without a result"
                     },
                     "key": "ALL-21",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "No result: validation ended without a result",
+                      "text": "Validate gave no result · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -2279,16 +2288,16 @@
                       "status": "Validating…"
                     },
                     "key": "ALL-18",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
+                      "dot": "working",
                       "icon": null,
-                      "text": "Validating",
+                      "text": "Checking",
                       "tone": "secondary"
                     },
                     "time": null,
@@ -2389,10 +2398,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -2415,13 +2426,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "ALL-22",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Ready for Review",
                   "who": null
@@ -2439,7 +2455,7 @@
                   },
                   "avatar": null,
                   "blocks": null,
-                  "edge": null,
+                  "edge": "review",
                   "faded": null,
                   "fresh": false,
                   "hover": {
@@ -2447,17 +2463,17 @@
                     "status": "Ready to merge"
                   },
                   "key": "ALL-23",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "Ready to merge",
-                    "tone": "secondary"
+                    "text": "Ready for you",
+                    "tone": "review"
                   },
                   "time": null,
                   "title": "To deliver",
@@ -2468,7 +2484,12 @@
               },
               {
                 "card": {
-                  "action": null,
+                  "action": {
+                    "icon": null,
+                    "kind": "mark_merged",
+                    "label": "Mark merged",
+                    "primary": false
+                  },
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
@@ -2479,16 +2500,16 @@
                     "status": "PR #481 open"
                   },
                   "key": "ALL-24",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "text": "PR #481 open",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -2511,12 +2532,12 @@
                     "status": "Merged into"
                   },
                   "key": "ALL-25",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged into",
@@ -2616,9 +2637,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -2629,20 +2653,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "ALL-26",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Merged",
                   "who": null
@@ -2656,23 +2685,23 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.800000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Closed · not merged"
                   },
                   "key": "ALL-27",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
-                    "dot": "queued",
+                    "dot": "done",
                     "icon": null,
-                    "text": "closed without merging",
+                    "text": "Done · not merged",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -2734,7 +2763,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -2746,8 +2776,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -2773,36 +2803,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -2895,13 +2896,18 @@
                     "status": "Backlog"
                   },
                   "key": "ALL-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Backlog",
                   "who": null
@@ -2927,16 +2933,16 @@
                     "status": "Parked · has work"
                   },
                   "key": "ALL-2",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
-                    "text": "Parked · has work · branch, files and conversation kept",
+                    "text": "Parked · has work in its copy",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -2997,7 +3003,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -3017,12 +3024,12 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Open",
+                      "label": "Decide",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "error",
+                    "edge": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -3030,17 +3037,17 @@
                       "status": "Parent closed"
                     },
                     "key": "ALL-6",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "error",
+                      "dot": "queued",
                       "icon": null,
-                      "text": "Parent closed: A parent was closed without merging",
-                      "tone": "error"
+                      "text": "A parent was closed",
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Parent closed",
@@ -3054,12 +3061,12 @@
                     "action": {
                       "icon": "rotate-ccw",
                       "kind": "retry_start",
-                      "label": "Retry start",
+                      "label": "Retry",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -3067,17 +3074,17 @@
                       "status": "Start failed"
                     },
                     "key": "ALL-7",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Start failed: start didn’t finish · agent never started",
-                      "tone": "attention"
+                      "text": "Start failed",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Start failed",
@@ -3099,12 +3106,12 @@
                       "status": "Waiting to start"
                     },
                     "key": "ALL-3",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -3131,15 +3138,15 @@
                       "status": "Waits for a free agent"
                     },
                     "key": "ALL-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Waits for a free agent · next in line",
                       "tone": "secondary"
                     },
@@ -3163,15 +3170,15 @@
                       "status": "Held"
                     },
                     "key": "ALL-5",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Held",
                       "tone": "secondary"
                     },
@@ -3181,43 +3188,6 @@
                   },
                   "kind": "ticket",
                   "needs_you": false
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Asks you"
-                    },
-                    "key": "ALL-10",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Asks you a question",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Asks you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 },
                 {
                   "card": {
@@ -3234,60 +3204,23 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · permission"
+                      "status": "Asks you"
                     },
-                    "key": "ALL-11",
+                    "key": "ALL-10",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Needs you: waiting for your permission",
+                      "text": "Asks you a question",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Idle"
-                    },
-                    "key": "ALL-12",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Idle: ended its turn",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Idle",
+                    "title": "Asks you",
                     "who": null
                   },
                   "kind": "ticket",
@@ -3308,20 +3241,94 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Keeps conflicting"
+                      "status": "Needs you · permission"
                     },
-                    "key": "ALL-17",
+                    "key": "ALL-11",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Conflicts 1 time: delivery stopped",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Needs you",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Answer",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "attention",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Idle"
+                    },
+                    "key": "ALL-12",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "attn",
+                      "icon": null,
+                      "text": "Idle",
+                      "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Idle",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Open",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "error",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Keeps conflicting"
+                    },
+                    "key": "ALL-17",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "error",
+                      "icon": null,
+                      "text": "Keeps conflicting with main",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Delivery stopped",
@@ -3340,7 +3347,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -3348,17 +3355,17 @@
                       "status": "Interrupted"
                     },
                     "key": "ALL-14",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Interrupted: session lost after reboot",
-                      "tone": "attention"
+                      "text": "Stopped by a restart",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Interrupted",
@@ -3377,7 +3384,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -3385,17 +3392,17 @@
                       "status": "Resume failed"
                     },
                     "key": "ALL-15",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Resume failed · retry or start from scratch",
-                      "tone": "attention"
+                      "text": "Couldn’t resume its conversation",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Resume failed",
@@ -3419,12 +3426,12 @@
                       "status": "Working"
                     },
                     "key": "ALL-8",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -3528,9 +3535,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -3546,7 +3556,7 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Answer",
+                      "label": "Open",
                       "primary": true
                     },
                     "avatar": null,
@@ -3559,16 +3569,16 @@
                       "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Checker asks: waiting for your permission",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
                     },
                     "time": null,
@@ -3596,16 +3606,16 @@
                       "status": "Validation failed 1 time"
                     },
                     "key": "ALL-20",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validation failed 1 time",
+                      "text": "Validate failed 1 times · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -3633,16 +3643,16 @@
                       "status": "Validation ended without a result"
                     },
                     "key": "ALL-21",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "No result: validation ended without a result",
+                      "text": "Validate gave no result · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -3667,16 +3677,16 @@
                       "status": "Validating…"
                     },
                     "key": "ALL-18",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
+                      "dot": "working",
                       "icon": null,
-                      "text": "Validating",
+                      "text": "Checking",
                       "tone": "secondary"
                     },
                     "time": null,
@@ -3777,10 +3787,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -3803,13 +3815,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "ALL-22",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Ready for Review",
                   "who": null
@@ -3827,7 +3844,7 @@
                   },
                   "avatar": null,
                   "blocks": null,
-                  "edge": null,
+                  "edge": "review",
                   "faded": null,
                   "fresh": false,
                   "hover": {
@@ -3835,17 +3852,17 @@
                     "status": "Ready to merge"
                   },
                   "key": "ALL-23",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "Ready to merge",
-                    "tone": "secondary"
+                    "text": "Ready for you",
+                    "tone": "review"
                   },
                   "time": null,
                   "title": "To deliver",
@@ -3856,7 +3873,12 @@
               },
               {
                 "card": {
-                  "action": null,
+                  "action": {
+                    "icon": null,
+                    "kind": "mark_merged",
+                    "label": "Mark merged",
+                    "primary": false
+                  },
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
@@ -3867,16 +3889,16 @@
                     "status": "PR #481 open"
                   },
                   "key": "ALL-24",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "text": "PR #481 open",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -3899,12 +3921,12 @@
                     "status": "Merged into"
                   },
                   "key": "ALL-25",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged into",
@@ -4004,9 +4026,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -4017,20 +4042,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "ALL-26",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Merged",
                   "who": null
@@ -4044,23 +4074,23 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.800000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Closed · not merged"
                   },
                   "key": "ALL-27",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
-                    "dot": "queued",
+                    "dot": "done",
                     "icon": null,
-                    "text": "closed without merging",
+                    "text": "Done · not merged",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -4122,7 +4152,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -4134,8 +4165,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -4161,36 +4192,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -4283,13 +4285,18 @@
                     "status": "Backlog"
                   },
                   "key": "ALL-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Backlog",
                   "who": null
@@ -4315,16 +4322,16 @@
                     "status": "Parked · has work"
                   },
                   "key": "ALL-2",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "paused",
                     "icon": null,
-                    "text": "Parked · has work · branch, files and conversation kept",
+                    "text": "Parked · has work in its copy",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -4385,7 +4392,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -4405,12 +4413,12 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Open",
+                      "label": "Decide",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "error",
+                    "edge": null,
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -4418,17 +4426,17 @@
                       "status": "Parent closed"
                     },
                     "key": "ALL-6",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "error",
+                      "dot": "queued",
                       "icon": null,
-                      "text": "Parent closed: A parent was closed without merging",
-                      "tone": "error"
+                      "text": "A parent was closed",
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Parent closed",
@@ -4442,12 +4450,12 @@
                     "action": {
                       "icon": "rotate-ccw",
                       "kind": "retry_start",
-                      "label": "Retry start",
+                      "label": "Retry",
                       "primary": true
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -4455,17 +4463,17 @@
                       "status": "Start failed"
                     },
                     "key": "ALL-7",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Start failed: start didn’t finish · agent never started",
-                      "tone": "attention"
+                      "text": "Start failed",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Start failed",
@@ -4487,12 +4495,12 @@
                       "status": "Waiting to start"
                     },
                     "key": "ALL-3",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "queued",
                       "icon": null,
@@ -4519,15 +4527,15 @@
                       "status": "Waits for a free agent"
                     },
                     "key": "ALL-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Waits for a free agent · next in line",
                       "tone": "secondary"
                     },
@@ -4551,15 +4559,15 @@
                       "status": "Held"
                     },
                     "key": "ALL-5",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
-                      "icon": null,
+                      "dot": "paused",
+                      "icon": "hourglass",
                       "text": "Held",
                       "tone": "secondary"
                     },
@@ -4569,43 +4577,6 @@
                   },
                   "kind": "ticket",
                   "needs_you": false
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Asks you"
-                    },
-                    "key": "ALL-10",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Asks you a question",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Asks you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
                 },
                 {
                   "card": {
@@ -4622,60 +4593,23 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · permission"
+                      "status": "Asks you"
                     },
-                    "key": "ALL-11",
+                    "key": "ALL-10",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Needs you: waiting for your permission",
+                      "text": "Asks you a question",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you",
-                    "who": null
-                  },
-                  "kind": "ticket",
-                  "needs_you": true
-                },
-                {
-                  "card": {
-                    "action": {
-                      "icon": null,
-                      "kind": "open",
-                      "label": "Reply",
-                      "primary": true
-                    },
-                    "avatar": null,
-                    "blocks": null,
-                    "edge": "attention",
-                    "faded": null,
-                    "fresh": false,
-                    "hover": {
-                      "details": [],
-                      "status": "Idle"
-                    },
-                    "key": "ALL-12",
-                    "open_sheet": "Open panel",
-                    "open_sheet_keys": "↵",
-                    "open_terminal": "Open terminal",
-                    "origin": null,
-                    "priority": null,
-                    "skill_warning": null,
-                    "status": {
-                      "dot": "attn",
-                      "icon": null,
-                      "text": "Idle: ended its turn",
-                      "tone": "attention"
-                    },
-                    "time": null,
-                    "title": "Idle",
+                    "title": "Asks you",
                     "who": null
                   },
                   "kind": "ticket",
@@ -4696,20 +4630,94 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Keeps conflicting"
+                      "status": "Needs you · permission"
                     },
-                    "key": "ALL-17",
+                    "key": "ALL-11",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Conflicts 1 time: delivery stopped",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Needs you",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Answer",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "attention",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Idle"
+                    },
+                    "key": "ALL-12",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "attn",
+                      "icon": null,
+                      "text": "Idle",
+                      "tone": "attention"
+                    },
+                    "time": null,
+                    "title": "Idle",
+                    "who": null
+                  },
+                  "kind": "ticket",
+                  "needs_you": true
+                },
+                {
+                  "card": {
+                    "action": {
+                      "icon": null,
+                      "kind": "open",
+                      "label": "Open",
+                      "primary": true
+                    },
+                    "avatar": null,
+                    "blocks": null,
+                    "edge": "error",
+                    "faded": null,
+                    "fresh": false,
+                    "hover": {
+                      "details": [],
+                      "status": "Keeps conflicting"
+                    },
+                    "key": "ALL-17",
+                    "note": null,
+                    "open_sheet": "Open panel",
+                    "open_sheet_keys": "↵",
+                    "open_terminal": "Open terminal",
+                    "opens": null,
+                    "priority": null,
+                    "status": {
+                      "dot": "error",
+                      "icon": null,
+                      "text": "Keeps conflicting with main",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Delivery stopped",
@@ -4728,7 +4736,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -4736,17 +4744,17 @@
                       "status": "Interrupted"
                     },
                     "key": "ALL-14",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Interrupted: session lost after reboot",
-                      "tone": "attention"
+                      "text": "Stopped by a restart",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Interrupted",
@@ -4765,7 +4773,7 @@
                     },
                     "avatar": null,
                     "blocks": null,
-                    "edge": "attention",
+                    "edge": "error",
                     "faded": null,
                     "fresh": false,
                     "hover": {
@@ -4773,17 +4781,17 @@
                       "status": "Resume failed"
                     },
                     "key": "ALL-15",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "attn",
+                      "dot": "error",
                       "icon": null,
-                      "text": "Resume failed · retry or start from scratch",
-                      "tone": "attention"
+                      "text": "Couldn’t resume its conversation",
+                      "tone": "error"
                     },
                     "time": null,
                     "title": "Resume failed",
@@ -4807,12 +4815,12 @@
                       "status": "Working"
                     },
                     "key": "ALL-8",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -4916,9 +4924,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -4934,7 +4945,7 @@
                     "action": {
                       "icon": null,
                       "kind": "open",
-                      "label": "Answer",
+                      "label": "Open",
                       "primary": true
                     },
                     "avatar": null,
@@ -4947,16 +4958,16 @@
                       "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Checker asks: waiting for your permission",
+                      "text": "Asks you · allow a command?",
                       "tone": "attention"
                     },
                     "time": null,
@@ -4984,16 +4995,16 @@
                       "status": "Validation failed 1 time"
                     },
                     "key": "ALL-20",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validation failed 1 time",
+                      "text": "Validate failed 1 times · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -5021,16 +5032,16 @@
                       "status": "Validation ended without a result"
                     },
                     "key": "ALL-21",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "No result: validation ended without a result",
+                      "text": "Validate gave no result · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -5055,16 +5066,16 @@
                       "status": "Validating…"
                     },
                     "key": "ALL-18",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
-                      "dot": "queued",
+                      "dot": "working",
                       "icon": null,
-                      "text": "Validating",
+                      "text": "Checking",
                       "tone": "secondary"
                     },
                     "time": null,
@@ -5165,10 +5176,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 3 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -5191,13 +5204,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "ALL-22",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Ready for Review",
                   "who": null
@@ -5215,7 +5233,7 @@
                   },
                   "avatar": null,
                   "blocks": null,
-                  "edge": null,
+                  "edge": "review",
                   "faded": null,
                   "fresh": false,
                   "hover": {
@@ -5223,17 +5241,17 @@
                     "status": "Ready to merge"
                   },
                   "key": "ALL-23",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "Ready to merge",
-                    "tone": "secondary"
+                    "text": "Ready for you",
+                    "tone": "review"
                   },
                   "time": null,
                   "title": "To deliver",
@@ -5244,7 +5262,12 @@
               },
               {
                 "card": {
-                  "action": null,
+                  "action": {
+                    "icon": null,
+                    "kind": "mark_merged",
+                    "label": "Mark merged",
+                    "primary": false
+                  },
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
@@ -5255,16 +5278,16 @@
                     "status": "PR #481 open"
                   },
                   "key": "ALL-24",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
                     "dot": "review",
                     "icon": null,
-                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "text": "PR #481 open",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -5287,12 +5310,12 @@
                     "status": "Merged into"
                   },
                   "key": "ALL-25",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": null,
                   "time": null,
                   "title": "Merged into",
@@ -5392,9 +5415,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -5405,20 +5431,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "ALL-26",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Merged",
                   "who": null
@@ -5432,23 +5463,23 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.800000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Closed · not merged"
                   },
                   "key": "ALL-27",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
                   "status": {
-                    "dot": "queued",
+                    "dot": "done",
                     "icon": null,
-                    "text": "closed without merging",
+                    "text": "Done · not merged",
                     "tone": "secondary"
                   },
                   "time": null,
@@ -5510,7 +5541,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -5522,8 +5554,19 @@
           }
         },
         "empty": null,
+        "filter_strip": {
+          "chips": [
+            {
+              "label": "status:working",
+              "token": "status:working"
+            }
+          ],
+          "clear": "Clear",
+          "showing": "Showing 27 of 27",
+          "suggest": "is:needs-you",
+          "suggest_label": "+ is:needs-you"
+        },
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -5549,36 +5592,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -5756,7 +5770,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -5781,12 +5796,12 @@
                       "status": "Working"
                     },
                     "key": "API-1",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -5890,9 +5905,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -5987,9 +6005,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -6045,7 +6066,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -6057,8 +6079,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -6084,36 +6106,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6238,7 +6231,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -6263,12 +6257,12 @@
                       "status": "Working"
                     },
                     "key": "API-1",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -6372,9 +6366,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -6469,9 +6466,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -6527,7 +6527,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -6539,8 +6540,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -6566,36 +6567,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6720,7 +6692,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -6745,12 +6718,12 @@
                       "status": "Working"
                     },
                     "key": "API-1",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -6854,9 +6827,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -6951,9 +6927,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -7009,7 +6988,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -7021,8 +7001,19 @@
           }
         },
         "empty": null,
+        "filter_strip": {
+          "chips": [
+            {
+              "label": "status:working",
+              "token": "status:working"
+            }
+          ],
+          "clear": "Clear",
+          "showing": "Showing 1 of 1",
+          "suggest": "is:needs-you",
+          "suggest_label": "+ is:needs-you"
+        },
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -7048,36 +7039,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -7215,17 +7177,17 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It waits for NOTE-1 to merge, then starts by itself.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "NOTE-2 can’t go to Validate yet"
             }
           },
           {
             "target": "review",
             "verdict": {
-              "detail": null,
+              "detail": "It waits for NOTE-1 to merge, then starts by itself.",
               "kind": "forbidden",
-              "title": "Only agents move tickets to Ready for Review"
+              "title": "NOTE-2 can’t go to Review yet"
             }
           },
           {
@@ -7546,27 +7508,7 @@
               "NOTE-1",
               "NOTE-2"
             ],
-            "tip": {
-              "detail": "NOTE-2 (Dev)",
-              "title": "NOTE-1 blocks"
-            }
-          },
-          {
-            "edges": [
-              {
-                "child": "NOTE-2",
-                "parent": "NOTE-1"
-              }
-            ],
-            "key": "NOTE-2",
-            "members": [
-              "NOTE-1",
-              "NOTE-2"
-            ],
-            "tip": {
-              "detail": "by NOTE-1 (Review)",
-              "title": "NOTE-2 is blocked"
-            }
+            "tip": null
           }
         ],
         "columns": [
@@ -7591,13 +7533,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-3",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Tag notes",
                   "who": null
@@ -7623,13 +7570,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-10",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Sharing",
                   "who": null
@@ -7688,7 +7640,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -7712,17 +7665,17 @@
                       "status": "Waiting to start"
                     },
                     "key": "NOTE-2",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "paused",
-                      "icon": "link",
+                      "icon": "hourglass",
                       "text": "Waits for NOTE-1 to merge",
-                      "tone": "paused"
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Export as CSV",
@@ -7746,12 +7699,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -7778,12 +7731,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-12",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -7887,9 +7840,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -7991,10 +7947,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -8009,7 +7967,7 @@
                   },
                   "avatar": null,
                   "blocks": {
-                    "line": "Blocks NOTE-2",
+                    "line": "NOTE-2 waits for it",
                     "tag": "blocks 1"
                   },
                   "edge": "review",
@@ -8020,13 +7978,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "NOTE-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Sort notes by date",
                   "who": null
@@ -8125,9 +8088,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -8138,20 +8104,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "NOTE-11",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Share link",
                   "who": null
@@ -8211,7 +8182,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -8223,8 +8195,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -8250,36 +8222,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8362,27 +8305,7 @@
               "NOTE-1",
               "NOTE-2"
             ],
-            "tip": {
-              "detail": "NOTE-2 (Dev)",
-              "title": "NOTE-1 blocks"
-            }
-          },
-          {
-            "edges": [
-              {
-                "child": "NOTE-2",
-                "parent": "NOTE-1"
-              }
-            ],
-            "key": "NOTE-2",
-            "members": [
-              "NOTE-1",
-              "NOTE-2"
-            ],
-            "tip": {
-              "detail": "by NOTE-1 (Review)",
-              "title": "NOTE-2 is blocked"
-            }
+            "tip": null
           }
         ],
         "columns": [
@@ -8407,13 +8330,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-3",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Tag notes",
                   "who": null
@@ -8439,13 +8367,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-10",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Sharing",
                   "who": null
@@ -8504,7 +8437,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -8528,17 +8462,17 @@
                       "status": "Waiting to start"
                     },
                     "key": "NOTE-2",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "paused",
-                      "icon": "link",
+                      "icon": "hourglass",
                       "text": "Waits for NOTE-1 to merge",
-                      "tone": "paused"
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Export as CSV",
@@ -8562,12 +8496,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8594,12 +8528,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-12",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -8703,9 +8637,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -8807,10 +8744,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -8825,7 +8764,7 @@
                   },
                   "avatar": null,
                   "blocks": {
-                    "line": "Blocks NOTE-2",
+                    "line": "NOTE-2 waits for it",
                     "tag": "blocks 1"
                   },
                   "edge": "review",
@@ -8836,13 +8775,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "NOTE-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Sort notes by date",
                   "who": null
@@ -8941,9 +8885,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -8954,20 +8901,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "NOTE-11",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Share link",
                   "who": null
@@ -9027,7 +8979,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -9039,8 +8992,8 @@
           }
         },
         "empty": null,
+        "filter_strip": null,
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -9066,36 +9019,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -9178,27 +9102,7 @@
               "NOTE-1",
               "NOTE-2"
             ],
-            "tip": {
-              "detail": "NOTE-2 (Dev)",
-              "title": "NOTE-1 blocks"
-            }
-          },
-          {
-            "edges": [
-              {
-                "child": "NOTE-2",
-                "parent": "NOTE-1"
-              }
-            ],
-            "key": "NOTE-2",
-            "members": [
-              "NOTE-1",
-              "NOTE-2"
-            ],
-            "tip": {
-              "detail": "by NOTE-1 (Review)",
-              "title": "NOTE-2 is blocked"
-            }
+            "tip": null
           }
         ],
         "columns": [
@@ -9223,13 +9127,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-3",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Tag notes",
                   "who": null
@@ -9255,13 +9164,18 @@
                     "status": "Backlog"
                   },
                   "key": "NOTE-10",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "queued",
+                    "icon": null,
+                    "text": "Not started",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Sharing",
                   "who": null
@@ -9320,7 +9234,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Backlog",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Not started"
           },
           {
             "add": null,
@@ -9344,17 +9259,17 @@
                       "status": "Waiting to start"
                     },
                     "key": "NOTE-2",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "paused",
-                      "icon": "link",
+                      "icon": "hourglass",
                       "text": "Waits for NOTE-1 to merge",
-                      "tone": "paused"
+                      "tone": "secondary"
                     },
                     "time": null,
                     "title": "Export as CSV",
@@ -9378,12 +9293,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-4",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9410,12 +9325,12 @@
                       "status": "Working"
                     },
                     "key": "NOTE-12",
+                    "note": null,
                     "open_sheet": "Open panel",
                     "open_sheet_keys": "↵",
                     "open_terminal": "Open terminal",
-                    "origin": null,
+                    "opens": null,
                     "priority": null,
-                    "skill_warning": null,
                     "status": {
                       "dot": "working",
                       "icon": null,
@@ -9519,9 +9434,12 @@
             "rail": null,
             "title": "Dev",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
+              ],
               "title": "Dev · Developer · work-ticket"
-            }
+            },
+            "who_acts": "An agent does the work"
           },
           {
             "add": null,
@@ -9623,10 +9541,12 @@
             "title": "Validate",
             "tooltip": {
               "detail": [
+                "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
                 "up to 2 rounds"
               ],
               "title": "Validate · Checker · validate"
-            }
+            },
+            "who_acts": "A checker tests it"
           },
           {
             "add": null,
@@ -9641,7 +9561,7 @@
                   },
                   "avatar": null,
                   "blocks": {
-                    "line": "Blocks NOTE-2",
+                    "line": "NOTE-2 waits for it",
                     "tag": "blocks 1"
                   },
                   "edge": "review",
@@ -9652,13 +9572,18 @@
                     "status": "Ready for Review"
                   },
                   "key": "NOTE-1",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready for you",
+                    "tone": "review"
+                  },
                   "time": null,
                   "title": "Sort notes by date",
                   "who": null
@@ -9757,9 +9682,12 @@
             "rail": null,
             "title": "Review",
             "tooltip": {
-              "detail": [],
+              "detail": [
+                "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
+              ],
               "title": "Review · your check"
-            }
+            },
+            "who_acts": "You review and approve"
           },
           {
             "add": null,
@@ -9770,20 +9698,25 @@
                   "avatar": null,
                   "blocks": null,
                   "edge": null,
-                  "faded": 0.550000011920929,
+                  "faded": null,
                   "fresh": false,
                   "hover": {
                     "details": [],
                     "status": "Merged"
                   },
                   "key": "NOTE-11",
+                  "note": null,
                   "open_sheet": "Open panel",
                   "open_sheet_keys": "↵",
                   "open_terminal": "Open terminal",
-                  "origin": null,
+                  "opens": null,
                   "priority": null,
-                  "skill_warning": null,
-                  "status": null,
+                  "status": {
+                    "dot": "approved",
+                    "icon": null,
+                    "text": "Merged into main",
+                    "tone": "secondary"
+                  },
                   "time": null,
                   "title": "Share link",
                   "who": null
@@ -9843,7 +9776,8 @@
             "quiet_icon": false,
             "rail": null,
             "title": "Done",
-            "tooltip": null
+            "tooltip": null,
+            "who_acts": "Merged"
           }
         ],
         "done": {
@@ -9855,8 +9789,19 @@
           }
         },
         "empty": null,
+        "filter_strip": {
+          "chips": [
+            {
+              "label": "status:working",
+              "token": "status:working"
+            }
+          ],
+          "clear": "Clear",
+          "showing": "Showing 7 of 7",
+          "suggest": "is:needs-you",
+          "suggest_label": "+ is:needs-you"
+        },
         "folded_width": 52.0,
-        "links": [],
         "list": null,
         "min_column_width": 240.0,
         "more_stages": {
@@ -9882,36 +9827,7 @@
         },
         "toolbar": {
           "all_tickets": "All tickets",
-          "dependencies": {
-            "icon": "link",
-            "label": "Dependencies",
-            "options": [
-              {
-                "change": {
-                  "dependencies": "on_hover",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "On hover",
-                "selected": true,
-                "tooltip": null
-              },
-              {
-                "change": {
-                  "dependencies": "always",
-                  "kind": "dependencies"
-                },
-                "icon": null,
-                "keys": null,
-                "label": "Always",
-                "selected": false,
-                "tooltip": null
-              }
-            ]
-          },
           "edit_flow": "Edit flow",
-          "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",

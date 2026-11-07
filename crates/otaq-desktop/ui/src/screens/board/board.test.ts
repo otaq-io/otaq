@@ -15,6 +15,7 @@ import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsAfter, moreText, nextScroll } from "./more";
+import { FilterStrip } from "./FilterStrip";
 import { stepSegment, Toolbar } from "./Toolbar";
 import { Column, type ColumnProps, columnOfCard, walkOf } from "./Column";
 import {
@@ -97,15 +98,13 @@ const cardOf = (key: string): BoardCard => ({
     time: null,
     edge: null,
     action: null,
-    origin: null,
+    note: null,
+    opens: null,
     hover: { status: "", details: [] },
     faded: null,
     fresh: false,
     open_sheet: "Open panel",
     open_sheet_keys: "↵",
-    skill_warning: null,
-    plan: null,
-    pieces: null,
     open_terminal: "Open terminal",
   },
 });
@@ -149,8 +148,14 @@ describe("a drag asks Rust once (UIT-04)", () => {
     await flush();
     expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-24", target: "product-spec" });
 
+    drag.press("SHOP-24", 120, 100);
+    drag.move(700, 100, () => SPANS);
+    door.answer();
+    await flush();
+    const refused = drag.release();
+    expect(refused.kind, "a forbidden column refuses, with why").toBe("refused");
+
     for (const [x, why] of [
-      [700, "forbidden"],
       [150, "its own column"],
       [230, "a gap"],
     ] as const) {
@@ -487,6 +492,7 @@ describe("the board screen", () => {
     count: "0",
     quiet_icon: false,
     tooltip: null,
+    who_acts: "",
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     rail: null,
@@ -664,15 +670,13 @@ describe("the Review column (T-0328, d0087)", () => {
       time: null,
       edge: null,
       action: null,
-      origin: null,
+      note: null,
+      opens: null,
       hover: { status: "Ready for Review", details: [] },
       faded: null,
       fresh: false,
       open_sheet: "Open panel",
       open_sheet_keys: "↵",
-      skill_warning: null,
-      plan: null,
-      pieces: null,
       open_terminal: "Open terminal",
     },
   });
@@ -685,6 +689,7 @@ describe("the Review column (T-0328, d0087)", () => {
     count: "2",
     quiet_icon: false,
     tooltip: null,
+    who_acts: "",
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     rail: null,
@@ -772,6 +777,7 @@ describe("the toolbar (BRD-01)", () => {
     selected,
     change,
     tooltip: null,
+    who_acts: "",
     keys: null,
   });
   const TOOLBAR = {
@@ -826,7 +832,7 @@ describe("the toolbar (BRD-01)", () => {
     new_ticket_keys: "⌘N",
   } as unknown as Parameters<typeof Toolbar>[0]["toolbar"];
 
-  it("draws Board · List, Group by, the switch, All tickets and New ticket as Rust words them", () => {
+  it("draws Board · List, the one switch, All tickets and New ticket as Rust words them", () => {
     const html = renderToStaticMarkup(
       createElement(Toolbar, {
         toolbar: TOOLBAR,
@@ -839,11 +845,9 @@ describe("the toolbar (BRD-01)", () => {
     expect(html).toMatch(
       /role="radio" class="board-segment" aria-checked="true" tabindex="0">.*<span>Board<\/span>/,
     );
-    expect(html).toContain('<span class="board-toolbar-label">Group by</span>');
-    // DPV-02: the link, "Dependencies", then On hover · Always.
-    expect(html).toMatch(
-      /board-toolbar-label-icon.*<span class="board-toolbar-label">Dependencies<\/span><div class="board-segments" role="radiogroup" aria-label="Dependencies">.*<span>On hover<\/span>.*<span>Always<\/span>/,
-    );
+    // The board's only option is Fold empty columns: no Group by, no Dependencies.
+    expect(html).not.toContain("Group by");
+    expect(html).not.toContain("Dependencies");
     expect(html).toMatch(/role="switch" class="board-chip-button" aria-checked="false">.*Fold empty columns/);
     expect(html).toContain("<span>All tickets</span>");
     expect(html).toContain("<span>New ticket</span>");
@@ -901,6 +905,7 @@ describe("the sheet over the board (SHL-05)", () => {
       count: "0",
       quiet_icon: false,
       tooltip: null,
+      who_acts: "",
       hint: null,
       empty_hint: "",
       collapsed: false,
@@ -940,5 +945,26 @@ describe("the agent filter (d0087)", () => {
     expect(escapeStep(true, true)).toBe("drag");
     expect(escapeStep(false, true)).toBe("agent");
     expect(escapeStep(false, false)).toBeNull();
+  });
+});
+
+describe("the filter strip", () => {
+  it("says how many show, the chips, one filter to add and Clear, as Rust words them", () => {
+    const html = renderToStaticMarkup(
+      createElement(FilterStrip, {
+        project: "SHOP",
+        strip: {
+          showing: "Showing 3 of 17",
+          chips: [{ label: "“checkout”", token: null }],
+          suggest: "is:needs-you",
+          suggest_label: "+ is:needs-you",
+          clear: "Clear",
+        },
+      }),
+    );
+    expect(html).toContain("Showing 3 of 17");
+    expect(html).toContain("“checkout”");
+    expect(html).toContain("+ is:needs-you");
+    expect(html).toContain(">Clear</button>");
   });
 });

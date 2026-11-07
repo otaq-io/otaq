@@ -72,7 +72,9 @@ export type Release =
   | { kind: "click"; key: string }
   /** Dropped on a target whose verdict allows it: the board sends `board.drop`. */
   | { kind: "drop"; key: string; target: BoardDropTarget }
-  /** Nothing: its own column, a forbidden one, no column, or Rust hadn't answered yet. The card flies back. */
+  /** Dropped where it may not go: the card flies back and the board says why in a toast. */
+  | { kind: "refused"; title: string; detail: string | null }
+  /** Nothing: its own column, no column, or Rust hadn't answered yet. The card flies back. */
   | { kind: "none" };
 
 export interface DragCallbacks {
@@ -127,9 +129,11 @@ export function createDrag(ask: Ask, callbacks: DragCallbacks): Drag {
     spans = [];
     if (current !== null) set(null);
     if (current === null || current.over === null) return { kind: "none" };
-    return verdictOf(current.answer, current.over)?.kind === "allowed"
-      ? { kind: "drop", key: current.key, target: current.over }
-      : { kind: "none" };
+    const verdict = verdictOf(current.answer, current.over);
+    if (verdict?.kind === "allowed") return { kind: "drop", key: current.key, target: current.over };
+    if (verdict?.kind === "forbidden")
+      return { kind: "refused", title: verdict.title, detail: verdict.detail };
+    return { kind: "none" };
   };
 
   return {

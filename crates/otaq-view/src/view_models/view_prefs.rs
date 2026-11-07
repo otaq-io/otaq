@@ -231,10 +231,6 @@ pub struct Toolbar {
     pub subtitle: Option<String>,
     /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
     pub live: Option<String>,
-    /// The List's Group by Stage · Status · Agent (LST-01).
-    pub group_by: Option<ToolbarGroup>,
-    /// The Board's Dependencies On hover · Always (DPV-02), on the right before the switch.
-    pub dependencies: Option<ToolbarGroup>,
     /// Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
     pub switch: Option<ToolbarOption>,
     /// "All tickets": the board's filter (`/`); none on Files.
@@ -278,8 +274,6 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             tooltip: Some(tooltip.to_owned()),
             ..option(label, Some(icon), view == kind, Change::View { view: kind })
         };
-    let group_by: GroupBy = prefs.group_by.into();
-    let dependencies: Dependencies = prefs.dependencies.into();
     Toolbar {
         views: ToolbarGroup {
             label: None,
@@ -317,36 +311,6 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
         edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
-        group_by: (view == ViewKind::List).then(|| ToolbarGroup {
-            label: Some("Group by".to_owned()),
-            icon: None,
-            options: [
-                (GroupBy::Stage, "Stage"),
-                (GroupBy::Status, "Status"),
-                (GroupBy::Agent, "Agent"),
-            ]
-            .into_iter()
-            .map(|(g, label)| option(label, None, group_by == g, Change::GroupBy { group_by: g }))
-            .collect(),
-        }),
-        dependencies: (view == ViewKind::Board).then(|| ToolbarGroup {
-            label: Some("Dependencies".to_owned()),
-            icon: Some(IconName::Link),
-            options: [
-                (Dependencies::OnHover, "On hover"),
-                (Dependencies::Always, "Always"),
-            ]
-            .into_iter()
-            .map(|(d, label)| {
-                option(
-                    label,
-                    None,
-                    dependencies == d,
-                    Change::Dependencies { dependencies: d },
-                )
-            })
-            .collect(),
-        }),
         switch: match view {
             ViewKind::Board => Some(option(
                 "Fold empty columns",
@@ -474,23 +438,9 @@ mod tests {
         );
         assert_eq!(board.views.options[1].tooltip.as_deref(), Some("List view"));
         assert_eq!(board.views.options[1].keys.as_deref(), Some("g l"));
-        assert_eq!(board.group_by, None);
-        // DPV-02: Dependencies On hover · Always, On hover by default, the link before its words; a click sends Always.
-        let deps = board.dependencies.as_ref().unwrap();
-        assert_eq!(
-            (deps.label.as_deref(), deps.icon),
-            (Some("Dependencies"), Some(IconName::Link))
-        );
-        assert_eq!(
-            labels(deps),
-            [("On hover".to_owned(), true), ("Always".to_owned(), false)]
-        );
-        assert_eq!(
-            deps.options[1].change,
-            Change::Dependencies {
-                dependencies: Dependencies::Always
-            }
-        );
+        // The board's only option is Fold empty columns: no Dependencies switch, no Group by.
+        let json = serde_json::to_value(&board).unwrap();
+        assert!(json.get("dependencies").is_none() && json.get("group_by").is_none());
         let switch = board.switch.as_ref().unwrap();
         assert_eq!(
             (switch.label.as_str(), switch.selected, &switch.change),
@@ -512,17 +462,6 @@ mod tests {
                 ..ViewPrefs::default()
             },
             &keys,
-        );
-        assert_eq!(list.dependencies, None, "the List draws no arrows");
-        let group = list.group_by.as_ref().unwrap();
-        assert_eq!(group.label.as_deref(), Some("Group by"));
-        assert_eq!(
-            labels(group),
-            [
-                ("Stage".to_owned(), true),
-                ("Status".to_owned(), false),
-                ("Agent".to_owned(), false)
-            ]
         );
         let switch = list.switch.as_ref().unwrap();
         assert_eq!(
@@ -569,10 +508,7 @@ mod tests {
             Some("What the base branch looks like, and which agents are changing which files")
         );
         assert_eq!(shown.live.as_deref(), Some("Live"));
-        assert_eq!(
-            (&shown.group_by, &shown.dependencies, &shown.switch),
-            (&None, &None, &None)
-        );
+        assert_eq!(shown.switch, None);
         assert_eq!((shown.all_tickets, shown.new_ticket), (None, None));
         // Letters off: only ⇧⌘O.
         let off = toolbar(
