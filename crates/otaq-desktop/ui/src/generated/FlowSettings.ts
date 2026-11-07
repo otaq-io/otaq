@@ -17,7 +17,7 @@ changed: string, intro: string, waiting: FlowSettingsWaiting | null,
  */
 columns: Array<string>, 
 /**
- * "Backlog → Ready for Dev → … → Done: always first and last".
+ * "Backlog → … → Done: always first and last".
  */
 ends: string, rows: Array<FlowSettingsStage>, 
 /**

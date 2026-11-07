@@ -1,16 +1,11 @@
-//! The flow's types (STG-01, d0108): the stages a ticket walks between the implicit Backlog and Done, and how its
-//! work leaves the flow after the last one (the flow's [`Delivery`]). Ready for Dev is the implicit wait before the
-//! first Agent stage; none of the three is a stage, and neither is the delivery: a flow's stages are only work and
-//! checks, each in its own column.
+//! The flow's types (STG-01, d0108): the stages a ticket walks between Backlog and Done, the fixed ends of every flow,
+//! and how its work leaves the flow after the last one (the flow's [`Delivery`]). Starting a ticket puts it into the
+//! first stage: until it can begin it waits at the top of that stage's column. Neither end is a stage, and neither is
+//! the delivery: a flow's stages are only work and checks, each in its own column.
 //!
 //! A flow file holds `agents:`, `flow:` and `delivery:`. An agent is a name, resolved to one of the user's agents.
 
 use serde::Deserialize;
-
-/// The waiting column's names ([`Flow::waiting_name`]) and the stage name that keeps the default one.
-pub const READY_FOR_DEV: &str = "Ready for Dev";
-pub const READY: &str = "Ready";
-const DEV_NAME: &str = "Dev";
 
 /// A flow file: the agents it defines, its stages in the YAML's order, and its delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
@@ -291,7 +286,7 @@ impl Flow {
             .or_else(|| before.iter().rev().find(|s| s.is_agent_stage()))
     }
 
-    /// The first Agent stage, which Ready for Dev waits before.
+    /// The first Agent stage: a started ticket waits at the top of its column until it can begin.
     pub fn first_agent_stage(&self) -> Option<&Stage> {
         self.stages.iter().find(|s| s.is_agent_stage())
     }
@@ -314,17 +309,15 @@ impl Flow {
             .filter(|s| s.is_human_check() && self.delivery.mode == DeliveryMode::Click)
     }
 
-    /// The waiting column's name (d0093, d0066, Q515): "Ready for Dev" while the first Agent stage is named Dev (the
-    /// default flow), else "Ready".
-    pub fn waiting_name(&self) -> &'static str {
-        match self.first_agent_stage() {
-            Some(stage) if stage.name != DEV_NAME => READY,
-            _ => READY_FOR_DEV,
-        }
+    /// The name of the stage a started ticket goes into ("Dev"): the first Agent stage's, "the first stage" for a flow
+    /// without one.
+    pub fn first_stage_name(&self) -> &str {
+        self.first_agent_stage()
+            .map_or("the first stage", |s| s.name.as_str())
     }
 
     /// The agent check whose rounds a ticket at `stage` counts (d0063, "round 1 of 3"): that stage when it is one,
-    /// else the next one after it (from Backlog or Ready for Dev, `None`: the first), else the last one before it.
+    /// else the next one after it (from Backlog or waiting to begin, `None`: the first), else the last one before it.
     pub fn round_check(&self, stage: Option<&str>) -> Option<&Stage> {
         let at = stage.and_then(|id| self.position(id));
         if let Some(here) = at

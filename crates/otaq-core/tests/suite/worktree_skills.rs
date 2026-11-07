@@ -112,7 +112,7 @@ fn worktree_of(t: &Ticket) -> PathBuf {
     PathBuf::from(t.work.as_ref().unwrap().worktree.clone().unwrap())
 }
 
-/// Starts `t` from Ready for Dev and returns its agent session's output once it printed the skill folders.
+/// Starts `t` while waiting to begin and returns its agent session's output once it printed the skill folders.
 async fn started(w: &TestService, t: &Ticket) -> String {
     let key = t.key.to_string();
     w.board

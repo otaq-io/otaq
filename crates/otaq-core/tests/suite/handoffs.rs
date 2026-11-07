@@ -76,7 +76,7 @@ fn worktree_of(t: &Ticket) -> PathBuf {
     PathBuf::from(t.work.as_ref().unwrap().worktree.clone().unwrap())
 }
 
-/// Starts a new ticket on `tool` from Ready for Dev; returns it and its agent session once the stand-in said what
+/// Starts a new ticket on `tool` while waiting to begin; returns it and its agent session once the stand-in said what
 /// it loaded.
 async fn started(w: &TestService, tool: Tool, title: &str) -> (Ticket, SessionInfo) {
     w.set_agent_model("Developer", AgentModel::Tool { tool, model: None })

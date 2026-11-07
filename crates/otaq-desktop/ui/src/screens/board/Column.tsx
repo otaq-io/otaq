@@ -1,6 +1,6 @@
 // One board column (BRD-02, BRD-04; *24 · The two views*): the header with icon, title and count (Backlog's plus,
-// the ⋯ menu on hover with Fold this column), Ready for Dev's hint, the cards (Dev: the floated cards and the "N more ·
-// working" fold), the empty hint, Backlog's "Add ticket" row, and the "7 above · 6
+// the ⋯ menu on hover with Fold this column), the cards (an agent column: the started tickets waiting to begin, then
+// the floated cards and the "N more · working" fold), the empty hint, Backlog's "Add ticket" row, and the "7 above · 6
 // need you" chip of a column scrolled down (*Very full column*). A folded column is a 52 px rail with its icon,
 // count, a dot when something in it needs you, and its name (`s26-10`); a click unfolds it. Done folded is the board's
 // "Done 4 →" line, under the last column. Which of these a column is comes from its `kind` (STG-08), never its id.
@@ -55,7 +55,6 @@ export interface CardHandlers {
 /** The column icon's colour (*03*: each column's icon in its status colour), by what the column holds. */
 const ICON_INK: Record<BoardColumnKind, string> = {
   backlog: "var(--st-queued)",
-  ready_for_dev: "var(--st-queued)",
   agent: "var(--st-working)",
   human_check: "var(--st-review)",
   done: "var(--st-done)",
@@ -428,7 +427,6 @@ export function Column({
         )}
         <ColumnMenu column={column} onView={onView} />
       </header>
-      {column.hint !== null && <div className="board-column-hint">{column.hint}</div>}
       {chip !== null && (
         <div className="board-above">
           <button

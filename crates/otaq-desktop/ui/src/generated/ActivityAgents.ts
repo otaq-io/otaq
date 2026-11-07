@@ -6,6 +6,6 @@ import type { ActivityToolCount } from "./ActivityToolCount";
  */
 export type ActivityAgents = { title: string, count: string, rows: Array<ActivityToolCount>, 
 /**
- * [`nothing_running`] at 0.
+ * [`NOTHING_RUNNING`] at 0.
  */
 empty: string | null, };

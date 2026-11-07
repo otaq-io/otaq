@@ -20,7 +20,7 @@ stored_enum! {
         /// (d0052).
         Parked = "parked",
 
-        // Waiting before an Agent stage (Ready for Dev before the first)
+        // Waiting before an Agent stage (started and waiting at the top of the first stage's column, or between two)
         /// Queued, waiting to start: for its dependencies to merge, or for the scheduler (d0049).
         Queued = "queued",
         /// Queued while the optional agent limit is full (d0016).
@@ -141,7 +141,8 @@ impl StatusSet {
 #[serde(tag = "place", content = "stage", rename_all = "snake_case")]
 pub enum Place {
     Backlog,
-    /// Waiting before an Agent stage: `None` before the first one (Ready for Dev), else that stage's id.
+    /// Waiting before an Agent stage: `None` before the first one (started, waiting at the top of the first stage's
+    /// column until it can begin), else that stage's id.
     Waiting(Option<String>),
     InStage(String),
     Done,
@@ -177,8 +178,8 @@ impl Place {
         }
     }
 
-    /// What `tickets.stage_id` holds: the stage it is in, or the Agent stage it waits before (none for Ready for
-    /// Dev, Backlog and Done).
+    /// What `tickets.stage_id` holds: the stage it is in, or the Agent stage it waits before (none while it waits to
+    /// begin the first one, in Backlog and Done).
     pub fn stage_id(&self) -> Option<&str> {
         match self {
             Self::InStage(id) | Self::Waiting(Some(id)) => Some(id),
@@ -190,13 +191,14 @@ impl Place {
         *self == Self::Backlog
     }
 
-    /// Waiting before an Agent stage, Ready for Dev included.
+    /// Waiting before an Agent stage, the first one included.
     pub fn is_waiting(&self) -> bool {
         matches!(self, Self::Waiting(_))
     }
 
-    /// Waiting before the first Agent stage: the Ready for Dev column (d0066).
-    pub fn is_ready_for_dev(&self) -> bool {
+    /// Started and waiting to begin the first Agent stage: its card waits at the top of that stage's column and
+    /// says why (a dependency, a free agent, a flow change).
+    pub fn waits_to_begin(&self) -> bool {
         *self == Self::Waiting(None)
     }
 
@@ -252,7 +254,7 @@ impl Status {
         }
     }
 
-    /// Whether this is one of the waiting statuses before an Agent stage (Ready for Dev's, d0066).
+    /// Whether this is one of the waiting statuses before an Agent stage.
     pub fn is_queued(self) -> bool {
         self.set() == StatusSet::Waiting
     }
@@ -279,8 +281,8 @@ impl Status {
         match self {
             Self::Backlog => "Backlog",
             Self::Parked => "Parked · has work",
-            Self::Queued => "Ready for Dev",
-            Self::WaitingForSlot => "Waiting for a slot",
+            Self::Queued => "Waiting to start",
+            Self::WaitingForSlot => "Waits for a free agent",
             Self::Held => "Held",
             Self::ParentClosed => "Parent closed",
             Self::StartInterrupted => "Start failed",
@@ -435,7 +437,7 @@ mod tests {
         use crate::flow::default::{DEV, REVIEW, VALIDATE};
         assert_eq!(Place::of(Status::Parked, Some(DEV), None), Place::Backlog);
         assert_eq!(Place::of(Status::Queued, None, None), Place::Waiting(None));
-        assert!(Place::of(Status::Held, None, None).is_ready_for_dev());
+        assert!(Place::of(Status::Held, None, None).waits_to_begin());
         assert_eq!(
             Place::of(Status::Queued, Some(DEV), None),
             Place::Waiting(Some(DEV.into()))

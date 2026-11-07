@@ -376,7 +376,7 @@ async fn ticket(w: &TestService, key: &str) -> Ticket {
     w.board.ticket(key).await.unwrap()
 }
 
-/// The user's drag to Ready for Dev; the scheduler starts it.
+/// The user's drag to waiting to begin; the scheduler starts it.
 async fn queue(w: &TestService, key: &str) {
     w.board
         .move_ticket(key, DropTarget::ReadyForDev, true, &me())
@@ -400,7 +400,7 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
     }
 }
 
-/// The ticket left Ready for Dev's waiting states: its agent started (or its start was tried and stopped).
+/// The ticket left waiting to begin's waiting states: its agent started (or its start was tried and stopped).
 async fn until_started(w: &TestService, key: &str) {
     until(&format!("{key} started"), || async {
         !matches!(
@@ -447,7 +447,7 @@ async fn a_tool_that_isnt_available_holds_only_its_tickets_until_it_is_back() {
     queue(w, &bill).await;
     queue(w, "SHOP-1").await;
 
-    // SHOP-1 runs on Claude Code; the BILL ticket waits in Ready for Dev, nothing made for it.
+    // SHOP-1 runs on Claude Code; the BILL ticket waits waiting to begin, nothing made for it.
     until_status(w, "SHOP-1", Status::Working).await;
     until_status(w, &bill, Status::Held).await;
     let held = ticket(w, &bill).await;

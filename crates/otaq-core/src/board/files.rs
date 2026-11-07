@@ -5,7 +5,7 @@
 //! - A ticket whose worktree is on disk: **the worktree**, uncommitted edits and untracked files included (and
 //!   marked), against where the ticket left its base (`base_sha`, as the Files tab measured it).
 //! - A ticket that started but whose worktree is gone (Done): its **branch**, from git objects.
-//! - A ticket that never started (Backlog, Ready for Dev): its **base branch**, flagged, with no changes.
+//! - A ticket that never started (Backlog, waiting to begin): its **base branch**, flagged, with no changes.
 //!
 //! A file's [`PieceTag`]s name the pieces of the ticket's plan that changed it (d0133); none until helpers exist.
 //!

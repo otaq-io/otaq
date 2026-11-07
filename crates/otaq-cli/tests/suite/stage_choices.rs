@@ -671,7 +671,7 @@ async fn planning_skips_on_spec_first() {
         unknown
     );
 
-    // Waiting in the waiting column: Spec first names it "Ready" (d0093, Q515). A parent that hasn't merged keeps it
+    // Started, waiting to begin Spec first's first stage, Product spec. A parent that hasn't merged keeps it
     // from starting.
     let mut args = vec!["-P", "SHOP", "create", "Saved carts"];
     args.extend(planning);
@@ -684,6 +684,9 @@ async fn planning_skips_on_spec_first() {
         .unwrap();
     w.force_status(&waiting, Status::Queued).await;
     let shown = ok(&cb(&w, &["show", "SHOP-2"]));
-    assert!(shown.contains("Status:      Ready\n"), "{shown}");
+    assert!(
+        shown.contains("Status:      Waiting to start (Product spec)\n"),
+        "{shown}"
+    );
     w.stop().await;
 }

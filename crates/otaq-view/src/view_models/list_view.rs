@@ -3,15 +3,15 @@
 //! key, title, the card's status line, who, time and its one action, from [`board::ticket_card`] so both views say
 //! the same), its status icon and its track: one step per stage of the flow, the steps it passed filled, its own in
 //! its state's colour. Rows are grouped by the project's Group by ([`GroupBy`]): **Stage** (flow order: Backlog with
-//! "drag a row to Ready, or Start", Ready with "starts in priority order", each stage, Finished with "4 this week ·
-//! show"), **Status** (Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week) or **Agent**;
-//! Hide empty stages leaves empty groups out. Within a group the board's order holds (the core's, d0065 for Ready), so
-//! answering a ticket changes its row's edge and words, not its place.
+//! "Start, or drag a row into the first stage", each stage, Finished with "4 this week · show"), **Status** (Needs
+//! you · Working · Waiting to start · Backlog · Open PRs · Finished this week) or **Agent**; Hide empty stages leaves
+//! empty groups out. Within a group the board's order holds (the core's; a started ticket waiting to begin is at the
+//! top of the first stage's group, d0065), so answering a ticket changes its row's edge and words, not its place.
 //!
 //! Starting (LST-02): a Backlog row has **Start**, the drop on the first agent column that the card's ⌘D sends; with
-//! Group by Stage each group that is a board drop target says so (`target`), so a row dragged onto Ready queues it with
-//! the drop zone's words (the drag's verdicts are `board.drag`'s, as on the Board). The row menu is the card's
-//! (`board.menu`).
+//! Group by Stage each group that is a board drop target says so (`target`), so a row dragged onto the first stage
+//! starts it with the drop zone's words (the drag's verdicts are `board.drag`'s, as on the Board). The row menu is the
+//! card's (`board.menu`).
 
 use otaq_core::board::needs_you::{group_of, waits_for_click};
 use otaq_core::board::settings::ViewPrefs;
@@ -37,11 +37,9 @@ pub const HEADER_FLOW: &str = "WHERE IN THE FLOW";
 pub const HEADER_HAPPENING: &str = "WHAT\u{2019}S HAPPENING";
 pub const HEADER_WHO: &str = "WHO";
 
-/// Group by Stage's fixed groups and their hints (LST-01; d0065: Ready's order is the Board's).
+/// Group by Stage's fixed group at the start and its hint (LST-01).
 pub const BACKLOG: &str = "Backlog";
-pub const BACKLOG_HINT: &str = "drag a row to Ready, or Start";
-pub const READY: &str = "Ready";
-pub const READY_HINT: &str = "starts in priority order";
+pub const BACKLOG_HINT: &str = "Start, or drag a row into the first stage";
 /// A finished ticket's place on its track.
 pub const DONE: &str = "Done";
 /// The group of finished tickets, whatever the stages are named: the default flow's last stage is itself Done, so
@@ -92,11 +90,11 @@ pub struct Header {
     pub who: String,
 }
 
-/// One group of rows: its head ("Backlog 3 · drag a row to Ready, or Start") and its rows. `ListGroup` on the page.
+/// One group of rows: its head ("Backlog 3 · Start, or drag a row into the first stage") and its rows. `ListGroup` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListGroup")]
 pub struct Group {
-    /// "backlog", "ready_for_dev", a stage's id, "done"; "needs_you"…; "agent:Rust developer".
+    /// "backlog", a stage's id, "done"; "needs_you"…; "agent:Rust developer".
     pub id: String,
     pub title: String,
     pub icon: IconName,
@@ -158,7 +156,7 @@ pub struct RowStart {
     pub target: DropTargetId,
 }
 
-/// Where the ticket is in its flow: one step per stage, then the place's name ("Dev", "Ready", "—"). `ListTrack` on
+/// Where the ticket is in its flow: one step per stage, then the place's name ("Dev", "—"). `ListTrack` on
 /// the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ListTrack")]
@@ -177,7 +175,8 @@ pub struct Step {
     pub fill: Option<Palette>,
 }
 
-/// The track of `ticket` on `columns`' flow: Backlog and Ready have no step yet, Done passed them all.
+/// The track of `ticket` on `columns`' flow: Backlog has no step yet, a started ticket waiting to begin is on the first
+/// stage's, Done passed them all.
 pub fn track(columns: &Columns, ticket: &Ticket) -> Track {
     let flow = columns.flow();
     let at = columns
@@ -201,9 +200,8 @@ pub fn track(columns: &Columns, ticket: &Ticket) -> Track {
         .collect();
     let label = match &ticket.place {
         Place::Backlog => NO_PLACE.to_owned(),
-        Place::Waiting(None) => READY.to_owned(),
         Place::Done => DONE.to_owned(),
-        Place::Waiting(Some(_)) | Place::InStage(_) => at
+        Place::Waiting(_) | Place::InStage(_) => at
             .map(|i| flow.stages[i].name.clone())
             .unwrap_or_else(|| NO_PLACE.to_owned()),
     };
@@ -342,14 +340,6 @@ pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
             ..Bucket::new(flow_columns::BACKLOG, BACKLOG, IconName::CircleDashed)
         },
         flow_columns::BACKLOG,
-    ));
-    stages.push(bucket_of(
-        Bucket {
-            hint: Some(READY_HINT.to_owned()),
-            target: Some(DropTargetId::READY_FOR_DEV),
-            ..Bucket::new(flow_columns::READY_FOR_DEV, READY, IconName::Hourglass)
-        },
-        flow_columns::READY_FOR_DEV,
     ));
     for column in columns.iter() {
         let Some(stage) = column.stage else {
@@ -838,20 +828,14 @@ mod tests {
                 (
                     "Backlog".into(),
                     "3".into(),
-                    s("drag a row to Ready, or Start"),
+                    s("Start, or drag a row into the first stage"),
                     keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
                 ),
                 (
-                    "Ready".into(),
-                    "2".into(),
-                    s("starts in priority order"),
-                    keys(&["SHOP-35", "SHOP-20"])
-                ),
-                (
                     "Product spec".into(),
-                    "2".into(),
+                    "4".into(),
                     None,
-                    keys(&["SHOP-12", "SHOP-44"])
+                    keys(&["SHOP-35", "SHOP-20", "SHOP-12", "SHOP-44"])
                 ),
                 (
                     "Dev".into(),
@@ -889,7 +873,8 @@ mod tests {
                 folded: false
             })
         );
-        // Drop targets (LST-02): Ready queues; every stage is a column on the Board, so every stage takes a drop.
+        // Drop targets (LST-02): the first stage starts; every stage is a column on the Board, so every stage takes a
+        // drop.
         let target = |title: &str| {
             list.groups
                 .iter()
@@ -899,7 +884,7 @@ mod tests {
                 .as_ref()
                 .map(|t| t.as_str().to_owned())
         };
-        assert_eq!(target("Ready"), s("ready_for_dev"));
+        assert_eq!(target("Product spec"), s("product-spec"));
         assert_eq!(target("Dev"), s("dev"));
         assert_eq!(target("Validate"), s("validate"));
         assert_eq!(target("Review"), s("review"));
@@ -1019,7 +1004,7 @@ mod tests {
         .iter()
         .map(|g| g.title.clone())
         .collect();
-        assert_eq!(shown, ["Backlog", "Ready", "Product spec", "Finished"]);
+        assert_eq!(shown, ["Backlog", "Product spec", "Finished"]);
         let all = view(&input(&flow, &tickets), &prefs(G::Stage));
         let dev = all.groups.iter().find(|g| g.title == "Dev").unwrap();
         assert_eq!(
@@ -1118,7 +1103,7 @@ mod tests {
     }
 
     /// A row's track (LST-01): one step per stage, the passed ones filled, its own in its state's colour, then its
-    /// place; Backlog "—", Ready "Ready", Done all passed.
+    /// place; Backlog "—", a started ticket waiting to begin on its first stage, Done all passed.
     #[test]
     fn a_rows_track() {
         use otaq_core::board::settings::GroupBy as G;
@@ -1150,7 +1135,13 @@ mod tests {
         assert_eq!(fills("SHOP-32").0[3], Some(Palette::Attn));
         assert_eq!(fills("SHOP-18").0[4], Some(Palette::Review));
         assert_eq!(fills("SHOP-31"), (vec![None; 5], "\u{2014}".into()));
-        assert_eq!(fills("SHOP-35"), (vec![None; 5], "Ready".into()));
+        assert_eq!(
+            fills("SHOP-35"),
+            (
+                vec![Some(Palette::Queued), None, None, None, None],
+                "Product spec".into()
+            )
+        );
         assert_eq!(fills("SHOP-1"), (vec![a; 5], "Done".into()));
         let names: Vec<&str> = row(&list, "SHOP-22")
             .track
@@ -1180,10 +1171,7 @@ mod tests {
         let line = blocked.card.status.as_ref().unwrap();
         assert_eq!(
             (line.text.as_str(), line.icon),
-            (
-                "Blocked \u{b7} waits for SHOP-18 to merge",
-                Some(IconName::Link)
-            )
+            ("Waits for SHOP-18 to merge", Some(IconName::Link))
         );
         let blocker = row(&list, "SHOP-18");
         assert_eq!(blocker.card.blocks.as_ref().unwrap().tag, "blocks 1");

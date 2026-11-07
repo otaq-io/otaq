@@ -1719,7 +1719,7 @@ pub mod fixtures {
         ]
     }
 
-    /// NOTE-2 in Ready for Dev on the default flow: no choices, only the path.
+    /// NOTE-2 waiting to begin on the default flow: no choices, only the path.
     pub fn note_2() -> TicketAgents {
         ticket(
             "NOTE-2",

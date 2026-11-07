@@ -814,7 +814,7 @@ fn same_hold(stored: &AgentHold, held: &Held) -> bool {
             }
 }
 
-/// Whether the ticket still waits for its held `role`: an Agent stage's start held before it (Ready for Dev before
+/// Whether the ticket still waits for its held `role`: an Agent stage's start held before it (waiting to begin, before
 /// the first, STG-07), an agent check's round that opened without its session.
 pub fn still_waits(ticket: &Ticket, role: SessionRole) -> bool {
     match role {

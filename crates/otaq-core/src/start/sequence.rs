@@ -41,7 +41,7 @@
 //!
 //! **The check before every launch** (SCH-04 `[M23]`, AGT-08; [`crate::agents::gate`]) runs first for a new
 //! conversation, before any step, on the agent of the Agent stage it starts (AGM-05): a tool that isn't available or
-//! is at its limit, or a model no longer listed, holds the ticket in Ready for Dev (Held, its step naming the reason;
+//! is at its limit, or a model no longer listed, holds the ticket waiting to begin (Held, its step naming the reason;
 //! nothing is created and nothing locks) until its tool can run it. A resumed conversation isn't checked. A launch that fails because of its tool has the tool checked again, then the
 //! check decides once more (ADP-10).
 
@@ -362,7 +362,7 @@ impl Starter {
     }
 
     /// The tool refused the Developer's model on its first turn (AGT-05, SDD §7.2 `[M22]`, d0088): the ticket
-    /// counts as **not started**. It goes back to Ready for Dev as Start failed: Start interrupted at
+    /// counts as **not started**. It goes back to waiting to begin as Start failed: Start interrupted at
     /// [`StartStep::Model`] with the tool's message, `started_at` cleared. The session ends as
     /// [`END_MODEL_REFUSED`], so the Developer row unlocks and its conversation isn't resumed (Retry start begins a
     /// fresh one); the worktree and branch stay. Nothing starts it again by itself (d0018): only Retry start or a new
@@ -386,7 +386,7 @@ impl Starter {
         let to = Status::StartInterrupted;
         let now = now_ms();
         let actor = Actor::Agent(ticket.key.clone());
-        // Not started: waiting again before the Agent stage it was starting (Ready for Dev before the first).
+        // Not started: waiting again before the Agent stage it was starting (waiting to begin, before the first).
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
         let skips = board.ticket_skips(&ticket, &flow).await?;
         let waits_before = ticket
@@ -1134,7 +1134,7 @@ impl Starter {
     ) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let now = now_ms();
-        // Started: into the Agent stage it waited before (the first one it runs from Ready for Dev), past the stages
+        // Started: into the Agent stage it waited before (the first one it runs while waiting to begin), past the stages
         // it skips. Any other status keeps it waiting where it is.
         let begun = match status {
             Status::Working => Some(self.begin(ticket).await?),

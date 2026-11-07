@@ -226,8 +226,8 @@ fn the_scheduler_never_queues_retries_or_touches_other_states() {
     );
 }
 
-/// PAU-04 (d0112): a paused project starts nothing, from Ready for Dev or between two Agent stages; a waiting flow
-/// change holds only Ready for Dev; other projects start.
+/// PAU-04 (d0112): a paused project starts nothing, while waiting to begin or between two Agent stages; a waiting flow
+/// change holds only waiting to begin; other projects start.
 #[test]
 fn a_paused_project_starts_nothing_and_a_waiting_flow_change_holds_only_ready_for_dev() {
     let mut between = t("SHOP-2", Status::Queued, 2);
@@ -245,7 +245,7 @@ fn a_paused_project_starts_nothing_and_a_waiting_flow_change_holds_only_ready_fo
     let shop = HashSet::from(["SHOP".to_owned()]);
     let bill = HashMap::from([(
         "BILL".to_owned(),
-        otaq_core::flow::apply::Hold::READY_FOR_DEV,
+        otaq_core::flow::apply::Hold::BEFORE_FIRST_STAGE,
     )]);
     let paused = plan_holding(&board, &none, &Gate::default(), &no_holds, &shop);
     assert_eq!(keys(&paused.start), ["BILL-1", "BILL-2"]);

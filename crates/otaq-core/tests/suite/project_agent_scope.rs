@@ -371,7 +371,7 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     assert_eq!(prime.tickets.len(), 43, "every ticket");
     assert!(
         text.contains(
-            "- SHOP-20 · Checkout page (Ready for Dev · P3 · Normal) · depends on SHOP-18, SHOP-19\n"
+            "- SHOP-20 · Checkout page (Waiting to start · P3 · Normal) · depends on SHOP-18, SHOP-19\n"
         ),
         "{text}"
     );

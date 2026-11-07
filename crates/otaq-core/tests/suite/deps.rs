@@ -212,46 +212,44 @@ async fn cycles_finds_loops_written_around_the_rules() {
     f.board.dependency_tree("SHOP-20").await.unwrap();
 }
 
-/// DPV-03 (d0049): a drag or Start past Ready for Dev is refused while a dependency isn't merged ("SHOP-20 is
-/// blocked"); a drop on Ready for Dev still queues it, and from there it can't be dragged on into Dev either. Once
-/// every parent is merged the same drag goes through as before.
+/// Starting a ticket whose dependency isn't merged puts it into the first stage all the same: it waits at the top of
+/// Dev (Queued, not begun) and says what it waits for; a drop on Dev again changes nothing. The older go-ahead target
+/// does the same. Once every parent is merged it is ready, and the scheduler begins it.
 #[tokio::test]
-async fn a_blocked_ticket_cant_start_past_ready_for_dev() {
-    use otaq_core::board::moves::DropTarget;
+async fn a_blocked_ticket_starts_and_waits_in_the_first_stage() {
+    use otaq_core::board::moves::{DropTarget, MoveCheck};
+    use otaq_core::domain::Place;
     let f = sample().await;
-    let refused = |r: Result<otaq_core::board::tickets::Ticket, otaq_core::board::BoardError>| {
-        let e = r.expect_err("refused");
-        assert_eq!(e.refusal(), Some(Refusal::MoveRefused), "{e}");
-        e.to_string()
-    };
-    let into_dev = f
+    let started = f
         .board
         .move_ticket("SHOP-20", DropTarget::Dev, false, &me())
-        .await;
-    assert!(refused(into_dev).contains("SHOP-20 is blocked"));
-    assert_eq!(f.ticket("SHOP-20").await.status, Status::Backlog);
-
-    let queued = f
-        .board
-        .move_ticket("SHOP-20", DropTarget::ReadyForDev, false, &me())
         .await
         .unwrap();
-    assert_eq!(queued.status, Status::Queued, "into Ready it queues");
+    assert_eq!(started.status, Status::Queued, "it waits to begin");
+    assert_eq!(started.place, Place::Waiting(None));
+    assert!(
+        started.work.as_ref().is_none_or(|w| w.worktree.is_none()),
+        "nothing began"
+    );
+    let tickets = f.board.tickets("SHOP").await.unwrap();
+    let reason = otaq_core::board::stack::queue_reason(&started, &tickets).unwrap();
+    assert!(reason.starts_with("waits for SHOP-18"), "{reason}");
     let again = f
         .board
-        .move_ticket("SHOP-20", DropTarget::Dev, false, &me())
-        .await;
-    assert!(refused(again).contains("SHOP-20 is blocked"));
-
-    // SHOP-17 has no parents: dragged into Dev it queues as before.
-    let free = f
-        .board
-        .move_ticket("SHOP-17", DropTarget::Dev, false, &me())
+        .check_drag(&started, &DropTarget::Dev.into())
         .await
         .unwrap();
-    assert_eq!(free.status, Status::Queued);
+    assert_eq!(again, MoveCheck::Unchanged, "it already is in Dev's column");
 
-    // Merged parents: SHOP-18 (whose own parent is SHOP-17) and SHOP-19. SHOP-20 is no longer blocked.
+    // SHOP-21 waits for SHOP-20: the older go-ahead target starts it the same way.
+    let queued = f
+        .board
+        .move_ticket("SHOP-21", DropTarget::ReadyForDev, false, &me())
+        .await
+        .unwrap();
+    assert_eq!(queued.place, Place::Waiting(None));
+
+    // Merged parents: SHOP-18 (whose own parent is SHOP-17) and SHOP-19. SHOP-20 is ready and begins by itself.
     for key in ["SHOP-18", "SHOP-19"] {
         let t = f.ticket(key).await;
         f.force_status(&t, Status::Merged).await;
@@ -262,16 +260,9 @@ async fn a_blocked_ticket_cant_start_past_ready_for_dev() {
         .find(|t| t.key.to_string() == "SHOP-20")
         .unwrap();
     assert!(otaq_core::board::readiness::readiness(t20, &tickets).is_ready());
-    let check = f
-        .board
-        .check_drag(t20, &DropTarget::Dev.into())
-        .await
-        .unwrap();
-    assert_eq!(
-        check,
-        otaq_core::board::moves::MoveCheck::Refused {
-            reason: otaq_core::board::moves::STARTS_BY_ITSELF.into()
-        },
-        "a ready ticket in Ready for Dev starts by itself, as before"
+    let plan = otaq_core::scheduler::plan(&tickets, &Default::default(), &Default::default());
+    assert!(
+        plan.start.iter().any(|s| s.key.to_string() == "SHOP-20"),
+        "{plan:?}"
     );
 }

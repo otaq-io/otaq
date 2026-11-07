@@ -78,7 +78,7 @@ pub struct Section {
     pub waiting: Option<WaitingLine>,
     /// STAGE · AGENT · MODEL · OPTIONS A TICKET CAN PICK.
     pub columns: Vec<String>,
-    /// "Backlog → Ready for Dev → … → Done: always first and last".
+    /// "Backlog → … → Done: always first and last".
     pub ends: String,
     pub rows: Vec<StageRow>,
     /// The applied flow doesn't read (never stored so; a guard): shown in place of the table.
@@ -114,8 +114,7 @@ pub struct Inputs<'a> {
 
 pub const TITLE: &str = "Flow";
 pub const INTRO: &str = "The project\u{2019}s columns and who works in each. Change it in the flow editor; nothing reaches the board until you apply.";
-pub const ENDS: &str =
-    "Backlog \u{2192} Ready for Dev \u{2192} \u{2026} \u{2192} Done: always first and last";
+pub const ENDS: &str = "Backlog \u{2192} \u{2026} \u{2192} Done: always first and last";
 pub const CHANGE_FLOW: &str = "Change flow\u{2026}";
 pub const USE_A_PRESET: &str = "Use a preset\u{2026}";
 pub const COPY_FROM_ANOTHER_PROJECT: &str = "Copy from another project\u{2026}";
@@ -368,13 +367,13 @@ pub fn preset_dialog(project: &ProjectInfo) -> PresetDialog {
     }
 }
 
-/// A preset's card: the diagram is Ready for Dev, every stage, and Done ([`Preset::columns`]), with the stages' icons;
+/// A preset's card: the diagram is Backlog, every stage, and Done ([`Preset::columns`]), with the stages' icons;
 /// Done's is how the flow delivers.
 pub fn preset_card(preset: &Preset) -> PresetCard {
     let file = preset.read();
     let mut columns = vec![PresetColumn {
-        icon: IconName::Hourglass,
-        label: "Ready for Dev".to_owned(),
+        icon: IconName::CircleDashed,
+        label: "Backlog".to_owned(),
     }];
     columns.extend(file.flow.stages.iter().map(|s| PresetColumn {
         icon: stage_icon(s),
@@ -550,7 +549,7 @@ mod tests {
             changes: changes.iter().map(|c| (*c).to_owned()).collect(),
             since: 0,
             wait: otaq_core::flow::apply::Wait::WholeBoard,
-            hold: otaq_core::flow::apply::Hold::READY_FOR_DEV,
+            hold: otaq_core::flow::apply::Hold::BEFORE_FIRST_STAGE,
             waiting_for: (1..=tickets)
                 .map(|n| format!("SHOP-{n}").parse().unwrap())
                 .collect(),
@@ -583,7 +582,7 @@ mod tests {
         );
         assert_eq!(
             s.ends,
-            "Backlog \u{2192} Ready for Dev \u{2192} \u{2026} \u{2192} Done: always first and last"
+            "Backlog \u{2192} \u{2026} \u{2192} Done: always first and last"
         );
         let table: Vec<(&str, &str, &str, Option<&str>, &str)> = s
             .rows
@@ -794,7 +793,7 @@ mod tests {
         assert_eq!(
             spec_first,
             [
-                ("Ready for Dev", IconName::Hourglass),
+                ("Backlog", IconName::CircleDashed),
                 ("Product spec", IconName::Bot),
                 ("Tech spec", IconName::Bot),
                 ("Milestone plan", IconName::Bot),
@@ -810,7 +809,7 @@ mod tests {
             .iter()
             .map(|c| c.label.as_str())
             .collect();
-        assert_eq!(team, ["Ready for Dev", "Dev", "Validate", "Done"]);
+        assert_eq!(team, ["Backlog", "Dev", "Validate", "Done"]);
         assert_eq!(
             d.presets[3].columns.last().unwrap().icon,
             IconName::GitPullRequest

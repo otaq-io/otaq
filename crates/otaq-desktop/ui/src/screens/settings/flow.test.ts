@@ -55,7 +55,7 @@ const SECTION: FlowSettings = {
     cancel_label: "Cancel change",
   },
   columns: ["Stage", "Agent · model", "Options a ticket can pick"],
-  ends: "Backlog → Ready for Dev → … → Done: always first and last",
+  ends: "Backlog → … → Done: always first and last",
   rows: [
     {
       icon: "bot",
@@ -149,7 +149,7 @@ describe("the Flow section", () => {
     for (const words of [
       "Changed by Noyan · yesterday",
       "A flow change is waiting: QA after Security.",
-      "Backlog → Ready for Dev → … → Done: always first and last",
+      "Backlog → … → Done: always first and last",
       "Rust developer",
       "Claude Code · sonnet",
       "Quick developer",
@@ -205,7 +205,7 @@ describe("the Flow section", () => {
           delivers: "Done · click",
           line: "Plan on the board, then build",
           columns: [
-            { icon: "hourglass", label: "Ready for Dev" },
+            { icon: "circle-dashed", label: "Backlog" },
             { icon: "bot", label: "Product spec" },
             { icon: "git-merge", label: "Done" },
           ],

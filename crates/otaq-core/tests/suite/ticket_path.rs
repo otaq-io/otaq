@@ -119,7 +119,7 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
     w.stop().await;
 }
 
-/// AGM-09 (`s03-38`): a ticket waiting in Ready for Dev says where it starts, past the stages it skips, on the agent
+/// AGM-09 (`s03-38`): a ticket waiting waiting to begin says where it starts, past the stages it skips, on the agent
 /// it chose there; a ticket in Backlog says nothing.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_waiting_card_says_where_it_starts() {

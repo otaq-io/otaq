@@ -4,9 +4,8 @@
 //! - Pause shop-web: its agents stop as paused, billing-api keeps working and SHOP-33's Run is left alone; answering
 //!   SHOP-12's question starts only its Spec writer and the pause stays; a ticket queued meanwhile keeps its start;
 //!   after a restart nothing resumes; Resume brings each one back once.
-//! - The blocked drag: SHOP-20 waits for SHOP-18 (in Review) and SHOP-29 (in Dev); dragged into Dev it is refused
-//!   and stays put, dragged onto Ready for Dev it queues and nothing starts it; once both merge it starts in Product
-//!   spec.
+//! - The blocked drag: SHOP-20 waits for SHOP-18 (in Review) and SHOP-29 (in Dev); dragged into Dev it starts and
+//!   waits at the top of the first stage with nothing started for it; once both merge it starts in Product spec.
 //! - The flow editor: a Project agent's `otaq flow propose` lands in the draft with its marks and no preview opens;
 //!   Plan added after Product spec applies at once, so SHOP-12 (in Product spec) goes through it and SHOP-33 (in Dev)
 //!   never meets it; Security moved before Validate waits only for Dev…Review, SHOP-12 leaving Plan waits at the span's
@@ -246,7 +245,7 @@ impl World {
         }
     }
 
-    /// The user drags `key` onto Ready for Dev.
+    /// The user starts `key` (the go-ahead): it waits to begin the first stage until it can.
     async fn to_ready(&self, key: &str) {
         let reply = self
             .ask(Request::TicketMove(MoveParams {
@@ -736,10 +735,11 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
     world.stop().await;
 }
 
-/// DPV-03: SHOP-20 blocked by SHOP-18 (in your check) and SHOP-29 (in Dev) can't be dragged into Dev; onto Ready for
-/// Dev it queues and waits; once both merge the scheduler starts it.
+/// SHOP-20 waits for SHOP-18 (in your check) and SHOP-29 (in Dev). Dragged into Dev it starts all the same: it waits
+/// at the top of the first stage, Queued, with nothing started for it (no worktree, no agent); once both merge the
+/// scheduler starts it in Product spec, once.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_blocked_ticket_waits_in_ready_for_dev() {
+async fn a_blocked_ticket_waits_in_the_first_stage_until_its_parents_merge() {
     let world = world(
         29,
         0,
@@ -777,21 +777,18 @@ async fn a_blocked_ticket_waits_in_ready_for_dev() {
         })
     };
 
-    // Into Dev: refused, and it stays in Backlog.
-    let refused = world.ask(drag("SHOP-20", "dev")).await.unwrap_err();
-    assert!(
-        refused.message.contains("SHOP-20 is blocked"),
-        "{refused:?}"
-    );
-    assert_eq!(world.w.status("SHOP-20").await, Status::Backlog);
-
-    // Onto Ready for Dev: it queues and nothing starts it.
-    world.to_ready("SHOP-20").await;
+    // Into Dev: started, it waits to begin and nothing starts it.
+    world.ask(drag("SHOP-20", "dev")).await.unwrap();
     settle().await;
     assert_eq!(world.w.status("SHOP-20").await, Status::Queued);
+    let waiting = world.ticket("SHOP-20").await;
+    assert_eq!(waiting.place, Place::Waiting(None));
+    assert!(
+        waiting.work.is_none(),
+        "no worktree yet: {:?}",
+        waiting.work
+    );
     assert!(world.starts_of("SHOP-20").is_empty());
-    let again = world.ask(drag("SHOP-20", "dev")).await.unwrap_err();
-    assert!(again.message.contains("SHOP-20 is blocked"), "{again:?}");
 
     // Both merge: it starts in Product spec.
     world.w.force_status(&shop18, Status::Merged).await;

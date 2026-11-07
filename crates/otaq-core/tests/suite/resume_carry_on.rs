@@ -67,7 +67,7 @@ async fn running(w: &TestService, t: &Ticket) -> SessionInfo {
     .unwrap_or_else(|_| panic!("{}'s agent never ran", t.key))
 }
 
-/// Starts a new ticket on `tool` from Ready for Dev; returns it once the stand-in printed its arguments.
+/// Starts a new ticket on `tool` while waiting to begin; returns it once the stand-in printed its arguments.
 async fn started(w: &TestService, tool: Tool, title: &str) -> (Ticket, SessionInfo) {
     w.set_agent_model("Developer", AgentModel::Tool { tool, model: None })
         .await;

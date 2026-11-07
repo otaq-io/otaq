@@ -90,7 +90,7 @@ pub struct TicketRow {
     /// T-0493 (migration 0060): JSON `{went_on, branch, remote, reason}`, the ticket went on without its remote (d0121).
     pub remote_warning: Option<String>,
     /// T-0400 (migration 0046): the flow stage the ticket is in, or the Agent stage it waits before; `NULL` in
-    /// Backlog, Ready for Dev and Done (STG-04).
+    /// Backlog, waiting to begin and Done (STG-04).
     pub stage_id: Option<String>,
     /// T-0491 (migration 0059): the next Local merge runs the Merge check even when the branch is current: an
     /// earlier one rebased it onto new commits and no check passed on them (d0120).
@@ -114,7 +114,7 @@ pub struct NewTicket {
     pub number: i64,
     pub title: String,
     pub body: String,
-    /// The stage it is in (`None` in Backlog, Ready for Dev and Done).
+    /// The stage it is in (`None` in Backlog, waiting to begin and Done).
     pub stage_id: Option<String>,
     pub state: String,
     pub created_by: String,

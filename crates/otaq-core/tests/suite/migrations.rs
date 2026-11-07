@@ -3037,3 +3037,53 @@ async fn migration_0090_keeps_the_picked_theme_as_the_pick_of_its_kind() {
         with(ThemeMode::System, Theme::RosePineDawn, Theme::Dracula)
     );
 }
+
+/// Migration 0093: the Ready for Dev column goes. A ticket that waited there keeps its row (started, nothing begun for
+/// it, no stage): it now waits at the top of its flow's first stage. A project that had folded the column forgets that
+/// fold and keeps its others; a project without it is left as it was.
+#[tokio::test]
+async fn migration_0093_forgets_the_ready_for_dev_column_and_keeps_its_tickets_waiting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 91).await;
+    exec(
+        &pool,
+        r#"INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at, settings_json)
+           VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0,
+                   '{"view":{"folded_columns":["done","ready_for_dev","validate"],"fold_empty_columns":true}}'),
+                  ('q', 'billing', '/tmp/billing', 'BILL', 'main', 3, 0, '{"view":{"folded_columns":["done"]}}')"#,
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Checkout page', 'queued', 'me', 0, 0),
+                ('t2', 'p', 2, 'Coupons', 'waiting_for_slot', 'me', 0, 0)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(
+        project_json(&store, "SHOP").await["view"],
+        json!({"folded_columns": ["done", "validate"], "fold_empty_columns": true})
+    );
+    assert_eq!(
+        project_json(&store, "BILL").await["view"],
+        json!({"folded_columns": ["done"]})
+    );
+    let tickets: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, state, stage_id FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        tickets,
+        [
+            ("t1".to_owned(), "queued".to_owned(), None),
+            ("t2".to_owned(), "waiting_for_slot".to_owned(), None)
+        ]
+    );
+    let place = otaq_core::domain::Place::of(otaq_core::domain::Status::Queued, None, None);
+    assert!(place.waits_to_begin());
+}

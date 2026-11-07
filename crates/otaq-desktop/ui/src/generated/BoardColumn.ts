@@ -20,13 +20,9 @@ kind: BoardColumnKind, title: string, icon: IconName,
  */
 quiet_icon: boolean, count: string, 
 /**
- * Who runs it, on hovering the title; `None` for Backlog, Ready for Dev and Done.
+ * Who runs it, on hovering the title; `None` for Backlog and Done.
  */
 tooltip: BoardColumnTooltip | null, 
-/**
- * Under the title: Ready for Dev's "Starts when ready, in priority order".
- */
-hint: string | null, 
 /**
  * Shown when the column has no card.
  */

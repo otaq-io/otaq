@@ -46,8 +46,9 @@ describe("where buttons and menu items go", () => {
   it("service buttons call sheet.action; the rest open a tab or a dialog", () => {
     const service: SheetAction[] = ["retry_start", "resume", "retry_resume", "reopen", "mark_merged"];
     for (const action of service) expect(actionRoute(action)).toEqual({ kind: "service" });
-    // Start opens DPV-03's dialog for a blocked ticket (`board.start`).
+    // Start (`board.start`): into the first stage, the sheet's button and a Backlog card's alike.
     expect(actionRoute("start")).toEqual({ kind: "start" });
+    expect(cardRoute("start")).toEqual({ kind: "start" });
     expect(actionRoute("answer_in_terminal")).toEqual({ kind: "terminal" });
     // Send again (d0118): `sheet.send_again`, which may ask about unsent text first.
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });

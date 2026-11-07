@@ -1071,7 +1071,7 @@ mod tests {
             changes: vec!["QA after Security".into()],
             since: 0,
             wait: otaq_core::flow::apply::Wait::WholeBoard,
-            hold: otaq_core::flow::apply::Hold::READY_FOR_DEV,
+            hold: otaq_core::flow::apply::Hold::BEFORE_FIRST_STAGE,
             waiting_for: tickets.iter().map(|k| k.parse().unwrap()).collect(),
         };
         n.on_flows(vec![

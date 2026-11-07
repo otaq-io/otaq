@@ -1,7 +1,8 @@
 //! The Apply now window (APN-02, d0108 "A flow change waits for a quiet board" with its Apply now of 2026-10-21;
 //! *11 → Row · Apply now* `s11-17`/`s11-18`) over the service's plan (`flow.apply_now_plan`,
 //! [`otaq_core::flow::apply_now`]): "Apply the flow change now?", the change's summary, **Moves** (one line per ticket
-//! in a removed stage, each with a picker of Backlog, Ready for Dev and the new flow's stages, on its default),
+//! in a removed stage, each with a picker of Backlog, Start again in the first stage and the new flow's stages, on its
+//! default),
 //! **Keep their place** (collapsed to one line past 3: "SHOP-15 · in Dev · keeps running, and 6 more"), one hint line
 //! for the current picks ("Back to Dev: Dev resumes SHOP-19’s earlier session.", or the forward one), Cancel and
 //! Apply now. The picks are the page's until Apply now; a pick that isn't one of its ticket's choices any more falls
@@ -79,7 +80,7 @@ pub struct MoveRow {
     pub picked: String,
     pub picked_name: String,
     pub picked_icon: IconName,
-    /// The picker's entries: Backlog, Ready for Dev, then the new flow's stages, the pick checked.
+    /// The picker's entries: Backlog, Start again in the first stage, then the new flow's stages, the pick checked.
     pub choices: Vec<MenuItem>,
 }
 
@@ -110,7 +111,8 @@ pub struct BasisTicket {
     pub running: bool,
 }
 
-/// A choice's id as the page sends it back: `backlog`, `ready_for_dev` or `stage:<id>`.
+/// A choice's id as the page sends it back: `backlog`, `ready_for_dev` (start again in the first stage) or
+/// `stage:<id>`.
 pub fn choice_id(to: &DropOn) -> String {
     match to {
         DropOn::Board(target) => target.to_string(),
@@ -218,12 +220,12 @@ fn keep_row(kept: &KeptTicket) -> KeepRow {
     }
 }
 
-/// A choice's icon, as its column's (*11 → Row · Apply now*'s open picker): Backlog a dashed circle, Ready for Dev an
-/// hourglass, an Agent stage a bot, an agent check a shield, a human check a person.
+/// A choice's icon, as its column's (*11 → Row · Apply now*'s open picker): Backlog a dashed circle, Start again a
+/// turning arrow, an Agent stage a bot, an agent check a shield, a human check a person.
 fn choice_icon(to: &DropOn, flow: Option<&Flow>) -> IconName {
     let stage = match to {
         DropOn::Board(DropTarget::Backlog) => return IconName::CircleDashed,
-        DropOn::Board(_) => return IconName::Hourglass,
+        DropOn::Board(_) => return IconName::RotateCcw,
         DropOn::Stage { stage } => flow.and_then(|f| f.stage(stage)),
     };
     match stage.map(|s| s.kind) {
@@ -236,7 +238,7 @@ fn choice_icon(to: &DropOn, flow: Option<&Flow>) -> IconName {
 fn move_row(mv: &PlannedMove, flow: Option<&Flow>, picks: &Picks) -> MoveRow {
     let pick = picked(mv, picks);
     let picked_to = pick.map_or_else(|| mv.default.clone(), |c| c.to.clone());
-    // A line between Ready for Dev and the flow's stages.
+    // A line between Start again and the flow's stages.
     let first_stage = mv
         .choices
         .iter()
@@ -422,14 +424,14 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
         }
     }
 
-    /// Backlog, Ready for Dev, then Dev · Validate · Review · Docs with `next` the first stage after the removed
+    /// Backlog, Start again in Dev, then Dev · Validate · Review · Docs with `next` the first stage after the removed
     /// one's place (earlier ones back, later ones forward).
     fn choices(next: &str, ticket: &str) -> Vec<MoveChoice> {
         let mut list = vec![
             choice(DropTarget::Backlog.into(), "Backlog", Way::Backlog, None),
             choice(
                 DropTarget::ReadyForDev.into(),
-                "Ready for Dev",
+                "Start again in Dev",
                 Way::ReadyForDev,
                 None,
             ),
@@ -557,7 +559,7 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
         assert_eq!(v.stamp, "s1");
     }
 
-    /// The picker (`s11-18`'s open one): Backlog, Ready for Dev, a line, then the new flow's stages with their
+    /// The picker (`s11-18`'s open one): Backlog, Start again in Dev, a line, then the new flow's stages with their
     /// columns' icons, the pick checked.
     #[test]
     fn the_picker_lists_every_place_with_the_pick_checked() {
@@ -593,8 +595,8 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
                 ),
                 (
                     "ready_for_dev",
-                    "Ready for Dev",
-                    Some(IconName::Hourglass),
+                    "Start again in Dev",
+                    Some(IconName::RotateCcw),
                     false,
                     false
                 ),
@@ -750,7 +752,7 @@ delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
                  you\u{201d})."
             )
         );
-        // A back pick wins over a forward one; Backlog and Ready for Dev say nothing.
+        // A back pick wins over a forward one; Backlog and Start again say nothing.
         let mut two = p.clone();
         two.moves
             .push(mv("SHOP-12", "Add dark mode toggle", "Product spec", "dev"));

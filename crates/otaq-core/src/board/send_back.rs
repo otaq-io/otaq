@@ -28,7 +28,7 @@ pub(crate) struct SentBackTo<'a> {
     pub hand_over: Option<&'a HandOver>,
     /// Working (its live session got the skill) or Queued.
     pub to: Status,
-    /// The Agent stage it returns to, or waits before (`None`: Ready for Dev).
+    /// The Agent stage it returns to, or waits before (`None`: waiting to begin the first stage).
     pub stage: Option<&'a str>,
     pub resume_skill: Option<&'a str>,
     /// How the run of the stage it leaves ends.
@@ -64,7 +64,7 @@ pub struct SentRound {
 }
 
 /// What `tickets.stage_id` holds for a ticket queued to come back to the Agent stage `agent_stage` (Resume, a Send
-/// back with the limit full): that stage, which it waits before, or `None` (Ready for Dev) when it is the flow's
+/// back with the limit full): that stage, which it waits before, or `None` (waiting to begin) when it is the flow's
 /// first Agent stage, so the default flow queues as today. The start continues its conversation there (STG-07,
 /// STG-09).
 pub(crate) fn waits_before(flow: &crate::flow::Flow, agent_stage: &str) -> Option<String> {
@@ -145,7 +145,7 @@ impl Board {
 
     /// Where a Send back takes the ticket: the check's fails-go-to stage, as the flow engine says (a human check's
     /// Fail, STG-06, d0131). Queued (`to`, the limit is full), it waits before that stage instead
-    /// ([`waits_before`]): Ready for Dev before the flow's first.
+    /// ([`waits_before`]): waiting to begin the flow's first.
     pub(crate) async fn back_stage(
         &self,
         ticket: &Ticket,
@@ -301,7 +301,7 @@ async fn latest_review(store: &Store, ticket_id: &str) -> Result<Option<u32>, Bo
 }
 
 /// Ready for Review → Dev: Agent Working in `stage` (the live session got the skill) or Queued (`queued_at` now)
-/// with the skill still to run, waiting before `stage` (`None`: Ready for Dev, as today). The next submit validates again from round 1 (d0063,
+/// with the skill still to run, waiting before `stage` (`None`: waiting to begin the first stage, as today). The next submit validates again from round 1 (d0063,
 /// VAL-10).
 pub(crate) async fn return_to_dev(
     tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,

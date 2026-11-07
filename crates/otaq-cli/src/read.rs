@@ -109,8 +109,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         };
         let agents = ticket_agents(client, &ticket.key.to_string()).await?;
         let choices = ticket_choices(client, &ticket.key.to_string()).await?;
-        let waiting = waiting_name(client, ticket.key.project.as_str()).await;
-        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices), waiting);
+        let first = first_stage_name(client, ticket.key.project.as_str()).await;
+        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices), &first);
         if !decisions.is_empty() {
             human.push_str(&decisions_text(&decisions));
         }
@@ -488,13 +488,12 @@ pub fn unexpected(reply: &Reply) -> ErrorBody {
 }
 
 /// The board's columns as the default flow draws them, by the name `--status` and `otaq show` use (`dev`,
-/// "Ready for Review"); a ticket's column comes from its place (STG-08): Backlog, Ready for Dev and Done as
-/// themselves, a stage by the kind of statuses it allows (an agent check's are Dev's), and a card waiting before a
-/// later Agent stage in that stage's column, Dev.
+/// "Ready for Review"); a ticket's column comes from its place (STG-08): Backlog and Done as themselves, a stage by
+/// the kind of statuses it allows (an agent check's are Dev's), and a started ticket waiting to begin, or waiting
+/// before a later Agent stage, in that stage's column, Dev.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 enum Column {
     Backlog,
-    ReadyForDev,
     Dev,
     ReadyForReview,
     Approved,
@@ -502,9 +501,8 @@ enum Column {
 }
 
 impl Column {
-    const ALL: [Self; 6] = [
+    const ALL: [Self; 5] = [
         Self::Backlog,
-        Self::ReadyForDev,
         Self::Dev,
         Self::ReadyForReview,
         Self::Approved,
@@ -514,8 +512,7 @@ impl Column {
     fn of(ticket: &Ticket) -> Self {
         match &ticket.place {
             Place::Backlog => Self::Backlog,
-            Place::Waiting(None) => Self::ReadyForDev,
-            Place::Waiting(Some(_)) => Self::Dev,
+            Place::Waiting(_) => Self::Dev,
             Place::Done => Self::Done,
             Place::InStage(_) => match ticket.status.set() {
                 StatusSet::HumanCheck => Self::ReadyForReview,
@@ -528,7 +525,6 @@ impl Column {
     fn id(self) -> &'static str {
         match self {
             Self::Backlog => "backlog",
-            Self::ReadyForDev => "ready_for_dev",
             Self::Dev => "dev",
             Self::ReadyForReview => "ready_for_review",
             Self::Approved => "approved",
@@ -539,7 +535,6 @@ impl Column {
     fn label(self) -> &'static str {
         match self {
             Self::Backlog => "Backlog",
-            Self::ReadyForDev => "Ready for Dev",
             Self::Dev => "Dev",
             Self::ReadyForReview => "Ready for Review",
             Self::Approved => "Approved",
@@ -597,44 +592,39 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
         .map_or_else(|| "?".to_owned(), |t| t.status.label().to_owned())
 }
 
-/// The waiting column's name in `project`'s flow (d0093, Q515): "Ready" when its first Agent stage isn't Dev, "Ready
-/// for Dev" otherwise or when the flow can't be read.
-async fn waiting_name(client: &Client, project: &str) -> &'static str {
+/// The name of the first stage of `project`'s flow, where a started ticket waits until it can begin ("Dev", "Product
+/// spec"); "Dev" when the flow can't be read.
+async fn first_stage_name(client: &Client, project: &str) -> String {
     match client
         .request(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
             project: project.to_owned(),
         }))
         .await
     {
-        Ok(Reply::FlowVersion(version)) => version
-            .file()
-            .map_or(otaq_core::flow::model::READY_FOR_DEV, |f| {
-                f.flow.waiting_name()
-            }),
-        _ => otaq_core::flow::model::READY_FOR_DEV,
+        Ok(Reply::FlowVersion(version)) => version.file().map_or_else(
+            |_| "Dev".to_owned(),
+            |f| f.flow.first_stage_name().to_owned(),
+        ),
+        _ => "Dev".to_owned(),
     }
 }
 
-/// The full human view of one ticket; `waiting` is the waiting column's name in its project's flow ("Ready" in Spec
-/// first).
+/// The full human view of one ticket. A started ticket that can't begin yet says so with the first stage it waits
+/// at the top of (`first`): "Waiting to start (Product spec)".
 pub fn show_text(
     ticket: &Ticket,
     tickets: &[Ticket],
     agents: Option<&TicketAgents>,
     choices: Option<&TicketChoices>,
-    waiting: &str,
+    first: &str,
 ) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
-    // A ticket in the waiting column says the column's name for its flow.
-    let status = match ticket.place {
-        Place::Waiting(None) if ticket.status == Status::Queued => waiting,
-        _ => ticket.status.label(),
+    let status = ticket.status.label();
+    let column = match ticket.place {
+        Place::Waiting(None) => first,
+        _ => Column::of(ticket).label(),
     };
-    let column = match Column::of(ticket) {
-        Column::ReadyForDev => waiting,
-        other => other.label(),
-    };
-    // A status named like its column ("Ready for Dev") says it once.
+    // A status named like its column ("Backlog") says it once.
     let column = if status == column {
         String::new()
     } else {
@@ -767,9 +757,11 @@ mod tests {
             StatusFilter::parse("dev"),
             Ok(StatusFilter::Column(Column::Dev))
         ));
+        // No Ready for Dev column: a started ticket waits in its first stage's.
+        assert!(StatusFilter::parse("ready_for_dev").is_err());
         assert!(matches!(
-            StatusFilter::parse("ready_for_dev"),
-            Ok(StatusFilter::Column(Column::ReadyForDev))
+            StatusFilter::parse("queued"),
+            Ok(StatusFilter::Status(Status::Queued))
         ));
         assert!(StatusFilter::parse("paused").is_err());
     }

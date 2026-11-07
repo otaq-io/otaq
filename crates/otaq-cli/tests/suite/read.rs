@@ -43,7 +43,10 @@ async fn show_reads_a_ticket_by_key_number_and_variable() {
 
     let text = stdout(&cb(&w, &["show", "SHOP-20"]));
     assert!(text.starts_with("SHOP-20 · Checkout page\n"), "{text}");
-    assert!(text.contains("Status:      Ready for Dev\n"), "{text}");
+    assert!(
+        text.contains("Status:      Waiting to start (Dev)\n"),
+        "{text}"
+    );
     assert!(
         text.contains("Depends on:  SHOP-18 (Ready for Review), SHOP-19 (Working)"),
         "{text}"
@@ -103,7 +106,8 @@ async fn list_filters_and_readiness() {
         dev.as_array()
             .unwrap()
             .iter()
-            .all(|t| t["stage"] == "dev" || t["stage"] == "validate")
+            .all(|t| t["stage"] == "dev" || t["stage"] == "validate" || t["place"] == "waiting"),
+        "{dev}"
     );
 
     // Inside the repository, the project is found from the folder.

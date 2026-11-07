@@ -75,7 +75,7 @@ pub fn popover(limits: &AgentLimits) -> Popover {
             &MAX_AGENTS,
         ),
         back_pressure: Stepper::new(BACK_PRESSURE, limits.back_pressure, &BACK_PRESSURE_ITEMS),
-        note: "Tickets in Ready for Dev wait for a free slot. Nothing that is already running is stopped.",
+        note: "Started tickets wait for a free agent. Nothing that is already running is stopped.",
     }
 }
 
@@ -191,9 +191,9 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
         LimitRow {
             label: "Max agents running at once",
             description: if on {
-                "Tickets in Ready for Dev wait for a free slot."
+                "Started tickets wait for a free agent."
             } else {
-                "Suggested 5. Tickets in Ready for Dev wait for a free slot."
+                "Suggested 5. Started tickets wait for a free agent."
             },
             enabled: on,
         },
@@ -334,7 +334,7 @@ mod tests {
         assert!(off[0].enabled && !off[1].enabled && !off[2].enabled);
         assert_eq!(
             off[1].description,
-            "Suggested 5. Tickets in Ready for Dev wait for a free slot."
+            "Suggested 5. Started tickets wait for a free agent."
         );
         assert_eq!(
             off[2].label, "Don\u{2019}t start new tickets while Needs you has",

@@ -269,7 +269,7 @@ async fn resume_takes_the_session_of_the_stage_the_card_is_in() {
             .map(|c| c.id)
     };
     assert_eq!(latest().await.as_deref(), Some("dev-conversation"));
-    w.force_status(&t, Status::Queued).await; // Ready for Dev
+    w.force_status(&t, Status::Queued).await; // waiting to begin the first stage
     assert_eq!(latest().await.as_deref(), Some("product-spec-conversation"));
     let runs = w.board.stage_runs("SHOP-1").await.unwrap();
     assert_eq!(

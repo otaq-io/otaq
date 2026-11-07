@@ -2,7 +2,7 @@
 //! started, but its first API call failed on the model ([`ToolEvent::ModelRefused`](crate::agent_tools::ToolEvent)).
 //!
 //! - **A Developer's first turn** (no turn of the session got through, and no earlier session of the ticket
-//!   started): the ticket counts as not started, back in Ready for Dev as Start failed
+//!   started): the ticket counts as not started, back waiting to begin as Start failed
 //!   ([`crate::start::Starter::model_refused`]).
 //! - **A Validator round**: No result, not counted as a round ([`crate::validation::Validation::model_refused`]).
 //! - **A Project agent's first turn** (Q-C): the session ends, its terminal keeps the tool's message.

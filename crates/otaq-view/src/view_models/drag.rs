@@ -1,9 +1,9 @@
 //! Drag and drop on the board (UI-02, TKT-04; *03 · Board & columns → Drag · over an allowed column, Drag ·
 //! over a forbidden column*). The rules are the core's [`check_move_in`] on the project's flow: a column
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
-//! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
-//! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
-//! the queue without asking (d0066). Dev → Backlog asks to park first (T-0107). Approving is the card's Approve, never
+//! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → the first
+//! stage starts it (it waits at the top of that column until it can begin), and a ticket still waiting there →
+//! Backlog takes it out of the queue without asking (d0066). Dev → Backlog asks to park first (T-0107). Approving is the card's Approve, never
 //! a drop: the delivery is no column. The page's drop targets map onto the core's drop targets (`board_page::DropTargetId`,
 //! `flow_columns::Columns::drop_target`). Each rule has a `_in` form that takes the project's flow; the short form
 //! is the default flow's.
@@ -21,6 +21,9 @@ use crate::icons::IconName;
 fn default_flow() -> &'static Flow {
     &otaq_core::flow::default_file().flow
 }
+
+/// What dropping a Backlog card on the first stage says: it starts, and waits at the column's top until it can begin.
+pub const DROP_TO_START: &str = "Drop to start \u{b7} waits here until it can begin";
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
 pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to Ready for Review";
@@ -53,9 +56,9 @@ pub fn feedback_in(
         MoveCheck::Unchanged => DropFeedback::Home,
         MoveCheck::Refused { reason } => {
             let detail = match reason.as_str() {
-                // Only a Backlog card can be queued instead.
+                // Only a Backlog card can be started instead.
                 ONLY_AGENT_SUBMITS if ticket.place.is_backlog() => {
-                    Some("Drag to Ready for Dev to queue it.")
+                    Some("Drag it to the first stage to start it.")
                 }
                 MERGED_LOCKED => Some("Fixing merged work means a new ticket."),
                 _ => None,
@@ -71,8 +74,8 @@ pub fn feedback_in(
     }
 }
 
-/// The accent label under the pointer over an allowed column (*Drag · over an allowed column*: "Drop to queue ·
-/// starts in priority order"; *PR rework*: "Drop to rework · PR #481 stays"): what the drop will do. `None` over the
+/// The accent label under the pointer over an allowed column (*Drag · over an allowed column*: "Drop to start · waits
+/// here until it can begin"; *PR rework*: "Drop to rework · PR #481 stays"): what the drop will do. `None` over the
 /// card's own column and over a forbidden one.
 pub fn drop_hint(
     ticket: &Ticket,
@@ -102,7 +105,7 @@ pub fn drop_hint_in(
         ticket.status == Status::Parked && to.is_some_and(|s| Some(s) != flow.first_agent_stage())
     });
     Some(match action {
-        // Dropped past Ready for Dev and the first Agent stage, a parked card still goes back to the stage it left.
+        // Dropped past the first Agent stage, a parked card still goes back to the stage it left.
         MoveAction::Start if returns_to.is_some() => (
             IconName::Play,
             format!(
@@ -114,10 +117,7 @@ pub fn drop_hint_in(
             IconName::Play,
             "Drop to resume · same conversation".to_owned(),
         ),
-        MoveAction::Start => (
-            IconName::Play,
-            "Drop to queue · starts in priority order".to_owned(),
-        ),
+        MoveAction::Start => (IconName::Play, DROP_TO_START.to_owned()),
         MoveAction::Unqueue => (
             IconName::Undo2,
             "Drop to take it out of the queue".to_owned(),
@@ -239,7 +239,7 @@ mod tests {
             feedback(&backlog, &[], DropTarget::ReadyForReview),
             DropFeedback::Forbidden {
                 title: ONLY_AGENTS_TO_REVIEW.into(),
-                detail: Some("Drag to Ready for Dev to queue it."),
+                detail: Some("Drag it to the first stage to start it."),
             }
         );
         let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
@@ -247,10 +247,8 @@ mod tests {
             feedback(&queued, &[], DropTarget::Backlog),
             DropFeedback::Allowed
         );
-        assert!(matches!(
-            feedback(&queued, &[], DropTarget::Dev),
-            DropFeedback::Forbidden { .. }
-        ));
+        // A started ticket waiting to begin is at the top of Dev's column: Dev is its home.
+        assert_eq!(feedback(&queued, &[], DropTarget::Dev), DropFeedback::Home);
         let merged = ticket("SHOP-17", "Add Stripe client", Status::Merged);
         assert!(matches!(
             feedback(&merged, &[], DropTarget::Backlog),
@@ -269,12 +267,11 @@ mod tests {
     fn drop_hints_say_what_the_drop_does() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         assert_eq!(
-            drop_hint(&backlog, &[], DropTarget::ReadyForDev),
+            drop_hint(&backlog, &[], DropTarget::Dev),
             Some((
                 IconName::Play,
-                "Drop to queue · starts in priority order".to_owned()
-            )),
-            "the frame's wording"
+                "Drop to start · waits here until it can begin".to_owned()
+            ))
         );
         assert_eq!(drop_hint(&backlog, &[], DropTarget::Backlog), None, "home");
         assert_eq!(drop_hint(&backlog, &[], DropTarget::ReadyForReview), None);
@@ -309,7 +306,7 @@ mod tests {
             on_drop(&t24, &[], DropTarget::ReadyForDev),
             DropAction::Move
         );
-        // Ready for Dev → Backlog: out of the queue, no confirmation (d0066).
+        // Waiting to begin → Backlog: out of the queue, no confirmation (d0066).
         let queued = ticket("SHOP-20", "Checkout page", Status::Queued);
         assert_eq!(on_drop(&queued, &[], DropTarget::Backlog), DropAction::Move);
         let working = ticket("SHOP-19", "Price table", Status::Working);

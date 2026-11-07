@@ -374,7 +374,7 @@ pub fn fail_to<'f>(flow: &'f Flow, check: &str, skips: &[String]) -> Option<&'f 
 
 /// The first Agent stage the ticket runs: where its first agent session starts, and the stages before it.
 pub fn first_stage<'f>(flow: &'f Flow, skips: &[String]) -> (Vec<&'f Stage>, Option<&'f Stage>) {
-    // Ready for Dev waits before the first Agent stage the ticket runs (checks never come before one, STG-02).
+    // The wait before the first stage comes before the first Agent stage the ticket runs (checks never come before one, STG-02).
     walk(flow, skips, None, |s| !s.is_agent_stage())
 }
 
@@ -442,7 +442,7 @@ fn enter<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>)
 }
 
 /// Moving on from a stage to `stage`, after walking over `skipped`: an Agent stage is waited for (STG-07, d0108
-/// "waiting is automatic before every Agent stage"): the ticket waits before it, as Ready for Dev waits before the
+/// "waiting is automatic before every Agent stage"): the ticket waits before it, as The wait before the first stage comes before the
 /// first, until the scheduler starts it ([`Move::Begin`]). Any other stage is entered at once.
 fn move_on<'f>(at: &At<'f, '_>, skipped: Vec<&'f Stage>, stage: Option<&'f Stage>) -> Step<'f> {
     match stage {
@@ -694,7 +694,7 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Target<'f> {
     Backlog,
-    /// Ready for Dev.
+    /// Waiting to begin the first Agent stage (shown at the top of its column).
     Waiting,
     Stage(&'f Stage),
     Done,
@@ -804,7 +804,11 @@ pub fn drag_with(
     }
     let from = match place {
         Place::Backlog => Target::Backlog,
-        Place::Waiting(None) => Target::Waiting,
+        // Waiting to begin the first Agent stage shows at the top of that stage's column: dropped there, it stays.
+        Place::Waiting(None) => match flow.first_agent_stage() {
+            Some(stage) if to == Target::Stage(stage) => return MoveCheck::Unchanged,
+            _ => Target::Waiting,
+        },
         // Waiting before a later Agent stage shows in that stage's column: dropped there, it stays.
         Place::Waiting(Some(id)) => match flow.stage(id) {
             Some(stage) if to == Target::Stage(stage) => return MoveCheck::Unchanged,
@@ -833,8 +837,8 @@ pub fn drag_with(
     let at_work = |s: &Stage| s.is_agent_stage() || s.is_agent_check();
     let index = |s: &Stage| flow.position(&s.id).unwrap_or(usize::MAX);
     match (from, to) {
-        // The go-ahead; on an Agent stage it waits until it can start (d0066). A parked card goes back to the stage
-        // it left wherever it is dropped (d0052, FLW-18).
+        // The go-ahead: into the first stage, waiting at its top until it can begin (d0066). A parked card goes back
+        // to the stage it left wherever it is dropped (d0052, FLW-18).
         (Target::Backlog, Target::Waiting) => MoveCheck::Allowed {
             action: MoveAction::Start,
         },
@@ -892,7 +896,7 @@ pub fn drag_with(
         (_, Target::Waiting | Target::Stage(_)) => refused(ONLY_AGENT_SUBMITS),
         (_, Target::Done) => refused("Use Close ticket, Approve or Mark merged to finish a ticket"),
         (_, Target::Backlog) => {
-            refused("Only Ready for Dev, Dev and Closed tickets go back to Backlog")
+            refused("Only waiting, working and closed tickets go back to Backlog")
         }
     }
 }

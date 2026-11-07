@@ -808,7 +808,7 @@ mod tests {
                 title: "Export as CSV".into(),
                 project: "NOTE".into(),
                 other_project: None,
-                place: "Ready for Dev".into(),
+                place: "Dev".into(),
             }
         );
         let v = view("pocket", &i);
@@ -975,7 +975,7 @@ mod tests {
         let v = view("app", &open);
         assert_eq!(words(&v)[0], "action Approve ▾");
         assert!(v.rows[0].pickable);
-        // NOTE-2 open, in Ready for Dev: not in review.
+        // NOTE-2 open, waiting to begin Dev: not in review.
         let ready = Inputs {
             context: Context {
                 open: Some(OpenTicket::of(&tickets[1])),

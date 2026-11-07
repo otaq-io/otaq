@@ -12,8 +12,6 @@ import type { DropOutcome } from "../../generated/DropOutcome";
 import { afterDrop, coveredWidth, dropCard } from "./Board";
 import { EMPTY_BOX, fileAttachment, pastedAttachment, withAdded } from "../editor/commentRules";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
-import { BlockedBody } from "./BlockedDialog";
-import type { BlockedDialog } from "../../generated/BlockedDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsAfter, moreText, nextScroll } from "./more";
@@ -45,10 +43,10 @@ const ANSWER: DragAnswer = {
   targets: [
     { target: "backlog", verdict: { kind: "home" } },
     {
-      target: "ready_for_dev",
-      verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null },
+      target: "product-spec",
+      verdict: { kind: "allowed", icon: "play", hint: "Drop to start", note: null },
     },
-    { target: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to queue", note: null } },
+    { target: "dev", verdict: { kind: "allowed", icon: "play", hint: "Drop to start", note: null } },
     {
       target: "review",
       verdict: { kind: "forbidden", title: "Only agents move tickets to Ready for Review", detail: null },
@@ -60,7 +58,7 @@ const ANSWER: DragAnswer = {
 
 const SPANS = [
   { id: "backlog", left: 10, right: 226 },
-  { id: "ready_for_dev", left: 234, right: 450 },
+  { id: "product-spec", left: 234, right: 450 },
   { id: "dev", left: 458, right: 674 },
   { id: "review", left: 682, right: 1122 },
   { id: "done", left: 1130, right: 1164 },
@@ -149,7 +147,7 @@ describe("a drag asks Rust once (UIT-04)", () => {
     drag.move(300, 100, () => SPANS);
     door.answer();
     await flush();
-    expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-24", target: "ready_for_dev" });
+    expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-24", target: "product-spec" });
 
     for (const [x, why] of [
       [700, "forbidden"],
@@ -213,7 +211,7 @@ describe("a drag asks Rust once (UIT-04)", () => {
 
 describe("board helpers", () => {
   it("finds the column under the pointer", () => {
-    expect(columnAt(SPANS, 300)).toBe("ready_for_dev");
+    expect(columnAt(SPANS, 300)).toBe("product-spec");
     expect(columnAt(SPANS, 230)).toBeNull();
     expect(columnAt(SPANS, 1140)).toBe("done");
   });
@@ -384,26 +382,6 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     expect(asked).toEqual([]);
   });
 
-  it("a blocked ticket's drop opens DPV-03's dialog, whose only button keeps it waiting", () => {
-    const blocked: BlockedDialog = {
-      key: "SHOP-20",
-      title: "SHOP-20 is blocked",
-      body: "It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge. Started now, its agent works without their changes and may have to redo work when they land.",
-      hint: "To start it, remove the dependency in the ticket first.",
-      keep: "Keep it waiting",
-    };
-    const asked: string[] = [];
-    afterDrop({ kind: "blocked", dialog: blocked }, (method: string) => {
-      asked.push(method);
-      return Promise.resolve(null);
-    });
-    expect(overlays.store.get()).toEqual([{ id: "blocked", params: blocked }]);
-    expect(asked).toEqual([]);
-    const out = renderToStaticMarkup(createElement(BlockedBody, { view: blocked }));
-    expect(out).toContain("It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge.");
-    expect(out).toContain("To start it, remove the dependency in the ticket first.");
-  });
-
   it("draws the three dialogs: back to Dev, stop and send, and run a check again", () => {
     const back = body(sendBack);
     expect(back).toContain(">Comment for Dev (Rust developer)</label>");
@@ -496,7 +474,7 @@ describe("the board screen", () => {
   it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
-    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back", "blocked"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });
@@ -509,7 +487,6 @@ describe("the board screen", () => {
     count: "0",
     quiet_icon: false,
     tooltip: null,
-    hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     rail: null,
@@ -708,7 +685,6 @@ describe("the Review column (T-0328, d0087)", () => {
     count: "2",
     quiet_icon: false,
     tooltip: null,
-    hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     rail: null,
