@@ -491,7 +491,10 @@ mod tests {
             head: None,
             title: "SHOP-18 Retry the order request once on timeout".into(),
             description: "Retries POST /orders once.".into(),
-            branch: Some("otaq/SHOP-18-checkout-timeout".into()),
+            branch: Some(format!(
+                "{}-checkout-timeout",
+                otaq_core::naming::branch("SHOP-18")
+            )),
         }
     }
 
@@ -514,7 +517,10 @@ mod tests {
         assert_eq!(d.writing, None);
         assert_eq!(d.prepared_by.as_deref(), Some("Strong"));
         assert_eq!(d.title, "SHOP-18 Retry the order request once on timeout");
-        assert_eq!(d.branch, "otaq/SHOP-18-checkout-timeout");
+        assert_eq!(
+            d.branch,
+            format!("{}-checkout-timeout", otaq_core::naming::branch("SHOP-18"))
+        );
         assert_eq!(d.filled, 2);
 
         let mut typed = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));

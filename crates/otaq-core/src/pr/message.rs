@@ -111,7 +111,8 @@ pub fn prompt(key: &str, target: &str, can_open_pr: bool, can_merge: bool) -> St
     };
     let branch = match can_open_pr {
         true => format!(
-            ", \"branch\": the PR's branch name (follow the user's rules; else `otaq/{key}-<a few words>`)"
+            ", \"branch\": the PR's branch name (follow the user's rules; else `{}-<a few words>`)",
+            naming::branch(key)
         ),
         false => String::new(),
     };
@@ -317,7 +318,10 @@ mod tests {
     #[test]
     fn the_prompt_names_the_command_and_what_the_message_is_for() {
         let either = prompt("SHOP-18", "main", true, true);
-        assert!(either.contains("`otaq pr message --stdin`"), "{either}");
+        assert!(
+            either.contains(&format!("`{} pr message --stdin`", naming::COMMAND_NAME)),
+            "{either}"
+        );
         assert!(either.contains("merged into main, or the pull request"));
         assert!(either.contains("\"branch\""));
         assert!(!either.contains('\n'), "one line, typed with Enter");

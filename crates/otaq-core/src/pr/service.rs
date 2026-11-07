@@ -251,6 +251,9 @@ impl Prs {
         if kind == FlowKind::Open {
             // Nobody waits for a skill: the dialog opens at once on what the delivery's agent wrote while the ticket
             // waited in Review, or on the plain text while it still writes. The skill runs after the confirm.
+            // A live session whose tool doesn't have the skill is refused now, before anything is made.
+            self.skill_runs_in(&ticket, self.live_of(&ticket, session).as_ref())
+                .await?;
             let proposal = self.prepared_proposal(&ticket).await?;
             board.start_pr_flow(&ticket, kind, false).await?;
             board.set_pr_proposal(&ticket.id, &proposal).await?;
@@ -338,6 +341,9 @@ impl Prs {
         let live = self.live_session(&ticket).await;
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
+        }
+        if flow.kind == FlowKind::Open {
+            self.skill_runs_in(&ticket, live.as_ref()).await?;
         }
         board
             .apply_confirmed(&ticket, flow.kind, &checked, actor)
@@ -844,6 +850,31 @@ impl Prs {
             }
             _ => None,
         })
+    }
+
+    /// Refused, nothing typed, when the live session's tool doesn't have the flow's Open PR skill.
+    async fn skill_runs_in(
+        &self,
+        ticket: &Ticket,
+        live: Option<&SessionInfo>,
+    ) -> Result<(), BoardError> {
+        let Some(session) = live else {
+            return Ok(());
+        };
+        let name = self
+            .inner
+            .board
+            .delivery_skill(ticket.key.project.as_str(), WorkflowStep::OpenPr)
+            .await?;
+        self.refuse_missing_skill(
+            ticket,
+            session.tool,
+            &FirstPrompt::Skill {
+                name,
+                message: None,
+            },
+        )
+        .await
     }
 
     /// What the Open PR dialog opens on: the PR's commits as they are, and the branch, title and description the
