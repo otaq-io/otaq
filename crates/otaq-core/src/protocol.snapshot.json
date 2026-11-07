@@ -4187,6 +4187,21 @@
         "working"
       ]
     },
+    "Hint": {
+      "kind": "enum",
+      "variants": {
+        "gallery_sample": {}
+      }
+    },
+    "HintParams": {
+      "kind": "struct",
+      "fields": {
+        "hint": {
+          "ty": "Hint",
+          "required": true
+        }
+      }
+    },
     "HistoryEvent": {
       "kind": "struct",
       "fields": {
@@ -7628,6 +7643,9 @@
         "helpers": {
           "newtype": "Vec<Helper>"
         },
+        "hints_seen": {
+          "newtype": "Vec<Hint>"
+        },
         "history": {
           "newtype": "Vec<HistoryEvent>"
         },
@@ -8140,6 +8158,10 @@
         "helper.start": {
           "newtype": "HelperStartParams"
         },
+        "hints.dismiss": {
+          "newtype": "HintParams"
+        },
+        "hints.seen": {},
         "hook": {
           "newtype": "HookParams"
         },

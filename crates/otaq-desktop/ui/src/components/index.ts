@@ -25,6 +25,7 @@ export {
 } from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
+export { HintPopover, loadHint, OneTimeHint, type HintPopoverProps, type OneTimeHintProps } from "./Hint";
 export { Kbd } from "./Kbd";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
 export {

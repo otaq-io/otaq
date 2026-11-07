@@ -529,6 +529,7 @@ async fn action_for(
             Action::UserOnly("report the app's window hiding")
         }
         R::UpdatePrefs | R::UpdateSetPrefs(_) => Action::UserOnly("change the update settings"),
+        R::HintsSeen | R::HintDismiss(_) => Action::UserOnly("dismiss hints"),
     })
 }
 

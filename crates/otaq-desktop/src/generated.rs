@@ -87,6 +87,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::toasts::NewToast::export_all(&cfg)?;
     otaq_view::view_models::restart::RestartDialogView::export_all(&cfg)?;
     crate::api::DismissBanner::export_all(&cfg)?;
+    // One-time hints; also writes `HintId`.
+    crate::api::HintParams::export_all(&cfg)?;
+    otaq_view::view_models::hint::View::export_all(&cfg)?;
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
     crate::api::NotificationOpen::export_all(&cfg)?;
