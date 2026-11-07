@@ -134,6 +134,8 @@ pub struct OpenAttachment {
     /// The comment's number.
     pub n: u32,
     pub chip: AttachmentChip,
+    /// On an edit's row (tuq 008): "Removed" or "Added", by the chip.
+    pub change: Option<String>,
 }
 
 /// One image of a comment in History: a thumbnail that opens comment `n`'s image full size (tuq 004), also once the
@@ -144,6 +146,8 @@ pub struct OpenThumbnail {
     /// The comment's number.
     pub n: u32,
     pub thumbnail: Thumbnail,
+    /// On an edit's row (tuq 008): "Removed" or "Added", under the thumbnail.
+    pub change: Option<String>,
 }
 
 /// What a row opens (`s05-45`): "DESCRIPTION" or "COMMENT", "Before / after" on an edit, the lines, the comment's
@@ -849,20 +853,8 @@ fn changed_by(e: &HistoryEvent) -> String {
 /// written before migration 0076, `"report": {"bytes", "lines"}`, which became the comment's attachment 1 (its name
 /// isn't in the event: "Report").
 fn attachments_of(p: &serde_json::Value) -> Vec<Attachment> {
-    if let Some(list) = p.get("attachments").and_then(serde_json::Value::as_array) {
-        return list
-            .iter()
-            .filter_map(|a| {
-                Some(Attachment {
-                    n: u32::try_from(a.get("n")?.as_u64()?).ok()?,
-                    name: a.get("name")?.as_str()?.to_owned(),
-                    kind: serde_json::from_value(a.get("kind")?.clone()).ok()?,
-                    bytes: a.get("bytes")?.as_u64()?,
-                    lines: a.get("lines").and_then(serde_json::Value::as_u64),
-                    path: String::new(),
-                })
-            })
-            .collect();
+    if p.get("attachments").is_some() {
+        return attachment_list(p, "attachments");
     }
     p.get("report")
         .and_then(|r| {
@@ -879,6 +871,57 @@ fn attachments_of(p: &serde_json::Value) -> Vec<Attachment> {
         .collect()
 }
 
+/// The attachments listed under `field` in a comment event (`"attachments"`; an edit's `"removed"` and `"added"`, tuq
+/// 008): `[{"n", "name", "kind", "bytes", "lines"?}]`; none when it isn't there.
+fn attachment_list(p: &serde_json::Value, field: &str) -> Vec<Attachment> {
+    p.get(field)
+        .and_then(serde_json::Value::as_array)
+        .map(|list| {
+            list.iter()
+                .filter_map(|a| {
+                    Some(Attachment {
+                        n: u32::try_from(a.get("n")?.as_u64()?).ok()?,
+                        name: a.get("name")?.as_str()?.to_owned(),
+                        kind: serde_json::from_value(a.get("kind")?.clone()).ok()?,
+                        bytes: a.get("bytes")?.as_u64()?,
+                        lines: a.get("lines").and_then(serde_json::Value::as_u64),
+                        path: String::new(),
+                    })
+                })
+                .collect()
+        })
+        .unwrap_or_default()
+}
+
+/// What an edit's row says of the attachments it took off the comment and those it added (tuq 008), by each chip and
+/// thumbnail and in its line.
+pub const REMOVED: &str = "Removed";
+pub const ADDED: &str = "Added";
+
+/// An edit's attachment changes (tuq 008): "Removed shot.png · added fixed.png", "Removed shot.png, run.txt", "Added
+/// fixed.png"; `None` when it changed only the text.
+fn attachment_changes(removed: &[Attachment], added: &[Attachment]) -> Option<String> {
+    let names = |list: &[Attachment]| {
+        list.iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>()
+            .join(", ")
+    };
+    let mut parts = Vec::new();
+    if !removed.is_empty() {
+        parts.push(format!("{REMOVED} {}", names(removed)));
+    }
+    if !added.is_empty() {
+        parts.push(format!("{} {}", ADDED.to_lowercase(), names(added)));
+    }
+    let line = parts.join(" \u{b7} ");
+    // "Added …" starts the line when nothing was removed.
+    let mut chars = line.chars();
+    chars
+        .next()
+        .map(|first| first.to_uppercase().chain(chars).collect())
+}
+
 /// What an event from before migration 0076 calls its comment's report.
 const OLD_REPORT: &str = "Report";
 
@@ -888,7 +931,11 @@ fn open_attachments(attachments: &[Attachment], n: u32) -> Vec<OpenAttachment> {
     comments::thumbnails_and_chips(attachments)
         .1
         .into_iter()
-        .map(|chip| OpenAttachment { n, chip })
+        .map(|chip| OpenAttachment {
+            n,
+            chip,
+            change: None,
+        })
         .collect()
 }
 
@@ -897,8 +944,37 @@ fn open_thumbnails(attachments: &[Attachment], n: u32) -> Vec<OpenThumbnail> {
     comments::thumbnails_and_chips(attachments)
         .0
         .into_iter()
-        .map(|thumbnail| OpenThumbnail { n, thumbnail })
+        .map(|thumbnail| OpenThumbnail {
+            n,
+            thumbnail,
+            change: None,
+        })
         .collect()
+}
+
+/// An edit's removed and added attachments (tuq 008), removed first, each marked: the removed ones still open.
+fn changed_attachments(
+    removed: &[Attachment],
+    added: &[Attachment],
+    n: u32,
+) -> (Vec<OpenThumbnail>, Vec<OpenAttachment>) {
+    let mut thumbnails = Vec::new();
+    let mut chips = Vec::new();
+    for (list, change) in [(removed, REMOVED), (added, ADDED)] {
+        thumbnails.extend(open_thumbnails(list, n).into_iter().map(|t| OpenThumbnail {
+            change: Some(change.to_owned()),
+            ..t
+        }));
+        chips.extend(
+            open_attachments(list, n)
+                .into_iter()
+                .map(|a| OpenAttachment {
+                    change: Some(change.to_owned()),
+                    ..a
+                }),
+        );
+    }
+    (thumbnails, chips)
 }
 
 fn told(
@@ -1067,10 +1143,15 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                     author_mark(&author, facts),
                 ),
             };
+            // tuq 008: the attachments it removed and added, named under the title and shown (removed ones still
+            // open) after the text's before / after.
+            let removed = attachment_list(p, "removed");
+            let added = attachment_list(p, "added");
+            let (thumbnails, attachments) = changed_attachments(&removed, &added, n);
             Some(told(
                 e,
                 title,
-                None,
+                attachment_changes(&removed, &added),
                 mark,
                 Opens {
                     label: "COMMENT".to_owned(),
@@ -1079,8 +1160,8 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
                         &text(p, "before").unwrap_or_default(),
                         &text(p, "after").unwrap_or_default(),
                     ),
-                    thumbnails: Vec::new(),
-                    attachments: Vec::new(),
+                    thumbnails,
+                    attachments,
                 },
                 Kind::Comment,
             ))
@@ -2479,6 +2560,61 @@ mod tests {
             json!({"n": 2, "before": "a", "after": "b", "author": {"kind": "user", "name": "me"}}),
         ));
         assert_eq!(mine.title, "You edited your comment");
+        assert_eq!(mine.detail, None, "only its text changed");
+        // tuq 008: an edit that removed one attachment and added another names both, and still opens the removed one.
+        let changed = row(event(
+            EventKind::CommentEdited,
+            MIN,
+            json!({"n": 2, "before": "a", "after": "a", "author": {"kind": "user", "name": "me"},
+                   "removed": [{"n": 1, "name": "shot.png", "kind": "image", "bytes": 1024}],
+                   "added": [{"n": 3, "name": "run.txt", "kind": "text", "bytes": 2048, "lines": 4},
+                             {"n": 4, "name": "fixed.png", "kind": "image", "bytes": 1024}]}),
+        ));
+        assert_eq!(changed.title, "You edited your comment");
+        assert_eq!(
+            changed.detail.as_deref(),
+            Some("Removed shot.png \u{b7} added run.txt, fixed.png")
+        );
+        let opens = changed.opens.unwrap();
+        let thumbnails: Vec<(u32, u32, &str, Option<&str>)> = opens
+            .thumbnails
+            .iter()
+            .map(|t| {
+                (
+                    t.n,
+                    t.thumbnail.attachment,
+                    t.thumbnail.name.as_str(),
+                    t.change.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(
+            thumbnails,
+            [
+                (2, 1, "shot.png", Some("Removed")),
+                (2, 4, "fixed.png", Some("Added")),
+            ]
+        );
+        let chips: Vec<(u32, &str, Option<&str>, Option<&str>)> = opens
+            .attachments
+            .iter()
+            .map(|a| {
+                (
+                    a.chip.attachment,
+                    a.chip.name.as_str(),
+                    a.chip.open.as_deref(),
+                    a.change.as_deref(),
+                )
+            })
+            .collect();
+        assert_eq!(chips, [(3, "run.txt", Some("Open"), Some("Added"))]);
+        let only_added = row(event(
+            EventKind::CommentEdited,
+            MIN,
+            json!({"n": 2, "before": "a", "after": "a", "author": {"kind": "user", "name": "me"},
+                   "added": [{"n": 3, "name": "fixed.png", "kind": "image", "bytes": 1024}]}),
+        ));
+        assert_eq!(only_added.detail.as_deref(), Some("Added fixed.png"));
         // An edit of other fields only stays "Edited · by you".
         let title = row(event(
             EventKind::Updated,

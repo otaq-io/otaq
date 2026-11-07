@@ -1075,3 +1075,247 @@ async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
     assert_eq!(refused.to_string(), "Write the comment first");
     w.stop().await;
 }
+
+/// tuq 008: an edit removes one of a comment's two attachments and adds a third in one change: the comment lists the
+/// new set (the removed one gone, the new one numbered after every number it had), the `comment_edited` event names
+/// the removed and added ones, and the removed file stays: the user still opens it by its number (History), an agent
+/// is refused it and a choice-less request no longer counts it. An edit that would leave no text and no attachment,
+/// one naming an attachment the comment hasn't got and one adding a file over 20 MB are refused with nothing changed
+/// and nothing copied. The ticket goes with every file, the removed one included.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_edit_removes_and_adds_attachments_and_history_keeps_the_removed_one() {
+    use otaq_core::board::ticket_comments::CommentEdit;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Export orders as CSV").await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let shot = resources.path().join("shot.png");
+    std::fs::write(&shot, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR").unwrap();
+    let run = resources.path().join("run.txt");
+    std::fs::write(&run, "ok\nFAILED\n").unwrap();
+    let fixed = resources.path().join("fixed.png");
+    std::fs::write(&fixed, b"\x89PNG\r\n\x1a\n\0\0\0\rIHDR+").unwrap();
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &you(),
+            "The badge, before.",
+            vec![
+                ReportSource::Path(shot.clone()),
+                ReportSource::Path(run.clone()),
+            ],
+            &me(),
+        )
+        .await
+        .unwrap();
+    let shot_path = posted.attachments[0].path.clone();
+
+    let edited = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                body: None,
+                remove: vec![1],
+                add: vec![ReportSource::Path(fixed.clone())],
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    let set = |c: &TicketComment| {
+        c.attachments
+            .iter()
+            .map(|a| (a.n, a.name.clone(), a.kind))
+            .collect::<Vec<_>>()
+    };
+    let new_set = vec![
+        (2, "run.txt".to_owned(), AttachmentKind::Text),
+        (3, "fixed.png".to_owned(), AttachmentKind::Image),
+    ];
+    assert_eq!(edited.body, "The badge, before.", "no new text: it stays");
+    assert!(edited.edited_at.is_some());
+    assert_eq!(set(&edited), new_set);
+    assert_eq!(
+        set(&w.board.ticket_comment("SHOP-1", posted.n).await.unwrap()),
+        new_set,
+        "the thread lists the new set"
+    );
+    assert_eq!(
+        std::fs::read(&edited.attachments[1].path).unwrap(),
+        std::fs::read(&fixed).unwrap()
+    );
+    let events = comment_events(&w, "SHOP-1").await;
+    let edit = events.last().unwrap();
+    assert_eq!(edit.kind, EventKind::CommentEdited);
+    assert_eq!(edit.payload["before"], "The badge, before.");
+    assert_eq!(edit.payload["after"], "The badge, before.");
+    assert_eq!(
+        edit.payload["removed"],
+        json!([{"n": 1, "name": "shot.png", "kind": "image", "bytes": 16}])
+    );
+    assert_eq!(
+        edit.payload["added"],
+        json!([{"n": 3, "name": "fixed.png", "kind": "image", "bytes": 17}])
+    );
+
+    // The removed file stays and opens by its number (History, the image view); a choice-less request counts only
+    // what the comment has now.
+    let opened = w
+        .board
+        .ticket_report("SHOP-1", posted.n, Some(1))
+        .await
+        .unwrap();
+    assert!(opened.removed);
+    assert_eq!(opened.attachment.path, shot_path);
+    assert_eq!(
+        std::fs::read(&shot_path).unwrap(),
+        std::fs::read(&shot).unwrap()
+    );
+    assert_eq!(
+        w.board
+            .ticket_report("SHOP-1", posted.n, None)
+            .await
+            .unwrap_err()
+            .to_string(),
+        "SHOP-1's comment 1 has 2 attachments; pick one with --attachment: 2 run.txt, 3 fixed.png"
+    );
+    let dev = w.agent_shell(&shop1).await;
+    let refused = send(
+        &w,
+        &dev,
+        "ticket.report",
+        json!({"key": "SHOP-1", "n": posted.n, "attachment": 1}),
+    )
+    .await;
+    assert_eq!(
+        refusal(&refused),
+        "Attachment 1 of comment 1 on SHOP-1 was removed."
+    );
+
+    // Neither text nor an attachment left: refused, nothing changed.
+    let files_before = report_files(&w);
+    let empty = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                body: Some(" ".into()),
+                remove: vec![2, 3],
+                add: Vec::new(),
+            },
+            &me(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(empty.refusal(), Some(Refusal::EmptyField));
+    assert_eq!(empty.to_string(), "Write the comment first");
+    // Its text may go while an attachment stays.
+    let no_text = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                body: Some(String::new()),
+                remove: vec![2],
+                add: Vec::new(),
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(no_text.body, "");
+    assert_eq!(
+        set(&no_text),
+        [(3, "fixed.png".to_owned(), AttachmentKind::Image)]
+    );
+    let missing = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                remove: vec![1],
+                ..CommentEdit::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(
+        missing.to_string(),
+        "SHOP-1's comment 1 has no attachment 1"
+    );
+    let big = resources.path().join("perf.mov");
+    std::fs::File::create(&big)
+        .unwrap()
+        .set_len(21 * 1024 * 1024)
+        .unwrap();
+    let too_big = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                body: Some("Recorded.".into()),
+                remove: vec![3],
+                add: vec![ReportSource::Path(run.clone()), ReportSource::Path(big)],
+            },
+            &me(),
+        )
+        .await
+        .unwrap_err();
+    assert_eq!(too_big.refusal(), Some(Refusal::BadReport));
+    assert_eq!(report_files(&w), files_before);
+    let kept = w.board.ticket_comment("SHOP-1", posted.n).await.unwrap();
+    assert_eq!(kept.body, "");
+    assert_eq!(
+        set(&kept),
+        [(3, "fixed.png".to_owned(), AttachmentKind::Image)]
+    );
+
+    w.stop().await;
+}
+
+/// tuq 008, d0060: a ticket goes with every attachment file, those an edit removed too.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_deleted_ticket_takes_its_removed_attachments() {
+    use otaq_core::board::ticket_comments::CommentEdit;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &you(),
+            "Two logs.",
+            vec![
+                ReportSource::Text("one\n".into()),
+                ReportSource::Text("two\n".into()),
+            ],
+            &me(),
+        )
+        .await
+        .unwrap();
+    w.board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                remove: vec![1],
+                ..CommentEdit::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(report_files(&w).len(), 2, "the removed file stays");
+    w.board.delete_ticket("SHOP-1").await.unwrap();
+    assert!(report_files(&w).is_empty());
+    w.stop().await;
+}

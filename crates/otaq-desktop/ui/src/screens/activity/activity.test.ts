@@ -169,21 +169,58 @@ describe("Activity", () => {
                   open: "Open shot.png full size",
                   close: "Close",
                 },
+                change: null,
               },
             ],
             attachments: [
               {
                 n: 4,
                 chip: { attachment: 1, name: "test-run.txt", kind: "text", size: "· 48 KB", open: "Open" },
+                change: null,
               },
             ],
+          },
+        }),
+        row({
+          title: "You edited your comment",
+          detail: "Removed before.png · added after.png",
+          mark: { kind: "you" },
+          opens: {
+            label: "COMMENT",
+            caption: "Before / after",
+            lines: [{ kind: "same", sign: "", text: "The badge." }],
+            thumbnails: [
+              {
+                n: 5,
+                thumbnail: {
+                  attachment: 1,
+                  name: "before.png",
+                  size: "1 KB",
+                  open: "Open before.png full size",
+                  close: "Close",
+                },
+                change: "Removed",
+              },
+              {
+                n: 5,
+                thumbnail: {
+                  attachment: 2,
+                  name: "after.png",
+                  size: "1 KB",
+                  open: "Open after.png full size",
+                  close: "Close",
+                },
+                change: "Added",
+              },
+            ],
+            attachments: [],
           },
         }),
         row({ title: "You deleted a comment", mark: { kind: "you" } }),
       ],
     };
     const closed = html(createElement(HistoryBody, { view, opened: [] }));
-    expect(closed.match(/aria-expanded="false"/g)).toHaveLength(2);
+    expect(closed.match(/aria-expanded="false"/g)).toHaveLength(3);
     expect(closed).toContain("comment-mark");
     expect(closed).not.toContain("DESCRIPTION");
     const opened = html(createElement(HistoryBody, { view, opened: [0, 1] }));
@@ -196,6 +233,13 @@ describe("Activity", () => {
     // tuq 004: the image is a thumbnail, loaded by its numbers.
     expect(opened).toContain('aria-label="Open shot.png full size"');
     expect(opened).toContain('src="otaq-attachment://localhost/SHOP-34%2F4%2F2"');
+    expect(opened).not.toContain("history-change");
+    // tuq 008: an edit's removed image still opens, marked as removed; the added one is marked too.
+    const edit = html(createElement(HistoryBody, { view, opened: [2] }));
+    expect(edit).toContain('data-change="removed"');
+    expect(edit).toContain('src="otaq-attachment://localhost/SHOP-34%2F5%2F1"');
+    expect(edit).toContain(">Removed</span>");
+    expect(edit).toContain(">Added</span>");
   });
 
   it("filters by kind under All · Comments · Stages · Description, newest first; description edits open", () => {

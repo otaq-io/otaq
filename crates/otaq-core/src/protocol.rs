@@ -1548,12 +1548,21 @@ pub struct TicketCommentPostParams {
     pub tell_agent: bool,
 }
 
-/// `{"key": "SHOP-34", "n": 2, "body": "…"}`: comment 2's new text.
+/// `{"key": "SHOP-34", "n": 2, "body": "…", "remove": [1], "attachments": [{"path": "/abs/fixed.png"}]}`: an edit of
+/// comment 2 (tuq 008), applied together: its new text (with `"keep_body": true` it keeps its text and `body` is
+/// ignored: `otaq comment edit` without `--stdin`), the attachments it removes by their numbers
+/// (`--remove-attachment`) and the files it adds (`--report-file`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TicketCommentEditParams {
     pub key: String,
     pub n: u32,
     pub body: String,
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub keep_body: bool,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<crate::board::reports::ReportSource>,
 }
 
 /// `{"key": "SHOP-34", "n": 4}`: one ticket comment.

@@ -10,10 +10,12 @@
 // past the limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
 // limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it. While the
 // ticket's agent or check runs the thread's box shows "Also tell the agent now" (d0123, `CommentBoxView.tell_agent`),
-// ticked by default; the thread keeps the tick and posts it as `tell_agent`.
+// ticked by default; the thread keeps the tick and posts it as `tell_agent`. Editing a posted comment uses this box
+// too (tuq 008): its attachments are `posted` chips with ✕, and the thread gives it Cancel · Save (`actions`).
 import {
   type ClipboardEvent,
   type KeyboardEvent,
+  type ReactNode,
   type Ref,
   useCallback,
   useEffect,
@@ -26,7 +28,7 @@ import {
 import { Button, Checkbox, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
-import { pickAttachmentFiles, request } from "../../tauri";
+import { attachmentImage, pickAttachmentFiles, request } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
 import { type Added, addFiles, addPaths, clipboardFiles, thumbnailOf } from "./attachmentAdding";
@@ -36,6 +38,7 @@ import {
   type FileAttachment,
   type PastedAttachment,
   pasteAction,
+  type PostedAttachment,
   withAdded,
   withoutAttachment,
   withPasted,
@@ -118,6 +121,45 @@ function FileChip({
   );
 }
 
+/** One of an edited comment's own attachments (tuq 008): its thumbnail (loaded by its numbers) or icon, name, size, ✕. */
+function PostedChip({
+  ticket,
+  posted,
+  view,
+  onRemove,
+}: {
+  ticket: string;
+  posted: PostedAttachment;
+  view: CommentBoxView;
+  onRemove: () => void;
+}) {
+  return (
+    <span className="comment-chip" data-file data-posted data-image={posted.image || undefined}>
+      <span className="comment-chip-open" data-static>
+        {posted.image ? (
+          <img
+            className="comment-chip-thumb"
+            src={attachmentImage(ticket, posted.n, posted.attachment)}
+            alt=""
+          />
+        ) : (
+          <Icon name="file-text" size={13} />
+        )}
+        <span className="comment-chip-label">{posted.name}</span>
+        <span className="comment-chip-size">{posted.size}</span>
+      </span>
+      <button
+        type="button"
+        className="comment-chip-remove"
+        aria-label={`${view.remove_file} ${posted.name}`}
+        onClick={onRemove}
+      >
+        <Icon name="x" size={13} />
+      </button>
+    </span>
+  );
+}
+
 export interface CommentBoxProps {
   /** The ticket it comments on (Open on the chip names it). */
   ticket: string;
@@ -134,6 +176,10 @@ export interface CommentBoxProps {
   /** "Also tell the agent now" ticked; shown only when the view has the tick box (d0123). */
   tellAgent?: boolean;
   onTellAgent?: (tell: boolean) => void;
+  /** Buttons at the end of the box's row instead of its own (an edit's Cancel · Save, tuq 008). */
+  actions?: ReactNode;
+  /** Esc: an edit's Cancel. */
+  onCancel?: () => void;
 }
 
 export function CommentBox({
@@ -147,6 +193,8 @@ export function CommentBox({
   ref,
   tellAgent = true,
   onTellAgent,
+  actions,
+  onCancel,
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
@@ -225,6 +273,12 @@ export function CommentBox({
     change(withPasted(value, text, one));
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
+    if (e.key === "Escape" && onCancel) {
+      e.preventDefault();
+      e.stopPropagation();
+      onCancel();
+      return;
+    }
     if (!isSaveKey(e)) return;
     e.preventDefault();
     // The dialog around it or the sheet acts on none of it.
@@ -258,28 +312,19 @@ export function CommentBox({
       />
       {value.attachments.length > 0 && (
         <div className="comment-box-chips">
-          {value.attachments.map((a) =>
-            a.kind === "file" ? (
-              <FileChip
-                key={a.id}
-                file={a}
-                view={view}
-                onRemove={() => {
-                  remove(a.id);
-                }}
-              />
-            ) : (
-              <PastedChip
-                key={a.id}
-                ticket={ticket}
-                pasted={a}
-                view={view}
-                onRemove={() => {
-                  remove(a.id);
-                }}
-              />
-            ),
-          )}
+          {value.attachments.map((a) => {
+            const onRemove = () => {
+              remove(a.id);
+            };
+            switch (a.kind) {
+              case "file":
+                return <FileChip key={a.id} file={a} view={view} onRemove={onRemove} />;
+              case "pasted":
+                return <PastedChip key={a.id} ticket={ticket} pasted={a} view={view} onRemove={onRemove} />;
+              case "posted":
+                return <PostedChip key={a.id} ticket={ticket} posted={a} view={view} onRemove={onRemove} />;
+            }
+          })}
         </div>
       )}
       <div className="comment-box-actions">
@@ -308,6 +353,7 @@ export function CommentBox({
         {view.tell_agent !== null && onTellAgent && (
           <Checkbox checked={tellAgent} label={view.tell_agent} onChange={onTellAgent} />
         )}
+        {actions}
         {view.submit !== null && (
           <>
             <Kbd keys={SAVE_KEYS} />

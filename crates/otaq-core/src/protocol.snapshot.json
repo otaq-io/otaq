@@ -8056,6 +8056,10 @@
         "n": {
           "ty": "u32",
           "required": true
+        },
+        "removed": {
+          "ty": "bool",
+          "omittable": true
         }
       }
     },
@@ -10939,9 +10943,17 @@
     "TicketCommentEditParams": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "body": {
           "ty": "String",
           "required": true
+        },
+        "keep_body": {
+          "ty": "bool",
+          "omittable": true
         },
         "key": {
           "ty": "String",
@@ -10950,6 +10962,10 @@
         "n": {
           "ty": "u32",
           "required": true
+        },
+        "remove": {
+          "ty": "Vec<u32>",
+          "omittable": true
         }
       }
     },

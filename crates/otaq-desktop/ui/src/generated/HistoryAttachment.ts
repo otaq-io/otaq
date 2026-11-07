@@ -9,4 +9,8 @@ export type HistoryAttachment = {
 /**
  * The comment's number.
  */
-n: number, chip: CommentAttachmentChip, };
+n: number, chip: CommentAttachmentChip, 
+/**
+ * On an edit's row (tuq 008): "Removed" or "Added", by the chip.
+ */
+change: string | null, };

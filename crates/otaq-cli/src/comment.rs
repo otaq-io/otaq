@@ -1,7 +1,8 @@
 //! Ticket comments and their attachments from the command line (CMT-06, d0109; tuq 001, 002, 006): `otaq comment
 //! [KEY] --stdin [--report-file PATH]… [--tell-agent]` posts a comment for the next stage's agent, with any number of
 //! files of any type (and, with `--tell-agent`, tells the running one to read it, d0123), `otaq comment edit [KEY] <N>
-//! --stdin` and `otaq comment delete [KEY] <N>` change one, `otaq comments [KEY]` lists them, and `otaq report [KEY]
+//! [--stdin] [--report-file PATH]… [--remove-attachment A]…` changes one's text and attachments together (tuq 008:
+//! without `--stdin` it keeps its text), `otaq comment delete [KEY] <N>` deletes one, `otaq comments [KEY]` lists them, and `otaq report [KEY]
 //! <N> [--attachment A]` prints a text attachment of comment N (`--path`: only its file, so an agent can `grep` it
 //! without loading it; an image or other file is never printed, only its path). They work on `$OTAQ_TICKET` unless a
 //! key is given; the service judges who may write (CMT-04).
@@ -61,14 +62,23 @@ pub struct CommentArgs {
 
 #[derive(Debug, Subcommand)]
 pub enum CommentCommand {
-    /// Change comment N's text, read from stdin (an agent: only its own comments)
+    /// Change comment N: its text, read from stdin, and its attachments, added and removed together (an agent: only
+    /// its own comments). It must keep text or an attachment
     Edit {
         /// [KEY] N: SHOP-34 2, or 2 on $OTAQ_TICKET
         #[arg(value_name = "KEY", num_args = 1..=2, required = true)]
         args: Vec<String>,
-        /// Read the new text from stdin
+        /// Read the new text from stdin (it may be empty while the comment keeps an attachment). Without it, the text
+        /// stays
         #[arg(long)]
         stdin: bool,
+        /// Attach a file to the comment (any type, at most 20 MB each); repeat it for each file
+        #[arg(long, value_name = "PATH")]
+        report_file: Vec<PathBuf>,
+        /// Remove attachment A from the comment, by its number (1, 2, 3…, as `otaq comments` lists them); repeat it for
+        /// each. History keeps what was removed
+        #[arg(long, value_name = "A")]
+        remove_attachment: Vec<u32>,
     },
     /// Delete comment N: later agents won't read it; History keeps what it said (an agent: only its own)
     Delete {
@@ -145,7 +155,12 @@ fn comment_reply(reply: Reply) -> Result<TicketComment, ErrorBody> {
 
 pub fn comment(args: CommentArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     match args.command {
-        Some(CommentCommand::Edit { args, stdin }) => edit(args, stdin, global, out),
+        Some(CommentCommand::Edit {
+            args,
+            stdin,
+            report_file,
+            remove_attachment,
+        }) => edit(args, stdin, report_file, remove_attachment, global, out),
         Some(CommentCommand::Delete { args }) => delete(args, global, out),
         None => post(
             args.key,
@@ -215,25 +230,84 @@ fn post(
     Ok(())
 }
 
-/// `otaq comment edit [KEY] <N> --stdin`.
+/// `otaq comment edit [KEY] <N> [--stdin] [--report-file PATH]… [--remove-attachment A]…` (tuq 008).
 fn edit(
     args: Vec<String>,
     stdin: bool,
+    report_files: Vec<PathBuf>,
+    remove: Vec<u32>,
     global: &GlobalArgs,
     out: &Output,
 ) -> Result<(), ErrorBody> {
     let (key, n) = key_and_n(args)?;
+    if !stdin && report_files.is_empty() && remove.is_empty() {
+        return Err(usage(
+            "say what changes: the new text with --stdin, files to add with --report-file, attachments to remove \
+             with --remove-attachment",
+        ));
+    }
+    if remove.contains(&0) {
+        return Err(usage("0 isn't an attachment's number (1, 2, 3…)"));
+    }
+    // Every file is checked before anything is read or sent: a missing one changes nothing (CMT-06).
+    let attachments = report_sources(report_files)?;
+    let added = attachments.len();
     let body = read_stdin(stdin)?;
     let (key, reply) = send(key, global, |key| {
-        Request::TicketCommentEdit(TicketCommentEditParams { key, n, body })
+        Request::TicketCommentEdit(TicketCommentEditParams {
+            key,
+            n,
+            body,
+            keep_body: !stdin,
+            remove: remove.clone(),
+            attachments,
+        })
     })?;
     let comment = comment_reply(reply)?;
     out.print(
-        &format!("Edited comment {n} on {key}."),
+        &edited_line(&key, &comment, &remove, added),
         &with_key(&key, &comment),
         Some(&n.to_string()),
     );
     Ok(())
+}
+
+/// "Edited comment 2 on SHOP-34.", "Edited comment 2 on SHOP-34: removed attachment 1, added fixed.png (120 KB)." The
+/// added attachments are the comment's last `added` (they take the next numbers).
+fn edited_line(key: &TicketKey, comment: &TicketComment, remove: &[u32], added: usize) -> String {
+    let mut changes = Vec::new();
+    let mut removed: Vec<u32> = Vec::new();
+    for a in remove {
+        if !removed.contains(a) {
+            removed.push(*a);
+        }
+    }
+    match removed.as_slice() {
+        [] => {}
+        [one] => changes.push(format!("removed attachment {one}")),
+        many => changes.push(format!(
+            "removed attachments {}",
+            many.iter()
+                .map(u32::to_string)
+                .collect::<Vec<_>>()
+                .join(", ")
+        )),
+    }
+    let new = &comment.attachments[comment.attachments.len().saturating_sub(added)..];
+    if let Some(with) =
+        otaq_core::board::reports::with_attachments(new.iter().map(|a| (a.name.as_str(), a.bytes)))
+    {
+        // "with fixed.png (120 KB)" → "added fixed.png (120 KB)".
+        changes.push(format!("added {}", with.trim_start_matches("with ")));
+    }
+    match changes.is_empty() {
+        true => format!("Edited comment {} on {key}.", comment.n),
+        false => format!(
+            "Edited comment {} on {key}: {}.",
+            comment.n,
+            changes.join(", ")
+        ),
+    }
 }
 
 /// `otaq comment delete [KEY] <N>`.

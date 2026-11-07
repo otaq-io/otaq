@@ -9,8 +9,13 @@
 // (`sentAttachments`): pasted text, and files picked with Attach, dropped, or pasted (a screenshot, files copied in
 // Finder), each sent by its path. A box that holds one report (the New ticket form's, RPT-03: `CommentBoxView.attach`
 // is null) keeps only the last one added (`withAdded`).
+//
+// Editing a posted comment uses the same box (tuq 008): it starts with the comment's text and its attachments as
+// `posted` chips (`editBox`); ✕ removes one, paste, drop and Attach add new ones, and Save sends the text with the
+// numbers of the posted ones gone and the new ones (`editChanges`), together.
 import type { CommentAttachmentParams } from "../../generated/CommentAttachmentParams";
 import type { CommentLimits } from "../../generated/CommentLimits";
+import type { CommentRow } from "../../generated/CommentRow";
 import type { OverviewFileChip } from "../../generated/OverviewFileChip";
 
 /** A paste kept as one of the comment's attachments ("Pasted text"): its text and its size in UTF-8 bytes. */
@@ -39,7 +44,24 @@ export interface FileAttachment {
   thumb: string | null;
 }
 
-export type BoxAttachment = PastedAttachment | FileAttachment;
+/**
+ * An attachment the comment being edited already has (tuq 008), by its numbers: kept unless its ✕ removes it, which
+ * Save sends as its number. An image shows its thumbnail, loaded like the thread's.
+ */
+export interface PostedAttachment {
+  kind: "posted";
+  id: number;
+  /** The comment's number. */
+  n: number;
+  /** The attachment's number in it. */
+  attachment: number;
+  name: string;
+  /** "120 KB". */
+  size: string;
+  image: boolean;
+}
+
+export type BoxAttachment = PastedAttachment | FileAttachment | PostedAttachment;
 
 /** What the box holds: the typed text and its attachments, in the order they were added. */
 export interface BoxValue {
@@ -98,11 +120,74 @@ export function withThumb(value: BoxValue, id: number, thumb: string): BoxValue 
   };
 }
 
-/** What the box sends (`ticket_comments.post`, the dialogs' requests): each attachment by its path or its text. */
+/**
+ * What the box sends (`ticket_comments.post`, the dialogs' requests, an edit's new ones): each new attachment by its
+ * path or its text; one the comment already has isn't sent again.
+ */
 export function sentAttachments(value: BoxValue): CommentAttachmentParams[] {
-  return value.attachments.map((a) =>
-    a.kind === "file" ? { kind: "file", path: a.path } : { kind: "pasted", text: a.text },
-  );
+  return value.attachments.flatMap((a): CommentAttachmentParams[] => {
+    switch (a.kind) {
+      case "file":
+        return [{ kind: "file", path: a.path }];
+      case "pasted":
+        return [{ kind: "pasted", text: a.text }];
+      case "posted":
+        return [];
+    }
+  });
+}
+
+/** A posted comment's attachments as the edit box's chips, in their order (images and the rest, by number). */
+export function postedAttachments(
+  row: Pick<CommentRow, "n" | "thumbnails" | "attachments">,
+): PostedAttachment[] {
+  const images = row.thumbnails.map((t): PostedAttachment => ({
+    kind: "posted",
+    id: nextId(),
+    n: row.n,
+    attachment: t.attachment,
+    name: t.name,
+    size: t.size,
+    image: true,
+  }));
+  const others = row.attachments.map((c): PostedAttachment => ({
+    kind: "posted",
+    id: nextId(),
+    n: row.n,
+    attachment: c.attachment,
+    name: c.name,
+    // The thread's chip says "· 48 KB"; the box's say "48 KB".
+    size: c.size.replace(/^\u00b7\s*/, ""),
+    image: false,
+  }));
+  return [...images, ...others].sort((a, b) => a.attachment - b.attachment);
+}
+
+/** The edit box of a posted comment (tuq 008): its text and its attachments. */
+export function editBox(row: Pick<CommentRow, "n" | "body" | "thumbnails" | "attachments">): BoxValue {
+  return { text: row.body, attachments: postedAttachments(row) };
+}
+
+/** What Save sends for the comment being edited (tuq 008), and whether anything changed at all. */
+export interface EditChanges {
+  /** The numbers of the attachments it had that the box no longer holds. */
+  remove: number[];
+  /** The new ones. */
+  attachments: CommentAttachmentParams[];
+  changed: boolean;
+}
+
+export function editChanges(
+  row: Pick<CommentRow, "n" | "body" | "thumbnails" | "attachments">,
+  value: BoxValue,
+): EditChanges {
+  const kept = new Set(value.attachments.flatMap((a) => (a.kind === "posted" ? [a.attachment] : [])));
+  const remove = postedAttachments(row)
+    .map((a) => a.attachment)
+    .filter((a) => !kept.has(a));
+  const attachments = sentAttachments(value);
+  const changed = value.text.trim() !== row.body || remove.length > 0 || attachments.length > 0;
+  return { remove, attachments, changed };
 }
 
 /** Unicode characters (code points), as the service counts them. */

@@ -287,6 +287,127 @@ async fn a_comment_of_only_a_file_posts() {
     w.stop().await;
 }
 
+/// tuq 008: `otaq comment edit --remove-attachment A --report-file PATH` removes one attachment and adds another in one
+/// change, keeping the text without `--stdin`; the removed file stays and the user still opens it by its number; an
+/// edit that would leave neither text nor an attachment, an attachment the comment hasn't got and an edit that says
+/// nothing are refused.
+#[tokio::test(flavor = "multi_thread")]
+async fn comment_edit_removes_and_adds_attachments() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let png: Vec<u8> = [b"\x89PNG\r\n\x1a\n".as_slice(), &[0, 0, 0, 13], b"IHDR"].concat();
+    std::fs::write(w.home.path().join("shot.png"), &png).unwrap();
+    std::fs::write(w.home.path().join("run.txt"), "test limit ... FAILED\n").unwrap();
+    std::fs::write(w.home.path().join("fixed.png"), &png).unwrap();
+    stdout(&cb(
+        &w,
+        &[
+            "comment",
+            "SHOP-1",
+            "--stdin",
+            "--report-file",
+            "shot.png",
+            "--report-file",
+            "run.txt",
+        ],
+        Some("The badge, before."),
+    ));
+    let before = json(&cb(&w, &["comments", "SHOP-1", "--json"], None));
+    let shot = before["comments"][0]["attachments"][0]["path"]
+        .as_str()
+        .unwrap()
+        .to_owned();
+
+    let edited = cb(
+        &w,
+        &[
+            "comment",
+            "edit",
+            "SHOP-1",
+            "1",
+            "--remove-attachment",
+            "1",
+            "--report-file",
+            "fixed.png",
+        ],
+        None,
+    );
+    assert_eq!(
+        stdout(&edited).trim(),
+        format!(
+            "Edited comment 1 on SHOP-1: removed attachment 1, added fixed.png ({} bytes).",
+            png.len()
+        )
+    );
+    let after = json(&cb(&w, &["comments", "SHOP-1", "--json"], None));
+    let comment = &after["comments"][0];
+    assert_eq!(comment["body"], "The badge, before.");
+    let seen: Vec<(u64, &str)> = comment["attachments"]
+        .as_array()
+        .unwrap()
+        .iter()
+        .map(|a| (a["n"].as_u64().unwrap(), a["name"].as_str().unwrap()))
+        .collect();
+    assert_eq!(seen, [(2, "run.txt"), (3, "fixed.png")]);
+    // The removed file stays, and the user still opens it by its number (History); `comments` no longer lists it.
+    assert_eq!(std::fs::read(&shot).unwrap(), png);
+    assert_eq!(
+        stdout(&cb(
+            &w,
+            &["report", "SHOP-1", "1", "--attachment", "1", "--path"],
+            None
+        ))
+        .trim(),
+        shot
+    );
+    assert!(!stdout(&cb(&w, &["comments", "SHOP-1"], None)).contains("shot.png"));
+
+    // Neither text nor an attachment left: refused, nothing changes.
+    let refused = cb(
+        &w,
+        &[
+            "comment",
+            "edit",
+            "SHOP-1",
+            "1",
+            "--stdin",
+            "--remove-attachment",
+            "2",
+            "--remove-attachment",
+            "3",
+        ],
+        Some(" "),
+    );
+    assert!(!refused.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&refused.stderr).trim(),
+        "error: Write the comment first"
+    );
+    // One it no longer has.
+    let gone = cb(
+        &w,
+        &["comment", "edit", "SHOP-1", "1", "--remove-attachment", "1"],
+        None,
+    );
+    assert!(!gone.status.success());
+    assert_eq!(
+        String::from_utf8_lossy(&gone.stderr).trim(),
+        "error: SHOP-1's comment 1 has no attachment 1"
+    );
+    // Nothing to change.
+    let nothing = cb(&w, &["comment", "edit", "SHOP-1", "1"], None);
+    assert!(!nothing.status.success());
+    assert_eq!(
+        json(&cb(&w, &["comments", "SHOP-1", "--json"], None))["comments"][0]["attachments"]
+            .as_array()
+            .unwrap()
+            .len(),
+        2
+    );
+    w.stop().await;
+}
+
 /// Files in the data folder under `dir`, recursively.
 fn files_under(dir: &std::path::Path) -> Vec<std::path::PathBuf> {
     let mut out = Vec::new();
