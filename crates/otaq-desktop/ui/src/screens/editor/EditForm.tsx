@@ -58,6 +58,12 @@ export function EditForm({ view, onDone }: { view: EditorView; onDone: (note: st
   return (
     <div ref={root} className="editor-tab-form">
       <div ref={scroll} className="editor-tab-scroll">
+        {/* While its agent works: it reads the edit the next time it is idle. */}
+        {view.save_hint !== null && (
+          <p className="editor-save-hint" role="status">
+            {view.save_hint}
+          </p>
+        )}
         {view.save_warning !== null && (
           <div className="editor-warning" role="status">
             <Icon name="triangle-alert" size={14} />
@@ -81,7 +87,6 @@ export function EditForm({ view, onDone }: { view: EditorView; onDone: (note: st
           <Kbd keys="esc" />
           <span>{t.discard_word}</span>
         </span>
-        {view.save_hint !== null && <span className="editor-save-hint">{view.save_hint}</span>}
         {view.unsaved_warning !== null && bodyChanged && (
           <span className="editor-unsaved">
             <Icon name="pencil" size={11} />

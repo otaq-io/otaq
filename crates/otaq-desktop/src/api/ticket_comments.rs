@@ -70,7 +70,7 @@ pub struct PostParams {
     pub body: String,
     #[serde(default)]
     pub attachments: Vec<Sent>,
-    /// "Also tell the agent now" ticked (d0123).
+    /// The user picked "Tell <agent> now": the running agent also gets it, once idle (d0123).
     #[serde(default)]
     pub tell_agent: bool,
 }

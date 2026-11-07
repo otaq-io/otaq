@@ -1,6 +1,6 @@
 // The gallery's Session and Activity (T-0466; canvas `s25-06`, `s25-07`): the switch in each state (Agent working,
-// waiting for you; the check's agent running and waiting; Run up, failed), the agent's line and Run's line, and
-// Activity's filters over a short story. The words are `session_tab.rs`' and `history.rs`' for the example tickets.
+// waiting for you; the check stage running and waiting; Run up, failed), the agent's line and Run's line, and
+// History's filters over a short story. The words are `session_tab.rs`' and `history.rs`' for the example tickets.
 import { useState } from "react";
 
 import type { HistoryView } from "../../generated/HistoryView";
@@ -34,7 +34,7 @@ const SWITCHES: {
     caption: "SHOP-30 · validating: the Checker runs",
     parts: [
       part("agent", "Agent"),
-      part("check", "Checker", "running"),
+      part("check", "Validate", "running"),
       part("run", "Run"),
       part("shell", "Terminal"),
     ],
@@ -46,7 +46,7 @@ const SWITCHES: {
     caption: "SHOP-19 · in Security: the Security reviewer asks you",
     parts: [
       part("agent", "Agent"),
-      part("check", "Security reviewer", "waiting"),
+      part("check", "Security", "waiting"),
       part("run", "Run"),
       part("shell", "Terminal"),
     ],
@@ -85,8 +85,12 @@ const row = (
   title,
   detail,
   when,
+  who: mark.kind === "you" ? `you · ${when}` : mark.kind === "otaq" ? `Otaq · ${when}` : when,
   cost,
   tool_session_id: null,
+  quiet: false,
+  short_id: null,
+  range: null,
   mark,
   opens:
     kind === "description"
@@ -109,12 +113,21 @@ const row = (
   kind,
 });
 
+/** An agent session's quiet row: its id copyable, its times. */
+const session = (when: string, title: string, id: string, range: string): HistoryView["rows"][number] => ({
+  ...row(when, title, "session", "Claude Code · sonnet"),
+  tool_session_id: id,
+  quiet: true,
+  short_id: `${id.slice(0, 9)}…`,
+  range,
+});
+
 const ACTIVITY: HistoryView = {
   filters: [
     { filter: "all", label: "All", kind: null },
-    { filter: "comments", label: "Comments", kind: "comment" },
-    { filter: "stages", label: "Stages", kind: "stage" },
-    { filter: "description", label: "Description", kind: "description" },
+    { filter: "questions", label: "Questions", kind: "question" },
+    { filter: "checks", label: "Checks", kind: "check" },
+    { filter: "sessions", label: "Sessions", kind: "session" },
   ],
   order: "newest first",
   copy_hint: "Copy session ID",
@@ -123,22 +136,20 @@ const ACTIVITY: HistoryView = {
   total: null,
   key: "SHOP-22",
   rows: [
-    row("2:23 pm", "Interrupted by restart", "stage", "conversation saved", { kind: "otaq" }),
+    row("2:23 pm", "Interrupted by restart", "session", "conversation saved", { kind: "otaq" }),
     row("2:20 pm", "You commented", "comment", "“Don’t touch the auth middleware’s public API.”", {
       kind: "you",
     }),
     row("2:16 pm", "Moved to Dev", "stage", "Product spec passed", { kind: "you" }),
-    row(
-      "2:16 pm",
-      "Product spec finished · Spec writer",
-      "stage",
-      null,
-      { kind: "agent" },
-      "· 11 min · 38k tokens",
-    ),
+    row("2:15 pm", "Question answered · keep the old session cookie", "question", null, { kind: "you" }),
     row("2:14 pm", "Spec writer · Product spec commented", "comment", "“Repro: 18 of 20 pass on Safari…”"),
     row("2:14 pm", "Spec writer · Product spec edited the description · added 2 lines", "description"),
-    row("2:05 pm", "Product spec started · Spec writer", "stage", "Claude Code · sonnet"),
+    session(
+      "2:05 pm",
+      "Session · Product spec · Spec writer",
+      "8b2f61d3-4c1e-4a7b-9f00-1d2e3f4a5b6c",
+      "2:05 pm–2:16 pm",
+    ),
     row("2:02 pm", "You created the ticket", "other", null, { kind: "you" }),
   ],
 };

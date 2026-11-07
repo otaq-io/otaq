@@ -8,6 +8,6 @@ import type { CommentAttachmentParams } from "./CommentAttachmentParams";
  */
 export type CommentPostParams = { key: string, body: string, attachments: Array<CommentAttachmentParams>, 
 /**
- * "Also tell the agent now" ticked (d0123).
+ * The user picked "Tell <agent> now": the running agent also gets it, once idle (d0123).
  */
 tell_agent: boolean, };

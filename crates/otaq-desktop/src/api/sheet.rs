@@ -374,8 +374,8 @@ pub struct View {
     /// The first parent, for View parent.
     pub parent: Option<String>,
     pub menu: Vec<MenuItem>,
-    /// `otaq attach SHOP-19`, for Copy attach command.
-    pub attach_command: String,
+    /// What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
+    pub ask_noyan: String,
     pub answer: Option<Answer>,
     pub notice: Option<Notice>,
     pub conflict: Option<ConflictStrip>,
@@ -653,17 +653,8 @@ pub fn view_of(f: &Facts) -> View {
         }),
         buttons,
         parent: ticket.depends_on.first().map(ToString::to_string),
-        menu: actions::menu(
-            ticket,
-            has_branch,
-            !f.sessions.is_empty(),
-            f.skippable_check,
-        ),
-        attach_command: format!(
-            "{} attach {}",
-            otaq_core::naming::COMMAND_NAME,
-            ticket.key
-        ),
+        menu: actions::menu(ticket, has_branch, f.skippable_check),
+        ask_noyan: actions::ask_noyan_draft(&ticket.key),
         answer: answer_of(ticket),
         notice: notice_of(ticket, f.tickets),
         conflict: f
@@ -2217,12 +2208,10 @@ mod tests {
         assert_eq!(view.sheet.tabs[0].contents, [Content::Overview]);
         assert_eq!(view.sheet.opens_on, SheetTab::Overview);
         assert!(view.live_agent);
-        assert_eq!(
-            view.attach_command,
-            format!("{} attach SHOP-19", otaq_core::naming::COMMAND_NAME)
-        );
+        assert_eq!(view.ask_noyan, "About SHOP-19: ");
         let ids: Vec<&str> = view.menu.iter().map(|m| m.id.as_str()).collect();
-        assert!(ids.contains(&"copy-attach") && ids.contains(&close::CLOSE_TICKET));
+        assert!(ids.contains(&"ask-noyan") && ids.contains(&close::CLOSE_TICKET));
+        assert!(!ids.contains(&"copy-attach"), "the attach command is on Session's strip");
         assert_eq!(view.base, "main");
 
         let mut unknown = fixture("SHOP-30", "New", Status::Backlog);

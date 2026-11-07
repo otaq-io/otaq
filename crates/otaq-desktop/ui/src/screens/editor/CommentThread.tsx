@@ -295,6 +295,7 @@ function Comment({
         <span className="comment-author">{row.author}</span>
         <span className="comment-meta">{editing ? row.editing_meta : row.meta}</span>
         {row.edited !== null && !editing && <span className="comment-meta">{row.edited}</span>}
+        {row.told !== null && <span className="comment-meta comment-told">{row.told}</span>}
         <span className="editor-spacer" />
         {!editing && <MoreMenu view={view} row={row} onChoose={choose} />}
       </div>
@@ -372,8 +373,6 @@ export function CommentThread({ ticket }: TicketProps) {
   const [error, setError] = useState<string | null>(null);
   const [editing, setEditing] = useState<number | null>(null);
   const [deleting, setDeleting] = useState<number | null>(null);
-  // "Also tell the agent now" (d0123): ticked by default, as the user leaves it while the thread shows.
-  const [tellAgent, setTellAgent] = useState(true);
   const box = useRef<HTMLTextAreaElement>(null);
   const attach = useStore(attachRequests);
   useEffect(() => {
@@ -388,14 +387,15 @@ export function CommentThread({ ticket }: TicketProps) {
     box.current?.focus();
   }, [attach, ticket, view]);
   if (view?.key !== ticket) return null;
-  const post = () => {
+  // Comment: the next stage reads it. Tell <agent> now (`tell`): the running agent also gets it, only by that choice.
+  const post = (tell: boolean) => {
     setBusy(true);
     setError(null);
     request("ticket_comments.post", {
       key: ticket,
       body: value.text,
       attachments: sentAttachments(value),
-      tell_agent: view.box.tell_agent !== null && tellAgent,
+      tell_agent: tell && view.box.tell_agent !== null,
     }).then(
       () => {
         setBusy(false);
@@ -423,12 +423,15 @@ export function CommentThread({ ticket }: TicketProps) {
           setValue(next);
           setError(null);
         }}
-        onSubmit={post}
+        onSubmit={() => {
+          post(false);
+        }}
+        onTell={() => {
+          post(true);
+        }}
         busy={busy}
         error={error}
         ref={box}
-        tellAgent={tellAgent}
-        onTellAgent={setTellAgent}
       />
       {view.comments.map((row) => (
         <Comment

@@ -2287,9 +2287,10 @@ async fn queue_change_note(shared: &Shared, before: &Ticket, after: &Ticket, act
     }
 }
 
-/// d0123: the user's comment posted with "Also tell the agent now" queues one line for the session running on its
-/// ticket now (its check's while checking, else its agent's), typed when it is idle with an empty input line (0048).
-/// Not a hand-off: nothing waits for the agent to pick it up. No running session: nothing.
+/// d0123: the user's comment posted with "Tell <agent> now" queues one line for the session running on its ticket now
+/// (its check's while checking, else its agent's), typed when it is idle with an empty input line (0048), and the
+/// comment records the agent told ("· told Strong now"). Not a hand-off: nothing waits for the agent to pick it up. No
+/// running session: nothing, and the comment says nothing was told.
 async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
     let Ok(ticket) = shared.board.ticket(key).await else {
         return;
@@ -2305,6 +2306,13 @@ async fn tell_running_agent(shared: &Shared, key: &str, n: u32) {
         .await
     {
         tracing::warn!(ticket = %ticket.key, error = %e, "can't queue the comment's line");
+        return;
+    }
+    let agent = session
+        .agent
+        .map_or_else(|| "the agent".to_owned(), |a| a.name);
+    if let Err(e) = shared.board.mark_comment_told(key, n, &agent).await {
+        tracing::warn!(ticket = %ticket.key, error = %e, "can't mark the comment told");
     }
 }
 
@@ -2384,9 +2392,17 @@ async fn ticket_comment_request(
             let posted = board
                 .post_ticket_comment(&p.key, &author, &p.body, p.attachments, actor)
                 .await?;
-            if p.tell_agent && matches!(author, CommentAuthor::User { .. }) {
+            // Only the user's pick of "Tell <agent> now" reaches the running agent; a plain comment waits for the
+            // next stage.
+            let posted = if p.tell_agent && matches!(author, CommentAuthor::User { .. }) {
                 tell_running_agent(shared, &p.key, posted.n).await;
-            }
+                board
+                    .ticket_comment(&p.key, posted.n)
+                    .await
+                    .unwrap_or(posted)
+            } else {
+                posted
+            };
             (p.key, posted)
         }
         Request::TicketCommentEdit(p) => {

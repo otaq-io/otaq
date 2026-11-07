@@ -15,8 +15,9 @@ label: string | null, placeholder: string,
  */
 submit: string | null, 
 /**
- * The quiet line under it: "Read by the next stage's agent" while an agent works (the tick box beside it says
- * whether the running one is told too, d0123), a dialog's "Posted as a comment for Dev · every later stage reads it".
+ * The quiet line under it: while an agent works, what each button does ("Comment: the next stage reads it. Tell
+ * Strong now: Strong also gets it while it works."); a dialog's "Posted as a comment for Dev · every later stage
+ * reads it".
  */
 footer: string | null, 
 /**
@@ -54,7 +55,7 @@ attach_title: string,
  */
 optional: boolean, limits: CommentLimits, 
 /**
- * The tick box's label, "Also tell the agent now", only in the thread's box while the ticket's agent or check
- * runs (d0123); ticked by default. Ticked, the post sends `tell_agent`.
+ * The second button, "Tell Strong now", only in the thread's box while the ticket's agent or check runs: it posts
+ * the comment with `tell_agent`, so the running agent also gets it when it is idle. Comment (and ⌘↵) never does.
  */
 tell_agent: string | null, };

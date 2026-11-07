@@ -188,6 +188,39 @@ export function newProjectAgent(
   return true;
 }
 
+/** Words for the empty agent panel's box, by project key: what Ask Noyan about this puts there. Taken once. */
+export const agentPanelDrafts: Store<Readonly<Record<string, string>>> = createStore<
+  Readonly<Record<string, string>>
+>({});
+
+/** Takes `project`'s waiting words for the empty panel's box, once; `null` when none wait. */
+export function takeAgentPanelDraft(
+  project: string,
+  drafts: Store<Readonly<Record<string, string>>> = agentPanelDrafts,
+): string | null {
+  const text = drafts.get()[project];
+  if (text === undefined) return null;
+  drafts.set(Object.fromEntries(Object.entries(drafts.get()).filter(([key]) => key !== project)));
+  return text;
+}
+
+/**
+ * A ticket's ⋯ Ask Noyan about this: the empty agent panel (a new conversation) with its box addressed to the ticket
+ * ("About SHOP-19: ") and focused. Nothing is asked of the service, so nothing starts until the user sends words (d0087);
+ * earlier conversations continue from the panel's switcher.
+ */
+export function askNoyanAbout(
+  draft: string,
+  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
+  starts: Store<StartOn> = startOn,
+  drafts: Store<Readonly<Record<string, string>>> = agentPanelDrafts,
+): boolean {
+  const { project } = routes.selection.get();
+  if (project === null) return false;
+  drafts.update((d) => ({ ...d, [project]: draft }));
+  return newProjectAgent(routes, starts);
+}
+
 /**
  * A strip item or an OS notification of a Project agent: its project on screen, the agent
  * in the panel (opened) and its terminal focused (PAG-07, ATT-03: the focus clears its wait).

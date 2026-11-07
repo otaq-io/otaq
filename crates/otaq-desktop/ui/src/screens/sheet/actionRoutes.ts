@@ -90,7 +90,10 @@ export function agentSettings(agent: string | null): { section: "agents"; agent?
 export type MenuRoute =
   | { kind: "edit" }
   | { kind: "service" }
-  | { kind: "copy"; what: "branch" | "attach" }
+  // Copy branch name.
+  | { kind: "copy" }
+  // Ask Noyan about this: Noyan's panel on a new conversation addressed to the ticket; nothing starts before words.
+  | { kind: "ask_noyan" }
   | { kind: "overlay"; id: "close_ticket" | "submit_for_review" | "delete_ticket" }
   | { kind: "unknown" };
 
@@ -108,9 +111,9 @@ export function menuRoute(item: string): MenuRoute {
     case "validate-and-submit":
       return { kind: "service" };
     case "copy-branch":
-      return { kind: "copy", what: "branch" };
-    case "copy-attach":
-      return { kind: "copy", what: "attach" };
+      return { kind: "copy" };
+    case "ask-noyan":
+      return { kind: "ask_noyan" };
     case CLOSE_TICKET:
       return { kind: "overlay", id: "close_ticket" };
     case "submit-for-review":

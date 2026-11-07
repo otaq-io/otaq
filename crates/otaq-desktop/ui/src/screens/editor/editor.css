@@ -140,9 +140,11 @@
   background: var(--bg-panel);
 }
 
+/* Over the form while its agent works: "SHOP-27's agent reads your edit the next time it's idle." */
 .editor-save-hint {
-  color: var(--st-working);
-  font: 400 11px var(--font-ui);
+  margin: 0 0 12px;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
 }
 
 /* *08 → Editing while it validates*: the warning above the form, and "unsaved · saving cancels the validation". */
