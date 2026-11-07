@@ -217,6 +217,29 @@ pub fn display_name(source: &ReportSource) -> String {
     source_name(source).unwrap_or_else(|| PASTED_TEXT.to_owned())
 }
 
+/// `name` made unique among `taken` (the names a comment's attachments already have), so one comment never has two
+/// attachments of the same name: `name` itself when it is free, else " 2", " 3"… before its extension ("shot 2.png",
+/// "Pasted text 2", "notes 2"). The comment box names its chips by the same rule (`uniqueName` in the page's
+/// `commentRules.ts`), so a chip's name is the attachment's.
+pub fn unique_name<S: AsRef<str>>(name: &str, taken: &[S]) -> String {
+    let free = |candidate: &str| !taken.iter().any(|t| t.as_ref() == candidate);
+    if free(name) {
+        return name.to_owned();
+    }
+    let (stem, ext) = match name.rfind('.') {
+        Some(dot) if dot > 0 => name.split_at(dot),
+        _ => (name, ""),
+    };
+    let mut k = 2u32;
+    loop {
+        let candidate = format!("{stem} {k}{ext}");
+        if free(&candidate) {
+            return candidate;
+        }
+        k += 1;
+    }
+}
+
 /// The file pasted text is stored as, in its numbered folder.
 const PASTED_FILE: &str = "pasted-text.txt";
 
@@ -477,21 +500,31 @@ fn numbered_folder(folder: &Path, n: u32) -> PathBuf {
 }
 
 /// Copies every source into `folder` (`<folder>/<n>/<name>`), in order, numbered from `first` (1 for a new comment;
-/// after every number the comment ever had for an edit's additions, tuq 008). On any refusal what this call copied is
-/// removed (and the folder, once empty): nothing is left behind, and the comment's other files stay.
+/// after every number the comment ever had for an edit's additions, tuq 008). Each is named uniquely among `taken`
+/// (the names of the attachments the comment keeps, for an edit) and the ones before it ([`unique_name`]): two
+/// `shot.png` become `shot.png` and `shot 2.png`, and a file is stored under that name. On any refusal what this call
+/// copied is removed (and the folder, once empty): nothing is left behind, and the comment's other files stay.
 fn copy_all(
     sources: &[ReportSource],
+    taken: &[String],
     folder: &Path,
     root: &Path,
     first: u32,
 ) -> Result<Vec<StoredAttachment>, BoardError> {
     let mut made: Vec<PathBuf> = Vec::with_capacity(sources.len());
+    let mut taken = taken.to_vec();
     let copied = (|| {
         let mut files = Vec::with_capacity(sources.len());
         for (i, source) in sources.iter().enumerate() {
             let n = first.saturating_add(u32::try_from(i).unwrap_or(u32::MAX));
-            let name = display_name(source);
-            let file_name = source_name(source).unwrap_or_else(|| PASTED_FILE.to_owned());
+            // Refusals name the file as it was given.
+            let given = display_name(source);
+            let name = unique_name(&given, &taken);
+            taken.push(name.clone());
+            let file_name = match source {
+                ReportSource::Path(_) => name.clone(),
+                ReportSource::Text(_) => PASTED_FILE.to_owned(),
+            };
             let file_name = match file_name.as_str() {
                 "" | "." | ".." => PASTED_FILE.to_owned(),
                 _ => file_name,
@@ -499,7 +532,7 @@ fn copy_all(
             let numbered = numbered_folder(folder, n);
             made.push(numbered.clone());
             let path = numbered.join(&file_name);
-            let copied = copy_report(source, &name, &path)?;
+            let copied = copy_report(source, &given, &path)?;
             let kind = match source {
                 ReportSource::Text(_) => AttachmentKind::Text,
                 ReportSource::Path(_) => AttachmentKind::of(&name, copied.text),
@@ -551,7 +584,7 @@ impl Board {
             .map_err(|e| refused(format!("Can't store the report: {e}")))?;
         let root = self.data().root().to_path_buf();
         let dest = folder.clone();
-        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &dest, &root, 1))
+        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &[], &dest, &root, 1))
             .await
             .map_err(|e| refused(format!("Can't store the report: {e}")))??;
         Ok(Some(StoredAttachments {
@@ -576,14 +609,16 @@ impl Board {
     }
 
     /// Copies the attachments an edit adds to the posted comment `comment_id` on the ticket `key` (tuq 008), into its
-    /// folder, numbered from `first` (after every number it ever had, removed ones included): checked first like a new
-    /// comment's, refused by name before anything is copied. `None` without sources. On a failed edit
-    /// [`StoredAttachments::discard`] removes only these.
+    /// folder, numbered from `first` (after every number it ever had, removed ones included) and named uniquely among
+    /// `kept` (the names of the attachments the comment keeps): checked first like a new comment's, refused by name
+    /// before anything is copied. `None` without sources. On a failed edit [`StoredAttachments::discard`] removes only
+    /// these.
     pub async fn prepare_added_attachments(
         &self,
         key: &TicketKey,
         comment_id: &str,
         first: u32,
+        kept: Vec<String>,
         sources: Vec<ReportSource>,
     ) -> Result<Option<StoredAttachments>, BoardError> {
         if sources.is_empty() {
@@ -598,9 +633,10 @@ impl Board {
             .map_err(|e| refused(format!("Can't store the report: {e}")))?;
         let root = self.data().root().to_path_buf();
         let dest = folder.clone();
-        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &dest, &root, first))
-            .await
-            .map_err(|e| refused(format!("Can't store the report: {e}")))??;
+        let files =
+            tokio::task::spawn_blocking(move || copy_all(&sources, &kept, &dest, &root, first))
+                .await
+                .map_err(|e| refused(format!("Can't store the report: {e}")))??;
         Ok(Some(StoredAttachments {
             comment_id: comment_id.to_owned(),
             folder,
@@ -792,7 +828,9 @@ mod tests {
                 ReportSource::Path(src.join("b").join("run.txt")),
                 ReportSource::Path(src.join("shot.png")),
                 ReportSource::Text("pasted".into()),
+                ReportSource::Text("pasted again".into()),
             ],
+            &[],
             &folder,
             dir.path(),
             1,
@@ -810,19 +848,28 @@ mod tests {
                 .to_string_lossy()
                 .into_owned()
         };
-        let (r1, r2, r3, r4) = (
+        // Two files of one name, or two pastes, are told apart: one comment never has two attachments of a name.
+        let (r1, r2, r3, r4, r5) = (
             rel("1", "run.txt"),
-            rel("2", "run.txt"),
+            rel("2", "run 2.txt"),
             rel("3", "shot.png"),
             rel("4", "pasted-text.txt"),
+            rel("5", "pasted-text.txt"),
         );
         assert_eq!(
             seen,
             [
                 (1, "run.txt", AttachmentKind::Text, Some(2), r1.as_str()),
-                (2, "run.txt", AttachmentKind::Text, Some(1), r2.as_str()),
+                (2, "run 2.txt", AttachmentKind::Text, Some(1), r2.as_str()),
                 (3, "shot.png", AttachmentKind::Image, None, r3.as_str()),
                 (4, PASTED_TEXT, AttachmentKind::Text, Some(1), r4.as_str()),
+                (
+                    5,
+                    "Pasted text 2",
+                    AttachmentKind::Text,
+                    Some(1),
+                    r5.as_str()
+                ),
             ]
         );
         // One missing file: nothing stays.
@@ -831,6 +878,7 @@ mod tests {
                 ReportSource::Path(src.join("run.txt")),
                 ReportSource::Path(src.join("nope.txt")),
             ],
+            &[],
             &dir.path().join("reports").join("c2"),
             dir.path(),
             1,
@@ -838,36 +886,63 @@ mod tests {
         assert!(refused.is_err());
         assert!(!dir.path().join("reports").join("c2").exists());
 
-        // An edit adds to c1 after its numbers (tuq 008): a refusal removes only what it copied, never 1–4.
+        // An edit adds to c1 after its numbers (tuq 008): a refusal removes only what it copied, never 1–5.
         let refused = copy_all(
             &[
                 ReportSource::Path(src.join("shot.png")),
                 ReportSource::Path(src.join("nope.txt")),
             ],
-            &folder,
-            dir.path(),
-            5,
-        );
-        assert!(refused.is_err());
-        assert!(!folder.join("5").exists());
-        for (n, f) in [("1", "run.txt"), ("2", "run.txt"), ("3", "shot.png")] {
-            assert!(folder.join(n).join(f).exists(), "{n}/{f} stays");
-        }
-        // A file already called `6` in the folder (an old report, migration 0076) is never written over.
-        std::fs::write(folder.join("6"), "old report").unwrap();
-        let added = copy_all(
-            &[ReportSource::Path(src.join("shot.png"))],
+            &[],
             &folder,
             dir.path(),
             6,
+        );
+        assert!(refused.is_err());
+        assert!(!folder.join("6").exists());
+        for (n, f) in [("1", "run.txt"), ("2", "run 2.txt"), ("3", "shot.png")] {
+            assert!(folder.join(n).join(f).exists(), "{n}/{f} stays");
+        }
+        // A file already called `7` in the folder (an old report, migration 0076) is never written over. An edit's
+        // addition is named apart from the attachments the comment keeps.
+        std::fs::write(folder.join("7"), "old report").unwrap();
+        let kept = ["run.txt", "shot.png"].map(String::from);
+        let added = copy_all(
+            &[
+                ReportSource::Path(src.join("shot.png")),
+                ReportSource::Path(src.join("run.txt")),
+            ],
+            &kept,
+            &folder,
+            dir.path(),
+            7,
         )
         .unwrap();
-        assert_eq!(added[0].n, 6);
-        assert_eq!(added[0].path, folder.join("6-2").join("shot.png"));
+        assert_eq!(added[0].n, 7);
+        assert_eq!(added[0].name, "shot 2.png");
+        assert_eq!(added[0].path, folder.join("7-2").join("shot 2.png"));
+        assert_eq!(added[1].name, "run 2.txt");
         assert_eq!(
-            std::fs::read_to_string(folder.join("6")).unwrap(),
+            std::fs::read_to_string(folder.join("7")).unwrap(),
             "old report"
         );
+    }
+
+    #[test]
+    fn a_taken_name_gets_a_number_before_its_extension() {
+        let none: [&str; 0] = [];
+        assert_eq!(unique_name("shot.png", &none), "shot.png");
+        assert_eq!(unique_name("shot.png", &["shot.png"]), "shot 2.png");
+        assert_eq!(
+            unique_name("shot.png", &["shot.png", "shot 2.png"]),
+            "shot 3.png"
+        );
+        assert_eq!(
+            unique_name("Pasted image.png", &["Pasted image.png"]),
+            "Pasted image 2.png"
+        );
+        assert_eq!(unique_name(PASTED_TEXT, &[PASTED_TEXT]), "Pasted text 2");
+        assert_eq!(unique_name(".env", &[".env"]), ".env 2");
+        assert_eq!(unique_name("Makefile", &["Makefile"]), "Makefile 2");
     }
 
     #[test]

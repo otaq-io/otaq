@@ -112,7 +112,10 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
             .await
             .unwrap_err();
         assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-        assert_eq!(refused.to_string(), "Write the comment or attach a file first");
+        assert_eq!(
+            refused.to_string(),
+            "Write the comment or attach a file first"
+        );
     }
 
     // Post 2, delete 2: the next is 3, and the list is 1 and 3, oldest first.
@@ -1018,7 +1021,10 @@ async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-    assert_eq!(refused.to_string(), "Write the comment or attach a file first");
+    assert_eq!(
+        refused.to_string(),
+        "Write the comment or attach a file first"
+    );
     assert_eq!(
         w.board
             .ticket_comments("SHOP-1")
@@ -1072,7 +1078,10 @@ async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
         .edit_ticket_comment("SHOP-1", worded.n, "  ", &me())
         .await
         .unwrap_err();
-    assert_eq!(refused.to_string(), "Write the comment or attach a file first");
+    assert_eq!(
+        refused.to_string(),
+        "Write the comment or attach a file first"
+    );
     w.stop().await;
 }
 
@@ -1212,7 +1221,10 @@ async fn an_edit_removes_and_adds_attachments_and_history_keeps_the_removed_one(
         .await
         .unwrap_err();
     assert_eq!(empty.refusal(), Some(Refusal::EmptyField));
-    assert_eq!(empty.to_string(), "Write the comment or attach a file first");
+    assert_eq!(
+        empty.to_string(),
+        "Write the comment or attach a file first"
+    );
     // Its text may go while an attachment stays.
     let no_text = w
         .board
@@ -1317,5 +1329,87 @@ async fn a_deleted_ticket_takes_its_removed_attachments() {
     assert_eq!(report_files(&w).len(), 2, "the removed file stays");
     w.board.delete_ticket("SHOP-1").await.unwrap();
     assert!(report_files(&w).is_empty());
+    w.stop().await;
+}
+
+/// One comment never has two attachments of the same name: two `shot.png` (two screenshots, two folders' files) post
+/// as `shot.png` and `shot 2.png`, two pastes as "Pasted text" and "Pasted text 2", and an edit's addition is named
+/// apart from the ones the comment keeps (a removed one's name is free again).
+#[tokio::test(flavor = "multi_thread")]
+async fn attachments_of_one_name_are_told_apart() {
+    use otaq_core::board::ticket_comments::CommentEdit;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let resources = tempfile::TempDir::new().unwrap();
+    let (a, b) = (resources.path().join("a"), resources.path().join("b"));
+    std::fs::create_dir_all(&a).unwrap();
+    std::fs::create_dir_all(&b).unwrap();
+    std::fs::write(a.join("shot.png"), b"\x89PNG\r\n\x1a\n").unwrap();
+    std::fs::write(b.join("shot.png"), b"\x89PNG\r\n\x1a\n+").unwrap();
+    let posted = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &you(),
+            "",
+            vec![
+                ReportSource::Path(a.join("shot.png")),
+                ReportSource::Path(b.join("shot.png")),
+                ReportSource::Text("one\n".into()),
+                ReportSource::Text("two\n".into()),
+            ],
+            &me(),
+        )
+        .await
+        .unwrap();
+    let names = |c: &TicketComment| {
+        c.attachments
+            .iter()
+            .map(|a| (a.n, a.name.clone()))
+            .collect::<Vec<_>>()
+    };
+    assert_eq!(
+        names(&posted),
+        [
+            (1, "shot.png".to_owned()),
+            (2, "shot 2.png".to_owned()),
+            (3, "Pasted text".to_owned()),
+            (4, "Pasted text 2".to_owned()),
+        ]
+    );
+    assert!(posted.attachments[1].path.ends_with("shot 2.png"));
+    assert_eq!(
+        std::fs::read(&posted.attachments[1].path).unwrap(),
+        b"\x89PNG\r\n\x1a\n+"
+    );
+
+    let edited = w
+        .board
+        .edit_ticket_comment_with(
+            "SHOP-1",
+            posted.n,
+            &CommentEdit {
+                body: None,
+                remove: vec![2],
+                add: vec![
+                    ReportSource::Path(a.join("shot.png")),
+                    ReportSource::Path(b.join("shot.png")),
+                ],
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        names(&edited),
+        [
+            (1, "shot.png".to_owned()),
+            (3, "Pasted text".to_owned()),
+            (4, "Pasted text 2".to_owned()),
+            (5, "shot 2.png".to_owned()),
+            (6, "shot 3.png".to_owned()),
+        ]
+    );
     w.stop().await;
 }
