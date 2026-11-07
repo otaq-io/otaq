@@ -58,4 +58,4 @@ search: MenuSearch, } | { "kind": "themes" } | { "kind": "provider" } | { "kind"
 /**
  * "This is the flow's setting: changing it here changes the flow, and the flow file."
  */
-note: string, } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };
+note: string, } | { "kind": "about" };

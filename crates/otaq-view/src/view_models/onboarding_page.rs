@@ -789,6 +789,8 @@ pub fn tools_gallery() -> ToolsGallery {
         install_command: None,
         login_command: None,
         missing_package_manager: None,
+        path: None,
+        account: None,
     };
     let step = |statuses| {
         let mut m = OnboardingModel::new(false);
@@ -916,6 +918,8 @@ mod tests {
             install_command: (!found).then(|| tool.install_command().to_owned()),
             login_command: None,
             missing_package_manager: None,
+            path: None,
+            account: None,
         }
     }
 

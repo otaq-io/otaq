@@ -175,25 +175,22 @@ pub struct LimitRow {
     pub enabled: bool,
 }
 
-/// The Settings section's three rows.
+/// The Settings section's three rows: the switch, off by default (the limit is optional), then the numbers it turns
+/// on.
 pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
     let on = limits.enabled;
     [
         LimitRow {
-            label: "Limit agents",
-            description: if on {
-                "Running shows “3/5 agents”; adjust it in its popover."
-            } else {
-                "Off by default. When on, Running shows “3/5 agents”."
-            },
+            label: "Limit how many agents run at once",
+            description: "Off by default: every started ticket runs. When on, tickets beyond the limit wait at the top of their first stage: “Waits for a free agent”.",
             enabled: true,
         },
         LimitRow {
-            label: "Max agents running at once",
+            label: "Run at most",
             description: if on {
-                "Started tickets wait for a free agent."
+                "Agents at once, across all projects. Running shows “3/5 agents”."
             } else {
-                "Suggested 5. Started tickets wait for a free agent."
+                "Agents at once, across all projects. Suggested 5."
             },
             enabled: on,
         },
@@ -332,9 +329,14 @@ mod tests {
     fn rows_follow_the_toggle() {
         let off = settings_rows(&AgentLimits::default());
         assert!(off[0].enabled && !off[1].enabled && !off[2].enabled);
+        assert!(
+            off[0]
+                .description
+                .starts_with("Off by default: every started ticket runs.")
+        );
         assert_eq!(
             off[1].description,
-            "Suggested 5. Started tickets wait for a free agent."
+            "Agents at once, across all projects. Suggested 5."
         );
         assert_eq!(
             off[2].label, "Don\u{2019}t start new tickets while Needs you has",

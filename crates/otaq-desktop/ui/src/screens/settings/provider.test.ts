@@ -36,7 +36,7 @@ const SECTION: SettingsSection<string> = {
     {
       field: "",
       label: "Pull requests through",
-      description: "Set up once on this computer, in app Settings.",
+      description: "Providers are set up once per computer, in Settings → Git & pull requests.",
       control: { kind: "provider" },
       dimmed: false,
       reset: null,

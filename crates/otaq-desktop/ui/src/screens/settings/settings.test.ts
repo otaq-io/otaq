@@ -71,16 +71,18 @@ describe("the Settings screen", () => {
   it("registers the overlay, its sections and ⌘,", () => {
     const app = registerScreens({ settings });
     expect(app.overlays.get("settings")).toBeDefined();
+    // Eight topics: Agents (its tools, then the agents), Git & pull requests, Limits & usage (the limit, then usage),
+    // Notifications, Appearance, Keyboard, Data, About.
     expect(app.settings.global.ids()).toEqual([
       "agent_tools",
       "agents",
+      "git",
       "agent_limits",
       "usage",
       "notifications",
-      "data",
       "appearance",
       "keyboard_shortcuts",
-      "tools",
+      "data",
       "about",
     ]);
     // A project's settings are its own page: the overlay registers none of its cards.
@@ -101,7 +103,7 @@ describe("the Settings screen", () => {
 
   it("a registered section draws only when the page has it", () => {
     expect(html(withPage(createElement(sectionComponent("agent_limits"))))).toContain("Limit agents");
-    expect(html(withPage(createElement(sectionComponent("tools"))))).toBe("");
+    expect(html(withPage(createElement(sectionComponent("notifications"))))).toBe("");
     expect(sectionOf(PAGE, "agent_limits")?.rows).toHaveLength(2);
   });
 

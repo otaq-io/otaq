@@ -62,13 +62,13 @@ function envRow(rows: { name: string; value: string }[]): SettingsRow {
 function view(vars: { name: string; value: string }[]): SettingsView {
   return {
     title: "Settings",
-    global_heading: "Global",
+    footnote: "Project settings live in each project’s Settings tab.",
     close_label: "Close settings",
     nav: [
       {
         label: "Demo",
         icon: "folder",
-        target: { page: "global", section: "agents", sections: ["agents", "tools"] },
+        target: { page: "global", section: "agents", sections: ["agents", "data"] },
       },
     ],
     page: {
@@ -76,7 +76,7 @@ function view(vars: { name: string; value: string }[]): SettingsView {
       title: "General",
       sections: [
         { id: "agents", title: null, intro: null, rows: [], note: null },
-        { id: "tools", title: null, intro: null, rows: [envRow(vars)], note: null },
+        { id: "data", title: null, intro: null, rows: [envRow(vars)], note: null },
       ],
     },
   };
@@ -110,7 +110,7 @@ const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
     a.settings.global.register("agents", { Component: PickerSection });
-    a.settings.global.register("tools", { Component: sectionComponent("tools") });
+    a.settings.global.register("data", { Component: sectionComponent("data") });
   },
 });
 

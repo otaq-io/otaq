@@ -130,7 +130,7 @@ pub fn page(input: &ProjectInputs) -> Page {
             row(
                 "",
                 PROVIDER_LABEL,
-                "Set up once on this computer, in app Settings.",
+                "Providers are set up once per computer, in Settings → Git & pull requests.",
                 Control::Provider,
             ),
             merge_check_row(s, p),

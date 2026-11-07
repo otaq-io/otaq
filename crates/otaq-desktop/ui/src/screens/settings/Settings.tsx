@@ -1,8 +1,9 @@
-// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the app's topics) and one page on
-// the right. Each topic is its own page, titled with its nav label (or the heading the topic puts there: one agent's
-// page), showing only that topic's sections. The nav, the page and every row come from `settings.view`; an edit
-// answers with the fresh view. Esc or × closes it. A project's settings are its own page, in its main area
-// (`project_settings/`).
+// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the app's topics: you and your
+// machine; a line says project settings are in each project's Settings tab) and one page on the right. Each topic is
+// its own page, titled with its nav label (or the heading the topic puts there: one agent's page), showing only that
+// topic's sections. Opened at a topic's id (`{ section: "git" }`) it shows that topic. The nav, the page and every
+// row come from `settings.view`; an edit answers with the fresh view. Esc or × closes it. A project's settings are its
+// own page, in its main area (`project_settings/`).
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -41,6 +42,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A topic's own heading in place of its nav label (one agent's page on Agents).
   const [heading, setHeading] = useState<ReactNode | null>(null);
+  // The section showing a page of its own, drawn without the topic's other sections (one agent on Agents).
+  const [solo, setSolo] = useState<string | null>(null);
   const [visit, setVisit] = useState(0);
   // The open global topic, as any of its sections: Settings opened on a section opens the topic that holds it.
   const [topic, setTopic] = useState<string | null>(params?.section ?? null);
@@ -119,14 +122,26 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const context = useMemo<SettingsContextValue | null>(
     () =>
       page
-        ? { page, project: null, edit, act, headerSlot, setHeading, visit, agent: params?.agent, openProject }
+        ? {
+            page,
+            project: null,
+            edit,
+            act,
+            headerSlot,
+            setHeading,
+            setSolo,
+            visit,
+            agent: params?.agent,
+            openProject,
+          }
         : null,
     [page, edit, act, headerSlot, visit, params?.agent, openProject],
   );
 
   const globalRows = view?.nav ?? [];
   const openRow = topicRow(globalRows, topic);
-  const topicSections: readonly string[] = openRow?.target.sections ?? [];
+  // A section showing a page of its own (one agent on Agents) is drawn alone.
+  const topicSections: readonly string[] = solo !== null ? [solo] : (openRow?.target.sections ?? []);
 
   // The sections this page has that a screen registered, in the page's order; only the open topic's.
   const sections =
@@ -173,6 +188,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const go = (row: SettingsNavRow) => {
     scrollPending.current = null;
     setHeading(null);
+    setSolo(null);
     setVisit((v) => v + 1);
     setTopic(row.target.section);
     body.current?.scrollTo({ top: 0 });
@@ -197,7 +213,6 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
       >
         <nav className="settings-nav" aria-label={view?.title}>
           <h2 className="settings-title">{view?.title}</h2>
-          <h3 className="settings-nav-heading">{view?.global_heading}</h3>
           {globalRows.map((row) => (
             <NavItem
               key={row.label}
@@ -208,6 +223,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
               }}
             />
           ))}
+          {view && <p className="settings-nav-footnote">{view.footnote}</p>}
         </nav>
         <div className="settings-main">
           <header className="settings-header">

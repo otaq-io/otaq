@@ -46,8 +46,36 @@ pub struct Page {
     /// Windows/Linux: the rows have the "Works inside terminals" column (`s15-54`'s widths).
     pub terminals_column: bool,
     pub groups: Vec<Group>,
+    /// What the page opens on: the shortcuts that matter most, with All shortcuts to see every group.
+    pub short: ShortList,
     pub texts: Texts,
 }
+
+/// The short list: the rows of the shortcuts that matter most, by row id, in their order; the page shows them first
+/// and every group behind "All shortcuts".
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ShortcutsShortList")]
+pub struct ShortList {
+    pub intro: String,
+    pub rows: Vec<String>,
+    /// "All shortcuts": every group, the single-letter switch and the terminals note.
+    pub all_label: String,
+    /// "Fewer shortcuts": back to the short list.
+    pub fewer_label: String,
+}
+
+/// The shortcuts that matter most, in the short list's order.
+pub const SHORT_LIST: [KeyAction; 9] = [
+    KeyAction::NextNeedsYouItem,
+    KeyAction::NewTicket,
+    KeyAction::CommandPalette,
+    KeyAction::FilterBoard,
+    KeyAction::FocusAgentPanel,
+    KeyAction::StartDev,
+    KeyAction::Pause,
+    KeyAction::Terminals,
+    KeyAction::SwitchTab(1),
+];
 
 /// Reset all in the header and its question (d0097: it asks first; `s15-48`).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -545,7 +573,7 @@ pub fn page(platform: Platform, stored: &KeyboardSettings) -> Page {
     };
     let win = platform != Platform::Mac;
     Page {
-        title: "Keyboard shortcuts".into(),
+        title: "Keyboard".into(),
         intro: INTRO.into(),
         reset_all: ResetAll {
             label: "Reset all".into(),
@@ -561,6 +589,16 @@ pub fn page(platform: Platform, stored: &KeyboardSettings) -> Page {
         },
         terminals_note: win.then(|| TERMINALS_NOTE.into()),
         terminals_column: win,
+        short: ShortList {
+            intro: "Click a shortcut to change it.".into(),
+            rows: SHORT_LIST
+                .iter()
+                .map(|a| action_id(*a))
+                .filter(|id| rows.iter().any(|(_, r)| r.id == *id))
+                .collect(),
+            all_label: "All shortcuts".into(),
+            fewer_label: "Fewer shortcuts".into(),
+        },
         groups,
         texts: texts(),
     }
@@ -1235,6 +1273,25 @@ mod tests {
         shift: true,
         ..NONE
     };
+
+    /// Settings opens on the shortcuts that matter most, each one a row of the page.
+    #[test]
+    fn the_short_list_names_the_rows_that_matter_most() {
+        let p = page(MAC, &KeyboardSettings::default());
+        assert_eq!(p.title, "Keyboard");
+        let ids: Vec<&str> = p.short.rows.iter().map(String::as_str).collect();
+        assert_eq!(ids.len(), SHORT_LIST.len(), "{ids:?}");
+        assert_eq!(ids[0], "next_needs_you_item");
+        assert_eq!(ids[1], "new_ticket");
+        let all: Vec<&str> = p
+            .groups
+            .iter()
+            .flat_map(|g| &g.rows)
+            .map(|r| r.id.as_str())
+            .collect();
+        assert!(ids.iter().all(|id| all.contains(id)));
+        assert_eq!(p.short.all_label, "All shortcuts");
+    }
 
     /// `s15-46`: every group and row in the design's order with the macOS defaults; no row changed, no reset,
     /// Reset all unavailable; Files (⇧⌘O, g f) under Views; Open diff last under The ticket (Q222).

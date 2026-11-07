@@ -57,6 +57,12 @@ function page(changed = 0): ShortcutsPage {
     letters: { label: "Single-letter shortcuts", description: "Keys like j, k, / and g then b.", on: true },
     terminals_note: null,
     terminals_column: false,
+    short: {
+      intro: "Click a shortcut to change it.",
+      rows: ["next_needs_you_item"],
+      all_label: "All shortcuts",
+      fewer_label: "Fewer shortcuts",
+    },
     groups: [
       {
         title: "Moving around",
@@ -367,6 +373,26 @@ describe("the page", () => {
       let_through: true,
       confirmed: false,
     });
+  });
+});
+
+describe("the short list", () => {
+  it("Settings opens on the shortcuts that matter most, and All shortcuts shows every group", async () => {
+    act(() => {
+      root.render(createElement(ShortcutsView, { page: page(), calls, short: true }));
+    });
+    expect([...box.querySelectorAll("[data-row]")].map((r) => r.getAttribute("data-row"))).toEqual([
+      "next_needs_you_item",
+    ]);
+    expect(box.querySelector(".shortcut-settings-group-title")).toBeNull();
+    await click(buttonNamed("All shortcuts"));
+    expect([...box.querySelectorAll(".shortcut-settings-group-title")].map((t) => t.textContent)).toEqual([
+      "Moving around",
+      "Views",
+      "The ticket",
+    ]);
+    await click(buttonNamed("Fewer shortcuts"));
+    expect(box.querySelector(".shortcut-settings-group-title")).toBeNull();
   });
 });
 

@@ -59,6 +59,7 @@ pub mod flow_editor;
 pub mod flow_settings;
 pub mod flow_setup_page;
 pub mod gallery;
+pub mod git_settings;
 pub mod hint;
 pub mod history;
 pub mod keyboard_map;

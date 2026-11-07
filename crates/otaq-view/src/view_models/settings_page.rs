@@ -19,7 +19,6 @@ use otaq_core::board::settings::{
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming::{self, PRODUCT_NAME};
 use otaq_core::scheduler::SchedulerStatus;
-use otaq_core::tools::ToolsReport;
 use otaq_core::warm::clone::CloneSupport;
 use otaq_core::warm::store::{WarmBuildInfo, WarmList};
 use serde::{Deserialize, Serialize};
@@ -61,11 +60,7 @@ use crate::view_models::limits::{
     BACK_PRESSURE_ITEMS, MAX_AGENTS, right_now, settings_rows, toggled,
 };
 use crate::view_models::menu::MenuSearch;
-use crate::view_models::onboarding::{OnboardingModel, RowIcon};
-use crate::view_models::onboarding_page::{
-    ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
-};
-use crate::view_models::settings::{GLOBAL_SECTIONS, problem_for, remove_text};
+use crate::view_models::settings::{problem_for, remove_text};
 use crate::view_models::theme_credits;
 use crate::view_models::usage_data;
 use crate::view_models::warm_build;
@@ -75,19 +70,24 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
-    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]).
+    /// M23, T-0360: the agent tools, drawn from `agent_tools.view` ([`super::agent_tools_page`]). The Agents topic's
+    /// first section.
     AgentTools,
-    /// T-0405: the agents and the default model, drawn from `settings.agents`
+    /// T-0405: the agents, the default model and the agent Noyan uses, drawn from `settings.agents`
     /// ([`super::agents::section`]).
     Agents,
+    /// Git and the pull request providers on this machine, drawn from `settings.git` ([`super::git_settings`]).
+    /// Other screens open Settings at this topic by its id, `git`.
+    Git,
+    /// The optional agent limit: the Limits & usage topic's first section.
     AgentLimits,
+    /// What is left of each tool's plan, drawn from the Running popover's usage.
     Usage,
     Notifications,
-    Data,
     Appearance,
     /// M29, T-0395: custom shortcuts and the single-letter switch, drawn from `keyboard.view` ([`super::keyboard_page`]).
     KeyboardShortcuts,
-    Tools,
+    Data,
     /// The last one: the mark, version, licenses and credits (d0071).
     About,
 }
@@ -276,7 +276,7 @@ pub enum Control {
     },
     /// The 15 themes (`theme.picker`, `theme.pick`).
     Themes,
-    /// The PR provider line, detected when the page opens (`settings.provider`).
+    /// The PR provider line, detected when the page opens (`project_settings.provider`).
     Provider,
     /// How work leaves the flow: the flow's own `delivery:` setting, shown on the project's page and changed through
     /// the flow (`delivery.delivers`, `delivery.mode`; [`super::project_settings::deliver_as`]). `modes` is empty
@@ -289,10 +289,6 @@ pub enum Control {
         either: Option<String>,
         /// "This is the flow's setting: changing it here changes the flow, and the flow file."
         note: String,
-    },
-    /// The tools checklist (`settings.tools`) and Re-check.
-    Tools {
-        recheck_label: String,
     },
     /// The About section (`settings.about`; d0071): the page draws it whole.
     About,
@@ -347,6 +343,63 @@ pub fn os_status(permission: PermissionState) -> Option<OsStatus> {
         PermissionState::Unknown => return None,
     };
     Some(OsStatus { text, action })
+}
+
+/// Limits & usage's first line.
+pub const LIMITS_INTRO: &str =
+    "How many agents run at once, and how much of each tool\u{2019}s plan is left.";
+
+/// Under the usage: what a tool's limit does.
+pub const USAGE_NOTE: &str = "When a tool hits its limit, its agents stop and wait; other tools keep working. A banner says when it resets.";
+
+/// The notification kinds as Settings → Notifications groups them: one checkbox per group, which turns every kind in
+/// it on or off. On by default for the blocking groups only; a review blocks nothing, so its group starts off.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum NotificationGroup {
+    /// A question, a permission prompt, an agent that ended its turn waiting for you.
+    Asks,
+    /// A session interrupted, a check that needs a decision, a delivery that stopped, a tool not available.
+    Broke,
+    /// A ticket reaching your review.
+    Review,
+}
+
+impl NotificationGroup {
+    pub const ALL: [Self; 3] = [Self::Asks, Self::Broke, Self::Review];
+
+    pub fn kinds(self) -> &'static [Kind] {
+        match self {
+            Self::Asks => &[Kind::Permission, Kind::Question, Kind::TurnEnded],
+            Self::Broke => &[
+                Kind::Interrupted,
+                Kind::ValidationDecision,
+                Kind::AutoMergeStopped,
+                Kind::ToolUnavailable,
+            ],
+            Self::Review => &[Kind::ReadyForReview],
+        }
+    }
+
+    /// Its field, label and description.
+    pub fn row(self) -> (&'static str, &'static str, &'static str) {
+        match self {
+            Self::Asks => (
+                "notification_groups.asks",
+                "An agent asks you something",
+                "A question or a permission prompt, from an agent, a checker or Noyan.",
+            ),
+            Self::Broke => (
+                "notification_groups.broke",
+                "Something broke and waits for you",
+                "A session stopped, a check needs a decision, a delivery stopped or an agent tool isn\u{2019}t available.",
+            ),
+            Self::Review => (
+                "notification_groups.review",
+                "A ticket is ready for your review",
+                "Off by default: a review isn\u{2019}t blocking anything.",
+            ),
+        }
+    }
 }
 
 /// The checkbox of each notification kind (ATT-16, d0090), in d0090's order: its field, label and who it covers
@@ -481,7 +534,8 @@ pub enum Page {
 #[ts(rename = "SettingsView")]
 pub struct View {
     pub title: String,
-    pub global_heading: String,
+    /// Under the nav: "Project settings live in each project's Settings tab."
+    pub footnote: String,
     pub close_label: String,
     pub nav: Vec<NavRow>,
     pub page: Page,
@@ -530,24 +584,28 @@ pub struct WarmInputs<'a> {
 const DRAWN: [GlobalSection; 10] = [
     GlobalSection::AgentTools,
     GlobalSection::Agents,
+    GlobalSection::Git,
     GlobalSection::AgentLimits,
     GlobalSection::Usage,
     GlobalSection::Notifications,
-    GlobalSection::Data,
     GlobalSection::Appearance,
     GlobalSection::KeyboardShortcuts,
-    GlobalSection::Tools,
+    GlobalSection::Data,
     GlobalSection::About,
 ];
 
-/// The nav row a global section is drawn under. Every section is a topic of its own: from T-0410 Agent limits has
-/// its own row again, as the nav of `s15-58` draws it, and Agents holds only the agents (its own page and one
-/// agent's).
+/// The nav row a global section is drawn under. App settings has eight topics: the agent tools sit on the Agents
+/// page above the agents, and usage on one page with the agent limit; every other section is a topic of its own.
 pub fn topic_of(id: GlobalSection) -> GlobalSection {
-    id
+    match id {
+        GlobalSection::AgentTools => GlobalSection::Agents,
+        GlobalSection::Usage => GlobalSection::AgentLimits,
+        other => other,
+    }
 }
 
-/// The nav: one row per global topic the page has. A project's settings are its own page, in its main area.
+/// The nav: one row per global topic the page has. App settings are about you and your machine: a project's
+/// settings are its own page, not a row here.
 pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
     sections
         .iter()
@@ -570,29 +628,30 @@ pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
         .collect()
 }
 
-/// A global section's nav label and icon (*15 → Global · Usage, notifications, data, appearance*).
+/// A topic's nav label and icon; the sections inside a topic have none of their own.
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
-    let shared = |i: usize| GLOBAL_SECTIONS[i];
     match id {
-        GlobalSection::AgentTools => ("Agent tools", IconName::Plug),
-        GlobalSection::Agents => ("Agents", IconName::Bot),
-        GlobalSection::AgentLimits => shared(0),
-        GlobalSection::Usage => shared(1),
-        GlobalSection::Notifications => shared(2),
-        GlobalSection::Data => shared(3),
-        GlobalSection::Appearance => shared(4),
-        GlobalSection::KeyboardShortcuts => ("Keyboard shortcuts", IconName::Keyboard),
-        GlobalSection::Tools => shared(5),
+        GlobalSection::AgentTools | GlobalSection::Agents => ("Agents", IconName::Bot),
+        GlobalSection::Git => ("Git & pull requests", IconName::GitPullRequest),
+        GlobalSection::AgentLimits | GlobalSection::Usage => ("Limits & usage", IconName::Gauge),
+        GlobalSection::Notifications => ("Notifications", IconName::Bell),
+        GlobalSection::Appearance => ("Appearance", IconName::Palette),
+        GlobalSection::KeyboardShortcuts => ("Keyboard", IconName::Keyboard),
+        GlobalSection::Data => ("Data", IconName::Database),
         GlobalSection::About => ("About", IconName::Info),
     }
 }
+
+/// The nav's line under the topics: where a project's own settings are.
+pub const PROJECT_SETTINGS_NOTE: &str =
+    "Project settings live in each project\u{2019}s Settings tab.";
 
 /// The view around a page.
 pub fn view(page: Page) -> View {
     let sections: Vec<GlobalSection> = DRAWN.to_vec();
     View {
         title: "Settings".into(),
-        global_heading: "Global".into(),
+        footnote: PROJECT_SETTINGS_NOTE.into(),
         close_label: "Close settings".into(),
         nav: nav(&sections),
         page,
@@ -735,30 +794,23 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         },
     ];
     let agent_limits = Section {
-        intro: Some("Optional caps on how many agents run at once.".into()),
+        intro: Some(LIMITS_INTRO.into()),
         note: input.scheduler.filter(|_| limits.enabled).map(right_now),
-        ..section(GlobalSection::AgentLimits, Some("Agent limits"), limit_rows)
+        ..section(GlobalSection::AgentLimits, None, limit_rows)
     };
 
-    let usage = section(
-        GlobalSection::Usage,
-        Some("Usage"),
-        vec![row(
-            "",
-            "Token count",
-            "Always shown in the header (today, all projects) and per ticket.",
-            Control::Note {
-                text: "Always on".into(),
-            },
-        )],
-    );
+    // Its own view: each tool's plan windows as "% left", from the Running popover's usage.
+    let usage = Section {
+        note: Some(USAGE_NOTE.into()),
+        ..section(GlobalSection::Usage, Some("Usage"), Vec::new())
+    };
 
-    // The main switch with macOS's answer under it, then a checkbox per kind and Play a sound, disabled (not hidden)
-    // while the switch is off (ATT-14, ATT-16; d0090).
+    // The main switch with macOS's answer under it, then a checkbox per group of kinds and Play a sound, disabled
+    // (not hidden) while the switch is off (ATT-14, ATT-16; d0090). Only blocking things are on by default.
     let mut notification_rows = vec![row(
         "notifications",
-        "OS notifications for blocking items",
-        "Permission prompts, agent questions and interrupted sessions. Nothing else notifies unless you tick it below.",
+        "Notifications",
+        "",
         Control::NotificationsSwitch {
             on: s.notifications,
             status: os_status(input.notification_permission),
@@ -777,38 +829,56 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             },
         )
     };
-    for kind in Kind::ALL {
-        let (field, label, description) = notification_kind_row(kind);
+    for group in NotificationGroup::ALL {
+        let (field, label, description) = group.row();
         notification_rows.push(checkbox(
             field,
             label,
             description,
-            s.notification_kinds.allows(kind),
+            group
+                .kinds()
+                .iter()
+                .all(|k| s.notification_kinds.allows(*k)),
         ));
     }
+    notification_rows.push(Row {
+        dimmed: !s.notifications,
+        ..row(
+            "",
+            "Not while you\u{2019}re looking at that ticket",
+            "A ticket open in front of you doesn\u{2019}t notify.",
+            Control::Note {
+                text: "Always".into(),
+            },
+        )
+    });
     notification_rows.push(checkbox(
         "notification_sound",
         "Play a sound",
         "The OS\u{2019}s default notification sound.",
         s.notification_sound,
     ));
-    let notifications = section(
-        GlobalSection::Notifications,
-        Some("Notifications"),
-        notification_rows,
-    );
+    let notifications = Section {
+        intro: Some(format!(
+            "{PRODUCT_NAME} tells you when something is blocked on you, even with the window closed."
+        )),
+        ..section(GlobalSection::Notifications, None, notification_rows)
+    };
 
     let reveal = reveal_label(input.os);
     let mut data_rows = Vec::new();
     if let Some((db, logs)) = &input.data {
+        let db_folder = std::path::Path::new(db)
+            .parent()
+            .map_or_else(|| db.clone(), |p| p.to_string_lossy().into_owned());
         data_rows.push(row(
             "",
-            "Database file",
+            "Data folder",
             format!(
                 "Tickets, runs and settings. Your normal machine backup covers it — {PRODUCT_NAME} has no separate backup."
             ),
             Control::Path {
-                text: db.clone(),
+                text: db_folder,
                 reveal: Reveal::Database,
                 reveal_label: reveal.to_owned(),
             },
@@ -827,26 +897,7 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             },
         ));
     }
-    let count = input.cleanup_count;
-    data_rows.push(row(
-        "",
-        "Cleanup",
-        if count == 0 {
-            "Leftover sessions, worktrees, branches and ports that no ticket owns. Nothing is deleted without your click.".to_owned()
-        } else {
-            format!(
-                "{count} {} waiting. Nothing is deleted without your click.",
-                if count == 1 { "leftover" } else { "leftovers" }
-            )
-        },
-        Control::Button {
-            label: "Cleanup…".into(),
-            icon: IconName::BrushCleaning,
-            destructive: false,
-            action: ButtonAction::Cleanup,
-        },
-    ));
-    // d0085: off until the user said yes, in the first-run dialog or here.
+    // d0085: off until the user said yes, in the one-time question or here.
     data_rows.push(row(
         "usage_data",
         usage_data::ROW_LABEL,
@@ -855,7 +906,32 @@ pub fn global_page(input: &GlobalInputs) -> Page {
             on: s.usage_data.sends(),
         },
     ));
-    let data = section(GlobalSection::Data, Some("Data"), data_rows);
+    // Cleanup opens from here (it has no rail button).
+    let count = input.cleanup_count;
+    data_rows.push(row(
+        "",
+        "Cleanup",
+        if count == 0 {
+            "Nothing to clear: no leftover copies, branches, sessions or ports that no ticket uses.".to_owned()
+        } else {
+            format!(
+                "{count} {} \u{b7} copies and branches no ticket uses. Nothing is deleted without your click.",
+                if count == 1 { "leftover" } else { "leftovers" }
+            )
+        },
+        Control::Button {
+            label: "Review\u{2026}".into(),
+            icon: IconName::BrushCleaning,
+            destructive: false,
+            action: ButtonAction::Cleanup,
+        },
+    ));
+    let data = Section {
+        intro: Some(format!(
+            "Where {PRODUCT_NAME} keeps its board, and the leftovers you can clear."
+        )),
+        ..section(GlobalSection::Data, None, data_rows)
+    };
 
     let bigger = TerminalKey::FontBigger.keys(input.os.keys())[0];
     let smaller = TerminalKey::FontSmaller.keys(input.os.keys())[0];
@@ -916,41 +992,26 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         ],
     );
 
-    let tools = Section {
-        intro: Some(tools_intro()),
-        ..section(
-            GlobalSection::Tools,
-            Some("Tools"),
-            vec![row(
-                "",
-                "",
-                "",
-                Control::Tools {
-                    recheck_label: "Re-check".into(),
-                },
-            )],
-        )
-    };
-
     Page::Global {
         title: "General".into(),
         sections: vec![
             // Its own view: the four tools' rows ([`super::agent_tools_page`]).
-            section(GlobalSection::AgentTools, Some("Agent tools"), Vec::new()),
-            // Its own view: the list and the default model ([`super::agents::section`]).
-            section(GlobalSection::Agents, Some("Agents"), Vec::new()),
+            section(GlobalSection::AgentTools, Some("Tools"), Vec::new()),
+            // Its own view: the list, the default model and Noyan's agent ([`super::agents::section`]).
+            section(GlobalSection::Agents, Some("Your agents"), Vec::new()),
+            // Its own view: git and the PR providers ([`super::git_settings`]).
+            section(GlobalSection::Git, None, Vec::new()),
             agent_limits,
             usage,
             notifications,
-            data,
             appearance,
-            // Its own view: the switch and every action's keys ([`super::keyboard_page`]).
+            // Its own view: the short list and every action's keys ([`super::keyboard_page`]).
             section(
                 GlobalSection::KeyboardShortcuts,
-                Some("Keyboard shortcuts"),
+                Some("Keyboard"),
                 Vec::new(),
             ),
-            tools,
+            data,
             section(
                 GlobalSection::About,
                 Some("About"),
@@ -1678,77 +1739,6 @@ fn edit_env_var(
     Some(result)
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "ToolLook")]
-pub enum ToolLook {
-    Found,
-    MissingRequired,
-    MissingOptional,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsToolRow")]
-pub struct ToolView {
-    /// "git", "gh", "az".
-    pub tool: String,
-    pub name: String,
-    pub icon: IconName,
-    pub look: ToolLook,
-    /// "required" / "optional".
-    pub need: String,
-    pub status: String,
-    pub explanation: Option<String>,
-    pub command: Option<String>,
-    pub button: Option<ToolButton>,
-    pub note: Option<String>,
-}
-
-/// The tools checklist (`settings.tools`), or why the check failed.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsTools")]
-pub struct ToolsView {
-    pub rows: Vec<ToolView>,
-    pub error: Option<String>,
-    pub copy: String,
-    pub terminal: ToolTerminalTexts,
-}
-
-pub fn tools(result: Result<ToolsReport, String>) -> ToolsView {
-    let mut model = OnboardingModel::new(true);
-    model.start_check();
-    let error = result.as_ref().err().cloned();
-    model.finish_check(result);
-    ToolsView {
-        rows: model
-            .rows()
-            .into_iter()
-            .map(|r| {
-                let (icon, look) = match r.icon {
-                    RowIcon::Found => (IconName::CircleCheck, ToolLook::Found),
-                    RowIcon::MissingRequired => (IconName::CircleX, ToolLook::MissingRequired),
-                    RowIcon::MissingOptional => (IconName::CircleMinus, ToolLook::MissingOptional),
-                };
-                ToolView {
-                    tool: r.tool.command().to_owned(),
-                    button: tool_button(&r),
-                    note: r.note.clone(),
-                    name: r.name.to_owned(),
-                    icon,
-                    look,
-                    need: if r.required { "required" } else { "optional" }.to_owned(),
-                    status: r.status,
-                    explanation: r.explanation,
-                    command: r.command,
-                }
-            })
-            .collect(),
-        error,
-        copy: "Copy".to_owned(),
-        terminal: tool_terminal_texts(),
-    }
-}
-
 /// The Remove project confirmation (PRJ-04; *15 → Remove project · confirm*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "RemoveProjectDialog")]
@@ -1904,6 +1894,16 @@ pub fn edit_global(
                 .find(|k| notification_kind_row(*k).0 == kind)
                 .ok_or_else(|| format!("unknown setting: {kind}"))?;
             s.notification_kinds.set(kind, value.flag()?);
+        }
+        group if group.starts_with("notification_groups.") => {
+            let group = NotificationGroup::ALL
+                .into_iter()
+                .find(|g| g.row().0 == group)
+                .ok_or_else(|| format!("unknown setting: {group}"))?;
+            let on = value.flag()?;
+            for kind in group.kinds() {
+                s.notification_kinds.set(*kind, on);
+            }
         }
         "usage_data" => {
             s.usage_data = if value.flag()? {
@@ -2282,42 +2282,29 @@ mod tests {
         }
     }
 
-    /// T-0372 (ATT-16, d0090): the eight kinds then Play a sound, indented under the main switch, disabled and dimmed
-    /// (not hidden) while it is off; ticking one edits its kind. Every kind is ticked at first but Ready for your
-    /// review, which blocks no agent.
+    /// T-0372 (ATT-16, d0090): the three groups, "not while you're looking at that ticket" and Play a sound, indented
+    /// under the main switch, disabled and dimmed (not hidden) while it is off. Every group is ticked at first but
+    /// the review's, which blocks nothing. A kind can still be edited on its own.
     #[test]
     fn the_notification_checkboxes_follow_the_switch() {
         let mut s = GlobalSettings::default();
         let rows = notifications_rows(&s, PermissionState::Allowed);
-        let labels: Vec<(&str, &str)> = rows[1..]
-            .iter()
-            .map(|r| (r.label.as_str(), r.description.as_str()))
-            .collect();
+        let labels: Vec<&str> = rows[1..].iter().map(|r| r.label.as_str()).collect();
         assert_eq!(
             labels,
             [
-                ("Permission prompts", "Agents, checkers and Noyan."),
-                ("Questions", "Agents and Noyan."),
-                ("Agent ended its turn", ""),
-                ("Session interrupted", ""),
-                (
-                    "Validation needs a decision",
-                    "Failed N times, or no result."
-                ),
-                ("Delivery stopped", ""),
-                ("Agent tool not available", ""),
-                (
-                    "Ready for your review",
-                    "A ticket reaches Review, or another check you do. Off by default: it blocks no agent."
-                ),
-                ("Play a sound", "The OS’s default notification sound."),
+                "An agent asks you something",
+                "Something broke and waits for you",
+                "A ticket is ready for your review",
+                "Not while you\u{2019}re looking at that ticket",
+                "Play a sound",
             ]
         );
-        for row in &rows[1..] {
+        for row in rows[1..].iter().filter(|r| !r.field.is_empty()) {
             assert_eq!(
                 row.control,
                 Control::Checkbox {
-                    on: row.label != "Ready for your review",
+                    on: row.label != "A ticket is ready for your review",
                     disabled: false,
                     indented: true
                 },
@@ -2384,10 +2371,11 @@ mod tests {
 
         s.notifications = false;
         let rows = notifications_rows(&s, PermissionState::Allowed);
-        assert_eq!(rows.len(), 10, "not hidden");
+        assert_eq!(rows.len(), 6, "not hidden");
         for row in &rows[1..] {
+            assert!(row.dimmed, "{}", row.label);
             let Control::Checkbox { disabled, .. } = row.control else {
-                panic!()
+                continue;
             };
             assert!(disabled && row.dimmed, "{}", row.label);
         }
@@ -2401,71 +2389,74 @@ mod tests {
             .unwrap_or_else(|| panic!("no row {field}"))
     }
 
+    /// App settings are about you and your machine: eight topics, no projects in the nav.
     #[test]
-    fn the_global_page_has_every_drawn_section_in_nav_order() {
+    fn app_settings_has_eight_topics_and_no_projects() {
         let sections = global(&GlobalSettings::default());
         let ids: Vec<GlobalSection> = sections.iter().map(|s| s.id).collect();
         assert_eq!(ids, DRAWN);
-        let nav = view(Page::Global {
+        let v = view(Page::Global {
             title: String::new(),
             sections: Vec::new(),
-        })
-        .nav;
-        // The app's topics only: a project's settings are its own page.
-        assert_eq!(nav.len(), 10);
-        // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
+        });
+        let labels: Vec<&str> = v.nav.iter().map(|n| n.label.as_str()).collect();
         assert_eq!(
-            (nav[0].label.as_str(), nav[0].icon),
-            ("Agent tools", IconName::Plug)
+            labels,
+            [
+                "Agents",
+                "Git & pull requests",
+                "Limits & usage",
+                "Notifications",
+                "Appearance",
+                "Keyboard",
+                "Data",
+                "About"
+            ]
+        );
+        assert!(
+            v.nav
+                .iter()
+                .all(|n| matches!(n.target, Target::Global { .. }))
         );
         assert_eq!(
-            (nav[1].label.as_str(), nav[1].icon),
-            ("Agents", IconName::Bot)
+            v.footnote,
+            "Project settings live in each project\u{2019}s Settings tab."
         );
-        // Every topic is its own page: Agent limits has its own row again (T-0410, `s15-58`'s nav).
+        // The agent tools sit above the agents; usage with the agent limit.
+        let sections_of = |i: usize| {
+            let Target::Global { sections, .. } = &v.nav[i].target;
+            sections.clone()
+        };
         assert_eq!(
-            nav[1].target,
-            Target::Global {
-                section: GlobalSection::Agents,
-                sections: vec![GlobalSection::Agents],
-            }
+            sections_of(0),
+            [GlobalSection::AgentTools, GlobalSection::Agents]
         );
+        assert_eq!(sections_of(1), [GlobalSection::Git]);
         assert_eq!(
-            (nav[2].label.as_str(), nav[2].icon),
-            ("Agent limits", IconName::Gauge)
+            sections_of(2),
+            [GlobalSection::AgentLimits, GlobalSection::Usage]
         );
+        // Other screens open Settings at Git & pull requests by its id.
         assert_eq!(
-            nav[0].target,
-            Target::Global {
-                section: GlobalSection::AgentTools,
-                sections: vec![GlobalSection::AgentTools],
-            }
-        );
-        // Validation & Auto-merge is gone (FLW-01): Usage follows Agent limits.
-        assert_eq!(nav[3].label, "Usage");
-        assert!(nav.iter().all(|n| n.label != "Validation & Auto-merge"));
-        // Keyboard shortcuts after Appearance (M29, T-0395; design `s15-46`).
-        assert_eq!(nav[6].label, "Appearance");
-        assert_eq!(
-            (nav[7].label.as_str(), nav[7].icon),
-            ("Keyboard shortcuts", IconName::Keyboard)
-        );
-        // About is the last global row (d0071).
-        assert_eq!(
-            (nav[9].label.as_str(), nav[9].icon),
-            ("About", IconName::Info)
+            serde_json::to_value(GlobalSection::Git).unwrap(),
+            serde_json::json!("git")
         );
     }
 
+    /// The agent limit is optional and off by default; usage is drawn as "% left" from the Running popover's usage,
+    /// with what a tool's limit does under it.
     #[test]
-    fn usage_shows_the_token_count_and_no_dollar_estimate() {
+    fn limits_and_usage_start_with_the_limit_off() {
         let sections = global(&GlobalSettings::default());
+        let limits = find(&sections, "agent_limits.enabled");
+        assert_eq!(limits.control, Control::Toggle { on: false });
+        assert!(find(&sections, "agent_limits.max_concurrency").dimmed);
         let usage = sections
             .iter()
             .find(|s| s.id == GlobalSection::Usage)
             .unwrap();
-        let labels: Vec<&str> = usage.rows.iter().map(|r| r.label.as_str()).collect();
-        assert_eq!(labels, ["Token count"]);
+        assert!(usage.rows.is_empty());
+        assert_eq!(usage.note.as_deref(), Some(USAGE_NOTE));
         let mut s = GlobalSettings::default();
         assert!(
             edit_global(
@@ -2476,6 +2467,41 @@ mod tests {
             )
             .is_err()
         );
+    }
+
+    /// Notifications are grouped as the page draws them: a group's checkbox turns every kind in it on or off, and
+    /// "ready for your review" starts off.
+    #[test]
+    fn notifications_come_in_groups() {
+        let mut s = GlobalSettings::default();
+        let sections = global(&s);
+        let on = |field: &str| match &find(&sections, field).control {
+            Control::Checkbox { on, .. } => *on,
+            other => panic!("{field}: {other:?}"),
+        };
+        assert!(on("notification_groups.asks"));
+        assert!(on("notification_groups.broke"));
+        assert!(!on("notification_groups.review"));
+        let fonts = InstalledFonts::default();
+        edit_global(
+            &mut s,
+            "notification_groups.broke",
+            &Value::Flag(false),
+            &fonts,
+        )
+        .unwrap();
+        for kind in NotificationGroup::Broke.kinds() {
+            assert!(!s.notification_kinds.allows(*kind));
+        }
+        assert!(s.notification_kinds.allows(Kind::Question));
+        edit_global(
+            &mut s,
+            "notification_groups.review",
+            &Value::Flag(true),
+            &fonts,
+        )
+        .unwrap();
+        assert!(s.notification_kinds.allows(Kind::ReadyForReview));
     }
 
     /// FLW-01: Validation & Auto-merge is no section and no setting any more, global or per project.
@@ -2747,7 +2773,7 @@ mod tests {
             unreachable!()
         };
         assert!(
-            sections[2]
+            sections[3]
                 .note
                 .as_deref()
                 .is_some_and(|n| n.starts_with("Right now:"))
@@ -2759,7 +2785,7 @@ mod tests {
             .unwrap();
         assert_eq!(
             cleanup.description,
-            "2 leftovers waiting. Nothing is deleted without your click."
+            "2 leftovers \u{b7} copies and branches no ticket uses. Nothing is deleted without your click."
         );
         let size = sections
             .iter()
@@ -3125,9 +3151,6 @@ mod tests {
         assert!(c.credits[0].themes.starts_with("→ "));
         assert!(is_credit_source(&c.credits[0].source));
         assert!(!is_credit_source("https://example.com"));
-        let t = tools(Err("boom".into()));
-        assert_eq!(t.error.as_deref(), Some("boom"));
-        assert!(t.rows.is_empty());
         let json = serde_json::to_value(view(Page::Global {
             title: "General".into(),
             sections: global(&GlobalSettings::default()),
@@ -3136,14 +3159,15 @@ mod tests {
         assert_eq!(json["page"]["page"], "global");
         assert_eq!(json["page"]["sections"][0]["id"], "agent_tools");
         assert_eq!(json["page"]["sections"][1]["id"], "agents");
-        assert_eq!(json["page"]["sections"][2]["id"], "agent_limits");
+        assert_eq!(json["page"]["sections"][2]["id"], "git");
+        assert_eq!(json["page"]["sections"][3]["id"], "agent_limits");
         assert_eq!(
-            json["page"]["sections"][2]["rows"][0]["control"]["kind"],
+            json["page"]["sections"][3]["rows"][0]["control"]["kind"],
             "toggle"
         );
         assert_eq!(
             json["nav"][0]["target"],
-            serde_json::json!({ "page": "global", "section": "agent_tools", "sections": ["agent_tools"] })
+            serde_json::json!({ "page": "global", "section": "agents", "sections": ["agent_tools", "agents"] })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

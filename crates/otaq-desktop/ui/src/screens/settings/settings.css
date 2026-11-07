@@ -514,6 +514,59 @@
   padding-top: 6px;
 }
 
+/* ---- Git & pull requests ---- */
+
+.settings-git-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+}
+
+.settings-git-row .settings-tool-name {
+  width: 120px;
+}
+
+.settings-tool[data-look="attention"] > .icon {
+  color: var(--st-paused);
+}
+
+.settings-git-detail {
+  flex: 1;
+  min-width: 0;
+  color: var(--text-muted);
+  font: 400 12px var(--font-mono);
+  overflow-wrap: anywhere;
+}
+
+.settings-git-state {
+  color: var(--text-secondary);
+  font: 400 12px var(--font-ui);
+}
+
+.settings-git-footnote {
+  margin: 12px 0 0;
+  color: var(--text-muted);
+  font: 400 11.5px var(--font-ui);
+}
+
+/* ---- Limits & usage: each tool's "% left" ---- */
+
+.settings-usage {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  padding-top: 4px;
+}
+
+/* ---- The nav's line about project settings ---- */
+
+.settings-nav-footnote {
+  margin: auto 0 0;
+  padding: 12px 8px 4px;
+  color: var(--text-muted);
+  font: 400 11px var(--font-ui);
+}
+
 /* ---- Dialogs ---- */
 
 .settings-remove {
@@ -1717,8 +1770,24 @@
 .settings-agent-add {
   display: flex;
   justify-content: flex-end;
+  align-items: center;
   gap: 8px;
   margin-top: 12px;
+}
+
+/* A saved agent's Delete agent: red words at the left of Cancel and Save. */
+.settings-agent-delete {
+  margin-right: auto;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--st-error);
+  font: 400 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.settings-agent-delete:hover {
+  text-decoration: underline;
 }
 
 /* The model picker and the model dropdowns (closed: 28 px, the picked model, what it means muted). */
