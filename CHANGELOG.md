@@ -5,6 +5,12 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
+  with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
+  Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.
+- **Search's ticket list reads at a glance.** Each matching ticket shows its status in a few words after a coloured
+  dot ("Your review", "Waits for SHOP-27", "Done"), and the list names the filters you can type under it
+  (`is:needs-you · is:working · in:review · by:strong`). The field says "Search tickets", and shows esc while you type.
 - **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
   under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
   click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;

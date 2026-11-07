@@ -2,14 +2,11 @@
 import type { PillView } from "./PillView";
 
 /**
- * One matching ticket in the list: `SHOP-18` · "Checkout API" · Review · its status.
+ * One matching ticket in the list: `SHOP-18` · "Checkout API" · its status in a few words with its colour ("Your
+ * review", "Waits for SHOP-27", "Done").
  */
 export type SearchTicket = { 
 /**
  * What ↵ or a click opens.
  */
-key: string, title: string, 
-/**
- * The column its card is in ("Backlog", a stage's name, "Done").
- */
-column: string, status: PillView, };
+key: string, title: string, status: PillView, };

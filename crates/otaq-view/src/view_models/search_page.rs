@@ -1,8 +1,8 @@
 //! The header's search and filter field as the Tauri page draws it (T-0221; UI-02, EPC-01, KEY-09: `/` focuses it,
 //! d0097; *03 · Board & columns → Search & filter*). The page keeps what the user typed and the chips per project ([`FilterState`]);
 //! [`view`] turns it into the field: finished tokens become chips, the rest stays in the field, the "4 results" count,
-//! the suggestions under it with their counts, and the matching tickets with their status, Done included (↵ opens
-//! one). The board takes the same state with `board.view` and hides the cards that don't match
+//! the suggestions under it with their counts, and the popover of matching tickets with a short status each, Done
+//! included (↵ opens one), with the filters it takes named as text under them. The board takes the same state with `board.view` and hides the cards that don't match
 //! ([`FilterState::filter`]).
 
 use otaq_core::board::tickets::Ticket;
@@ -12,17 +12,26 @@ use ts_rs::TS;
 
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
-use crate::view_models::filter::{Filter, Scope, Token};
+use crate::view_models::filter::{self, Filter, Is, Scope, Token};
 use crate::view_models::status::{self, PillView};
 
 /// The field's placeholder, in the header and in the field.
-pub const PLACEHOLDER: &str = "Search  ·  is:needs-you";
+pub const PLACEHOLDER: &str = "Search tickets";
 
 /// The suggestion list's label.
 pub const SUGGESTIONS_HEADER: &str = "FILTERS";
 
 /// The matching tickets' label.
 pub const TICKETS_HEADER: &str = "TICKETS";
+
+/// The ticket list's line under the tickets: the filters search takes, as text.
+pub const FILTERS_HINT: &str = "Filters:";
+
+/// A listed ticket's status while it waits for the user's review.
+pub const YOUR_REVIEW: &str = "Your review";
+
+/// A listed finished ticket's status.
+pub const DONE: &str = "Done";
 
 /// The most tickets the list shows; the count says how many match.
 pub const TICKETS_SHOWN: usize = 50;
@@ -66,15 +75,14 @@ pub struct Suggestion {
     pub count: String,
 }
 
-/// One matching ticket in the list: `SHOP-18` · "Checkout API" · Review · its status.
+/// One matching ticket in the list: `SHOP-18` · "Checkout API" · its status in a few words with its colour ("Your
+/// review", "Waits for SHOP-27", "Done").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SearchTicket")]
 pub struct ListedTicket {
     /// What ↵ or a click opens.
     pub key: String,
     pub title: String,
-    /// The column its card is in ("Backlog", a stage's name, "Done").
-    pub column: String,
     pub status: PillView,
 }
 
@@ -94,12 +102,60 @@ pub struct SearchView {
     pub tickets_header: String,
     /// The tickets the filter matches, Done included (last), while a filter is active.
     pub tickets: Vec<ListedTicket>,
+    /// "Filters: is:needs-you · is:working · in:review · by:Strong" under the tickets, while they are listed.
+    pub filters_hint: Option<String>,
     /// What ↵ adds: the first suggestion while a token is half typed (`is:wor`).
     pub enter_adds: Option<String>,
     /// ↵ opens Recovery and Cleanup: the field says "cleanup".
     pub enter_opens_cleanup: bool,
     /// What ↵ opens when it adds nothing and opens no Cleanup: the first ticket listed.
     pub enter_opens: Option<String>,
+}
+
+/// A listed ticket's status: "Done" once finished, "Your review" while it waits for the user's review, "Waits for
+/// SHOP-27" while a ticket it waits for isn't finished, else its status pill's word; its colour is the status's.
+fn listed_status(ticket: &Ticket, tickets: &[Ticket]) -> PillView {
+    let mut pill = PillView::of(status::shown(ticket));
+    let waits_for = || {
+        ticket.depends_on.iter().find(|k| {
+            tickets
+                .iter()
+                .find(|t| &t.key == *k)
+                .is_some_and(|t| !t.place.is_done())
+        })
+    };
+    if ticket.place.is_done() {
+        DONE.clone_into(&mut pill.label);
+    } else if ticket.status == otaq_core::domain::Status::WaitingForYou {
+        YOUR_REVIEW.clone_into(&mut pill.label);
+    } else if let Some(key) = waits_for() {
+        pill.label = format!("Waits for {key}");
+    }
+    pill
+}
+
+/// "Filters: is:needs-you · is:working · in:review · by:Strong": the state filters most used, the project's last
+/// stage and its first agent, as the user types them.
+fn filters_hint(scope: &Scope) -> String {
+    let mut tokens = vec![
+        Token::Is(Is::NeedsMe).label(),
+        Token::Is(Is::Working).label(),
+    ];
+    // The columns run Backlog, the stages, Done: the last stage is the one before Done.
+    let stages = scope.columns.len().saturating_sub(2);
+    if let Some((column, name)) = stages.checked_sub(1).and_then(|n| scope.columns.get(n + 1)) {
+        tokens.push(
+            Token::In {
+                column: column.clone(),
+                name: filter::word(name),
+            }
+            .label(),
+        );
+    }
+    if let Some(agent) = scope.agents.first() {
+        tokens.push(Token::By(filter::word(agent)).label());
+    }
+    format!("{FILTERS_HINT} {}", tokens.join(" \u{b7} "))
 }
 
 /// The field for `state` over the project's `tickets`; `selected` is the open ticket (its chain is suggested), `scope`
@@ -128,10 +184,10 @@ pub fn view(
         .map(|t| ListedTicket {
             key: t.key.to_string(),
             title: t.title.clone(),
-            column: scope.column_of(&t.key).unwrap_or_default().to_owned(),
-            status: PillView::of(status::shown(t)),
+            status: listed_status(t, tickets),
         })
         .collect();
+    let filters_hint = (!listed.is_empty()).then(|| filters_hint(scope));
     let suggestions: Vec<Suggestion> = filter
         .suggestions(tickets, selected, scope)
         .into_iter()
@@ -167,6 +223,7 @@ pub fn view(
         suggestions,
         tickets_header: TICKETS_HEADER.to_owned(),
         tickets: listed,
+        filters_hint,
         enter_adds,
         enter_opens,
     }
@@ -293,29 +350,44 @@ mod tests {
         assert!(!state(&[], "  ").filter(&scope).is_active());
     }
 
-    /// Search also lists the matching tickets with their column and status, Done ones included (after the rest), and
-    /// ↵ opens the first; nothing is listed while no filter is active.
+    /// Search also lists the matching tickets with a short status each ("Your review", "Waits for SHOP-18", "Done"),
+    /// Done ones included (after the rest), and the filters it takes as text under them; ↵ opens the first; nothing is
+    /// listed while no filter is active.
     #[test]
     fn search_lists_the_matching_tickets_done_included() {
         let mut all = sample();
         all.insert(0, ticket("SHOP-9", "Checkout copy", Status::Merged));
+        all[2].depends_on = vec!["SHOP-18".parse().unwrap()];
         let v = view_of(&state(&[], "checkout"), &all, None);
         assert_eq!(v.tickets_header, "TICKETS");
-        let rows: Vec<(&str, &str, &str)> = v
+        let rows: Vec<(&str, &str)> = v
             .tickets
             .iter()
-            .map(|t| (t.key.as_str(), t.column.as_str(), t.status.label.as_str()))
+            .map(|t| (t.key.as_str(), t.status.label.as_str()))
             .collect();
         assert_eq!(
-            rows[2],
-            (
-                "SHOP-9",
-                "Done",
-                PillView::of(Status::Merged).label.as_str()
-            )
+            rows,
+            [
+                ("SHOP-18", "Your review"),
+                ("SHOP-20", "Waits for SHOP-18"),
+                ("SHOP-9", "Done")
+            ]
         );
-        assert_eq!(rows.len(), 3);
-        assert_eq!(rows[0].0, "SHOP-18");
+        assert_eq!(
+            v.tickets[2].status.palette,
+            PillView::of(Status::Merged).palette
+        );
+        assert_eq!(
+            v.filters_hint.as_deref(),
+            Some("Filters: is:needs-you \u{b7} is:working \u{b7} in:review")
+        );
+        // A finished ticket it waited for no longer holds it.
+        all[2].depends_on = vec!["SHOP-9".parse().unwrap()];
+        let listed = view_of(&state(&[], "checkout"), &all, None);
+        assert_eq!(
+            listed.tickets[1].status.label,
+            PillView::of(Status::Queued).label
+        );
         assert_eq!(v.tickets[0].title, "Checkout API");
         assert_eq!(v.results.as_deref(), Some("3 results"));
         assert_eq!(v.enter_opens.as_deref(), Some("SHOP-18"));
@@ -340,7 +412,6 @@ mod tests {
         assert_eq!(keys(&v), ["SHOP-18"]);
         let in_dev = keys(&view_of(&state(&[], "in:dev "), &all, None));
         assert_eq!(in_dev, ["SHOP-20", "SHOP-22", "SHOP-19"]);
-        assert_eq!(v.tickets[0].column, "Review");
         let v = view_of(&state(&[], "IN:Review "), &all, None);
         assert_eq!(v.filter.tokens, ["in:review"], "any case, one chip");
         assert_eq!(

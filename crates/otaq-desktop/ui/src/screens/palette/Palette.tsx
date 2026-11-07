@@ -1,6 +1,7 @@
 // The command palette, ⌘K / ⇧⌘P (KEY-06, d0097; *02 · Command palette*, s02-19 … s02-23): a non-modal overlay 96 px
 // from the top over a dimmed window. Type to search tickets, projects and actions (`>` first: actions only); ↑ ↓ move
-// over the rows that can run, ↵ runs or opens, Esc or a click outside closes. Esc and running an action give the
+// over the rows that can run, ↵ runs or opens, Esc or a click outside closes. Opened empty, it suggests what to do,
+// led by Next that needs you: where ⌘J goes now (picking it runs ⌘J). Esc and running an action give the
 // keyboard back to where it was (a terminal keeps its focus). The rows and their words are Rust's (`palette.view`).
 import { Fragment, type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
@@ -13,6 +14,8 @@ import type { PaletteView } from "../../generated/PaletteView";
 import type { PauseRunParams } from "../../generated/PauseRunParams";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
+import { openOf } from "../strip/logic";
 import { ACTIONS_PREFIX, firstPickable, joinQuery, paletteKey, splitQuery } from "./logic";
 
 /** An action's keys: "⌘N or c". */
@@ -63,10 +66,21 @@ function RowContent({ row }: { row: PaletteRow }) {
         </>
       );
     case "pause":
+    case "edit_flow":
       return (
         <>
           <Icon name={item.icon} size={14} />
           <span className="palette-title">{item.title}</span>
+        </>
+      );
+    case "next_needs_you":
+      return (
+        <>
+          <Icon name={item.icon} size={14} />
+          <span className="palette-title">{item.title}</span>
+          <span className="palette-key">{item.label}</span>
+          <span className="palette-fill" />
+          <Keys keys={item.keys} dim={false} />
         </>
       );
     case "divider":
@@ -176,7 +190,10 @@ export function Palette({ params, close }: OverlayProps<"command_palette">) {
   useEffect(() => {
     let current = true;
     const { project, ticket } = selection.get();
+    const open = openOf();
     const ask: PaletteParams = { query, project, ticket, terminal };
+    // What the page shows, which ⌘J moves on from: the palette's Next that needs you names where it goes.
+    if (open !== null) ask.open = open;
     request("palette.view", ask).then(
       (answer) => {
         if (!current) return;
@@ -223,6 +240,15 @@ export function Palette({ params, close }: OverlayProps<"command_palette">) {
       case "project":
         close();
         selectProject(item.project);
+        return;
+      case "next_needs_you":
+        // ⌘J itself, so it lands where the row said, in the Needs you strip's order.
+        done();
+        app.shortcuts.run({ action: "next_needs_you_item" });
+        return;
+      case "edit_flow":
+        close();
+        openFlowEditor(changeFlowOpen(item.project));
         return;
       case "pause": {
         // At once, no confirmation (d0112); the title bar and the banner follow the service's events.

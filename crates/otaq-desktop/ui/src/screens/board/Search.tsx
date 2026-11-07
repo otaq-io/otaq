@@ -1,8 +1,8 @@
 // The header's search and filter field (*03 · Board & columns → Search & filter*; UI-02, EPC-01, KEY-09), drawn
 // by the header in place of its search entry (the `header_search` slot). Filter the board (`/`) focuses it; typing filters the board as
 // you type; a finished token (`is:needs-you `) becomes a chip with its ×; the list under the field suggests filters
-// with their counts (↑/↓ and ↵, or a click, add one), then lists the matching tickets with their column and status,
-// Done included (↵ or a click opens one); ↵ on a half-typed token adds the first suggestion, on "cleanup" opens
+// with their counts (↑/↓ and ↵, or a click, add one), then lists the matching tickets with a short status each, Done
+// included (↵ or a click opens one), and names the filters as text under them; while typing, the field shows esc; ↵ on a half-typed token adds the first suggestion, on "cleanup" opens
 // Recovery and Cleanup, and otherwise opens the first ticket listed; Esc clears the filter and leaves. What it says
 // is `board.search`'s.
 import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, useState } from "react";
@@ -10,7 +10,7 @@ import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, use
 import { openOverlay } from "../../app/overlays";
 import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, useFloatingStyle, PLAIN_TEXT, StatusPill } from "../../components";
+import { Kbd, useFloatingStyle, PLAIN_TEXT } from "../../components";
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { SearchParams } from "../../generated/SearchParams";
 import type { SearchSuggestion } from "../../generated/SearchSuggestion";
@@ -30,6 +30,9 @@ import {
   searchFocusRequests,
   setFilter,
 } from "./filter";
+
+/** What the field shows while it has the keyboard and a filter is active: Esc clears it. */
+const ESC = "esc";
 
 /** The suggestion row ↑/↓ lands on next (`null`: none highlighted). */
 export function stepSuggestion(
@@ -75,6 +78,8 @@ interface SuggestionsProps {
   suggestions: readonly SearchSuggestion[];
   ticketsHeader: string;
   tickets: readonly SearchTicket[];
+  /** "Filters: is:needs-you · …" under the tickets. */
+  filtersHint: string | null;
   highlighted: number | null;
   onPick: (token: string) => void;
   onOpen: (key: string) => void;
@@ -86,6 +91,7 @@ function Suggestions({
   suggestions,
   ticketsHeader,
   tickets,
+  filtersHint,
   highlighted,
   onPick,
   onOpen,
@@ -141,10 +147,11 @@ function Suggestions({
         >
           <span className="board-search-option-token">{t.key}</span>
           <span className="board-search-option-text board-search-ticket-title">{t.title}</span>
-          <span className="board-search-ticket-column">{t.column}</span>
-          <StatusPill pill={t.status} />
+          <span className="board-search-ticket-dot" data-palette={t.status.palette} />
+          <span className="board-search-ticket-status">{t.status.label}</span>
         </button>
       ))}
+      {filtersHint !== null && <div className="board-search-hint">{filtersHint}</div>}
     </div>
   );
 }
@@ -229,7 +236,9 @@ export function SearchBox({
           onFocusChange(false);
         }}
       />
-      {tail !== null ? (
+      {focused && tail !== null ? (
+        <Kbd keys={ESC} />
+      ) : tail !== null ? (
         <span className="board-search-results">{tail}</span>
       ) : (
         view?.keys != null && <Kbd keys={view.keys} />
@@ -241,6 +250,7 @@ export function SearchBox({
           suggestions={view.suggestions}
           ticketsHeader={view.tickets_header}
           tickets={view.tickets}
+          filtersHint={view.filters_hint}
           highlighted={highlighted}
           onPick={onPick}
           onOpen={onOpen}
