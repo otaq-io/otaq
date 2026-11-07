@@ -7115,6 +7115,10 @@
           "ty": "String",
           "required": true
         },
+        "main_folder": {
+          "ty": "bool",
+          "omittable": true
+        },
         "project": {
           "ty": "String",
           "required": true
@@ -11608,6 +11612,10 @@
           "ty": "String",
           "required": true
         },
+        "main_folder": {
+          "ty": "bool",
+          "omittable": true
+        },
         "path": {
           "ty": "String",
           "required": true
@@ -12554,6 +12562,10 @@
     "crate::tools::ToolStatus": {
       "kind": "struct",
       "fields": {
+        "account": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "extension_installed": {
           "ty": "Option<bool>"
         },
@@ -12571,6 +12583,10 @@
           "ty": "Option<String>"
         },
         "missing_package_manager": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "path": {
           "ty": "Option<String>",
           "omittable": true
         },

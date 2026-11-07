@@ -201,10 +201,9 @@ function SetUp({ setUp }: { setUp: NonNullable<PrDialogView["set_up"]> }) {
   );
 }
 
-/** App Settings where PR providers are set up. Their own page, "Git & pull requests" (topic `git`), is another piece's:
- * until it lands this opens Tools, where git and the provider tools are found today. */
+/** App Settings, Git & pull requests: where PR providers are set up. */
 export function openProviderSettings(): void {
-  openOverlay("settings", { section: "tools" });
+  openOverlay("settings", { section: "git" });
 }
 
 export function Intro({

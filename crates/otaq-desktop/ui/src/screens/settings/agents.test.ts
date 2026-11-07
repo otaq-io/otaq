@@ -401,9 +401,17 @@ describe("one agent's page", () => {
     ]);
   });
 
-  it("saves the name when its field is left, and shows Effort only when the view has it", async () => {
-    const calls = await openAgent(agentPage(), { "settings.agent": () => agentPage() });
+  it("keeps an edit only on Save, and shows Effort only when the view has it", async () => {
+    const saved = agentPage({
+      add: { add_label: "Save", cancel_label: "Cancel", delete_label: "Delete agent", unchanged: true },
+    });
+    const calls = await openAgent(saved, {
+      "settings.agent": () => saved,
+      "settings.agent_save": () => ({ outcome: "added", page: saved }),
+    });
     expect(byText(".settings-agent-effort span", "Effort")).not.toBeUndefined();
+    // Nothing changed yet: Save is off.
+    expect((byText("button", "Save") as HTMLButtonElement | undefined)?.disabled).toBe(true);
     const name = document.querySelector<HTMLInputElement>("#agent-name");
     if (!name) throw new Error("no name field");
     act(() => {
@@ -416,9 +424,19 @@ describe("one agent's page", () => {
       name.blur();
     });
     await settle();
+    // Leaving the field saves nothing.
+    expect(calls.some(([method]) => method === "settings.agent_save")).toBe(false);
+    expect(
+      calls.some(
+        ([method, p]) =>
+          method === "settings.agent" && p !== null && (p as { change: unknown }).change !== null,
+      ),
+    ).toBe(false);
+    click(byText("button", "Save"));
+    await settle();
     expect(calls).toContainEqual([
-      "settings.agent",
-      { id: "strong", duplicate: null, draft: null, change: { field: "name", value: "Stronger" } },
+      "settings.agent_save",
+      { id: "strong", draft: { ...saved.draft, name: "Stronger" } },
     ]);
     // OpenCode has no effort level: the view sends none, and the page draws none.
     show(createElement("div"));
@@ -433,7 +451,7 @@ describe("one agent's page", () => {
       menu: [],
       used_in: null,
       note: null,
-      add: { add_label: "Add agent", cancel_label: "Cancel" },
+      add: { add_label: "Add agent", cancel_label: "Cancel", delete_label: null, unchanged: false },
     });
     const calls = await openSection({
       "settings.agent": () => draft,

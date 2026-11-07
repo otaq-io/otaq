@@ -18,8 +18,18 @@ before Publish (`scripts/README.md`, "Making a release").
 - **When GitHub or Azure DevOps isn't set up on this machine**, the PR dialog says so with **Set up…** and, when the
   flow delivers either way, **Or merge into main instead**; Push & open PR stays off until it is. An open PR's box
   has **Mark closed** and **Mark merged**.
+- **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
+  with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
+  Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.
+- **Search's ticket list reads at a glance.** Each matching ticket shows its status in a few words after a coloured
+  dot ("Your review", "Waits for SHOP-27", "Done"), and the list names the filters you can type under it
+  (`is:needs-you · is:working · in:review · by:strong`). The field says "Search tickets", and shows esc while you type.
+- **Files shows your folder, as committed.** The Files view's picker now reads "Show files from": your base branch,
+  then each ticket's copy, then "Your worktrees · committed only", where your project folder comes first as its
+  checked-out branch ("Your folder · main"), then your other worktrees. Each shows what is committed there; an edit
+  you haven't committed never appears in Files (your editor shows those).
 - **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
-  under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
+  under the field now also shows the matching tickets with their status, Done ones included; ↵ or a
   click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;
   the stage's name or id, any case) and `by:<agent>` the tickets whose current stage that agent works (`by:strong`).
 - **Starting a ticket puts it into the first stage.** The Ready for Dev column is gone. Every Backlog card has

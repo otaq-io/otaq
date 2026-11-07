@@ -2,7 +2,8 @@
 //! how well each row matches, whatever it is. An action shows its icon and the user's keys, a ticket its key in mono
 //! and its column, a project "Switch to …" with its ⌘ number. An action that can't run now stays in the list, greyed,
 //! with the reason, and can't be picked. The current project's tickets come before the other projects' (below "Other
-//! projects"); `>` first lists actions only; an empty field lists the recent items of every project, newest first.
+//! projects"); `>` first lists actions only. An empty field lists the suggestions, led by "Next that needs you" (where
+//! ⌘J goes, in the Needs you strip's order), then the recent items of every project, newest first.
 
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::board::tickets::Ticket;
@@ -19,7 +20,7 @@ use crate::view_models::sheet::{self, SheetTab};
 use crate::view_models::sheet_actions::{self, Action as SheetAction};
 use crate::view_models::{close, send_back};
 
-pub const PLACEHOLDER: &str = "Search tickets, projects and actions…";
+pub const PLACEHOLDER: &str = "Type a command or a ticket…";
 /// The field's hint: `>` and what it does.
 pub const ACTIONS_KEY: &str = ">";
 pub const ACTIONS_HINT: &str = "actions only";
@@ -27,6 +28,10 @@ pub const ACTIONS_HINT: &str = "actions only";
 pub const ACTIONS_ONLY: &str = "Actions only";
 /// Section labels are stored in sentence case and uppercased by styling (d0093).
 pub const RECENT: &str = "Recent";
+pub const SUGGESTED: &str = "Suggested";
+/// The first suggestion: where ⌘J goes now.
+pub const NEXT_NEEDS_YOU: &str = "Next that needs you";
+pub const EDIT_FLOW: &str = "Edit flow";
 pub const OTHER_PROJECTS: &str = "Other projects";
 pub const NOTHING_HINT: &str = "Search a ticket by its key (SHOP-18) or title, a project by its name, or type > to list every action.";
 
@@ -157,8 +162,8 @@ pub fn recorded(action: KeyAction) -> bool {
         )
 }
 
-/// The action's name in the palette: [`KeyAction::title`], with each half of a pair on its own (Q223), and
-/// "Terminal" as drawn.
+/// The action's name in the palette: [`KeyAction::title`], with each half of a pair on its own (Q223), and Noyan and
+/// the terminal as things to do ("Ask Noyan", "Open a terminal").
 pub fn title(action: KeyAction) -> &'static str {
     match action {
         KeyAction::NextTicket => "Next ticket",
@@ -167,8 +172,8 @@ pub fn title(action: KeyAction) -> &'static str {
         KeyAction::CloseSheet => "Close the ticket",
         KeyAction::NextTab => "Next panel tab",
         KeyAction::PreviousTab => "Previous panel tab",
-        // As `s02-20` draws it.
-        KeyAction::Terminals => "Terminal",
+        KeyAction::FocusAgentPanel => "Ask Noyan",
+        KeyAction::Terminals => "Open a terminal",
         other => other.title(),
     }
 }
@@ -249,7 +254,21 @@ pub enum Item {
         icon: IconName,
         title: &'static str,
     },
-    /// "Other projects": the tickets after it are other projects'.
+    /// "Next that needs you  SHOP-22  ⌘J": what ⌘J opens now (`label`: the ticket's key, or the Noyan conversation's
+    /// name); picking it runs ⌘J.
+    NextNeedsYou {
+        icon: IconName,
+        title: &'static str,
+        label: String,
+        keys: Vec<String>,
+    },
+    /// "Edit flow": the shown project's flow editor.
+    EditFlow {
+        project: String,
+        icon: IconName,
+        title: &'static str,
+    },
+    /// "Other projects" (the tickets after it are other projects'), or "Recent" under the suggestions.
     Divider { label: &'static str },
 }
 
@@ -296,7 +315,7 @@ pub struct View {
     pub hint: &'static str,
     /// "Actions only" while the query starts with `>` (then the field shows the `>` and the hint goes).
     pub actions_only: Option<&'static str>,
-    /// "Recent" over the recent items of an empty field.
+    /// "Suggested" over an empty field's suggestions.
     pub section: Option<&'static str>,
     pub rows: Vec<Row>,
     pub nothing: Option<Nothing>,
@@ -318,6 +337,9 @@ pub struct Inputs<'a> {
     pub tickets: &'a [Ticket],
     pub recent: &'a [RecentItem],
     pub context: Context,
+    /// What ⌘J opens now from where the palette was opened: a ticket's key, or a Noyan conversation's name; `None`
+    /// when nothing needs the user.
+    pub next_needs_you: Option<&'a str>,
 }
 
 /// The user's keys of `action` as Kbd texts, outside terminals, in slot order.
@@ -472,6 +494,71 @@ fn actions() -> impl Iterator<Item = KeyAction> {
     KeyAction::all().into_iter().filter(|a| listed(*a))
 }
 
+fn edit_flow_row(project: &str) -> Row {
+    Row {
+        pickable: true,
+        item: Item::EditFlow {
+            project: project.to_owned(),
+            icon: IconName::Pencil,
+            title: EDIT_FLOW,
+        },
+    }
+}
+
+/// The actions an empty field suggests after Next that needs you, in order; Edit flow and Pause this project go
+/// between them.
+const SUGGESTED_ACTIONS: [KeyAction; 4] = [
+    KeyAction::NewTicket,
+    KeyAction::FocusAgentPanel,
+    KeyAction::Settings,
+    KeyAction::Terminals,
+];
+
+/// An empty field's suggestions: Next that needs you first (only while something needs the user), then New ticket,
+/// Edit flow, Ask Noyan, Pause (or Resume) this project, Settings and Open a terminal.
+fn suggested_rows(inputs: &Inputs) -> Vec<Row> {
+    let mut rows = Vec::new();
+    if let Some(label) = inputs.next_needs_you {
+        rows.push(Row {
+            pickable: true,
+            item: Item::NextNeedsYou {
+                icon: icon(KeyAction::NextNeedsYouItem),
+                title: NEXT_NEEDS_YOU,
+                label: label.to_owned(),
+                keys: keys_of(KeyAction::NextNeedsYouItem, inputs),
+            },
+        });
+    }
+    let [new_ticket, noyan, settings, terminal] = SUGGESTED_ACTIONS;
+    rows.push(action_row(new_ticket, inputs));
+    if let Some(project) = inputs.project {
+        rows.push(edit_flow_row(project));
+    }
+    rows.push(action_row(noyan, inputs));
+    rows.extend(pause_rows(inputs).into_iter().map(|(_, r)| r).find(|r| {
+        matches!(
+            r.item,
+            Item::Pause {
+                scope: pause::Scope::Project,
+                ..
+            }
+        )
+    }));
+    rows.push(action_row(settings, inputs));
+    rows.push(action_row(terminal, inputs));
+    rows
+}
+
+/// Whether a recent row repeats a suggestion (the same action, or ⌘J's).
+fn suggested(row: &Row) -> bool {
+    match &row.item {
+        Item::Action { action, .. } => {
+            SUGGESTED_ACTIONS.contains(action) || *action == KeyAction::NextNeedsYouItem
+        }
+        _ => false,
+    }
+}
+
 /// The recent items that still exist, newest first, as rows: an action the app no longer has, a ticket or a project
 /// that is gone, and a switch to the project already shown are left out.
 fn recent_rows(inputs: &Inputs) -> Vec<Row> {
@@ -522,19 +609,31 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             };
             ranked.extend(s.map(|s| (s, row)));
         }
+        if let Some(project) = inputs.project {
+            let s = if needle.is_empty() {
+                Some(0)
+            } else {
+                score(&needle, EDIT_FLOW)
+            };
+            ranked.extend(s.map(|s| (s, edit_flow_row(project))));
+        }
         ranked.sort_by_key(|(s, _)| std::cmp::Reverse(*s));
         ranked.into_iter().map(|(_, r)| r).collect()
     } else if needle.is_empty() {
-        let recent = recent_rows(inputs);
-        if recent.is_empty() {
-            actions()
-                .map(|a| action_row(a, inputs))
-                .chain(pause_rows(inputs).into_iter().map(|(_, r)| r))
-                .collect()
-        } else {
-            section = Some(RECENT);
-            recent
+        section = Some(SUGGESTED);
+        let mut rows = suggested_rows(inputs);
+        let recent: Vec<Row> = recent_rows(inputs)
+            .into_iter()
+            .filter(|r| !suggested(r))
+            .collect();
+        if !recent.is_empty() {
+            rows.push(Row {
+                item: Item::Divider { label: RECENT },
+                pickable: false,
+            });
+            rows.extend(recent);
         }
+        rows
     } else {
         let mut here: Vec<(u32, Row)> = Vec::new();
         let mut other: Vec<(u32, Row)> = Vec::new();
@@ -557,6 +656,11 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             if let Some(s) = score(&needle, title) {
                 here.push((s, row));
             }
+        }
+        if let Some(project) = inputs.project
+            && let Some(s) = score(&needle, EDIT_FLOW)
+        {
+            here.push((s, edit_flow_row(project)));
         }
         for (i, p) in inputs.projects.iter().enumerate() {
             if inputs.project == Some(p.key.as_str()) {
@@ -696,11 +800,17 @@ pub fn gallery() -> Vec<GalleryFrame> {
                 tickets: &tickets,
                 recent: &recent,
                 context,
+                next_needs_you: Some("SHOP-22"),
             },
         ),
     };
     vec![
-        frame("Just opened: recent actions and tickets", "", &mac, review),
+        frame(
+            "Just opened: Next that needs you first, then the suggestions and the recent items",
+            "",
+            &mac,
+            review,
+        ),
         frame("Typing: one ranked list", "check", &mac, review),
         frame("> first: actions only", ">", &mac, review),
         frame("No results", "zzq", &mac, review),
@@ -771,6 +881,7 @@ mod tests {
             tickets,
             recent,
             context: Context::default(),
+            next_needs_you: None,
         }
     }
 
@@ -791,6 +902,8 @@ mod tests {
                 },
                 Item::Project { title, .. } => format!("project {title}"),
                 Item::Pause { title, .. } => format!("pause {title}"),
+                Item::NextNeedsYou { title, label, .. } => format!("next {title} {label}"),
+                Item::EditFlow { title, .. } => format!("edit {title}"),
                 Item::Divider { label } => format!("divider {label}"),
             })
             .collect()
@@ -846,7 +959,7 @@ mod tests {
             panic!()
         };
         assert_eq!(keys, &["⌘N"]);
-        assert_eq!(v.placeholder, "Search tickets, projects and actions…");
+        assert_eq!(v.placeholder, "Type a command or a ticket…");
         assert_eq!((v.hint_key, v.hint), (">", "actions only"));
         assert_eq!(v.footer.opens, "⌘K \u{b7} ⇧⌘P");
         assert_eq!(
@@ -910,11 +1023,10 @@ mod tests {
         let i = inputs(&projects, &tickets, &bindings, &[]);
         let v = view(">", &i);
         assert_eq!(v.actions_only, Some("Actions only"));
-        assert!(
-            v.rows
-                .iter()
-                .all(|r| matches!(r.item, Item::Action { .. } | Item::Pause { .. }))
-        );
+        assert!(v.rows.iter().all(|r| matches!(
+            r.item,
+            Item::Action { .. } | Item::Pause { .. } | Item::EditFlow { .. }
+        )));
         let all = words(&v);
         for keyless in [
             "Park",
@@ -1021,6 +1133,63 @@ mod tests {
         assert!(failed.retry_validation, "{failed:?}");
     }
 
+    /// An empty field suggests what the canvas draws, led by Next that needs you with where ⌘J goes and its keys; with
+    /// nothing needing the user, that row is left out.
+    #[test]
+    fn an_empty_field_is_led_by_next_that_needs_you() {
+        let (projects, tickets, bindings) = example();
+        let i = Inputs {
+            next_needs_you: Some("NOTE-1"),
+            ..inputs(&projects, &tickets, &bindings, &[])
+        };
+        let v = view("", &i);
+        assert_eq!(v.section, Some("Suggested"));
+        assert_eq!(
+            v.rows[0],
+            Row {
+                pickable: true,
+                item: Item::NextNeedsYou {
+                    icon: IconName::Hand,
+                    title: "Next that needs you",
+                    label: "NOTE-1".into(),
+                    keys: vec!["⌘J".into()],
+                },
+            }
+        );
+        assert_eq!(
+            words(&v),
+            [
+                "next Next that needs you NOTE-1",
+                "action New ticket",
+                "edit Edit flow",
+                "action Ask Noyan",
+                "pause Pause this project",
+                "action Settings",
+                "action Open a terminal",
+            ]
+        );
+        assert_eq!(
+            v.rows[2].item,
+            Item::EditFlow {
+                project: "NOTE".into(),
+                icon: IconName::Pencil,
+                title: "Edit flow",
+            }
+        );
+        let calm = view("", &inputs(&projects, &tickets, &bindings, &[]));
+        assert_eq!(
+            words(&calm)[0],
+            "action New ticket",
+            "nothing needs you: no Next row"
+        );
+        // Edit flow is found by typing too, and listed with the actions.
+        assert_eq!(words(&view("edit fl", &i))[0], "edit Edit flow");
+        assert!(words(&view(">", &i)).contains(&"edit Edit flow".to_owned()));
+        // No project shown: no flow to edit.
+        let none = Inputs { project: None, ..i };
+        assert!(!words(&view("", &none)).contains(&"edit Edit flow".to_owned()));
+    }
+
     #[test]
     fn recents_come_from_every_project_newest_first() {
         let (projects, tickets, bindings) = example();
@@ -1069,12 +1238,21 @@ mod tests {
                 },
                 0,
             ),
+            // Already suggested: not repeated.
+            at(
+                RecentUse::Action {
+                    action: json!({"action": "new_ticket"}),
+                },
+                0,
+            ),
         ];
         let i = inputs(&projects, &tickets, &bindings, &recent);
         let v = view("", &i);
-        assert_eq!(v.section, Some("Recent"));
+        let listed = words(&v);
+        let at = listed.iter().position(|w| w == "divider Recent").unwrap();
+        assert!(!v.rows[at].pickable);
         assert_eq!(
-            words(&v),
+            listed[at + 1..],
             [
                 "ticket API-1 \u{b7} pocket-api",
                 "action Park \u{b7} no ticket open",
@@ -1082,10 +1260,9 @@ mod tests {
                 "project Switch to pocket-api"
             ]
         );
-        // Nothing used yet: every action, without the label.
+        // Nothing used yet: the suggestions alone.
         let fresh = view("", &inputs(&projects, &tickets, &bindings, &[]));
-        assert_eq!(fresh.section, None);
-        assert!(fresh.rows.len() > 20);
+        assert!(!words(&fresh).iter().any(|w| w.starts_with("divider")));
     }
 
     #[test]

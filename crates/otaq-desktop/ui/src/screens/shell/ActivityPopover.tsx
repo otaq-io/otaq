@@ -11,6 +11,7 @@ import { openTicket } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Kbd, Popover, ToolAvatar } from "../../components";
 import type { ActivityPopover as ActivityView } from "../../generated/ActivityPopover";
+import type { ActivityToolUsage } from "../../generated/ActivityToolUsage";
 import type { ActivityWindow } from "../../generated/ActivityWindow";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { LimitField } from "../../generated/LimitField";
@@ -104,6 +105,31 @@ function WindowRow({ row }: { row: ActivityWindow }) {
   );
 }
 
+/** Each tool's plan windows as "% left", amber at 20% left or less: in the popover and on Settings → Limits & usage. */
+export function UsageTools({ tools }: { tools: readonly ActivityToolUsage[] }) {
+  return (
+    <>
+      {tools.map((tool) => (
+        <div key={tool.name} className="activity-usage">
+          <div className="activity-tool">
+            {tool.avatar && <ToolAvatar avatar={tool.avatar} />}
+            <span className="activity-tool-name">{tool.name}</span>
+            <span className="activity-tokens">{tool.tokens}</span>
+          </div>
+          {tool.windows.map((row) => (
+            <WindowRow key={row.label} row={row} />
+          ))}
+          {tool.notes.map((note) => (
+            <p key={note} className="activity-note">
+              {note}
+            </p>
+          ))}
+        </div>
+      ))}
+    </>
+  );
+}
+
 export interface ActivityBodyProps {
   view: ActivityView;
   onStep: (field: LimitField, up: boolean) => void;
@@ -134,23 +160,7 @@ export function ActivityBody({ view, onStep, onOpenTicket, onOpenTerminals }: Ac
       </section>
       <section className="activity-section">
         <SectionHead title={usage.title} aside={usage.today} />
-        {usage.tools.map((tool) => (
-          <div key={tool.name} className="activity-usage">
-            <div className="activity-tool">
-              {tool.avatar && <ToolAvatar avatar={tool.avatar} />}
-              <span className="activity-tool-name">{tool.name}</span>
-              <span className="activity-tokens">{tool.tokens}</span>
-            </div>
-            {tool.windows.map((row) => (
-              <WindowRow key={row.label} row={row} />
-            ))}
-            {tool.notes.map((note) => (
-              <p key={note} className="activity-note">
-                {note}
-              </p>
-            ))}
-          </div>
-        ))}
+        <UsageTools tools={usage.tools} />
       </section>
       {processes && (
         <section className="activity-section">

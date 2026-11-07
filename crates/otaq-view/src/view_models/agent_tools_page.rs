@@ -179,7 +179,7 @@ pub struct Page {
 pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
     let checked = statuses.iter().filter_map(|s| s.checked_at).max();
     Page {
-        title: "Agent tools".to_owned(),
+        title: "Tools".to_owned(),
         intro: format!(
             "The AI tools on your machine. {PRODUCT_NAME} never asks for passwords or keys and never changes their permission settings. Install and Sign in\u{2026} run the tool\u{2019}s own command in a terminal here, on your click."
         ),
@@ -945,7 +945,7 @@ mod tests {
     #[test]
     fn the_page_lists_all_four_and_says_when_it_checked() {
         let p = page(&sample(), NOW);
-        assert_eq!(p.title, "Agent tools");
+        assert_eq!(p.title, "Tools");
         assert_eq!(p.rows.len(), 4);
         assert_eq!(p.checked.as_deref(), Some("Checked 2 minutes ago"));
         assert_eq!(p.rows[0].detail, "v2.1.301 · signed in");

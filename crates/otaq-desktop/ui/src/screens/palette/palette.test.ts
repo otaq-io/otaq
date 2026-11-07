@@ -226,7 +226,7 @@ beforeEach(() => {
   ask.mockImplementation(() => new Promise(() => undefined));
   app = createRegistries();
   ran = [];
-  for (const name of ["approve", "park", "new_ticket"] as const)
+  for (const name of ["approve", "park", "new_ticket", "next_needs_you_item"] as const)
     app.shortcuts.on(name, () => {
       ran.push(name);
     });
@@ -305,6 +305,40 @@ test("↑ ↓ skip a greyed row, ↵ runs the highlighted action and records it,
   expect(ran).toEqual(["park"]);
   expect(document.activeElement).toBe(host.querySelector(".card"));
   expect(ask).toHaveBeenCalledWith("palette.record", { kind: "action", action: { action: "park" } });
+});
+
+test("an empty palette's first row is Next that needs you: ↵ runs ⌘J from what the page shows", async () => {
+  const next: PaletteRow = {
+    item: {
+      kind: "next_needs_you",
+      icon: "hand",
+      title: "Next that needs you",
+      label: "NOTE-1",
+      keys: ["⌘J"],
+    },
+    pickable: true,
+  };
+  answers([next, action("New ticket", "new_ticket")]);
+  act(() => {
+    openTicket("NOTE-2");
+  });
+  commandK();
+  await settle();
+  // ⌘J moves on from the open ticket, so the row names where it goes from there.
+  expect(ask).toHaveBeenCalledWith("palette.view", {
+    query: "",
+    project: "NOTE",
+    ticket: "NOTE-2",
+    terminal: false,
+    open: { kind: "ticket", key: "NOTE-2" },
+  });
+  const highlighted = host.querySelector('[aria-selected="true"]')?.textContent;
+  expect(highlighted).toContain("Next that needs you");
+  expect(highlighted).toContain("NOTE-1");
+  expect(highlighted).toContain("⌘J");
+  press("Enter");
+  expect(isOpen()).toBe(false);
+  expect(ran).toEqual(["next_needs_you_item"]);
 });
 
 test("picking API-1 from NOTE switches project and opens the sheet", async () => {

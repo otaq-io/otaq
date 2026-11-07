@@ -243,7 +243,7 @@ mod tests {
         let view = request(&h.app, "agent_tools.view", json!({ "recheck": true }))
             .await
             .unwrap();
-        assert_eq!(view["title"], "Agent tools");
+        assert_eq!(view["title"], "Tools");
         let rows = view["rows"].as_array().unwrap();
         let tools: Vec<&str> = rows.iter().map(|r| r["tool"].as_str().unwrap()).collect();
         assert_eq!(tools, ["claude", "codex", "copilot", "opencode"]);
