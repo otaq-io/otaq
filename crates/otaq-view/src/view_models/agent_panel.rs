@@ -3,8 +3,9 @@
 //! *18 · Project agents & terminals → Row · Pane: empty, hidden, tool problems, menu (0087)*, *Row · More pane
 //! states (0086 · V)*, *Row · Switching agents, attention (0086 · V)*, *24 → Row · The Project agent* `s24-05`):
 //! everything the panel between the rail and the main area draws while it is open, for one project and the
-//! conversation it shows. Closed, the Project agent is the Ask bar (`ask_bar.rs`). The code still calls it "the
-//! agent panel", as `agent_panel.*` and the page do.
+//! conversation it shows. Closed, it is the rail's Noyan button (`noyan_button.rs`); a conversation starts from the
+//! box for new work (`new_work.rs`, ⇧↵) or here. The code still calls it "the agent panel", as `agent_panel.*` and
+//! the page do.
 //!
 //! The agent panel shows one Project agent, or the **empty agent panel** "Ask Noyan". The empty agent panel is the page's own
 //! state, never a session or a row: no agent exists until the first message is sent, and that message is the
@@ -112,7 +113,7 @@ pub struct Header {
     /// its terminal) brings it back beside the board.
     pub expand: Button,
     pub collapse: Button,
-    /// Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
+    /// Closes the panel, as ⌘L and Esc do; the conversation is kept (d0113).
     pub close: Button,
 }
 

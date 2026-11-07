@@ -193,7 +193,41 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
             Ok(Reply::ManualChecks(c)) => c.unticked,
             _ => 0,
         },
+        prepared_by: proposal.prepared_by.as_deref(),
+        writing: proposal.writing.as_deref(),
     }))
+}
+
+/// The Approve menu of a ticket waiting for the user's Approve, for the review bar's Approve and its menu; `None`
+/// when what it needs can't be read (the bar then keeps its plain Approve).
+pub(super) async fn approve_menu_of(app: &App, ticket: &Ticket) -> Option<board_page::ApproveMenu> {
+    let project = ticket.key.project.to_string();
+    let k = KeyParams {
+        key: ticket.key.to_string(),
+    };
+    let (all, proposal, provider, flow) = tokio::join!(
+        tickets(app, &project),
+        app.service.send(Request::TicketMergeProposal(k)),
+        app.service.send(Request::ProjectPrProvider(ProjectParams {
+            project: project.clone(),
+        })),
+        super::board::flow(app, &project),
+    );
+    let Ok(Reply::MergeProposal(proposal)) = proposal else {
+        return None;
+    };
+    let provider = match provider {
+        Ok(Reply::PrProvider(p)) => Some(p),
+        _ => None,
+    };
+    Some(board_page::approve_menu(
+        ticket,
+        &proposal.target,
+        &all.unwrap_or_default(),
+        provider.as_ref(),
+        Some(proposal.commits),
+        flow.delivery.delivers,
+    ))
 }
 
 /// Squash & merge (and Retry): the Local merge with the confirmed message; `approve_anyway` after "changed since you

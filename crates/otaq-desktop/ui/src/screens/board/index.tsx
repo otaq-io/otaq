@@ -1,4 +1,4 @@
-// Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: a new Backlog ticket) and, inside the
+// Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: the box for new work opens, UX-22) and, inside the
 // board, ⌘D, Park and Esc during a drag; the header's search and filter field and `/`; the card's right-click menu, the
 // delete confirmation every place that deletes opens (`delete_ticket`) and the drag-back dialog (`drag_back`, T-0421).
 // What it says is Rust's (`src/api/board.rs`,
@@ -8,6 +8,7 @@ import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import { selection } from "../../app/selection";
 import { withFlowSetup } from "../onboarding/FlowSetupPage";
+import { openNewWork } from "../new_work/logic";
 import { withNewerDatabase } from "../recovery/NewerDatabase";
 import { Board } from "./Board";
 import "./board.css";
@@ -22,7 +23,9 @@ export const board: Screen = (app) => {
   app.overlays.register("delete_ticket", { Component: DeleteDialog });
   app.overlays.register("drag_back", { Component: DragBackDialog });
   app.shortcuts.on("new_ticket", () => {
-    openOverlay("new_ticket");
+    openNewWork(() => {
+      openOverlay("new_ticket");
+    });
   });
   // `/` (Filter the board, d0097): the field takes the keyboard (only while a project is shown).
   app.shortcuts.on("filter_board", () => {

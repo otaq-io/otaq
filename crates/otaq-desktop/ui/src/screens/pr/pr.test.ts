@@ -36,6 +36,11 @@ const VIEW: PrDialogView = {
   can_confirm: true,
   cancel: "Cancel",
   hint: "cancel",
+  prepared: null,
+  writing: null,
+  set_up: null,
+  merge_instead: null,
+  filled: 1,
 };
 
 const PREPARING: PrDialogView = {
@@ -65,18 +70,50 @@ describe("the PR screen", () => {
     );
     for (const text of [
       "Proposed by /otaq:open-pr · edit anything",
-      "GitHub · acme/shop-web",
-      "gh: signed in",
       "feature/SHOP-18-checkout-api",
       "Valid name · not taken on origin",
-      "Commit messages (2 commits)",
-      "feat(checkout): add POST /checkout",
       "PR title",
       "Description",
       "Into main · SHOP-18’s base branch",
     ]) {
       expect(html).toContain(text);
     }
+    // An Open PR keeps its commits as they are: only a Push rewords them.
+    expect(html).not.toContain("feat(checkout): add POST /checkout");
+  });
+
+  it("says who prepared the text, who still writes it, and when the provider isn't set up", () => {
+    const writing: PrDialogView = {
+      ...VIEW,
+      writing: "Strong is still writing the title and description.",
+      set_up: {
+        title: "GitHub isn’t set up on this Mac",
+        text: "shop-web delivers pull requests through GitHub.",
+        button: "Set up GitHub…",
+      },
+      can_confirm: false,
+    };
+    const html = renderToStaticMarkup(
+      createElement(Proposed, { view: writing, fields: fieldsOf(writing), onEdit: () => undefined }),
+    );
+    for (const text of [
+      "GitHub isn’t set up on this Mac",
+      "Set up GitHub…",
+      "Strong is still writing the title and description.",
+    ]) {
+      expect(html).toContain(text);
+    }
+    const prepared = renderToStaticMarkup(
+      createElement(Proposed, {
+        view: { ...VIEW, prepared: "Prepared by Strong while SHOP-18 waited in Review." },
+        fields: fieldsOf(VIEW),
+        onEdit: () => undefined,
+      }),
+    );
+    expect(prepared).toContain("Prepared by Strong while SHOP-18 waited in Review.");
+    expect(polls(writing)).toBe(true);
+    // The agent's message filled the fields again: the page takes them.
+    expect(proposalArrived(VIEW, { ...VIEW, filled: 2 })).toBe(true);
   });
 
   it("locks the branch and drops title and description on Push to PR", () => {
@@ -135,8 +172,14 @@ describe("the PR screen", () => {
           opened: "opened 2 h ago",
           branch: "feature/SHOP-26-add-sitemap → main",
           note: "Otaq doesn’t watch this PR.",
+          mark_merged: "Mark merged",
+          mark_closed: "Mark closed",
+          close_title: "Mark PR #481 as closed?",
+          close_body: "The ticket moves to Done as Closed · not merged.",
         },
         onOpen: () => undefined,
+        onMerged: () => undefined,
+        onClosed: () => undefined,
       }),
     );
     for (const text of [

@@ -4,6 +4,7 @@ import type { BeforeYouView } from "./BeforeYouView";
 import type { DescriptionLeaveDialog } from "./DescriptionLeaveDialog";
 import type { DescriptionSaveBar } from "./DescriptionSaveBar";
 import type { ManualChecksView } from "./ManualChecksView";
+import type { OverviewInReview } from "./OverviewInReview";
 import type { OverviewUsageLimit } from "./OverviewUsageLimit";
 import type { PlanSectionView } from "./PlanSectionView";
 import type { PlanningDid } from "./PlanningDid";
@@ -46,6 +47,11 @@ planning: PlanningDid | null,
  * "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
  */
 manual_checks: ManualChecksView | null, 
+/**
+ * While the ticket waits in your check, Overview reads as a review: what the agent did, the checker, the
+ * decisions it made, then the ticket (`description` says "The ticket").
+ */
+in_review: OverviewInReview | null, 
 /**
  * "Attachments · 3"; "Attachments" with none.
  */

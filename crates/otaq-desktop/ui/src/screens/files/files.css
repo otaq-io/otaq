@@ -811,6 +811,34 @@
   gap: 6px;
 }
 
+/* Approve named by its action, and the button beside it that opens the other ways to finish. */
+.files-bar-approve {
+  display: flex;
+  flex: none;
+  align-items: stretch;
+  gap: 1px;
+}
+
+.files-bar-more {
+  display: flex;
+  align-items: center;
+  padding: 0 7px;
+  border: 0;
+  border-radius: 0 6px 6px 0;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  cursor: pointer;
+}
+
+.files-bar-approve > .button:has(+ .files-bar-more) {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+
+.files-bar-more:hover {
+  filter: brightness(1.08);
+}
+
 /*
  * The project Files view's rows (FIL-03, `s28-03`): one chip per ticket changing a file, its key beside a square in
  * the ticket's status colour; the other base's tag in amber; a folder's "3 changed"; a deleted file struck through.

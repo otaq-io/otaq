@@ -18,7 +18,7 @@ import { createStore, type Store, useStore } from "./store";
 export type ClassDrags = Partial<Record<SizeClass, number>>;
 
 export interface ShellLayout {
-  /** The Project agent panel is open between the rail and the main area (⌘L, the rail's button, the Ask bar; d0113). */
+  /** The Project agent panel is open between the rail and the main area (⌘L, the rail's button, the box for new work's ⇧↵; d0113). */
   agentOpen: boolean;
   sheetWidths: ClassDrags;
   /** Expand (`e`): the ticket sheet takes the main area. */

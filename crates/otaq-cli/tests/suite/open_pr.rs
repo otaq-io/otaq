@@ -1,7 +1,8 @@
 //! The Open PR flow (T-0143, REV-10, d0050) against a temporary repository whose `origin` is a local bare
-//! repository: the click types the Open PR skill into the ticket's live session (an ordinary `sh`, no `claude`),
-//! the skill's steps are fed through the CLI (`pr propose`, `pr opened`), and Otaq applies the confirmed
-//! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
+//! repository: the dialog opens at once on the message the delivery's agent wrote in Review (`pr message`), Otaq
+//! applies the confirmed edits itself (reword with unchanged trees, rename, lock), and only then types the Open PR
+//! skill into the ticket's live session (an ordinary `sh`, no `claude`); the skill's steps are fed through the CLI
+//! (`pr propose` for a Push, `pr opened`).
 
 use otaq_core::service::testing::said;
 use otaq_core::skills::testing::claude_skill;
@@ -107,48 +108,46 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
         .await;
     assert_ne!(ran.status, 0);
 
-    // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
-    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
-    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    // The Delivery stage's `skill: my-pr`, typed by its own name; nothing is written into the worktree (T2).
-    w.wait_for_output(&s.agent.session, &claude_skill("my-pr"))
-        .await;
-    assert!(!s.worktree.join(".agents").exists());
-    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
-    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
-    assert_eq!(flow.state, FlowState::Preparing);
-
-    // The skill proposes through the CLI; a proposal naming the wrong commits is refused.
-    let wrong = json!({"branch": "feature/SHOP-1-login", "commits": [{"sha": "abcdef1", "message": "x"}],
-                       "title": "SHOP-1 Login redirect"});
-    let ran = s
-        .agent
-        .run_with_stdin(
-            &format!("'{CB}' pr propose --stdin --json"),
-            &wrong.to_string(),
-        )
-        .await;
-    assert_ne!(ran.status, 0, "{ran:?}");
-    let proposal = json!({
-        "branch": "feature/SHOP-1-login",
-        "commits": [
-            {"sha": &before[0].0[..7], "message": "SHOP-1: redirect after login"},
-            {"sha": &before[1].0[..7], "message": "SHOP-1: test the redirect"}
-        ],
+    // The delivery's agent wrote the message while the ticket waited in Review.
+    let message = json!({
         "title": "SHOP-1 Login redirect",
-        "description": "Returns to the page you came from."
+        "description": "Returns to the page you came from.",
+        "branch": "feature/SHOP-1-login"
     });
     let ran = s
         .agent
-        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .run_with_stdin(&format!("'{CB}' pr message --stdin"), &message.to_string())
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
+    assert!(
+        ran.stdout.contains("SHOP-1's message is with the user"),
+        "{ran:?}"
+    );
+
+    // The click opens the dialog at once on it: nothing is typed into the session, the ticket stays in Review.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
     let flow = view.flow.clone().unwrap();
     assert_eq!(flow.state, FlowState::Proposed);
-    assert_eq!(flow.proposal.as_ref().unwrap().commits[0].sha, before[0].0);
+    let proposed = flow.proposal.as_ref().unwrap();
+    assert_eq!(proposed.branch, "feature/SHOP-1-login");
+    assert_eq!(proposed.title, "SHOP-1 Login redirect");
+    assert_eq!(proposed.description, "Returns to the page you came from.");
+    assert_eq!(
+        proposed
+            .commits
+            .iter()
+            .map(|c| (c.sha.clone(), c.message.clone()))
+            .collect::<Vec<_>>(),
+        before,
+        "the commits as they are"
+    );
+    assert!(view.message.as_ref().is_some_and(|m| m.is_ready()));
     assert_eq!(view.target, "main");
     assert_eq!(view.commits.len(), 2);
+    assert!(!s.worktree.join(".agents").exists());
 
     // Live branch-name validation: valid ref, not taken locally, not taken on origin.
     git(
@@ -192,6 +191,7 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
 
     // Confirm with an edited message: Otaq rewords and renames itself; nothing is pushed.
     edits.branch = "feature/SHOP-1-login".into();
+    edits.commits[0].message = "SHOP-1: redirect after login".into();
     edits.commits[1] = CommitMessage {
         sha: before[1].0.clone(),
         message: "SHOP-1: cover deep links".into(),
@@ -232,6 +232,9 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
         otaq_core::board::review::ApproveCheck::Unchanged,
         "rewording isn't a change to review"
     );
+    // The Delivery's `skill: my-pr` starts now, typed by its own name and told the user confirmed (T2).
+    w.wait_for_output(&s.agent.session, &claude_skill("my-pr"))
+        .await;
     w.wait_for_output(&s.agent.session, "The user confirmed the pull request")
         .await;
     // prime shows what was confirmed.
@@ -307,16 +310,31 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
         "nothing pushed"
     );
 
-    // Unsent text in the session asks before typing (d0048).
+    // Unsent text in the session asks before the confirm types the skill (d0048); nothing was changed.
+    w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
+    let edits = w
+        .board
+        .pr_flow(&s.ticket.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    // With no message from the delivery's agent, the dialog opens on the plain one.
+    assert_eq!(edits.title, "SHOP-1 Login redirect");
+    assert_eq!(edits.description, "Redirects after login.");
     w.sessions
         .input(&s.agent.session, b"half a thought")
         .unwrap();
-    let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
     assert!(
         matches!(outcome, PrOutcome::NeedsConfirmation { .. }),
         "{outcome:?}"
     );
-    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    assert_eq!(
+        w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap().state,
+        FlowState::Proposed
+    );
     s.w.stop().await;
 }
 

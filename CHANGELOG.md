@@ -5,6 +5,12 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **One box for new work.** "New ticket, or ask Noyan…" sits at the bottom of the board and the List; ⌘N, a click
+  or the toolbar's New ticket opens it. The first line is the title and the rest the description. **↵** creates the
+  ticket in Backlog exactly as typed, with no agent and no cost; **⌘↵** creates and starts it; **⇧↵** (Ask Noyan to
+  shape it) hands the text to Noyan, which reads the code and writes one or more tickets to Backlog for you to start.
+  **⌥↵** (Alt+↵) starts a new line, and **More options…** opens the full form with what you typed. It replaces quick
+  create and the Ask bar; ⌘L still opens Noyan's panel, and in Files ⌘N is still New ticket from this file.
 - **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
   project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
   Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,
@@ -28,6 +34,19 @@ before Publish (`scripts/README.md`, "Making a release").
   continue) and **Quit Otaq** ⌘Q, which asks while agents work: **Keep them running** or **Quit and stop agents**.
 - **Settings → Data's Cleanup row says how much it would free** ("3 leftovers · 412 MB"); **Review…** opens Cleanup
   over Settings.
+- **Reviewing a ticket.** A ticket in Review opens on Overview: what the agent did, what the checker found, the
+  decisions it made, then the ticket. The bar under every tab names Approve by what it does ("Approve & merge into
+  main", "Approve & open PR"); the button beside it holds the other ways to finish (open a PR instead, Merge into
+  another ticket…, Done, nothing to merge, Done, don't merge).
+- **Nobody waits for the merge message.** When a ticket reaches Review, the agent the flow's `delivery:` names writes
+  its message while it waits: the squash commit's for a merge, the branch, title and description for a PR (`otaq pr
+  message`). Approve & merge opens its confirmation at once; if the message isn't there yet it starts from a plain
+  one and fills in when it arrives, unless you typed. Approve & open PR opens the PR dialog at once the same way, and
+  the Open PR skill only runs after you confirm. A local merge may name a delivery agent too; without one, the
+  confirmation starts from the plain message. It is asked for again only when the ticket comes back with new commits.
+- **When GitHub or Azure DevOps isn't set up on this machine**, the PR dialog says so with **Set up…** and, when the
+  flow delivers either way, **Or merge into main instead**; Push & open PR stays off until it is. An open PR's box
+  has **Mark closed** and **Mark merged**.
 - **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
   with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
   Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.

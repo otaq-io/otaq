@@ -24,16 +24,18 @@ export type Step =
   | { kind: "done_not_merged" }
   | { kind: "done" };
 
-/** Where the flow starts: a ticket with a PR goes to Push to PR; new commits since the review show first. */
-export function firstStep(view: ApproveView, menu: boolean): Step {
+/** Where the flow starts: a ticket with a PR goes to Push to PR; new commits since the review show first. `choice`
+ * (the review bar's Approve or a row of its menu) goes straight to that choice's dialog. */
+export function firstStep(view: ApproveView, menu: boolean, choice?: ApproveChoice): Step {
   if (view.changed !== null) return { kind: "changed", changed: view.changed, checkedFirst: true };
-  return afterChanged(view, menu);
+  return afterChanged(view, menu, choice);
 }
 
 /** The choice, or with one way to deliver its dialog without the choice (dogfood #18), or the confirmation. With
  * nothing to merge the choice always shows: it leads with Done, and Local merge is disabled. */
-function afterChanged(view: ApproveView, menu: boolean): Step {
+function afterChanged(view: ApproveView, menu: boolean, choice?: ApproveChoice): Step {
   if (view.push_to_pr) return { kind: "open_pr" };
+  if (choice !== undefined) return afterChoice(choice);
   if (leadsWithDone(view)) return { kind: "menu" };
   if (!menu) return { kind: "confirm" };
   return view.menu.direct === null ? { kind: "menu" } : afterChoice(view.menu.direct);
@@ -66,9 +68,21 @@ export function afterApproveAnyway(
   step: Extract<Step, { kind: "changed" }>,
   view: ApproveView,
   menu: boolean,
+  choice?: ApproveChoice,
 ): Step | "merge" {
   if (!step.checkedFirst) return "merge";
-  return afterChanged(view, menu);
+  return afterChanged(view, menu, choice);
+}
+
+/** The prepared message replaces the plain one when it arrives, unless the user typed: the message box then takes
+ * `next`'s; otherwise it keeps what it has. */
+export function messageAfter(
+  before: { writing: string | null } | null,
+  next: { writing: string | null; message: string },
+  typed: boolean,
+): string | null {
+  if (typed || before === null || before.writing === null || next.writing !== null) return null;
+  return next.message;
 }
 
 /** The step a Local merge's answer leads to. */

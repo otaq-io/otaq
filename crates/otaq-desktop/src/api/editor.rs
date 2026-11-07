@@ -88,7 +88,12 @@ fn now_ms() -> i64 {
 pub enum Target {
     Create {
         project: Option<String>,
-        /// The description it starts with: New ticket from this file puts the file's path there (FTB-03).
+        /// The title it starts with: what was typed in the box for new work before More options….
+        #[serde(default)]
+        #[ts(optional)]
+        title: Option<String>,
+        /// The description it starts with: New ticket from this file puts the file's path there (FTB-03), and More
+        /// options… what was typed after the box's first line.
         #[serde(default)]
         #[ts(optional)]
         body: Option<String>,
@@ -192,9 +197,6 @@ pub struct Texts {
     pub create_and_start: Option<&'static str>,
     pub start_word: &'static str,
     pub save_and_start: &'static str,
-    /// Quick-create: "↵ create · ⇧↵ full form".
-    pub quick_create: &'static str,
-    pub quick_full: &'static str,
     pub open_terminal: &'static str,
     pub marker: &'static str,
     pub compare: &'static str,
@@ -339,8 +341,6 @@ fn texts(create: bool) -> Texts {
         edit: "Edit",
         back: "Back",
         in_word: "in",
-        quick_create: "create",
-        quick_full: "full form",
         open_terminal: "Open terminal",
         marker: "Updated by agent",
         compare: "Compare",
@@ -545,6 +545,7 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
     let view = match target {
         Target::Create {
             project: key,
+            title,
             body,
         } => {
             let key = match key {
@@ -559,6 +560,9 @@ pub async fn open(app: &App, target: Target) -> Result<View, RequestError> {
             let info = project(app, &key).await?;
             let choices = stage_choices_of(app, None, Some(&key)).await;
             let mut view = create_view(&info);
+            if let Some(title) = title {
+                view.form.title = title;
+            }
             if let Some(body) = body {
                 view.form.body = body;
             }
@@ -1335,6 +1339,18 @@ mod tests {
         assert_eq!(view["heading"], "New ticket");
         assert_eq!(view["waits_for"]["label"], "Waits for");
         assert_eq!(view["form"]["waits_for"], json!([]));
+        // More options… from the box for new work: the form starts with what was typed.
+        let typed = table(
+            &h.app,
+            "editor.open",
+            json!({ "mode": "create", "project": project, "title": "Coupon field", "body": "Any case." }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(
+            (&typed["form"]["title"], &typed["form"]["body"]),
+            (&json!("Coupon field"), &json!("Any case."))
+        );
 
         let missing = table(&h.app, "editor.save", json!({ "target": create, "form": form("") }))
             .await

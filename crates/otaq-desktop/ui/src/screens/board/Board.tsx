@@ -64,6 +64,7 @@ import { ProjectSettings } from "../project_settings/ProjectSettings";
 import { filesViewWanted } from "../files_view/logic";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
+import { boardAway, openNewWork } from "../new_work/logic";
 import { NeedsYouStrip } from "../strip/Strip";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
@@ -400,6 +401,11 @@ export function Board() {
     settingsWantedShown.current = w.n;
     showView("settings");
   }, [settingsWanted, project, view, showView]);
+  // The box for new work is on the board and the List only, never in Files or the project's Settings.
+  const boxAway = filesShown || settingsShown;
+  useEffect(() => {
+    boardAway.set(boxAway);
+  }, [boxAway]);
   // A terminal's path link asked for this project's Files view (d0117 point 8).
   const wanted = useStore(filesViewWanted);
   const wantedShown = useRef(0);
@@ -807,7 +813,9 @@ export function Board() {
           onView={changeView}
           onAllTickets={requestSearchFocus}
           onNewTicket={() => {
-            openOverlay("new_ticket", { full: true });
+            openNewWork(() => {
+              openOverlay("new_ticket");
+            });
           }}
           onEditFlow={() => {
             if (project !== null) openFlowEditor(changeFlowOpen(project));
@@ -881,7 +889,9 @@ export function Board() {
                 onScroll={onScroll}
                 onView={changeView}
                 onAdd={() => {
-                  openOverlay("new_ticket");
+                  openNewWork(() => {
+                    openOverlay("new_ticket");
+                  });
                 }}
                 doneLine={column.id === lastOpen ? view.done : null}
                 element={element$}

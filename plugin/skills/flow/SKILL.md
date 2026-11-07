@@ -193,15 +193,15 @@ flow:
 delivery:
   delivers: either               # local · pr · either
   mode: click                    # click · automatic
-  agent: Developer               # who opens the PR (pr or either only)
+  agent: Developer               # writes the delivery's message in Review, and opens the PR
   skill: open-pr                 # optional: the skill it opens the PR with
 ```
 
 | Field | What it says |
 |---|---|
-| `delivers` | `local` (a Local merge into the base branch, no agent), `pr` (its agent opens a PR with its skill), or `either` (the user picks at Approve; click mode only). |
+| `delivers` | `local` (a Local merge into the base branch), `pr` (its agent opens a PR with its skill), or `either` (the user picks at Approve; click mode only). |
 | `mode` | `click`: waits for the user, whose Approve on the last stage (a check by you) says what it does ("Approve & merge into main", "Approve & open PR"). `automatic`: merges, or pushes and opens the PR, with no click and no dialog, once the ticket passes its last stage. |
-| `agent` | The agent that opens the PR; required for `pr` and `either`, refused for `local`. |
+| `agent` | The delivery's agent. When a ticket reaches Review in click mode, it writes the message the delivery uses while the ticket waits: the squash commit message for a Local merge, and the branch, title and description for a PR, so the user's Approve opens its confirmation at once. It also opens the PR. Required for `pr` and `either`; optional for `local` (left out, the merge confirmation starts from a plain message). Each arrival in Review with new commits costs it one short turn. |
 | `skill` | The skill it opens the PR with; Otaq's `open-pr` when left out. |
 
 A ticket being delivered stays in the last stage's column (To deliver, PR open). Otaq doesn't watch PRs: the user marks
@@ -284,7 +284,7 @@ delivery:
 
 - At least one `agent` stage, and one `delivery:` (a stage of `kind: delivery` is an older file's way of writing it).
 - No check by you before the first Agent stage (a Fail must have an Agent stage to go back to).
-- `either` only with `mode: click`; a Local merge names no agent, a PR delivery names one; `rounds` from 1 to 5.
+- `either` only with `mode: click`; a PR delivery names an agent (a Local merge may); `rounds` from 1 to 5.
 - An agent check names one `agent:`. Never list several agents on a check: write one check stage per check.
 - A check's `fail_to` names an Agent stage before it.
 - With every `skip` taken, an Agent stage must still run, and every check by you that can't be skipped must still

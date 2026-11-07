@@ -67,8 +67,8 @@ pub struct App {
     window_focus: api::WindowFocus,
     /// The reports open in the report view (CMT-12), each indexed once.
     reports: api::OpenReports,
-    /// When the user last looked at each Project agent conversation, for the Ask bar's "New reply" (SHB-03).
-    looked: std::sync::Mutex<otaq_view::view_models::ask_bar::Looked>,
+    /// When the user last looked at each Project agent conversation, for the Noyan button's "New reply" dot (SHB-03).
+    looked: std::sync::Mutex<otaq_view::view_models::noyan_button::Looked>,
     /// The installed fonts, read once (d0117 point 5).
     fonts: fonts::Fonts,
     /// Where the app runs from: outside an Applications folder a macOS release shows only the Move window (T-0579).
@@ -212,7 +212,7 @@ fn main() {
         run_commands: Default::default(),
         window_focus: Default::default(),
         reports: Default::default(),
-        looked: std::sync::Mutex::new(otaq_view::view_models::ask_bar::Looked::new(
+        looked: std::sync::Mutex::new(otaq_view::view_models::noyan_button::Looked::new(
             otaq_core::store::now_ms(),
         )),
         usage: usage::Usage::new(runtime.handle().clone()),

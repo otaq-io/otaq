@@ -332,8 +332,8 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
         <div className="sheet-body" data-tab={shown?.tab}>
           {Body && <Body ticket={view.key} />}
         </div>
-        {/* While the check is yours, under every tab (SHT-06): the sheet then opens on Files (`sheet::opens_on`). */}
-        {sheet.opens_on === "files" && <ReviewBar ticket={view.key} tab={shown?.tab} />}
+        {/* While the check is yours, under every tab (SHT-06); nothing otherwise (`files.bar` answers null). */}
+        <ReviewBar ticket={view.key} tab={shown?.tab} />
       </section>
     </SheetContext>
   );

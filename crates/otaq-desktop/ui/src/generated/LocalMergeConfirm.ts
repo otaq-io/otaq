@@ -4,7 +4,23 @@ import type { LocalMergeCheckNote } from "./LocalMergeCheckNote";
 /**
  * *Local merge · confirm*: where it merges, the proposed squash message, who keeps waiting.
  */
-export type LocalMergeConfirm = { title: string, 
+export type LocalMergeConfirm = { 
+/**
+ * "Merge SHOP-18 into main".
+ */
+title: string, 
+/**
+ * "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean."
+ */
+lead: string, 
+/**
+ * "Prepared by Strong while SHOP-18 waited in Review. Edit it if you like."
+ */
+prepared: string | null, 
+/**
+ * "Strong is still writing the message. Merge now with this one, …": the message is the plain one meanwhile.
+ */
+writing: string | null, 
 /**
  * "Into (SHOP-18’s base branch)"
  */
@@ -30,7 +46,7 @@ merge_check: LocalMergeCheckNote,
  */
 manual_checks: string | null, 
 /**
- * "Squash & merge", or "Squash & merge into release/2.3" on another base.
+ * "Squash & merge", or "Merge into release/2.3" on another base.
  */
 merge: string, cancel: string, 
 /**

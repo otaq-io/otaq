@@ -8,7 +8,7 @@
 /*
  * The frame's sheet layer (`.frame-sheet`, the drawer of 0095) holds the sheet: it covers the main area and is the
  * sheet's backdrop, so nothing under the scrim takes a click (board or List); a click on it closes the sheet
- * (`app/scrim.ts`). The Ask bar stays over it. A hook on the frame's layer, kept here until the frame takes it
+ * (`app/scrim.ts`). The box for new work stays over it. A hook on the frame's layer, kept here until the frame takes it
  * (T-0458's `Frame.tsx` / `frame.css`).
  */
 .frame-main > .frame-sheet:has(> .sheet) {

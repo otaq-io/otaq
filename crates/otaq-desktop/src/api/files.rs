@@ -457,6 +457,11 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
         keys.label(KeyAction::Approve),
         custom,
     );
+    // The review that ends the flow names Approve by what it does, with the other ways to finish in its menu.
+    let bar = match (bar, custom) {
+        (Some(bar), false) => Some(with_delivery(app, &ticket, bar, &to).await),
+        (bar, _) => bar,
+    };
     // A check of planning (d0129, `s30-02`): "Your check · Spec review · the decisions on Files and the plan here".
     if let Some(bar) = &bar
         && let Some((_, check)) = planning_check(app, &ticket).await
@@ -493,6 +498,25 @@ pub async fn bar(app: &App, params: BarParams) -> Result<Option<vm::ReviewBar>, 
         )));
     }
     Ok(bar)
+}
+
+/// The bar with Approve named by its action and its menu, and the change's size beside it ([`vm::with_approve`]).
+async fn with_delivery(app: &App, ticket: &Ticket, bar: vm::ReviewBar, back_to: &str) -> vm::ReviewBar {
+    let k = KeyParams {
+        key: ticket.key.to_string(),
+    };
+    let (menu, changes) = tokio::join!(
+        super::review::approve_menu_of(app, ticket),
+        app.service.send(Request::FilesChanges(k)),
+    );
+    let Some(menu) = menu else {
+        return bar;
+    };
+    let files = match changes {
+        Ok(Reply::FilesChanges(c)) => Some((c.files.len(), c.added, c.removed)),
+        _ => None,
+    };
+    vm::with_approve(bar, &menu, back_to, files)
 }
 
 /// Unified or Split, for every ticket.

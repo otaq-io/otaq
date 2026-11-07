@@ -23,14 +23,21 @@ export function fieldsOf(view: PrDialogView): Fields {
   };
 }
 
-/** The proposal just arrived: the fields take its values (later edits are the user's). */
+/** The proposal just arrived, or the delivery's agent's message filled the fields: the fields take the view's values
+ * (later edits are the user's, and Rust doesn't fill over them). */
 export function proposalArrived(before: PrDialogView | null, now: PrDialogView): boolean {
-  return now.stage.kind === "proposed" && before?.stage.kind !== "proposed";
+  if (now.stage.kind !== "proposed") return false;
+  return before?.stage.kind !== "proposed" || now.filled > before.filled;
 }
 
-/** Whether the skill is working, so the flow is asked again every `POLL_MS`. */
+/** Whether something is still coming (the skill works, the delivery's agent writes, the provider is being set up), so
+ * the flow is asked again every `POLL_MS`. */
 export function polls(view: PrDialogView): boolean {
-  return view.stage.kind === "preparing" || view.stage.kind === "pushing";
+  return (
+    view.stage.kind === "preparing" ||
+    view.stage.kind === "pushing" ||
+    (view.stage.kind === "proposed" && (view.writing !== null || view.set_up !== null))
+  );
 }
 
 /** Whether the branch name's check for edit `view.check` is still to be asked (it waits `check_after_ms`). */

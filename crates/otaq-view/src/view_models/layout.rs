@@ -94,7 +94,7 @@ pub const BOARD_MIN: f32 = 2. * BOARD_PADDING + 2. * COLUMN_MIN_WIDTH + COLUMN_G
 /// How the panel is shown now (page state, per window).
 #[derive(Debug, Clone, Copy, PartialEq)]
 pub enum AgentPanel {
-    /// Folded into the Ask bar (d0113).
+    /// Closed: the rail's Noyan button opens it (d0113).
     Closed,
     /// Between the rail and the main area, pushing the board.
     Open,

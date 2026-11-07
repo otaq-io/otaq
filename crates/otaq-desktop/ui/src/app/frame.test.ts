@@ -3,7 +3,7 @@ import { renderToStaticMarkup } from "react-dom/server";
 import { afterEach, describe, expect, it } from "vitest";
 
 import type { LayoutView } from "../generated/LayoutView";
-import { askBarRight, Frame, FrameBody } from "./Frame";
+import { newWorkRight, Frame, FrameBody } from "./Frame";
 import {
   agentPanelWidth,
   INITIAL_LAYOUT,
@@ -66,7 +66,7 @@ afterEach(() => {
 });
 
 describe("the frame", () => {
-  it("has rail | agent panel | main with the Ask bar, each empty slot showing its name; the ticket sheet only with a ticket open", () => {
+  it("has rail | agent panel | main with the box for new work, each empty slot showing its name; the ticket sheet only with a ticket open", () => {
     const app = createRegistries();
     // Before `layout.view` answers: no Project agent panel yet.
     expect(slots(render(app))).toEqual([
@@ -74,7 +74,7 @@ describe("the frame", () => {
       "rail",
       "banners",
       "board",
-      "ask_bar",
+      "new_work",
       "overlays",
       "toasts",
     ]);
@@ -87,7 +87,7 @@ describe("the frame", () => {
       "banners",
       "agent_panel",
       "board",
-      "ask_bar",
+      "new_work",
       "overlays",
       "toasts",
     ]);
@@ -108,7 +108,7 @@ describe("the frame", () => {
       "agent_panel",
       "board",
       "sheet",
-      "ask_bar",
+      "new_work",
       "overlays",
       "toasts",
     ]);
@@ -119,7 +119,7 @@ describe("the frame", () => {
     const app = createRegistries();
     app.slots.register("board", { Component: () => createElement("p", null, "the board") });
     app.slots.register("agent_panel", { Component: () => createElement("p", null, "the agent panel") });
-    app.slots.register("ask_bar", { Component: () => createElement("p", null, "the bar") });
+    app.slots.register("new_work", { Component: () => createElement("p", null, "the box") });
     app.slots.register("title_bar_end", { Component: () => createElement("p", null, "caption buttons") });
     app.overlays.register("edit_ticket", {
       Component: ({ params }) => createElement("p", null, `editing ${params.ticket}`),
@@ -131,7 +131,7 @@ describe("the frame", () => {
     const html = render(app, createElement("p", { role: "alert" }, "service failed"));
     expect(html).toContain("<p>the board</p>");
     expect(html).toContain("<p>the agent panel</p>");
-    expect(html).toContain('<div class="frame-ask" data-slot="ask_bar"><p>the bar</p></div>');
+    expect(html).toContain('<div class="frame-new-work" data-slot="new_work"><p>the box</p></div>');
     expect(html).not.toContain(">Board</div>");
     expect(html).toMatch(/<p>caption buttons<\/p><\/div><div class="frame-rail" data-slot="rail"/);
     expect(html).toContain(
@@ -238,12 +238,12 @@ describe("the layout's state", () => {
   });
 });
 
-describe("the Ask bar beside the ticket sheet (#21)", () => {
+describe("the box for new work beside the ticket sheet (#21)", () => {
   it("ends at the sheet's left edge, and hides while the sheet fills the main area", () => {
-    expect(askBarRight(false, false, 0)).toBe(0);
-    expect(askBarRight(true, false, 640)).toBe(640);
-    expect(askBarRight(true, true, 1200)).toBeNull();
-    expect(slots(body({ ...INITIAL_LAYOUT, sheetExpanded: true }, true))).not.toContain("ask_bar");
-    expect(slots(body(INITIAL_LAYOUT, true))).toContain("ask_bar");
+    expect(newWorkRight(false, false, 0)).toBe(0);
+    expect(newWorkRight(true, false, 640)).toBe(640);
+    expect(newWorkRight(true, true, 1200)).toBeNull();
+    expect(slots(body({ ...INITIAL_LAYOUT, sheetExpanded: true }, true))).not.toContain("new_work");
+    expect(slots(body(INITIAL_LAYOUT, true))).toContain("new_work");
   });
 });

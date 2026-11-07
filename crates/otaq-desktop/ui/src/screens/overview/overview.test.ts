@@ -63,6 +63,7 @@ const EDITOR: EditorView = {
 /** `overview.view` for SHOP-12, as Rust words it (`view_models/overview.rs`). */
 const OVERVIEW: OverviewView = {
   key: KEY,
+  in_review: null,
   description: "Description",
   click_to_edit: "Click to edit",
   editing: "Editing · Esc to discard, ⌘S to save",

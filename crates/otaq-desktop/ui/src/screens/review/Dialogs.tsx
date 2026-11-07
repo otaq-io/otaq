@@ -35,6 +35,7 @@ import {
   afterMerge,
   CHANGED_FILES_SHOWN,
   firstStep,
+  messageAfter,
   type Step,
 } from "./logic";
 
@@ -245,26 +246,41 @@ export function DoneNotMergedDialog({ params, close }: OverlayProps<"done_not_me
   );
 }
 
+/** While the delivery's agent writes the message, the confirmation is asked again when its ticket changes (the agent's
+ * `otaq pr message` says so). */
+const MESSAGE_EVENTS = ["ticket_changed"] as const;
+
 export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">) {
   const ticket = params.ticket;
   const menu = params.menu ?? false;
+  const choice = params.choice;
   const load = useCallback(
     () => request("review.approve", { key: ticket }) as Promise<ApproveView>,
     [ticket],
   );
-  const { view, error } = useServiceView(load, []);
+  const { view, error } = useServiceView(load, MESSAGE_EVENTS);
   const [step, setStep] = useState<Step | null>(null);
   const [message, setMessage] = useState("");
   const [anyway, setAnyway] = useState(false);
   const started = useRef(false);
+  /** The user typed in the message: the agent's arriving later doesn't replace it. */
+  const typed = useRef(false);
+  /** The confirmation as last shown, for the agent's message arriving. */
+  const shown = useRef<ApproveView["confirm"] | null>(null);
   const messageBox = useRef<HTMLTextAreaElement>(null);
 
   useEffect(() => {
-    if (!view || started.current) return;
-    started.current = true;
-    setMessage(view.confirm.message);
-    setStep(firstStep(view, menu));
-  }, [view, menu]);
+    if (!view) return;
+    if (!started.current) {
+      started.current = true;
+      setMessage(view.confirm.message);
+      setStep(firstStep(view, menu, choice));
+    } else {
+      const next = messageAfter(shown.current, view.confirm, typed.current);
+      if (next !== null) setMessage(next);
+    }
+    shown.current = view.confirm;
+  }, [view, menu, choice]);
   useEffect(() => {
     if (step?.kind === "open_pr") {
       close();
@@ -355,7 +371,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
     case "changed": {
       const go = () => {
         setAnyway(true);
-        const next = afterApproveAnyway(step, view, menu);
+        const next = afterApproveAnyway(step, view, menu, choice);
         if (next === "merge") merge(true);
         else setStep(next);
       };
@@ -409,16 +425,18 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           }
         >
           <div className="review-body">
-            <span className="review-label">{c.into}</span>
-            <div className="review-target">
-              <Icon name="git-branch" size={13} />
-              <span>
-                {c.target}
-                {c.repo !== "" && `  ·  ${c.repo}`}
-              </span>
-              <span className="review-spacer" />
-              {c.locked && <Icon name="lock" size={13} />}
-            </div>
+            <p className="review-muted review-lead">{c.lead}</p>
+            {c.locked && (
+              <div className="review-target">
+                <Icon name="git-branch" size={13} />
+                <span>
+                  {c.target}
+                  {c.repo !== "" && `  ·  ${c.repo}`}
+                </span>
+                <span className="review-spacer" />
+                <Icon name="lock" size={13} />
+              </div>
+            )}
             <p className="review-muted review-merge-check">
               <CodeText text={c.merge_check.text} />
               {c.merge_check.link !== null && (
@@ -458,9 +476,18 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               rows={5}
               value={message}
               onChange={(e) => {
+                typed.current = true;
                 setMessage(e.target.value);
               }}
             />
+            {c.writing !== null ? (
+              <p className="review-muted review-writing">
+                <Icon name="loader-circle" size={13} />
+                <span>{c.writing}</span>
+              </p>
+            ) : (
+              c.prepared !== null && <p className="review-muted review-prepared">{c.prepared}</p>
+            )}
             <Callout icon="hourglass" tone="quiet">
               {c.note}
             </Callout>
