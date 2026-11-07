@@ -49,22 +49,38 @@ function inTextField(target: EventTarget): boolean {
 }
 
 /** One attachment: "test-run.txt 3 KB · CX Rust developer · Dev", its comment's line; a click opens a text one in
- * the report view (CMT-12) and an image full size, shown by its thumbnail (tuq 004). Other files don't open. */
+ * the report view (CMT-12) and an image full size, shown by its thumbnail (tuq 004). Other files have no preview in
+ * the app (tuq 002): their row is plain, not a button, as the thread's plain chip. */
 function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
   const { thumbnail } = row;
-  const opens = row.kind === "text" || thumbnail !== null;
+  const contents = <AttachmentContents ticket={ticket} row={row} />;
+  if (row.kind !== "text" && thumbnail === null) {
+    return (
+      <div className="overview-attachment" data-mine={row.mine || undefined} data-kind={row.kind}>
+        {contents}
+      </div>
+    );
+  }
   return (
     <button
       type="button"
       className="overview-attachment"
       data-mine={row.mine || undefined}
       data-kind={row.kind}
-      aria-disabled={opens ? undefined : true}
       onClick={() => {
         if (thumbnail !== null) openImage(ticket, row.n, thumbnail);
-        else if (opens) openReport({ kind: "comment", ticket, n: row.n, attachment: row.attachment });
+        else openReport({ kind: "comment", ticket, n: row.n, attachment: row.attachment });
       }}
     >
+      {contents}
+    </button>
+  );
+}
+
+function AttachmentContents({ ticket, row }: { ticket: string; row: AttachmentRow }) {
+  const { thumbnail } = row;
+  return (
+    <>
       <span className="overview-attachment-icon">
         {thumbnail !== null ? (
           <AttachmentImage
@@ -88,7 +104,7 @@ function Attachment({ ticket, row }: { ticket: string; row: AttachmentRow }) {
         </span>
         {row.line !== "" && <span className="overview-attachment-line">{row.line}</span>}
       </span>
-    </button>
+    </>
   );
 }
 
