@@ -11,9 +11,11 @@ import { Banner, ConfirmDialog, Toast, useEnterExit } from "../../components";
 import type { Banner as BannerView } from "../../generated/Banner";
 import type { RestartDialog } from "../../generated/RestartDialog";
 import type { Toast as ToastView } from "../../generated/Toast";
+import type { UpdateBanner } from "../../generated/UpdateBanner";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { openStageSkill } from "../flow_editor/logic";
+import { updatesClick, updatesStore } from "../settings/updates";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
 import { ApplyNowOverlay } from "./ApplyNow";
@@ -83,6 +85,55 @@ export function BannerRows({
   );
 }
 
+export interface UpdateBannerRowProps {
+  banner: UpdateBanner;
+  onPress: () => void;
+  onDismiss: () => void;
+}
+
+/** An update ready: a calm banner with Restart to update (the `.deb`'s Download), never a modal; About has the same. */
+export function UpdateBannerRow({ banner, onPress, onDismiss }: UpdateBannerRowProps) {
+  return (
+    <Banner
+      tone="info"
+      icon="download"
+      title={banner.title}
+      text={banner.text}
+      actions={[
+        {
+          label: banner.action_label,
+          icon: banner.action === "download" ? "download" : "rotate-cw",
+          disabled: !banner.enabled,
+          onClick: onPress,
+        },
+      ]}
+      onDismiss={onDismiss}
+    />
+  );
+}
+
+/** The update banner of the app's updater, until its close hides it for this version while the window is open. */
+function UpdateArea() {
+  const banner = useStore(updatesStore)?.banner ?? null;
+  const [closed, setClosed] = useState<string | null>(null);
+  if (banner === null || closed === banner.title) return null;
+  return (
+    <UpdateBannerRow
+      banner={banner}
+      onPress={() => {
+        const click =
+          banner.action === "download"
+            ? ({ kind: "open", what: "download" } as const)
+            : ({ kind: "restart" } as const);
+        updatesClick(click).catch(warnOnFailure(banner.action_label));
+      }}
+      onDismiss={() => {
+        setClosed(banner.title);
+      }}
+    />
+  );
+}
+
 /** The banner slot: follows the notices and the notification clicks while the page is up. */
 function BannerArea() {
   const notices = useStore(noticesStore);
@@ -102,7 +153,12 @@ function BannerArea() {
       root.removeAttribute(INPUT_OFF);
     };
   }, [inputOff]);
-  return <BannerRows banners={notices?.banners ?? []} />;
+  return (
+    <>
+      <BannerRows banners={notices?.banners ?? []} />
+      <UpdateArea />
+    </>
+  );
 }
 
 function linkOf(toast: ToastView) {

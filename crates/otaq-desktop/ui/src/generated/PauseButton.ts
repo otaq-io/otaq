@@ -2,18 +2,9 @@
 import type { IconName } from "./IconName";
 
 /**
- * The title bar's button: "Pause", or "Resume" (the accent, `s24-08`) while the open project is paused. A click
- * opens the scope menu. `PauseButton` on the page.
+ * The title bar's button: "Pause" with its icon. A click opens the scope menu. `PauseButton` on the page.
  */
-export type PauseButton = { 
-/**
- * "Pause" or "Resume": the button's name; Pause draws its icon only.
- */
-label: string, icon: IconName, 
-/**
- * Resume: the accent button with its label and a chevron.
- */
-resumes: boolean, 
+export type PauseButton = { label: string, icon: IconName, 
 /**
  * The tooltip's name, "Pause / Resume agents", and the user's key for it (⇧⌘.).
  */

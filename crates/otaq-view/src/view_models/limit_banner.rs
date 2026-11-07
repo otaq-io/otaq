@@ -2,17 +2,16 @@
 //! just hit, waiting for reset, after reset, weekly, reset time unknown*, *Row · Limit banner per tool (0086)*, *Row ·
 //! Not available, safety net, warnings per tool (0086)*).
 //!
-//! One banner for the situation, never one per agent (P6), with **one line per tool** ([`ToolLine`], T-0358): its
-//! limit ("Claude Code limit reached · Resets 3:45 pm · 4 tickets waiting", Resume Claude Code) or its being
-//! unavailable while tickets wait on it ("Codex isn't available · logged out · 5 tickets waiting", Sign in…). Only that
-//! tool's agents wait; the rest keep going, and nothing moves to another tool. Each says when the limit resets (a
-//! countdown in the last hour), how many agents it stopped and what waits. Resume is the user's click and never
-//! happens by itself: disabled until a known reset time, highlighted after the reset, always available when the reset
-//! time is unknown (USG-06). With one tool connected the banner reads as before M23 with its one Resume (no tool name,
-//! d0086; USG-10: Resume all became per tool).
+//! One banner for the situation, never one per agent (P6), amber like the paused banner, with **one line per tool**
+//! ([`ToolLine`], T-0358): its limit ("Claude Code limit reached · Its 3 agents wait; agents on other tools keep
+//! working. Nothing switches tools." with "0% left · resets 3:45 pm" and **Resume Claude Code**) or its being
+//! unavailable while tickets wait on it ("Codex isn't available · logged out · 5 tickets waiting", Sign in…). Only
+//! that tool's agents wait; the rest keep going, and nothing ever moves to another tool: there is no fallback. Resume
+//! is the user's click and never happens by itself: off until a known reset time, the call to action once the reset
+//! time has passed ("The limit has reset. Its 3 agents are waiting where they stopped."), always on when the reset
+//! time is unknown (USG-06). The line always names its tool.
 //!
-//! Limit lines are neutral and a tool that isn't available is amber: never turquoise, which means needs you (d0077;
-//! the frames' turquoise lines predate the rule).
+//! Never turquoise, which means needs you (d0077).
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::limits::{self as moves, ToolLine, ToolLines};
@@ -45,10 +44,10 @@ pub fn resumed(agents: usize) -> (String, String) {
     )
 }
 
-/// The Resume button: "Resume" with one tool, "Resume Claude Code" with several.
+/// The Resume button: "Resume Claude Code", always naming the tool.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ResumeButton {
-    /// "Resume", "Resume (8)", "Resume Claude Code (8)".
+    /// "Resume Claude Code"; the paused banner's "Resume".
     pub label: String,
     pub enabled: bool,
     /// Highlighted (primary) after the reset.
@@ -58,10 +57,12 @@ pub struct ResumeButton {
 /// What one tool's line says, for the banner.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct LimitBanner {
-    /// "Session limit reached", "Claude Code limit reached", "Usage limit reset", "Codex isn't available".
+    /// "Claude Code limit reached", "Claude Code weekly limit reached", "Codex isn't available".
     pub title: String,
-    /// "Resets at 3:45 pm · 8 agents stopped · no new tickets will start".
+    /// "Its 3 agents wait; agents on other tools keep working. Nothing switches tools."
     pub text: String,
+    /// On the right before Resume: "0% left · resets 3:45 pm", or "Reset at 3:45 pm" after the reset.
+    pub aside: Option<String>,
     /// Resume (a limit); `None` for a tool that isn't available.
     pub resume: Option<ResumeButton>,
     /// The reset has happened.
@@ -89,11 +90,13 @@ pub struct LineView {
     pub tool: String,
     /// Hidden while only one tool is connected.
     pub avatar: Option<ToolAvatarView>,
-    /// A limit neutral, a tool that isn't available amber; never turquoise (d0077).
+    /// Amber, a limit or a tool that isn't available; never turquoise (d0077).
     pub tone: BannerTone,
     pub icon: IconName,
     pub title: String,
     pub text: String,
+    /// "0% left · resets 3:45 pm" on the right; `None` for a tool that isn't available.
+    pub aside: Option<String>,
     /// Resume, Sign in… or Show in Agent tools.
     pub buttons: Vec<LineButton>,
 }
@@ -131,11 +134,7 @@ fn line(l: &ToolLine, several: bool, now: i64) -> Option<LimitLine> {
                 resets_at: *resets_at,
                 reset_passed: *reset_seen || resets_at.is_some_and(|at| at <= now),
             };
-            if several {
-                limit_line(l, &limit, now)?
-            } else {
-                one_tool_line(l.stopped, &limit, now)?
-            }
+            limit_line(l, &limit, now, several)?
         }
         moves::Situation::Unavailable { reason, .. } => unavailable_line(l, reason),
     };
@@ -165,24 +164,6 @@ fn plural(n: u32, one: &str, many: &str) -> String {
     }
 }
 
-/// A banner's text as sentences (d0093: the middle dot joins metadata only): the first part, then the rest joined by
-/// semicolons: "Resets at 3:45 pm. 8 agents stopped; no new tickets will start."
-fn sentences(parts: &[String]) -> String {
-    let Some((first, rest)) = parts.split_first() else {
-        return String::new();
-    };
-    if rest.is_empty() {
-        return format!("{first}.");
-    }
-    let rest = rest.join("; ");
-    let mut chars = rest.chars();
-    let rest = match chars.next() {
-        Some(c) => c.to_uppercase().chain(chars).collect::<String>(),
-        None => rest,
-    };
-    format!("{first}. {rest}.")
-}
-
 fn tickets_n(n: u32) -> String {
     plural(n, "ticket", "tickets")
 }
@@ -209,77 +190,6 @@ fn resets(at: i64, now: i64, at_word: &str) -> (String, bool) {
     }
 }
 
-/// When the limit reset: " at 3:00 pm", or nothing when unknown.
-fn reset_at(limit: &Limit) -> String {
-    limit
-        .resets_at
-        .and_then(local)
-        .map(|t| format!(" at {}", clock_12h(t.hour, t.minute)))
-        .unwrap_or_default()
-}
-
-/// The line with one tool connected: the words of the banner before M23.
-fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
-    let agents = |verb: &str| format!("{} {verb}", plural(stopped, "agent", "agents"));
-    if limit.reset_passed {
-        if stopped == 0 {
-            return None;
-        }
-        let are = if stopped == 1 { "is" } else { "are" };
-        return Some(LimitBanner {
-            title: "Usage limit reset".to_owned(),
-            text: sentences(&[
-                format!("Your plan limit reset{}", reset_at(limit)),
-                format!("{} {are} waiting", plural(stopped, "agent", "agents")),
-                "nothing resumes until you click".to_owned(),
-            ]),
-            resume: Some(ResumeButton {
-                label: format!("Resume ({stopped})"),
-                enabled: true,
-                primary: true,
-            }),
-            after_reset: true,
-        });
-    }
-    let Some(at) = limit.resets_at else {
-        return Some(LimitBanner {
-            title: "Usage limit reached".to_owned(),
-            text: sentences(&[
-                "Reset time unknown".to_owned(),
-                agents("waiting for limit reset"),
-                "no new tickets will start".to_owned(),
-            ]),
-            resume: Some(ResumeButton {
-                label: "Resume".to_owned(),
-                enabled: true,
-                primary: false,
-            }),
-            after_reset: false,
-        });
-    };
-    let title = match limit.kind {
-        LimitKind::Session => "Session limit reached",
-        LimitKind::Weekly => "Weekly limit reached",
-        LimitKind::Other => "Usage limit reached",
-    };
-    let (when, last_hour) = resets(at, now, "at ");
-    let tail = if last_hour {
-        "started tickets wait"
-    } else {
-        "no new tickets will start"
-    };
-    Some(LimitBanner {
-        title: title.to_owned(),
-        text: sentences(&[when.clone(), agents("stopped"), tail.to_owned()]),
-        resume: Some(ResumeButton {
-            label: "Resume".to_owned(),
-            enabled: false,
-            primary: false,
-        }),
-        after_reset: false,
-    })
-}
-
 /// What waits on a tool: "4 tickets waiting".
 fn waiting_parts(waiting: u32) -> Vec<String> {
     match waiting {
@@ -288,64 +198,104 @@ fn waiting_parts(waiting: u32) -> Vec<String> {
     }
 }
 
-/// A tool's limit line with several tools connected (USG-10): "Claude Code limit reached · Resets 3:45 pm · 4 tickets
-/// waiting", Resume Claude Code.
-fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
+/// "Its 3 agents", "Its agent": what of the tool's work waits.
+fn its(n: u32, one: &str, many: &str) -> String {
+    if n == 1 {
+        format!("Its {one}")
+    } else {
+        format!("Its {n} {many}")
+    }
+}
+
+/// The reset as the line's right side says it: "resets 3:45 pm", "resets in 42 min (3:45 pm)", "resets Mon 12:00 am".
+fn resets_aside(at: i64, now: i64) -> String {
+    let (when, _) = resets(at, now, "");
+    let mut chars = when.chars();
+    match chars.next() {
+        Some(c) => c.to_lowercase().chain(chars).collect(),
+        None => when,
+    }
+}
+
+/// A tool's limit line: "Claude Code limit reached · Its 3 agents wait; agents on other tools keep working. Nothing
+/// switches tools." with "0% left · resets 3:45 pm" and Resume Claude Code, off until the reset; after the reset "The
+/// limit has reset. Its 3 agents are waiting where they stopped." with "Reset at 3:45 pm" and Resume Claude Code on.
+/// Only that tool's agents wait, and nothing moves to another tool. `several`: more than one tool is connected.
+fn limit_line(l: &ToolLine, limit: &Limit, now: i64, several: bool) -> Option<LimitBanner> {
     let word = tool_word(l.tool);
     let resume = format!("Resume {word}");
+    let title = match (limit.kind, limit.monthly) {
+        (LimitKind::Weekly, _) => format!("{word} weekly limit reached"),
+        (_, true) => format!("{word} monthly limit reached"),
+        _ => format!("{word} limit reached"),
+    };
     if limit.reset_passed {
         if l.stopped == 0 && l.waiting == 0 {
             return None;
         }
-        let mut parts = vec![format!("{word}\u{2019}s limit reset{}", reset_at(limit))];
+        let mut text = "The limit has reset. ".to_owned();
         if l.stopped > 0 {
-            let are = if l.stopped == 1 { "is" } else { "are" };
-            parts.push(format!(
-                "{} {are} waiting",
-                plural(l.stopped, "agent", "agents")
+            let (are, where_) = if l.stopped == 1 {
+                ("is", "it")
+            } else {
+                ("are", "they")
+            };
+            text.push_str(&format!(
+                "{} {are} waiting where {where_} stopped",
+                its(l.stopped, "agent", "agents")
+            ));
+            if l.waiting > 0 {
+                text.push_str(&format!("; {} wait too", tickets_n(l.waiting)));
+            }
+        } else {
+            let verb = if l.waiting == 1 { "waits" } else { "wait" };
+            text.push_str(&format!(
+                "{} {verb} to start",
+                its(l.waiting, "ticket", "tickets")
             ));
         }
-        parts.extend(waiting_parts(l.waiting));
-        parts.push("nothing resumes until you click".to_owned());
-        let label = match l.stopped {
-            0 => resume.clone(),
-            n => format!("{resume} ({n})"),
-        };
+        text.push('.');
         return Some(LimitBanner {
-            title: format!("{word} limit reset"),
-            text: sentences(&parts),
+            title,
+            text,
+            aside: limit
+                .resets_at
+                .and_then(local)
+                .map(|t| format!("Reset at {}", clock_12h(t.hour, t.minute))),
             resume: Some(ResumeButton {
-                label,
+                label: resume,
                 enabled: true,
                 primary: true,
             }),
             after_reset: true,
         });
     }
-    let title = match (limit.kind, limit.monthly) {
-        (LimitKind::Weekly, _) => format!("{word} weekly limit reached"),
-        (_, true) => format!("{word} monthly limit reached"),
-        _ => format!("{word} limit reached"),
+    let waits = if l.stopped > 0 {
+        let verb = if l.stopped == 1 { "waits" } else { "wait" };
+        format!("{} {verb}", its(l.stopped, "agent", "agents"))
+    } else if l.waiting > 0 {
+        let verb = if l.waiting == 1 { "waits" } else { "wait" };
+        format!("{} {verb}", its(l.waiting, "ticket", "tickets"))
+    } else {
+        "Its tickets wait".to_owned()
     };
-    let when = match limit.resets_at {
-        Some(at) => resets(at, now, "").0,
-        None => format!("{word} didn\u{2019}t say when it resets"),
+    let others = if several {
+        "; agents on other tools keep working"
+    } else {
+        ""
     };
-    let mut parts = vec![when];
-    parts.extend(waiting_parts(l.waiting));
-    if l.stopped > 0 {
-        let stopped = format!(
-            "{} stopped mid-ticket",
-            plural(l.stopped, "agent", "agents")
-        );
-        parts.push(stopped);
-    }
+    let reset = match limit.resets_at {
+        Some(at) => resets_aside(at, now),
+        None => "reset time unknown".to_owned(),
+    };
     Some(LimitBanner {
         title,
-        text: sentences(&parts),
+        text: format!("{waits}{others}. Nothing switches tools."),
+        aside: Some(format!("0% left \u{b7} {reset}")),
         resume: Some(ResumeButton {
             label: resume,
-            enabled: l.resume_enabled,
+            // Off until the reset time; always on when the tool didn't say when it resets.
+            enabled: l.resume_enabled || limit.resets_at.is_none(),
             primary: false,
         }),
         after_reset: false,
@@ -363,6 +313,7 @@ fn unavailable_line(l: &ToolLine, reason: &str) -> LimitBanner {
     LimitBanner {
         title,
         text,
+        aside: None,
         resume: None,
         after_reset: false,
     }
@@ -372,7 +323,7 @@ fn view(l: &ToolLine, banner: &LimitBanner, several: bool) -> LineView {
     let tool = l.tool.as_str().to_owned();
     let mut buttons = Vec::new();
     let (tone, icon) = match &l.situation {
-        moves::Situation::Limit { .. } => (BannerTone::Neutral, IconName::Gauge),
+        moves::Situation::Limit { .. } => (BannerTone::Warning, IconName::Gauge),
         moves::Situation::Unavailable { .. } => (BannerTone::Warning, IconName::TriangleAlert),
     };
     if let Some(resume) = &banner.resume {
@@ -414,6 +365,7 @@ fn view(l: &ToolLine, banner: &LimitBanner, several: bool) -> LineView {
         icon,
         title: banner.title.clone(),
         text: banner.text.clone(),
+        aside: banner.aside.clone(),
         buttons,
     }
 }
@@ -601,33 +553,32 @@ mod tests {
         assert!(lines(&ToolLines::default(), NOW).is_empty());
     }
 
+    /// A tool at its limit: only its agents wait, nothing switches tools, and Resume names the tool, off until the
+    /// reset time.
     #[test]
-    fn one_tool_just_hit_reads_as_before() {
-        let at = NOW + 3 * HOUR;
+    fn a_limit_line_says_what_waits_and_when_it_resets() {
         let l = one_line(&one(stopped(
-            8,
+            3,
             limit(Tool::Claude, LimitKind::Session, Some(3 * HOUR), false),
         )));
         let b = &l.banner;
-        assert_eq!(b.title, "Session limit reached");
+        assert_eq!(b.title, "Claude Code limit reached");
+        assert_eq!(b.text, "Its 3 agents wait. Nothing switches tools.");
         assert_eq!(
-            b.text,
-            format!(
-                "Resets at {}. 8 agents stopped; no new tickets will start.",
-                clock(at)
-            )
+            b.aside.as_deref(),
+            Some(format!("0% left \u{b7} resets {}", clock(NOW + 3 * HOUR)).as_str())
         );
         assert_eq!(
             b.resume,
             Some(ResumeButton {
-                label: "Resume".into(),
+                label: "Resume Claude Code".into(),
                 enabled: false,
                 primary: false
             })
         );
-        // One tool: no avatar, no tool name (d0086).
+        // One tool: no avatar; the line still names it.
         assert_eq!(l.view.avatar, None);
-        assert!(!l.view.title.contains("Claude"));
+        assert_eq!(l.view.tone, BannerTone::Warning, "amber");
         assert_eq!(l.view.buttons.len(), 1);
         assert_eq!(
             l.view.buttons[0].action,
@@ -635,92 +586,134 @@ mod tests {
                 tool: "claude".into()
             }
         );
-    }
-
-    #[test]
-    fn one_tool_the_last_hour_counts_down() {
-        let at = NOW + 42 * MINUTE;
-        let l = one_line(&one(stopped(
+        // Several tools: the others keep working.
+        let two = one_line(&several(vec![stopped(
+            3,
+            limit(Tool::Claude, LimitKind::Session, Some(3 * HOUR), false),
+        )]));
+        assert_eq!(
+            two.view.text,
+            "Its 3 agents wait; agents on other tools keep working. Nothing switches tools."
+        );
+        assert_eq!(two.view.avatar.as_ref().unwrap().letters, "CC");
+        // One agent, or only tickets waiting.
+        let agent = one_line(&one(stopped(
             1,
-            limit(Tool::Claude, LimitKind::Session, Some(42 * MINUTE), false),
+            limit(Tool::Claude, LimitKind::Session, Some(3 * HOUR), false),
         )));
         assert_eq!(
-            l.banner.text,
-            format!(
-                "Resets in 42 min ({}). 1 agent stopped; started tickets wait.",
-                clock(at)
-            )
+            agent.banner.text,
+            "Its agent waits. Nothing switches tools."
+        );
+        let tickets = one_line(&one(claude_at_limit()));
+        assert_eq!(
+            tickets.banner.text,
+            "Its 4 tickets wait. Nothing switches tools."
         );
     }
 
+    /// Resume is the user's click once the reset time has passed: off before, the call to action after, also while
+    /// the service hasn't seen the reset yet.
     #[test]
-    fn one_tool_weekly_shows_the_day() {
-        let l = one_line(&one(stopped(
-            8,
-            limit(Tool::Claude, LimitKind::Weekly, Some(3 * 24 * HOUR), false),
-        )));
-        assert_eq!(l.banner.title, "Weekly limit reached");
-        assert!(l.banner.text.starts_with("Resets "));
-        assert!(!l.banner.text.contains("Resets at"));
-        assert!(
-            l.banner
-                .text
-                .ends_with(". 8 agents stopped; no new tickets will start.")
-        );
-    }
-
-    #[test]
-    fn one_tool_unknown_reset_keeps_resume_all_available() {
-        let l = one_line(&one(stopped(
-            2,
-            limit(Tool::Claude, LimitKind::Other, None, false),
-        )));
-        assert_eq!(l.banner.title, "Usage limit reached");
+    fn resume_is_active_once_the_reset_time_has_passed() {
+        let at = NOW + 3 * HOUR;
+        let tool_lines = one(ToolLine {
+            stopped: 3,
+            waiting: 0,
+            ..limit(Tool::Claude, LimitKind::Session, Some(3 * HOUR), false)
+        });
+        let before = lines(&tool_lines, at - MINUTE).remove(0);
+        assert!(!before.view.buttons[0].enabled);
+        let after = lines(&tool_lines, at + MINUTE).remove(0);
+        assert!(after.banner.after_reset);
+        assert_eq!(after.view.title, "Claude Code limit reached");
         assert_eq!(
-            l.banner.text,
-            "Reset time unknown. 2 agents waiting for limit reset; no new tickets will start."
-        );
-        let resume = l.banner.resume.unwrap();
-        assert!(resume.enabled && !resume.primary);
-    }
-
-    #[test]
-    fn one_tool_after_the_reset_resume_all_is_the_call_to_action() {
-        let l = one_line(&one(stopped(
-            8,
-            limit(Tool::Claude, LimitKind::Session, Some(-MINUTE), true),
-        )));
-        assert!(l.banner.after_reset);
-        assert_eq!(l.banner.title, "Usage limit reset");
-        assert_eq!(
-            l.banner.text,
-            format!(
-                "Your plan limit reset at {}. 8 agents are waiting; nothing resumes until you click.",
-                clock(NOW - MINUTE)
-            )
+            after.view.text,
+            "The limit has reset. Its 3 agents are waiting where they stopped."
         );
         assert_eq!(
-            l.banner.resume,
-            Some(ResumeButton {
-                label: "Resume (8)".into(),
-                enabled: true,
-                primary: true
-            })
+            after.view.aside.as_deref(),
+            Some(format!("Reset at {}", clock(at)).as_str())
         );
-        // The reset time passed but the service hasn't marked it yet: the same.
-        let unmarked = one_line(&one(stopped(
-            8,
-            limit(Tool::Claude, LimitKind::Session, Some(-MINUTE), false),
-        )));
-        assert!(unmarked.banner.after_reset);
+        let resume = &after.view.buttons[0];
+        assert_eq!(resume.label, "Resume Claude Code");
+        assert!(resume.enabled && resume.primary);
         // Nothing left to resume: no line.
         assert!(
             lines(
-                &one(limit(Tool::Claude, LimitKind::Session, Some(-MINUTE), true)),
+                &one(ToolLine {
+                    waiting: 0,
+                    ..limit(Tool::Claude, LimitKind::Session, Some(-MINUTE), true)
+                }),
                 NOW
             )
             .is_empty()
         );
+        // Tickets only.
+        let tickets = one_line(&one(limit(
+            Tool::Claude,
+            LimitKind::Session,
+            Some(-MINUTE),
+            true,
+        )));
+        assert_eq!(
+            tickets.view.text,
+            "The limit has reset. Its 4 tickets wait to start."
+        );
+    }
+
+    #[test]
+    fn each_reset_variant_per_tool() {
+        let view = |l: ToolLine| one_line(&several(vec![l])).view;
+        let last = view(limit(
+            Tool::Claude,
+            LimitKind::Session,
+            Some(42 * MINUTE),
+            false,
+        ));
+        assert_eq!(
+            last.aside.as_deref(),
+            Some(
+                format!(
+                    "0% left \u{b7} resets in 42 min ({})",
+                    clock(NOW + 42 * MINUTE)
+                )
+                .as_str()
+            )
+        );
+        let week = view(limit(
+            Tool::Claude,
+            LimitKind::Weekly,
+            Some(3 * 24 * HOUR),
+            false,
+        ));
+        assert_eq!(week.title, "Claude Code weekly limit reached");
+        let t = local(NOW + 3 * 24 * HOUR).unwrap();
+        assert_eq!(
+            week.aside.as_deref(),
+            Some(
+                format!(
+                    "0% left \u{b7} resets {} {}",
+                    WEEKDAYS[t.weekday as usize],
+                    clock_12h(t.hour, t.minute)
+                )
+                .as_str()
+            )
+        );
+        let mut month = limit(Tool::Copilot, LimitKind::Other, Some(20 * 24 * HOUR), false);
+        if let moves::Situation::Limit { window_minutes, .. } = &mut month.situation {
+            *window_minutes = Some(30 * 24 * 60);
+        }
+        let month = view(month);
+        assert_eq!(month.title, "Copilot monthly limit reached");
+        let unknown = view(limit(Tool::Codex, LimitKind::Other, None, false));
+        assert_eq!(unknown.title, "Codex limit reached");
+        assert_eq!(
+            unknown.aside.as_deref(),
+            Some("0% left \u{b7} reset time unknown")
+        );
+        assert!(unknown.buttons[0].enabled, "always available when unknown");
+        assert_eq!(unknown.buttons[0].label, "Resume Codex");
     }
 
     #[test]
@@ -736,102 +729,18 @@ mod tests {
         assert_eq!(all.len(), 2);
         let (cc, cx) = (&all[0], &all[1]);
         assert_eq!(cc.view.title, "Claude Code limit reached");
-        assert_eq!(
-            cc.view.text,
-            format!("Resets {}. 4 tickets waiting.", clock(NOW + 4 * HOUR))
-        );
         assert_eq!(cx.view.title, "Codex limit reached");
         assert_eq!(
             cx.view.text,
-            format!(
-                "Resets {}. 2 tickets waiting; 1 agent stopped mid-ticket.",
-                clock(NOW + 5 * HOUR)
-            )
+            "Its agent waits; agents on other tools keep working. Nothing switches tools."
         );
         let resume = &cx.view.buttons[0];
         assert_eq!(resume.label, "Resume Codex");
         assert!(!resume.enabled, "disabled until the reset");
-        assert_eq!(
-            resume.action,
-            Action::ResumeTool {
-                tool: "codex".into()
-            }
-        );
-        assert_eq!(cc.view.avatar.as_ref().unwrap().letters, "CC");
-        assert_eq!(cc.view.tone, BannerTone::Neutral, "a limit is neutral");
         assert_eq!(cc.view.icon, IconName::Gauge);
         // Only Resume: nothing moves to another tool.
         assert_eq!(cx.view.buttons.len(), 1);
         assert_eq!(cc.view.buttons.len(), 1);
-    }
-
-    #[test]
-    fn each_reset_variant_per_tool() {
-        let text = |l: ToolLine| one_line(&several(vec![l])).view;
-        let last = text(limit(
-            Tool::Claude,
-            LimitKind::Session,
-            Some(42 * MINUTE),
-            false,
-        ));
-        assert_eq!(
-            last.text,
-            format!(
-                "Resets in 42 min ({}). 4 tickets waiting.",
-                clock(NOW + 42 * MINUTE)
-            )
-        );
-        let week = text(limit(
-            Tool::Claude,
-            LimitKind::Weekly,
-            Some(3 * 24 * HOUR),
-            false,
-        ));
-        assert_eq!(week.title, "Claude Code weekly limit reached");
-        let t = local(NOW + 3 * 24 * HOUR).unwrap();
-        assert!(
-            week.text.starts_with(&format!(
-                "Resets {} {}",
-                WEEKDAYS[t.weekday as usize],
-                clock_12h(t.hour, t.minute)
-            )),
-            "{}",
-            week.text
-        );
-        let mut month = limit(Tool::Copilot, LimitKind::Other, Some(20 * 24 * HOUR), false);
-        if let moves::Situation::Limit { window_minutes, .. } = &mut month.situation {
-            *window_minutes = Some(30 * 24 * 60);
-        }
-        let month = text(month);
-        assert_eq!(month.title, "Copilot monthly limit reached");
-        assert_eq!(
-            month.text,
-            format!(
-                "Resets {}. 4 tickets waiting.",
-                reset_label(NOW + 20 * 24 * HOUR, NOW)
-            )
-        );
-        let unknown = text(limit(Tool::Codex, LimitKind::Other, None, false));
-        assert_eq!(unknown.title, "Codex limit reached");
-        assert_eq!(
-            unknown.text,
-            "Codex didn\u{2019}t say when it resets. 4 tickets waiting."
-        );
-        assert!(unknown.buttons[0].enabled, "always available when unknown");
-        let after = one_line(&several(vec![stopped(
-            8,
-            limit(Tool::Claude, LimitKind::Session, Some(-HOUR), true),
-        )]));
-        assert_eq!(after.view.title, "Claude Code limit reset");
-        assert_eq!(
-            after.view.text,
-            format!(
-                "Claude Code\u{2019}s limit reset at {}. 8 agents are waiting; 4 tickets waiting; nothing resumes until you click.",
-                clock(NOW - HOUR)
-            )
-        );
-        assert_eq!(after.view.buttons[0].label, "Resume Claude Code (8)");
-        assert!(after.view.buttons[0].enabled && after.view.buttons[0].primary);
     }
 
     #[test]
@@ -920,12 +829,7 @@ mod tests {
         let g = gallery();
         for line in g.cells.iter().flat_map(|c| &c.lines) {
             assert_ne!(line.tone, BannerTone::Attention, "{line:?}");
-            let expected = if line.icon == IconName::TriangleAlert {
-                BannerTone::Warning
-            } else {
-                BannerTone::Neutral
-            };
-            assert_eq!(line.tone, expected, "{line:?}");
+            assert_eq!(line.tone, BannerTone::Warning, "amber: {line:?}");
         }
     }
 

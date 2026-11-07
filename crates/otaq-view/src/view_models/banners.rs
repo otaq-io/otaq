@@ -30,8 +30,8 @@ pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permissio
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BannerKind")]
 pub enum SituationKind {
-    /// Amber, first: the open project is paused (PAU-08, d0112); it can't be closed while paused, and Resume is the
-    /// title bar's.
+    /// Amber, first: the open project is paused (PAU-08, d0112); it can't be closed while paused, and carries
+    /// Resume.
     Paused,
     /// Red: the background service has ended (reboot or crash).
     ServiceStopped,
@@ -254,8 +254,8 @@ impl BannerRow {
             SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
             SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
             SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
-            // Neutral, never turquoise (d0077); its tools that aren't available are amber in their own lines.
-            SituationKind::UsageLimit => (BannerTone::Neutral, IconName::Gauge),
+            // Amber like the paused banner, never turquoise (d0077), which means needs you.
+            SituationKind::UsageLimit => (BannerTone::Warning, IconName::Gauge),
             SituationKind::TrustFailed => (BannerTone::Warning, IconName::ShieldX),
             SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
             SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
@@ -438,8 +438,15 @@ fn row(situation: &Situation) -> BannerRow {
     let mut tooltip = None;
     let mut lines = Vec::new();
     let (title, text, action) = match situation {
-        // `s24-07`, `s24-08`: no button; Resume is the title bar's.
-        Situation::Paused { title, text } => (title.clone(), text.clone(), None),
+        // The paused banner carries Resume: Pause leaves the title bar while nothing runs.
+        Situation::Paused { title, text } => {
+            resume = Some(crate::view_models::limit_banner::ResumeButton {
+                label: crate::view_models::pause::RESUME.to_owned(),
+                enabled: true,
+                primary: true,
+            });
+            (title.clone(), text.clone(), None)
+        }
         Situation::ServiceStopped => (
             "Background service stopped".to_owned(),
             "Its agent sessions ended with it. Nothing restarts on its own.".to_owned(),
@@ -996,7 +1003,7 @@ mod tests {
             lines: Vec::new(),
         };
         let view = row(&limit(true, true)).view(false);
-        assert_eq!(view.tone, BannerTone::Neutral, "never turquoise");
+        assert_eq!(view.tone, BannerTone::Warning, "amber, never turquoise");
         assert_eq!(
             view.buttons,
             [BannerButton {

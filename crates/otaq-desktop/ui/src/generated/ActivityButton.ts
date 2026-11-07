@@ -4,9 +4,13 @@ import type { ActivityWarning } from "./ActivityWarning";
 import type { AgentsChip } from "./AgentsChip";
 
 /**
- * The header's Activity button.
+ * The header's Running button, and the usage chip beside it.
  */
 export type ActivityButton = { 
+/**
+ * Whether Running is in the title bar: only while agents or apps run.
+ */
+shown: boolean, 
 /**
  * "● 6 running", or "● 3 / 5 agents" with agent limits on.
  */
@@ -16,7 +20,8 @@ agents: AgentsChip,
  */
 processes: string | null, 
 /**
- * The usage warning; `None` while every window has more than [`WARN_AT_LEFT`] % left.
+ * The usage chip, its own amber chip before Running ("Claude Code · 15% left"); `None` while every window has
+ * more than [`WARN_AT_LEFT`] % left. It shows also while nothing runs.
  */
 warning: ActivityWarning | null, hover: ActivityHover, 
 /**

@@ -1,10 +1,11 @@
 // The board's toolbar, in every view (BRD-01, FIL-01; *24 · The two views*, `s28-03`): Board · List · Files first
-// (`g b`, `g l`, `g f`), then the List's Group by; on the right the Board's
+// (`g b`, `g l`, `g f`) and Settings after them (the project's settings, which open over the board until they are a
+// view of their own), then the List's Group by; on the right the Board's Edit flow (the flow editor), then its
 // Dependencies On hover · Always (DPV-02, `s24-09`), the Fold empty columns (or Hide empty stages) switch, All tickets
 // and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
-import type { KeyboardEvent } from "react";
+import type { KeyboardEvent, ReactNode } from "react";
 
 import { mainWidth } from "../../app/layout";
 import { useStore } from "../../app/store";
@@ -20,6 +21,10 @@ export interface ToolbarProps {
   onView: (change: ViewChange) => void;
   onAllTickets: () => void;
   onNewTicket: () => void;
+  /** Settings after the views: the project's settings. */
+  onSettings: () => void;
+  /** Edit flow on the Board: the project's flow editor. */
+  onEditFlow: () => void;
 }
 
 /** ←/→ on a segment: the next one, wrapping, chosen at once (a radio group). */
@@ -59,10 +64,13 @@ function Segments({
   group,
   name,
   onView,
+  after,
 }: {
   group: ToolbarGroup;
   name: string;
   onView: ToolbarProps["onView"];
+  /** Drawn at the group's end, in its look (Settings after the views). */
+  after?: ReactNode;
 }) {
   const selected = Math.max(
     0,
@@ -93,6 +101,7 @@ function Segments({
         {group.options.map((option) => (
           <Segment key={option.label} option={option} onView={onView} />
         ))}
+        {after}
       </div>
     </>
   );
@@ -119,7 +128,14 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 /** The toolbar's 16 px sides: it is 760 px or less (`s28-08`) in a main area this wide or less. */
 const NARROW_MAIN = 760 + 2 * 16;
 
-export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
+export function Toolbar({
+  toolbar,
+  onView,
+  onAllTickets,
+  onNewTicket,
+  onSettings,
+  onEditFlow,
+}: ToolbarProps) {
   const choices = toolbar.group_by;
   const main = useStore(mainWidth);
   return (
@@ -129,7 +145,17 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarP
       aria-label="Board"
       data-narrow={(main > 0 && main <= NARROW_MAIN) || undefined}
     >
-      <Segments group={toolbar.views} name="View" onView={onView} />
+      <Segments
+        group={toolbar.views}
+        name="View"
+        onView={onView}
+        after={
+          <button type="button" className="board-segment" onClick={onSettings}>
+            <Icon name="settings" size={14} />
+            <span>{toolbar.settings}</span>
+          </button>
+        }
+      />
       {choices && (
         <>
           <span className="board-toolbar-divider" aria-hidden />
@@ -148,6 +174,12 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarP
           <span className="board-toolbar-live-dot" aria-hidden />
           <span>{toolbar.live}</span>
         </span>
+      )}
+      {toolbar.edit_flow !== null && (
+        <button type="button" className="board-chip-button" onClick={onEditFlow}>
+          <Icon name="pencil" size={12} />
+          <span>{toolbar.edit_flow}</span>
+        </button>
       )}
       {toolbar.dependencies && (
         <Segments group={toolbar.dependencies} name={toolbar.dependencies.label ?? ""} onView={onView} />

@@ -94,6 +94,11 @@ export async function pressBanner(
     stack.open("after_restart");
     return;
   }
+  // The paused banner's Resume: the project on screen, or every project an All projects pause holds.
+  if (kind === "paused" && button === "resume") {
+    await ask("notices.resume_paused");
+    return;
+  }
   if (button === "resume") {
     await ask("notices.resume_after_limit");
     return;
@@ -121,8 +126,7 @@ export async function pressBanner(
     case "notifications_blocked":
       await ask("notices.open_notification_settings");
       return;
-    // The folder trust note and warning have no button (PRJ-08); nor has the paused banner (Resume is the title
-    // bar's, PAU-08).
+    // The folder trust note and warning have no button (PRJ-08); the paused banner's one button is Resume (above).
     case "paused":
     case "trust_failed":
     case "trust_note":
@@ -132,14 +136,11 @@ export async function pressBanner(
 }
 
 /**
- * The usage limit's lines to draw, one per tool (USG-10): with several tools connected, or when a line has a button
- * besides Resume (Sign in…). Otherwise none, and the banner stays the one-tool banner of M22 with its one Resume
- * (d0086).
+ * The usage limit's lines to draw, one per tool (USG-10), each with what is left, when it resets and Resume <tool>;
+ * with one tool connected the line has no avatar. Every other banner has none.
  */
 export function limitLinesOf(banner: Banner): readonly LimitLine[] {
-  const several = banner.lines.some((line) => line.avatar !== null);
-  const more = banner.lines.some((line) => line.buttons.some((b) => b.action.kind !== "resume_tool"));
-  return several || more ? banner.lines : [];
+  return banner.lines;
 }
 
 /** Where opening a notification's target lands: the selection, the terminal focus requests, the Project agent panel

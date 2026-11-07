@@ -2,20 +2,15 @@
 import type { PauseScopeRow } from "./PauseScopeRow";
 
 /**
- * The scope menu under the button (`s24-07`, `s24-08`): This project first and focused (Return picks it), then All
- * projects, then the line. `PauseMenu` on the page.
+ * The scope menu under the button: the open project first and focused (Return picks it), then all projects, then
+ * the line. `PauseMenu` on the page.
  */
 export type PauseMenu = { 
 /**
- * "Pause agents" or "Resume agents".
+ * "Pause agents": the menu's name for screen readers.
  */
-title: string, 
+title: string, rows: Array<PauseScopeRow>, 
 /**
- * Picking a row resumes (else pauses).
- */
-resumes: boolean, rows: Array<PauseScopeRow>, 
-/**
- * "Agents stop now; …" (Pause); "Resume this project only and billing-api stays paused, with its own banner."
- * (Resume, while another project is paused too).
+ * "Resume continues each one where it was."
  */
 note: string | null, };

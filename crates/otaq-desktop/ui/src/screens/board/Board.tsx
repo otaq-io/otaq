@@ -34,6 +34,7 @@ import {
 
 import { requestCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
+import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
 import { useShortcut } from "../../app/registry";
 import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
@@ -788,6 +789,12 @@ export function Board() {
           onAllTickets={requestSearchFocus}
           onNewTicket={() => {
             openOverlay("new_ticket", { full: true });
+          }}
+          onSettings={() => {
+            if (project !== null) openOverlay("settings", { project });
+          }}
+          onEditFlow={() => {
+            if (project !== null) openFlowEditor(changeFlowOpen(project));
           }}
         />
       )}

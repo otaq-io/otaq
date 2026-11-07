@@ -29,9 +29,11 @@ export interface BannerProps {
   onDismiss?: () => void;
   /** On hovering the text: a bold line, then one line each. */
   tooltip?: { title: string; lines: readonly string[] } | undefined;
+  /** Muted words on the right, before the buttons. */
+  aside?: string | undefined;
 }
 
-export function Banner({ tone, icon, title, text, actions = [], onDismiss, tooltip }: BannerProps) {
+export function Banner({ tone, icon, title, text, actions = [], onDismiss, tooltip, aside }: BannerProps) {
   const body = <span className="banner-text">{text}</span>;
   return (
     <div className="banner" data-tone={tone} role={tone === "error" ? "alert" : "status"}>
@@ -46,6 +48,7 @@ export function Banner({ tone, icon, title, text, actions = [], onDismiss, toolt
           {body}
         </Tooltip>
       )}
+      {aside !== undefined && <span className="banner-aside">{aside}</span>}
       {actions.map((a) => (
         <Button
           key={a.label}

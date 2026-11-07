@@ -6,12 +6,11 @@ button.header-pause {
   flex: none;
   align-items: center;
   justify-content: center;
-  gap: 5px;
+  gap: 6px;
   box-sizing: border-box;
-  width: 28px;
   height: 28px;
   margin: 0;
-  padding: 0;
+  padding: 0 10px;
   border: 1px solid var(--border);
   border-radius: var(--r-md);
   background: var(--bg-column);
@@ -28,22 +27,6 @@ button.header-pause[data-open] {
   border-color: var(--focus);
 }
 
-button.header-pause[data-resumes] {
-  width: auto;
-  padding: 0 10px;
-  border-color: var(--accent);
-  background: var(--accent);
-  color: var(--text-on-accent);
-}
-
-button.header-pause[data-resumes]:hover {
-  filter: brightness(1.06);
-}
-
-button.header-pause[data-resumes][data-open] {
-  border-color: var(--focus);
-}
-
 .pause-menu {
   display: flex;
   flex-direction: column;
@@ -51,14 +34,6 @@ button.header-pause[data-resumes][data-open] {
   box-sizing: border-box;
   width: 306px;
   margin: -4px;
-}
-
-.pause-menu-title {
-  padding: 0 2px 2px;
-  color: var(--text-muted);
-  font: 400 11px var(--font-mono);
-  letter-spacing: 0.6px;
-  text-transform: uppercase;
 }
 
 button.pause-row {

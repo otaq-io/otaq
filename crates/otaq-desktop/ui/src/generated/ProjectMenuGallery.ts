@@ -2,6 +2,7 @@
 import type { ProjectMenuView } from "./ProjectMenuView";
 
 /**
- * The menu in the component gallery: shop-web's flow in use, and with Spec first waiting.
+ * The switcher in the component gallery: shop-web shown and needing you with billing-api beside it, and one project
+ * alone.
  */
 export type ProjectMenuGallery = { cells: Array<[string, ProjectMenuView]>, };

@@ -7,6 +7,10 @@ import type { PauseMenu } from "./PauseMenu";
  */
 export type PauseView = { 
 /**
- * The open project's key, which This project pauses; `None` before the first project.
+ * Whether Pause is in the title bar: only while agents run in some project.
+ */
+shown: boolean, 
+/**
+ * The open project's key, which its row pauses; `None` before the first project.
  */
 project: string | null, button: PauseButton, menu: PauseMenu, };

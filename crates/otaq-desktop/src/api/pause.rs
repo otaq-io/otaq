@@ -129,8 +129,8 @@ mod tests {
         }
     }
 
-    /// PAU-08 against the real service: Pause on This project pauses at once (no confirmation) and the button turns
-    /// into Resume; All projects pauses the other one too; Resume all lifts both.
+    /// PAU-08 against the real service: with nothing running the title bar has no Pause; pausing the open project
+    /// pauses at once (no confirmation); all projects pauses the other one too; Resume all lifts what it set.
     #[tokio::test(flavor = "multi_thread")]
     async fn pause_and_resume_from_the_title_bar() {
         let h = Harness::new(None);
@@ -143,7 +143,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(v["button"]["label"], "Pause");
-        assert_eq!(v["menu"]["rows"][0]["detail"], "shop-web \u{b7} 0 working");
+        assert_eq!(v["shown"], false, "nothing runs: no Pause in the title bar");
+        assert_eq!(v["menu"]["rows"][0]["label"], "Pause shop-web");
 
         let v = table(
             &h.app,
@@ -152,12 +153,15 @@ mod tests {
         )
         .await
         .unwrap();
-        assert_eq!(v["button"]["label"], "Resume");
-        assert_eq!(v["menu"]["title"], "Resume agents");
+        assert_eq!(
+            v["menu"]["rows"][0]["label"],
+            "Pause all projects",
+            "a paused project's Resume is its banner's"
+        );
         let other = table(&h.app, "pause.view", json!({ "project": bill }))
             .await
             .unwrap();
-        assert_eq!(other["button"]["label"], "Pause", "billing-api keeps working");
+        assert_eq!(other["menu"]["rows"][0]["label"], "Pause billing-api");
 
         table(
             &h.app,
@@ -168,15 +172,6 @@ mod tests {
         .unwrap();
         let all = counts(&h.app).await.unwrap();
         assert!(all.projects.iter().all(|p| p.paused_since.is_some()));
-        // shop-web was paused on its own: Resume's All projects row says it stays paused (d0112 2026-10-27).
-        let v = table(&h.app, "pause.view", json!({ "project": bill }))
-            .await
-            .unwrap();
-        assert_eq!(
-            v["menu"]["rows"][1]["detail"],
-            "0 paused in 0 projects \u{b7} shop-web stays paused"
-        );
-
         table(
             &h.app,
             "pause.run",

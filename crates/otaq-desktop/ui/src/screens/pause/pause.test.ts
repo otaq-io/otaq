@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
-// Pause in the title bar (T-0457; PAU-08, d0112): the slot and ⇧⌘. are registered; the button draws Pause or Resume
-// from Rust's view; the menu's keys move over This project and All projects and ↵ picks the highlighted one; a pick
-// sends `pause.run` at once (no confirmation) with the open project for This project.
+// Pause in the title bar (T-0457; PAU-08, d0112): the slot and ⇧⌘. are registered; the button draws Pause from Rust's
+// view, only while agents run; the menu's keys move over the open project and all projects and ↵ picks the highlighted
+// one; a pick sends `pause.run` at once (no confirmation) with the open project for its own row.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -14,18 +14,30 @@ import { PauseButton, PauseMenuBox } from "./Pause";
 
 vi.mock("../../tauri", () => ({ request: vi.fn(), subscribeEvents: vi.fn(), windowAction: vi.fn() }));
 
-/** `pause.rs`'s words for shop-web paused, billing-api paused too (`s24-08`). */
-const RESUME: PauseView = {
+/** `pause.rs`'s words for shop-web with 4 agents working, billing-api with 1. */
+const PAUSE: PauseView = {
+  shown: true,
   project: "SHOP",
-  button: { label: "Resume", icon: "play", resumes: true, tooltip: "Pause / Resume agents", keys: "⇧⌘." },
+  button: { label: "Pause", icon: "pause", tooltip: "Pause / Resume agents", keys: "⇧⌘." },
   menu: {
-    title: "Resume agents",
-    resumes: true,
+    title: "Pause agents",
     rows: [
-      { scope: "project", icon: "folder", label: "This project", detail: "shop-web · 5 paused", keys: "⇧⌘." },
-      { scope: "all", icon: "layers", label: "All projects", detail: "7 paused in 2 projects", keys: null },
+      {
+        scope: "project",
+        icon: "pause",
+        label: "Pause shop-web",
+        detail: "4 agents stop where they are; queued tickets wait.",
+        keys: "⇧⌘.",
+      },
+      {
+        scope: "all",
+        icon: "layers",
+        label: "Pause all projects",
+        detail: "5 agents in 2 projects.",
+        keys: null,
+      },
     ],
-    note: "Resume this project only and billing-api stays paused, with its own banner.",
+    note: "Resume continues each one where it was.",
   },
 };
 
@@ -45,32 +57,19 @@ describe("pause", () => {
     expect(pauseMenu.get()).toBe(false);
   });
 
-  it("draws Pause as an icon and Resume with its label", () => {
-    const pauseHtml = renderToStaticMarkup(
-      createElement(PauseButton, {
-        button: {
-          label: "Pause",
-          icon: "pause",
-          resumes: false,
-          tooltip: "Pause / Resume agents",
-          keys: "⇧⌘.",
-        },
-      }),
-    );
-    expect(pauseHtml).toContain('aria-label="Pause"');
-    expect(pauseHtml).not.toContain("data-resumes");
-    const resumeHtml = renderToStaticMarkup(createElement(PauseButton, { button: RESUME.button }));
-    expect(resumeHtml).toContain("data-resumes");
-    expect(resumeHtml).toContain(">Resume<");
+  it("draws Pause with its icon and label", () => {
+    const html = renderToStaticMarkup(createElement(PauseButton, { button: PAUSE.button }));
+    expect(html).toContain('aria-label="Pause"');
+    expect(html).toContain(">Pause<");
   });
 
-  it("draws the menu as Rust words it, This project highlighted", () => {
-    const html = renderToStaticMarkup(createElement(PauseMenuBox, { menu: RESUME.menu, cursor: 0 }));
-    expect(html).toContain("Resume agents");
-    expect(html).toContain("shop-web · 5 paused");
-    expect(html).toContain("7 paused in 2 projects");
-    expect(html).toContain("billing-api stays paused");
-    expect(html.indexOf("data-highlighted")).toBeLessThan(html.indexOf("All projects"));
+  it("draws the menu as Rust words it, the open project highlighted", () => {
+    const html = renderToStaticMarkup(createElement(PauseMenuBox, { menu: PAUSE.menu, cursor: 0 }));
+    expect(html).toContain("Pause shop-web");
+    expect(html).toContain("4 agents stop where they are; queued tickets wait.");
+    expect(html).toContain("5 agents in 2 projects.");
+    expect(html).toContain("Resume continues each one where it was.");
+    expect(html.indexOf("data-highlighted")).toBeLessThan(html.indexOf("Pause all projects"));
   });
 
   it("↑ ↓ move over the two rows and ↵ picks", () => {
@@ -81,10 +80,10 @@ describe("pause", () => {
     expect(menuKey("a", 0, 2)).toEqual({ kind: "pass" });
   });
 
-  it("a pick resumes or pauses its scope, This project with the open project", () => {
-    const [here, all] = RESUME.menu.rows;
+  it("a pick pauses its scope, the open project's row with the open project", () => {
+    const [here, all] = PAUSE.menu.rows;
     if (!here || !all) throw new Error("two rows");
-    expect(runParams(here, RESUME)).toEqual({ scope: "project", project: "SHOP", resume: true });
-    expect(runParams(all, { ...RESUME, project: null })).toEqual({ scope: "all", resume: true });
+    expect(runParams(here, PAUSE)).toEqual({ scope: "project", project: "SHOP", resume: false });
+    expect(runParams(all, { ...PAUSE, project: null })).toEqual({ scope: "all", resume: false });
   });
 });

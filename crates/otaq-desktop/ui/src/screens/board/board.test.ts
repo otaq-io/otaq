@@ -833,6 +833,8 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
+        onSettings: () => undefined,
+        onEditFlow: () => undefined,
       }),
     );
     expect(html).toMatch(
@@ -870,6 +872,8 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
+        onSettings: () => undefined,
+        onEditFlow: () => undefined,
       }),
     );
     expect(html).toContain(

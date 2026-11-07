@@ -17,9 +17,13 @@ tool: string,
  */
 avatar: ToolAvatarView | null, 
 /**
- * A limit neutral, a tool that isn't available amber; never turquoise (d0077).
+ * Amber, a limit or a tool that isn't available; never turquoise (d0077).
  */
 tone: BannerTone, icon: IconName, title: string, text: string, 
+/**
+ * "0% left · resets 3:45 pm" on the right; `None` for a tool that isn't available.
+ */
+aside: string | null, 
 /**
  * Resume, Sign in… or Show in Agent tools.
  */
