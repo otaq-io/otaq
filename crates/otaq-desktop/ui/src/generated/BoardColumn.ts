@@ -24,6 +24,10 @@ quiet_icon: boolean, count: string,
  */
 tooltip: BoardColumnTooltip | null, 
 /**
+ * Who acts there, in plain words under the title ("An agent does the work", "You review and approve").
+ */
+who_acts: string, 
+/**
  * Shown when the column has no card.
  */
 empty_hint: string, 

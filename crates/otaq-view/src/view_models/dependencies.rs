@@ -1,8 +1,8 @@
 //! Dependencies on the board and in the sheet (DPV-01…DPV-04; d0006, d0049; *24 · Dependencies on the board*
 //! `s24-09`, *Dependencies: always on, and in the List* `s24-10`, *Adding one, and dragging a blocked ticket*
 //! `s24-11`). A ticket that hasn't started and waits for a parent says so on its card and row, in amber with a link
-//! icon ("Blocked · waits for SHOP-18 and SHOP-29 to merge"); a ticket others wait for says what it blocks, muted
-//! ("Blocks SHOP-20" on the card, "blocks 1" on the row). Hovering a linked card explains it in a tooltip ("SHOP-20 is
+//! hourglass ("Waits for SHOP-18 and SHOP-29 to merge"); hovering a ticket others wait for highlights them and adds
+//! one line to its card ("SHOP-20 waits for it"; "blocks 1" on the row). Hovering a linked card explains it in a tooltip ("SHOP-20 is
 //! blocked" · "by SHOP-18 (Review) and SHOP-29 (Dev)"); Always keeps every link drawn ([`links`]). A blocked ticket
 //! can be started: it goes into the first stage, waits at its top saying "Waits for SHOP-18 to merge", and begins
 //! once its parents are merged. In the sheet's Overview, under the description, [`Section`] lists
@@ -74,9 +74,9 @@ fn parent_name(p: &WaitingParent) -> String {
     p.key.to_string()
 }
 
-/// DPV-01's line on a card and a row, for a ticket that hasn't begun while a parent isn't merged: "Blocked · waits
-/// for SHOP-18 and SHOP-29 to merge" in Backlog; once started, waiting at the top of the first stage, "Waits for
-/// SHOP-18 and SHOP-29 to merge". Replaces the old "after SHOP-18" and the Queued "waits for…" text.
+/// The waiting line on a card and a row, for a ticket that hasn't begun while a parent isn't merged: "Waits for
+/// SHOP-18 and SHOP-29 to merge", in Backlog as once started (it then waits at the top of the first stage). Waiting
+/// is the status line itself.
 pub fn blocked_line(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     if !not_started(ticket) {
         return None;
@@ -85,10 +85,7 @@ pub fn blocked_line(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     (!parents.is_empty()).then(|| {
         let names: Vec<String> = parents.iter().map(parent_name).collect();
         let parents = and_list(&names);
-        match ticket.place {
-            Place::Backlog => format!("Blocked \u{b7} waits for {parents} to merge"),
-            _ => format!("Waits for {parents} to merge"),
-        }
+        format!("Waits for {parents} to merge")
     })
 }
 
@@ -121,8 +118,8 @@ pub fn waiting_behind(ticket: &Ticket, all: &[Ticket]) -> usize {
     seen.len()
 }
 
-/// What a ticket others wait for says (DPV-01): "Blocks SHOP-20" on its card (two keys at most, then "+N"), "blocks
-/// 1" on its row.
+/// What a ticket others wait for says: "SHOP-20 waits for it" on its hovered card (two keys at most, then "+N"),
+/// "blocks 1" on its row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardBlocks")]
 pub struct Blocks {
@@ -136,13 +133,13 @@ pub fn blocks(ticket: &Ticket, all: &[Ticket]) -> Option<Blocks> {
         return None;
     }
     let keys: Vec<String> = children.iter().map(|t| t.key.to_string()).collect();
-    let line = if keys.len() <= 2 {
-        and_list(&keys)
-    } else {
-        format!("{}, {} +{}", keys[0], keys[1], keys.len() - 2)
+    let (line, verb) = match keys.len() {
+        1 => (keys[0].clone(), "waits"),
+        2 => (and_list(&keys), "wait"),
+        n => (format!("{}, {} +{}", keys[0], keys[1], n - 2), "wait"),
     };
     Some(Blocks {
-        line: format!("Blocks {line}"),
+        line: format!("{line} {verb} for it"),
         tag: format!("blocks {}", waiting_behind(ticket, all)),
     })
 }
@@ -503,7 +500,7 @@ mod tests {
         );
         assert_eq!(
             g.blocker.blocks.as_ref().map(|b| b.line.as_str()),
-            Some("Blocks SHOP-20")
+            Some("SHOP-20 waits for it")
         );
         assert_eq!(g.search.len(), 3);
     }
@@ -512,7 +509,7 @@ mod tests {
         all.iter().find(|t| t.key.to_string() == key).unwrap()
     }
 
-    /// Started (waiting to begin) it "Waits for…"; still in Backlog it is "Blocked · waits for…".
+    /// Waiting is the line itself: "Waits for…", started (waiting to begin) or still in Backlog.
     #[test]
     fn the_blocked_line_names_every_parent_still_to_merge() {
         let all = example();
@@ -530,7 +527,7 @@ mod tests {
         }
         assert_eq!(
             blocked_line(get(&in_backlog, "SHOP-20"), &in_backlog).as_deref(),
-            Some("Blocked \u{b7} waits for SHOP-18 and SHOP-29 to merge")
+            Some("Waits for SHOP-18 and SHOP-29 to merge")
         );
         // A working ticket isn't blocked, whatever it links to; a merged parent no longer counts.
         assert_eq!(blocked_line(get(&all, "SHOP-29"), &all), None);
@@ -555,7 +552,7 @@ mod tests {
         let b = blocks(get(&all, "SHOP-29"), &all).unwrap();
         assert_eq!(
             (b.line.as_str(), b.tag.as_str()),
-            ("Blocks SHOP-20", "blocks 1")
+            ("SHOP-20 waits for it", "blocks 1")
         );
         assert_eq!(blocks(get(&all, "SHOP-20"), &all), None);
     }
@@ -635,7 +632,7 @@ mod tests {
         assert_eq!(
             rows,
             [
-                ("SHOP-18", "Checkout API", "Review \u{b7} your check"),
+                ("SHOP-18", "Checkout API", "Review \u{b7} ready for you"),
                 ("SHOP-29", "Coupon field", "Dev \u{b7} working"),
             ]
         );

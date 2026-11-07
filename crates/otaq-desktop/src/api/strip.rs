@@ -170,8 +170,8 @@ mod tests {
         let view = table(&h.app, "strip.view", json!({ "project": "SHOP" }))
             .await
             .unwrap();
-        assert_eq!(view["empty"]["title"], "Needs you \u{b7} 0 here");
-        assert_eq!(view["empty"]["text"], Value::Null);
+        // Nothing needs the user anywhere: nothing to draw, so the strip isn't shown.
+        assert_eq!(view["empty"], Value::Null);
         assert_eq!(view["groups"], json!([]));
         assert_eq!(view["next"], Value::Null);
         // Nothing waits anywhere: Next opens nothing.

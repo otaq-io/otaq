@@ -1215,6 +1215,10 @@
         "holds": {
           "ty": "Vec<CardHold>"
         },
+        "instead_of": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "key": {
           "ty": "TicketKey",
           "required": true
@@ -1234,6 +1238,10 @@
         },
         "running_validator_on": {
           "ty": "Option<RunsOnTool>"
+        },
+        "skips": {
+          "ty": "Vec<String>",
+          "omittable": true
         },
         "stage_agent": {
           "ty": "Option<String>",

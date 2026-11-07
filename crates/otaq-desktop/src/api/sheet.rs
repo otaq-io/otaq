@@ -2052,8 +2052,8 @@ mod tests {
         assert_eq!((asks[2], asks[4]), (None, None));
         assert!((250..=320).contains(&asks[3].unwrap()), "{asks:?}");
         assert_eq!(notes(&g.sheets[1]).iter().flatten().count(), 2);
-        // The answer options left the card for the sheet (BRD-03, T-0460): its one action is Reply.
-        assert_eq!(g.cards[0].action.as_ref().map(|a| a.label), Some("Reply"));
+        // The answer options left the card for the sheet (BRD-03, T-0460): its one action is Answer.
+        assert_eq!(g.cards[0].action.as_ref().map(|a| a.label), Some("Answer"));
     }
 
     fn labels(view: &View) -> Vec<&str> {
