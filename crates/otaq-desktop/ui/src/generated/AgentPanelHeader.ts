@@ -38,6 +38,6 @@ new: AgentPanelButton, more: AgentPanelButton,
  */
 expand: AgentPanelButton, collapse: AgentPanelButton, 
 /**
- * Folds the panel back into the Ask bar, as ⌘L and Esc do; the conversation is kept (d0113).
+ * Closes the panel, as ⌘L and Esc do; the conversation is kept (d0113).
  */
 close: AgentPanelButton, };

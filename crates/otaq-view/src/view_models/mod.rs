@@ -19,7 +19,6 @@ pub mod answer;
 pub mod answer_options;
 pub mod apply_now;
 pub mod approve;
-pub mod ask_bar;
 pub mod banners;
 pub mod board;
 pub mod board_page;
@@ -77,8 +76,10 @@ pub mod modal;
 pub mod model_picker;
 pub mod move_app;
 pub mod needs_you_strip;
+pub mod new_work;
 pub mod newer_database;
 pub mod no_tray;
+pub mod noyan_button;
 pub mod ordinary_day;
 pub mod view_prefs;
 

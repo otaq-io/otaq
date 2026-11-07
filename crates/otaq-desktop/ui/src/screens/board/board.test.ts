@@ -11,6 +11,7 @@ import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import { afterDrop, coveredWidth, dropCard } from "./Board";
 import { EMPTY_BOX, fileAttachment, pastedAttachment, withAdded } from "../editor/commentRules";
+import { boxOnScreen, openRequests } from "../new_work/logic";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
@@ -476,10 +477,18 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
 });
 
 describe("the board screen", () => {
-  it("fills the board and search slots, the delete dialog, and ⌘N opens a new ticket", () => {
+  it("fills the board and search slots, the delete dialog; ⌘N opens the box for new work, else the full form", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
     expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
+    // The box on screen: it opens, and no form does.
+    boxOnScreen.set(true);
+    const asked = openRequests.get();
+    expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
+    expect(openRequests.get()).toBe(asked + 1);
+    expect(overlays.store.get()).toEqual([]);
+    // No box (Noyan's panel open, a full-page ticket): the full form.
+    boxOnScreen.set(false);
     expect(app.shortcuts.run({ action: "new_ticket" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: undefined }]);
   });

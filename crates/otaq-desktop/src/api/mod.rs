@@ -24,8 +24,6 @@ pub use agent_tools::{
 #[cfg(test)]
 pub use apply_now::export_types as export_apply_now_types;
 #[cfg(test)]
-pub use ask_bar::export_types as export_ask_bar_types;
-#[cfg(test)]
 pub use attachments::export_types as export_attachment_types;
 pub use attachments::{
     clear as clear_staged_attachments, image_bytes as box_image_bytes,
@@ -70,7 +68,11 @@ pub use keymap::Keymap;
 #[cfg(test)]
 pub use layout::WidthParams as LayoutWidthParams;
 #[cfg(test)]
+pub use new_work::export_types as export_new_work_types;
+#[cfg(test)]
 pub use notices::{DismissBanner, HoldToast, NoticesProject, NotificationOpen, ToastId};
+#[cfg(test)]
+pub use noyan_button::export_types as export_noyan_button_types;
 #[cfg(test)]
 pub use onboarding::export_flow_setup_page_types;
 #[cfg(test)]
@@ -221,7 +223,8 @@ areas! {
     run,
     usage,
     agent_panel,
-    ask_bar,
+    noyan_button,
+    new_work,
     agent_tools,
     limits,
     palette,

@@ -40,9 +40,9 @@ export interface OverlayParams {
   quick_switcher: undefined;
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
   command_palette: { terminal: boolean } | undefined;
-  /** The ticket editor on a new Backlog ticket (T-0228); `body` starts the description, and the whole form opens
-   * (New ticket from this file, FTB-03); `full` opens the whole form without a body (the board's New ticket button). */
-  new_ticket: { body?: string; full?: boolean } | undefined;
+  /** The ticket editor's whole form on a new Backlog ticket (T-0228); `title` and `body` start it: what was typed in
+   * the box for new work before More options…, or a file's path in the description (New ticket from this file, FTB-03). */
+  new_ticket: { title?: string; body?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
   /** The app's Settings, on a section if given (T-0234); `agent`: Settings → Agents on that agent's page (its id;

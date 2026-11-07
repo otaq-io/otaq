@@ -80,7 +80,7 @@ import type { KeyMapView } from "../../generated/KeyMapView";
 import type { ShortcutKey } from "../../generated/ShortcutKey";
 import type { LegendTier } from "../../generated/LegendTier";
 import type { AgentPanelGallery } from "../../generated/AgentPanelGallery";
-import type { AskBarGallery } from "../../generated/AskBarGallery";
+import type { NewWorkGallery } from "../../generated/NewWorkGallery";
 import type { DrawerGallery } from "../../generated/DrawerGallery";
 import type { PillView } from "../../generated/PillView";
 import type { ToolAvatarGallery } from "../../generated/ToolAvatarGallery";
@@ -109,8 +109,8 @@ import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
 import { Toolbar } from "../board/Toolbar";
 import { AnswerBox as SheetAnswerBox } from "../overview/NeedsYou";
-import { AskBarBody } from "../ask_bar/AskBar";
-import "../ask_bar/ask_bar.css";
+import { NewWorkBody } from "../new_work/NewWork";
+import "../new_work/new_work.css";
 import { OverviewGallery } from "../overview/OverviewGallery";
 import { NewTicketReportGallery } from "../editor/NewTicketReportGallery";
 import { SheetGallery } from "../sheet/SheetGallery";
@@ -140,7 +140,6 @@ import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
 import { SwitcherBox } from "../shell/Header";
-import { RailAgentButton } from "../shell/Rail";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
 import { FlowEditorBody, recordingActions } from "../flow_editor/FlowEditor";
@@ -153,12 +152,12 @@ const SHELL_PREVIEW = (() => {
   const app = createRegistries();
   const named = (name: string) => () => <div className="frame-placeholder">{name}</div>;
   app.slots.register("agent_panel", { Component: named("Noyan panel") });
-  app.slots.register("ask_bar", { Component: named("Ask bar") });
+  app.slots.register("new_work", { Component: named("New ticket, or ask Noyan…") });
   return app;
 })();
 
 /**
- * The shell at the design's three windows with the Project agent closed (the Ask bar over the board), and open at
+ * The shell at the design's three windows with the Project agent closed (the box for new work over the board), and open at
  * 1440 (T-0327, T-0458; SHB-01). Drawn at half size.
  */
 function ShellFrames() {
@@ -1637,28 +1636,30 @@ function AgentPanelSection() {
   );
 }
 
-const loadAskBar = () => request("gallery.ask_bar") as Promise<AskBarGallery>;
+const loadNewWork = () => request("gallery.new_work") as Promise<NewWorkGallery>;
 
-/**
- * *24 → Row · The Project agent* `s24-05` (T-0458): the Ask bar closed, typing with "ASK ABOUT", a reply waiting, and
- * the rail's Noyan button in each state (tinted while open, a dot while a reply waits).
- */
-function AskBarSection() {
-  const { view, error } = useServiceView(loadAskBar, []);
+/** *New ticket · one box for new work* (UX-22): the box closed, typing a ticket, and words for Noyan. */
+function NewWorkSection() {
+  const { view, error } = useServiceView(loadNewWork, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="24 · The Ask bar and the rail's Noyan button (T-0458)">
+    <Section title="The box for new work (UX-22)">
       <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-end" }}>
-        {view.states.map((state) => (
-          <div key={state.name} className="gallery-stack-tight gallery-ask">
-            <Caption>{state.name.toUpperCase()}</Caption>
-            <AskBarBody view={state.view} text={state.typed} typing={state.typed !== ""} choice={0} />
-            <div className="rail gallery-ask-rail">
-              <RailAgentButton button={state.view.button} />
+        {view.states.map((state) => {
+          const [title = "", ...rest] = state.typed.split("\n");
+          return (
+            <div key={state.name} className="gallery-stack-tight gallery-new-work">
+              <Caption>{state.name.toUpperCase()}</Caption>
+              <NewWorkBody
+                view={state.view}
+                typed={{ title, details: rest.join("\n") }}
+                open={state.open}
+                scrim={false}
+              />
             </div>
-          </div>
-        ))}
+          );
+        })}
       </div>
     </Section>
   );
@@ -2295,7 +2296,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
           <ShellFrames />
         </Section>
         <AgentPanelSection />
-        <AskBarSection />
+        <NewWorkSection />
         <DrawerSection />
         <Section title="02 · Header v2, Running states and popover (T-0329)">
           <ActivityGallery />

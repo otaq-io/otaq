@@ -1,6 +1,7 @@
 // The Project agent panel's moment of interaction (T-0330, T-0458; SHL-04, SHB-03, SHB-04, d0087, d0113): which
 // conversation each project shows, opening and closing the panel, the requests to give it the keyboard (⌘L, ⇧⌘L, an
-// strip item, the Ask bar), and Send's guard against a second start. Everything the panel says, and where a project
+// strip item, the box for new work's ⇧↵), Send's guard against a second start, and telling Rust which conversation
+// the user looked at (the rail's Noyan button's dot). Everything the panel says, and where a project
 // opens the first time (`opens_on`), is Rust's (`agent_panel.view`, `otaq-view`'s `agent_panel.rs`). Nothing here starts an
 // agent except Send with words, the user's go-ahead (d0087, d0018). The code calls the panel "the agent panel", as before.
 import { setAgentExpanded, setAgentOpen, type ShellLayout, shellLayout } from "../../app/layout";
@@ -9,7 +10,8 @@ import { createStore, type Store } from "../../app/store";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelSendParams } from "../../generated/AgentPanelSendParams";
 import type { MenuItem } from "../../generated/MenuItem";
-import type { request } from "../../tauri";
+import type { NoyanLookedParams } from "../../generated/NoyanLookedParams";
+import { request } from "../../tauri";
 
 /**
  * What each project shows, by project key: an agent's id, or `null` for the empty agent panel ("+", ⇧⌘L). A project not in
@@ -85,6 +87,24 @@ export function focusTarget(view: {
   return view.running.session !== null ? "terminal" : "none";
 }
 
+/** Counts each `noyan_button.looked`: the rail's button asks again, so a reply the user just saw stops being new. */
+export const lookedCount: Store<number> = createStore(0);
+
+/** The panel shows `agent` (or stopped showing it): its replies until now aren't new. */
+export function lookedAt(
+  agent: string,
+  ask: typeof request = request,
+  count: Store<number> = lookedCount,
+): void {
+  const params: NoyanLookedParams = { agent };
+  ask("noyan_button.looked", params).then(
+    () => {
+      count.update((n) => n + 1);
+    },
+    () => undefined,
+  );
+}
+
 /** Where the agent panel's keys and routes land; the tests pass their own stores. */
 export interface AgentPanelRoutes {
   selection: Store<Selection>;
@@ -105,7 +125,7 @@ export function showAgentPanel(routes: AgentPanelRoutes = AGENT_PANEL_ROUTES): v
   setAgentOpen(true, routes.layout);
 }
 
-/** Folds the panel back into the Ask bar: its close icon, ⌘L from inside it, Esc (d0113). The conversation is kept. */
+/** Closes the panel: its close icon, ⌘L from inside it, Esc (d0113). The conversation is kept. */
 export function closeAgentPanel(routes: AgentPanelRoutes = AGENT_PANEL_ROUTES): void {
   setAgentOpen(false, routes.layout);
 }
@@ -169,7 +189,7 @@ export function newProjectAgent(
 }
 
 /**
- * A strip item, an OS notification of a Project agent, or the Ask bar's "New reply": its project on screen, the agent
+ * A strip item or an OS notification of a Project agent: its project on screen, the agent
  * in the panel (opened) and its terminal focused (PAG-07, ATT-03: the focus clears its wait).
  */
 export function showAgentInPanel(

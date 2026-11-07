@@ -5,6 +5,12 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **One box for new work.** "New ticket, or ask Noyan…" sits at the bottom of the board and the List; ⌘N, a click
+  or the toolbar's New ticket opens it. The first line is the title and the rest the description. **↵** creates the
+  ticket in Backlog exactly as typed, with no agent and no cost; **⌘↵** creates and starts it; **⇧↵** (Ask Noyan to
+  shape it) hands the text to Noyan, which reads the code and writes one or more tickets to Backlog for you to start.
+  **⌥↵** (Alt+↵) starts a new line, and **More options…** opens the full form with what you typed. It replaces quick
+  create and the Ask bar; ⌘L still opens Noyan's panel, and in Files ⌘N is still New ticket from this file.
 - **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
   project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
   Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,

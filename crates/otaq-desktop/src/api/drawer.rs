@@ -345,7 +345,7 @@ mod tests {
             });
             view.tabs[0].hint.last().cloned().unwrap()
         };
-        let ask = "Want an agent\u{2019}s help? Ask Noyan in the Ask bar";
+        let ask = "Want an agent\u{2019}s help? Ask Noyan";
         assert_eq!(last(keys::base()), format!("{ask} (\u{2318}L)."));
         assert_eq!(
             last(KeyLabels::base(Platform::WinLinux)),

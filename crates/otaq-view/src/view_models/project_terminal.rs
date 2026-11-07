@@ -74,7 +74,7 @@ pub fn hint(
         format!("{terminal} \u{b7} {project_name} \u{b7} a shell in {short_repo}"),
         "Run project commands, or make tickets yourself:".to_owned(),
         format!("  \u{203a} {cb} create \"Wishlist share link\""),
-        format!("Want an agent\u{2019}s help? Ask Noyan in the Ask bar{keys}."),
+        format!("Want an agent\u{2019}s help? Ask Noyan{keys}."),
     ]
 }
 
@@ -321,11 +321,11 @@ mod tests {
                 "Terminal 1 \u{b7} shop-web \u{b7} a shell in ~/code/shop-web".to_owned(),
                 "Run project commands, or make tickets yourself:".to_owned(),
                 format!("  \u{203a} {cb} create \"Wishlist share link\""),
-                "Want an agent\u{2019}s help? Ask Noyan in the Ask bar (\u{2318}L).".to_owned(),
+                "Want an agent\u{2019}s help? Ask Noyan (\u{2318}L).".to_owned(),
             ]
         );
         let lines = hint("Terminal 2", "shop-web", "~/code/shop-web", None);
-        assert!(lines[3].ends_with("in the Ask bar."));
+        assert!(lines[3].ends_with("Ask Noyan."));
         assert!(
             lines.iter().all(|l| !l.contains("claude")),
             "no agent is started from here"

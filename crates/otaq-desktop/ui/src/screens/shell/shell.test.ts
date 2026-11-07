@@ -5,7 +5,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { overlays } from "../../app/overlays";
 import { createRegistries, registered, registerScreens } from "../../app/registry";
 import { NOTHING_SELECTED, selection } from "../../app/selection";
-import type { AskAgentButton } from "../../generated/AskAgentButton";
+import type { NoyanButton } from "../../generated/NoyanButton";
 import type { ActivityPopover } from "../../generated/ActivityPopover";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
@@ -179,7 +179,7 @@ describe("the rail", () => {
   });
 
   it("ends with Noyan, Terminal and Settings, which open their screens as their keys do; no Cleanup", () => {
-    const agent: AskAgentButton = {
+    const agent: NoyanButton = {
       icon: "bot",
       label: "Noyan",
       hint: "Open or close · ⌘L",
@@ -217,7 +217,7 @@ describe("the rail", () => {
     expect(asks).toContain('aria-label="Noyan, Asks you"');
     expect(open).toContain('aria-pressed="true" data-tinted="true"');
     expect(open).not.toContain("rail-agent-dot");
-    // Before the Ask bar loaded: no button yet.
+    // Before the Noyan button loaded: no button yet.
     expect(renderToStaticMarkup(createElement(RailTiles, { view: RAIL }))).not.toContain("rail-agent");
 
     const app = createRegistries();

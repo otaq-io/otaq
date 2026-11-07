@@ -972,7 +972,7 @@ pub(crate) mod testing {
             run_commands: Default::default(),
             window_focus: Default::default(),
             reports: Default::default(),
-            looked: std::sync::Mutex::new(otaq_view::view_models::ask_bar::Looked::new(
+            looked: std::sync::Mutex::new(otaq_view::view_models::noyan_button::Looked::new(
                 otaq_core::store::now_ms(),
             )),
             usage: crate::usage::Usage::new(tokio::runtime::Handle::current()),
