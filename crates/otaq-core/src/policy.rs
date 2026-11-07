@@ -23,8 +23,8 @@
 //! validator (the verdict only). On every flow the refusals name the stage ([`authorize_in_stage`], Q269): "NOTE-1's
 //! Validate check can only give its verdict", "NOTE-1's Dev session can't give a check verdict".
 //!
-//! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, with External ID
-//! and priority), and edits, links and prioritises tickets **still in Backlog** (never
+//! A **Project agent** caller (d0068, PAG-02) reads anything, creates tickets (always in Backlog, with a
+//! priority), and edits, links and prioritises tickets **still in Backlog** (never
 //! started); it asks a ticket's agent and the user with its own commands, and names itself. Everything else
 //! (move, start, approve, merge, close, delete, edit a started ticket) is refused: "Noyan can only change Backlog
 //! tickets".
@@ -119,7 +119,7 @@ pub enum Action {
     Read,
     /// Changes this ticket: its review submission, its questions and answers, its PR and branch.
     ChangeTicket(TicketFacts),
-    /// Edits this ticket's fields (title, description, priority, External ID): for agents like
+    /// Edits this ticket's fields (title, description, priority): for agents like
     /// [`Action::ChangeTicket`]; a Project agent edits Backlog tickets.
     EditTicket(TicketFacts),
     /// Creates a ticket; new tickets always land in Backlog.

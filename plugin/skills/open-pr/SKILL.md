@@ -35,8 +35,8 @@ Otaq's `push` skill, not this one.
 ## Turn 1: propose
 
 1. **Get the context first.** Run `otaq prime` and read all of it. Its "Pull request" section names the branch
-   the PR targets, the remote, the PR provider, the ticket's External ID (if any) and every commit that goes into the
-   PR, oldest first, with its current message.
+   the PR targets, the remote, the PR provider and every commit that goes into the PR, oldest first, with its current
+   message.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (branch names, commit message
    style, PR templates) and they apply to every step below. They add to these steps; they never remove getting the
    context (step 1), proposing before pushing (step 5) or reporting the PR (step 9).
@@ -47,11 +47,11 @@ Otaq's `push` skill, not this one.
    Delivery stage's skill in the flow editor)." Then end your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
-     `bugfix/SHOP-18-login-redirect`, or `feature/PAY-123-wishlist` from the External ID). Otherwise use
+     `bugfix/SHOP-18-login-redirect`). Otherwise use
      `otaq/SHOP-18-<slug>`, where the slug is a few lowercase words of the title joined by `-`.
    - **One message per commit**, for every commit `prime` lists, in the same order. Keep each message about what that
      commit changed. You only propose: never run `git commit --amend`, `git rebase` or `git branch -m` yourself.
-   - **PR title:** the key (or the External ID) and the title, for example `SHOP-18 Login redirect`.
+   - **PR title:** the key and the title, for example `SHOP-18 Login redirect`.
    - **PR description:** what changed and why, and how it was tested, in Markdown. When the "Pull request" section
      has **Tickets merged into this one**, those tickets' work is in this branch too: the description lists each of
      them, with its key, its title and a line on what it changed (for example

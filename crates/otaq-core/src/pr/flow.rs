@@ -121,8 +121,6 @@ pub struct PrFlowView {
     pub pr_number: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// The skill that proposes: the project's Open PR skill, or its Push skill for a ticket with a PR.
     #[serde(default)]
     pub skill: String,
@@ -250,7 +248,6 @@ impl Board {
                 .collect(),
             pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
             pr_url: row.pr_url,
-            external_id: ticket.external_id.clone(),
             key: ticket.key,
         })
     }

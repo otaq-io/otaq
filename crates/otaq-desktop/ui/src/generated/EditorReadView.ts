@@ -26,7 +26,7 @@ priority_menu: Array<MenuItem>,
 /**
  * "main".
  */
-base: string, external_id: string | null, 
+base: string, 
 /**
  * The fields an agent changed since the user last looked ("Updated by agent").
  */

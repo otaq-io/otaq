@@ -1,5 +1,5 @@
 {
-  "protocol_version": 9,
+  "protocol_version": 10,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -3035,7 +3035,6 @@
       "values": [
         "base_branch",
         "body",
-        "external_id",
         "plan",
         "priority",
         "title"
@@ -5363,10 +5362,6 @@
         "body": {
           "ty": "String"
         },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "first_comment": {
           "ty": "Option<FirstComment>",
           "omittable": true
@@ -6079,10 +6074,6 @@
           "ty": "Vec<FlowCommit>",
           "required": true
         },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "flow": {
           "ty": "Option<PrFlow>",
           "omittable": true
@@ -6339,10 +6330,6 @@
         "editable": {
           "ty": "bool",
           "required": true
-        },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
         },
         "key": {
           "ty": "TicketKey",
@@ -10564,10 +10551,6 @@
           "ty": "Vec<TicketKey>",
           "required": true
         },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "flags": {
           "ty": "Flags",
           "required": true
@@ -10914,10 +10897,6 @@
         },
         "choices": {
           "ty": "Vec<ChoicePick>",
-          "omittable": true
-        },
-        "external_id": {
-          "ty": "Option<String>",
           "omittable": true
         },
         "plan": {

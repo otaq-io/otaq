@@ -41,8 +41,6 @@ pub struct PrimeTicket {
     pub priority: Priority,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<TicketKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// In Backlog and never started: the Project agent may edit it.
     pub editable: bool,
     /// Started tickets: where their code is.
@@ -61,7 +59,6 @@ impl PrimeTicket {
             status: t.status,
             priority: t.priority,
             depends_on: t.depends_on.clone(),
-            external_id: t.external_id.clone(),
             editable: t.board_group() == StatusSet::Backlog && !t.has_started(),
             worktree: work.and_then(|w| w.worktree.clone()),
             branch: work.and_then(|w| w.branch.clone()),
@@ -119,9 +116,6 @@ pub fn render(ctx: &ProjectPrime) -> String {
             let deps: Vec<String> = t.depends_on.iter().map(ToString::to_string).collect();
             out.push_str(&format!(" · depends on {}", deps.join(", ")));
         }
-        if let Some(id) = &t.external_id {
-            out.push_str(&format!(" · external ID {id}"));
-        }
         out.push('\n');
         if let Some(worktree) = &t.worktree {
             let branch = t.branch.as_deref().unwrap_or("?");
@@ -175,7 +169,6 @@ mod tests {
             status,
             priority: Priority::default(),
             depends_on: Vec::new(),
-            external_id: None,
             editable: status == Status::Backlog,
             worktree: None,
             branch: None,
@@ -188,8 +181,7 @@ mod tests {
         let mut started = ticket("SHOP-19", "Price table", Status::Working);
         started.worktree = Some("/data/wt/shop-web/SHOP-19".into());
         started.branch = Some("feature/price-table".into());
-        let mut wishlist = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        wishlist.external_id = Some("GH-212".into());
+        let wishlist = ticket("SHOP-40", "Wishlist", Status::Backlog);
         let mut api = ticket("SHOP-41", "Wishlist API", Status::Backlog);
         api.depends_on = vec!["SHOP-19".parse().unwrap()];
         let ctx = ProjectPrime {
@@ -218,7 +210,7 @@ the user's own checkout; agents build tickets later in their own worktrees.
 
 - SHOP-19 · Price table (Working · P3 · Normal)
   worktree /data/wt/shop-web/SHOP-19 · branch `feature/price-table`
-- SHOP-40 · Wishlist (Backlog · P3 · Normal) · external ID GH-212
+- SHOP-40 · Wishlist (Backlog · P3 · Normal)
 - SHOP-41 · Wishlist API (Backlog · P3 · Normal) · depends on SHOP-19
 
 ## {product}'s rules

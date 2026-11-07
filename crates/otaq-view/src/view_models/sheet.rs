@@ -1,7 +1,7 @@
 //! The ticket sheet (SHT-01, SHT-02; d0087, d0095, d0097; canvas `s25-02`, `s25-03`, `s25-10`): a 1040 px sheet over
 //! the board (920 px beside the agent panel), or the whole content area at full page (⤢, "← Board"). Its header is
 //! the breadcrumb (project / key), the title and status, **Move…** and ⋯; under it the **details line** (Assignee,
-//! Model, Working, Priority, Branch, External ID) and the flow path; then the tabs **Overview · Session · Files ·
+//! Model, Working, Priority, Branch) and the flow path; then the tabs **Overview · Session · Files ·
 //! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a`. Files carries its count ("Files 3", Q421, [`FilesCounts`]).
 //!
 //! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
@@ -177,12 +177,6 @@ pub enum DetailChange {
     Priority { items: Vec<MenuItem> },
     /// The stage's agent before it starts (`sheet.set_choice`, AGM-08).
     Choice { stage: String, items: Vec<MenuItem> },
-    /// The External ID (Q416): a click copies `text`; the tooltip then says `copied`.
-    Copy {
-        text: String,
-        hint: &'static str,
-        copied: &'static str,
-    },
 }
 
 /// One item of the details line: "Assignee  CX Rust developer", "Branch  otaq/SHOP-22 from main".
@@ -392,31 +386,8 @@ fn branch(ticket: &Ticket) -> Detail {
     }
 }
 
-/// The External ID detail's words (Q416).
-pub const EXTERNAL_ID: &str = "External ID";
-pub const COPY_EXTERNAL_ID: &str = "Copy External ID";
-pub const COPIED: &str = "Copied";
-
-/// External ID "PAY-123" (Q416), only when the ticket has one: a click copies it.
-fn external_id(ticket: &Ticket) -> Option<Detail> {
-    let id = ticket
-        .external_id
-        .as_deref()
-        .map(str::trim)
-        .filter(|id| !id.is_empty())?;
-    Some(Detail {
-        mono: true,
-        change: Some(DetailChange::Copy {
-            text: id.to_owned(),
-            hint: COPY_EXTERNAL_ID,
-            copied: COPIED,
-        }),
-        ..Detail::new(EXTERNAL_ID, id)
-    })
-}
-
 /// The details line (SHT-01): Assignee, Model (not once it is Done), Working (while it works or waits for you),
-/// Priority, Branch and the External ID when set.
+/// Priority and Branch.
 pub fn details(f: &DetailFacts) -> Vec<Detail> {
     let ticket = f.ticket;
     let priority = Detail {
@@ -467,7 +438,6 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         .chain(working(f))
         .chain([priority, branch(ticket)])
         .chain(split)
-        .chain(external_id(ticket))
         .collect()
 }
 
@@ -1079,46 +1049,6 @@ mod tests {
         let key = |s: &str| s.parse::<otaq_core::domain::TicketKey>().unwrap();
         assert_eq!(neighbour(&tickets, &key("SHOP-2"), 1), Some(key("SHOP-1")));
         assert_eq!(neighbour(&tickets, &key("SHOP-1"), -1), Some(key("SHOP-2")));
-    }
-
-    /// Q416: "External ID  PAY-123" at the end of the details line when set, a click copying it; not shown when
-    /// empty.
-    #[test]
-    fn the_external_id_shows_when_set_and_a_click_copies_it() {
-        let tools = tools();
-        let line = |t: &Ticket| {
-            details(&DetailFacts {
-                ticket: t,
-                agents: None,
-                tools: &tools,
-                tickets: &[],
-                now: 0,
-                helpers: &[],
-                usage: None,
-            })
-        };
-        let mut t = shop_22();
-        t.external_id = Some("PAY-123".into());
-        let shown = line(&t);
-        let id = shown.last().unwrap();
-        assert_eq!((id.label, id.value.as_str()), ("External ID", "PAY-123"));
-        assert!(id.mono);
-        assert_eq!(
-            id.change,
-            Some(DetailChange::Copy {
-                text: "PAY-123".into(),
-                hint: "Copy External ID",
-                copied: "Copied",
-            })
-        );
-        for none in [None, Some(String::new()), Some("  ".into())] {
-            t.external_id = none;
-            assert!(
-                line(&t).iter().all(|d| d.label != EXTERNAL_ID),
-                "no External ID: {:?}",
-                t.external_id
-            );
-        }
     }
 
     fn changed(path: &str) -> otaq_core::board::files::ChangedEntry {

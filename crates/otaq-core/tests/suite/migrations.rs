@@ -1107,7 +1107,7 @@ async fn every_state_moves_to_its_place_and_stage() {
     let kept: Vec<&String> = columns
         .iter()
         // 0051 drops the round counters too (each check counts its own, T-0417); 0066 the epic columns, and gives
-        // every ticket a priority.
+        // every ticket a priority; 0091 the External ID.
         .filter(|c| {
             !matches!(
                 c.as_str(),
@@ -1123,6 +1123,7 @@ async fn every_state_moves_to_its_place_and_stage() {
                     | "epic_queue_mode_at"
                     | "joined_queue_by"
                     | "priority"
+                    | "external_id"
             )
         })
         .collect();
@@ -1878,16 +1879,17 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let rows: Vec<(String, i64, Option<String>, String)> =
-        sqlx::query_as("SELECT id, priority, external_id, plan FROM tickets ORDER BY id")
+    // The External ID went later (migration 0091), so only the priority and the Plan are read here.
+    let rows: Vec<(String, i64, String)> =
+        sqlx::query_as("SELECT id, priority, plan FROM tickets ORDER BY id")
             .fetch_all(store.pool())
             .await
             .unwrap();
     assert_eq!(
         rows,
         [
-            ("t18".into(), 2, Some("PAY-7".into()), String::new()),
-            ("t19".into(), 3, None, String::new()),
+            ("t18".into(), 2, String::new()),
+            ("t19".into(), 3, String::new()),
         ]
     );
     let deps: Vec<(String, String)> =
@@ -1915,7 +1917,7 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
             "{column}"
         );
     }
-    for column in ["plan", "plan_by", "plan_at", "external_id", "priority"] {
+    for column in ["plan", "plan_by", "plan_at", "priority"] {
         assert!(
             has_column(store.pool(), "tickets", column).await,
             "{column}"
@@ -2735,4 +2737,85 @@ async fn migration_0084_turns_a_stored_you_choice_into_required() {
     );
     assert_eq!(read(&payloads[1], "by"), Some("you".into()));
     assert_eq!(payloads[2], json!({"choice": "you"}));
+}
+
+/// Tickets have no External ID: migration 0091 drops the column and every ticket still loads. History forgets the
+/// External ID's changes: an edit that changed only it goes, an edit that changed more keeps its other fields, and a
+/// fix an agent made to a ticket it filed loses it from its fields the same way.
+#[tokio::test]
+async fn migration_0091_drops_the_external_id_and_its_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at, external_id)
+         VALUES ('t1', 'p', 1, 'Price table', 'backlog', 'me', 0, 0, 'PAY-123'),
+                ('t2', 'p', 2, 'Cart', 'backlog', 'me', 0, 0, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't1', 'updated', 'agent:SHOP-9',
+                   '{"changes":[{"field":"external_id","after":"PAY-123"}]}', 1),
+                  ('e2', 't1', 'updated', 'user:me',
+                   '{"changes":[{"field":"title","before":"Prices","after":"Price table"},{"field":"external_id","before":"PAY-1","after":"PAY-123"}],"author":"me"}', 2),
+                  ('e3', 't1', 'updated', 'user:me', '{"changes":[{"field":"priority","before":"3","after":"2"}]}', 3),
+                  ('e4', 't2', 'fixed_created_ticket', 'agent:SHOP-2',
+                   '{"ticket":"SHOP-1","change":"edited","fields":["external_id"]}', 4),
+                  ('e5', 't2', 'fixed_created_ticket', 'agent:SHOP-2',
+                   '{"ticket":"SHOP-1","change":"edited","fields":["title","external_id","priority"]}', 5),
+                  ('e6', 't2', 'comment_added', 'user:me', '{"field":"external_id"}', 6)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert!(!has_column(store.pool(), "tickets", "external_id").await);
+    let tickets: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, title FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        tickets,
+        [
+            ("t1".to_owned(), "Price table".to_owned()),
+            ("t2".to_owned(), "Cart".to_owned())
+        ]
+    );
+    let events: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, payload_json FROM events ORDER BY at")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    let events: Vec<(String, serde_json::Value)> = events
+        .into_iter()
+        .map(|(id, p)| (id, serde_json::from_str(&p).unwrap()))
+        .collect();
+    assert_eq!(
+        events,
+        [
+            (
+                "e2".to_owned(),
+                json!({"changes": [{"field": "title", "before": "Prices", "after": "Price table"}], "author": "me"})
+            ),
+            (
+                "e3".to_owned(),
+                json!({"changes": [{"field": "priority", "before": "3", "after": "2"}]})
+            ),
+            (
+                "e5".to_owned(),
+                json!({"ticket": "SHOP-1", "change": "edited", "fields": ["title", "priority"]})
+            ),
+            ("e6".to_owned(), json!({"field": "external_id"})),
+        ]
+    );
 }

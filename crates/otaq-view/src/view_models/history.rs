@@ -549,7 +549,6 @@ fn fields(names: impl Iterator<Item = String>) -> String {
         .map(|f| match f.as_str() {
             "body" => "description".to_owned(),
             "base_branch" => "base branch".to_owned(),
-            "external_id" => "External ID".to_owned(),
             _ => f,
         })
         .collect::<Vec<_>>()

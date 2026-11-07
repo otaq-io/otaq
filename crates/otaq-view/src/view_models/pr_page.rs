@@ -425,7 +425,6 @@ mod tests {
             ],
             pr_number: pr,
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
-            external_id: None,
             skill: "open-pr".to_owned(),
         }
     }

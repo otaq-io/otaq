@@ -12,7 +12,7 @@ plan: string, body_hint: string, body_placeholder: string, base: string, base_hi
 /**
  * The base dropdown's search field.
  */
-base_search: MenuSearch, external_id: string, external_id_hint: string, external_id_placeholder: string, 
+base_search: MenuSearch, 
 /**
  * "⌘↵ create" / "save", "Esc discard" / "close".
  */

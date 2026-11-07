@@ -9,7 +9,7 @@ export type EditorForm = { title: string, body: string,
 /**
  * 1–4 once picked; `null`: Normal for a new ticket.
  */
-priority: number | null, base_branch: string | null, external_id: string, 
+priority: number | null, base_branch: string | null, 
 /**
  * The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
  */

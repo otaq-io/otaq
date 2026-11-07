@@ -17,7 +17,7 @@ use crate::domain::plan::{Piece, piece_name, pieces};
 use crate::naming;
 
 /// The note for a change from `before` to `after`, or `None` when nothing the agent works from changed (pins,
-/// External ID, status). The base can't change once a ticket has started (d0051), so it never appears.
+/// status). The base can't change once a ticket has started (d0051), so it never appears.
 pub fn change_note(before: &Ticket, after: &Ticket) -> Option<String> {
     let parts = change_parts(before, after);
     if parts.is_empty() {
@@ -170,7 +170,6 @@ mod tests {
             status: Status::Working,
             base: Base::Branch("main".into()),
             base_locked: true,
-            external_id: None,
             depends_on: vec![],
             flags: Flags::default(),
             created_by: Actor::User("me".into()),
@@ -299,7 +298,6 @@ mod tests {
     fn nothing_the_agent_works_from_changed() {
         let before = ticket("a");
         let mut after = before.clone();
-        after.external_id = Some("PAY-123".into());
         after.flags.pinned_at = Some(5);
         after.body = "a\n".into();
         assert_eq!(change_note(&before, &after), None);

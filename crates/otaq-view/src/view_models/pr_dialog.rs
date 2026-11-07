@@ -421,7 +421,6 @@ mod tests {
             }],
             pr_number: branch_locked.then_some(481),
             pr_url: None,
-            external_id: None,
             skill: "open-pr".to_owned(),
         }
     }

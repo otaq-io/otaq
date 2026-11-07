@@ -19,10 +19,9 @@ pub enum BaseField {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct FieldVisibility {
     pub base: BaseField,
-    pub external_id: bool,
 }
 
-/// Which fields a ticket shows: every ticket has a base and an External ID (d0059, d0133).
+/// Which fields a ticket shows: every ticket has a base (d0059, d0133).
 pub fn visibility(locked: bool) -> FieldVisibility {
     FieldVisibility {
         base: if locked {
@@ -30,7 +29,6 @@ pub fn visibility(locked: bool) -> FieldVisibility {
         } else {
             BaseField::Editable
         },
-        external_id: true,
     }
 }
 
@@ -106,7 +104,6 @@ mod tests {
     fn fields_of_a_ticket() {
         let standalone = visibility(false);
         assert_eq!(standalone.base, BaseField::Editable);
-        assert!(standalone.external_id);
         let started = visibility(true);
         assert_eq!(
             started.base,
