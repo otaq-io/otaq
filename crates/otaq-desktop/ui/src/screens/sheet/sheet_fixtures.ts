@@ -155,7 +155,7 @@ export const VIEW: SheetView = {
   answer_agent: null,
   parent: null,
   menu: [],
-  attach_command: "otaq attach SHOP-19",
+  ask_noyan: "About SHOP-19: ",
   answer: null,
   notice: null,
   conflict: null,

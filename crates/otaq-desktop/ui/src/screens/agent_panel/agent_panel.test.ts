@@ -17,6 +17,8 @@ import { agentPanel } from ".";
 import { CloseAgentDialog, RecentList } from "./parts";
 import { renderToStaticMarkup } from "react-dom/server";
 import {
+  agentPanelDrafts,
+  askNoyanAbout,
   leaveExpand,
   moreMenu,
   NEW_ITEM,
@@ -404,6 +406,23 @@ describe("the agent panel's keys", () => {
     expect(shownAgents.get()).toEqual({ NOTE: null });
     expect(shellLayout.get().agentOpen).toBe(true);
     expect(agentPanelFocusRequests.get()).toMatchObject({ agent: null });
+    expect(ask).not.toHaveBeenCalled();
+  });
+
+  it("a ticket's Ask Noyan about this opens a new conversation addressed to it; only Send starts it", async () => {
+    selection.set({ ...NOTHING_SELECTED, project: "NOTE" });
+    shownAgents.set({ NOTE: "a1" });
+    shellLayout.set({ ...INITIAL_LAYOUT, agentOpen: false });
+    expect(askNoyanAbout("About NOTE-5: ")).toBe(true);
+    expect(shownAgents.get()).toEqual({ NOTE: null });
+    expect(shellLayout.get().agentOpen).toBe(true);
+    show(EMPTY);
+    await act(async () => {
+      await new Promise((r) => requestAnimationFrame(r));
+    });
+    expect(textarea().value).toBe("About NOTE-5: ");
+    expect(document.activeElement).toBe(textarea());
+    expect(agentPanelDrafts.get()).toEqual({});
     expect(ask).not.toHaveBeenCalled();
   });
 });

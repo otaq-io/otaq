@@ -1,9 +1,9 @@
-// The sheet's Activity (SHT-05, T-0466; canvas `s25-07`; History: UI-04, REC-03, CMT-14; d0045, d0109; Q432): the
-// ticket's story newest first as a timeline under the filters All · Comments · Stages · Description. Each row: the
-// time, who (you, the agent's avatar, Otaq), a plain sentence ("You created the ticket", "Product spec started · Spec writer")
-// and, where an agent ran, its duration and tokens as quiet text after it ("· 18 min · 64k tokens"). A session's start
-// copies its full tool session ID (so `claude --resume <id>` finds the conversation); one entry per validation round
-// (VAL-12) and the validation total. Description changes and comments open under the row: a before / after
+// The sheet's History (UI-04, REC-03, CMT-14; d0045, d0109): the ticket's story newest first in plain sentences under
+// the filters All · Questions · Checks · Sessions. Each row: who (you, the agent's avatar, Otaq), the sentence ("You
+// created the ticket") with, where an agent ran, its duration and tokens as quiet text after it ("· 18 min · 64k
+// tokens"), and "you · 09:58" under it. Each agent session is one quiet row, "Session · Dev · Strong", with the start
+// of its tool session ID, a button that copies all of it (so `claude --resume <id>` finds the conversation by hand), and
+// its times; one entry per validation round (VAL-12) and the validation total. Description changes and comments open under the row: a before / after
 // ("DESCRIPTION", "COMMENT"; a description edit opens by itself), or what a comment said with its report, which opens
 // in the report view (a deleted comment's too). The rows, their kinds and the filters are Rust's (`sections.history`,
 // `history.rs`); the page keeps the filter picked and the rows opened. Above them, the Messages between the ticket and its linked tickets (MSG-01;
@@ -166,6 +166,29 @@ export function HistoryBody({
         {shown.map((i) => {
           const row = view.rows[i];
           if (row === undefined) return null;
+          const key = `${row.when}-${row.title}-${String(i)}`;
+          // An agent session's quiet row: "Session · Dev · Strong", its id (copyable, to resume it by hand), its times.
+          if (row.quiet) {
+            return (
+              <div key={key} className="history-row history-session" role="listitem">
+                <span className="history-session-icon">
+                  <Icon name="square-terminal" size={13} />
+                </span>
+                <span className="history-session-title" title={row.detail ?? undefined}>
+                  {row.title}
+                </span>
+                {row.short_id !== null && <span className="history-session-id">{row.short_id}</span>}
+                {row.tool_session_id !== null && (
+                  <CopyId id={row.tool_session_id} hint={view.copy_hint} copied={view.copied} />
+                )}
+                <span className="history-session-spacer" />
+                <span className="history-session-range">
+                  {row.range}
+                  {row.cost !== null && ` ${row.cost}`}
+                </span>
+              </div>
+            );
+          }
           const sentence = (
             <>
               {row.title}
@@ -173,9 +196,8 @@ export function HistoryBody({
             </>
           );
           return (
-            <Fragment key={`${row.when}-${row.title}-${String(i)}`}>
+            <Fragment key={key}>
               <div className="history-row" role="listitem" data-opens={row.opens !== null || undefined}>
-                <span className="history-when">{row.when}</span>
                 <span className="history-icon history-mark">
                   <Mark row={{ mark: row.mark }} />
                 </span>
@@ -198,11 +220,9 @@ export function HistoryBody({
                   {row.detail !== null && (
                     <span className="history-detail">
                       <span className="history-detail-text">{row.detail}</span>
-                      {row.tool_session_id !== null && (
-                        <CopyId id={row.tool_session_id} hint={view.copy_hint} copied={view.copied} />
-                      )}
                     </span>
                   )}
+                  <span className="history-who">{row.who}</span>
                 </span>
               </div>
               {row.opens !== null && open.has(i) && (

@@ -64,11 +64,13 @@ import {
   newProjectAgent,
   pickStartOn,
   type AgentPanelFocusRequest,
+  agentPanelDrafts,
   agentPanelFocusRequests,
   sendFirstMessage,
   showAgent,
   shownAgents,
   startOn,
+  takeAgentPanelDraft,
   toggleExpandAgentPanel,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
@@ -639,6 +641,23 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
     if (target === "terminal") terminal.current?.focus();
     else box.current?.focus();
   }, [followFocus, asked, view.agent, target]);
+
+  // Ask Noyan about this (a ticket's ⋯ menu): the empty panel's box takes the words addressed to the ticket, the caret
+  // after them. Nothing is sent until the user does.
+  const drafts = useStore(agentPanelDrafts);
+  useEffect(() => {
+    if (!followFocus || view.agent !== null || drafts[project] === undefined) return;
+    const text = takeAgentPanelDraft(project);
+    if (text === null) return;
+    // eslint-disable-next-line react-hooks/set-state-in-effect -- the words arrive from outside React (a store), once
+    setDraft(text);
+    requestAnimationFrame(() => {
+      const el = box.current;
+      if (!el) return;
+      el.focus();
+      el.setSelectionRange(text.length, text.length);
+    });
+  }, [followFocus, view.agent, drafts, project]);
 
   const close = () => {
     setFloating(null);

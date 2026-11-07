@@ -3,7 +3,7 @@ import type { ActivityFilter } from "./ActivityFilter";
 import type { ActivityKind } from "./ActivityKind";
 
 /**
- * One of Activity's filters: "All", "Comments", "Stages", "Description".
+ * One of History's filters: "All", "Questions", "Checks", "Sessions".
  */
 export type ActivityFilterView = { filter: ActivityFilter, label: string, 
 /**
