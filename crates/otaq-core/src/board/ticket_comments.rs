@@ -39,8 +39,13 @@ use crate::store::{new_id, now_ms};
 /// [`check_body`].
 pub const COMMENT_LIMIT_CHARS: usize = 2_000;
 
-/// The refusal of an empty comment: no text (or only spaces) and no attachment (tuq 007).
-pub const EMPTY_COMMENT: &str = "Write the comment first";
+/// The refusal of an empty comment where a file could be attached: no text (or only spaces) and no attachment (tuq
+/// 007).
+pub const EMPTY_COMMENT: &str = "Write the comment or attach a file first";
+
+/// The refusal of an empty text where nothing can be attached (a helper's note, a drop reason, the New ticket form's
+/// line): [`check_body`].
+pub const EMPTY_TEXT: &str = "Write the comment first";
 
 /// The `stage_id` of the user's comment posted with a new ticket (RPT-03): no stage id can take it (a stage's id is
 /// its name's lowercase letters and digits). Shown as "at creation".
@@ -80,14 +85,17 @@ pub struct FirstComment {
 /// How many characters of a comment History's "commented" line keeps.
 const EXCERPT_CHARS: usize = 120;
 
-/// A text that has no attachments (a helper's note, the New ticket form's line): [`check_comment`] with none, so it
-/// is never empty.
+/// A text that takes no attachments (a helper's note, the New ticket form's line): never empty ([`EMPTY_TEXT`]), and
+/// CMT-02's limit as [`check_comment`].
 pub fn check_body(body: &str) -> Result<String, BoardError> {
+    if body.trim().is_empty() {
+        return Err(BoardError::refused(Refusal::EmptyField, EMPTY_TEXT));
+    }
     check_comment(body, 0)
 }
 
 /// The comment's text as stored (trimmed, maybe empty), or the refusal: no text and none of its `attachments` (tuq
-/// 007), or over the limit with CMT-02's text: "Comment is 48,210 characters; the limit is 2,000. Put the full text
+/// 007, [`EMPTY_COMMENT`]), or over the limit with CMT-02's text: "Comment is 48,210 characters; the limit is 2,000. Put the full text
 /// in a report with `--report-file` and keep the comment to what the next agent needs."
 pub fn check_comment(body: &str, attachments: usize) -> Result<String, BoardError> {
     let body = body.trim();
@@ -1090,7 +1098,11 @@ mod tests {
         for body in ["", "   ", "\n\t \n"] {
             let refused = check_body(body).unwrap_err();
             assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-            assert_eq!(refused.to_string(), EMPTY_COMMENT);
+            assert_eq!(refused.to_string(), "Write the comment first");
+            let refused = check_comment(body, 0).unwrap_err();
+            assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
+            assert_eq!(refused.to_string(), "Write the comment or attach a file first");
+            assert_eq!(check_comment(body, 1).unwrap(), "");
         }
         // Stored trimmed: the newline stdin ends with isn't part of it.
         assert_eq!(check_body("  Looks good.\n").unwrap(), "Looks good.");

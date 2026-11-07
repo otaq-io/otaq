@@ -113,7 +113,7 @@ impl Board {
     /// The hand-over of a stage end (`stage next`, `stage done`, a check's verdict): [`Self::hand_over`] with the
     /// `--manual-check` items (d0125), checked before anything moves. An agent's stage end always replaces its stage's
     /// unticked items, so ending a round with none clears them; the user's own `stage next` touches them only when it
-    /// lists some. Items need a comment, its text or an attachment: "Write the comment first".
+    /// lists some. Items need a comment, its text or an attachment: "Write the comment or attach a file first".
     pub async fn stage_end_hand_over(
         &self,
         ticket: &Ticket,

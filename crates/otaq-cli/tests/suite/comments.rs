@@ -142,7 +142,7 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
     assert!(!refused.status.success());
     assert_eq!(
         String::from_utf8_lossy(&refused.stderr).trim(),
-        "error: Write the comment first"
+        "error: Write the comment or attach a file first"
     );
 
     // Edit and delete.
@@ -282,7 +282,7 @@ async fn a_comment_of_only_a_file_posts() {
     assert!(!refused.status.success());
     assert_eq!(
         String::from_utf8_lossy(&refused.stderr).trim(),
-        "error: Write the comment first"
+        "error: Write the comment or attach a file first"
     );
     w.stop().await;
 }
@@ -382,7 +382,7 @@ async fn comment_edit_removes_and_adds_attachments() {
     assert!(!refused.status.success());
     assert_eq!(
         String::from_utf8_lossy(&refused.stderr).trim(),
-        "error: Write the comment first"
+        "error: Write the comment or attach a file first"
     );
     // One it no longer has.
     let gone = cb(

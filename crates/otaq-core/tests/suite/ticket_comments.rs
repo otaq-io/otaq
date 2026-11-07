@@ -112,7 +112,7 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
             .await
             .unwrap_err();
         assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-        assert_eq!(refused.to_string(), "Write the comment first");
+        assert_eq!(refused.to_string(), "Write the comment or attach a file first");
     }
 
     // Post 2, delete 2: the next is 3, and the list is 1 and 3, oldest first.
@@ -1018,7 +1018,7 @@ async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-    assert_eq!(refused.to_string(), "Write the comment first");
+    assert_eq!(refused.to_string(), "Write the comment or attach a file first");
     assert_eq!(
         w.board
             .ticket_comments("SHOP-1")
@@ -1072,7 +1072,7 @@ async fn a_comment_of_only_attachments_posts_and_an_empty_one_is_refused() {
         .edit_ticket_comment("SHOP-1", worded.n, "  ", &me())
         .await
         .unwrap_err();
-    assert_eq!(refused.to_string(), "Write the comment first");
+    assert_eq!(refused.to_string(), "Write the comment or attach a file first");
     w.stop().await;
 }
 
@@ -1212,7 +1212,7 @@ async fn an_edit_removes_and_adds_attachments_and_history_keeps_the_removed_one(
         .await
         .unwrap_err();
     assert_eq!(empty.refusal(), Some(Refusal::EmptyField));
-    assert_eq!(empty.to_string(), "Write the comment first");
+    assert_eq!(empty.to_string(), "Write the comment or attach a file first");
     // Its text may go while an attachment stays.
     let no_text = w
         .board
