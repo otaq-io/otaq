@@ -35,12 +35,11 @@ export function DependenciesGallery() {
           <DependenciesBody ticket={view.section.key} view={view.section} />
         </figure>
         <figure className="gallery-stack-tight">
-          <figcaption className="gallery-caption">Add: the direction, then a search</figcaption>
+          <figcaption className="gallery-caption">Add: a ticket it waits for</figcaption>
           <div className="popover">
             <PickerBody
-              view={view.section}
-              direction="blocked_by"
-              onDirection={ignore}
+              search={view.section.search}
+              rule={view.section.rule}
               query="SHOP-3"
               onQuery={ignore}
               rows={view.search}

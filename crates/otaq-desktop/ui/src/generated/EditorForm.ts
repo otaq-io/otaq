@@ -17,4 +17,8 @@ choices: Array<EditorChoice>,
 /**
  * Create only: the report the form took (RPT-03), posted with `report_line` as the ticket's first comment.
  */
-report?: EditorReport, report_line?: string, };
+report?: EditorReport, report_line?: string, 
+/**
+ * Create only: the tickets the new one waits for ("SHOP-12"), linked once it is created.
+ */
+waits_for: Array<string>, };

@@ -6,15 +6,16 @@
 //! blocked" · "by SHOP-18 (Review) and SHOP-29 (Dev)"); Always keeps every link drawn ([`links`]). Starting a blocked
 //! ticket opens [`Dialog`], whose only button keeps it waiting (the core refuses the start,
 //! `otaq_core::board::moves::blocks_start`). In the sheet's Overview, under the description, [`Section`] lists
-//! Blocked by and Blocks with where each ticket is now; Add picks the direction, then searches ([`search`]); a loop is
-//! refused with [`loop_refused`]. Who may edit them is the core's, unchanged (DEP-01…DEP-04).
+//! Waits for and Waiting for it with where each ticket is now. A link is added only from the waiting ticket: Add
+//! searches for what it waits for ([`search`]), and the New ticket form takes the same search; Waiting for it is
+//! read-only. A loop is refused with [`loop_refused`]. Who may edit them is the core's, unchanged (DEP-01…DEP-04).
 
 use std::collections::HashSet;
 
 use otaq_core::board::readiness::{ReadyState, WaitingParent, readiness};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, TicketKey};
-use serde::{Deserialize, Serialize};
+use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
@@ -27,10 +28,12 @@ use crate::view_models::status::{self, PillView};
 
 /// The section's heading (*s24-11*: DEPENDENCIES).
 pub const TITLE: &str = "Dependencies";
-/// The section's Add, and the picker's directions.
+/// The section's Add: it adds a ticket this one waits for (a link is only ever added from the waiting side).
 pub const ADD: &str = "Add";
-pub const BLOCKED_BY: &str = "Blocked by";
-pub const BLOCKS: &str = "Blocks";
+/// What the ticket waits for: the only list a link is added to or removed from.
+pub const WAITS_FOR: &str = "Waits for";
+/// The tickets that wait for it: read-only, each link belongs to the ticket that waits.
+pub const WAITING_FOR_IT: &str = "Waiting for it";
 /// The picker's field.
 pub const SEARCH: &str = "Search by key or title";
 /// A row's ✕.
@@ -267,33 +270,6 @@ pub fn dialog(columns: &Columns, ticket: &Ticket, all: &[Ticket]) -> Dialog {
     }
 }
 
-/// Which way a link goes from the open ticket: it waits for the other one (Blocked by) or the other waits for it
-/// (Blocks). `DependencyDirection` on the page.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "DependencyDirection")]
-pub enum Direction {
-    BlockedBy,
-    Blocks,
-}
-
-impl Direction {
-    /// The link as the core stores it: (child, parent).
-    pub fn link<'a>(self, open: &'a str, other: &'a str) -> (&'a str, &'a str) {
-        match self {
-            Self::BlockedBy => (open, other),
-            Self::Blocks => (other, open),
-        }
-    }
-
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::BlockedBy => BLOCKED_BY,
-            Self::Blocks => BLOCKS,
-        }
-    }
-}
-
 /// One linked ticket in the section: its key, title, where it is now ("Review · your check") and its ✕.
 /// `DependencyRow` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -304,16 +280,16 @@ pub struct Row {
     pub place: String,
     /// The dot before it, in its state's colour.
     pub dot: Palette,
-    pub direction: Direction,
 }
 
-/// Blocked by or Blocks. `DependencyGroup` on the page.
+/// Waits for or Waiting for it. `DependencyGroup` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DependencyGroup")]
 pub struct Group {
-    pub direction: Direction,
-    /// "Blocked by" / "Blocks" (the page writes it in capitals).
+    /// "Waits for" / "Waiting for it" (the page writes it in capitals).
     pub label: String,
+    /// Whether its rows have a ✕: only what the open ticket waits for (Waiting for it is read-only).
+    pub removable: bool,
     /// "starts when both merge" while it waits for its parents.
     pub note: Option<String>,
     pub rows: Vec<Row>,
@@ -328,22 +304,12 @@ pub struct Section {
     pub key: String,
     pub title: String,
     pub add: String,
-    pub blocked_by: Group,
-    pub blocks: Group,
-    /// The picker's directions, Blocked by first.
-    pub directions: Vec<DirectionChoice>,
+    pub waits_for: Group,
+    pub waiting_for_it: Group,
     pub search: String,
     pub remove: String,
     /// Under the picker's rows (DPV-04): "A ticket can’t wait for one that waits for it: Otaq refuses loops."
     pub rule: String,
-}
-
-/// One of the picker's two directions. `DependencyDirectionChoice` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "DependencyDirectionChoice")]
-pub struct DirectionChoice {
-    pub direction: Direction,
-    pub label: String,
 }
 
 /// "Review · your check", "Dev · working", "Backlog": where the ticket is now, then the first words of its card's
@@ -388,14 +354,13 @@ fn starts_when(waiting: usize) -> Option<String> {
 
 /// The section of `ticket`. `all` are its project's.
 pub fn section(columns: &Columns, ticket: &Ticket, all: &[Ticket], now_ms: i64) -> Option<Section> {
-    let row = |t: &Ticket, direction| {
+    let row = |t: &Ticket| {
         let (place, dot) = place_line(columns, t, now_ms);
         Row {
             key: t.key.to_string(),
             title: t.title.clone(),
             place,
             dot,
-            direction,
         }
     };
     let mut parents: Vec<&Ticket> = ticket
@@ -413,33 +378,20 @@ pub fn section(columns: &Columns, ticket: &Ticket, all: &[Ticket], now_ms: i64) 
         key: ticket.key.to_string(),
         title: TITLE.to_owned(),
         add: ADD.to_owned(),
-        blocked_by: Group {
-            direction: Direction::BlockedBy,
-            label: BLOCKED_BY.to_owned(),
+        waits_for: Group {
+            label: WAITS_FOR.to_owned(),
+            removable: true,
             note: starts_when(waiting_for(ticket, all).len()),
-            rows: parents
-                .into_iter()
-                .map(|t| row(t, Direction::BlockedBy))
-                .collect(),
+            rows: parents.into_iter().map(row).collect(),
             empty: format!("{} waits for nothing.", ticket.key),
         },
-        blocks: Group {
-            direction: Direction::Blocks,
-            label: BLOCKS.to_owned(),
+        waiting_for_it: Group {
+            label: WAITING_FOR_IT.to_owned(),
+            removable: false,
             note: None,
-            rows: children
-                .into_iter()
-                .map(|t| row(t, Direction::Blocks))
-                .collect(),
+            rows: children.into_iter().map(row).collect(),
             empty: format!("Nothing waits for {}.", ticket.key),
         },
-        directions: [Direction::BlockedBy, Direction::Blocks]
-            .into_iter()
-            .map(|direction| DirectionChoice {
-                direction,
-                label: direction.label().to_owned(),
-            })
-            .collect(),
         search: SEARCH.to_owned(),
         remove: REMOVE.to_owned(),
         rule: loop_refused(),
@@ -455,24 +407,26 @@ pub struct SearchRow {
     pub place: String,
 }
 
-/// The picker's rows for `query` (key, number or title, case-insensitive) in `direction`: this project's tickets
-/// (d0046), not the open ticket, not one already
-/// linked, not a done one; at most `limit`. A loop isn't left out: the core refuses it with DPV-04's words.
+/// What the waiting ticket's search leaves out: itself and what it already waits for.
+pub fn taken(ticket: &Ticket) -> Vec<TicketKey> {
+    std::iter::once(ticket.key.clone())
+        .chain(ticket.depends_on.iter().cloned())
+        .collect()
+}
+
+/// The picker's rows for `query` (key, number or title, case-insensitive): the tickets of the waiting ticket's
+/// project (d0046) it could wait for, leaving out the `taken` ones ([`taken`], or what a new ticket's form already
+/// picked) and the done ones; at most `limit`. A loop isn't left out: the core refuses it with DPV-04's words.
 pub fn search(
     columns: &Columns,
-    ticket: &Ticket,
     all: &[Ticket],
-    direction: Direction,
+    taken: &[TicketKey],
     query: &str,
     limit: usize,
 ) -> Vec<SearchRow> {
     let q = query.trim().to_lowercase();
-    let linked = |t: &Ticket| match direction {
-        Direction::BlockedBy => ticket.depends_on.contains(&t.key),
-        Direction::Blocks => t.depends_on.contains(&ticket.key),
-    };
     all.iter()
-        .filter(|t| t.key != ticket.key && !linked(t) && !t.place.is_done())
+        .filter(|t| !taken.contains(&t.key) && !t.place.is_done())
         .filter(|t| {
             q.is_empty()
                 || t.key.to_string().to_lowercase().contains(&q)
@@ -486,6 +440,29 @@ pub fn search(
             place: place_name(columns, t),
         })
         .collect()
+}
+
+/// The New ticket form's "Waits for": the tickets the new one will wait for, picked with the section's search
+/// before it exists, and linked once it is created. `DependencyFormField` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "DependencyFormField")]
+pub struct FormField {
+    pub label: String,
+    /// "optional · it starts once they merge".
+    pub hint: String,
+    pub add: String,
+    pub search: String,
+    pub remove: String,
+}
+
+pub fn form_field() -> FormField {
+    FormField {
+        label: WAITS_FOR.to_owned(),
+        hint: "optional \u{b7} it starts once they merge".to_owned(),
+        add: ADD.to_owned(),
+        search: SEARCH.to_owned(),
+        remove: REMOVE.to_owned(),
+    }
 }
 
 /// How the core's refusal of a link reads under the picker: DPV-04's words for a loop, else the core's own.
@@ -547,7 +524,7 @@ pub fn gallery() -> Gallery {
         blocked: card("SHOP-20"),
         blocker: card("SHOP-29"),
         section: section(&columns, t20, &all, NOW).expect("a ticket"),
-        search: search(&columns, t20, &all, Direction::BlockedBy, "SHOP-3", 3),
+        search: search(&columns, &all, &taken(t20), "SHOP-3", 3),
         dialog: dialog(&columns, t20, &all),
     }
 }
@@ -681,7 +658,7 @@ mod tests {
     }
 
     #[test]
-    fn the_sheet_lists_both_directions_with_places() {
+    fn the_sheet_lists_what_it_waits_for_and_what_waits_for_it() {
         let flow = shop_web();
         let columns = Columns::of(&flow);
         let all = example();
@@ -693,10 +670,11 @@ mod tests {
         )
         .unwrap();
         assert_eq!(s.title, "Dependencies");
-        assert_eq!(s.blocked_by.label, "Blocked by");
-        assert_eq!(s.blocked_by.note.as_deref(), Some("starts when both merge"));
+        assert_eq!(s.waits_for.label, "Waits for");
+        assert!(s.waits_for.removable);
+        assert_eq!(s.waits_for.note.as_deref(), Some("starts when both merge"));
         let rows: Vec<(&str, &str, &str)> = s
-            .blocked_by
+            .waits_for
             .rows
             .iter()
             .map(|r| (r.key.as_str(), r.title.as_str(), r.place.as_str()))
@@ -709,31 +687,18 @@ mod tests {
             ]
         );
         assert_eq!(
-            (s.blocked_by.rows[0].dot, s.blocked_by.rows[1].dot),
+            (s.waits_for.rows[0].dot, s.waits_for.rows[1].dot),
             (Palette::Review, Palette::Working)
         );
         assert_eq!(s.rule, loop_refused());
-        assert!(s.blocks.rows.is_empty());
-        assert_eq!(s.blocks.empty, "Nothing waits for SHOP-20.");
+        assert!(s.waiting_for_it.rows.is_empty());
+        assert_eq!(s.waiting_for_it.empty, "Nothing waits for SHOP-20.");
+        // What waits for a ticket is listed on it, read-only: the link is the waiting ticket's.
         let s18 = section(&columns, get(&all, "SHOP-18"), &all, 0).unwrap();
-        assert_eq!(s18.blocks.rows[0].key, "SHOP-20");
-        assert_eq!(s18.blocked_by.note, None);
-        assert_eq!(
-            s.directions
-                .iter()
-                .map(|d| d.label.as_str())
-                .collect::<Vec<_>>(),
-            ["Blocked by", "Blocks"]
-        );
-        // Removing SHOP-29 from SHOP-20 is the link (child SHOP-20, parent SHOP-29); from SHOP-29's Blocks, the same.
-        assert_eq!(
-            Direction::BlockedBy.link("SHOP-20", "SHOP-29"),
-            ("SHOP-20", "SHOP-29")
-        );
-        assert_eq!(
-            Direction::Blocks.link("SHOP-29", "SHOP-20"),
-            ("SHOP-20", "SHOP-29")
-        );
+        assert_eq!(s18.waiting_for_it.label, "Waiting for it");
+        assert_eq!(s18.waiting_for_it.rows[0].key, "SHOP-20");
+        assert!(!s18.waiting_for_it.removable);
+        assert_eq!(s18.waits_for.note, None);
     }
 
     #[test]
@@ -741,26 +706,25 @@ mod tests {
         let flow = shop_web();
         let columns = Columns::of(&flow);
         let all = example();
-        let t20 = get(&all, "SHOP-20");
+        let t20 = taken(get(&all, "SHOP-20"));
         let keys = |rows: Vec<SearchRow>| rows.into_iter().map(|r| r.key).collect::<Vec<_>>();
         assert_eq!(
-            keys(search(
-                &columns,
-                t20,
-                &all,
-                Direction::BlockedBy,
-                "SHOP-3",
-                10
-            )),
+            keys(search(&columns, &all, &t20, "SHOP-3", 10)),
             ["SHOP-31", "SHOP-35", "SHOP-33", "SHOP-30", "SHOP-32"]
         );
-        let found = search(&columns, t20, &all, Direction::BlockedBy, "slow", 10);
+        // A new ticket leaves out only what its form already picked.
+        let picked: Vec<TicketKey> = vec!["SHOP-31".parse().unwrap()];
+        assert_eq!(
+            keys(search(&columns, &all, &picked, "SHOP-3", 10)),
+            ["SHOP-35", "SHOP-33", "SHOP-30", "SHOP-32"]
+        );
+        let found = search(&columns, &all, &t20, "slow", 10);
         assert_eq!(
             (found[0].key.as_str(), found[0].place.as_str()),
             ("SHOP-35", "Ready")
         );
         assert!(
-            keys(search(&columns, t20, &all, Direction::BlockedBy, "", 99))
+            keys(search(&columns, &all, &t20, "", 99))
                 .iter()
                 .all(|k| { !["SHOP-20", "SHOP-18", "SHOP-29", "SHOP-1"].contains(&k.as_str()) })
         );

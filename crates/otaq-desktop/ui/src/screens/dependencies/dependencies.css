@@ -1,7 +1,8 @@
 /*
- * The sheet's DEPENDENCIES (DPV-04, `s24-11`): the label row with Add, BLOCKED BY and BLOCKS in mono capitals, each
- * row on the column colour with its key, title and where it is now (a dot in its state's colour), its ✕ at the end;
- * the Add picker (340 px): the direction, the search, the rows and the loop rule.
+ * The sheet's DEPENDENCIES (DPV-04, `s24-11`): the label row with Add, WAITS FOR and WAITING FOR IT in mono capitals,
+ * each row on the column colour with its key, title and where it is now (a dot in its state's colour), a Waits for
+ * row's ✕ at the end; the Add picker (340 px): the search, the rows and the loop rule. The New ticket form's Waits for
+ * draws its picked tickets with the same rows.
  */
 .dependencies {
   display: flex;
@@ -195,4 +196,8 @@
 
 .dependency-rule[data-refused] {
   color: var(--st-error);
+}
+
+.dependency-open[data-still] {
+  cursor: default;
 }
