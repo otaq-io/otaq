@@ -9,7 +9,7 @@ Otaq app (Tauri + React) ◄── local socket ──► otaq daemon (Rust core
                                                     │                              claude, codex, copilot or opencode
                                                     │                              (cwd = the ticket's worktree)
                                                     ├── SQLite (~/.otaq/otaq.db)
-                                                    └── git worktrees, ports, Run and Shell processes
+                                                    └── git worktrees, ports, Run and Terminal processes
 ```
 
 | Crate | What it is |

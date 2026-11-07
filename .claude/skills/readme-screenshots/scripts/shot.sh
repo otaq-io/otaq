@@ -17,6 +17,10 @@ for t in mouse window; do
 done
 
 out=$1; shift
+REPO=$(git -C $HERE rev-parse --show-toplevel)
+# Only the demo app's window: an installed Otaq that is open too is also named otaq-app, and is never captured.
+export OTAQ_APP_PID=$(pgrep -f "^$REPO/target/debug/otaq-app" | head -1)
+[[ -n $OTAQ_APP_PID ]] || { echo "the demo app isn't running (start.sh)" >&2; exit 1; }
 read id X Y W H < <($DEMO/bin/window) || { echo "no Otaq window found" >&2; exit 1; }
 # The first click on an inactive window only activates it: spend that click on the top edge of the header, which is
 # a drag area and does nothing else.

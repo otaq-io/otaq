@@ -1,7 +1,9 @@
-// Your flow: the presets the visitor flips between, from the canvas's `PRESETS` (Landing3.dc.html). Flow.astro draws
-// every preset's track ("Your own" first, shown); the preset picker script shows one at a time.
+// Your flow: the presets the visitor flips between, from the canvas's `PRESETS` (Landing3.dc.html), drawn as the app
+// draws a flow: Backlog and Done at the fixed ends, Done carrying how work leaves the flow. Flow.astro draws every
+// preset's track ("Your own" first, shown); the preset picker script shows one at a time.
 
-/** What a stage is, by its colour: an agent works, a check, you check, a delivery, or a column that waits. */
+/** What a column is, by its colour: an agent works, an agent checks, you check, Done (how work leaves the flow), or
+ * Backlog, where tickets wait to start. */
 export type StageKind = "work" | "check" | "you" | "deliver" | "wait";
 
 export interface Stage {
@@ -11,7 +13,7 @@ export interface Stage {
   who?: string;
   /** The stage a failed check returns to. */
   fail?: string;
-  /** A short line under the name, for stages without an agent. */
+  /** A short line under the name: what Backlog does, or how Done delivers. */
   note?: string;
   /** A dashed "Add a stage" placeholder. */
   add?: boolean;
@@ -32,10 +34,12 @@ export const KIND_COLOR: Readonly<Record<StageKind, string>> = {
   wait: "var(--st-queued)",
 };
 
-const READY: Stage = { name: "Ready for Dev", kind: "wait", note: "starts in priority order" };
+// Backlog and Done are every flow's fixed ends; Done's line is the flow's delivery, in the app's words.
+const BACKLOG: Stage = { name: "Backlog", kind: "wait", note: "Start puts a ticket into the first stage" };
 const DEV: Stage = { name: "Dev", kind: "work", who: "Developer" };
-const VALIDATE: Stage = { name: "Validate", kind: "check", who: "Validator", fail: "Dev" };
-const DONE: Stage = { name: "Done", kind: "wait", note: "merged" };
+const VALIDATE: Stage = { name: "Validate", kind: "check", who: "Checker", fail: "Dev" };
+const done = (note: string): Stage => ({ name: "Done", kind: "deliver", note });
+const ON_APPROVE = "merge or PR · on Approve";
 
 export const PRESETS: readonly Preset[] = [
   {
@@ -43,10 +47,10 @@ export const PRESETS: readonly Preset[] = [
     name: "Your own",
     desc: "Start blank and add stages",
     stages: [
-      READY,
-      { name: "Add a stage", kind: "wait", add: true, note: "an agent works · a check · a delivery" },
+      BACKLOG,
+      { name: "Add a stage", kind: "wait", add: true, note: "an agent works · an agent checks · you check" },
       { name: "Add a stage", kind: "wait", add: true, note: "as many as you need, in your order" },
-      { name: "Done", kind: "wait", note: "when your last stage says so" },
+      done(ON_APPROVE),
     ],
   },
   {
@@ -54,43 +58,31 @@ export const PRESETS: readonly Preset[] = [
     name: "Otaq default",
     desc: "Agents build and check; you review",
     stages: [
-      READY,
+      BACKLOG,
       DEV,
       VALIDATE,
       { name: "Review", kind: "you", who: "You", fail: "Dev" },
-      { name: "Ship", kind: "deliver", note: "local merge, on your click" },
-      DONE,
+      done(ON_APPROVE),
     ],
   },
   {
     id: "solo",
     name: "Solo autopilot",
     desc: "No review; merges when checks pass",
-    stages: [
-      READY,
-      DEV,
-      VALIDATE,
-      { name: "Ship", kind: "deliver", note: "merges on its own once Validate passes" },
-      DONE,
-    ],
+    stages: [BACKLOG, DEV, VALIDATE, done("merges by itself once Validate passes")],
   },
   {
     id: "team",
     name: "Team PR",
     desc: "Your team reviews the PR",
-    stages: [
-      READY,
-      DEV,
-      VALIDATE,
-      { name: "Ship", kind: "deliver", note: "opens a PR with gh · your team reviews it" },
-      { name: "Done", kind: "wait", note: "when you mark the PR merged" },
-    ],
+    stages: [BACKLOG, DEV, VALIDATE, done("opens a PR by itself · you mark it merged")],
   },
   {
     id: "spec",
     name: "Spec first",
     desc: "Plan on the board, then build",
     stages: [
+      BACKLOG,
       { name: "Product spec", kind: "work", who: "Spec writer" },
       { name: "Tech spec", kind: "work", who: "Architect" },
       { name: "Milestone plan", kind: "work", who: "Milestone planner" },
@@ -98,8 +90,7 @@ export const PRESETS: readonly Preset[] = [
       DEV,
       VALIDATE,
       { name: "Code review", kind: "you", who: "You", fail: "Dev" },
-      { name: "Ship", kind: "deliver", note: "local merge, on your click" },
-      DONE,
+      done(ON_APPROVE),
     ],
   },
 ];

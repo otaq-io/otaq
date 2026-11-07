@@ -50,10 +50,16 @@ describe("How it works player", () => {
     expect(first.lanesOn).toEqual([true, false, false, false, false]);
     expect(first.card).toMatchObject({
       pillClass: "p-q",
-      label: "Ready for Dev",
+      label: "Not started",
       meta: "filed by Noyan · P2",
     });
-    expect(first.ghost).toMatchObject({ left: laneLeft(0), label: "waits for SHOP-29", spin: false });
+    // SHOP-20 was started and waits at the top of Dev: there is no Ready for Dev lane.
+    expect(LANES.map((l) => l.title)).toEqual(["Backlog", "Dev", "Security", "Review", "Done"]);
+    expect(first.ghost).toMatchObject({
+      left: laneLeft(1),
+      label: "Waits for SHOP-29 to merge",
+      spin: false,
+    });
     expect(first.bubble).toBeNull();
     expect(first.bar).toBe("a");
 
@@ -156,16 +162,21 @@ describe("presets", () => {
     expect(new Set(PRESETS.map((p) => p.id)).size).toBe(PRESETS.length);
   });
 
-  it("gives each preset its drawn stages", () => {
-    expect(PRESETS.map((p) => p.stages.length)).toEqual([4, 6, 5, 5, 9]);
+  it("gives each preset its stages between Backlog and Done, Done carrying the delivery", () => {
+    expect(PRESETS.map((p) => p.stages.length)).toEqual([4, 5, 4, 4, 9]);
     expect(PRESETS.map(isLong)).toEqual([false, false, false, false, true]);
+    for (const p of PRESETS) {
+      expect(p.stages[0]?.name).toBe("Backlog");
+      expect(p.stages.at(-1)?.name).toBe("Done");
+      expect(p.stages.map((s) => s.name)).not.toContain("Ship");
+    }
     expect(PRESETS[0]?.stages.filter((s) => s.add)).toHaveLength(2);
   });
 
   it("draws each stage in its kind's colour", () => {
     const kinds = (id: string): string[] => PRESETS.find((p) => p.id === id)?.stages.map((s) => s.kind) ?? [];
-    expect(kinds("default")).toEqual(["wait", "work", "check", "you", "deliver", "wait"]);
-    expect(kinds("spec")).toEqual(["work", "work", "work", "you", "work", "check", "you", "deliver", "wait"]);
+    expect(kinds("default")).toEqual(["wait", "work", "check", "you", "deliver"]);
+    expect(kinds("spec")).toEqual(["wait", "work", "work", "work", "you", "work", "check", "you", "deliver"]);
     expect(KIND_COLOR.check).toBe("var(--st-investigate)");
   });
 

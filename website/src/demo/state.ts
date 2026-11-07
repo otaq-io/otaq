@@ -1,12 +1,11 @@
 // The demo's state and every change to it, apart from drawing (WEB-07; the app's rule in SDD §5.5): a small store
-// ported from the canvas's Demo3.dc.html script. React subscribes and draws; the timed steps go through a scheduler,
-// so tests can drive them with fake timers and `dispose()` clears every one. Nothing is stored and nothing leaves the
-// page.
+// ported from the canvas's Demo3.dc.html script and brought in line with the app's names. React subscribes and draws;
+// the timed steps go through a scheduler, so tests can drive them with fake timers and `dispose()` clears every one.
+// Nothing is stored and nothing leaves the page.
 
 import {
   type Answer,
   type Column,
-  FLOW_REPLY,
   FLOWS,
   type FlowId,
   initialTickets,
@@ -20,7 +19,9 @@ import {
   project,
   PROJECTS,
   type ProjectKey,
+  type Stage,
   type StageId,
+  T,
   type Ticket,
   type Tip,
   TIPS,
@@ -28,10 +29,12 @@ import {
 } from "./data";
 import { flowOf, needsOf, stageName } from "./view";
 
-export type PaneTab = "overview" | "session" | "files" | "activity";
-export type SessionPart = "agent" | "check" | "run" | "shell";
-export type Menu = "proj" | "pause" | "activity" | "approve";
+export type PaneTab = "overview" | "session" | "changes" | "history";
+export type SessionPart = "agent" | "check" | "run" | "terminal";
+export type Menu = "proj" | "pause" | "running" | "approve" | "startFrom";
 export type PauseScope = "this" | "all";
+/** What a key does in the box for new work: ↵ creates, ⌘↵ creates and starts, ⇧↵ asks Noyan to shape it. */
+export type BoxAction = "create" | "start" | "noyan";
 
 export interface Comment {
   tool: ToolId | "U";
@@ -39,14 +42,8 @@ export interface Comment {
   at: string;
   stage: string;
   t: string;
-}
-
-/** A column's stage menu, placed in the demo's own 1280 px coordinates. */
-export interface StageMenu {
-  id: Column;
-  name: string;
-  top: number;
-  left: number;
+  /** "· told Strong now": the comment also went to the working agent. */
+  told?: string;
 }
 
 export interface DemoState {
@@ -58,24 +55,22 @@ export interface DemoState {
   ptab: PaneTab;
   part: SessionPart;
   cdraft: string;
-  tellNow: boolean;
   comments: Readonly<Record<string, readonly Comment[]>>;
   doneOpen: boolean;
   noyanOpen: boolean;
   noyanMsgs: readonly NoyanMsg[];
   nyDraft: string;
-  askDraft: string;
+  /** The box for new work at the bottom of the board. */
+  boxDraft: string;
   tdraft: string;
   search: string;
   toast: string | null;
   paused: PauseScope | null;
   menu: Menu | null;
-  stageMenu: StageMenu | null;
+  /** Edit flow: the board is the flow's editor in place. */
   flowOpen: boolean;
-  flowDraft: string;
-  flowSel: StageId | null;
+  flowSel: StageId | "done" | null;
   flowDraftId: FlowId | null;
-  flowMsgs: readonly NoyanMsg[];
   /** Ticked manual checks, by `<key>:<index>`. */
   manualDone: Readonly<Record<string, boolean>>;
   dragKey: string | null;
@@ -93,24 +88,20 @@ export function initialState(): DemoState {
     ptab: "overview",
     part: "agent",
     cdraft: "",
-    tellNow: false,
     comments: {},
     doneOpen: false,
     noyanOpen: false,
     noyanMsgs: NOYAN0,
     nyDraft: "",
-    askDraft: "",
+    boxDraft: "",
     tdraft: "",
     search: "",
     toast: null,
     paused: null,
     menu: null,
-    stageMenu: null,
     flowOpen: false,
-    flowDraft: "",
     flowSel: null,
     flowDraftId: null,
-    flowMsgs: [],
     manualDone: {},
     dragKey: null,
     dropCol: null,
@@ -133,7 +124,7 @@ const browserScheduler: Scheduler = {
 
 /** How long the toast stays (`say` in the canvas). */
 export const TOAST_MS = 3600;
-/** How long a local merge's merge check runs. */
+/** How long a merge's merge check runs. */
 export const MERGE_MS = 1800;
 /** How long after a merge the tickets waiting for it start. */
 export const WAIT_START_MS = 800;
@@ -141,8 +132,6 @@ export const WAIT_START_MS = 800;
 export const BUILD_MS = 3000;
 /** How long Noyan takes to reply in its panel. */
 export const NOYAN_MS = 900;
-/** How long Noyan takes to reply in the flow editor. */
-export const FLOW_REPLY_MS = 800;
 
 export class DemoStore {
   private state: DemoState = initialState();
@@ -219,17 +208,22 @@ export class DemoStore {
     this.upd(k, (t) => ({ log: t.log.concat(lines) }));
   }
 
-  /** The first agent stage of `t`'s flow: where Start and a merged blocker send it. */
-  private firstAgent(t: Ticket) {
-    const first = flowOf(this.state, t.p).stages.find((st) => st.kind === "agent");
-    if (!first) throw new Error("no agent stage in " + t.p + "’s flow");
+  /** The first stage of `t`'s flow: where Start, a drag out of Backlog and a merged dependency send it. */
+  private firstStage(t: Ticket): Stage {
+    const first = flowOf(this.state, t.p).stages[0];
+    if (!first) throw new Error("no stage in " + t.p + "’s flow");
     return first;
+  }
+
+  /** The tickets `t` waits for that aren't merged yet. */
+  private unmet(t: Ticket): string[] {
+    return t.waits.filter((w) => this.find(w)?.col !== "done");
   }
 
   // --- the board -----------------------------------------------------------------------------------------------
 
   pickProject(key: ProjectKey): void {
-    this.set({ project: key, openKey: null, search: "", menu: null });
+    this.set({ project: key, openKey: null, search: "", menu: null, flowOpen: false });
   }
 
   setSearch(search: string): void {
@@ -240,24 +234,19 @@ export class DemoStore {
     this.set({ view });
   }
 
-  /** Unfolds the Done column (the drawn rail only opens it). */
+  /** Unfolds the Done column (the link under the last column opens it). */
   openDone(): void {
     this.set({ doneOpen: true });
   }
 
-  /** Opens or closes a header menu; opening one closes the others. */
+  /** Opens or closes a menu; opening one closes the others. */
   toggleMenu(menu: Menu): void {
     this.set((s) => ({ menu: s.menu === menu ? null : menu }));
   }
 
-  /** Closes every menu, the stage menu too (a click outside them). */
+  /** Closes every menu (a click outside them). */
   closeMenus(): void {
-    this.set({ menu: null, stageMenu: null });
-  }
-
-  /** Opens a column's stage menu at `top`/`left` in the demo's 1280 px coordinates (see `stageMenuAt`). */
-  openStageMenu(id: Column, name: string, top: number, left: number): void {
-    this.set({ stageMenu: { id, name, top, left }, menu: null });
+    this.set({ menu: null });
   }
 
   /** Next (⌘J): the first thing that needs you here, else in the next project that has one. */
@@ -293,16 +282,20 @@ export class DemoStore {
     this.set({ dropCol: col });
   }
 
-  /** A drop on Ready starts the ticket, on Backlog parks it; the rest of the flow is the agents'. */
+  /** A drop on the first stage starts the ticket, on Backlog parks it; the rest of the flow is the agents'. */
   drop(col: Column): void {
     const k = this.state.dragKey;
     this.set({ dragKey: null, dropCol: null });
-    if (!k) return;
-    if (col === "ready") this.start(k);
+    const t = k ? this.find(k) : undefined;
+    if (!k || !t) return;
+    const first = this.firstStage(t);
+    if (col === first.id) this.start(k);
     else if (col === "backlog") this.upd(k, () => ({ col: "backlog", st: "queued" }));
     else
       this.say(
-        "Agents move tickets through the flow. Drag to Ready to start one; the rest is the flow’s job.",
+        "Agents move tickets through the flow. Drag a Backlog card into " +
+          first.name +
+          " to start it; the rest is the flow’s job.",
       );
   }
 
@@ -312,7 +305,7 @@ export class DemoStore {
     const t = this.find(k);
     this.set((s) => ({
       openKey: k,
-      ptab: tab ?? (t?.st === "review" ? "files" : "overview"),
+      ptab: tab ?? "overview",
       part: "agent",
       project: t ? t.p : s.project,
       menu: null,
@@ -331,21 +324,29 @@ export class DemoStore {
     this.set({ part });
   }
 
-  /** Open terminal / Open agent session: the Session tab on the agent's own terminal. */
+  /** Open agent session: the Session tab on the agent's own terminal. */
   showSession(): void {
     this.set({ ptab: "session", part: "agent" });
   }
 
-  /** Start: into the flow's first agent stage, unless it waits for a ticket, then to Ready to start on its own. */
+  /** Start: into the flow's first stage. A ticket that waits for another waits at the top of it and says why. */
   start(k: string): void {
     const t = this.find(k);
     if (!t) return;
-    if (t.waits.length) {
-      this.upd(k, () => ({ col: "ready" }));
-      this.say(k + " waits for " + t.waits.join(", ") + " to merge, then starts on its own.");
+    const first = this.firstStage(t);
+    const unmet = this.unmet(t);
+    if (unmet.length) {
+      this.upd(k, () => ({ col: first.id, st: "queued", agent: first.who }));
+      this.say(
+        k +
+          " waits at the top of " +
+          first.name +
+          " for " +
+          unmet.join(", ") +
+          " to merge, then starts by itself.",
+      );
       return;
     }
-    const first = this.firstAgent(t);
     this.upd(k, () => ({
       col: first.id,
       st: "working",
@@ -418,43 +419,46 @@ export class DemoStore {
           ago: "now",
         }));
         this.addLog("SHOP-32", [
-          L("u", "❯ Give it another round"),
+          L("u", "❯ Allow 1 more round"),
           L("d", "Back to Dev with the Security report · round 4"),
         ]);
         this.say("SHOP-32 went back to Dev with the report.");
         break;
       case "m32":
         this.upd("SHOP-32", () => ({
-          st: "review",
-          col: "review",
+          st: "checking",
+          col: "validate",
           ask: null,
+          agent: "Validator",
+          tool: "CX",
+          ago: "now",
           adds: 80,
           dels: 9,
           checks: [
             {
-              t: "Security · failed 3 times · you moved it on",
+              t: "Security · failed 3 times · you sent it on",
               s: "Unescaped SQL in lib/address.ts. Still open.",
               color: "var(--err)",
             },
           ],
           manual: ["Fix or confirm the SQL finding yourself."],
         }));
-        this.say("SHOP-32 is in Review with the failed report attached.");
+        this.addLog("SHOP-32", [L("u", "❯ Send it on to Validate")]);
+        this.say("SHOP-32 went on to Validate without a pass; Validate sees Security’s last report.");
         break;
     }
   }
 
-  /** Approve: a local merge after a 1.8 s merge check, or a PR the team reviews on GitHub. */
-  approve(k: string, how: "local" | "pr"): void {
+  /** Approve & merge into main (a 1.8 s merge check), or Approve & open PR: it waits in Review as PR open. */
+  approve(k: string, how: "merge" | "pr"): void {
     this.set({ menu: null });
     if (how === "pr") {
       this.upd(k, (t) => ({
-        col: "ship",
         st: "pr",
         ago: "now",
-        log: t.log.concat([L("ok", "Shipper pushed otaq/" + k + " and opened PR #492 with gh")]),
+        log: t.log.concat([L("ok", "Pushed otaq/" + k + " and opened PR #492 with gh")]),
       }));
-      this.say(k + ": PR #492 is open. Your team reviews it there; mark it merged here when they do.");
+      this.say(k + ": PR #492 is open. Your team reviews it there; Mark merged here when they do.");
       return;
     }
     this.upd(k, () => ({ st: "merging" }));
@@ -470,12 +474,14 @@ export class DemoStore {
     });
   }
 
-  /** The tickets in Ready that waited for `k` start 0.8 s after it merges. */
+  /** The tickets waiting at the top of their first stage for `k` start 0.8 s after it merges. */
   private startWaiting(k: string): void {
-    const waiting = this.state.tickets.filter((x) => x.col === "ready" && x.waits.includes(k));
+    const waiting = this.state.tickets.filter(
+      (x) => x.st === "queued" && x.col !== "backlog" && x.waits.includes(k),
+    );
     for (const w of waiting) {
       this.later(WAIT_START_MS, () => {
-        const first = this.firstAgent(w);
+        const first = this.firstStage(w);
         this.upd(w.k, () => ({
           col: first.id,
           st: "working",
@@ -489,7 +495,7 @@ export class DemoStore {
     }
   }
 
-  /** Mark merged: the PR landed on GitHub. */
+  /** Mark merged: the PR landed on GitHub (Otaq doesn't watch PRs). */
   markMerged(k: string): void {
     this.upd(k, (t) => ({ col: "done", st: "done", log: t.log.concat([L("ok", "Marked merged by you")]) }));
     this.say(k + " is Done.");
@@ -514,25 +520,28 @@ export class DemoStore {
     this.set({ cdraft });
   }
 
-  toggleTell(): void {
-    this.set((s) => ({ tellNow: !s.tellNow }));
-  }
-
-  /** Adds the comment box's text to the open ticket; with "Also tell the agent now", into its session too. */
-  addComment(): void {
+  /** Comment (the next stage reads it), or Tell <agent> now: the working agent also gets it, once it's idle. */
+  addComment(tellNow = false): void {
     const s = this.state;
     const txt = s.cdraft.trim();
     const t = s.openKey ? this.find(s.openKey) : undefined;
     if (!txt || !t) return;
-    const c: Comment = { tool: "U", who: "You", at: "now", stage: stageName(s, t), t: txt };
+    const c: Comment = {
+      tool: "U",
+      who: "You",
+      at: "now",
+      stage: stageName(s, t),
+      t: txt,
+      ...(tellNow ? { told: "told " + t.agent + " now" } : {}),
+    };
     this.set((st) => ({
       comments: { ...st.comments, [t.k]: (st.comments[t.k] ?? []).concat([c]) },
       cdraft: "",
     }));
-    if (s.tellNow) this.addLog(t.k, [L("u", "❯ (comment) " + txt)]);
+    if (tellNow) this.addLog(t.k, [L("u", "❯ (comment) " + txt)]);
     this.say(
-      s.tellNow
-        ? "Comment added and sent to the running agent."
+      tellNow
+        ? "Comment added and told " + t.agent + " now."
         : "Comment added. The next stage’s agent reads it.",
     );
   }
@@ -553,6 +562,29 @@ export class DemoStore {
     this.set({ tdraft: "" });
   }
 
+  // --- the box for new work ------------------------------------------------------------------------------------
+
+  setBoxDraft(boxDraft: string): void {
+    this.set({ boxDraft });
+  }
+
+  /** ↵ creates the ticket in Backlog as typed (first line the title), ⌘↵ also starts it, ⇧↵ asks Noyan. */
+  submitBox(action: BoxAction): void {
+    const text = this.state.boxDraft.trim();
+    if (!text) return;
+    if (action === "noyan") {
+      this.sendNoyan(text);
+      return;
+    }
+    const [title = "", ...rest] = text.split("\n");
+    const n = this.state.nextId;
+    const k = this.state.project + "-" + String(n);
+    const made = T({ k, p: this.state.project, title, col: "backlog", st: "queued", desc: rest.join("\n") });
+    this.set((s) => ({ tickets: s.tickets.concat([made]), nextId: n + 1, boxDraft: "" }));
+    if (action === "start") this.start(k);
+    else this.say(k + " is in Backlog, as typed. No agent, no cost until you start it.");
+  }
+
   // --- Noyan ---------------------------------------------------------------------------------------------------
 
   toggleNoyan(): void {
@@ -563,11 +595,7 @@ export class DemoStore {
     this.set({ nyDraft });
   }
 
-  setAskDraft(askDraft: string): void {
-    this.set({ askDraft });
-  }
-
-  /** Sends `text` to Noyan (from its panel or the Ask bar); it opens and replies after 0.9 s. */
+  /** Sends `text` to Noyan (from its panel or the box's ⇧↵); it opens and replies after 0.9 s. */
   sendNoyan(text: string): void {
     const t = text.trim();
     if (!t) return;
@@ -575,7 +603,7 @@ export class DemoStore {
       noyanOpen: true,
       noyanMsgs: s.noyanMsgs.concat([{ cls: "u", t }]),
       nyDraft: "",
-      askDraft: "",
+      boxDraft: "",
     }));
     this.later(NOYAN_MS, () => {
       this.set((s) => ({ noyanMsgs: s.noyanMsgs.concat([{ cls: "", t: NOYAN_REPLY }]) }));
@@ -613,7 +641,7 @@ export class DemoStore {
     }));
   }
 
-  // --- Pause and Activity --------------------------------------------------------------------------------------
+  // --- Pause ---------------------------------------------------------------------------------------------------
 
   /** Pause this project or all of them; when paused, either item resumes. */
   pause(scope: PauseScope): void {
@@ -624,78 +652,57 @@ export class DemoStore {
     this.set({ paused: null });
   }
 
-  // --- the flow editor (Change flow…) -------------------------------------------------------------------------
+  // --- Edit flow, on the board ---------------------------------------------------------------------------------
 
-  /** Opens the flow editor on the project's flow; from a stage menu, with that stage picked. */
-  openFlow(fromStageMenu = false): void {
-    const sel = fromStageMenu ? this.state.stageMenu?.id : null;
-    this.set({
-      flowOpen: true,
-      menu: null,
-      stageMenu: null,
-      flowDraftId: null,
-      flowSel: sel && sel !== "backlog" && sel !== "done" ? sel : null,
-      flowMsgs: [],
-    });
+  /** Edit flow: the board becomes the flow's editor in place; the cards stay, dimmed. */
+  openFlow(): void {
+    this.set({ flowOpen: true, menu: null, openKey: null, flowDraftId: null, flowSel: null });
   }
 
+  /** Cancel: nothing changed. */
   closeFlow(): void {
-    this.set({ flowOpen: false });
+    this.set({ flowOpen: false, flowDraftId: null, flowSel: null, menu: null });
   }
 
+  /** Start from…: the draft becomes one of the shipped flows (or the project's own). */
   pickPreset(id: FlowId): void {
-    this.set({ flowDraftId: id, flowSel: null });
+    this.set({ flowDraftId: id, flowSel: null, menu: null });
   }
 
-  /** Shows a step's details, or hides them when it's picked again. */
-  pickStage(id: StageId): void {
+  /** A click on a column header shows its stage's details, or hides them when it's clicked again. */
+  pickStage(id: StageId | "done"): void {
     this.set((s) => ({ flowSel: s.flowSel === id ? null : id }));
   }
 
-  setFlowDraft(flowDraft: string): void {
-    this.set({ flowDraft });
-  }
-
-  /** Asks Noyan about the flow; it replies after 0.8 s. */
-  sendFlowMsg(): void {
-    const t = this.state.flowDraft.trim();
-    if (!t) return;
-    this.set((s) => ({ flowMsgs: s.flowMsgs.concat([{ cls: "u", t }]), flowDraft: "" }));
-    this.later(FLOW_REPLY_MS, () => {
-      this.set((s) => ({ flowMsgs: s.flowMsgs.concat([{ cls: "", t: FLOW_REPLY }]) }));
-    });
-  }
-
-  /** Apply: the picked flow becomes the project's; tickets in a stage it lacks go back to Ready. */
-  applyFlow(): void {
+  /** Save flow: the draft becomes the project's; tickets in a stage it lacks wait at the top of its first stage. */
+  saveFlow(): void {
     const s = this.state;
     const draftId = s.flowDraftId ?? s.flows[s.project];
     if (draftId === s.flows[s.project]) {
-      this.set({ flowOpen: false });
+      this.closeFlow();
       return;
     }
     const stages = FLOWS[draftId].stages;
     const keep = new Set<Column>(stages.map((x) => x.id));
-    // A ticket in a column the new flow lacks goes to its waiting stage, or to Backlog when it starts with an agent
-    // (Spec first): the drawn script sent it to "ready" whatever the flow, and it vanished from the board.
-    const toReady = stages[0]?.kind === "wait";
-    const to: Column = toReady && stages[0] ? stages[0].id : "backlog";
+    const first = stages[0];
+    if (!first) return;
     this.set((st) => ({
       flows: { ...st.flows, [st.project]: draftId },
       flowOpen: false,
       flowDraftId: null,
+      flowSel: null,
       tickets: st.tickets.map((x) =>
         x.p === st.project && !keep.has(x.col) && x.col !== "backlog" && x.col !== "done"
-          ? { ...x, col: to, st: "queued", ask: null, ago: "" }
+          ? { ...x, col: first.id, st: "queued", ask: null, ago: "", agent: first.who }
           : x,
       ),
     }));
     this.say(
-      "Applied " +
+      "Saved " +
         FLOWS[draftId].name +
-        ". (Demo) Tickets mid-flow moved to " +
-        (toReady ? "Ready" : "Backlog") +
-        "; in Otaq the change waits until the board is quiet.",
+        ". (Demo) Tickets in stages it removes wait at the top of " +
+        first.name +
+        "; in Otaq removing a stage waits until no ticket is in it.",
     );
   }
 }

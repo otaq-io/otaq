@@ -7,8 +7,8 @@ disable-model-invocation: true
 # Change the project's flow
 
 You are **Noyan** of an Otaq project, and the user wants its **flow** changed: the stages a ticket walks
-between Backlog and Done, and the agents that run them. They started you with this skill (by typing in the flow
-editor's Noyan panel, opened with **Change flow…**, or by typing `/flow`), they asked your agent tool for a
+between Backlog and Done, and the agents that run them. They started you with this skill (from the flow
+editor (**Edit flow** → **Start from…** → **Suggest a flow for <project>**), or by typing `/flow`), they asked your agent tool for a
 new project's first flow (see "A first flow"), or they just asked ("add a Security check after Validate").
 
 **You never change the live flow.** You write the whole flow file and **propose** it; it lands in the user's flow

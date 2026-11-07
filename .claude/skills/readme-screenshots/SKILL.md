@@ -55,33 +55,42 @@ Why `start.sh` does what it does, in case something needs adjusting by hand:
 The board is worth capturing when every column has something in it and something is visibly happening. Agents on
 this demo finish in about a minute, so stage it in waves rather than starting everything at once:
 
-1. Wave 1: `NOTE-1`, `NOTE-2`, `NOTE-4`, `NOTE-5` to Dev; `NOTE-3` to Ready for Dev (it waits for NOTE-1). Wait:
-   `zsh $S/wait.sh "Ready for Review" NOTE-1 NOTE-2 NOTE-4 NOTE-5` (about 5 minutes).
+There is no Ready for Dev column: a move to `dev` is Start, and a ticket that waits for another (NOTE-3, NOTE-9) waits
+at the top of Dev ("Waits for NOTE-1 to merge") and begins by itself once that one is merged. `otaq list` still says
+"Ready for Review" for a ticket in Review.
+
+1. Wave 1: `NOTE-1`, `NOTE-2`, `NOTE-4`, `NOTE-5` and `NOTE-3` to Dev. Wait:
+   `zsh $S/wait.sh "Ready for Review" NOTE-1 NOTE-2 NOTE-4 NOTE-5` (about 5 minutes). An agent may ask a question
+   (`wait.sh` stops on "Asks you"): answer it in the app (the card's **Answer**, then **Send answer**).
 2. Merge in two passes, because a ticket only starts once the tickets it waits for are merged:
-   `zsh $S/merge.sh NOTE-1`, then `wait.sh "Ready for Review" NOTE-3`, then `merge.sh NOTE-3`. Done fills.
-3. Drag `NOTE-7` (Tags) to Dev. Its agent is in charge: it reads the Plan and may start **helpers**, one per piece,
-   each in its own worktree; their rows show inside the card ("7.1 merged · 7.2 working") and in the ticket's
-   Overview next to the Plan's pieces. Open the ticket and capture its Overview while at least one helper is working and one is merged, as the plan shot. A helper's question
-   goes to the agent in charge first; one it passes on shows in the Needs you strip as "NOTE-7 · 7.2 asks". Leave
-   NOTE-7 running; it reaches Ready for Review as one ticket when its pieces are merged.
-4. Wave 2, right before the board shot: `NOTE-8`, `NOTE-10`, `NOTE-12` and `NOTE-13` (Notebooks) to Dev, `NOTE-9` to
-   Ready for Dev. Capture within the next minute or two, while cards still say Working or Validating.
+   `zsh $S/merge.sh NOTE-1`, then `wait.sh "Ready for Review" NOTE-3`, then `merge.sh NOTE-3`. Done fills (it shows
+   as the link "Done 2 →" under Review). Tickets left in Review fix their conflicts with main by themselves.
+3. Move `NOTE-7` (Tags) to Dev. Its agent is in charge: it reads the Plan and may start **helpers**, one per piece,
+   each in its own worktree; the card says "Working · 3 helpers" and the ticket's Overview shows each piece's
+   status next to the Plan. Open the ticket and capture its Overview while at least one helper is working and one
+   is merged, as the plan shot. A helper's question goes to the agent in charge first; one it passes on shows in the
+   Needs you strip as "NOTE-7 · 7.2 asks". Leave NOTE-7 running; it reaches Review as one ticket.
+4. Wave 2, right before the board shot: `NOTE-8`, `NOTE-9`, `NOTE-10`, `NOTE-12` and `NOTE-13` (Notebooks) to Dev.
+   Capture within the next minute or two, while cards still say Working or Checking.
 
-**Approved stays empty**, and that's fine: only the Open PR flow puts cards there, and the demo repo has no remote
-(`ticket.move` to `approved` answers "Approve isn't available yet").
+The first approve and first question show one-time hints ("Your turn: review", "That was your flow", "Work starts
+here") and a "Help improve Otaq?" banner: press their **Got it** / **No thanks** before the shots.
 
-If a card shows **Start interrupted**, retry it: `ticket.retry_start {"key":"NOTE-8"}`. `wait.sh` stops early and
+If a card shows **Start failed**, retry it: `ticket.retry_start {"key":"NOTE-8"}`. `wait.sh` stops early and
 names the ticket when that happens.
 
 The requests:
 
 ```sh
 R=(python3 -I $S/otaq_req.py)                                           # an array: zsh doesn't split strings
-"${R[@]}" ticket.move '{"key":"NOTE-1","target":"dev","confirmed":true}'      # also ready_for_dev, backlog, ...
+"${R[@]}" ticket.move '{"key":"NOTE-1","target":"dev","confirmed":true}'      # dev is Start; also backlog, done
 "${R[@]}" ticket.pin '{"key":"NOTE-2"}'
 "${R[@]}" ticket.start_from_scratch '{"key":"NOTE-1","confirm":true}'          # after "Resume failed"
 python3 $S/otaq_req.py theme otaq-dark                                  # otaq-light, daylight, tokyo-night, dracula, ...
 ```
+
+`theme <key>` sets Appearance to Light or Dark (whichever the theme is) with that theme, so the shot doesn't follow
+the system; put it back to Match system by hand if you care.
 
 "Conflicts with main" on review cards is normal here (the tickets touch the same few files) and looks realistic;
 leave it.
@@ -104,21 +113,25 @@ Shots the README uses (keep these names so the README's image links stay valid):
 
 | File | What it shows | How |
 |---|---|---|
-| `board.png` | the hero: Otaq Dark, cards in every column but Approved, something working (NOTE-7's helper rows) | theme `otaq-dark`, all panels closed, right after wave 2 |
+| `board.png` | the hero: Otaq Dark, cards in every column, a question in Needs you and tickets in Your review, something working (NOTE-13's helpers) | theme `otaq-dark`, all panels closed, right after wave 2 |
 | `board-light.png` | the same board in a light theme (Daylight or Otaq Light) | switch theme, capture again |
-| `terminal.png` | an agent's Claude Code session, ideally explaining a recorded decision | **Review** on a Ready for Review card; Terminal tab |
-| `review.png` | agent summary, a recorded decision, the validation report | same panel, Diff tab, top |
-| `diff.png` | the code diff with the file list | expand the panel (⤢ in its header), collapse the three sections above the diff |
+| `terminal.png` | an agent's Claude Code session | **Review** on a card in Review; the sheet's **Session** tab (Agent) |
+| `review.png` | what the agent did, the checker's report, the bar with Approve & merge into main | same sheet, **Overview** tab, top |
+| `diff.png` | the code diff with the file list | **Changes** tab; collapse Validation report then Agent summary, then expand the sheet (⤢ in its header) |
 | `plan.png` | a ticket's Overview with its Plan: the pieces in order, each with its helper's status | step 3 above |
 
-Useful places in the default 1440×900 window: a panel's close ✕ at (1414, 70), expand ⤢ at (1378, 70); with a
-review card's panel open, its tabs sit on one row around y≈235–280 (Diff at x≈911). For `diff.png`, collapse the
-summary, decisions and validation sections **bottom-up**, so the ones above don't move before you click them. Recheck
-against a fresh shot: layouts change between versions, so treat these as hints, not truth.
+Useful places in the default 1440×900 window: the sheet's close ✕ at (1234, 116), expand ⤢ at (1194, 116); its tabs
+Overview · Session · Changes · History sit on one row at y≈264 (Session x≈400, Changes x≈510). The project's
+Settings is at (219, 70) beside Board and Files, the app's Settings is the gear at the foot of the rail (32, 870),
+and Running in the header (852, 21). Collapse sections **bottom-up**, so the ones above don't move before you click
+them. Recheck against a fresh shot: layouts change between versions, so treat these as hints, not truth.
 
 Things to keep out of shots: the "Service update ready" banner, "Transcript saving is off" in a terminal, personal
-paths outside `/tmp/otaqdemo`. The header's plan meter ("5h 5% · week 35%") shows the user's real usage; mention it
-when you present the shots.
+paths outside `/tmp/otaqdemo`, one-time hints. The Running popover and the usage chip show the user's real usage;
+mention it when you present the shots.
+
+An installed Otaq that is open at the same time is never captured: `shot.sh` and `start.sh` find the window of the
+demo's own `otaq-app` by its process.
 
 ## 5. Update the README
 

@@ -1,7 +1,9 @@
 // The live demo on the landing page (WEB-07, decisions 0102, 0138 §3): the canvas's Demo3.dc.html drawn in React at
-// 1280 × 800. The state and every change live in ./state.ts and what's drawn is worked out in ./view.ts; these
-// components only draw and call the store. The colours come from the page's tokens, so the demo switches theme with
-// the page (no theme prop). Keys are handled only inside the demo; there is no handler on the page.
+// 1280 × 800, in the app's window shell: a rail of projects with Noyan, Terminal and the gear at its foot, the
+// project switcher, Running and Pause while agents work, the usage chip, the box for new work and Edit flow on the
+// board. The state and every change live in ./state.ts and what's drawn is worked out in ./view.ts; these components
+// only draw and call the store. The colours come from the page's tokens, so the demo switches theme with the page (no
+// theme prop). Keys are handled only inside the demo; there is no handler on the page.
 
 import "./demo.css";
 
@@ -9,13 +11,12 @@ import { type MouseEvent, type KeyboardEvent, useEffect, useState, useSyncExtern
 
 import { demoFrame } from "../components/demoScale";
 import { Board, Toolbar } from "./Board";
-import { FlowEditor } from "./FlowEditor";
 import { SPRITE } from "./icons";
 import { Ic } from "./Ic";
 import { Noyan } from "./Noyan";
 import { Sheet } from "./Sheet";
 import { type DemoState, DemoStore } from "./state";
-import { type BoardView, boardView, ticketView, type TicketView } from "./view";
+import { type BoardView, boardView, editFlowView, ticketView, type TicketView } from "./view";
 
 // Below 900 px the page shows the demo as a view-only preview (WEB-05, components/demoScale.ts) and the pointer can't
 // reach it; the demo is then inert too, so the keyboard and screen readers skip its controls, scaled far too small.
@@ -48,16 +49,16 @@ export default function Demo() {
 
   // A click outside the open menu closes it; the buttons that open menus (`data-menu`) toggle their own.
   const onClick = (e: MouseEvent) => {
-    if (!s.menu && !s.stageMenu) return;
+    if (!s.menu) return;
     if (e.target instanceof Element && e.target.closest(".menu, [data-menu]")) return;
     store.closeMenus();
   };
-  // Esc closes the innermost thing open: a menu, the flow editor, then the ticket.
+  // Esc closes the innermost thing open: a menu, the ticket, then Edit flow (as Cancel).
   const onKeyDown = (e: KeyboardEvent) => {
     if (e.key !== "Escape") return;
-    if (s.menu || s.stageMenu) store.closeMenus();
-    else if (s.flowOpen) store.closeFlow();
+    if (s.menu) store.closeMenus();
     else if (s.openKey) store.closeTicket();
+    else if (s.flowOpen) store.closeFlow();
     else return;
     e.stopPropagation();
   };
@@ -90,32 +91,11 @@ export default function Demo() {
             </div>
           )}
           <Board s={s} store={store} b={b} />
-          {!s.noyanOpen && (
-            <label className="ask">
-              <Ic name="bot" />
-              <input
-                type="text"
-                placeholder="Ask Noyan, your planning agent… (“why is checkout slow?”)"
-                aria-label="Ask Noyan"
-                value={s.askDraft}
-                onChange={(e) => {
-                  store.setAskDraft(e.target.value);
-                }}
-                onKeyDown={(e) => {
-                  if (e.key === "Enter") {
-                    e.preventDefault();
-                    store.sendNoyan(s.askDraft);
-                  }
-                }}
-              />
-              <span className="kbd">⌘L</span>
-            </label>
-          )}
+          {!s.flowOpen && <NewWorkBox s={s} store={store} />}
           {t && <Sheet s={s} store={store} t={t} b={b} />}
         </section>
       </div>
       <Menus s={s} store={store} b={b} t={t} />
-      {s.flowOpen && <FlowEditor s={s} store={store} />}
       {s.toast && (
         <div className="toast" role="status">
           <Ic name="info" cls="s16" />
@@ -123,6 +103,43 @@ export default function Demo() {
         </div>
       )}
     </div>
+  );
+}
+
+/** The box for new work: ↵ creates the ticket in Backlog, ⌘↵ creates and starts it, ⇧↵ asks Noyan to shape it. */
+function NewWorkBox({ s, store }: DemoProps) {
+  return (
+    <label className="ask">
+      <Ic name="plus" />
+      <input
+        type="text"
+        placeholder="New ticket, or ask Noyan…"
+        aria-label="New ticket, or ask Noyan"
+        title="↵ create · ⌘↵ create and start · ⇧↵ ask Noyan to shape it"
+        value={s.boxDraft}
+        onChange={(e) => {
+          store.setBoxDraft(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key !== "Enter") return;
+          e.preventDefault();
+          store.submitBox(e.shiftKey ? "noyan" : e.metaKey || e.ctrlKey ? "start" : "create");
+        }}
+      />
+      {s.boxDraft.trim() ? (
+        <button
+          className="link"
+          type="button"
+          onClick={() => {
+            store.tip("more_options");
+          }}
+        >
+          More options…
+        </button>
+      ) : (
+        <span className="kbd">⌘N</span>
+      )}
+    </label>
   );
 }
 
@@ -156,68 +173,52 @@ function Header({ s, store, b }: DemoProps & { b: BoardView }) {
           <Ic name="search" />
           <input
             type="text"
-            placeholder="Search or ask…"
-            aria-label="Search"
+            placeholder="Search tickets"
+            aria-label="Search tickets"
             value={s.search}
             onChange={(e) => {
               store.setSearch(e.target.value);
             }}
           />
-          {/* The app's search key (decision 0137): the canvas says ⌘K. */}
           <span className="kbd">/</span>
         </label>
       </div>
-      <button
-        className={"hbtn " + (s.menu === "activity" ? "on" : "")}
-        type="button"
-        data-menu
-        onClick={() => {
-          store.toggleMenu("activity");
-        }}
-        aria-haspopup="dialog"
-        aria-expanded={s.menu === "activity"}
-      >
-        <span className="dot" style={{ background: "var(--work)" }}></span>
-        <span className="mono" style={{ fontSize: 12 }}>
-          {b.runningLabel}
-        </span>
-        <span className="mono" style={{ fontSize: 12, color: "var(--pau)" }}>
-          · 18% left
-        </span>
-      </button>
-      <button
-        className={"hbtn " + b.pause.cls}
-        type="button"
-        data-menu
-        onClick={() => {
-          store.toggleMenu("pause");
-        }}
-        aria-haspopup="menu"
-        aria-expanded={s.menu === "pause"}
-      >
-        <Ic name={b.pause.icon} />
-        {b.pause.label}
-      </button>
-      <button
-        className="btn btn-p"
-        type="button"
-        onClick={() => {
-          store.tip("new");
-        }}
-      >
-        <Ic name="plus" />
-        New ticket
-      </button>
-      <button
-        className="ibtn"
-        type="button"
-        onClick={() => {
-          store.tip("settings");
-        }}
-        aria-label="Settings"
-      >
-        <Ic name="settings" cls="s16" />
-      </button>
+      {b.runningLabel && (
+        <button
+          className={"hbtn " + (s.menu === "running" ? "on" : "")}
+          type="button"
+          data-menu
+          onClick={() => {
+            store.toggleMenu("running");
+          }}
+          aria-haspopup="dialog"
+          aria-expanded={s.menu === "running"}
+        >
+          <span className="dot" style={{ background: "var(--work)" }}></span>
+          <span className="mono" style={{ fontSize: 12 }}>
+            {b.runningLabel}
+          </span>
+          <Ic name="chevron-down" cls="s12" style={{ color: "var(--tx3)" }} />
+        </button>
+      )}
+      <span className="chip usage" title="The usage chip: shown when a limit window runs low">
+        Claude Code · 18% left
+      </span>
+      {(b.runningLabel || s.paused) && (
+        <button
+          className={"hbtn " + b.pause.cls}
+          type="button"
+          data-menu
+          onClick={() => {
+            store.toggleMenu("pause");
+          }}
+          aria-haspopup="menu"
+          aria-expanded={s.menu === "pause"}
+        >
+          <Ic name={b.pause.icon} />
+          {b.pause.label}
+        </button>
+      )}
     </header>
   );
 }
@@ -271,43 +272,46 @@ function Rail({ s, store, b }: DemoProps & { b: BoardView }) {
         onClick={() => {
           store.tip("terminals");
         }}
-        aria-label="Terminals"
+        aria-label="Terminal (⌃`)"
       >
         <Ic name="terminal" cls="s16" />
+      </button>
+      <button
+        className="ibtn"
+        type="button"
+        onClick={() => {
+          store.tip("settings");
+        }}
+        aria-label="Settings (⌘,)"
+      >
+        <Ic name="settings" cls="s16" />
       </button>
     </nav>
   );
 }
 
-/** The header's menus, Approve's and a column's stage menu, placed as drawn in the demo's own 1280 px coordinates. */
+/** The header's menus, Approve's and Edit flow's Start from…, placed as drawn in the demo's own 1280 px coordinates. */
 function Menus({ s, store, b, t }: DemoProps & { b: BoardView; t: TicketView | null }) {
   return (
     <>
       {s.menu === "proj" && (
         <div className="menu" style={{ top: 40, left: 54 }} role="menu">
-          <div className="h">shop-web</div>
-          <button
-            className="i"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              store.openFlow();
-            }}
-          >
-            <Ic name="git-merge" />
-            Change flow…
-          </button>
-          <button
-            className="i"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              store.tip("settings");
-            }}
-          >
-            <Ic name="settings" />
-            Project settings
-          </button>
+          <div className="h">Projects</div>
+          {b.projects.map((p) => (
+            <button
+              key={p.key}
+              className="i"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                store.pickProject(p.key);
+              }}
+            >
+              {p.on ? <Ic name="check" /> : <span style={{ width: 14 }}></span>}
+              {p.name}
+              <span>{p.key}</span>
+            </button>
+          ))}
           <div className="sep"></div>
           <button
             className="i"
@@ -323,7 +327,7 @@ function Menus({ s, store, b, t }: DemoProps & { b: BoardView; t: TicketView | n
         </div>
       )}
       {s.menu === "pause" && (
-        <div className="menu" style={{ top: 40, right: 170 }} role="menu">
+        <div className="menu" style={{ top: 40, right: 20 }} role="menu">
           <div className="h">{b.pause.menuTitle}</div>
           <button
             className="i"
@@ -350,15 +354,15 @@ function Menus({ s, store, b, t }: DemoProps & { b: BoardView; t: TicketView | n
           </div>
         </div>
       )}
-      {s.menu === "activity" && (
+      {s.menu === "running" && (
         <div
           className="menu act"
-          style={{ top: 40, right: 300, width: 420 }}
+          style={{ top: 40, right: 200, width: 420 }}
           role="dialog"
-          aria-label="Activity"
+          aria-label="Running"
         >
-          <div className="h">Activity · {b.runningLabel}</div>
-          {b.actTools.map((at) => (
+          <div className="h">Agents running · {b.runningLabel}</div>
+          {b.runningTools.map((at) => (
             <div key={at.id} className="arow">
               <span className={"av lg av-" + at.id}>{at.id}</span>
               <div className="ainfo">
@@ -377,73 +381,83 @@ function Menus({ s, store, b, t }: DemoProps & { b: BoardView; t: TicketView | n
             </div>
           ))}
           <div className="n">
-            Tokens are what each tool reports. Otaq shows no dollar estimates. ⇧⌘U opens this.
+            Usage · what’s left, as each tool reports it. Otaq shows no dollar estimates. ⇧⌘U opens this.
           </div>
         </div>
       )}
       {s.menu === "approve" && t && (
         <div className="menu" style={{ bottom: 60, right: 40, zIndex: 60 }} role="menu">
-          <div className="h">Approve {t.k}</div>
+          <div className="h">Other ways to finish {t.k}</div>
+          {t.canPR && (
+            <button
+              className="i"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                store.approve(t.k, "pr");
+              }}
+            >
+              <Ic name="git-pr" />
+              Approve & open PR<span>gh · GitHub</span>
+            </button>
+          )}
           <button
             className="i"
             type="button"
             role="menuitem"
             onClick={() => {
-              store.approve(t.k, "local");
+              store.tip("more");
             }}
           >
             <Ic name="git-merge" />
-            Local merge<span>squash into main</span>
-          </button>
-          <button
-            className="i"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              store.approve(t.k, "pr");
-            }}
-          >
-            <Ic name="git-pr" />
-            Open PR<span>gh · GitHub</span>
+            Merge into another ticket…
           </button>
           <div className="n">
-            Local merge runs the merge check (pnpm test on the combined result) if main moved since the checks
-            ran.
+            Approve & merge runs the merge check (pnpm test on the combined result) if main moved since the
+            checks ran.
           </div>
         </div>
       )}
-      {s.stageMenu && (
-        <div className="menu" style={{ top: s.stageMenu.top, left: s.stageMenu.left }} role="menu">
-          <div className="h">{s.stageMenu.name}</div>
+      {s.menu === "startFrom" && (
+        <div className="menu" style={{ top: 120, right: 150, width: 300 }} role="menu">
+          <div className="h">Start from</div>
           <button
             className="i"
             type="button"
             role="menuitem"
             onClick={() => {
-              store.openFlow(true);
+              store.tip("suggest");
             }}
           >
-            Edit this stage…
+            <Ic name="bot" />
+            Suggest a flow for {b.proj.name}
           </button>
+          <div className="sep"></div>
+          {editFlowView(s).startFrom.map((fp) => (
+            <button
+              key={fp.id}
+              className="i"
+              type="button"
+              role="menuitem"
+              onClick={() => {
+                store.pickPreset(fp.id);
+              }}
+            >
+              {fp.on ? <Ic name="check" /> : <span style={{ width: 14 }}></span>}
+              {fp.name}
+              <span>{fp.desc}</span>
+            </button>
+          ))}
+          <div className="sep"></div>
           <button
             className="i"
             type="button"
             role="menuitem"
             onClick={() => {
-              store.openFlow(true);
+              store.tip("import");
             }}
           >
-            Add a stage after
-          </button>
-          <button
-            className="i"
-            type="button"
-            role="menuitem"
-            onClick={() => {
-              store.tip("fold");
-            }}
-          >
-            Fold when empty
+            Import…
           </button>
         </div>
       )}

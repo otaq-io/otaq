@@ -2,7 +2,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { TIPS } from "./data";
 import { DemoStore, MERGE_MS, NOYAN_MS, TOAST_MS, WAIT_START_MS } from "./state";
-import { boardView, columnsOf, flowEditorView, needsOf, stageMenuAt, status, ticketView } from "./view";
+import { boardView, columnsOf, editFlowView, needsOf, status, ticketView } from "./view";
 
 let store: DemoStore;
 
@@ -22,55 +22,67 @@ const ticket = (k: string) => {
   return t;
 };
 const texts = (k: string) => ticket(k).log.map((l) => l.t);
-const needs = () => boardView(store.getState()).needs.map((n) => n.k + " " + n.why);
+const strip = () => {
+  const b = boardView(store.getState());
+  return [...b.needs, ...b.reviews].map((n) => n.k + " " + n.why);
+};
 const titles = () => columnsOf(store.getState()).map((c) => c.title);
 const cardsIn = (title: string) =>
   columnsOf(store.getState())
     .find((c) => c.title === title)
     ?.cards.map((c) => c.k);
+const card = (k: string) =>
+  columnsOf(store.getState())
+    .flatMap((c) => c.cards)
+    .find((c) => c.k === k);
 const toast = () => store.getState().toast;
 
 describe("the board", () => {
-  it("starts on shop-web with its own flow's columns, Done folded", () => {
+  it("starts on shop-web with its flow's columns between Backlog and a folded Done", () => {
     const b = boardView(store.getState());
     expect(b.proj.name).toBe("shop-web");
-    expect(b.flowLabel).toBe("shop-web · 6 stages");
-    expect(titles()).toEqual(["Backlog", "Ready for Dev", "Dev", "Security", "Validate", "Review", "Ship"]);
+    expect(titles()).toEqual(["Backlog", "Dev", "Security", "Validate", "Review"]);
+    expect(titles()).not.toContain("Ready for Dev");
     expect(b.doneCount).toBe(5);
+    expect(b.delivery).toBe("Merge or PR · on Approve");
     store.openDone();
-    expect(titles().at(-1)).toBe("Done");
+    const done = columnsOf(store.getState()).at(-1);
+    expect(done).toMatchObject({ title: "Done", sub: "Merge or PR · on Approve" });
   });
 
-  it("puts cards that need you first, then by priority", () => {
-    expect(cardsIn("Dev")).toEqual(["SHOP-22", "SHOP-40", "SHOP-12"]);
+  it("puts tickets waiting to start at the top of the first stage, then the ones that need you", () => {
+    expect(cardsIn("Dev")).toEqual(["SHOP-20", "SHOP-21", "SHOP-44", "SHOP-22", "SHOP-40", "SHOP-12"]);
     expect(cardsIn("Security")).toEqual(["SHOP-32", "SHOP-29", "SHOP-19"]);
+    expect(cardsIn("Review")).toEqual(["SHOP-18", "SHOP-23", "SHOP-26"]);
   });
 
-  it("shows the drawn status lines and buttons", () => {
-    const card = (k: string) =>
-      columnsOf(store.getState())
-        .flatMap((c) => c.cards)
-        .find((c) => c.k === k);
+  it("says what each card is doing, in the app's words", () => {
     expect(card("SHOP-22")).toMatchObject({ act: "Answer", cls: "attn" });
     expect(card("SHOP-22")?.status.label).toBe("Needs you: allow rm -rf .next?");
     expect(card("SHOP-12")?.status.label).toBe("Asks you: follow the system setting?");
-    expect(card("SHOP-32")).toMatchObject({ act: "Decide", status: { label: "Failed 3 times: decide" } });
+    expect(card("SHOP-32")).toMatchObject({
+      act: "Decide",
+      status: { label: "Security failed 3 times · decide" },
+    });
     expect(card("SHOP-18")).toMatchObject({
       act: "Review",
-      status: { label: "Your check · passed Security and Validate" },
+      status: { label: "Ready for you · passed Security and Validate" },
     });
-    expect(card("SHOP-20")?.status.label).toBe("waits for SHOP-29 to merge");
+    expect(card("SHOP-20")?.status).toMatchObject({ icon: "hourglass", label: "Waits for SHOP-29 to merge" });
+    expect(card("SHOP-44")?.status.label).toBe("Waits for a free agent · 1st in line");
+    expect(card("SHOP-26")?.status.label).toBe("PR open · #481 · Mark merged when it lands");
     expect(card("SHOP-31")).toMatchObject({
       hasPrio: true,
       drag: true,
-      status: { label: "P1 · not started" },
+      act: "Start",
+      status: { label: "Not started" },
     });
     expect(card("SHOP-40")).toMatchObject({ pieceSum: "1 merged" });
     expect(card("SHOP-40")?.piecesShort.map((p) => p.n)).toEqual(["40.2", "40.3", "40.4"]);
     expect(card("SHOP-19")?.drag).toBe(false);
   });
 
-  it("badges only the projects with questions, not your checks", () => {
+  it("badges only the projects with questions, not the tickets ready for review", () => {
     expect(boardView(store.getState()).projects.map((p) => [p.key, p.badge])).toEqual([
       ["SHOP", 4],
       ["BILL", 1],
@@ -89,23 +101,24 @@ describe("the board", () => {
     expect(store.getState().search).toBe("");
   });
 
-  it("counts the working agents across projects", () => {
-    expect(boardView(store.getState()).runningLabel).toBe("3 working");
-    const cc = boardView(store.getState()).actTools[0];
-    expect(cc).toMatchObject({ name: "Claude Code", running: "3 running" });
+  it("shows Running only while agents run, with what's left per tool", () => {
+    const b = boardView(store.getState());
+    expect(b.runningLabel).toBe("3 running");
+    expect(b.runningTools[0]).toMatchObject({ name: "Claude Code", running: "3 running" });
   });
 });
 
-describe("Needs you and Next", () => {
-  it("lists questions and decisions first, then your checks", () => {
-    expect(needs()).toEqual([
+describe("Needs you, Your review and Next", () => {
+  it("lists questions and decisions first, then the tickets ready for you", () => {
+    expect(strip()).toEqual([
       "SHOP-12 a question",
       "SHOP-22 allow a command",
       "SHOP-40 40.2 asks",
       "SHOP-32 decide",
-      "SHOP-18 your check",
-      "SHOP-23 your check",
+      "SHOP-18 ready",
+      "SHOP-23 ready",
     ]);
+    expect(boardView(store.getState()).reviews.map((r) => r.k)).toEqual(["SHOP-18", "SHOP-23"]);
   });
 
   it("Next opens each item in turn as you answer, then moves on to billing-api", () => {
@@ -122,12 +135,12 @@ describe("Needs you and Next", () => {
     expect(store.getState().openKey).toBe("SHOP-32");
     store.answer("r32");
     store.nextItem();
-    expect(store.getState()).toMatchObject({ openKey: "SHOP-18", ptab: "files" });
+    expect(store.getState()).toMatchObject({ openKey: "SHOP-18", ptab: "overview" });
     store.approve("SHOP-18", "pr");
     store.nextItem();
     expect(store.getState().openKey).toBe("SHOP-23");
     store.approve("SHOP-23", "pr");
-    expect(needs()).toEqual([]);
+    expect(strip()).toEqual([]);
 
     store.nextItem();
     expect(store.getState()).toMatchObject({ project: "BILL", openKey: "BILL-7" });
@@ -176,21 +189,24 @@ describe("answering", () => {
     expect(ticket("SHOP-40").pieces?.find((p) => p.n === "40.2")).toMatchObject({ s: "working", cls: "w" });
   });
 
-  it("SHOP-32: Move on anyway puts it in Review with the failed report", () => {
-    store.answer("m32");
-    expect(ticket("SHOP-32")).toMatchObject({ col: "review", st: "review" });
+  it("SHOP-32: the decision offers Allow 1 more round and Send it on to the next stage", () => {
     store.openTicket("SHOP-32");
-    const t = ticketView(store.getState());
-    expect(t?.before?.checks[0]).toMatchObject({ verdict: "failed", color: "var(--err)" });
-    expect(t?.manual.map((m) => m.t)).toEqual(["Fix or confirm the SQL finding yourself."]);
+    expect(ticketView(store.getState())?.ask?.opts.map((o) => o.label)).toEqual([
+      "Allow 1 more round",
+      "Send it on to Validate",
+    ]);
+    store.answer("m32");
+    expect(ticket("SHOP-32")).toMatchObject({ col: "validate", st: "checking", agent: "Validator" });
+    expect(ticket("SHOP-32").checks?.[0]?.t).toBe("Security · failed 3 times · you sent it on");
   });
 });
 
 describe("Approve, merge and Send back", () => {
-  it("Approve SHOP-18 with a local merge: the 1.8 s merge check, then SHOP-21 starts 0.8 s later", () => {
+  it("Approve & merge into main: the 1.8 s merge check, then SHOP-21 starts 0.8 s later", () => {
     store.openTicket("SHOP-18");
+    expect(ticketView(store.getState())).toMatchObject({ canApprove: true, canPR: true });
     store.toggleMenu("approve");
-    store.approve("SHOP-18", "local");
+    store.approve("SHOP-18", "merge");
     expect(store.getState().menu).toBeNull();
     expect(ticket("SHOP-18").st).toBe("merging");
     expect(status(ticket("SHOP-18")).label).toBe("Merge check · pnpm test…");
@@ -198,7 +214,7 @@ describe("Approve, merge and Send back", () => {
     expect(ticket("SHOP-18")).toMatchObject({ col: "done", st: "done" });
     expect(texts("SHOP-18").at(-1)).toBe("Merge check passed · squash-merged into main");
     expect(toast()).toBe("SHOP-18 is merged into main.");
-    expect(ticket("SHOP-21").col).toBe("ready");
+    expect(ticket("SHOP-21")).toMatchObject({ col: "dev", st: "queued" });
     vi.advanceTimersByTime(WAIT_START_MS);
     expect(ticket("SHOP-21")).toMatchObject({
       col: "dev",
@@ -209,10 +225,12 @@ describe("Approve, merge and Send back", () => {
     expect(toast()).toBe("SHOP-21 was waiting for SHOP-18. It starts now.");
   });
 
-  it("Open PR sends it to Ship; Mark merged finishes it", () => {
+  it("Approve & open PR leaves it in Review as PR open; Mark merged finishes it", () => {
     store.approve("SHOP-23", "pr");
-    expect(ticket("SHOP-23")).toMatchObject({ col: "ship", st: "pr" });
-    expect(status(ticket("SHOP-23")).label).toBe("PR #492 open · mark merged when it lands");
+    expect(ticket("SHOP-23")).toMatchObject({ col: "review", st: "pr" });
+    expect(status(ticket("SHOP-23")).label).toBe("PR open · #492 · Mark merged when it lands");
+    store.openTicket("SHOP-23");
+    expect(ticketView(store.getState())?.steps.find((x) => x.state === "current")?.name).toBe("Delivery");
     store.markMerged("SHOP-23");
     expect(ticket("SHOP-23")).toMatchObject({ col: "done", st: "done" });
     expect(toast()).toBe("SHOP-23 is Done.");
@@ -227,7 +245,7 @@ describe("Approve, merge and Send back", () => {
 });
 
 describe("Start and drag", () => {
-  it("Start sends a Backlog ticket into the flow's first agent stage", () => {
+  it("Start puts a Backlog ticket into the flow's first stage", () => {
     store.start("SHOP-31");
     expect(ticket("SHOP-31")).toMatchObject({
       col: "dev",
@@ -239,106 +257,137 @@ describe("Start and drag", () => {
     expect(toast()).toBe("SHOP-31 started in Dev, in its own worktree.");
   });
 
-  it("a ticket that waits goes to Ready and says so", () => {
-    store.start("SHOP-20");
-    expect(ticket("SHOP-20").col).toBe("ready");
-    expect(toast()).toBe("SHOP-20 waits for SHOP-29 to merge, then starts on its own.");
+  it("a ticket that waits for another waits at the top of the first stage and says why", () => {
+    store.createFromNoyan();
+    store.start("SHOP-46");
+    expect(ticket("SHOP-46")).toMatchObject({ col: "dev", st: "queued" });
+    expect(card("SHOP-46")?.status.label).toBe("Waits for SHOP-45 to merge");
+    expect(toast()).toBe("SHOP-46 waits at the top of Dev for SHOP-45 to merge, then starts by itself.");
   });
 
-  it("dragging to Ready starts it; to a later stage only explains", () => {
+  it("dragging into the first stage starts it; to a later stage only explains", () => {
     store.dragStart("SHOP-41");
-    store.dragOver("ready");
+    store.dragOver("dev");
     const cols = columnsOf(store.getState());
-    expect(cols.find((c) => c.id === "ready")?.cls).toBe("drop");
-    expect(cols.find((c) => c.id === "dev")?.cls).toBe("nodrop");
-    store.drop("ready");
-    expect(ticket("SHOP-41").col).toBe("dev");
+    expect(cols.find((c) => c.id === "dev")?.cls).toBe("drop");
+    expect(cols.find((c) => c.id === "security")?.cls).toBe("nodrop");
+    store.drop("dev");
+    expect(ticket("SHOP-41")).toMatchObject({ col: "dev", st: "working" });
     expect(store.getState()).toMatchObject({ dragKey: null, dropCol: null });
 
     store.dragStart("SHOP-31");
     store.drop("review");
     expect(ticket("SHOP-31").col).toBe("backlog");
     expect(toast()).toBe(
-      "Agents move tickets through the flow. Drag to Ready to start one; the rest is the flow’s job.",
+      "Agents move tickets through the flow. Drag a Backlog card into Dev to start it; the rest is the flow’s job.",
     );
   });
 });
 
-describe("Change flow… and Apply", () => {
-  it("previews a preset and applies it: the columns change and mid-flow tickets go to Ready", () => {
+describe("the box for new work", () => {
+  it("↵ creates the ticket in Backlog as typed, the first line its title", () => {
+    store.setBoxDraft("Add a coupon field\nOne per order.");
+    store.submitBox("create");
+    expect(ticket("SHOP-45")).toMatchObject({
+      col: "backlog",
+      title: "Add a coupon field",
+      desc: "One per order.",
+    });
+    expect(store.getState().boxDraft).toBe("");
+    expect(toast()).toBe("SHOP-45 is in Backlog, as typed. No agent, no cost until you start it.");
+  });
+
+  it("⌘↵ creates and starts it", () => {
+    store.setBoxDraft("Fix the footer");
+    store.submitBox("start");
+    expect(ticket("SHOP-45")).toMatchObject({ col: "dev", st: "working" });
+  });
+
+  it("⇧↵ asks Noyan to shape it: its panel opens and it replies after 0.9 s", () => {
+    store.setBoxDraft("why is checkout slow?");
+    const n = store.getState().noyanMsgs.length;
+    store.submitBox("noyan");
+    expect(store.getState()).toMatchObject({ noyanOpen: true, boxDraft: "" });
+    vi.advanceTimersByTime(NOYAN_MS);
+    expect(store.getState().noyanMsgs).toHaveLength(n + 2);
+  });
+});
+
+describe("Edit flow, on the board", () => {
+  it("turns the board into the flow's editor: each column header is its stage, Done says how work leaves", () => {
     store.openFlow();
-    let f = flowEditorView(store.getState());
-    expect(f.presets.map((p) => p.name)).toEqual([
+    const cols = columnsOf(store.getState());
+    expect(cols.map((c) => c.title)).toEqual(["Backlog", "Dev", "Security", "Validate", "Review", "Done"]);
+    expect(cols.find((c) => c.id === "security")?.head).toMatchObject({
+      what: "An agent checks it",
+      who: "Security reviewer",
+      skill: "/security-check",
+      line: "3 rounds · fails go to Dev",
+    });
+    expect(cols.at(-1)?.head).toMatchObject({
+      what: "Every flow ends here",
+      line: "Merge or PR · on Approve",
+    });
+    expect(editFlowView(store.getState())).toMatchObject({
+      title: "Editing shop-web’s flow",
+      changed: false,
+    });
+    store.pickStage("validate");
+    expect(editFlowView(store.getState()).details?.rows).toEqual([
+      ["What happens", "An agent checks it"],
+      ["Agent", "Validator"],
+      ["Skill", "/validate"],
+      ["Fails go to", "Dev"],
+    ]);
+  });
+
+  it("Start from… a shipped flow, then Save flow: the columns change and tickets in removed stages wait in Dev", () => {
+    store.openFlow();
+    expect(editFlowView(store.getState()).startFrom.map((p) => p.name)).toEqual([
       "shop-web’s flow",
       "Otaq default",
       "Solo autopilot",
       "Team PR",
       "Spec first",
     ]);
-    expect(f).toMatchObject({ draftInUse: " · in use", applyNote: "No changes." });
     store.pickPreset("solo");
-    f = flowEditorView(store.getState());
-    expect(f.draftName).toBe("Solo autopilot");
-    expect(f.applyNote).toMatch(/^Swapping flows waits until the board is quiet: \d+ tickets are mid-flow\./);
-    store.pickStage("validate");
-    expect(flowEditorView(store.getState()).stages.find((x) => x.sel)).toMatchObject({
-      name: "Validate",
-      kindLong: "Check · an agent",
-      skill: "/validate",
-      fail: "Dev",
-    });
-    store.applyFlow();
+    expect(editFlowView(store.getState()).changed).toBe(true);
+    expect(columnsOf(store.getState()).at(-1)?.head?.line).toBe("Merge · automatically");
+    store.saveFlow();
     expect(store.getState().flowOpen).toBe(false);
-    expect(titles()).toEqual(["Backlog", "Ready for Dev", "Dev", "Validate", "Ship"]);
-    expect(ticket("SHOP-19")).toMatchObject({ col: "ready", st: "queued" });
-    expect(ticket("SHOP-18")).toMatchObject({ col: "ready", st: "queued", ask: null });
+    expect(titles()).toEqual(["Backlog", "Dev", "Validate"]);
+    expect(ticket("SHOP-19")).toMatchObject({ col: "dev", st: "queued" });
+    expect(ticket("SHOP-18")).toMatchObject({ col: "dev", st: "queued", ask: null });
     expect(ticket("SHOP-12").col).toBe("dev");
-    expect(boardView(store.getState()).flowLabel).toBe("Solo autopilot · 4 stages");
-    expect(toast()).toContain("Applied Solo autopilot.");
+    expect(boardView(store.getState()).delivery).toBe("Merge · automatically");
+    expect(toast()).toContain("Saved Solo autopilot.");
   });
 
-  it("Apply Spec first leaves no SHOP ticket in a column the board doesn't show", () => {
+  it("Save Spec first leaves no SHOP ticket in a column the board doesn't show", () => {
     store.openFlow();
     store.pickPreset("spec");
-    store.applyFlow();
+    store.saveFlow();
     store.openDone();
     const shownCols = new Set(columnsOf(store.getState()).map((c) => c.id));
     const lost = store.getState().tickets.filter((t) => t.p === "SHOP" && !shownCols.has(t.col));
     expect(lost.map((t) => t.k)).toEqual([]);
-    for (const k of ["SHOP-20", "SHOP-21", "SHOP-44", "SHOP-19", "SHOP-32"])
-      expect(ticket(k)).toMatchObject({ col: "backlog", st: "queued", ask: null });
-    expect(ticket("SHOP-12").col).toBe("dev");
+    expect(ticket("SHOP-19")).toMatchObject({ col: "pspec", st: "queued" });
     expect(ticket("SHOP-18").col).toBe("review");
-    expect(toast()).toBe(
-      "Applied Spec first. (Demo) Tickets mid-flow moved to Backlog; in Otaq the change waits until the board is quiet.",
-    );
   });
 
-  it("billing-api has no shop-web preset", () => {
+  it("Cancel changes nothing, and billing-api has no shop-web flow to start from", () => {
+    store.openFlow();
+    store.pickPreset("team");
+    store.closeFlow();
+    expect(titles()).toEqual(["Backlog", "Dev", "Security", "Validate", "Review"]);
     store.pickProject("BILL");
     store.openFlow();
-    expect(flowEditorView(store.getState()).presets.map((p) => p.id)).toEqual([
+    expect(editFlowView(store.getState()).startFrom.map((p) => p.id)).toEqual([
       "default",
       "solo",
       "team",
       "spec",
     ]);
-  });
-
-  it("a stage menu opens the editor on that stage, placed inside the board", () => {
-    expect(stageMenuAt({ bottom: 100, left: 1260 })).toEqual({ top: 104, left: 1040 });
-    expect(stageMenuAt({ bottom: 100, left: 120 })).toEqual({ top: 104, left: 70 });
-    store.openStageMenu("security", "Security", 104, 300);
-    store.openFlow(true);
-    expect(store.getState()).toMatchObject({ flowOpen: true, flowSel: "security", stageMenu: null });
-  });
-
-  it("Noyan answers a question about the flow", () => {
-    store.openFlow();
-    store.setFlowDraft("Why is Security here?");
-    store.sendFlowMsg();
-    vi.advanceTimersByTime(800);
-    expect(flowEditorView(store.getState()).msgs.map((m) => m.cls)).toEqual(["u", ""]);
   });
 });
 
@@ -373,15 +422,6 @@ describe("Ask Noyan", () => {
     expect(ticketView(store.getState())?.comments[0]?.who).toBe("Noyan");
   });
 
-  it("asking from the Ask bar opens Noyan, which replies after 0.9 s", () => {
-    store.setAskDraft("why is checkout slow?");
-    store.sendNoyan(store.getState().askDraft);
-    expect(store.getState()).toMatchObject({ noyanOpen: true, askDraft: "" });
-    const n = store.getState().noyanMsgs.length;
-    vi.advanceTimersByTime(NOYAN_MS);
-    expect(store.getState().noyanMsgs).toHaveLength(n + 1);
-  });
-
   it("Not yet asks what to change", () => {
     store.declineNoyan();
     expect(store.getState().noyanMsgs.at(-1)?.t).toBe(
@@ -391,32 +431,48 @@ describe("Ask Noyan", () => {
 });
 
 describe("the ticket sheet", () => {
+  it("has the tabs Overview, Session, Changes and History", async () => {
+    const { PANE_TABS } = await import("./view");
+    expect(PANE_TABS.map(([, label]) => label)).toEqual(["Overview", "Session", "Changes", "History"]);
+  });
+
   it("SHOP-18 shows the checks before you, the decision, manual checks and attachments", () => {
     store.openTicket("SHOP-18");
     const t = ticketView(store.getState());
     expect(t?.before).toMatchObject({ head: "Security and Validate", sum: "2 checks · both passed" });
     expect(t?.decision?.t).toBe("Totals are recomputed on the server");
     expect(t?.atts.map((a) => a.name)).toEqual(["Summary.md", "Security report.md", "Validate report.md"]);
+    expect(t?.steps.map((x) => x.name)).toEqual(["Dev", "Security", "Validate", "Review", "Delivery"]);
     expect(t?.steps.find((x) => x.state === "current")?.name).toBe("Review");
-    expect(t?.blocks).toBe("SHOP-21");
+    expect(t?.waitingForIt).toBe("SHOP-21");
     expect(t?.model).toBe("Claude Code · opus");
     store.toggleManual("SHOP-18", 1);
     expect(ticketView(store.getState())?.manual.map((m) => m.on)).toEqual([false, true]);
   });
 
-  it("comments go to the next stage, or into the session too", () => {
+  it("Session's switch names each side by what it is: Agent, the check's stage, Run, Terminal", () => {
+    store.openTicket("SHOP-29");
+    expect(ticketView(store.getState())?.parts.map((p) => p.label)).toEqual([
+      "Agent",
+      "Security",
+      "Run",
+      "Terminal",
+    ]);
+  });
+
+  it("Comment goes to the next stage; Tell <agent> now also tells the working agent", () => {
     store.openTicket("SHOP-29");
     store.setCDraft("Use lib/db.ts");
     store.addComment();
     expect(toast()).toBe("Comment added. The next stage’s agent reads it.");
-    store.toggleTell();
     store.setCDraft("Also check the limit");
-    store.addComment();
-    expect(toast()).toBe("Comment added and sent to the running agent.");
+    store.addComment(true);
+    expect(toast()).toBe("Comment added and told Security reviewer now.");
     expect(texts("SHOP-29").at(-1)).toBe("❯ (comment) Also check the limit");
     const c = ticketView(store.getState())?.comments;
     expect(c?.map((x) => x.who)).toEqual(["Noyan", "You", "You"]);
     expect(c?.[1]?.stage).toBe("Security");
+    expect(c?.[2]?.told).toBe("told Security reviewer now");
   });
 
   it("typing into the session adds to the log", () => {
@@ -427,12 +483,18 @@ describe("the ticket sheet", () => {
     expect(store.getState().tdraft).toBe("");
   });
 
-  it("SHOP-20 shows what it waits for", () => {
+  it("SHOP-20 says what it waits for; a waiting Backlog ticket says where Start puts it", () => {
     store.openTicket("SHOP-20");
     expect(ticketView(store.getState())).toMatchObject({
+      canStart: false,
+      waitsFor: "SHOP-29 · not merged yet",
+      waitingForIt: "Nothing waits for SHOP-20.",
+    });
+    store.createFromNoyan();
+    store.openTicket("SHOP-46");
+    expect(ticketView(store.getState())).toMatchObject({
       canStart: true,
-      blockedBy: "SHOP-29 · waits for SHOP-29 to merge",
-      startNote: "waits for SHOP-29 to merge, then starts on its own",
+      startNote: "Start puts it at the top of Dev, where it waits for SHOP-45 to merge",
     });
   });
 });
@@ -449,18 +511,15 @@ describe("toasts and timers", () => {
     expect(toast()).toBeNull();
   });
 
-  it("the Terminals toast shows the app's key (0137)", () => {
+  it("the Terminal toast shows the app's key", () => {
     expect(TIPS.terminals).toContain("⌃`");
     expect(TIPS.terminals).not.toContain("⇧⌘T");
   });
 
   it("dispose() leaves no timer", () => {
     store.answer("p22");
-    store.approve("SHOP-18", "local");
+    store.approve("SHOP-18", "merge");
     store.sendNoyan("hi");
-    store.openFlow();
-    store.setFlowDraft("why?");
-    store.sendFlowMsg();
     expect(store.pendingTimers()).toBeGreaterThan(0);
     expect(vi.getTimerCount()).toBe(store.pendingTimers());
     store.dispose();

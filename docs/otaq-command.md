@@ -50,7 +50,7 @@ otaq helper pass-on <id> --note "a product question the Plan doesn't answer"
 otaq helper done --stdin     # a helper hands its piece back, with a summary
 ```
 
-A ticket's agents use its [Run](how-it-works.md#run-and-shell) with `otaq run` (with several apps, each command names one):
+A ticket's agents use its [Run](how-it-works.md#run-and-terminal) with `otaq run` (with several apps, each command names one):
 
 ```sh
 otaq run start --wait        # start the ticket's Run, or use the one already up; prints its URL

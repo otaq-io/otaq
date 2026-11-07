@@ -255,7 +255,7 @@ Otaq looks after a ticket's build and its own resources at four moments:
   else the one nearest to the base branch's tip. Then the env files are copied, the Create command runs (see
   *Ticket resources* below) and your setup command runs, as an update of what is already there. With no build in
   stock, setup builds from nothing.
-- **Free at Review:** when a ticket enters Ready for Review (after the validator, if the project has one), its build
+- **Free at Review:** when a ticket enters Review (after the checker, if the flow has one), its build
   goes into the stock, so a ticket starting next can use it. The worktree, the branch, the ports and the agent's
   session stay where they are; `git status` stays clean, and the env files stay in the worktree (also one inside an
   ignored folder). An Approved ticket (PR open) stays freed too. A Run or Shell still open holds the build until the
@@ -285,17 +285,17 @@ build between them never crosses disks.
 - **On Windows, put the data folder on a Dev Drive** to get clones instead of handovers: a Dev Drive is formatted as
   ReFS, which can copy-on-write. Create one in Settings → System → Storage → Advanced storage settings → Disks &
   volumes → Create Dev Drive (a new partition or a virtual disk file). Then move Otaq's data folder there while no
-  ticket has a worktree (nothing in Dev or Ready for Review, and Cleanup empty): quit Otaq, stop its service
+  ticket has a worktree (nothing in Dev or Review, and Cleanup empty): quit Otaq, stop its service
   (`otaq daemon stop`), move the folder `%USERPROFILE%\.otaq` to the Dev Drive (for example to `D:\otaq`) and delete
   the `scratch` folder inside it (Otaq makes it again at the next Local merge), run `git worktree prune` in each
   project's checkout, set `OTAQ_HOME` for your account (`setx OTAQ_HOME D:\otaq`) and start Otaq again. With
   `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform).
 
 **Stock limit** (on a disk that can't clone). The stock keeps as many builds per project as there are tickets that
-could start soon: those in Ready for Dev whose dependencies are done and that wait only for a free slot or the plan
+could start soon: those waiting at the top of their first stage whose dependencies are done and that wait only for a free slot or the plan
 limit. With none, it keeps 1. A ticket waiting for a dependency doesn't count: when that dependency reaches Done, its
 build goes into the stock and is the nearest one anyway. The limit is worked out again when a build goes in or is
-taken, and when a ticket enters or leaves Ready for Dev. Over the limit, the builds farthest from the base branch's
+taken, and when a ticket starts waiting at the top of its first stage or stops waiting there. Over the limit, the builds farthest from the base branch's
 tip (the most changed files) go first, and among equals the oldest; a build being handed over is never removed. A
 removed build is renamed into `warm/<repo-name>.trash` and deleted in the background (deleting a large build can
 take many seconds); what is left there is deleted when Otaq starts. The limit is not a setting. A freed ticket's
@@ -372,7 +372,7 @@ the template never saw its migration. With no schema paths, Otaq runs no git for
 - Run a database server per ticket without something like Docker, which your own Create command would start.
 
 **Project variables.** Project Settings → Environment variables lists `NAME = value` rows that Otaq sets in
-everything it starts in that project: ticket agents and their helpers, the validator, Noyan, the Project
+everything it starts in that project: ticket agents and their helpers, the checkers, Noyan, the Project
 terminal, the setup command and the ticket resource commands, Run and Shell, and the git commands it runs in the
 project's repository and worktrees (so your git hooks see them too). It is empty by default. For example
 `CI = true`, so tools never wait for input or start watch mode. Another one you may want when several agents build

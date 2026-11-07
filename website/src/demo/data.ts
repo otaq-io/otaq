@@ -1,6 +1,8 @@
 // The demo's sample data, as in the canvas's Demo3.dc.html script (decisions 0102, 0137): two projects with their
-// flows, their tickets and Noyan's first conversation. Texts are copied exactly, built as drawn; the only change is the
-// Terminals key, which shows the app's real shortcut (0137). Refresh them by hand when the canvas changes.
+// flows, their tickets and Noyan's first conversation. Texts are copied from the canvas, then brought in line with the
+// app's own names: no Ready for Dev column (a started ticket waits at the top of its first stage), delivery is the
+// flow's setting shown on Done (a ticket being delivered waits in the last stage as PR open), and the app's keys.
+// Refresh them by hand when the app or the canvas changes.
 
 export type LineClass = "u" | "a" | "tool" | "o" | "d" | "ok" | "e" | "q";
 
@@ -29,6 +31,7 @@ export const MODELS: Readonly<Record<string, string>> = {
   Validator: "gpt-sol",
   "Docs updater": "haiku",
   Shipper: "default model",
+  Checker: "default model",
   Developer: "opus",
 };
 
@@ -45,31 +48,31 @@ export const KIND_COLOR: Record<StageKind, string> = {
   delivery: "var(--ok)",
 };
 
-/** A stage kind's short label in a column head (`KIND`). */
-export const KIND: Record<StageKind, string> = {
-  wait: "waits",
-  agent: "agent",
-  check: "check",
-  you: "you",
-  delivery: "delivery",
+/** A column's line under its name, as the app's board says it: Backlog's, a stage kind's, and Done's. */
+export const COLUMN_LINE: Record<StageKind, string> = {
+  wait: "Not started",
+  agent: "An agent does the work",
+  check: "A checker tests it",
+  you: "You review and approve",
+  delivery: "Merged or delivered",
 };
 
-/** A stage kind's long label in the flow editor's details (`KINDL`). */
-export const KIND_LONG: Record<StageKind, string> = {
-  wait: "Waits for an agent",
-  agent: "Agent works",
-  check: "Check · an agent",
-  you: "Check · you",
-  delivery: "Delivery",
+/** What happens in a stage, as Edit flow's column header and its details say it. */
+export const WHAT_HAPPENS: Record<StageKind, string> = {
+  wait: "Every flow starts here",
+  agent: "An agent does the work",
+  check: "An agent checks it",
+  you: "You check it",
+  delivery: "Every flow ends here",
 };
 
-export type StageId =
-  "ready" | "dev" | "security" | "validate" | "review" | "ship" | "pspec" | "tspec" | "plan" | "sreview";
+export type StageId = "dev" | "security" | "validate" | "review" | "pspec" | "tspec" | "plan" | "sreview";
 
+/** A stage of a flow: an agent works, an agent checks or you check. Backlog and Done are the fixed ends. */
 export interface Stage {
   id: StageId;
   name: string;
-  kind: StageKind;
+  kind: Exclude<StageKind, "wait" | "delivery">;
   who: string;
   skill: string;
   fail: string;
@@ -79,11 +82,15 @@ export interface Flow {
   name: string;
   desc: string;
   stages: readonly Stage[];
+  /** How work leaves the flow, shown on Done: "Merge or PR · on Approve". */
+  delivery: string;
+  /** Whether Approve offers a pull request (the delivery is Pull request or Either). */
+  pr: boolean;
 }
 
 export type FlowId = "shop" | "default" | "solo" | "team" | "spec";
 
-const S = (id: StageId, name: string, kind: StageKind, who: string, skill = "—", fail = "—"): Stage => ({
+const S = (id: StageId, name: string, kind: Stage["kind"], who: string, skill = "—", fail = "—"): Stage => ({
   id,
   name,
   kind,
@@ -97,44 +104,44 @@ export const FLOWS: Record<FlowId, Flow> = {
     name: "shop-web’s flow",
     desc: "In use · the board’s columns",
     stages: [
-      S("ready", "Ready for Dev", "wait", "—"),
       S("dev", "Dev", "agent", "Rust developer", "/work-ticket"),
-      S("security", "Security", "check", "Security reviewer", "/security-review", "Dev"),
+      S("security", "Security", "check", "Security reviewer", "/security-check", "Dev"),
       S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
       S("review", "Review", "you", "You", "—", "Dev"),
-      S("ship", "Ship", "delivery", "Shipper · opens a PR", "/open-pr"),
     ],
+    delivery: "Merge or PR · on Approve",
+    pr: true,
   },
   default: {
     name: "Otaq default",
     desc: "Agents build and check; you review",
     stages: [
-      S("ready", "Ready for Dev", "wait", "—"),
       S("dev", "Dev", "agent", "Developer", "/work-ticket"),
-      S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
+      S("validate", "Validate", "check", "Checker", "/validate", "Dev"),
       S("review", "Review", "you", "You", "—", "Dev"),
-      S("ship", "Ship", "delivery", "local merge, on your click"),
     ],
+    delivery: "Merge or PR · on Approve",
+    pr: true,
   },
   solo: {
     name: "Solo autopilot",
     desc: "No review; merges when checks pass",
     stages: [
-      S("ready", "Ready for Dev", "wait", "—"),
       S("dev", "Dev", "agent", "Developer", "/work-ticket"),
-      S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
-      S("ship", "Ship", "delivery", "merges on its own once Validate passes"),
+      S("validate", "Validate", "check", "Checker", "/validate", "Dev"),
     ],
+    delivery: "Merge · automatically",
+    pr: false,
   },
   team: {
     name: "Team PR",
     desc: "Your team reviews the PR",
     stages: [
-      S("ready", "Ready for Dev", "wait", "—"),
       S("dev", "Dev", "agent", "Developer", "/work-ticket"),
-      S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
-      S("ship", "Ship", "delivery", "opens a PR with gh", "/open-pr"),
+      S("validate", "Validate", "check", "Checker", "/validate", "Dev"),
     ],
+    delivery: "Pull request · automatically",
+    pr: true,
   },
   spec: {
     name: "Spec first",
@@ -145,14 +152,15 @@ export const FLOWS: Record<FlowId, Flow> = {
       S("plan", "Milestone plan", "agent", "Milestone planner", "/milestone-plan"),
       S("sreview", "Spec review", "you", "You", "—", "Product spec"),
       S("dev", "Dev", "agent", "Developer", "/work-ticket"),
-      S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
+      S("validate", "Validate", "check", "Checker", "/validate", "Dev"),
       S("review", "Code review", "you", "You", "—", "Dev"),
-      S("ship", "Ship", "delivery", "local merge, on your click"),
     ],
+    delivery: "Merge or PR · on Approve",
+    pr: true,
   },
 };
 
-/** The presets in the flow editor's "Start from" list, in order; the project's own flow only on its project. */
+/** The flows in Edit flow's "Start from…" menu, in order; the project's own flow only on its project. */
 export const PRESET_IDS: readonly FlowId[] = ["shop", "default", "solo", "team", "spec"];
 
 // --- projects ------------------------------------------------------------------------------------------------------
@@ -321,7 +329,7 @@ export function initialTickets(): Ticket[] {
       k: "SHOP-20",
       p: "SHOP",
       title: "Checkout page",
-      col: "ready",
+      col: "dev",
       st: "queued",
       prio: 2,
       waits: ["SHOP-29"],
@@ -331,7 +339,7 @@ export function initialTickets(): Ticket[] {
       k: "SHOP-21",
       p: "SHOP",
       title: "Saved cards at checkout",
-      col: "ready",
+      col: "dev",
       st: "queued",
       prio: 2,
       waits: ["SHOP-18"],
@@ -368,7 +376,7 @@ export function initialTickets(): Ticket[] {
       k: "SHOP-44",
       p: "SHOP",
       title: "Saved carts",
-      col: "ready",
+      col: "dev",
       st: "queued",
       prio: 3,
       desc: "Keep a signed-in customer’s cart across devices.",
@@ -509,8 +517,8 @@ export function initialTickets(): Ticket[] {
         short: "decide",
         title: "Security failed 3 times · unescaped SQL",
         opts: [
-          { label: "Give it another round", rec: "", act: "r32" },
-          { label: "Move on anyway", rec: "", act: "m32" },
+          { label: "Allow 1 more round", rec: "", act: "r32" },
+          { label: "Send it on to Validate", rec: "", act: "m32" },
         ],
       },
       desc: "Suggest addresses as the customer types.",
@@ -584,7 +592,7 @@ export function initialTickets(): Ticket[] {
         },
       ],
       hist: [
-        { at: "9:02 am", t: "Started by you · Ready → Dev" },
+        { at: "9:02 am", t: "Started by you · Backlog → Dev" },
         { at: "9:41 am", t: "Submitted · Security round 1 passed" },
         { at: "9:50 am", t: "Validate round 1 failed: missing 409 · back to Dev" },
         { at: "10:05 am", t: "Validate round 2 passed · in Review" },
@@ -626,7 +634,7 @@ export function initialTickets(): Ticket[] {
       k: "SHOP-26",
       p: "SHOP",
       title: "Add sitemap",
-      col: "ship",
+      col: "review",
       st: "pr",
       prio: 4,
       tool: "OC",
@@ -730,7 +738,7 @@ export function initialTickets(): Ticket[] {
       k: "BILL-9",
       p: "BILL",
       title: "Dunning emails",
-      col: "ready",
+      col: "dev",
       st: "queued",
       prio: 3,
       desc: "Three reminders before a subscription is cancelled.",
@@ -813,32 +821,35 @@ export const NOYAN_REPLY =
 
 export const NOYAN_NOT_YET = "Okay. Tell me what to change and I’ll update the list.";
 
-export const FLOW_REPLY =
-  "(Demo) In Otaq, Noyan explains a stage or changes the steps for you; its changes are tinted, with Undo. Nothing reaches the board until Apply.";
-
 // --- tips ----------------------------------------------------------------------------------------------------------
 
 /** What the buttons the demo doesn't build say in a toast (`tip…` in the canvas). */
 export const TIPS = {
-  new: "In the app this opens the ticket editor: title, Markdown description, priority, dependencies, and the agent per stage.",
+  more_options:
+    "More options… opens the full form with what you typed: title, description, priority, Waits for, attachments, the agent per stage and the base branch.",
   settings:
-    "Settings: agent tools, your agents, project setup and run commands, themes, shortcuts. Try it in the app.",
+    "The gear opens the app’s Settings: Agents, Git & pull requests, Limits & usage, Notifications, Appearance, Keyboard, Data. Try it in the app.",
+  projectSettings:
+    "The project’s own Settings: its flow, Repository (base branch, delivery, merge check), Run, Workspace and Notes for agents. Try it in the app.",
   addProject:
-    "Any folder that’s a git repository. Otaq suggests a key like SHOP and asks which flow to start from.",
-  // The app's real key (decision 0137): the canvas says ⇧⌘T.
-  terminals: "Plain terminals in the project, on the left rail (⌃`).",
-  files: "Files: the project’s files and what each ticket changed. Try it in the app.",
-  fold: "Empty columns can fold to shorten a long flow.",
+    "Any folder that’s a git repository. Otaq suggests a key like SHOP, and a flow: Otaq default, Same as another project, or Suggest one.",
+  terminals: "Terminal: plain terminals in the project, from the foot of the rail (⌃`).",
+  files:
+    "Files: the project’s files as committed, on your base branch or in any ticket’s copy. Try it in the app.",
+  fold: "Fold empty columns shortens a long flow.",
   run: "Run starts the project’s run command for this ticket on its own $PORT. Try it in the app.",
   stop: "Stop holds this one agent. Pause holds them all.",
+  stopHere: "Stop here: nothing changes. It waits in Security until you choose.",
   helper: "Each helper has its own terminal. Type into it, or steer it through the agent in charge.",
-  askTool:
-    "In the app the tool reads its own history and your repo and proposes a flow, with a “why” line per stage. Nothing runs until you ask.",
+  suggest:
+    "Suggest a flow for shop-web: Noyan’s agent reads its own history and your repo and drafts a flow here, each change marked with why. You save it, ask for changes or discard it.",
+  watch:
+    "Watch a ticket walks a pretend ticket through your draft, passing or failing a check, running nothing.",
   import: "Import a flow file another project exported.",
   addStage:
-    "Start from Plan, Security check, Visual check, Docs or Blank. A new agent stage needs a skill before Apply.",
+    "+ adds a ready stage: Security review, Test in the browser, Update the docs, Design review, Product spec, Tech spec, or a blank one.",
   move: "Move…: the board’s columns with the drag’s rules. Forward is the flow’s job; backward sends it anywhere earlier.",
-  more: "Edit ticket…, Copy as Markdown, Copy branch name, Delete…",
+  more: "Edit ticket…, Ask Noyan about this, Copy branch name, Delete…",
   full: "Full page (e): the sheet fills the main area.",
   priority: "P1 Urgent · P2 High · P3 Normal · P4 Low",
   other: "Other… lets you type an answer; it goes into the agent’s session.",

@@ -8,18 +8,18 @@ const first = PRESETS[0]?.id;
 const kinds = [
   {
     color: "var(--st-working)",
-    title: "An agent works",
+    title: "An agent does the work",
     text: "Runs a skill you pick, in the ticket’s own worktree. Asks you when the ticket doesn’t say.",
   },
   {
     color: "var(--st-investigate)",
-    title: "A check",
-    text: "An agent, or you, passes or fails the work. Each check has one agent; two checks run one after the other.",
+    title: "An agent checks it",
+    text: "Passes or fails the work, in rounds. Each check has one agent; two checks run one after the other.",
   },
   {
-    color: "var(--st-approved)",
-    title: "Delivery",
-    text: "Merge on your machine, on your click or on its own after the checks, or open a pull request.",
+    color: "var(--st-review)",
+    title: "You check it",
+    text: "You read the change and approve it, or send it back with what to fix.",
   },
 ];
 const why = [
@@ -41,23 +41,39 @@ const why = [
   { color: "var(--st-review)", stage: "Review · you", text: ["Every merge in the last 60 days was yours."] },
   {
     color: "var(--st-approved)",
-    stage: "Ship · PR",
+    stage: "Done · PR",
     text: ["Your remote is GitHub and ", "gh", " is signed in."],
   },
 ];
-const steps = [
-  { color: "var(--st-queued)", name: "Ready for Dev", kind: "waits" },
-  { color: "var(--st-working)", name: "Dev", kind: "agent · Rust developer" },
-  { color: "var(--st-investigate)", name: "Security", kind: "check · Security reviewer", cls: "sel" },
+// Edit flow, on the board: each column header is its stage, Backlog and Done fixed at the ends, + between two
+// columns adds a stage; Security is picked and shows its details.
+const cols = [
+  { color: "var(--st-queued)", name: "Backlog", what: "Every flow starts here", fixed: true },
+  {
+    color: "var(--st-working)",
+    name: "Dev",
+    what: "An agent does the work",
+    who: "Rust developer",
+    skill: "work-ticket",
+  },
+  {
+    color: "var(--st-investigate)",
+    name: "Security",
+    what: "An agent checks it",
+    who: "Security reviewer",
+    skill: "security-check",
+    sel: true,
+  },
   {
     color: "var(--st-investigate)",
     name: "Validate",
-    kind: "check · Validator · moved by Noyan",
-    cls: "tint",
+    what: "An agent checks it",
+    who: "Validator",
+    skill: "validate",
+    tint: true,
   },
-  { color: "var(--st-review)", name: "Review", kind: "you check" },
-  { color: "var(--st-approved)", name: "Ship", kind: "delivery · PR · Shipper" },
-  { color: "var(--st-queued)", name: "Done", kind: "merged" },
+  { color: "var(--st-review)", name: "Review", what: "You check it", who: "You" },
+  { color: "var(--st-approved)", name: "Done", what: "Pull request · on Approve", fixed: true },
 ];
 ---
 
@@ -67,8 +83,9 @@ const steps = [
       <div class="label">Design your flow</div>
       <h2 class="h2">Build the flow your tickets walk.</h2>
       <p class="sub">
-        You decide the stages, in your order, and what each one is: an agent working, a check, or a delivery.
-        If a check fails, the work goes back to the stage you choose.{" "}
+        Your board’s columns are your process. You decide the stages, in your order, and what each one is: an
+        agent working, an agent checking, or you checking. If a check fails, the work goes back to the stage
+        you choose, and Done says how work leaves: a merge or a pull request, on your Approve or by itself.{" "}
         <b>Start from a preset, or have one made from how you already work.</b> Flip them to see the columns
         change.
       </p>
@@ -138,15 +155,16 @@ const steps = [
           Or have one made from how you already work.
         </h3>
         <p class="sub" style="font-size:15.5px">
-          Ask Claude Code, Codex, Copilot or OpenCode to read its own history and your repo. It proposes a
-          flow, and every stage says why it’s there. Keep what you like, then Apply.
+          In Edit flow, <b>Start from… → Suggest a flow</b> asks Noyan’s agent, in Claude Code, Codex, Copilot
+          or OpenCode, to read its own history and your repo. It drafts a flow on the board, every change
+          marked with why. Save it, ask for changes, or discard it.
         </p>
       </div>
       <div class="why-card">
         <div class="why-h">
           <span class="av md av-CC">CC</span>
-          <b>Made for shop-web</b>
-          <span style="color: var(--text-muted)">· proposed by Claude Code</span>
+          <b>Rust developer’s suggestion for shop-web</b>
+          <span style="color: var(--text-muted)">· Claude Code</span>
         </div>
         {why.map((r) => (
           <div class="why-r">
@@ -164,79 +182,61 @@ const steps = [
       </div>
     </div>
 
-    <div class="ed rv" role="group" aria-label="The flow editor">
-      <div class="l">
-        <span class="lbl">Start from</span>
-        <span class="it on">
-          <Icon icon="columns" class="s12" />
-          shop-web’s flow
-        </span>
-        <span class="it">Otaq default</span>
-        <span class="it">Solo autopilot</span>
-        <span class="it">Team PR</span>
-        <span class="it">Spec first</span>
-        <span class="lbl" style="margin-top:10px">
-          Made for shop-web
-        </span>
-        <span class="it">
-          <span class="av av-CC">CC</span>Ask Claude Code
-        </span>
-        <span class="it">
-          <span class="av av-OC">OC</span>Ask OpenCode
-        </span>
-        <span class="it" style="color: var(--text-muted)">
-          Import a flow…
-        </span>
-      </div>
-      <div class="m">
-        <div class="hd">
-          shop-web’s flow <span class="n">7 steps · in use</span>
+    <div class="ed rv" role="group" aria-label="Edit flow, on the board">
+      <div class="ed-bar">
+        <Icon icon="columns" class="s13" />
+        <div class="ed-t">
+          <b>Editing shop-web’s flow</b>
+          <span>Drag to reorder · click a stage for details · + to add</span>
         </div>
-        {steps.map((s) => (
+        <span class="sp"></span>
+        <span class="it">
+          <Icon icon="play" class="s12" />
+          Watch a ticket
+        </span>
+        <span class="it">Start from…</span>
+        <span class="btn btn-g btn-sm">Cancel</span>
+        <span class="btn btn-p btn-sm">Save flow</span>
+      </div>
+      <div class="ed-cols">
+        {cols.map((c, i) => (
           <Fragment>
-            <div class:list={["step", s.cls]}>
-              <Icon icon="grip" class="s12 grip" />
-              <span class="k" style={`background:${s.color}`} />
-              {s.name}
-              <span class="kd">{s.kind}</span>
-            </div>
-            {s.cls === "sel" && (
-              <div class="det">
-                <b>Kind</b>
-                <span>Check · an agent</span>
-                <b>Agent</b>
-                <span>Security reviewer · Claude Code</span>
-                <b>Skill</b>
-                <span class="mono">/security-review</span>
-                <b>Fails go to</b>
-                <span>Dev</span>
-              </div>
+            {i > 0 && (
+              <span class="ed-add" aria-hidden="true">
+                +
+              </span>
             )}
+            <div class:list={["ed-col", { sel: c.sel, tint: c.tint, fixed: c.fixed }]}>
+              <div class="nm">
+                <span class="k" style={`background:${c.color}`} />
+                {c.name}
+              </div>
+              <div class="wh">{c.what}</div>
+              {c.who && <div class="who">{c.who}</div>}
+              {c.skill && <div class="mono sk">{c.skill}</div>}
+            </div>
           </Fragment>
         ))}
       </div>
-      <div class="r">
-        <span class="lbl">Noyan · your planning agent</span>
-        <div class="msg u">Put Security before Validate.</div>
-        <div class="msg">
-          Done: Security now runs right after Dev, and Validate after it. A fail at either goes back to Dev.
-          Undo?
-        </div>
-        <div class="in">
-          <Icon icon="bot" class="s12" />
-          Ask about the flow…
-          <span class="kbd" style="margin-left:auto">
-            ⌘L
-          </span>
-        </div>
+      <div class="det">
+        <b>Name</b>
+        <span>Security</span>
+        <b>What happens</b>
+        <span>An agent checks it</span>
+        <b>What it’s for</b>
+        <span>Looks for unescaped SQL, secrets and auth changes, so none of them reaches your review.</span>
+        <b>Agent</b>
+        <span>Security reviewer · Claude Code</span>
+        <b>Skill</b>
+        <span class="mono">security-check</span>
+        <b>Fails go to</b>
+        <span>Dev · 3 rounds</span>
       </div>
       <div class="apply">
         <span>
-          Reordering waits until no ticket is between Dev and Validate (3 are). Nothing changes on the board
-          until you apply.
+          Noyan’s agent moved Validate after Security, marked with why. Reordering waits until no ticket is in
+          the stages it touches; nothing changes until you save.
         </span>
-        <span class="btn btn-g btn-sm">Cancel</span>
-        <span class="btn btn-p btn-sm">Apply</span>
       </div>
     </div>
   </div>

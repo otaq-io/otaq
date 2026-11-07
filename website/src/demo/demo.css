@@ -900,7 +900,7 @@
   color: var(--tx3);
   font-size: 11.5px;
 }
-/* ask bar + noyan panel */
+/* the box for new work + noyan panel */
 .oq.oq .ask {
   position: absolute;
   left: 50%;
@@ -1830,206 +1830,179 @@
   background: var(--bd);
   margin: 4px 0;
 }
-.oq.oq .scrim {
-  position: absolute;
-  inset: 0;
-  background: rgb(0 0 0 / 45%);
-  z-index: 40;
+/* Edit flow, on the board: its bar, the column headers as stages, + between them, the cards dimmed */
+.oq.oq .editbar {
+  flex: none;
   display: flex;
   align-items: center;
-  justify-content: center;
-  animation: oqfade 0.2s ease-out;
-}
-.oq.oq .sheet {
-  width: 1080px;
-  height: 640px;
-  background: var(--panel);
-  border: 1px solid var(--bds);
-  border-radius: 10px;
-  box-shadow: var(--sh);
-  display: grid;
-  grid-template-columns: 220px minmax(0, 1fr) 280px;
-  grid-template-rows: minmax(0, 1fr) auto;
-  overflow: hidden;
-}
-.oq.oq .sh-l {
-  border-right: 1px solid var(--bd);
-  padding: 14px 10px;
-  display: flex;
-  flex-direction: column;
-  gap: 4px;
-  overflow-y: auto;
-}
-.oq.oq .sh-l .lbl,
-.oq.oq .sh-r .lbl {
-  font:
-    500 10.5px/1 "Geist Mono",
-    monospace;
-  letter-spacing: 0.08em;
-  text-transform: uppercase;
-  color: var(--tx3);
-  padding: 8px 8px 4px;
-}
-.oq.oq .sh-l .it {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
-  text-align: left;
-  padding: 7px 9px;
-  border-radius: 6px;
-  border: 1px solid transparent;
-  background: none;
-  cursor: pointer;
-}
-.oq.oq .sh-l .it:hover {
-  background: var(--hover);
-}
-.oq.oq .sh-l .it.on {
+  gap: 8px;
+  padding: 7px 12px;
+  border-bottom: 1px solid var(--bd);
   background: var(--acs);
-  border-color: var(--ac);
+  font-size: 12px;
+  min-height: 38px;
 }
-.oq.oq .sh-l .it b {
-  font-size: 12.5px;
-  font-weight: 600;
+.oq.oq .editbar .et {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
 }
-.oq.oq .sh-l .it span {
+.oq.oq .editbar .et span {
   font-size: 11px;
   color: var(--tx3);
 }
-.oq.oq .sh-m {
-  padding: 14px 16px;
+.oq.oq .editbar .sp {
+  flex: 1;
+}
+.oq.oq .cols.editing .cd {
+  opacity: 0.4;
+  pointer-events: none;
+}
+.oq.oq .cols.editing .colm {
+  min-width: 140px;
+}
+.oq.oq .btn:disabled {
+  opacity: 0.5;
+  cursor: default;
+}
+.oq.oq .stagehead {
+  margin: 8px 8px 6px;
+  padding: 8px 9px;
+  border: 1px solid var(--bds);
+  border-radius: 7px;
+  background: var(--panel);
   display: flex;
   flex-direction: column;
-  gap: 10px;
-  overflow-y: auto;
+  align-items: flex-start;
+  gap: 3px;
+  text-align: left;
+  font-size: 11px;
+  color: var(--tx2);
+  cursor: pointer;
 }
-.oq.oq .sh-m .hd {
+.oq.oq .stagehead:disabled {
+  cursor: default;
+}
+.oq.oq .stagehead.fixed {
+  border-style: dashed;
+}
+.oq.oq .stagehead.sel {
+  border-color: var(--ac);
+  box-shadow: 0 0 0 1px var(--ac);
+}
+.oq.oq .stagehead .nm {
   display: flex;
   align-items: center;
-  gap: 10px;
-  font-size: 14px;
-  font-weight: 600;
-}
-.oq.oq .sh-m .hd .n {
-  font:
-    11px "Geist Mono",
-    monospace;
-  color: var(--tx3);
-  font-weight: 400;
-}
-.oq.oq .prev {
-  display: flex;
-  gap: 6px;
-  padding: 12px;
-  border: 1px solid var(--bd);
-  border-radius: 8px;
-  background: var(--bg);
-  overflow-x: auto;
-}
-.oq.oq .prev .st {
-  flex: 1 1 0;
-  min-width: 90px;
-  border: 1px solid var(--bd);
-  border-radius: 6px;
-  padding: 8px;
-  display: flex;
-  flex-direction: column;
-  gap: 5px;
-  font-size: 11.5px;
-  animation: oqfade 0.3s ease-out both;
-}
-.oq.oq .prev .st b {
-  display: flex;
-  align-items: center;
-  gap: 5px;
+  gap: 7px;
   font-size: 12px;
+  font-weight: 600;
+  color: var(--tx);
 }
-.oq.oq .prev .st b .k {
+.oq.oq .stagehead .k {
   width: 7px;
   height: 7px;
   border-radius: 50%;
 }
-.oq.oq .prev .st span {
+.oq.oq .stagehead .wh,
+.oq.oq .stagehead .sk {
   color: var(--tx3);
-  font-size: 11px;
 }
-.oq.oq .step {
-  display: flex;
-  align-items: center;
-  gap: 10px;
-  padding: 8px 10px;
-  border: 1px solid var(--bd);
-  border-radius: 6px;
-  background: var(--bg);
-  font-size: 12.5px;
-  cursor: pointer;
-  text-align: left;
-  width: 100%;
-}
-.oq.oq .step:hover {
-  border-color: var(--bds);
-}
-.oq.oq .step.sel {
-  border-color: var(--ac);
-}
-.oq.oq .step .k {
-  width: 8px;
-  height: 8px;
+.oq.oq .gap-add {
+  flex: none;
+  align-self: flex-start;
+  margin-top: 22px;
+  width: 20px;
+  height: 20px;
   border-radius: 50%;
-}
-.oq.oq .step .kd {
-  margin-left: auto;
-  font:
-    11px "Geist Mono",
-    monospace;
-  color: var(--tx3);
-}
-.oq.oq .det {
-  padding: 10px 12px;
   border: 1px dashed var(--bds);
-  border-radius: 6px;
+  background: var(--panel);
+  color: var(--tx3);
+  display: grid;
+  place-items: center;
+  cursor: pointer;
+}
+.oq.oq .stagedet {
+  position: absolute;
+  right: 16px;
+  bottom: 16px;
+  z-index: 5;
+  width: 320px;
+  padding: 12px 14px;
+  border: 1px solid var(--bds);
+  border-radius: 10px;
+  background: var(--raised);
+  box-shadow: var(--sh);
+  display: grid;
+  grid-template-columns: 96px minmax(0, 1fr);
+  gap: 6px 10px;
   font-size: 12px;
   color: var(--tx2);
-  display: grid;
-  grid-template-columns: 90px minmax(0, 1fr);
-  gap: 6px 10px;
 }
-.oq.oq .det b {
+.oq.oq .stagedet .nm {
+  grid-column: 1 / -1;
   color: var(--tx);
-  font-weight: 500;
 }
-.oq.oq .sh-r {
-  border-left: 1px solid var(--bd);
-  padding: 14px 12px;
+.oq.oq .stagedet .l {
+  color: var(--tx3);
+}
+/* the end of the board: Edit flow, and Done folded into a link */
+.oq.oq .endcol {
+  flex: none;
   display: flex;
   flex-direction: column;
+  align-items: flex-start;
   gap: 8px;
-  font-size: 12.5px;
 }
-.oq.oq .sh-r .in {
-  margin-top: auto;
-  display: flex;
+.oq.oq .hbtn.dashed {
+  border: 1px dashed var(--bds);
+}
+.oq.oq .donelink {
+  display: inline-flex;
   align-items: center;
-  gap: 8px;
-  height: 30px;
-  padding: 0 10px;
-  border: 1px solid var(--bds);
-  border-radius: 999px;
-  color: var(--tx3);
+  gap: 4px;
+  padding: 2px 4px;
+  border: 0;
+  background: none;
+  color: var(--tx2);
   font-size: 12px;
+  cursor: pointer;
 }
-.oq.oq .sh-f {
-  grid-column: 1 / -1;
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 10px 16px;
-  border-top: 1px solid var(--bd);
-  font-size: 12.5px;
-  color: var(--tx3);
+.oq.oq .donelink:hover {
+  color: var(--tx);
 }
-.oq.oq .sh-f .sp {
-  flex: 1;
+/* Your review in the strip, the usage chip, Approve's split button, the box's More options… */
+.oq.oq .strip .t.rv {
+  color: var(--rev);
+  margin-left: 6px;
+}
+.oq.oq .ch.rv {
+  border-color: var(--rev);
+}
+.oq.oq .chip.usage {
+  color: var(--pau);
+  border-color: var(--pau);
+}
+.oq.oq .split {
+  display: inline-flex;
+  gap: 1px;
+}
+.oq.oq .split .btn:first-child {
+  border-top-right-radius: 0;
+  border-bottom-right-radius: 0;
+}
+.oq.oq .split .btn:last-child {
+  border-top-left-radius: 0;
+  border-bottom-left-radius: 0;
+  padding-left: 6px;
+  padding-right: 6px;
+}
+.oq.oq .ask .link {
+  border: 0;
+  background: none;
+  color: var(--ac);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
 }
 .oq.oq .menu.act {
   padding: 4px 4px 0;

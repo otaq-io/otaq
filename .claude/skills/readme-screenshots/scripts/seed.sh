@@ -15,6 +15,8 @@ P=$DEMO/pocket-notes
 trap '[[ $? -ne 0 ]] && rm -rf $P' EXIT
 
 mkdir -p $P/src $P/test && cd $P && git init -q -b main
+# Its own identity, so commits and merges work on a machine with no global git user.
+git config user.name "Pocket Notes" && git config user.email "dev@pocket-notes.invalid"
 cat > package.json <<'EOF'
 {
   "name": "pocket-notes",

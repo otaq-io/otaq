@@ -1,46 +1,18 @@
-import type { MouseEvent } from "react";
+import { Fragment } from "react";
 
 import type { DemoProps } from "./Demo";
 import { Ic } from "./Ic";
-import { type BoardView, type CardView, type ColumnView, stageMenuAt } from "./view";
+import { type BoardView, type CardView, type ColumnView, editFlowView } from "./view";
 
 type BoardProps = DemoProps & { b: BoardView };
 
-/** The frame's scale (LiveDemo.astro's `data-demo-scale`): the demo is drawn scaled, so a click's offset is divided by
- * it to land in the demo's own 1280 px coordinates (decision 0138 §3). */
-function frameScale(el: Element): number {
-  const v = Number(el.closest<HTMLElement>("[data-demo-scale]")?.dataset.demoScale);
-  return v > 0 ? v : 1;
-}
-
-/** The board's toolbar: Board, List and Files, the flow button and the hint. */
+/** The project's toolbar: Board, Files and Settings, the Board's two layouts (columns or List), and New ticket. */
 export function Toolbar({ s, store, b }: BoardProps) {
   return (
     <div className="tb">
-      <div className="seg" role="tablist">
-        <button
-          className={s.view === "board" ? "on" : ""}
-          type="button"
-          role="tab"
-          aria-selected={s.view === "board"}
-          onClick={() => {
-            store.setView("board");
-          }}
-        >
-          <Ic name="columns" />
+      <div className="seg" role="tablist" aria-label="View">
+        <button className="on" type="button" role="tab" aria-selected={true}>
           Board
-        </button>
-        <button
-          className={s.view === "list" ? "on" : ""}
-          type="button"
-          role="tab"
-          aria-selected={s.view === "list"}
-          onClick={() => {
-            store.setView("list");
-          }}
-        >
-          <Ic name="list" />
-          List
         </button>
         <button
           type="button"
@@ -50,43 +22,149 @@ export function Toolbar({ s, store, b }: BoardProps) {
             store.tip("files");
           }}
         >
-          <Ic name="folder" />
           Files
         </button>
+        <button
+          type="button"
+          role="tab"
+          aria-selected={false}
+          onClick={() => {
+            store.tip("projectSettings");
+          }}
+        >
+          Settings
+        </button>
       </div>
-      <button
-        className="hbtn"
-        type="button"
-        onClick={() => {
-          store.openFlow();
-        }}
-      >
-        <Ic name="git-merge" />
-        {b.flowLabel}
-        <Ic name="chevron-down" cls="s12" style={{ color: "var(--tx3)" }} />
-      </button>
+      <div className="seg" role="group" aria-label="Layout">
+        <button
+          className={s.view === "board" ? "on" : ""}
+          type="button"
+          aria-pressed={s.view === "board"}
+          aria-label="Columns"
+          onClick={() => {
+            store.setView("board");
+          }}
+        >
+          <Ic name="columns" />
+        </button>
+        <button
+          className={s.view === "list" ? "on" : ""}
+          type="button"
+          aria-pressed={s.view === "list"}
+          aria-label="List"
+          onClick={() => {
+            store.setView("list");
+          }}
+        >
+          <Ic name="list" />
+        </button>
+      </div>
       <span className="sp"></span>
       <span className="cnt">{b.hintText}</span>
+      <button
+        className="hbtn out"
+        type="button"
+        onClick={() => {
+          document.querySelector<HTMLInputElement>(".oq .ask input")?.focus();
+        }}
+      >
+        <Ic name="plus" />
+        New ticket
+      </button>
     </div>
   );
 }
 
-/** The Needs you strip, then the columns or the list. */
+/** Edit flow's bar over the board: what's being edited, Watch a ticket, Start from…, Cancel and Save flow. */
+function EditBar({ s, store }: DemoProps) {
+  const v = editFlowView(s);
+  return (
+    <div className="editbar">
+      <Ic name="git-merge" />
+      <div className="et">
+        <b>{v.title}</b>
+        <span>{v.hint}</span>
+      </div>
+      <span className="sp"></span>
+      <button
+        className="hbtn"
+        type="button"
+        onClick={() => {
+          store.tip("watch");
+        }}
+      >
+        <Ic name="play" cls="s12" />
+        Watch a ticket
+      </button>
+      <button
+        className="hbtn"
+        type="button"
+        data-menu
+        onClick={() => {
+          store.toggleMenu("startFrom");
+        }}
+        aria-haspopup="menu"
+        aria-expanded={s.menu === "startFrom"}
+      >
+        Start from…
+      </button>
+      <button
+        className="btn btn-s btn-sm"
+        type="button"
+        onClick={() => {
+          store.closeFlow();
+        }}
+      >
+        Cancel
+      </button>
+      <button
+        className="btn btn-p btn-sm"
+        type="button"
+        disabled={!v.changed}
+        onClick={() => {
+          store.saveFlow();
+        }}
+      >
+        Save flow
+      </button>
+    </div>
+  );
+}
+
+/** The Needs you strip (questions and decisions, then Your review), then the columns or the list. */
 export function Board({ s, store, b }: BoardProps) {
   const next = (
     <>
+      <Ic name="arrow-right" cls="s12" />
       Next<span className="kbd">⌘J</span>
     </>
   );
+  const v = s.flowOpen ? editFlowView(s) : null;
   return (
     <>
-      {b.needs.length > 0 ? (
+      {s.flowOpen ? (
+        <EditBar s={s} store={store} />
+      ) : b.needs.length + b.reviews.length > 0 ? (
         <div className="strip" role="region" aria-label="Needs you">
-          <span className="t">Needs you · {b.needs.length}</span>
+          {b.needs.length > 0 && <span className="t">Needs you · {b.needs.length}</span>}
           {b.needs.map((n) => (
             <button
               key={n.k}
               className="ch"
+              type="button"
+              onClick={() => {
+                store.openTicket(n.k);
+              }}
+            >
+              <span className="k">{n.k}</span>
+              {n.why}
+            </button>
+          ))}
+          {b.reviews.length > 0 && <span className="t rv">Your review · {b.reviews.length}</span>}
+          {b.reviews.map((n) => (
+            <button
+              key={n.k}
+              className="ch rv"
               type="button"
               onClick={() => {
                 store.openTicket(n.k);
@@ -122,50 +200,76 @@ export function Board({ s, store, b }: BoardProps) {
           </button>
         </div>
       )}
-      {s.view === "board" ? (
-        <div className="cols">
-          {b.columns.map((col) => (
-            <BoardColumn key={col.id} col={col} s={s} store={store} />
+      {s.view === "board" || s.flowOpen ? (
+        <div className={"cols" + (s.flowOpen ? " editing" : "")}>
+          {b.columns.map((col, i) => (
+            <Fragment key={col.id}>
+              {s.flowOpen && i > 0 && (
+                <button
+                  className="gap-add"
+                  type="button"
+                  aria-label={"Add a stage between " + (b.columns[i - 1]?.title ?? "") + " and " + col.title}
+                  onClick={() => {
+                    store.tip("addStage");
+                  }}
+                >
+                  <Ic name="plus" cls="s12" />
+                </button>
+              )}
+              <BoardColumn col={col} s={s} store={store} />
+            </Fragment>
           ))}
-          {!s.doneOpen && (
-            <button
-              className="donerail"
-              type="button"
-              onClick={() => {
-                store.openDone();
-              }}
-              aria-label="Show Done"
-            >
-              <Ic name="git-merge" style={{ color: "var(--done)" }} />
-              <span>Done</span>
-              <span className="cnt" style={{ writingMode: "horizontal-tb" }}>
-                {b.doneCount}
-              </span>
-            </button>
+          {!s.flowOpen && (
+            <div className="endcol">
+              <button
+                className="hbtn dashed"
+                type="button"
+                onClick={() => {
+                  store.openFlow();
+                }}
+              >
+                <Ic name="git-merge" cls="s12" />
+                Edit flow
+              </button>
+              {!s.doneOpen && (
+                <button
+                  className="donelink"
+                  type="button"
+                  onClick={() => {
+                    store.openDone();
+                  }}
+                  title={"Done · " + b.delivery}
+                >
+                  Done {b.doneCount}
+                  <Ic name="arrow-right" cls="s12" />
+                </button>
+              )}
+            </div>
           )}
         </div>
       ) : (
         <List s={s} store={store} b={b} />
+      )}
+      {v?.details && (
+        <div className="stagedet" role="region" aria-label={v.details.name}>
+          <b className="nm">{v.details.name}</b>
+          {v.details.rows.map(([label, value]) => (
+            <Fragment key={label}>
+              <span className="l">{label}</span>
+              <span className={label === "Skill" ? "mono" : ""}>{value}</span>
+            </Fragment>
+          ))}
+        </div>
       )}
     </>
   );
 }
 
 function BoardColumn({ col, s, store }: DemoProps & { col: ColumnView }) {
-  const openMenu = (e: MouseEvent<HTMLButtonElement>) => {
-    e.stopPropagation();
-    const btn = e.currentTarget;
-    const host = btn.closest(".oq");
-    if (!host) return;
-    const r = btn.getBoundingClientRect();
-    const h = host.getBoundingClientRect();
-    const scale = frameScale(host);
-    const at = stageMenuAt({ bottom: (r.bottom - h.top) / scale, left: (r.left - h.left) / scale });
-    store.openStageMenu(col.id, col.title, at.top, at.left);
-  };
+  const h = col.head;
   return (
-    // A drop target for the mouse; from the keyboard, Start in the ticket's sheet does the same.
-    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag and drop only; the sheet is the keyboard path
+    // A drop target for the mouse; from the keyboard, Start on the card or in the ticket's sheet does the same.
+    // eslint-disable-next-line jsx-a11y/no-static-element-interactions -- drag and drop only; Start is the keyboard path
     <div
       className={("colm " + col.cls).trim()}
       onDragOver={(e) => {
@@ -178,21 +282,40 @@ function BoardColumn({ col, s, store }: DemoProps & { col: ColumnView }) {
         store.drop(col.id);
       }}
     >
-      <div className="col-h">
-        <span className="k" style={{ background: col.color }}></span>
-        {col.title}
-        <span className="n">{col.cards.length}</span>
-        <span className="kd">{col.kind}</span>
-        <button className="ibtn" type="button" data-menu onClick={openMenu} aria-label="Stage menu">
-          <Ic name="ellipsis" cls="s12" />
+      {h ? (
+        <button
+          className={"stagehead" + (h.sel ? " sel" : "") + (h.fixed ? " fixed" : "")}
+          type="button"
+          aria-pressed={h.sel}
+          disabled={col.id === "backlog"}
+          onClick={() => {
+            if (col.id !== "backlog") store.pickStage(col.id);
+          }}
+        >
+          <span className="nm">
+            <span className="k" style={{ background: col.color }}></span>
+            {col.title}
+          </span>
+          <span className="wh">{h.what}</span>
+          {h.who && <span className="who">{h.who}</span>}
+          {h.skill && h.skill !== "—" && <span className="mono sk">{h.skill.replace(/^\//, "")}</span>}
+          {h.line && <span className="wh">{h.line}</span>}
         </button>
-      </div>
-      <div className="col-s">{col.sub}</div>
+      ) : (
+        <>
+          <div className="col-h">
+            <span className="k" style={{ background: col.color }}></span>
+            {col.title}
+            <span className="n">{col.cards.length}</span>
+          </div>
+          <div className="col-s">{col.sub}</div>
+        </>
+      )}
       <div className="col-b">
         {col.cards.map((c) => (
           <Card key={c.k} c={c} store={store} />
         ))}
-        {col.cards.length === 0 && <div className="ph">{col.emptyText}</div>}
+        {col.cards.length === 0 && !h && <div className="ph">{col.emptyText}</div>}
       </div>
     </div>
   );
@@ -258,7 +381,16 @@ function Card({ c, store }: Pick<DemoProps, "store"> & { c: CardView }) {
         <span className="ago">{c.ago}</span>
       </div>
       {c.act && (
-        <button className="btn btn-p btn-sm act" type="button" onClick={open}>
+        <button
+          className={"btn btn-sm act " + (c.act === "Start" ? "btn-s" : "btn-p")}
+          type="button"
+          onClick={(e) => {
+            if (c.act === "Start") {
+              e.stopPropagation();
+              store.start(c.k);
+            } else open(e);
+          }}
+        >
           {c.act}
         </button>
       )}
