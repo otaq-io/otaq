@@ -13,23 +13,45 @@ import { canSave } from "./logic";
 
 const ignore = () => undefined;
 
+type Saved = Extract<EditorSaved, { outcome: "saved" }>;
+
+/**
+ * Creates (or saves) the form and starts the ticket in one request, `editor.create_and_start`: the ticket goes into its
+ * flow's first stage, or waits at its top saying why; a refused start comes back as a refusal in words, the ticket left
+ * created in Backlog (`created`). The box for new work's ⌘↵ sends the same request.
+ */
+export function createAndStart(
+  target: EditorTarget,
+  form: EditorForm,
+  ask: typeof request = request,
+): Promise<EditorSaved> {
+  return ask("editor.create_and_start", { target, form }) as Promise<EditorSaved>;
+}
+
 export interface Editor {
   form: EditorForm;
   setForm: (form: EditorForm) => void;
   /** Changes some fields of the form as it is now (a report that arrives after a request, RPT-03). */
   patchForm: (fields: Partial<EditorForm>) => void;
   saving: boolean;
+  /** Which request is in flight, for its button's loader. */
+  sending: "save" | "start" | null;
   titleMissing: boolean;
   refusal: EditorRefusal | null;
   /** Saves; `done` gets the outcome once it is saved. */
-  save: (done: (saved: Extract<EditorSaved, { outcome: "saved" }>) => void) => void;
-  /** A new ticket was created but a link or a stage choice was refused: the editor goes on as that ticket's. */
+  save: (done: (saved: Saved) => void) => void;
+  /** Create & start: saves, then starts the ticket; `done` gets the outcome once it is saved and started. */
+  start: (done: (saved: Saved) => void) => void;
+  /**
+   * A new ticket was created but a link, a stage choice or its start was refused: the editor goes on as that
+   * ticket's.
+   */
   created: string | null;
 }
 
 export function useEditor(view: EditorView, target: EditorTarget, initial?: EditorForm): Editor {
   const [form, setForm] = useState<EditorForm>(initial ?? view.form);
-  const [saving, setSaving] = useState(false);
+  const [sending, setSending] = useState<"save" | "start" | null>(null);
   const [titleMissing, setTitleMissing] = useState(false);
   const [refusal, setRefusal] = useState<EditorRefusal | null>(null);
   const [created, setCreated] = useState<string | null>(null);
@@ -38,6 +60,29 @@ export function useEditor(view: EditorView, target: EditorTarget, initial?: Edit
     setForm((f) => ({ ...f, ...fields }));
     setRefusal((r) => (r?.field === "form" ? null : r));
   }, []);
+  const saving = sending !== null;
+  const send = (what: "save" | "start", done: (saved: Saved) => void) => {
+    setTitleMissing(true);
+    if (!canSave(form, saving)) return;
+    setSending(what);
+    setRefusal(null);
+    const to: EditorTarget = created === null ? target : { mode: "edit", key: created };
+    const sent =
+      what === "start"
+        ? createAndStart(to, form)
+        : (request("editor.save", { target: to, form }) as Promise<EditorSaved>);
+    sent
+      .then((out) => {
+        if (out.outcome === "saved") done(out);
+        else if (out.outcome === "refused") {
+          setRefusal(out.refusal);
+          if (out.created !== null) setCreated(out.created);
+        }
+      }, ignore)
+      .finally(() => {
+        setSending(null);
+      });
+  };
   return {
     form,
     setForm: (next) => {
@@ -46,26 +91,15 @@ export function useEditor(view: EditorView, target: EditorTarget, initial?: Edit
     },
     patchForm,
     saving,
+    sending,
     titleMissing,
     refusal,
     created,
     save: (done) => {
-      setTitleMissing(true);
-      if (!canSave(form, saving)) return;
-      setSaving(true);
-      setRefusal(null);
-      const to: EditorTarget = created === null ? target : { mode: "edit", key: created };
-      (request("editor.save", { target: to, form }) as Promise<EditorSaved>)
-        .then((out) => {
-          if (out.outcome === "saved") done(out);
-          else if (out.outcome === "refused") {
-            setRefusal(out.refusal);
-            if (out.created !== null) setCreated(out.created);
-          }
-        }, ignore)
-        .finally(() => {
-          setSaving(false);
-        });
+      send("save", done);
+    },
+    start: (done) => {
+      send("start", done);
     },
   };
 }

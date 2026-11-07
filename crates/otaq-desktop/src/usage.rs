@@ -288,6 +288,7 @@ const FEATURES: &[&str] = &[
     "board.menu_choose",
     // The ticket editor.
     "editor.save",
+    "editor.create_and_start",
     "editor.link",
     "editor.source_mode",
     // The ticket sheet.
