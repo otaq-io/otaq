@@ -4279,6 +4279,7 @@
     "Hint": {
       "kind": "enum",
       "variants": {
+        "flow_columns": {},
         "gallery_sample": {}
       }
     },
