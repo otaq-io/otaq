@@ -570,7 +570,16 @@ impl NeedsYouQueue {
                 )
                 .await;
         }
-        let session = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        // A checker asks only to send the ticket back; answered here, its answer goes to the checker in the check.
+        let checker = question
+            .as_ref()
+            .filter(|q| q.send_back.is_some())
+            .and_then(|_| {
+                inner
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Validator)
+            });
+        let session = checker.or_else(|| inner.sessions.running_of(&ticket.id, SessionKind::Agent));
         let delivery = match (waiting.how, session) {
             (Waiting::Live, Some(session)) => {
                 let typed = if clear {
@@ -790,6 +799,13 @@ pub fn answer_text(
         }
         (Some(q), Choice::Other(_)) => format_answer(q, choice),
         (None, Choice::Other(text)) => text.trim().to_owned(),
+        // Sending back moves the ticket: the send-back question's own request, never a typed answer.
+        (_, Choice::SendBack) => {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "Only a question asking to send the ticket back can send it back",
+            ));
+        }
     };
     if text.trim().is_empty() || matches!(choice, Choice::Other(t) if t.trim().is_empty()) {
         return Err(BoardError::refused(
@@ -847,6 +863,7 @@ mod tests {
             "perm" => Status::NeedsYou,
             "idle" => Status::Idle,
             "int" => Status::Interrupted,
+            "review" => Status::WaitingForYou,
             other => panic!("{other}"),
         }
     }
@@ -854,8 +871,9 @@ mod tests {
     fn item(spec: &str, since: i64) -> NeedsYouItem {
         let (key, word) = spec.split_once(':').unwrap();
         let project = key.split('-').next().unwrap();
+        let status = status(word);
         NeedsYouItem {
-            group: NeedsYouGroup::Family,
+            group: crate::board::needs_you::group_of(status).unwrap(),
             project: project.into(),
             project_name: if project == "BILL" {
                 "billing-api".into()
@@ -865,7 +883,7 @@ mod tests {
             id: key.into(),
             key: key.parse().unwrap(),
             title: "Add a search box".into(),
-            status: status(word),
+            status,
             interrupted_from: None,
             question: None,
             reason: String::new(),
@@ -1081,6 +1099,47 @@ mod tests {
                 (TWO_MIN + 1, Change::Wait(&["SHOP-2:idle"])),
             ],
             posted: &[(TWO_MIN + 1, "SHOP-2 ended its turn")],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review is off by default: a ticket reaching Review notifies nothing, also later",
+            script: &[
+                (0, Change::Wait(&["SHOP-1:review", "SHOP-2:review"])),
+                (5, Change::Kind(Kind::ReadyForReview, true)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review turned on: one notification per ticket, never again while it waits",
+            script: &[
+                (0, Change::Kind(Kind::ReadyForReview, true)),
+                (1, Change::Wait(&["SHOP-1:review"])),
+                (30, Change::Tick),
+                (TWO_MIN + 10, Change::Tick),
+                (TWO_MIN + 20, Change::Wait(&["SHOP-2:review"])),
+                (3 * TWO_MIN, Change::Tick),
+            ],
+            posted: &[
+                (1, "SHOP-1 is ready for your review"),
+                (TWO_MIN + 20, "SHOP-2 is ready for your review"),
+            ],
+            bodies: &[],
+            blocked: false,
+        },
+        Case {
+            name: "ready for your review turned on, but the user is looking at the app: nothing",
+            script: &[
+                (0, Change::Kind(Kind::ReadyForReview, true)),
+                (1, Change::Look(true)),
+                (2, Change::Wait(&["SHOP-1:review"])),
+                (10, Change::Look(false)),
+                (TWO_MIN, Change::Tick),
+            ],
+            posted: &[],
             bodies: &[],
             blocked: false,
         },

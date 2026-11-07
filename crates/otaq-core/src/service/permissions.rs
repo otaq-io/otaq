@@ -325,6 +325,10 @@ async fn action_for(
         R::TicketAskHuman(p) if matches!(caller, Caller::Helper { .. }) => {
             Action::AskInCharge(facts(board, &p.key).await?)
         }
+        // Asking to send it back to an earlier stage: its work agent or its checker.
+        R::TicketAskHuman(p) if p.send_back.is_some() => {
+            Action::AskSendBack(facts(board, &p.key).await?)
+        }
         R::TicketAskHuman(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionRecord(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::DecisionChange(_) => Action::UserOnly("change recorded decisions"),
@@ -473,7 +477,7 @@ async fn action_for(
         | R::AgentsDuplicate(_)
         | R::AgentsDelete(_)
         | R::AgentsInUse(_)
-        | R::AgentsMoveRole(_)
+        | R::AgentsNoyan(_)
         | R::AgentsDefaultModel(_) => Action::UserOnly("change agents"),
         // What an agent reads is shown on the user's Settings → Agents (AGR-01).
         R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),
@@ -529,6 +533,7 @@ async fn action_for(
             Action::UserOnly("report the app's window hiding")
         }
         R::UpdatePrefs | R::UpdateSetPrefs(_) => Action::UserOnly("change the update settings"),
+        R::HintsSeen | R::HintDismiss(_) => Action::UserOnly("dismiss hints"),
     })
 }
 

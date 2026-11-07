@@ -3,16 +3,11 @@ flow:
     name: Review
     kind: check
     by: you
-    column: own
   - id: dev
     name: Dev
     kind: agent
-    column: own
     agent: Developer
     skill: work-ticket
-  - id: deliver
-    name: Done
-    kind: delivery
-    column: own
-    mode: click
-    delivers: local
+delivery:
+  delivers: local
+  mode: click

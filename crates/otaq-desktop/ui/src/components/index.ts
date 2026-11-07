@@ -25,6 +25,7 @@ export {
 } from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
 export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
+export { HintPopover, loadHint, OneTimeHint, type HintPopoverProps, type OneTimeHintProps } from "./Hint";
 export { Kbd } from "./Kbd";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";
 export {
@@ -53,7 +54,13 @@ export {
   type StageChoicesProps,
 } from "./StageChoices";
 export { Segmented, Tabs, Toggle, type TabIndicator, type TabItem, type TabsProps } from "./Tabs";
-export { pickTheme, ThemePicker, useThemePicker, type ThemePickerProps } from "./ThemePicker";
+export {
+  chooseThemeMode,
+  pickTheme,
+  ThemePicker,
+  useThemePicker,
+  type ThemePickerProps,
+} from "./ThemePicker";
 export { Toast, type ToastIconTone, type ToastKind, type ToastProps } from "./Toast";
 export { ToolAvatar, type ToolAvatarProps } from "./ToolAvatar";
 export { ToolProblemCallout, type ToolProblemCalloutProps, type ToolProblemLook } from "./ToolProblem";

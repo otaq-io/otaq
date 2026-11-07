@@ -654,9 +654,6 @@ pub fn show_text(
             .collect();
         text.push_str(&format!("Depends on:  {}\n", parents.join(", ")));
     }
-    if let Some(id) = &ticket.external_id {
-        text.push_str(&format!("External ID: {id}\n"));
-    }
     if let Some(branch) = ticket.work.as_ref().and_then(|w| w.branch.as_deref()) {
         text.push_str(&format!("Branch:      {branch}\n"));
     }

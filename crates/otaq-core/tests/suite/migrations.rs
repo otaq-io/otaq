@@ -1040,7 +1040,8 @@ async fn every_state_moves_to_its_place_and_stage() {
             "ready_for_review",
             Some("review"),
         ),
-        ("pr_open", None, "approved", "pr_open", Some("deliver")),
+        // Migration 0085: a PR open ticket is in Review, the flow's last stage (no Delivery stage).
+        ("pr_open", None, "approved", "pr_open", Some("review")),
         ("merged", None, "done", "merged", None),
         ("closed_not_merged", None, "done", "closed_not_merged", None),
         (
@@ -1107,7 +1108,7 @@ async fn every_state_moves_to_its_place_and_stage() {
     let kept: Vec<&String> = columns
         .iter()
         // 0051 drops the round counters too (each check counts its own, T-0417); 0066 the epic columns, and gives
-        // every ticket a priority.
+        // every ticket a priority; 0091 the External ID.
         .filter(|c| {
             !matches!(
                 c.as_str(),
@@ -1123,6 +1124,7 @@ async fn every_state_moves_to_its_place_and_stage() {
                     | "epic_queue_mode_at"
                     | "joined_queue_by"
                     | "priority"
+                    | "external_id"
             )
         })
         .collect();
@@ -1196,7 +1198,7 @@ async fn every_state_moves_to_its_place_and_stage() {
     );
     assert_eq!(
         place("pr_open", 24),
-        (Place::stage_of("deliver"), Status::PrOpen)
+        (Place::stage_of("review"), Status::PrOpen)
     );
     assert_eq!(place("merged", 25), (Place::Done, Status::Merged));
     assert_eq!(
@@ -1463,7 +1465,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
             (flow.version, flow.yaml.as_str(), flow.preset.as_deref()),
             (
                 1,
-                default_as_0050_stored().as_str(),
+                default_as_0085_upgraded().as_str(),
                 Some("otaq-default.yaml")
             ),
             "{key}"
@@ -1479,23 +1481,55 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 /// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
 /// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill), before d0130's
 /// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525), and with its agents' skill
-/// lists, which a stored flow keeps and Otaq now reads and ignores (T6).
+/// lists, which a stored flow keeps and Otaq now reads and ignores (T6), and before its stages had descriptions.
 fn default_as_0050_stored() -> String {
-    // 0050 stored the default flow of its day, whose checker was still called Validator.
-    let stored = naming::DEFAULT_FLOW_YAML
-        .replace("Checker", "Validator")
-        .replace(
-            "  - name: Developer\n    model: default",
-            "  - name: Developer\n    skills: [work-ticket, commit]\n    model: default",
-        )
-        .replace(
-            "  - name: Validator\n    model: default",
-            "  - name: Validator\n    skills: [validate]\n    model: default",
-        )
-        .replace("    skill: open-pr\n    mode: click", "    mode: click")
-        .replace("    agents: [Validator]\n", "    agent: Validator\n");
-    assert_ne!(stored, naming::DEFAULT_FLOW_YAML);
-    stored
+    "agents:
+  - name: Developer
+    skills: [work-ticket, commit]
+    model: default
+  - name: Validator
+    skills: [validate]
+    model: default
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: own
+    agent: Validator
+    skill: validate
+    rounds: 3
+  - id: review
+    name: Review
+    kind: check
+    by: you
+    column: own
+  - id: deliver
+    name: Done
+    kind: delivery
+    column: with-previous
+    agent: Developer
+    mode: click
+    delivers: either
+"
+    .to_owned()
+}
+
+/// [`default_as_0050_stored`] as migration 0085 rewrote it: its Delivery stage is the flow's `delivery:` setting, the
+/// columns gone (and the agents' skill lists, which nothing reads).
+fn default_as_0085_upgraded() -> String {
+    let upgraded = otaq_core::flow::yaml::upgraded(&default_as_0050_stored()).expect("an old form");
+    assert!(
+        upgraded.contains("delivery:\n  delivers: either\n  mode: click\n  agent: Developer\n")
+    );
+    assert!(!upgraded.contains("kind: delivery") && !upgraded.contains("column:"));
+    upgraded
 }
 
 /// T-0412 (FLW-01, Q296): 0050 drops what M32's move-over and the old settings kept: the Validation, Validation
@@ -1548,7 +1582,8 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     }
     assert_eq!(
         store.setting("theme").await.unwrap().as_deref(),
-        Some("\"dracula\"")
+        Some(r#"{"mode":"dark","light":"otaq-light","dark":"dracula"}"#),
+        "a later migration turns the theme into a mode"
     );
     assert_eq!(
         project_json(&store, "NOTE").await,
@@ -1559,7 +1594,7 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     store.agent("v").await.unwrap().expect("kept");
     let versions = store.flow_versions("NOTE").await.unwrap();
     assert_eq!(versions.len(), 1);
-    assert_eq!(versions[0].yaml, default_as_0050_stored());
+    assert_eq!(versions[0].yaml, default_as_0085_upgraded());
     assert_eq!(versions[0].applied_by, otaq_core::flow::AppliedBy::Shipped);
     assert!(versions[0].current);
 }
@@ -1757,7 +1792,8 @@ async fn merge_check_due_starts_off() {
 
 /// T-0517 (d0128, d0108; Q511): migration 0063 stores the Project agent role as `noyan`. An agent holding
 /// `project-agent` holds `noyan` and its shipped skill reads `noyan`; its skills and the stage choices that name it
-/// stay (the rebuild cascades nothing); one agent still holds the role, and `project-agent` is refused.
+/// stay (the rebuild cascades nothing). Since migration 0088 that agent is the one Noyan uses, an app setting, and
+/// agents have no role column.
 #[tokio::test]
 async fn the_project_agent_role_is_stored_as_noyan() {
     let tmp = tempfile::tempdir().unwrap();
@@ -1798,25 +1834,22 @@ async fn the_project_agent_role_is_stored_as_noyan() {
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let agents: Vec<(String, String, Option<String>, String)> =
-        sqlx::query_as("SELECT id, name, role, instructions FROM agents ORDER BY id")
+    let agents: Vec<(String, String, String)> =
+        sqlx::query_as("SELECT id, name, instructions FROM agents ORDER BY id")
             .fetch_all(store.pool())
             .await
             .unwrap();
     assert_eq!(
         agents,
         [
-            (
-                "ag".into(),
-                "Noyan".into(),
-                Some("noyan".into()),
-                "Split small.".into()
-            ),
-            ("dev".into(), "Developer".into(), None, String::new()),
+            ("ag".into(), "Noyan".into(), "Split small.".into()),
+            ("dev".into(), "Developer".into(), String::new()),
             // Migration 0066: the `epic-lead` role is gone (d0133); the agent stays.
-            ("el".into(), "Epic lead".into(), None, String::new()),
+            ("el".into(), "Epic lead".into(), String::new()),
         ]
     );
+    assert_eq!(store.noyan_agent_id().await.unwrap().as_deref(), Some("ag"));
+    assert!(!has_column(store.pool(), "agents", "role").await);
     // Migration 0078: the agents' skill lists are gone with their table.
     assert!(!has_table(store.pool(), "agent_skills").await);
     let choice: String =
@@ -1825,14 +1858,6 @@ async fn the_project_agent_role_is_stored_as_noyan() {
             .await
             .unwrap();
     assert_eq!(choice, "ag");
-    let second = sqlx::query("UPDATE agents SET role = 'noyan' WHERE id = 'dev'")
-        .execute(store.pool())
-        .await;
-    assert!(second.is_err(), "one agent holds the role");
-    let old = sqlx::query("UPDATE agents SET role = 'project-agent' WHERE id = 'dev'")
-        .execute(store.pool())
-        .await;
-    assert!(old.is_err(), "the old key is refused");
 }
 
 /// T-0533 (d0133, d0059, d0108): migration 0066 removes the epic type and the lead. Epics, their children and their
@@ -1880,16 +1905,17 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let rows: Vec<(String, i64, Option<String>, String)> =
-        sqlx::query_as("SELECT id, priority, external_id, plan FROM tickets ORDER BY id")
+    // The External ID went later (migration 0091), so only the priority and the Plan are read here.
+    let rows: Vec<(String, i64, String)> =
+        sqlx::query_as("SELECT id, priority, plan FROM tickets ORDER BY id")
             .fetch_all(store.pool())
             .await
             .unwrap();
     assert_eq!(
         rows,
         [
-            ("t18".into(), 2, Some("PAY-7".into()), String::new()),
-            ("t19".into(), 3, None, String::new()),
+            ("t18".into(), 2, String::new()),
+            ("t19".into(), 3, String::new()),
         ]
     );
     let deps: Vec<(String, String)> =
@@ -1917,7 +1943,7 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
             "{column}"
         );
     }
-    for column in ["plan", "plan_by", "plan_at", "external_id", "priority"] {
+    for column in ["plan", "plan_by", "plan_at", "priority"] {
         assert!(
             has_column(store.pool(), "tickets", column).await,
             "{column}"
@@ -1944,15 +1970,13 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     ] {
         assert!(!has_table(store.pool(), table).await, "{table}");
     }
-    let role: Option<String> = sqlx::query_scalar("SELECT role FROM agents WHERE id = 'el'")
+    // The lead's agent keeps its row; agents have no role at all since migration 0088.
+    let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents WHERE id = 'el'")
         .fetch_one(store.pool())
         .await
         .unwrap();
-    assert_eq!(role, None);
-    let refused = sqlx::query("UPDATE agents SET role = 'epic-lead' WHERE id = 'el'")
-        .execute(store.pool())
-        .await;
-    assert!(refused.is_err(), "only noyan");
+    assert_eq!(kept, 1);
+    assert!(!has_column(store.pool(), "agents", "role").await);
     let null = sqlx::query("UPDATE tickets SET priority = NULL WHERE id = 't18'")
         .execute(store.pool())
         .await;
@@ -2466,13 +2490,12 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
         Option<String>,
         Option<String>,
         Option<String>,
-        Option<String>,
         String,
         Option<String>,
         i64,
     );
     let agents: Vec<AgentRow> = sqlx::query_as(
-        "SELECT name, instructions, tool, model, effort, role, came_from, mark_text, updated_at FROM agents
+        "SELECT name, instructions, tool, model, effort, came_from, mark_text, updated_at FROM agents
          ORDER BY id",
     )
     .fetch_all(store.pool())
@@ -2487,7 +2510,6 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
                 Some("claude".into()),
                 Some("opus".into()),
                 Some("high".into()),
-                Some("noyan".into()),
                 "agents_file".into(),
                 None,
                 2
@@ -2496,7 +2518,6 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
                 "Validator".into(),
                 "Run the tests.".into(),
                 Some("codex".into()),
-                None,
                 None,
                 None,
                 "default_preset".into(),
@@ -2567,7 +2588,8 @@ async fn migration_0080_drops_the_other_tool_settings_and_keeps_holds_sessions_a
             .fetch_all(pool)
             .await
             .unwrap();
-    assert_eq!(keys, ["agents.default_model"]);
+    // The agent that held the Noyan role becomes the agent Noyan uses (migration 0088).
+    assert_eq!(keys, ["agents.default_model", "agents.noyan"]);
     for (table, column) in [
         ("agent_holds", "fallback_tool"),
         ("agent_holds", "fallback_held"),
@@ -2737,4 +2759,281 @@ async fn migration_0084_turns_a_stored_you_choice_into_required() {
     );
     assert_eq!(read(&payloads[1], "by"), Some("you".into()));
     assert_eq!(payloads[2], json!({"choice": "you"}));
+}
+
+/// Noyan's agent is one app setting, and agents have no role: migration 0088 makes the agent that held the Noyan role
+/// the agent Noyan uses (the `agents.noyan` setting) and drops the role column. Every agent keeps everything else; a
+/// database where no agent held the role gets no setting.
+#[tokio::test]
+async fn migration_0088_keeps_todays_noyan_agent_as_the_setting() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 87).await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, tool, model, effort, role, came_from, created_at, updated_at)
+         VALUES ('noyan', 'Noyan', 'Keep tickets small.', NULL, NULL, NULL, NULL, 'agents_file', 1, 1),
+                ('strong', 'Strong', 'Think hard.', 'claude', 'opus', 'high', 'noyan', 'you', 1, 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert!(!has_column(store.pool(), "agents", "role").await);
+    assert_eq!(
+        store.noyan_agent_id().await.unwrap().as_deref(),
+        Some("strong"),
+        "the agent that held the role, not the one called Noyan"
+    );
+    let strong = store.agent("strong").await.unwrap().unwrap();
+    assert_eq!(
+        (
+            strong.name.as_str(),
+            strong.instructions.as_str(),
+            strong.effort.as_deref()
+        ),
+        ("Strong", "Think hard.", Some("high"))
+    );
+    assert_eq!(store.agents().await.unwrap().len(), 2);
+
+    // No agent held the role: no setting.
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 87).await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, came_from, created_at, updated_at)
+         VALUES ('dev', 'Developer', '', 'default_preset', 1, 1)",
+    )
+    .await;
+    pool.close().await;
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(store.noyan_agent_id().await.unwrap(), None);
+}
+
+/// Tickets have no External ID: migration 0091 drops the column and every ticket still loads. History forgets the
+/// External ID's changes: an edit that changed only it goes, an edit that changed more keeps its other fields, and a
+/// fix an agent made to a ticket it filed loses it from its fields the same way.
+#[tokio::test]
+async fn migration_0091_drops_the_external_id_and_its_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at, external_id)
+         VALUES ('t1', 'p', 1, 'Price table', 'backlog', 'me', 0, 0, 'PAY-123'),
+                ('t2', 'p', 2, 'Cart', 'backlog', 'me', 0, 0, NULL)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't1', 'updated', 'agent:SHOP-9',
+                   '{"changes":[{"field":"external_id","after":"PAY-123"}]}', 1),
+                  ('e2', 't1', 'updated', 'user:me',
+                   '{"changes":[{"field":"title","before":"Prices","after":"Price table"},{"field":"external_id","before":"PAY-1","after":"PAY-123"}],"author":"me"}', 2),
+                  ('e3', 't1', 'updated', 'user:me', '{"changes":[{"field":"priority","before":"3","after":"2"}]}', 3),
+                  ('e4', 't2', 'fixed_created_ticket', 'agent:SHOP-2',
+                   '{"ticket":"SHOP-1","change":"edited","fields":["external_id"]}', 4),
+                  ('e5', 't2', 'fixed_created_ticket', 'agent:SHOP-2',
+                   '{"ticket":"SHOP-1","change":"edited","fields":["title","external_id","priority"]}', 5),
+                  ('e6', 't2', 'comment_added', 'user:me', '{"field":"external_id"}', 6)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert!(!has_column(store.pool(), "tickets", "external_id").await);
+    let tickets: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, title FROM tickets ORDER BY id")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    assert_eq!(
+        tickets,
+        [
+            ("t1".to_owned(), "Price table".to_owned()),
+            ("t2".to_owned(), "Cart".to_owned())
+        ]
+    );
+    let events: Vec<(String, String)> =
+        sqlx::query_as("SELECT id, payload_json FROM events ORDER BY at")
+            .fetch_all(store.pool())
+            .await
+            .unwrap();
+    let events: Vec<(String, serde_json::Value)> = events
+        .into_iter()
+        .map(|(id, p)| (id, serde_json::from_str(&p).unwrap()))
+        .collect();
+    assert_eq!(
+        events,
+        [
+            (
+                "e2".to_owned(),
+                json!({"changes": [{"field": "title", "before": "Prices", "after": "Price table"}], "author": "me"})
+            ),
+            (
+                "e3".to_owned(),
+                json!({"changes": [{"field": "priority", "before": "3", "after": "2"}]})
+            ),
+            (
+                "e5".to_owned(),
+                json!({"ticket": "SHOP-1", "change": "edited", "fields": ["title", "priority"]})
+            ),
+            ("e6".to_owned(), json!({"field": "external_id"})),
+        ]
+    );
+}
+
+/// Migration 0085: a flow's delivery is a setting of the flow, not a stage. Every stored flow version with a
+/// Delivery stage is rewritten with its `delivery:`; a ticket that was in the Delivery stage (Review's Approved
+/// section on the default flow) is in Review, its status kept (To deliver, PR open), its Delivery run ended; a
+/// ticket elsewhere is left where it is.
+#[tokio::test]
+async fn migration_0085_makes_the_delivery_a_setting_and_puts_approved_tickets_in_review() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO project_flows (project_id, version, yaml, applied_by, applied_at, current)
+         VALUES ('p', 1, ?, 'shipped', 1, TRUE)",
+    )
+    .bind(default_as_0050_stored())
+    .execute(&pool)
+    .await
+    .unwrap();
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, stage_id, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Approved, to deliver', 'deliver', 'to_deliver', 'me', 0, 0),
+                ('t2', 'p', 2, 'PR open', 'deliver', 'pr_open', 'me', 0, 0),
+                ('t3', 'p', 3, 'Waiting for review', 'review', 'ready_for_review', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at, ended_at)
+         VALUES ('r1', 't1', 'review', 'you', 'passed', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at)
+         VALUES ('r2', 't1', 'deliver', 'delivery', NULL, 2)",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let tickets: Vec<(String, String, Option<String>)> =
+        sqlx::query_as("SELECT id, state, stage_id FROM tickets ORDER BY number")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    let row = |id: &str, state: &str, stage: &str| (id.into(), state.into(), Some(stage.into()));
+    assert_eq!(
+        tickets,
+        [
+            row("t1", "to_deliver", "review"),
+            row("t2", "pr_open", "review"),
+            row("t3", "ready_for_review", "review"),
+        ]
+    );
+    let runs: Vec<(String, Option<String>, bool)> = sqlx::query_as(
+        "SELECT stage_id, result, ended_at IS NOT NULL FROM stage_runs WHERE ticket_id = 't1' ORDER BY rowid",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        runs,
+        [
+            ("review".into(), Some("passed".into()), true),
+            ("deliver".into(), Some("done".into()), true),
+        ],
+        "the Delivery run ended; being delivered in Review opens no run"
+    );
+    let flow = store.current_flow("SHOP").await.unwrap().unwrap();
+    assert_eq!(flow.yaml, default_as_0085_upgraded());
+    let file = flow.file().unwrap();
+    assert_eq!(file.flow.stages.len(), 3);
+    assert_eq!(
+        file.flow.delivery.delivers,
+        otaq_core::flow::Delivers::Either
+    );
+    store.close().await;
+
+    // Opened again, nothing changes: the rewrite ran once, with the migration.
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(
+        store.current_flow("SHOP").await.unwrap().unwrap().yaml,
+        default_as_0085_upgraded()
+    );
+}
+
+/// The stored `theme` row after the migrations, as the settings read it, for a row stored before 0090 as `value`.
+async fn theme_after_0090(value: &str) -> otaq_core::board::settings::ThemeSetting {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at)
+         VALUES ('theme', ?, 0), ('notifications', 'false', 0)",
+    )
+    .bind(value)
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value_json FROM settings")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    let object: serde_json::Map<String, serde_json::Value> = rows
+        .into_iter()
+        .map(|(key, value)| (key, serde_json::from_str(&value).unwrap()))
+        .collect();
+    assert_eq!(object["notifications"], json!(false), "the other rows stay");
+    serde_json::from_value(object["theme"].clone()).unwrap()
+}
+
+/// The theme becomes a mode with a light and a dark pick: migration 0090 makes a picked light theme the light pick
+/// with the mode Light, a picked dark theme the dark pick with the mode Dark, and a setting still waiting for the OS
+/// Match system with its two themes.
+#[tokio::test]
+async fn migration_0090_keeps_the_picked_theme_as_the_pick_of_its_kind() {
+    use otaq_core::board::settings::{Theme, ThemeMode, ThemeSetting};
+    let with = |mode, light, dark| ThemeSetting { mode, light, dark };
+    assert_eq!(
+        theme_after_0090("\"daylight\"").await,
+        with(ThemeMode::Light, Theme::Daylight, Theme::OtaqDark)
+    );
+    assert_eq!(
+        theme_after_0090(&format!("\"{}\"", naming::THEME_LIGHT)).await,
+        with(ThemeMode::Light, Theme::OtaqLight, Theme::OtaqDark)
+    );
+    assert_eq!(
+        theme_after_0090("\"tokyo-night\"").await,
+        with(ThemeMode::Dark, Theme::OtaqLight, Theme::TokyoNight)
+    );
+    assert_eq!(
+        theme_after_0090(r#"{"dark":"dracula","light":"rose-pine-dawn"}"#).await,
+        with(ThemeMode::System, Theme::RosePineDawn, Theme::Dracula)
+    );
 }

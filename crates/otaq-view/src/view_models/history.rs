@@ -549,7 +549,6 @@ fn fields(names: impl Iterator<Item = String>) -> String {
         .map(|f| match f.as_str() {
             "body" => "description".to_owned(),
             "base_branch" => "base branch".to_owned(),
-            "external_id" => "External ID".to_owned(),
             _ => f,
         })
         .collect::<Vec<_>>()
@@ -1423,6 +1422,21 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         // A drag to another stage (FLW-18): "Moved back to Dev" · "Product spec · run by you", the note, or "by you";
         // "Moved to Review" · "Skipped Validate · by you". Apply now's moves add the stage that went (APN-04):
         // "Moved to Review" · "by you · Security was removed".
+        // The user's Send back on an agent's send-back question: "Sent back to Product spec" · "Dev asked: refunds over
+        // 30 days aren't specified · you sent it back · no longer skipped".
+        EventKind::Dragged if p.get("reason").is_some() => {
+            let stage = text(p, "stage").unwrap_or_default();
+            let reason = text(p, "reason").map(first_line).unwrap_or_default();
+            let mut detail = match text(p, "asked_by") {
+                Some(by) => format!("{by} asked: {reason}"),
+                None => format!("Asked: {reason}"),
+            };
+            detail.push_str(" \u{b7} you sent it back");
+            if p.get("skip_cleared").and_then(|v| v.as_bool()) == Some(true) {
+                detail.push_str(" \u{b7} no longer skipped");
+            }
+            (format!("Sent back to {stage}"), Some(detail))
+        }
         EventKind::Dragged => {
             let stage = text(p, "stage").unwrap_or_default();
             let skipped: Vec<&str> = p
@@ -3230,6 +3244,34 @@ mod tests {
             dragged.detail.as_deref(),
             Some("by you"),
             "an ordinary drag says nothing more"
+        );
+    }
+
+    /// An agent asked to send the ticket back and the user did: the row names the stage, who asked, the reason and
+    /// the user's answer, and that a skip was cleared (only the user skips a stage, so only the user undoes a skip).
+    #[test]
+    fn a_send_back_the_user_chose_names_the_reason_and_the_answer() {
+        let row = |payload| event_row(&event(EventKind::Dragged, 1, payload)).unwrap();
+        let sent = row(serde_json::json!({
+            "stage": "Product spec", "back": true, "skipped": [], "run_by_you": false,
+            "note": "Dev asked to send SHOP-1 back to Product spec: Refunds over 30 days aren't specified.",
+            "asked_by": "Dev", "reason": "Refunds over 30 days aren't specified.\nMore lines.",
+            "skip_cleared": true,
+        }));
+        assert_eq!(sent.title, "Sent back to Product spec");
+        assert_eq!(
+            sent.detail.as_deref(),
+            Some(
+                "Dev asked: Refunds over 30 days aren't specified. \u{b7} you sent it back \u{b7} no longer skipped"
+            )
+        );
+        let ran = row(serde_json::json!({
+            "stage": "Dev", "back": true, "asked_by": "Validate", "reason": "The API shape is wrong.",
+            "skip_cleared": false,
+        }));
+        assert_eq!(
+            ran.detail.as_deref(),
+            Some("Validate asked: The API shape is wrong. \u{b7} you sent it back")
         );
     }
 

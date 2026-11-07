@@ -16,8 +16,11 @@ ticket runs every stage of its flow, and those stages plan it and build it, each
 ## Steps
 
 1. **Get the context first.** Run `otaq prime --project` and read all of it: every ticket with its status,
-   priority and dependencies, the worktree and branch of each started ticket, the **stage choices** the user may
-   name, the rules, **Noyan’s instructions** (the user's) and the project's notes.
+   priority and dependencies, the worktree and branch of each started ticket, **the flow** (every stage with what it
+   is for), the **stage choices** the user may name, the rules, **Noyan’s instructions** (the user's) and the
+   project's notes. The stages' descriptions tell you what each stage settles and when it matters, so you can say
+   what a ticket will go through. A stage with nothing to add for a ticket is finished at once by its own agent, with
+   a short note; that is never a reason for you to skip it.
 2. **Follow Noyan’s instructions**, which `prime --project` prints. They are the user's own rules (for example
    "use my /import-github skill" or "write ticket titles in English"). **Imports from trackers use the user's own
    skills**; Otaq ships no importers.
@@ -171,7 +174,8 @@ Say yes, or change rows ("2 needs a review", "drop 2").
 `prime --project` lists under **Stage choices** every stage a ticket may choose for: each stage, its own agent, the
 other agents whose tool has the stage's skill, and `skip` where the flow lets the stage be skipped. You set no choices of your own: every ticket runs every
 stage of its flow with the stage's own agent, unless the user named a choice ("1 skips Tech spec", "use the Quick
-developer for all of these").
+developer for all of these"). Never suggest a skip because a stage looks unneeded for a ticket: its agent reads the
+stage's description and finishes at once when there is nothing to add.
 
 - Every choice comes from the user, so pass it with `--by-user`, and it reads *set by you* on the ticket:
 

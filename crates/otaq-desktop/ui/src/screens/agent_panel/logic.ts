@@ -39,14 +39,14 @@ export function showAgent(
 }
 
 /**
- * The named agent the empty agent panel starts on after "New agent on …" (M23, SHL-04), by project key: `agent_panel.view`'s
- * `start_on` and `agent_panel.send`'s `agent`. A project not in the map starts on its Project agent default.
+ * The agent picked for the new conversation in the empty agent panel, by project key: `agent_panel.view`'s `start_on`
+ * and `agent_panel.send`'s `agent`. A project not in the map starts on the agent Noyan uses (the app setting).
  */
 export type StartOn = Readonly<Record<string, string>>;
 
 export const startOn: Store<StartOn> = createStore<StartOn>({});
 
-/** Drops `project`'s "New agent on …" choice: the empty agent panel starts on the Project agent default again. */
+/** Drops `project`'s pick: the empty agent panel starts on the agent Noyan uses again. */
 export function clearStartOn(project: string, store: Store<StartOn> = startOn): void {
   store.update((s) => {
     if (!(project in s)) return s;
@@ -184,27 +184,28 @@ export function showAgentInPanel(
 }
 
 /**
- * "New agent on Sonnet" in a notice (SHL-04, M23): the empty agent panel on that named agent, its box focused. Nothing
- * starts until the user sends (d0087); the first message then starts it on `agent`.
+ * The empty agent panel's Agent pick: the new conversation starts on `agent` instead of the agent Noyan uses (`usual`).
+ * Picking the agent Noyan uses drops the pick. Nothing starts until the user sends (d0087).
  */
-export function startNewAgentOn(
+export function pickStartOn(
   project: string,
   agent: string,
-  routes: AgentPanelRoutes = AGENT_PANEL_ROUTES,
+  usual: string | null,
   starts: Store<StartOn> = startOn,
 ): void {
+  if (agent === usual) {
+    clearStartOn(project, starts);
+    return;
+  }
   starts.update((s) => (s[project] === agent ? s : { ...s, [project]: agent }));
-  showAgent(project, null, routes.shown);
-  showAgentPanel(routes);
-  requestAgentPanelFocus(null, routes.focus);
 }
 
 /** The projects whose first message is on its way: a second Enter while one is sending starts nothing. */
 const sending = new Set<string>();
 
 /**
- * Send in the empty agent panel (Enter): the message is the go-ahead (d0087), on `agent` after "New agent on …" (the view's
- * `starts_on`). Starts one agent per press, never a second while the first is on its way, and nothing for a box
+ * Send in the empty agent panel (Enter): the message is the go-ahead (d0087), on `agent` when the conversation picked one
+ * (the view's `starts_on`). Starts one agent per press, never a second while the first is on its way, and nothing for a box
  * without words; the agent panel then shows the new agent with its terminal focused. Resolves to the new agent's id, or
  * `null` when nothing was sent.
  */

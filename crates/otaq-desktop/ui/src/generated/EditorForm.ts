@@ -9,7 +9,7 @@ export type EditorForm = { title: string, body: string,
 /**
  * 1–4 once picked; `null`: Normal for a new ticket.
  */
-priority: number | null, base_branch: string | null, external_id: string, 
+priority: number | null, base_branch: string | null, 
 /**
  * The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
  */
@@ -17,4 +17,8 @@ choices: Array<EditorChoice>,
 /**
  * Create only: the report the form took (RPT-03), posted with `report_line` as the ticket's first comment.
  */
-report?: EditorReport, report_line?: string, };
+report?: EditorReport, report_line?: string, 
+/**
+ * Create only: the tickets the new one waits for ("SHOP-12"), linked once it is created.
+ */
+waits_for: Array<string>, };

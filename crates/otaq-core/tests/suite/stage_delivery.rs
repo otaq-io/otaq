@@ -12,8 +12,8 @@ use otaq_core::board::needs_you::{NeedsYouGroup, ProjectTickets, group_of, needs
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, AutoMergeStop, Flags, Place, Status, TicketKey, ValidationTrigger};
-use otaq_core::flow::default::{DELIVER, DEV, REVIEW};
-use otaq_core::flow::{Delivers, Delivery, DeliveryMode, Flow, FlowFile, yaml};
+use otaq_core::flow::default::{DEV, REVIEW};
+use otaq_core::flow::{Delivers, DeliveryMode, Flow, FlowFile, yaml};
 use otaq_core::git::testing::commit;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
@@ -51,7 +51,6 @@ fn ticket(key: &str, place: Place, status: Status, minutes_ago: i64) -> Ticket {
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
-        external_id: None,
         depends_on: Vec::new(),
         flags: Flags::default(),
         created_by: me(),
@@ -83,12 +82,8 @@ fn ticket(key: &str, place: Place, status: Status, minutes_ago: i64) -> Ticket {
 #[test]
 fn group_three_is_waiting_in_a_human_check_or_a_click_delivery() {
     let mut flow = every_kind();
-    for stage in flow.stages.iter_mut().filter(|s| s.id == "ship") {
-        stage.delivery = Some(Delivery {
-            mode: DeliveryMode::Click,
-            delivers: Delivers::Pr,
-        });
-    }
+    flow.delivery.mode = DeliveryMode::Click;
+    flow.delivery.delivers = Delivers::Pr;
     assert_eq!(group_of(Status::WaitingForYou), Some(NeedsYouGroup::Review));
     assert_eq!(group_of(Status::ToDeliver), Some(NeedsYouGroup::Review));
     for status in [Status::PrOpen, Status::Merged, Status::Checking] {
@@ -98,9 +93,9 @@ fn group_three_is_waiting_in_a_human_check_or_a_click_delivery() {
     let tickets = vec![
         ticket("NOTE-1", Place::stage_of("qa"), Status::WaitingForYou, 30),
         ticket("NOTE-2", Place::stage_of("qa"), Status::WaitingForYou, 60),
-        ticket("NOTE-3", Place::stage_of("ship"), Status::ToDeliver, 5),
+        ticket("NOTE-3", Place::stage_of("qa"), Status::ToDeliver, 5),
         ticket("NOTE-4", Place::stage_of("security"), Status::Checking, 90),
-        ticket("NOTE-5", Place::stage_of("ship"), Status::PrOpen, 90),
+        ticket("NOTE-5", Place::stage_of("qa"), Status::PrOpen, 90),
     ];
     let items = needs_you_items(
         &[ProjectTickets {
@@ -197,8 +192,8 @@ async fn a_pr_open_ticket_keeps_its_worktree_until_merged_or_closed() {
         assert_eq!(open.status, Status::PrOpen);
         assert_eq!(
             open.place,
-            Place::stage_of(DELIVER),
-            "in the Delivery stage"
+            Place::stage_of(REVIEW),
+            "in Review, the last stage"
         );
         assert!(wt.is_dir(), "PR open keeps the worktree");
 

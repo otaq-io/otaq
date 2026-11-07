@@ -18,7 +18,7 @@ use otaq_core::domain::TicketKey;
 use otaq_core::flow::apply_now::{
     ApplyNowPlan, FORWARD_HINT, KeptTicket, MoveChoice, PlannedMove, Refreshed, Way,
 };
-use otaq_core::flow::{CheckBy, Delivers, Flow, StageKind};
+use otaq_core::flow::{CheckBy, Flow, StageKind};
 
 use crate::icons::IconName;
 use crate::view_models::menu::MenuItem;
@@ -219,18 +219,16 @@ fn keep_row(kept: &KeptTicket) -> KeepRow {
 }
 
 /// A choice's icon, as its column's (*11 → Row · Apply now*'s open picker): Backlog a dashed circle, Ready for Dev an
-/// hourglass, an Agent stage a bot, an agent check a shield, a human check a person, a Delivery a PR or a merge.
+/// hourglass, an Agent stage a bot, an agent check a shield, a human check a person.
 fn choice_icon(to: &DropOn, flow: Option<&Flow>) -> IconName {
     let stage = match to {
         DropOn::Board(DropTarget::Backlog) => return IconName::CircleDashed,
         DropOn::Board(_) => return IconName::Hourglass,
         DropOn::Stage { stage } => flow.and_then(|f| f.stage(stage)),
     };
-    match stage.map(|s| (s.kind, s.delivery.map(|d| d.delivers))) {
-        Some((StageKind::Check { by: CheckBy::Agent }, _)) => IconName::ShieldCheck,
-        Some((StageKind::Check { by: CheckBy::You }, _)) => IconName::UserCheck,
-        Some((StageKind::Delivery, Some(Delivers::Pr))) => IconName::GitPullRequest,
-        Some((StageKind::Delivery, _)) => IconName::GitMerge,
+    match stage.map(|s| s.kind) {
+        Some(StageKind::Check { by: CheckBy::Agent }) => IconName::ShieldCheck,
+        Some(StageKind::Check { by: CheckBy::You }) => IconName::UserCheck,
         _ => IconName::Bot,
     }
 }
@@ -402,14 +400,15 @@ mod tests {
         k.parse().unwrap()
     }
 
-    /// shop-web's new flow after the change: Dev, Validate, Review, Done · PR.
+    /// shop-web's new flow after the change: Dev, Validate, Review, Docs.
     fn new_flow() -> Flow {
         let yaml = "\
 flow:
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
   - {id: validate, name: Validate, kind: check, by: agent, agent: Validator, skill: validate, rounds: 3}
   - {id: review, name: Review, kind: check, by: you}
-  - {id: ship, name: Done, kind: delivery, agent: Shipper, skill: open-pr, mode: automatic, delivers: pr}
+  - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}
+delivery: {delivers: pr, mode: automatic, agent: Shipper, skill: open-pr}
 ";
         otaq_core::flow::yaml::read(yaml).unwrap().flow
     }
@@ -423,7 +422,7 @@ flow:
         }
     }
 
-    /// Backlog, Ready for Dev, then Dev · Validate · Review · Done · PR with `next` the first stage after the removed
+    /// Backlog, Ready for Dev, then Dev · Validate · Review · Docs with `next` the first stage after the removed
     /// one's place (earlier ones back, later ones forward).
     fn choices(next: &str, ticket: &str) -> Vec<MoveChoice> {
         let mut list = vec![
@@ -439,7 +438,7 @@ flow:
             ("dev", "Dev"),
             ("validate", "Validate"),
             ("review", "Review"),
-            ("ship", "Done \u{b7} PR"),
+            ("docs", "Docs"),
         ];
         let at = stages.iter().position(|(id, _)| *id == next).unwrap();
         for (i, (id, name)) in stages.iter().enumerate() {
@@ -614,13 +613,7 @@ flow:
                     false,
                     false
                 ),
-                (
-                    "stage:ship",
-                    "Done \u{b7} PR",
-                    Some(IconName::GitPullRequest),
-                    false,
-                    false
-                ),
+                ("stage:docs", "Docs", Some(IconName::Bot), false, false),
             ]
         );
         assert_eq!(v.keep_label, None);
@@ -749,7 +742,7 @@ flow:
             Some("SHOP-15 \u{b7} in Dev \u{b7} keeps running, and 6 more")
         );
 
-        let forward = view(&p, None, &picks(&[("SHOP-19", "stage:ship")]), None);
+        let forward = view(&p, None, &picks(&[("SHOP-19", "stage:docs")]), None);
         assert_eq!(
             forward.hint.as_deref(),
             Some(
@@ -764,7 +757,7 @@ flow:
         let both = view(
             &two,
             None,
-            &picks(&[("SHOP-12", "stage:ship"), ("SHOP-19", "stage:dev")]),
+            &picks(&[("SHOP-12", "stage:docs"), ("SHOP-19", "stage:dev")]),
             None,
         );
         assert_eq!(
@@ -777,8 +770,8 @@ flow:
         // Back to a human check: no hint line.
         let review_back = {
             let mut q = p.clone();
-            q.moves[0].choices = choices("ship", "SHOP-19");
-            q.moves[0].default = DropOn::stage("ship");
+            q.moves[0].choices = choices("docs", "SHOP-19");
+            q.moves[0].default = DropOn::stage("docs");
             view(&q, None, &picks(&[("SHOP-19", "stage:review")]), None)
         };
         assert_eq!(review_back.hint, None);

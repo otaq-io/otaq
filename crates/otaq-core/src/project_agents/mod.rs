@@ -31,7 +31,7 @@ use serde::{Deserialize, Serialize};
 use crate::agent_tools::{
     Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched, PROJECT_AGENT_SKILL, Tool,
 };
-use crate::agents::{Agent, Role, RunsOn, SessionRole, resolve};
+use crate::agents::{Agent, RunsOn, SessionRole, resolve};
 use crate::board::questions::{Choice, HumanQuestion};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
@@ -391,8 +391,8 @@ impl ProjectAgents {
         self.open_on(project, message, None).await
     }
 
-    /// [`Self::open`] on the agent `agent` instead of the agent with the Project agent role (the agent panel's "New agent on
-    /// Sonnet", M23).
+    /// [`Self::open`] on the agent `agent` instead of the agent Noyan uses: the agent the user picked when starting
+    /// this conversation.
     pub async fn open_on(
         &self,
         project: &str,
@@ -404,15 +404,14 @@ impl ProjectAgents {
         if message.is_empty() {
             return Err(BoardError::refused(Refusal::EmptyField, EMPTY_MESSAGE));
         }
-        // The agent asked for ("New agent on Sonnet", the user's pick), else the agent with the Project agent role
-        // (AGM-05).
+        // The agent the user picked for this conversation, else the agent Noyan uses (AGM-05).
         let store = self.inner.board.store();
         let agent = match agent {
             Some(id) => store
                 .agent(id)
                 .await?
                 .ok_or_else(|| BoardError::NotFound(format!("no agent {id}")))?,
-            None => resolve::role_agent(store, Role::ProjectAgent).await?,
+            None => resolve::noyan_agent(store).await?,
         };
         let runs_on = self
             .checked(

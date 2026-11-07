@@ -425,7 +425,6 @@ mod tests {
             ],
             pr_number: pr,
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
-            external_id: None,
             skill: "open-pr".to_owned(),
         }
     }
@@ -593,7 +592,7 @@ mod tests {
         assert_eq!(toast.title, "Open PR for SHOP-18 didn\u{2019}t go through");
         let text = toast.text.unwrap();
         assert!(
-            text.contains("Delivery stage\u{2019}s skill in the flow editor"),
+            text.contains("delivery\u{2019}s `skill:` in the flow file"),
             "{text}"
         );
         assert!(

@@ -29,9 +29,6 @@ export const TEXTS: EditorTexts = {
   base: "Start from and merge into",
   base_hint: "project default · local and remote branches · locked once the ticket starts",
   base_search: { placeholder: "Search branches…", empty: "No matching branches" },
-  external_id: "External ID",
-  external_id_hint: "optional · standalone tickets only · used in the branch and PR title",
-  external_id_placeholder: "e.g. PAY-123",
   save_word: "create",
   discard_word: "discard",
   close_word: "close",
@@ -65,8 +62,8 @@ export const FORM: EditorForm = {
   body: "",
   priority: null,
   base_branch: "main",
-  external_id: "",
   choices: [],
+  waits_for: [],
 };
 
 export const VIEW: EditorView = {
@@ -85,7 +82,6 @@ export const VIEW: EditorView = {
   ),
   shown_priority: 3,
   base: { kind: "editable" },
-  external_id_shown: true,
   save_hint: null,
   save_warning: null,
   unsaved_warning: null,
@@ -93,6 +89,13 @@ export const VIEW: EditorView = {
   source_mode: false,
   choices: null,
   report: null,
+  waits_for: {
+    label: "Waits for",
+    hint: "optional · it starts once they merge",
+    add: "Add",
+    search: "Search by key or title",
+    remove: "Remove",
+  },
 };
 
 export const READ: EditorReadView = {
@@ -104,7 +107,6 @@ export const READ: EditorReadView = {
   priority: priority(3, "Normal"),
   priority_menu: [],
   base: "main",
-  external_id: "PAY-123",
   marked: ["body"],
 };
 

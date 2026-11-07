@@ -432,7 +432,7 @@ mod tests {
     /// and a row without one falls back to the default flow's stage for it.
     #[test]
     fn places_from_stored_rows() {
-        use crate::flow::default::{DELIVER, DEV, REVIEW, VALIDATE};
+        use crate::flow::default::{DEV, REVIEW, VALIDATE};
         assert_eq!(Place::of(Status::Parked, Some(DEV), None), Place::Backlog);
         assert_eq!(Place::of(Status::Queued, None, None), Place::Waiting(None));
         assert!(Place::of(Status::Held, None, None).is_ready_for_dev());
@@ -452,7 +452,7 @@ mod tests {
             (Status::Interrupted, Some(Status::Checking), VALIDATE),
             (Status::Interrupted, Some(Status::Idle), DEV),
             (Status::WaitingForYou, None, REVIEW),
-            (Status::PrOpen, None, DELIVER),
+            (Status::PrOpen, None, REVIEW),
         ] {
             assert_eq!(
                 Place::of(status, None, from),

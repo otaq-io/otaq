@@ -6,7 +6,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use otaq_core::board::settings::{EnvVar, Theme, ThemeSetting};
+use otaq_core::board::settings::{EnvVar, Theme, ThemeMode, ThemeSetting};
 use otaq_core::service::testing::{TestService, path_without_build_folders};
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::store::projects::Project;
@@ -15,7 +15,27 @@ const WAIT: Duration = Duration::from_secs(30);
 
 async fn use_theme(w: &TestService, theme: Theme) {
     let mut settings = w.board.global_settings().await.unwrap();
-    settings.theme = ThemeSetting::Picked(theme);
+    settings.theme = if theme.is_dark() {
+        ThemeSetting {
+            mode: ThemeMode::Dark,
+            dark: theme,
+            ..ThemeSetting::default()
+        }
+    } else {
+        ThemeSetting {
+            mode: ThemeMode::Light,
+            light: theme,
+            ..ThemeSetting::default()
+        }
+    };
+    w.board.set_global_settings(&settings).await.unwrap();
+}
+
+/// Match system, with the OS appearance the app last reported.
+async fn match_system(w: &TestService, os_dark: bool) {
+    let mut settings = w.board.global_settings().await.unwrap();
+    settings.theme = ThemeSetting::default();
+    settings.os_dark = os_dark;
     w.board.set_global_settings(&settings).await.unwrap();
 }
 
@@ -134,6 +154,22 @@ async fn colorfgbg_is_otaqs_own_so_project_and_ticket_variables_lose() {
         colorfgbg(&w, &project, SessionKind::Project, None, &file).await,
         "0;15"
     );
+    w.stop().await;
+}
+
+/// On Match system a session is told the kind of the theme for the OS appearance the app last reported: the dark
+/// pick while the OS is dark, the light pick once it turned light.
+#[tokio::test]
+async fn on_match_system_a_session_follows_the_os_the_app_last_saw() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let tmp = tempfile::tempdir().unwrap();
+    for (os_dark, expected) in [(true, "15;0"), (false, "0;15")] {
+        match_system(&w, os_dark).await;
+        let file = tmp.path().join(format!("os-dark-{os_dark}"));
+        let seen = colorfgbg(&w, &project, SessionKind::Project, None, &file).await;
+        assert_eq!(seen, expected, "os dark: {os_dark}");
+    }
     w.stop().await;
 }
 

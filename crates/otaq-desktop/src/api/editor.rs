@@ -3,8 +3,9 @@
 //! the form's labels, hints and first values, which fields it shows (`editor_fields.rs`), and for an existing
 //! ticket its read mode with the agent-edit markers (`agent_edits.rs`). The page keeps what is typed and sends the
 //! whole form back on save; the rules (title required, only what changed, priority only once picked) are
-//! `editor.rs`'s, and the service's refusals come back worded for the field they belong to. Dependencies are the
-//! sheet's (DPV-04, `dependencies.rs`), not the form's.
+//! `editor.rs`'s, and the service's refusals come back worded for the field they belong to. A new ticket's form
+//! takes "Waits for" (`dependencies.rs`'s search), linked once it is created; an existing ticket's dependencies are
+//! edited in Overview's section.
 
 use std::time::{SystemTime, UNIX_EPOCH};
 
@@ -25,6 +26,7 @@ use otaq_core::protocol::{
 use otaq_core::session::{SessionInfo, SessionKind};
 use otaq_view::icons::IconName;
 use otaq_view::view_models::agent_activity;
+use otaq_view::view_models::dependencies::{self, FormField as WaitsForField};
 use otaq_view::view_models::stage_choices::{self, ChoicesView};
 use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
@@ -110,7 +112,6 @@ pub struct Form {
     /// 1–4 once picked; `null`: Normal for a new ticket.
     pub priority: Option<u8>,
     pub base_branch: Option<String>,
-    pub external_id: String,
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
     #[serde(default)]
     pub choices: Vec<FormChoice>,
@@ -121,6 +122,9 @@ pub struct Form {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     #[ts(optional)]
     pub report_line: Option<String>,
+    /// Create only: the tickets the new one waits for ("SHOP-12"), linked once it is created.
+    #[serde(default)]
+    pub waits_for: Vec<String>,
 }
 
 /// The New ticket form's report (RPT-03): a file by its path (Add, a drop), or a pasted file's text.
@@ -170,9 +174,6 @@ pub struct Texts {
     pub base_hint: &'static str,
     /// The base dropdown's search field.
     pub base_search: MenuSearch,
-    pub external_id: &'static str,
-    pub external_id_hint: &'static str,
-    pub external_id_placeholder: &'static str,
     /// "⌘↵ create" / "save", "Esc discard" / "close".
     pub save_word: &'static str,
     pub discard_word: &'static str,
@@ -224,7 +225,6 @@ pub struct ReadView {
     pub priority_menu: Vec<MenuItem>,
     /// "main".
     pub base: String,
-    pub external_id: Option<String>,
     /// The fields an agent changed since the user last looked ("Updated by agent").
     pub marked: Vec<EditorField>,
 }
@@ -239,7 +239,6 @@ pub enum EditorField {
     Plan,
     Priority,
     BaseBranch,
-    ExternalId,
 }
 
 impl EditorField {
@@ -250,7 +249,6 @@ impl EditorField {
             Field::Plan => Self::Plan,
             Field::Priority => Self::Priority,
             Field::BaseBranch => Self::BaseBranch,
-            Field::ExternalId => Self::ExternalId,
         }
     }
 
@@ -261,7 +259,6 @@ impl EditorField {
             Self::Plan => Field::Plan,
             Self::Priority => Field::Priority,
             Self::BaseBranch => Field::BaseBranch,
-            Self::ExternalId => Field::ExternalId,
         }
     }
 }
@@ -291,7 +288,6 @@ pub struct View {
     /// The priority shown while none is picked: Normal.
     pub shown_priority: u8,
     pub base: BaseView,
-    pub external_id_shown: bool,
     /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
     pub save_hint: Option<String>,
     /// While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
@@ -305,6 +301,8 @@ pub struct View {
     pub choices: Option<ChoicesView>,
     /// Create only: the report place under the description (RPT-03).
     pub report: Option<ReportField>,
+    /// Create only: "Waits for" and its search.
+    pub waits_for: Option<WaitsForField>,
 }
 
 fn texts(create: bool) -> Texts {
@@ -321,9 +319,6 @@ fn texts(create: bool) -> Texts {
         base: "Start from and merge into",
         base_hint: "project default \u{b7} local and remote branches \u{b7} locked once the ticket starts",
         base_search: MenuSearch::branches(),
-        external_id: "External ID",
-        external_id_hint: "optional \u{b7} standalone tickets only \u{b7} used in the branch and PR title",
-        external_id_placeholder: "e.g. PAY-123",
         save_word: if create { "create" } else { "save" },
         discard_word: "discard",
         close_word: "close",
@@ -376,10 +371,10 @@ fn form_of(model: &EditorModel) -> Form {
         body: model.body.clone(),
         priority: model.priority.map(Priority::number),
         base_branch: model.base_branch.clone(),
-        external_id: model.external_id.clone(),
         choices: Vec::new(),
         report: None,
         report_line: None,
+        waits_for: Vec::new(),
     }
 }
 
@@ -399,7 +394,6 @@ pub fn create_view(project: &ProjectInfo) -> View {
         priorities: priorities(),
         shown_priority: shown.number(),
         base: base_view(fields.base),
-        external_id_shown: fields.external_id,
         save_hint: None,
         save_warning: None,
         unsaved_warning: None,
@@ -407,6 +401,7 @@ pub fn create_view(project: &ProjectInfo) -> View {
         source_mode: false,
         choices: None,
         report: Some(report_field()),
+        waits_for: Some(dependencies::form_field()),
     }
 }
 
@@ -426,7 +421,6 @@ pub fn edit_view(
         Field::Body,
         Field::Priority,
         Field::BaseBranch,
-        Field::ExternalId,
     ]
     .into_iter()
     .filter(|&f| changed(edits, f))
@@ -443,7 +437,6 @@ pub fn edit_view(
         priorities: priorities(),
         shown_priority: shown.number(),
         base: base_view(fields.base),
-        external_id_shown: fields.external_id,
         save_hint: agent_activity::save_hint(ticket, live_agent),
         save_warning: validation_texts::editor_warning(ticket),
         unsaved_warning: validation_texts::editor_warning(ticket)
@@ -457,12 +450,12 @@ pub fn edit_view(
             priority: priority::view(shown),
             priority_menu: priority::menu_items(shown),
             base: ticket.base.branch().to_owned(),
-            external_id: ticket.external_id.clone(),
             marked,
         }),
         source_mode: false,
         choices: None,
         report: None,
+        waits_for: None,
     }
 }
 
@@ -683,7 +676,6 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
     model.priority = form
         .priority
         .and_then(|n| Priority::from_number(i64::from(n)));
-    model.external_id = form.external_id.clone();
     if model.is_create() {
         model.report = form.report.clone().map(|r| match r {
             FormReport::File { path } => NewReport::File(path),
@@ -734,6 +726,9 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                 }
             };
             let key = created.key.to_string();
+            // What it waits for, each link checked by the service (bases, who may). A refusal is told once the
+            // stage choices are written too, and keeps the editor open on the created ticket.
+            let link_refused = link_waits_for(app, &key, &form.waits_for).await;
             // The stage choices picked in the form (AGM-09), the user's, checked before any is written (AGM-11).
             if let Some(choices) = stage_choices_of(app, None, Some(&project)).await
             {
@@ -744,6 +739,12 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
                         created: Some(key),
                     });
                 }
+            }
+            if let Some(e) = link_refused {
+                return Ok(SaveOutcome::Refused {
+                    refusal: Refusal::of(&e, RefusalField::Form),
+                    created: Some(key),
+                });
             }
             Ok(SaveOutcome::Saved { key, note: None })
         }
@@ -784,6 +785,21 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             update_ticket(app, key, &before, update).await
         }
     }
+}
+
+/// Links the new ticket `key` to each ticket it waits for; every link is tried, and the first refusal is returned.
+async fn link_waits_for(app: &App, key: &str, parents: &[String]) -> Option<RequestError> {
+    let mut refused = None;
+    for parent in parents {
+        let dep = otaq_core::protocol::DepParams {
+            child: key.to_owned(),
+            parent: parent.clone(),
+        };
+        if let Err(e) = app.service.send(Request::DepAdd(dep)).await {
+            refused.get_or_insert(e);
+        }
+    }
+    refused
 }
 
 /// Sends `update` for the ticket `key` (`before` as it was): saved, with what its agent will be told, or refused.
@@ -1082,10 +1098,10 @@ mod tests {
             body: String::new(),
             priority: None,
             base_branch: None,
-            external_id: String::new(),
             choices: Vec::new(),
             report: None,
             report_line: None,
+            waits_for: Vec::new(),
         }
     }
 
@@ -1261,6 +1277,8 @@ mod tests {
         let create = json!({ "mode": "create", "project": project });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
         assert_eq!(view["heading"], "New ticket");
+        assert_eq!(view["waits_for"]["label"], "Waits for");
+        assert_eq!(view["form"]["waits_for"], json!([]));
 
         let missing = table(&h.app, "editor.save", json!({ "target": create, "form": form("") }))
             .await
@@ -1277,18 +1295,52 @@ mod tests {
         assert_eq!(saved["outcome"], "saved");
         let parent = saved["key"].as_str().unwrap().to_owned();
 
+        // A ticket created with "Waits for" the first one waits for it.
+        let mut waiting = form("Checkout page");
+        waiting.waits_for = vec![parent.clone()];
         let saved = table(
             &h.app,
             "editor.save",
-            json!({ "target": create, "form": form("Checkout page") }),
+            json!({ "target": create, "form": waiting }),
         )
         .await
         .unwrap();
+        assert_eq!(saved["outcome"], "saved");
         let child = saved["key"].as_str().unwrap().to_owned();
+        let Reply::Ticket(t) = h
+            .app
+            .service
+            .send(Request::TicketGet(otaq_core::protocol::KeyParams { key: child.clone() }))
+            .await
+            .unwrap()
+        else {
+            panic!("no ticket");
+        };
+        assert_eq!(
+            t.depends_on.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            std::slice::from_ref(&parent)
+        );
+
+        // A link the service refuses keeps the editor open on the ticket it created.
+        let mut unknown = form("Coupon field");
+        unknown.waits_for = vec!["NOPE-99".into()];
+        let refused = table(
+            &h.app,
+            "editor.save",
+            json!({ "target": create, "form": unknown }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(refused["outcome"], "refused", "{refused}");
+        assert!(refused["created"].is_string(), "{refused}");
 
         let edit = json!({ "mode": "edit", "key": child });
         let view = table(&h.app, "editor.open", edit.clone()).await.unwrap();
-        assert_eq!(view["deps"], Value::Null, "dependencies are the sheet's (DPV-04)");
+        assert_eq!(
+            view["waits_for"],
+            Value::Null,
+            "an existing ticket's dependencies are Overview's"
+        );
         assert_eq!(view["read"]["origin"], "Created by you");
 
         let mut changed = view["form"].clone();
@@ -1420,14 +1472,14 @@ mod tests {
         assert_ne!(load["view"]["choices"], Value::Null);
         let summary = load["view"]["path"]["summary"].as_str().unwrap();
         assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
-        assert!(summary.ends_with("\u{b7} Review \u{b7} Done"), "{summary}");
+        assert!(summary.ends_with("\u{b7} Review \u{b7} Delivery"), "{summary}");
         let stages: Vec<&str> = load["view"]["path"]["rows"]
             .as_array()
             .unwrap()
             .iter()
             .map(|r| r["stage"].as_str().unwrap())
             .collect();
-        assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+        assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
         assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
         // The sheet's pick of another agent for Dev is taken; a skip of Dev is refused.
         table(

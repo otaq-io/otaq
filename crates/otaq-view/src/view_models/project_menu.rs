@@ -62,8 +62,8 @@ pub fn open_folder_label(os: Os) -> &'static str {
     }
 }
 
-/// Change flow…'s second line: the flow in use and its steps (Ready for Dev counted, as the editor counts them), or
-/// where a waiting change goes ("→ Spec first · waiting" for a preset, else "· a change waiting").
+/// Change flow…'s second line: the flow in use and its steps (Ready for Dev and the delivery counted, as the editor
+/// counts them), or where a waiting change goes ("→ Spec first · waiting" for a preset, else "· a change waiting").
 pub fn flow_line(
     name: &str,
     flow: Option<&FlowFile>,
@@ -76,7 +76,7 @@ pub fn flow_line(
             None => format!("{own} \u{b7} a change waiting"),
         });
     }
-    let steps = flow?.flow.stages.len() + 1;
+    let steps = flow?.flow.stages.len() + 2;
     Some(format!("{own} \u{b7} {steps} steps"))
 }
 

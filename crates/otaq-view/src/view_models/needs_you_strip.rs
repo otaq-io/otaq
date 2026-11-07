@@ -758,6 +758,7 @@ pub mod samples {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let interrupted = |key: &str, title: &str| {
             item(ticket(
@@ -795,6 +796,7 @@ pub mod samples {
                     Some("Nothing to migrate, but checkout stays slow on big carts.".into()),
                 ],
                 asked_at: 0,
+                send_back: None,
             }),
             since: 0,
         }
@@ -1109,6 +1111,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let flow = default_flow();
         let tickets = [checking, asked];

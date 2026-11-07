@@ -7,13 +7,13 @@
 //!    (d0045; M10 adds agent-to-agent questions routed to Needs you);
 //! 2. Interrupted, Start interrupted, Resume failed, Parent closed;
 //! 3. "Waiting for you in a check or a delivery" (FLW-14, FLW-15, STG-11; d0108 smaller rule 13): waiting in a human
-//!    check (on the default flow Ready for Review), or To deliver in a **click-mode** Delivery only (Q265): an automatic Delivery's card delivers by
-//!    itself. Each item names its stage ([`WaitingIn`]).
+//!    check (on the default flow Ready for Review), or To deliver with a **click** delivery only (Q265): an automatic
+//!    delivery's card delivers by itself. Each item names its stage ([`WaitingIn`]).
 //!
 //! Inside a group, tickets that block more tickets come first, then the oldest (the longest in that status),
 //! then key order. Group 3 comes closest to Done first, by the stage's position in the ticket's flow (Q264): a
-//! later human check before an earlier one, a ticket waiting at its Delivery before both (no default-flow ticket
-//! waits at its Delivery: its Review → Approve offers the choices). A status belongs to a group by [`group_of`]
+//! later human check before an earlier one, a ticket To deliver (past the last stage) before both (a default-flow
+//! ticket rarely waits To deliver: its Review's Approve delivers). A status belongs to a group by [`group_of`]
 //! (and, for group 3, the stage's mode), so the states that later milestones set (Interrupted, Resume failed) slot
 //! in as their tickets land.
 //!
@@ -85,8 +85,7 @@ pub struct WaitingIn {
     pub name: String,
     /// Closest to Done ranks highest: twice the stage's position in the project's flow.
     pub rank: u32,
-    /// Waiting at its Delivery (To deliver): what the click does, a Local merge or Open PR. `None` in a human
-    /// check.
+    /// To deliver: what the click does, a Local merge or Open PR. `None` waiting in a human check.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub delivers: Option<crate::flow::model::Delivers>,
 }
@@ -96,8 +95,10 @@ fn waiting_in(ticket: &Ticket, flow: &Flow) -> Option<WaitingIn> {
     let id = ticket.place.stage()?;
     let i = flow.position(id)?;
     let name = flow.stages[i].name.clone();
-    let rank = u32::try_from(i * 2).unwrap_or(u32::MAX);
-    let delivers = flow.stage(id).and_then(|s| s.delivery).map(|d| d.delivers);
+    // To deliver is past its stage, the last: it ranks above a ticket waiting in that stage.
+    let to_deliver = ticket.status == Status::ToDeliver;
+    let rank = u32::try_from(i * 2 + usize::from(to_deliver)).unwrap_or(u32::MAX);
+    let delivers = to_deliver.then_some(flow.delivery.delivers);
     Some(WaitingIn {
         stage: id.to_owned(),
         name,

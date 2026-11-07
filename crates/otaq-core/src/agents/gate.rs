@@ -612,7 +612,16 @@ impl LaunchGate {
                 id: &project.id,
                 name: &project.name,
             };
-            let agent = resolve::role_agent(store, super::Role::ProjectAgent).await?;
+            // The agent the held message would have started on (the conversation's own pick), else the agent Noyan
+            // uses.
+            let picked = match &hold.agent_id {
+                Some(id) => store.agent(id).await?,
+                None => None,
+            };
+            let agent = match picked {
+                Some(agent) => agent,
+                None => resolve::noyan_agent(store).await?,
+            };
             let on = self.model_of(&agent).await?;
             if let Decision::Hold(held) = decide(&agent, &on, facts) {
                 self.write_hold(hold.role, scope, &held).await?;
@@ -834,7 +843,6 @@ mod tests {
                 model: Some("opus".into()),
             },
             effort: Some("high".into()),
-            role: None,
             came_from: CameFrom::DefaultPreset,
             mark: None,
             created_at: 0,

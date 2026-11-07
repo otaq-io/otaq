@@ -561,7 +561,14 @@ mod tests {
             repo: "/nowhere/code/shop-web",
             project_base: "main",
             check,
-            menu: approve_menu(t, target, all, None, Some(1)),
+            menu: approve_menu(
+                t,
+                target,
+                all,
+                None,
+                Some(1),
+                otaq_core::flow::Delivers::Either,
+            ),
             merge_check: None,
             manual_unticked: 0,
         }
@@ -587,7 +594,7 @@ mod tests {
         assert_eq!(view.merging.steps.len(), 4);
         assert!(view.changed.is_none());
         assert!(!view.push_to_pr);
-        assert_eq!(view.menu.items[0].title, "Local merge");
+        assert_eq!(view.menu.items[0].title, "Approve & merge into main");
     }
 
     /// d0120: without a Merge check the dialog says so once and links to the row; with one it names the command and

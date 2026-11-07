@@ -92,10 +92,10 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
                 false
             ),
             ("QA", PathKind::HumanCheck, None, false),
-            ("Done", PathKind::Delivery, Some("Shipper"), false),
+            ("Delivery", PathKind::Delivery, Some("Shipper"), false),
         ]
     );
-    assert_eq!(t.path[2].shown_in.as_deref(), Some("Dev"));
+
     assert_eq!((t.path[2].rounds, t.path[3].rounds), (Some(3), Some(2)));
     let ship = t.path[5].delivery.as_ref().unwrap();
     assert!(ship.automatic && ship.delivers == "pr");
@@ -174,7 +174,7 @@ async fn the_default_flow_has_a_path_and_a_choice_per_agent_stage() {
     let choices: Vec<&str> = t.choices.iter().map(|c| c.stage.as_str()).collect();
     assert_eq!(choices, ["Dev", "Validate"]);
     let stages: Vec<&str> = t.path.iter().map(|s| s.stage.as_str()).collect();
-    assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+    assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
     assert_eq!(t.path[0].agent.as_ref().unwrap().name, "Developer");
     assert!(t.path.iter().all(|s| !s.skipped));
     w.stop().await;

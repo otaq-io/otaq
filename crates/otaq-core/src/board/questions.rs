@@ -12,6 +12,11 @@
 //! answers it from the answer box, presses Enter on a line in that agent's terminal (or the Ask bar's Continue to a
 //! Project agent), when the same agent asks a new question (the older one is replaced), or when its ticket is
 //! closed, parked or delivered (a trigger, migration 0058). One agent has at most one open question.
+//!
+//! **A send-back question** ([`SendBackTo`]) names an earlier stage of the ticket's flow, the question being the
+//! agent's reason: its two ways out are fixed, the user sends the ticket back there ([`Choice::SendBack`]) or answers
+//! here (free text). It carries no options. The agent never moves a ticket back itself: only the user's answer does
+//! ([`crate::board::send_back_question`]).
 
 use serde::{Deserialize, Serialize};
 
@@ -54,6 +59,16 @@ pub struct HumanQuestion {
     #[serde(default, skip_serializing_if = "no_notes")]
     pub notes: Vec<Option<String>>,
     pub asked_at: i64,
+    /// The earlier stage the agent asks to send the ticket back to; `None` on every other question.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub send_back: Option<SendBackTo>,
+}
+
+/// The earlier stage a send-back question names: its id, and its name as it read when the agent asked.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SendBackTo {
+    pub stage_id: String,
+    pub stage: String,
 }
 
 /// An unanswered question of a ticket, as the board reads it for the cards.
@@ -81,8 +96,10 @@ pub struct HumanAnswer {
 pub enum Choice {
     /// One of the options, 1-based.
     Option(u32),
-    /// "Other…": free text.
+    /// "Other…": free text; on a send-back question, the answer here.
     Other(String),
+    /// Send the ticket back to the stage a send-back question names.
+    SendBack,
 }
 
 /// Checks the options of a question: none, or 2–4 short labels, and a recommendation among them.
@@ -177,6 +194,10 @@ pub fn format_answer(question: &HumanQuestion, choice: &Choice) -> String {
             format!("Answer to your question: {label} (option {n}).")
         }
         Choice::Other(text) => format!("Answer to your question: {}", text.trim()),
+        Choice::SendBack => match &question.send_back {
+            Some(to) => format!("Sent back to {}.", to.stage),
+            None => "Sent back.".to_owned(),
+        },
     }
 }
 
@@ -188,11 +209,13 @@ struct QuestionRow {
     recommended: Option<i64>,
     option_notes_json: Option<String>,
     asked_at: i64,
+    send_back_stage_id: Option<String>,
+    send_back_stage: Option<String>,
 }
 
 /// The columns of [`QuestionRow`], and where they come from (`human_questions q`).
-const QUESTION_COLUMNS: &str =
-    "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at";
+const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at, q.send_back_stage_id, \
+     q.send_back_stage";
 const QUESTION_FROM: &str = "human_questions q";
 /// The ticket's questions to the user (d0133 audit 3): its agent's own, and a helper's once the agent in charge
 /// passed it on. A helper's question still with the agent in charge, or answered by it, never is.
@@ -207,6 +230,10 @@ impl From<QuestionRow> for HumanQuestion {
             recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
             notes: notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
+            send_back: row.send_back_stage_id.map(|stage_id| SendBackTo {
+                stage: row.send_back_stage.unwrap_or_else(|| stage_id.clone()),
+                stage_id,
+            }),
         }
     }
 }
@@ -221,7 +248,27 @@ impl Board {
         notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
-        self.insert_question("ticket_id", ticket_id, text, options, notes, recommended)
+        self.insert_question(
+            "ticket_id",
+            ticket_id,
+            text,
+            options,
+            notes,
+            recommended,
+            None,
+        )
+        .await
+    }
+
+    /// Stores the send-back question of `ticket_id` (the stage already checked to be an earlier one): `text` is the
+    /// agent's reason; it carries no options.
+    pub async fn store_send_back_question(
+        &self,
+        ticket_id: &str,
+        text: &str,
+        to: &SendBackTo,
+    ) -> Result<HumanQuestion, BoardError> {
+        self.insert_question("ticket_id", ticket_id, text, &[], &[], None, Some(to))
             .await
     }
 
@@ -234,8 +281,16 @@ impl Board {
         notes: &[Option<String>],
         recommended: Option<u32>,
     ) -> Result<HumanQuestion, BoardError> {
-        self.insert_question("project_agent_id", agent, text, options, notes, recommended)
-            .await
+        self.insert_question(
+            "project_agent_id",
+            agent,
+            text,
+            options,
+            notes,
+            recommended,
+            None,
+        )
+        .await
     }
 
     /// The Project agent's unanswered question, if any (the newest).
@@ -334,6 +389,7 @@ impl Board {
         Ok(done.rows_affected() == 1)
     }
 
+    #[allow(clippy::too_many_arguments)]
     async fn insert_question(
         &self,
         owner_column: &'static str,
@@ -342,6 +398,7 @@ impl Board {
         options: &[String],
         notes: &[Option<String>],
         recommended: Option<u32>,
+        send_back: Option<&SendBackTo>,
     ) -> Result<HumanQuestion, BoardError> {
         validate_options(options, recommended)?;
         validate_notes(options, notes)?;
@@ -352,6 +409,7 @@ impl Board {
             recommended,
             notes: clean_notes(notes),
             asked_at: now_ms(),
+            send_back: send_back.cloned(),
         };
         let mut tx = self.store().begin_write().await?;
         // A new question replaces the agent's older open one (d0119); a helper's are its own (d0133).
@@ -366,8 +424,8 @@ impl Board {
         .await?;
         sqlx::query(sqlx::AssertSqlSafe(format!(
             "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, option_notes_json,
-                                          asked_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?)"
+                                          asked_at, send_back_stage_id, send_back_stage)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )))
         .bind(&question.id)
         .bind(owner)
@@ -376,6 +434,8 @@ impl Board {
         .bind(question.recommended.map(i64::from))
         .bind(notes_json(&question.notes))
         .bind(question.asked_at)
+        .bind(send_back.map(|to| to.stage_id.as_str()))
+        .bind(send_back.map(|to| to.stage.as_str()))
         .execute(&mut *tx)
         .await?;
         tx.commit().await?;
@@ -561,6 +621,7 @@ mod tests {
             recommended: Some(1),
             notes: vec![Some("One small library.".into()), None, None],
             asked_at: 0,
+            send_back: None,
         };
         assert_eq!(
             format_answer(&q, &Choice::Option(1)),
@@ -569,6 +630,20 @@ mod tests {
         assert_eq!(
             format_answer(&q, &Choice::Other(" Mailgun, we have a contract ".into())),
             "Answer to your question: Mailgun, we have a contract"
+        );
+        let asks_back = HumanQuestion {
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            send_back: Some(SendBackTo {
+                stage_id: "product-spec".into(),
+                stage: "Product spec".into(),
+            }),
+            ..q
+        };
+        assert_eq!(
+            format_answer(&asks_back, &Choice::SendBack),
+            "Sent back to Product spec."
         );
     }
 }

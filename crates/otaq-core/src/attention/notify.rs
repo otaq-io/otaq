@@ -1,6 +1,8 @@
 //! OS notifications (ATT-11; d0016, d0042, d0090): only for items that **block an agent** (the needs-you family and
-//! Interrupted), never for Ready for Review, a ticket whose terminal has focus or an agent stopped by the plan
-//! limit (both already left out of the needs-you items), and **once per item**, not per event. A global switch
+//! Interrupted), never for a ticket whose terminal has focus or an agent stopped by the plan limit (both already left
+//! out of the needs-you items), and **once per item**, not per event. The one exception is opt-in: a ticket reaching
+//! a check the user does (Review, or any other human check stage) notifies only when Settings ticks "Ready for your
+//! review", which starts off; an agent's check and a Delivery waiting for its click never do. A global switch
 //! turns them off (on by default), one checkbox per [`Kind`] leaves a kind out, and both apply at the next
 //! derivation.
 //!
@@ -61,10 +63,13 @@ pub enum Kind {
     AutoMergeStopped,
     /// An agent tool isn't available.
     ToolUnavailable,
+    /// A ticket reached a check the user does (Review, or another human check stage). The only kind that blocks no
+    /// agent, so it is off until the user ticks it.
+    ReadyForReview,
 }
 
 impl Kind {
-    pub const ALL: [Self; 7] = [
+    pub const ALL: [Self; 8] = [
         Self::Permission,
         Self::Question,
         Self::TurnEnded,
@@ -72,6 +77,7 @@ impl Kind {
         Self::ValidationDecision,
         Self::AutoMergeStopped,
         Self::ToolUnavailable,
+        Self::ReadyForReview,
     ];
 
     /// The kind of a ticket's item in `status`.
@@ -82,6 +88,7 @@ impl Kind {
             Status::Idle => Self::TurnEnded,
             Status::CheckFailed | Status::CheckNoResult => Self::ValidationDecision,
             Status::DeliveryStopped => Self::AutoMergeStopped,
+            Status::WaitingForYou => Self::ReadyForReview,
             _ => Self::Interrupted,
         }
     }
@@ -297,11 +304,16 @@ pub struct Held {
     pub ticket: bool,
 }
 
-/// Whether an item blocks an agent: turquoise, or Interrupted (d0016).
+/// Whether an item may notify: it blocks an agent (turquoise, or Interrupted, d0016), or it waits in a check the user
+/// does. The second goes out only while its own kind ([`Kind::ReadyForReview`], off by default) is ticked; a
+/// Delivery waiting for its click is no check and never notifies.
 pub fn should_notify(item: &NeedsYouItem) -> bool {
     // An agent's question to a finished ticket blocks no agent (the ask is non-blocking): no notification.
     item.message.is_none()
-        && (item.group == NeedsYouGroup::Family || item.status == Status::Interrupted)
+        && (item.group == NeedsYouGroup::Family
+            || item.status == Status::Interrupted
+            || (item.group == NeedsYouGroup::Review
+                && item.status.set() == crate::domain::StatusSet::HumanCheck))
 }
 
 /// The notifications for `items` (the current needs-you items), one per new item, given the items notified before.
@@ -396,6 +408,18 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             decide,
             Target::Ticket { key: key.clone() },
         ),
+        // "SHOP-18 is ready for your review" · "Waits for your check in Review."; a click opens its Files tab.
+        Status::WaitingForYou => {
+            let stage = item
+                .waiting_in
+                .as_ref()
+                .map_or("Review", |w| w.name.as_str());
+            (
+                format!("{key} is ready for your review"),
+                format!("Waits for your check in {stage}."),
+                Target::Review { key: key.clone() },
+            )
+        }
         Status::DeliveryStopped => (
             format!("{key} \u{b7} Delivery stopped"),
             text.map(|t| t.replace('`', "")).unwrap_or_default(),
@@ -1139,6 +1163,7 @@ mod tests {
                 recommended: None,
                 notes: Vec::new(),
                 asked_at: since,
+                send_back: None,
             }),
             since,
         }
@@ -1219,12 +1244,93 @@ mod tests {
             Stopped,
             1
         )));
+        // A Delivery waiting for its click is no check the user does: never.
         assert!(!should_notify(&item(
-            "SHOP-18",
-            Status::WaitingForYou,
+            "SHOP-40",
+            Status::ToDeliver,
             Review,
             1
         )));
+        // Waiting in the user's check may notify, but only through its own kind, off by default.
+        let review = item("SHOP-18", Status::WaitingForYou, Review, 1);
+        assert!(should_notify(&review));
+        assert_eq!(Kind::of_item(&review), Kind::ReadyForReview);
+        assert!(!on().allows(Kind::ReadyForReview));
+    }
+
+    /// A ticket reaching a check the user does: off by default, nothing notifies, and turning it on later doesn't
+    /// bring up tickets already waiting; turned on, one notification per ticket that opens its Files tab to review,
+    /// however many times Needs you looks again. A later arrival in the check (after another round) notifies again.
+    /// Agent checks raise no review item, so they never notify this way.
+    #[test]
+    fn ready_for_your_review_is_off_by_default_and_once_per_ticket() {
+        use NeedsYouGroup::*;
+        let qa = |key: &str, since| NeedsYouItem {
+            waiting_in: Some(crate::board::needs_you::WaitingIn {
+                stage: "qa".into(),
+                name: "QA".into(),
+                rank: 6,
+                delivers: None,
+            }),
+            ..item(key, Status::WaitingForYou, Review, since)
+        };
+        let review = |key: &str, since| NeedsYouItem {
+            waiting_in: Some(crate::board::needs_you::WaitingIn {
+                stage: "review".into(),
+                name: "Review".into(),
+                rank: 8,
+                delivers: None,
+            }),
+            ..item(key, Status::WaitingForYou, Review, since)
+        };
+
+        // Off (the default): nothing, and nothing later when it is turned on for the same tickets.
+        let mut seen = HashSet::new();
+        let waiting = vec![review("SHOP-18", 1), qa("SHOP-19", 1)];
+        assert!(plan(&waiting, &HashMap::new(), &mut seen, &on()).is_empty());
+        let mut ticked = on();
+        ticked.kinds.set(Kind::ReadyForReview, true);
+        assert!(plan(&waiting, &HashMap::new(), &mut seen, &ticked).is_empty());
+
+        // On: one per ticket.
+        let mut seen = HashSet::new();
+        let out = notifications(plan(&waiting, &HashMap::new(), &mut seen, &ticked));
+        assert_eq!(
+            shown(&out),
+            [
+                (
+                    "SHOP-18 is ready for your review",
+                    "shop-web · Split user full name",
+                    "Waits for your check in Review."
+                ),
+                (
+                    "SHOP-19 is ready for your review",
+                    "shop-web · Split user full name",
+                    "Waits for your check in QA."
+                ),
+            ]
+        );
+        assert!(out.iter().all(|n| n.kind == Some(Kind::ReadyForReview)));
+        assert_eq!(
+            out[0].target,
+            Target::Review {
+                key: "SHOP-18".parse().unwrap()
+            }
+        );
+        for _ in 0..3 {
+            assert!(plan(&waiting, &HashMap::new(), &mut seen, &ticked).is_empty());
+        }
+        // Back in Review after another round: a new arrival.
+        let again = vec![review("SHOP-18", 50)];
+        assert_eq!(plan(&again, &HashMap::new(), &mut seen, &ticked).len(), 1);
+        // The main switch still rules it.
+        let off = Choices {
+            enabled: false,
+            ..ticked
+        };
+        assert!(!off.allows(Kind::ReadyForReview));
+        // An agent check waiting on its own (Checking) raises no item at all.
+        assert!(crate::board::needs_you::group_of(Status::Checking).is_none());
     }
 
     /// T-0371 (d0090): every kind's title (what happened), subtitle (project · ticket title) and body (the

@@ -64,6 +64,8 @@ pub use files_view::export_types as export_files_view_types;
 #[cfg(test)]
 pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
+pub use hints::Params as HintParams;
+#[cfg(test)]
 pub use keymap::Keymap;
 #[cfg(test)]
 pub use layout::WidthParams as LayoutWidthParams;
@@ -150,7 +152,7 @@ pub use terminal_tab::{
     DeliverParams as TerminalTabDeliverParams, Load as TerminalTabLoad, Params as TerminalTabParams,
 };
 #[cfg(test)]
-pub use theme::{ActiveTheme, ThemeParams, ThemePick};
+pub use theme::{ActiveTheme, ThemeModePick, ThemeParams, ThemePick};
 #[cfg(test)]
 pub use ticket_comments::export_types as export_ticket_comment_types;
 #[cfg(test)]
@@ -197,6 +199,7 @@ areas! {
     gallery,
     shell,
     notices,
+    hints,
     sheet,
     board,
     settings,

@@ -1,6 +1,8 @@
 //! Raw access to the global `settings` table (key → JSON value). Typed settings with defaults and validation
 //! come in T-0028; until then only the onboarding's flags live here.
 
+use serde::{Deserialize, Serialize};
+
 use super::{Store, StoreError, now_ms};
 
 /// Key of the remembered dismissal of the first-run permission-mode warning (d0011, d0016).
@@ -16,6 +18,10 @@ pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 /// The default model for new agents (AGM-03, d0108): `{"tool": "claude", "model": "sonnet"}`; `model: default`
 /// resolves to it at session start. Absent until a tool connects.
 pub const DEFAULT_MODEL: &str = "agents.default_model";
+
+/// The agent Noyan uses (an app setting, "Noyan uses <agent>"): the agent's id as a JSON string. Set at the first
+/// start to the shipped Noyan agent; a new conversation may pick another for itself.
+pub const NOYAN_AGENT: &str = "agents.noyan";
 
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.
@@ -62,7 +68,58 @@ pub const UPDATES_SKIPPED: &str = "updates.skipped";
 /// The version the app last started as (UPD-05): `"0.2.0"`, so "Updated to Otaq 0.2.0" shows once after an update.
 pub const UPDATES_LAST_VERSION: &str = "updates.last_version";
 
+/// The one-time hints the user dismissed, one key per hint (`hints.seen.gallery_sample` → `true`): a hint shows at its
+/// moment until dismissed, then never again for this data folder.
+pub const HINT_SEEN_PREFIX: &str = "hints.seen.";
+
+/// A one-time hint: one sentence at the moment a concept first matters, with one button that dismisses it for good.
+/// Never behind a setting. The set is closed and named: a part of the app that wants a hint adds its own here (and to
+/// [`Hint::ALL`]), with its wording in the view model that shows it.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum Hint {
+    /// The design gallery's sample hint: the one hint with no moment in the app, so the popover can be seen and
+    /// tried.
+    GallerySample,
+}
+
+impl Hint {
+    /// Every hint.
+    pub const ALL: &[Hint] = &[Hint::GallerySample];
+
+    /// The hint's stored and wire name (`"gallery_sample"`).
+    pub fn id(self) -> &'static str {
+        match self {
+            Hint::GallerySample => "gallery_sample",
+        }
+    }
+
+    fn seen_key(self) -> String {
+        format!("{HINT_SEEN_PREFIX}{}", self.id())
+    }
+}
+
 impl Store {
+    /// The hints the user dismissed, in [`Hint::ALL`]'s order. A stored name no hint has any more is left out.
+    pub async fn hints_seen(&self) -> Result<Vec<Hint>, StoreError> {
+        let keys: Vec<String> =
+            sqlx::query_scalar("SELECT key FROM settings WHERE substr(key, 1, ?) = ?")
+                .bind(i64::try_from(HINT_SEEN_PREFIX.len()).unwrap_or(i64::MAX))
+                .bind(HINT_SEEN_PREFIX)
+                .fetch_all(self.pool())
+                .await?;
+        Ok(Hint::ALL
+            .iter()
+            .copied()
+            .filter(|hint| keys.contains(&hint.seen_key()))
+            .collect())
+    }
+
+    /// Remembers that the user dismissed `hint`: it never shows again. Dismissing it again changes nothing.
+    pub async fn see_hint(&self, hint: Hint) -> Result<(), StoreError> {
+        self.set_setting(&hint.seen_key(), "true").await
+    }
+
     /// The stored JSON value of a global setting.
     pub async fn setting(&self, key: &str) -> Result<Option<String>, StoreError> {
         Ok(
@@ -100,5 +157,44 @@ impl Store {
         Ok(sqlx::query_scalar("SELECT COUNT(*) FROM projects")
             .fetch_one(self.pool())
             .await?)
+    }
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_hints_id_is_its_wire_name() {
+        for hint in Hint::ALL {
+            assert_eq!(
+                serde_json::to_value(hint).unwrap(),
+                serde_json::Value::from(hint.id())
+            );
+        }
+    }
+
+    #[tokio::test]
+    async fn a_dismissed_hint_stays_seen_and_others_are_ignored() {
+        let tmp = tempfile::tempdir().unwrap();
+        let path = tmp.path().join("hints.db");
+        let store = Store::open(&path).await.unwrap();
+        assert_eq!(store.hints_seen().await.unwrap(), vec![]);
+
+        // A name no hint has any more (a hint that was removed) is left out.
+        store
+            .set_setting("hints.seen.long_gone", "true")
+            .await
+            .unwrap();
+        assert_eq!(store.hints_seen().await.unwrap(), vec![]);
+
+        store.see_hint(Hint::GallerySample).await.unwrap();
+        store.see_hint(Hint::GallerySample).await.unwrap();
+        assert_eq!(store.hints_seen().await.unwrap(), vec![Hint::GallerySample]);
+        drop(store);
+
+        // The same database opened again (the app started again).
+        let store = Store::open(&path).await.unwrap();
+        assert_eq!(store.hints_seen().await.unwrap(), vec![Hint::GallerySample]);
     }
 }

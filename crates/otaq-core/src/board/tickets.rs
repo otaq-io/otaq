@@ -3,8 +3,7 @@
 //!
 //! New tickets land in Backlog. Numbers increase per project and are never handed out again, even after a deletion
 //! (d0029). Every ticket stores its base branch ("Start from and merge into"), the project's at creation unless
-//! overridden (d0051), and may have an External ID (d0059). Every change records its actor and appends an `events`
-//! row.
+//! overridden (d0051). Every change records its actor and appends an `events` row.
 
 use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
@@ -69,8 +68,6 @@ pub struct Ticket {
     pub base: Base,
     /// The base can't change any more (the ticket has been to Dev).
     pub base_locked: bool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// Direct parents, in key order.
     pub depends_on: Vec<TicketKey>,
     pub flags: Flags,
@@ -264,8 +261,6 @@ pub struct NewTicketInput {
     /// Overrides the project's base branch.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// The user's first comment, with the report the New ticket form took (RPT-03): posted with the ticket, as the
     /// user's, marked "at creation". Only the user sends one (the policy).
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -287,9 +282,6 @@ pub struct TicketUpdate {
     pub priority: Option<Priority>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub base_branch: Option<String>,
-    /// An empty string removes the External ID.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// Stage choices (`--stage Dev=Quick developer`, AGM-11), checked before any field changes.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<super::stage_choices::ChoicePick>,
@@ -307,7 +299,6 @@ stored_enum! {
         Plan = "plan",
         Priority = "priority",
         BaseBranch = "base_branch",
-        ExternalId = "external_id",
     }
 }
 
@@ -538,7 +529,6 @@ impl Board {
             Some(b) if !b.trim().is_empty() => b.trim().to_owned(),
             _ => project.base_branch.clone(),
         };
-        let external_id = non_empty(input.external_id.as_deref());
         let plan_by = if input.plan.trim().is_empty() {
             None
         } else {
@@ -557,9 +547,9 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         let number = allocate_number(&mut tx, &project.id).await?;
         sqlx::query(
-            "INSERT INTO tickets (id, project_id, number, title, body, plan, plan_by, plan_at, priority, external_id,
-                                  stage_id, state, base_branch, created_by, created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+            "INSERT INTO tickets (id, project_id, number, title, body, plan, plan_by, plan_at, priority, stage_id,
+                                  state, base_branch, created_by, created_at, updated_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -571,7 +561,6 @@ impl Board {
         .bind(plan_by.as_ref().map(|_| now))
         // New tickets are Normal (d0065).
         .bind(i64::from(input.priority.unwrap_or_default().number()))
-        .bind(&external_id)
         // Backlog: no stage yet.
         .bind(None::<&str>)
         .bind(Status::Backlog.as_str())
@@ -740,19 +729,6 @@ impl Board {
             }
         }
 
-        let mut external_id = ticket.external_id.clone();
-        if let Some(new) = &update.external_id {
-            let new = non_empty(Some(new));
-            if new != external_id {
-                changes.push(change(
-                    Field::ExternalId,
-                    external_id.as_deref(),
-                    new.as_deref(),
-                ));
-                external_id = new;
-            }
-        }
-
         if changes.is_empty() {
             return Ok(ticket);
         }
@@ -767,7 +743,7 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         sqlx::query(
             "UPDATE tickets SET title = ?, body = ?, plan = ?, plan_by = ?, plan_at = ?, priority = ?,
-                                base_branch = ?, external_id = ?, updated_by = ?, updated_at = ?
+                                base_branch = ?, updated_by = ?, updated_at = ?
              WHERE id = ?",
         )
         .bind(&title)
@@ -777,7 +753,6 @@ impl Board {
         .bind(plan_at)
         .bind(i64::from(priority.number()))
         .bind(&base_branch)
-        .bind(&external_id)
         .bind(actor.to_string())
         .bind(now)
         .bind(&ticket.id)
@@ -1319,7 +1294,6 @@ impl Board {
                     status,
                     base,
                     base_locked: row.branch_locked,
-                    external_id: row.external_id,
                     depends_on,
                     flags,
                     created_by: row.created_by.parse().expect("infallible"),
@@ -1515,11 +1489,4 @@ fn required_title(title: &str) -> Result<String, BoardError> {
     } else {
         Ok(title.to_owned())
     }
-}
-
-fn non_empty(value: Option<&str>) -> Option<String> {
-    value
-        .map(str::trim)
-        .filter(|v| !v.is_empty())
-        .map(str::to_owned)
 }

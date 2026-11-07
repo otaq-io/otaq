@@ -2,7 +2,6 @@
 //! *13 · Run & Shell*): [`run`], [`run_command`], [`processes`] and [`shell`] turned into plain, serialized shapes.
 //! The page keeps only the typed fields, the click and which overlay is open.
 
-use otaq_core::agents::Role;
 use otaq_core::session::SessionInfo;
 use otaq_core::terminals::run::{RunInfo, RunState};
 use serde::Serialize;
@@ -296,14 +295,14 @@ pub struct ThinkingView {
 /// The label of Ask the agent, here and on project settings' Run command row (d0086; was "Ask Claude", d0035).
 pub const ASK_LABEL: &str = "Ask the agent";
 
-/// Ask the agent's tooltip: who is asked, the project's Project agent `agent`: "Asks Noyan (Strong) to suggest a run
-/// command"; the agent named as the role is "Asks Noyan to suggest a run command".
+/// Ask the agent's tooltip: who is asked, the agent Noyan uses `agent`: "Asks Noyan (Strong) to suggest a run
+/// command"; an agent itself called Noyan is "Asks Noyan to suggest a run command".
 pub fn ask_tooltip(agent: &str) -> String {
-    let role = Role::ProjectAgent.label();
-    if agent == role {
-        format!("Asks {role} to suggest a run command")
+    let noyan = "Noyan";
+    if agent == noyan {
+        format!("Asks {noyan} to suggest a run command")
     } else {
-        format!("Asks {role} ({agent}) to suggest a run command")
+        format!("Asks {noyan} ({agent}) to suggest a run command")
     }
 }
 

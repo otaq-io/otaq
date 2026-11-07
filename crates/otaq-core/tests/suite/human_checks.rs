@@ -16,9 +16,7 @@ use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::engine::RunResult;
-use otaq_core::flow::{
-    CheckBy, Column, Delivers, Delivery, DeliveryMode, FlowFile, Stage, StageKind, yaml,
-};
+use otaq_core::flow::{CheckBy, Delivers, DeliveryMode, FlowFile, Stage, StageKind, yaml};
 use otaq_core::git::testing::commit;
 use otaq_core::review::{PassOutcome, ReturnOutcome};
 use otaq_core::service::ServiceConfig;
@@ -60,29 +58,23 @@ fn human_check(id: &str, name: &str) -> Stage {
         id: id.into(),
         name: name.into(),
         kind: StageKind::Check { by: CheckBy::You },
-        column: Column::Own,
         agent: None,
         skill: None,
         options: Vec::new(),
         rounds: None,
         fail_to: None,
-        delivery: None,
-        why: None,
+        description: None,
     }
 }
 
-/// The test flow with a Review human check inserted before the stage `before`, and its Delivery in click mode
-/// (`delivers: pr`).
-fn with_review_before(before: &str) -> FlowFile {
+/// The test flow with a Review human check inserted before the stage `before` (`None`: last), and its delivery in
+/// click mode (`delivers: pr`).
+fn with_review_before(before: Option<&str>) -> FlowFile {
     let mut file = every_kind();
-    let at = file.flow.position(before).unwrap();
+    let at = before.map_or(file.flow.stages.len(), |id| file.flow.position(id).unwrap());
     file.flow.stages.insert(at, human_check("review", "Review"));
-    for stage in file.flow.stages.iter_mut().filter(|s| s.is_delivery()) {
-        stage.delivery = Some(Delivery {
-            mode: DeliveryMode::Click,
-            delivers: Delivers::Pr,
-        });
-    }
+    file.flow.delivery.mode = DeliveryMode::Click;
+    file.flow.delivery.delivers = Delivers::Pr;
     file
 }
 
@@ -185,7 +177,7 @@ async fn arrival(w: &TestService, key: &str) -> Option<String> {
 async fn a_mid_flow_pass_moves_on_and_the_last_offers_the_delivery() {
     let w = world().await;
     w.board
-        .use_flow_for_tests("SHOP", &with_review_before("ship"))
+        .use_flow_for_tests("SHOP", &with_review_before(None))
         .await;
     let t = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
     ran(&w, &t, "security", RunResult::Passed, Some(2)).await;
@@ -241,7 +233,7 @@ async fn the_list_says_how_each_card_got_into_its_check() {
     .execute(w.board.store().pool())
     .await
     .unwrap();
-    let delivering = at(&w, "Gift cards", "ship", Status::ToDeliver).await;
+    let delivering = at(&w, "Gift cards", "qa", Status::ToDeliver).await;
     ran(&w, &delivering, "qa", RunResult::Passed, None).await;
     let working = at(&w, "Saved carts", "dev", Status::Working).await;
     ran(&w, &working, "product-spec", RunResult::Passed, None).await;
@@ -475,7 +467,7 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
     let after = moved(w.review.pass("SHOP-1", &w.validation, &me()).await.unwrap());
     assert_eq!(
         (after.place, after.status),
-        (Place::stage_of("ship"), Status::ToDeliver)
+        (Place::stage_of("qa"), Status::ToDeliver)
     );
     let after = w.board.ticket("SHOP-1").await.unwrap();
     assert!(after.flags.delivering_automatically);
@@ -514,11 +506,11 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
 async fn qa_rows_sort_before_review_rows_when_qa_is_later() {
     let w = world().await;
     w.board
-        .use_flow_for_tests("SHOP", &with_review_before("qa"))
+        .use_flow_for_tests("SHOP", &with_review_before(Some("qa")))
         .await;
     let review = at(&w, "Search notes", "review", Status::WaitingForYou).await;
     let qa = at(&w, "Export as CSV", "qa", Status::WaitingForYou).await;
-    let deliver = at(&w, "Sort by date", "ship", Status::ToDeliver).await;
+    let deliver = at(&w, "Sort by date", "qa", Status::ToDeliver).await;
     sqlx::query("UPDATE tickets SET state_since = state_since - 60000 WHERE id = ?")
         .bind(&review.id)
         .execute(w.board.store().pool())
@@ -538,7 +530,7 @@ async fn qa_rows_sort_before_review_rows_when_qa_is_later() {
     assert_eq!(
         group,
         [
-            (deliver.key.to_string(), "Done".to_owned()),
+            (deliver.key.to_string(), "QA".to_owned()),
             (qa.key.to_string(), "QA".to_owned()),
             (review.key.to_string(), "Review".to_owned()),
         ]

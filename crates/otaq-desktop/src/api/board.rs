@@ -168,16 +168,6 @@ pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     }
 }
 
-/// The id of the project's Delivery stage (its flow's last stage), where the user's own Open PR skill goes.
-pub(crate) async fn delivery_stage(app: &App, project: &str) -> Option<String> {
-    flow(app, project)
-        .await
-        .stages
-        .into_iter()
-        .find(otaq_core::flow::Stage::is_delivery)
-        .map(|s| s.id)
-}
-
 /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows on the card, the sheet's Session list.
 /// None when they can't be read (the cards look as they would without).
 pub(crate) async fn helpers(app: &App, project: &str) -> Vec<otaq_core::helpers::Helper> {
@@ -399,21 +389,6 @@ async fn choices_of(app: &App, key: &str) -> Vec<StageOptions> {
     }
 }
 
-/// The branch an approve merges into: the service's own proposal, else the ticket's base.
-/// Where the ticket merges, and its commits beyond its base (`None` when the proposal can't be read).
-async fn merge_target(app: &App, ticket: &Ticket) -> (String, Option<u32>) {
-    let proposal = app
-        .service
-        .send(Request::TicketMergeProposal(KeyParams {
-            key: ticket.key.to_string(),
-        }))
-        .await;
-    match proposal {
-        Ok(Reply::MergeProposal(p)) => (p.target, Some(p.commits)),
-        _ => (ticket.base.branch().to_owned(), None),
-    }
-}
-
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let flow = flow(app, &ticket.key.project.to_string()).await;
@@ -507,30 +482,6 @@ async fn carry_out(
                     dialog: Box::new(dialog),
                 },
                 None => DropOutcome::Nothing,
-            }
-        }
-        DropStep::Approve => {
-            let project = ticket.key.project.to_string();
-            let (board, (target, commits), provider) = tokio::join!(
-                snapshot(app, &project),
-                merge_target(app, ticket),
-                app.service.send(Request::ProjectPrProvider(ProjectParams {
-                    project: project.clone(),
-                })),
-            );
-            let tickets: Vec<Ticket> = board?.tickets().cloned().collect();
-            let provider = match provider {
-                Ok(Reply::PrProvider(p)) => Some(p),
-                _ => None,
-            };
-            DropOutcome::Approve {
-                menu: board_page::approve_menu(
-                    ticket,
-                    &target,
-                    &tickets,
-                    provider.as_ref(),
-                    commits,
-                ),
             }
         }
     })
@@ -755,7 +706,6 @@ mod tests {
                     plan: String::new(),
                     priority: None,
                     base_branch: None,
-                    external_id: None,
                     first_comment: None,
                 }),
             )
@@ -769,7 +719,9 @@ mod tests {
         assert_eq!(view["empty"], Value::Null);
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
-        assert_eq!(view["columns"][4]["sections"][1]["empty"], "Nothing approved");
+        // Review is one column, with no Approved section.
+        assert!(view["columns"][4]["sections"].is_null());
+        assert_eq!(view["columns"][4]["id"], "review");
         assert_eq!(view["min_column_width"], 240.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
@@ -790,8 +742,9 @@ mod tests {
             drag["targets"][4]["verdict"]["title"],
             "Only agents move tickets to Ready for Review"
         );
-        assert_eq!(drag["targets"][5]["target"], "approved");
-        assert_eq!(drag["targets"][5]["verdict"]["kind"], "forbidden");
+        // No Approved target: after Review comes Done.
+        assert_eq!(drag["targets"][5]["target"], "done");
+        assert_eq!(drag["targets"].as_array().unwrap().len(), 6);
 
         // A refused drop does nothing.
         let outcome = request(
@@ -855,7 +808,6 @@ mod tests {
                     plan: String::new(),
                     priority: None,
                     base_branch: None,
-                    external_id: None,
                     first_comment: None,
                 }),
             )
@@ -900,7 +852,6 @@ mod tests {
                     plan: String::new(),
                     priority: None,
                     base_branch: None,
-                    external_id: None,
                     first_comment: None,
                 }),
             )

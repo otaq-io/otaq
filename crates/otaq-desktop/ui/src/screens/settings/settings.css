@@ -1524,18 +1524,6 @@
   font: 500 13px var(--font-ui);
 }
 
-.settings-agents-role {
-  display: inline-flex;
-  align-items: center;
-  gap: 4px;
-  padding: 1px 6px;
-  border-radius: 4px;
-  background: var(--accent-soft);
-  color: var(--accent);
-  font: 500 11px var(--font-ui);
-  white-space: nowrap;
-}
-
 .settings-agents-came {
   color: var(--text-secondary);
   font: 400 11.5px var(--font-ui);
@@ -1601,7 +1589,7 @@
   color: var(--text-muted);
 }
 
-/* One agent: ← name and its role tag in the header, the came-from line under it. */
+/* One agent: ← name in the header, the came-from line under it. */
 .settings-agent-heading {
   display: flex;
   flex: 1;
@@ -1689,26 +1677,6 @@
 .settings-agent-default-now {
   color: var(--text-secondary);
   font: 400 12px var(--font-mono);
-}
-
-.settings-agent-page .segmented {
-  align-self: flex-start;
-}
-
-.settings-agent-moved {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 12px;
-  border-radius: 6px;
-  background: var(--st-approved-bg);
-  color: var(--text-primary);
-  font: 400 12.5px var(--font-ui);
-}
-
-.settings-agent-moved > .icon {
-  flex: none;
-  color: var(--st-approved);
 }
 
 .settings-agent-instructions {

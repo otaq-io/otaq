@@ -588,7 +588,7 @@ async fn a_skipped_qa_reaches_done_as_the_flow_says() {
         .await
         .unwrap();
     let flow = w.board.effective_flow("SHOP").await.unwrap();
-    let ship = flow.stage("ship").unwrap().delivery.unwrap();
+    let ship = &flow.delivery;
     assert_eq!(
         ship.mode,
         otaq_core::flow::DeliveryMode::Automatic,
@@ -607,8 +607,8 @@ async fn a_skipped_qa_reaches_done_as_the_flow_says() {
     .unwrap();
     assert_eq!(
         (pass.place.clone(), pass.status, pass.automatic),
-        (Place::stage_of("ship"), Status::ToDeliver, true),
-        "Done automatic, as the flow says"
+        (Place::stage_of("qa"), Status::ToDeliver, true),
+        "delivered automatically, as the flow says, in the last stage"
     );
     let through: Vec<(&str, RunResult)> = pass
         .passed_through
@@ -646,7 +646,6 @@ async fn on_the_default_flow_the_user_sets_dev_to_another_agent() {
                 instructions: String::new(),
                 model: AgentModel::Default,
                 effort: None,
-                role: None,
             },
             &otaq_core::agents::CameFrom::You,
             None,
@@ -722,9 +721,9 @@ async fn on_the_default_flow_the_user_sets_dev_to_another_agent() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_older_flow_splits_its_check_and_carries_the_tickets_over() {
     use otaq_core::domain::validation::MovedPast;
+    use otaq_core::flow::Flow;
     use otaq_core::flow::apply::ProposeFrom;
     use otaq_core::flow::proposal::ApplyChoices;
-    use otaq_core::flow::{Column, Flow};
 
     let w = TestService::start().await;
     w.add_project("shop-web").await;
@@ -811,21 +810,21 @@ async fn an_older_flow_splits_its_check_and_carries_the_tickets_over() {
     let split = yaml::read(&old).unwrap().flow;
     let flow = w.board.effective_flow("SHOP").await.unwrap();
     assert_eq!(flow, split);
-    let security = |flow: &Flow| -> Vec<(String, String, Column)> {
+    let security = |flow: &Flow| -> Vec<(String, String)> {
         flow.stages
             .iter()
             .filter(|s| s.id.starts_with("security"))
-            .map(|s| (s.id.clone(), s.name.clone(), s.column))
+            .map(|s| (s.id.clone(), s.name.clone()))
             .collect()
     };
+    // Each copy is its own column, as every stage is.
     assert_eq!(
         security(&flow),
         [
-            ("security".to_owned(), "Security".to_owned(), Column::Own),
+            ("security".to_owned(), "Security".to_owned()),
             (
                 "security-validator".to_owned(),
                 "Security · Validator".to_owned(),
-                Column::WithPrevious
             ),
         ]
     );

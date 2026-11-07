@@ -5,8 +5,8 @@
 //! commit skill as prime names it, and the Project agent's `flow` start ([`crate::project_agents::first_skill`]).
 //!
 //! The parts: one **skill part** per stage of the project's flow whose own agent this is (a ticket's stage choice,
-//! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one for the role it holds
-//! ("noyan · as Noyan"); then the **other skills** it is told about: the commit skill as prime names it (an agent
+//! AGM-08, doesn't move it: it is per ticket, and the per-ticket context is left out), then one when it is the agent
+//! Noyan uses ("noyan · as Noyan"); then the **other skills** it is told about: the commit skill as prime names it (an agent
 //! that runs a stage) and, for the Project agent, its `flow` start, each marked. An agent has no skill list of its own (T6). An agent in no stage
 //! and with no role has no skill part.
 //!
@@ -19,11 +19,12 @@ use std::path::{Path, PathBuf};
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::{PROJECT_AGENT_SKILL, Tool};
-use crate::agents::{Agent, Role};
 use crate::board::settings::WorkflowStep;
 use crate::board::{Board, BoardError};
-use crate::flow::Stage;
 use crate::skills::found::FoundSkill;
+
+/// Where the delivery's PR skill runs, as a skill part says it ("in Delivery"): the delivery isn't a stage.
+pub const DELIVERY: &str = "Delivery";
 
 /// `agents.reads`: the agent (its id) and the project (its key).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -74,8 +75,8 @@ pub struct SkillPart {
 pub enum RunsAs {
     /// In the stage of that name ("Dev").
     Stage(String),
-    /// As the role's agent.
-    Role(Role),
+    /// As Noyan: the agent Noyan uses (the app setting).
+    Noyan,
 }
 
 /// One of the agent's other skills.
@@ -119,13 +120,20 @@ impl Board {
         let tool = agent.model.on(default.as_ref()).map(|m| m.tool);
         let mut found: Option<Vec<FoundSkill>> = None;
         let flow = self.effective_flow(&info.key).await?;
-        // Every stage naming it, an agent check's check agents each (d0130).
-        for stage in &flow.stages {
-            if !crate::agents::resolve::stage_names(stage, &agent) {
-                continue;
-            }
-            let name = self.stage_skill(&info.key, stage).await?;
-            let runs = RunsAs::Stage(stage.name.clone());
+        // Every stage naming it, an agent check's check agents each (d0130), and the delivery when it opens the PRs.
+        let mut runs_in: Vec<(String, RunsAs)> = flow
+            .stages
+            .iter()
+            .filter(|s| crate::agents::resolve::stage_names(s, &agent))
+            .filter_map(|s| Some((s.skill.clone()?, RunsAs::Stage(s.name.clone()))))
+            .collect();
+        if crate::agents::resolve::delivery_names(&flow, &agent) {
+            let skill = self
+                .delivery_skill_name(&info.key, WorkflowStep::OpenPr)
+                .await?;
+            runs_in.push((skill, RunsAs::Stage(DELIVERY.to_owned())));
+        }
+        for (name, runs) in runs_in {
             if crate::agent_tools::is_own_skill(&name) {
                 skills.push(part(shipped, name, runs));
             } else {
@@ -136,14 +144,11 @@ impl Board {
                 skills.push(user_part(found, tool, name, runs));
             }
         }
-        if let Some(role) = agent.role {
-            skills.push(part(
-                shipped,
-                role_skill(role).to_owned(),
-                RunsAs::Role(role),
-            ));
+        let noyan = self.store().noyan_agent_id().await?.as_deref() == Some(agent.id.as_str());
+        if noyan {
+            skills.push(part(shipped, PROJECT_AGENT_SKILL.to_owned(), RunsAs::Noyan));
         }
-        let others = others(shipped, &agent, &skills);
+        let others = others(shipped, noyan, &skills);
         Ok(AgentReads {
             agent_id: agent.id.clone(),
             agent: agent.name.clone(),
@@ -154,26 +159,6 @@ impl Board {
             skills,
             others,
         })
-    }
-
-    /// The skill a session in `stage` runs first, by the flow's name for it: an Agent stage's and an agent check's
-    /// own (the flow file requires one), a Delivery's Open PR skill.
-    async fn stage_skill(&self, project: &str, stage: &Stage) -> Result<String, BoardError> {
-        match &stage.skill {
-            Some(skill) if !stage.is_delivery() => Ok(skill.clone()),
-            _ => {
-                self.delivery_skill_name(project, WorkflowStep::OpenPr)
-                    .await
-            }
-        }
-    }
-}
-
-/// The skill a role's agent runs first: the Project agent's own (a `/flow` start runs `flow`, listed with the
-/// others).
-pub fn role_skill(role: Role) -> &'static str {
-    match role {
-        Role::ProjectAgent => PROJECT_AGENT_SKILL,
     }
 }
 
@@ -227,9 +212,9 @@ fn part(shipped: Option<&Path>, skill: String, runs: RunsAs) -> SkillPart {
 
 /// The skills the agent is told about that no part shows, each once: the commit skill (as prime names it, for an
 /// agent that runs a stage) and the Project agent's `flow`, each marked; a folder only for one of Otaq's own (read from the bundle at `shipped`).
-fn others(shipped: Option<&Path>, agent: &Agent, parts: &[SkillPart]) -> Vec<OtherSkill> {
+fn others(shipped: Option<&Path>, noyan: bool, parts: &[SkillPart]) -> Vec<OtherSkill> {
     let commit = crate::prime::commit_skill();
-    let flow = (agent.role == Some(Role::ProjectAgent)).then(|| {
+    let flow = noyan.then(|| {
         let (skill, _) = crate::project_agents::first_skill(crate::project_agents::FLOW_COMMAND);
         skill.to_owned()
     });

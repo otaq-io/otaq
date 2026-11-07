@@ -81,6 +81,15 @@ pub fn from_error_data(data: Option<&serde_json::Value>) -> Option<NewerDatabase
         .flatten()
 }
 
+/// Whether the migration `version` was applied to the database before; `false` for a fresh one, or when the
+/// migrations table can't be read.
+pub(super) async fn applied(pool: &SqlitePool, version: i64) -> bool {
+    match Layout::read(pool, &super::MIGRATOR).await {
+        Ok(layout) => layout.applied.contains(&version),
+        Err(_) => false,
+    }
+}
+
 /// What the migrations table says about the database, compared with what `migrator` knows.
 pub(super) struct Layout {
     /// Versions applied to the database.

@@ -119,7 +119,7 @@ fn plan_after_product_spec(file: &mut FlowFile) {
     plan.id = "plan".into();
     plan.name = "Plan".into();
     plan.options.clear();
-    plan.why = Some(PLAN_WHY.into());
+    plan.description = Some(PLAN_WHY.into());
     file.flow.stages.insert(1, plan);
 }
 
@@ -721,15 +721,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         .collect();
     assert_eq!(
         order,
-        [
-            "product-spec",
-            "plan",
-            "dev",
-            "security",
-            "validate",
-            "qa",
-            "ship"
-        ]
+        ["product-spec", "plan", "dev", "security", "validate", "qa"]
     );
     world.until_in("SHOP-12", "dev", Status::Working).await;
     // The stand-in logs its start a moment after the session counts as working.

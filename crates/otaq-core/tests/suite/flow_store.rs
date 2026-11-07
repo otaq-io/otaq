@@ -8,7 +8,7 @@ use std::path::{Path, PathBuf};
 use crate::common::Fixture;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::flow::default::testing::{with_rounds, without_validate};
-use otaq_core::flow::{self, AppliedBy, Column, NewFlowVersion, yaml};
+use otaq_core::flow::{self, AppliedBy, NewFlowVersion, yaml};
 use otaq_core::naming;
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_core::service::testing::TestService;
@@ -51,10 +51,7 @@ async fn a_new_project_starts_on_the_default_flow() {
     assert!(current.applied_at > 0);
     let running = f.board.effective_flow("SHOP").await.unwrap();
     assert_eq!(running, flow::default_flow());
-    assert_eq!(ids(&running), ["dev", "validate", "review", "deliver"]);
-    let column = |id: &str| running.stage(id).unwrap().column;
-    assert_eq!(column("validate"), Column::Own);
-    assert_eq!(column("deliver"), Column::WithPrevious);
+    assert_eq!(ids(&running), ["dev", "validate", "review"]);
     assert!(f.board.effective_flow("NOPE").await.is_err());
 }
 
@@ -66,7 +63,7 @@ async fn versions_are_kept_in_order_and_the_current_one_runs() {
     f.board.edit_flow_for_tests("SHOP", without_validate).await;
     assert_eq!(
         ids(&f.board.effective_flow("SHOP").await.unwrap()),
-        ["dev", "review", "deliver"]
+        ["dev", "review"]
     );
     let by_agent = f
         .board
@@ -153,7 +150,6 @@ async fn a_rename_follows_into_every_stored_flow() {
         instructions: validator.instructions.clone(),
         model: validator.model.clone(),
         effort: validator.effort.clone(),
-        role: validator.role,
     };
     store
         .update_agent(&validator.id, &fields, false)

@@ -7,7 +7,7 @@ use std::path::Path;
 
 use otaq_core::agents::shipped;
 use otaq_core::flow::presets::{self, preset, presets};
-use otaq_core::flow::{Column, DeliveryMode, check, check_agents, yaml};
+use otaq_core::flow::{Delivers, DeliveryMode, check, check_agents, yaml};
 use otaq_core::naming;
 
 #[test]
@@ -26,14 +26,14 @@ fn the_four_presets_are_listed_as_drawn() {
                 "Today\u{2019}s board",
                 naming::DEFAULT_FLOW_FILE,
                 cols(&["Ready for Dev", "Dev", "Validate", "Review", "Done"]),
-                "Done \u{b7} click".to_owned(),
+                "Local merge or PR \u{b7} click".to_owned(),
             ),
             (
                 "Solo autopilot",
                 "Solo projects that trust the checks",
                 "solo-autopilot.yaml",
                 cols(&["Ready for Dev", "Dev", "Validate", "Done"]),
-                "Done \u{b7} Local merge, automatic".to_owned(),
+                "Local merge \u{b7} automatic".to_owned(),
             ),
             (
                 "Spec first",
@@ -51,14 +51,14 @@ fn the_four_presets_are_listed_as_drawn() {
                     "Code review",
                     "Done",
                 ]),
-                "Done \u{b7} click".to_owned(),
+                "Local merge or PR \u{b7} click".to_owned(),
             ),
             (
                 "Team PR",
                 "Teams that review on GitHub or GitLab: the PR is the review",
                 "team-pr.yaml",
                 cols(&["Ready for Dev", "Dev", "Validate", "Done"]),
-                "Done \u{b7} PR, automatic".to_owned(),
+                "PR \u{b7} automatic".to_owned(),
             ),
         ]
     );
@@ -116,16 +116,10 @@ fn presets_skip_only_planning_and_check_before_an_automatic_delivery() {
         };
         assert_eq!(skippable, planning, "{}", p.file);
         let validate = flow.stage("validate").expect("every preset validates");
-        assert!(validate.is_agent_check() && validate.column == Column::Own);
-        let (at, delivery) = flow
-            .stages
-            .iter()
-            .enumerate()
-            .find_map(|(i, s)| s.delivery.map(|d| (i, d)))
-            .unwrap();
-        if delivery.mode == DeliveryMode::Automatic {
+        assert!(validate.is_agent_check());
+        if flow.delivery.mode == DeliveryMode::Automatic {
             assert!(
-                flow.stages[..at]
+                flow.stages
                     .iter()
                     .any(|s| s.is_agent_check() || s.is_human_check()),
                 "{}",
@@ -136,17 +130,21 @@ fn presets_skip_only_planning_and_check_before_an_automatic_delivery() {
 }
 
 /// Spec first's planning stages run Spec writer, Architect and Milestone planner with their own skills, Spec review's
-/// fails go to Product spec and Validate's and Code review's to Dev (d0129, d0131), and its Done is the default flow's,
-/// folded into Code review; Team PR's Done opens the PR with no click, run by Shipper with `open-pr`; Solo autopilot
-/// merges locally with no agent; the default flow's Delivery names `open-pr` (Q254).
+/// fails go to Product spec and Validate's and Code review's to Dev (d0129, d0131), and it delivers as the default
+/// flow does; every shipped flow says how it delivers in its `delivery:` setting, no stage: Team PR opens the PR with
+/// no click, run by Shipper with `open-pr`; Solo autopilot merges locally with no agent; the default flow lets you
+/// pick on your click, its PR by Developer with `open-pr` (Q254).
 #[test]
 fn the_presets_stages_run_their_agents_and_skills() {
     let stage = |file: &str, id: &str| {
         let flow = preset(file).unwrap().read().flow;
         let s = flow.stage(id).unwrap().clone();
-        (s.agent, s.skill, s.delivery.map(|d| (d.mode, d.delivers)))
+        (s.agent, s.skill, None::<(DeliveryMode, Delivers)>)
     };
-    use otaq_core::flow::Delivers;
+    let delivery = |file: &str| {
+        let d = preset(file).unwrap().read().flow.delivery;
+        (d.agent, d.skill, Some((d.mode, d.delivers)))
+    };
     let some = |s: &str| Some(s.to_owned());
     assert_eq!(
         stage("spec-first.yaml", "product-spec"),
@@ -176,14 +174,22 @@ fn the_presets_stages_run_their_agents_and_skills() {
             ("Code review", Some("dev")),
         ]
     );
-    let done = spec_first.stage("deliver").unwrap();
-    assert_eq!(done.column, Column::WithPrevious);
+    for p in presets() {
+        let flow = p.read().flow;
+        assert!(
+            flow.stages
+                .iter()
+                .all(|s| !s.kind.as_str().contains("delivery")),
+            "{}: no Delivery stage",
+            p.file
+        );
+    }
     assert_eq!(
-        stage("spec-first.yaml", "deliver"),
-        stage(naming::DEFAULT_FLOW_FILE, "deliver")
+        delivery("spec-first.yaml"),
+        delivery(naming::DEFAULT_FLOW_FILE)
     );
     assert_eq!(
-        stage("team-pr.yaml", "deliver"),
+        delivery("team-pr.yaml"),
         (
             some("Shipper"),
             some("open-pr"),
@@ -191,11 +197,11 @@ fn the_presets_stages_run_their_agents_and_skills() {
         )
     );
     assert_eq!(
-        stage("solo-autopilot.yaml", "deliver"),
+        delivery("solo-autopilot.yaml"),
         (None, None, Some((DeliveryMode::Automatic, Delivers::Local)))
     );
     assert_eq!(
-        stage(naming::DEFAULT_FLOW_FILE, "deliver"),
+        delivery(naming::DEFAULT_FLOW_FILE),
         (
             some("Developer"),
             some("open-pr"),
@@ -204,6 +210,24 @@ fn the_presets_stages_run_their_agents_and_skills() {
     );
     // The default flow is the first preset, its file the default's.
     assert_eq!(presets::presets()[0].yaml, naming::DEFAULT_FLOW_YAML);
+}
+
+/// Every shipped flow says what each of its stages is for: every agent reads the descriptions in `prime`, so a
+/// stage's agent can tell when its stage has nothing to add. The delivery is no stage: it settles nothing about the
+/// work.
+#[test]
+fn every_shipped_stage_says_what_it_is_for() {
+    for p in presets() {
+        for stage in p.read().flow.stages {
+            let description = stage.description.unwrap_or_default();
+            assert!(
+                description.len() > 20,
+                "{}: {} has no description",
+                p.file,
+                stage.name
+            );
+        }
+    }
 }
 
 /// An agent several presets define is the same agent in each (agents are shared by name, so a second preset adds

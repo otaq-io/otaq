@@ -130,7 +130,6 @@ impl TestService {
             instructions: agent.instructions.clone(),
             model: agent.model.clone(),
             effort: agent.effort.clone(),
-            role: agent.role,
         };
         edit(&mut page);
         let model_changed = page.model != agent.model;
@@ -190,8 +189,8 @@ impl TestService {
         }
     }
 
-    /// Names `skill` on the stage of every project's flow that runs `step` (Validate, or the Delivery for Open PR);
-    /// `None` puts the stage back on Otaq's skill.
+    /// Names `skill` on what runs `step` in every project's flow (the Validate stage, or the delivery for Open PR);
+    /// `None` puts it back on Otaq's skill.
     pub async fn name_stage_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
@@ -201,10 +200,12 @@ impl TestService {
         for project in self.board.store().projects().await.expect("projects") {
             self.board
                 .edit_flow_for_tests(&project.key, |file| {
+                    if step == WorkflowStep::OpenPr {
+                        file.flow.delivery.skill = skill.map(str::to_owned);
+                    }
                     for stage in &mut file.flow.stages {
                         let runs = match step {
                             WorkflowStep::Validate => stage.id == crate::flow::default::VALIDATE,
-                            WorkflowStep::OpenPr => stage.is_delivery(),
                             _ => false,
                         };
                         if runs {
@@ -255,7 +256,7 @@ impl TestService {
 
     /// The sample board of `design-briefs/00-README.md`, as far as the CLI tests need it: project SHOP
     /// (`shop-web`), fillers SHOP-1…11 and 29…39 (Backlog), SHOP-12…SHOP-28 with the brief's titles, statuses and
-    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and SHOP-40 Wishlist (External ID PAY-123)
+    /// links (SHOP-20 depends on SHOP-18 and SHOP-19, SHOP-21 on SHOP-20), and SHOP-40 Wishlist
     /// with SHOP-41 (Merged), SHOP-42 (Working, depends on SHOP-41) and SHOP-43 (Backlog).
     pub async fn shop_sample(&self) -> Project {
         let project = self.add_project("shop-web").await;
@@ -304,7 +305,6 @@ impl TestService {
                 &NewTicketInput {
                     project: "SHOP".into(),
                     title: "Wishlist".into(),
-                    external_id: Some("PAY-123".into()),
                     ..Default::default()
                 },
                 &me,

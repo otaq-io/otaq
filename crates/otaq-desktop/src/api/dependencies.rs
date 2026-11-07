@@ -1,12 +1,14 @@
 //! `dependencies.*`: the sheet's Dependencies section (DPV-04; d0006, d0049; *24 → Adding and removing* `s24-11`),
-//! in Overview under the description: Blocked by and Blocks with where each ticket is now (`dependencies.view`); Add
-//! picks the direction, then searches by key or title (`dependencies.search`); a pick or a row's ✕ sends
-//! `dependencies.link`, which the service checks (loops, bases, who may) and answers with DPV-04's words for a loop.
-//! The words are `otaq_view::view_models::dependencies`'s.
+//! in Overview under the description: Waits for and Waiting for it with where each ticket is now
+//! (`dependencies.view`). A link is added only from the waiting ticket: Add searches by key or title for a ticket it
+//! will wait for (`dependencies.search`, which the New ticket form's Waits for uses too, before the ticket exists); a
+//! pick or a Waits for row's ✕ sends `dependencies.link`, which the service checks (loops, bases, who may) and answers
+//! with DPV-04's words for a loop. The words are `otaq_view::view_models::dependencies`'s.
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::protocol::{DepParams, KeyParams, ProjectParams, Reply, Request};
-use otaq_view::view_models::dependencies::{self, Direction, SearchRow, Section};
+use otaq_core::domain::TicketKey;
+use otaq_view::view_models::dependencies::{self, SearchRow, Section};
 use otaq_view::view_models::flow_columns::Columns;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -39,6 +41,7 @@ pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
     ViewParams::export_all(cfg)?;
     Section::export_all(cfg)?;
     SearchParams::export_all(cfg)?;
+    SearchFor::export_all(cfg)?;
     SearchRow::export_all(cfg)?;
     LinkParams::export_all(cfg)?;
     Linked::export_all(cfg)?;
@@ -59,14 +62,20 @@ async fn with_project(app: &App, key: &str) -> Result<Option<(Ticket, Vec<Ticket
         Err(e) if e.not_found => return Ok(None),
         Err(e) => return Err(e),
     };
+    let all = tickets(app, &ticket.key.project.to_string()).await?;
+    Ok(Some((ticket, all)))
+}
+
+/// The tickets of `project`.
+async fn tickets(app: &App, project: &str) -> Result<Vec<Ticket>, RequestError> {
     match app
         .service
         .send(Request::TicketList(ProjectParams {
-            project: ticket.key.project.to_string(),
+            project: project.to_owned(),
         }))
         .await?
     {
-        Reply::Tickets(all) => Ok(Some((ticket, all))),
+        Reply::Tickets(all) => Ok(all),
         other => Err(RequestError::plain(format!(
             "unexpected answer to ticket.list: {other:?}"
         ))),
@@ -95,37 +104,63 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Option<Section>, Requ
     Ok(dependencies::section(&Columns::of(&flow), &ticket, &all, now_ms()))
 }
 
-/// What `dependencies.search` takes: the open ticket, the direction picked and what is typed.
+/// Who searches for a ticket to wait for: an existing ticket, or a new one in the New ticket form.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[serde(tag = "mode", rename_all = "snake_case")]
+#[ts(rename = "DependencySearchFor")]
+pub enum SearchFor {
+    /// The open ticket: it and what it already waits for are left out.
+    Ticket { key: String },
+    /// A ticket not created yet: its project's tickets, leaving out the keys the form already picked.
+    New {
+        project: String,
+        #[serde(default)]
+        picked: Vec<String>,
+    },
+}
+
+/// What `dependencies.search` takes: who waits, and what is typed.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "DependencySearchParams")]
 pub struct SearchParams {
-    pub key: String,
-    pub direction: Direction,
+    pub waiting: SearchFor,
     pub query: String,
 }
 
 pub async fn search(app: &App, params: SearchParams) -> Result<Vec<SearchRow>, RequestError> {
-    let Some((ticket, all)) = with_project(app, &params.key).await? else {
-        return Ok(Vec::new());
+    let (project, all, taken) = match params.waiting {
+        SearchFor::Ticket { key } => {
+            let Some((ticket, all)) = with_project(app, &key).await? else {
+                return Ok(Vec::new());
+            };
+            (
+                ticket.key.project.to_string(),
+                all,
+                dependencies::taken(&ticket),
+            )
+        }
+        SearchFor::New { project, picked } => {
+            let all = tickets(app, &project).await?;
+            let taken: Vec<TicketKey> = picked.iter().filter_map(|k| k.parse().ok()).collect();
+            (project, all, taken)
+        }
     };
-    let flow = super::board::flow(app, &ticket.key.project.to_string()).await;
+    let flow = super::board::flow(app, &project).await;
     Ok(dependencies::search(
         &Columns::of(&flow),
-        &ticket,
         &all,
-        params.direction,
+        &taken,
         &params.query,
         SEARCH_LIMIT,
     ))
 }
 
-/// What `dependencies.link` takes: the open ticket, the other one, which way, and whether to add or remove it.
+/// What `dependencies.link` takes: the waiting ticket, the one it waits for, and whether to add or remove the link.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "DependencyLinkParams")]
 pub struct LinkParams {
     pub key: String,
     pub other: String,
-    pub direction: Direction,
     pub add: bool,
 }
 
@@ -139,10 +174,9 @@ pub enum Linked {
 }
 
 pub async fn link(app: &App, params: LinkParams) -> Result<Linked, RequestError> {
-    let (child, parent) = params.direction.link(&params.key, &params.other);
     let dep = DepParams {
-        child: child.to_owned(),
-        parent: parent.to_owned(),
+        child: params.key,
+        parent: params.other,
     };
     let request = if params.add {
         Request::DepAdd(dep)
@@ -172,8 +206,8 @@ mod tests {
         h.app.service.send(r).await.unwrap()
     }
 
-    /// The section through the real service: SHOP-2 waits for SHOP-1; Blocks from the other side; adding the
-    /// reverse link is refused with DPV-04's words; ✕ removes it.
+    /// The section through the real service: SHOP-2 waits for SHOP-1; SHOP-1 lists it as Waiting for it, read-only;
+    /// adding the reverse link is refused with DPV-04's words; ✕ on the waiting ticket removes it.
     #[tokio::test(flavor = "multi_thread")]
     async fn the_section_adds_lists_refuses_loops_and_removes() {
         let h = Harness::new(None);
@@ -203,7 +237,6 @@ mod tests {
                     plan: String::new(),
                     priority: None,
                     base_branch: None,
-                    external_id: None,
                     first_comment: None,
                 }),
             )
@@ -217,7 +250,7 @@ mod tests {
         let found = table(
             &h.app,
             "dependencies.search",
-            json!({ "key": page, "direction": "blocked_by", "query": "api" }),
+            json!({ "waiting": { "mode": "ticket", "key": page }, "query": "api" }),
         )
         .await
         .unwrap();
@@ -225,7 +258,7 @@ mod tests {
         let linked = table(
             &h.app,
             "dependencies.link",
-            json!({ "key": page, "other": api, "direction": "blocked_by", "add": true }),
+            json!({ "key": page, "other": api, "add": true }),
         )
         .await
         .unwrap();
@@ -233,9 +266,9 @@ mod tests {
         let view = table(&h.app, "dependencies.view", json!({ "key": page }))
             .await
             .unwrap();
-        assert_eq!(view["blocked_by"]["rows"][0]["key"], json!(api));
-        assert_eq!(view["blocked_by"]["rows"][0]["place"], "Backlog \u{b7} ready to start");
-        assert_eq!(view["blocked_by"]["note"], "starts when it merges");
+        assert_eq!(view["waits_for"]["rows"][0]["key"], json!(api));
+        assert_eq!(view["waits_for"]["rows"][0]["place"], "Backlog \u{b7} ready to start");
+        assert_eq!(view["waits_for"]["note"], "starts when it merges");
         // DPV-03: dropped on Dev, the blocked page goes to Ready for Dev and the dialog says why it waits.
         let dropped = table(
             &h.app,
@@ -260,16 +293,27 @@ mod tests {
         let view = table(&h.app, "dependencies.view", json!({ "key": page }))
             .await
             .unwrap();
-        assert_eq!(view["blocked_by"]["rows"][0]["key"], json!(api));
+        assert_eq!(view["waits_for"]["rows"][0]["key"], json!(api));
         let other = table(&h.app, "dependencies.view", json!({ "key": api }))
             .await
             .unwrap();
-        assert_eq!(other["blocks"]["rows"][0]["key"], json!(page));
+        assert_eq!(other["waiting_for_it"]["rows"][0]["key"], json!(page));
+        assert_eq!(other["waiting_for_it"]["removable"], false);
+        // A new ticket's form searches the project, leaving out what it already picked.
+        let found = table(
+            &h.app,
+            "dependencies.search",
+            json!({ "waiting": { "mode": "new", "project": project.key, "picked": [api] }, "query": "checkout" }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(found.as_array().map(|r| r.len()), Some(1));
+        assert_eq!(found[0]["key"], json!(page));
         // The API ticket can't also wait for the page: a loop.
         let refused = table(
             &h.app,
             "dependencies.link",
-            json!({ "key": api, "other": page, "direction": "blocked_by", "add": true }),
+            json!({ "key": api, "other": page, "add": true }),
         )
         .await
         .unwrap();
@@ -280,11 +324,11 @@ mod tests {
                 "message": otaq_view::view_models::dependencies::loop_refused()
             })
         );
-        // ✕ on the API ticket's Blocks row removes the same link.
+        // ✕ on the page's Waits for row removes the link.
         let removed = table(
             &h.app,
             "dependencies.link",
-            json!({ "key": api, "other": page, "direction": "blocks", "add": false }),
+            json!({ "key": page, "other": api, "add": false }),
         )
         .await
         .unwrap();
@@ -292,7 +336,7 @@ mod tests {
         let view = table(&h.app, "dependencies.view", json!({ "key": page }))
             .await
             .unwrap();
-        assert_eq!(view["blocked_by"]["rows"], json!([]));
+        assert_eq!(view["waits_for"]["rows"], json!([]));
         assert_eq!(
             table(&h.app, "dependencies.view", json!({ "key": "SHOP-99" }))
                 .await

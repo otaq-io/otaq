@@ -115,7 +115,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let shown = text(&shown.stdout);
     let file = yaml::read(&shown).unwrap();
     let stages: Vec<&str> = file.flow.stages.iter().map(|s| s.name.as_str()).collect();
-    assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+    assert_eq!(stages, ["Dev", "Validate", "Review"]);
     let agents: Vec<&str> = file.agents.iter().map(|a| a.name.as_str()).collect();
     assert_eq!(agents, ["Developer", "Checker"]);
     let same = user(&w, &repo, &["flow", "propose", "--stdin"], Some(&shown));
@@ -152,7 +152,8 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let shown_notes = text(&shown_notes.stdout);
     assert!(
         shown_notes.contains("    agent: Developer\n")
-            && shown_notes.contains("    by: you\n    column: own\n    fail_to: Dev\n"),
+            && shown_notes.contains("    by: you\n    fail_to: Dev\n")
+            && shown_notes.contains("\ndelivery:\n  delivers: either\n  mode: click\n"),
         "{shown_notes}"
     );
 
@@ -189,7 +190,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
 
     // A broken file: its problems, exit 1, nothing opens.
     let broken = Path::new(env!("CARGO_MANIFEST_DIR"))
-        .join("../otaq-core/tests/flows/broken/delivery-not-last.yaml");
+        .join("../otaq-core/tests/flows/broken/human-check-first.yaml");
     let problems = check(
         &yaml::read(&std::fs::read_to_string(&broken).unwrap())
             .unwrap()
@@ -241,7 +242,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
         .iter()
         .map(|s| s.name.as_str())
         .collect();
-    assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
+    assert_eq!(stages, ["Dev", "Validate", "Review"]);
     assert!(
         proposal["diff"]["stages"]
             .as_array()
@@ -398,7 +399,7 @@ async fn apply_cancel_and_ask_for_more_changes_reach_the_project_agent() {
         .into_iter()
         .map(|s| s.name)
         .collect();
-    assert_eq!(stages, ["Dev", "Review", "Done"]);
+    assert_eq!(stages, ["Dev", "Review"]);
     // Each answer went once; nothing else waits for the agent.
     assert!(
         w.deliveries

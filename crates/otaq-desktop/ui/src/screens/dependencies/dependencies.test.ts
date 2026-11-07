@@ -13,9 +13,9 @@ const VIEW: DependenciesView = {
   key: "SHOP-20",
   title: "Dependencies",
   add: "Add",
-  blocked_by: {
-    direction: "blocked_by",
-    label: "Blocked by",
+  waits_for: {
+    label: "Waits for",
+    removable: true,
     note: "starts when both merge",
     rows: [
       {
@@ -23,52 +23,53 @@ const VIEW: DependenciesView = {
         title: "Checkout API",
         place: "Review · your check",
         dot: "review",
-        direction: "blocked_by",
       },
       {
         key: "SHOP-29",
         title: "Coupon field",
         place: "Dev · working",
         dot: "working",
-        direction: "blocked_by",
       },
     ],
     empty: "SHOP-20 waits for nothing.",
   },
-  blocks: { direction: "blocks", label: "Blocks", note: null, rows: [], empty: "Nothing waits for SHOP-20." },
-  directions: [
-    { direction: "blocked_by", label: "Blocked by" },
-    { direction: "blocks", label: "Blocks" },
-  ],
+  waiting_for_it: {
+    label: "Waiting for it",
+    removable: false,
+    note: null,
+    rows: [{ key: "SHOP-21", title: "Order emails", place: "Backlog", dot: "queued" }],
+    empty: "Nothing waits for SHOP-20.",
+  },
   search: "Search by key or title",
   remove: "Remove",
   rule: "A ticket can’t wait for one that waits for it: Otaq refuses loops.",
 };
 
 describe("the Dependencies section (DPV-04)", () => {
-  it("lists Blocked by with its note and each row's place, and Blocks' empty line", () => {
+  it("lists Waits for with its note, each row's place and ✕, and Waiting for it read-only", () => {
     const out = renderToStaticMarkup(createElement(DependenciesBody, { ticket: "SHOP-20", view: VIEW }));
     for (const text of [
       "DEPENDENCIES",
       "Add",
-      "BLOCKED BY · starts when both merge",
+      "WAITS FOR · starts when both merge",
       "SHOP-18",
       "Checkout API",
       "Review · your check",
       "Dev · working",
-      "BLOCKS",
-      "Nothing waits for SHOP-20.",
+      "WAITING FOR IT",
+      "Order emails",
     ]) {
       expect(out).toContain(text);
     }
     expect(out).toContain('aria-label="Remove SHOP-18"');
+    // A ticket waiting for this one is listed, but its link is that ticket's: no ✕ here.
+    expect(out).not.toContain('aria-label="Remove SHOP-21"');
   });
 
-  it("the picker: the direction, the search, its rows, then the loop rule or the refusal", () => {
+  it("the picker: no direction to pick, the search, its rows, then the loop rule or the refusal", () => {
     const props = {
-      view: VIEW,
-      direction: "blocked_by" as const,
-      onDirection: () => undefined,
+      search: VIEW.search,
+      rule: VIEW.rule,
       query: "SHOP-3",
       onQuery: () => undefined,
       rows: [{ key: "SHOP-35", title: "Slow checkout query", place: "Ready" }],
@@ -76,25 +77,24 @@ describe("the Dependencies section (DPV-04)", () => {
       onPick: () => undefined,
     };
     const out = renderToStaticMarkup(createElement(PickerBody, props));
-    expect(out).toMatch(/aria-checked="true"[^>]*>Blocked by</);
+    expect(out).not.toContain('role="radiogroup"');
+    expect(out).not.toContain("Blocks");
     expect(out).toContain("Slow checkout query");
     expect(out).toContain(VIEW.rule);
     const refused = renderToStaticMarkup(createElement(PickerBody, { ...props, refusal: "Different bases" }));
     expect(refused).toContain('role="alert">Different bases');
   });
 
-  it("sends a link with its direction and reads a refusal's words", async () => {
+  it("sends the waiting ticket's link and reads a refusal's words", async () => {
     const asked: [string, unknown][] = [];
     const ask = (method: string, params?: unknown) => {
       asked.push([method, params]);
       return Promise.resolve({ outcome: "refused", message: VIEW.rule });
     };
-    await expect(sendLink("SHOP-18", "SHOP-20", "blocked_by", true, ask)).resolves.toBe(VIEW.rule);
-    expect(asked).toEqual([
-      ["dependencies.link", { key: "SHOP-18", other: "SHOP-20", direction: "blocked_by", add: true }],
-    ]);
+    await expect(sendLink("SHOP-18", "SHOP-20", true, ask)).resolves.toBe(VIEW.rule);
+    expect(asked).toEqual([["dependencies.link", { key: "SHOP-18", other: "SHOP-20", add: true }]]);
     const ok = () => Promise.resolve({ outcome: "linked" });
-    await expect(sendLink("SHOP-20", "SHOP-29", "blocked_by", false, ok)).resolves.toBeNull();
+    await expect(sendLink("SHOP-20", "SHOP-29", false, ok)).resolves.toBeNull();
   });
 
   it("↑↓ move the highlight, stopping at the ends; the first row is lit at first", () => {

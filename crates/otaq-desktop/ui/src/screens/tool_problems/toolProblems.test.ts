@@ -1,6 +1,6 @@
 // Where a tool problem's buttons go (T-0367, T-0411): Open agent… opens Settings →
-// Agents on the agent, Sign in… opens the tool's login in the drawer, New agent on … opens the empty agent panel on that
-// agent, Show in Agent tools opens Settings. Nothing starts by itself (d0018, d0087).
+// Agents on the agent, Sign in… opens the tool's login in the drawer, Show in Agent tools opens Settings. Nothing starts
+// by itself, and no other agent is offered in a waiting one's place (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it, vi } from "vitest";
@@ -14,7 +14,6 @@ function runner(answer: unknown = null) {
     request: vi.fn((): Promise<unknown> => Promise.resolve(answer)),
     openSettings: vi.fn(),
     showDrawerTab: vi.fn(),
-    newAgentOn: vi.fn(),
     changeAgent: vi.fn(),
   } satisfies ToolProblemRunner;
 }
@@ -82,13 +81,6 @@ describe("the notice's other buttons", () => {
     expect(run.request).toHaveBeenCalledWith("agent_tools.sign_in", { tool: "codex" });
     const pending = run.showDrawerTab.mock.calls[0]?.[0] as Promise<unknown>;
     expect(await pending).toBe("t9");
-  });
-
-  it("New agent on Sonnet opens the empty agent panel on Sonnet and starts nothing", () => {
-    const run = runner();
-    runToolProblemAction({ kind: "new_agent", agent: "sonnet" }, { project: "SHOP" }, run);
-    expect(run.newAgentOn).toHaveBeenCalledWith("SHOP", "sonnet");
-    expect(run.request).not.toHaveBeenCalled();
   });
 
   it("Show in Agent tools opens Settings → Agent tools; Resume after reset asks the service", () => {

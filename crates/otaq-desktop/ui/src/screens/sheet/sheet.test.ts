@@ -143,28 +143,14 @@ describe("the sheet", () => {
     expect(html).not.toContain("width:1040px");
   });
 
-  it("the External ID copies on a click; the Files tab shows its count (Q416, Q421)", () => {
+  it("the Files tab shows its count (Q421)", () => {
     const html = render({
       ...VIEW,
       sheet: {
         ...SHEET,
-        details: [
-          ...SHEET.details,
-          {
-            label: "External ID",
-            value: "PAY-123",
-            avatar: null,
-            working: false,
-            mono: true,
-            note: null,
-            change: { kind: "copy", text: "PAY-123", hint: "Copy External ID", copied: "Copied" },
-          },
-        ],
         tabs: SHEET.tabs.map((t) => (t.tab === "files" ? { ...t, count: "3" } : t)),
       },
     });
-    expect(html).toContain('aria-label="External ID: PAY-123. Copy External ID"');
-    expect(html).toContain('<span class="sheet-detail-value" data-mono="true">PAY-123</span>');
     expect(html).toMatch(/Changes<\/span><span class="tab-note">3<\/span>/);
   });
 

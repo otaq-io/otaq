@@ -1,8 +1,9 @@
 //! `otaq prime --project` (PAG-03, CLI-06; d0068): what a Project agent reads first. Every ticket of the
 //! project with its status, priority and dependencies; for each started ticket its worktree and branch (it
-//! may read and run code there); the **stage choices** it may set on the tickets it creates (AGM-06, AGM-08; none on
-//! the default flow); the rules of what it may change; and what it is told to follow: the Project agent role's
-//! agent's **instructions**, then the project's notes (AGM-06; d0068, d0108). Concise Markdown ([`render`]); `--json`
+//! may read and run code there); **the flow**: every stage with what it is for (its description); the **stage
+//! choices** it may set on the tickets it creates (AGM-06, AGM-08; none on the default flow); the rules of what it may
+//! change; and what it is told to follow: the agent Noyan uses: its **instructions**, then the project's notes (AGM-06;
+//! d0068, d0108). Concise Markdown ([`render`]); `--json`
 //! prints the [`ProjectPrime`] itself.
 
 use serde::{Deserialize, Serialize};
@@ -12,7 +13,9 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Priority, Status, StatusSet, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
-use crate::prime::{Instructions, PrimeChoice, render_choices};
+use crate::prime::{
+    FlowStage, Instructions, PrimeChoice, flow_stages, render_choices, render_flow,
+};
 
 /// Everything `prime --project` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +29,9 @@ pub struct ProjectPrime {
     pub tickets: Vec<PrimeTicket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
+    /// Every stage of the project's flow, in order, with what it is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<FlowStage>,
     /// The stage choices it may set on the tickets it creates (AGM-08); none on the default flow. Filled by the
     /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -41,8 +47,6 @@ pub struct PrimeTicket {
     pub priority: Priority,
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub depends_on: Vec<TicketKey>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// In Backlog and never started: the Project agent may edit it.
     pub editable: bool,
     /// Started tickets: where their code is.
@@ -61,7 +65,6 @@ impl PrimeTicket {
             status: t.status,
             priority: t.priority,
             depends_on: t.depends_on.clone(),
-            external_id: t.external_id.clone(),
             editable: t.board_group() == StatusSet::Backlog && !t.has_started(),
             worktree: work.and_then(|w| w.worktree.clone()),
             branch: work.and_then(|w| w.branch.clone()),
@@ -74,23 +77,25 @@ impl Board {
     pub async fn project_prime(&self, project: &str) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        // The Project agent role's agent's instructions (AGM-02: the Project agent instructions moved there), then
-        // the project's notes (AGM-06).
-        let agent = self
-            .store()
-            .role_agent(crate::agents::Role::ProjectAgent)
-            .await?;
+        // The instructions of the agent Noyan uses (AGM-02: the Project agent instructions moved there), then the
+        // project's notes (AGM-06).
+        let agent = self.store().noyan_agent().await?;
         let instructions = self.instructions(&p.key, agent.as_ref()).await?;
+        let flow = flow_stages(&self.effective_flow(&p.key).await?, None, &[]);
         Ok(ProjectPrime {
             project: p.key,
             name: p.name,
             repo_path: p.repo_path,
             tickets: tickets.iter().map(PrimeTicket::of).collect(),
             instructions,
+            flow,
             choices: Vec::new(),
         })
     }
 }
+
+/// What Noyan is told above the flow's stages: what a new ticket walks through, so it can say what each stage does.
+const FLOW_LEAD: &str = "The stages every ticket walks, in order, and what each is for.";
 
 /// The Markdown a Project agent reads.
 pub fn render(ctx: &ProjectPrime) -> String {
@@ -119,9 +124,6 @@ pub fn render(ctx: &ProjectPrime) -> String {
             let deps: Vec<String> = t.depends_on.iter().map(ToString::to_string).collect();
             out.push_str(&format!(" · depends on {}", deps.join(", ")));
         }
-        if let Some(id) = &t.external_id {
-            out.push_str(&format!(" · external ID {id}"));
-        }
         out.push('\n');
         if let Some(worktree) = &t.worktree {
             let branch = t.branch.as_deref().unwrap_or("?");
@@ -129,6 +131,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
         }
     }
 
+    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
     out.push_str(&render_choices(&ctx.choices));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
@@ -175,7 +178,6 @@ mod tests {
             status,
             priority: Priority::default(),
             depends_on: Vec::new(),
-            external_id: None,
             editable: status == Status::Backlog,
             worktree: None,
             branch: None,
@@ -188,8 +190,7 @@ mod tests {
         let mut started = ticket("SHOP-19", "Price table", Status::Working);
         started.worktree = Some("/data/wt/shop-web/SHOP-19".into());
         started.branch = Some("feature/price-table".into());
-        let mut wishlist = ticket("SHOP-40", "Wishlist", Status::Backlog);
-        wishlist.external_id = Some("GH-212".into());
+        let wishlist = ticket("SHOP-40", "Wishlist", Status::Backlog);
         let mut api = ticket("SHOP-41", "Wishlist API", Status::Backlog);
         api.depends_on = vec!["SHOP-19".parse().unwrap()];
         let ctx = ProjectPrime {
@@ -203,6 +204,21 @@ mod tests {
                 project: "shop-web".into(),
                 notes: "Ask before touching the payment code.".into(),
             }),
+            flow: vec![
+                FlowStage {
+                    name: "Dev".into(),
+                    description: Some("Builds what the ticket asks for.".into()),
+                    yours: false,
+                    skipped: false,
+                },
+                // A stage the flow file describes not at all is listed by its name alone.
+                FlowStage {
+                    name: "Review".into(),
+                    description: None,
+                    yours: false,
+                    skipped: false,
+                },
+            ],
             choices: Vec::new(),
         };
         let cmd = naming::COMMAND_NAME;
@@ -218,8 +234,15 @@ the user's own checkout; agents build tickets later in their own worktrees.
 
 - SHOP-19 · Price table (Working · P3 · Normal)
   worktree /data/wt/shop-web/SHOP-19 · branch `feature/price-table`
-- SHOP-40 · Wishlist (Backlog · P3 · Normal) · external ID GH-212
+- SHOP-40 · Wishlist (Backlog · P3 · Normal)
 - SHOP-41 · Wishlist API (Backlog · P3 · Normal) · depends on SHOP-19
+
+## The flow
+
+The stages every ticket walks, in order, and what each is for.
+
+- Dev: Builds what the ticket asks for.
+- Review
 
 ## {product}'s rules
 

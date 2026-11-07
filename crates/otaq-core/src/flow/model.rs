@@ -1,8 +1,9 @@
-//! The flow's types (STG-01, d0108): the stages a ticket walks between the implicit Backlog and Done. Ready for Dev
-//! is the implicit wait before the first Agent stage; none of the three is a stage.
+//! The flow's types (STG-01, d0108): the stages a ticket walks between the implicit Backlog and Done, and how its
+//! work leaves the flow after the last one (the flow's [`Delivery`]). Ready for Dev is the implicit wait before the
+//! first Agent stage; none of the three is a stage, and neither is the delivery: a flow's stages are only work and
+//! checks, each in its own column.
 //!
-//! A flow file holds `agents:` and `flow:`. M31 reads and writes both, but only the stages are used: an agent is
-//! still a name, which M31 maps to today's Developer and Validator rows (d0086) and M32 resolves to an agent.
+//! A flow file holds `agents:`, `flow:` and `delivery:`. An agent is a name, resolved to one of the user's agents.
 
 use serde::Deserialize;
 
@@ -11,20 +12,18 @@ pub const READY_FOR_DEV: &str = "Ready for Dev";
 pub const READY: &str = "Ready";
 const DEV_NAME: &str = "Dev";
 
-/// A flow file: the agents it defines and its stages, in the YAML's order.
+/// A flow file: the agents it defines, its stages in the YAML's order, and its delivery.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowFile {
     pub agents: Vec<FlowAgent>,
     pub flow: Flow,
 }
 
-/// An agent a flow file defines (d0108): its instructions, model and role. An agent has no skills: an old file's
-/// `skills:` still reads, and is ignored and never written (T6).
+/// An agent a flow file defines (d0108): its instructions and model. An agent has no skills and no role: an old
+/// file's `skills:` and `role:` still read, and are ignored and never written (T6).
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct FlowAgent {
     pub name: String,
-    /// `noyan` (d0108's role), when it has one.
-    pub role: Option<String>,
     /// Empty when it has none.
     pub instructions: String,
     /// `default` (the account's default model, as shipped files say) or a model as M32 names it.
@@ -33,16 +32,17 @@ pub struct FlowAgent {
     pub why: Option<String>,
 }
 
-/// The stages of a project, in order.
+/// The stages of a project, in order, and how the work is delivered after the last one.
 #[derive(Debug, Clone, PartialEq, Eq, Default)]
 pub struct Flow {
     pub stages: Vec<Stage>,
+    /// How a ticket's work leaves the flow once it passed the last stage: a setting of the flow, not a stage.
+    pub delivery: Delivery,
 }
 
-/// One stage. Which fields are set depends on the kind ([`crate::flow::yaml`] refuses the others):
-/// `agent` and `skill` for an Agent stage, `agent` (and an optional `skill`) for a Delivery that can open a PR;
-/// `agent`, `skill` and `rounds` for an agent check; `fail_to` for a check (d0131); `delivery` for the Delivery
-/// stage.
+/// One stage, in its own column on the board. Which fields are set depends on the kind ([`crate::flow::yaml`]
+/// refuses the others): `agent` and `skill` for an Agent stage; `agent`, `skill` and `rounds` for an agent check;
+/// `fail_to` for a check (d0131).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Stage {
     /// Permanent: kept as written, so a rename changes nothing (d0108). Otaq writes it; a file without one gets
@@ -50,9 +50,8 @@ pub struct Stage {
     pub id: String,
     pub name: String,
     pub kind: StageKind,
-    pub column: Column,
-    /// The agent that runs the stage: an Agent stage's, an agent check's (a check has one agent, like an Agent
-    /// stage; two checks are two stages), a Delivery's that can open a PR. A draft's agent check may have none yet.
+    /// The agent that runs the stage: an Agent stage's or an agent check's (a check has one agent, like an Agent
+    /// stage; two checks are two stages). A draft's agent check may have none yet.
     pub agent: Option<String>,
     pub skill: Option<String>,
     /// What a ticket may do besides running the stage as the flow says: only skipping it. A stage doesn't list the
@@ -64,10 +63,12 @@ pub struct Stage {
     /// A check's "fails go to" stage, by id (d0131), so it follows a rename; `None` for the nearest Agent stage
     /// before the check. Resolve it with [`Flow::fail_to_of`].
     pub fail_to: Option<String>,
-    pub delivery: Option<Delivery>,
-    /// Why the flow has this stage, naming its source ("From 41 /security-review runs in shop-web"): the flow editor's
-    /// why line (FLW-04). The engine and the checks never read it.
-    pub why: Option<String>,
+    /// What the stage settles and when it matters ("Settles how it's built: needed when the change touches several
+    /// parts or its approach isn't obvious"). Every agent working a ticket, and Noyan, reads each stage's in `prime`,
+    /// so a stage's agent can tell when it has nothing to add (it then finishes at once, with a short note). The
+    /// engine and the checks never read it; a stage may have none. Written `description:`; an older file's `why:`
+    /// reads as it.
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -76,8 +77,6 @@ pub enum StageKind {
     Agent,
     /// An agent or the user passes or fails the work.
     Check { by: CheckBy },
-    /// Local merge or PR; always the last stage.
-    Delivery,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
@@ -87,33 +86,75 @@ pub enum CheckBy {
     You,
 }
 
-/// Where a stage's cards show. Unrelated to the board's old `domain::Column`.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Default, Deserialize)]
-#[serde(rename_all = "kebab-case")]
-pub enum Column {
-    /// The stage has its own column.
-    #[default]
-    Own,
-    /// Its cards stay in the column before it, tagged with the stage's name ("Validating" in Dev).
-    WithPrevious,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub enum StageOption {
     /// The ticket may skip the stage (the flow marks it skippable).
     Skip,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
+/// How a flow delivers the work once a ticket passed its last stage (`delivery:` in the flow file): a local merge, a
+/// PR or the user's choice of either, on the user's click or with none. A ticket being delivered stays in the flow's
+/// last stage ([`Flow::last_stage`]) as To deliver, PR open or Merged into.
+#[derive(Debug, Clone, PartialEq, Eq, Hash)]
 pub struct Delivery {
     pub mode: DeliveryMode,
     pub delivers: Delivers,
+    /// The agent that opens the PR, when it can open one (`pr` or `either`); a local merge runs no agent.
+    pub agent: Option<String>,
+    /// The skill it opens the PR with; Otaq's `open-pr` when none is named.
+    pub skill: Option<String>,
+}
+
+impl Default for Delivery {
+    /// A local merge on the user's click: the delivery that needs nothing else.
+    fn default() -> Self {
+        Self {
+            mode: DeliveryMode::Click,
+            delivers: Delivers::Local,
+            agent: None,
+            skill: None,
+        }
+    }
+}
+
+impl Delivery {
+    /// It can open a PR: it delivers `pr` or `either`.
+    pub fn can_open_pr(&self) -> bool {
+        self.delivers != Delivers::Local
+    }
+
+    /// It can merge locally: it delivers `local` or `either`.
+    pub fn can_merge_locally(&self) -> bool {
+        self.delivers != Delivers::Pr
+    }
+
+    /// It delivers with no click: its mode is automatic and it delivers `local` or `pr` (`either` needs the user's
+    /// choice). Only the flow decides: skipped checks and checks the user moved the ticket past don't change it.
+    pub fn is_automatic(&self) -> bool {
+        self.mode == DeliveryMode::Automatic && self.delivers != Delivers::Either
+    }
+
+    /// What it delivers and when, in a few words: "Local merge or PR · click", "Local merge · automatic", "PR ·
+    /// automatic".
+    pub fn line(&self) -> String {
+        let what = match self.delivers {
+            Delivers::Local => "Local merge",
+            Delivers::Pr => "PR",
+            Delivers::Either => "Local merge or PR",
+        };
+        let when = match self.mode {
+            DeliveryMode::Click => "click",
+            DeliveryMode::Automatic => "automatic",
+        };
+        format!("{what} \u{b7} {when}")
+    }
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Deserialize)]
 #[serde(rename_all = "kebab-case")]
 pub enum DeliveryMode {
-    /// The card waits for the user's Local merge or Open PR click.
+    /// The card waits for the user's click: Approve when the last stage is a check by you ("Approve & merge into
+    /// main", "Approve & open PR"), else Local merge or Open PR.
     Click,
     /// Local merge, or push and open the PR, with no click.
     Automatic,
@@ -134,15 +175,6 @@ impl CheckBy {
         match self {
             Self::Agent => "agent",
             Self::You => "you",
-        }
-    }
-}
-
-impl Column {
-    pub fn as_str(self) -> &'static str {
-        match self {
-            Self::Own => "own",
-            Self::WithPrevious => "with-previous",
         }
     }
 }
@@ -183,7 +215,6 @@ impl StageKind {
         match self {
             Self::Agent => "agent",
             Self::Check { .. } => "check",
-            Self::Delivery => "delivery",
         }
     }
 }
@@ -201,10 +232,6 @@ impl Stage {
         self.kind == StageKind::Check { by: CheckBy::You }
     }
 
-    pub fn is_delivery(&self) -> bool {
-        self.kind == StageKind::Delivery
-    }
-
     /// An Agent stage or an agent check with no skill yet (FED-06): the draft may hold one, an applied flow never
     /// does ([`super::check`]'s [`super::Rule::NeedsSkill`]).
     pub fn needs_skill(&self) -> bool {
@@ -216,7 +243,7 @@ impl Stage {
         self.agent.as_deref().filter(|_| self.is_agent_check())
     }
 
-    /// The agent the stage names: an Agent stage's, an agent check's or a Delivery's.
+    /// The agent the stage names: an Agent stage's or an agent check's.
     pub fn named_agents(&self) -> impl Iterator<Item = &String> {
         self.agent.iter()
     }
@@ -231,8 +258,7 @@ impl Stage {
         self.agent.clone().unwrap_or_default()
     }
 
-    /// The stage names an agent of its own: an Agent stage, a Delivery that can open a PR, an agent check with its
-    /// agent.
+    /// The stage names an agent of its own: an Agent stage, an agent check with its agent.
     pub fn has_agent(&self) -> bool {
         self.agent.is_some()
     }
@@ -270,6 +296,24 @@ impl Flow {
         self.stages.iter().find(|s| s.is_agent_stage())
     }
 
+    /// The flow's last stage: where a ticket stays while its work is delivered (To deliver, PR open, Merged into),
+    /// since the delivery comes after it and isn't a stage. `None` only for a flow with no stages.
+    pub fn last_stage(&self) -> Option<&Stage> {
+        self.stages.last()
+    }
+
+    /// Whether the stage `id` is the flow's last stage.
+    pub fn is_last(&self, id: &str) -> bool {
+        self.last_stage().is_some_and(|s| s.id == id)
+    }
+
+    /// The check by you whose Approve delivers the work: the last stage, when it is a check by you and the delivery
+    /// waits for a click ("Approve & merge into main", "Approve & open PR"). `None` otherwise.
+    pub fn approve_stage(&self) -> Option<&Stage> {
+        self.last_stage()
+            .filter(|s| s.is_human_check() && self.delivery.mode == DeliveryMode::Click)
+    }
+
     /// The waiting column's name (d0093, d0066, Q515): "Ready for Dev" while the first Agent stage is named Dev (the
     /// default flow), else "Ready".
     pub fn waiting_name(&self) -> &'static str {
@@ -277,15 +321,6 @@ impl Flow {
             Some(stage) if stage.name != DEV_NAME => READY,
             _ => READY_FOR_DEV,
         }
-    }
-
-    /// The stage whose column the stage at `index` shows in: itself when `column: own`, else the nearest earlier
-    /// stage with its own column (a chain folds into one owner). `None` when nothing before it owns a column, which
-    /// [`crate::flow::check`] refuses.
-    pub fn column_owner(&self, index: usize) -> Option<usize> {
-        (0..=index)
-            .rev()
-            .find(|&i| self.stages.get(i).is_some_and(|s| s.column == Column::Own))
     }
 
     /// The agent check whose rounds a ticket at `stage` counts (d0063, "round 1 of 3"): that stage when it is one,

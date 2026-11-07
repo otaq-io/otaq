@@ -1,5 +1,5 @@
 //! Agents at launch (T-0405; AGM-05, AGM-03, ADP-04, SES-03; d0108, d0088): every new session runs its agent (the
-//! Agent stage's, the agent check's, the role agent for the Project agent) and passes the agent's
+//! Agent stage's, the agent check's, the agent Noyan uses for a Noyan conversation) and passes the agent's
 //! model (`--model opus`, nothing for the tool default; `model: default` resolved to the default model at start)
 //! and its effort; every resume passes the session's own stored model and effort again, whatever the agent is set to
 //! now; the session stores the agent, the tool, the model as passed and the effort, then the exact model the tool
@@ -412,8 +412,25 @@ async fn a_check_round_runs_its_own_agent() {
     world.w.stop().await;
 }
 
-/// "New agent on Strong" (M23, CHANGES-v §4): a Project agent opened on another agent than the role's starts on that
-/// agent and stores it; an unknown one is refused.
+/// "Noyan uses" is one app setting: changed to Strong, the next Noyan conversation starts on Strong.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_next_conversation_starts_on_the_agent_noyan_uses() {
+    let world = world().await;
+    let w = &world.w;
+    let strong = world.agent("Strong").await;
+    w.board.store().set_noyan_agent(&strong.id).await.unwrap();
+    let agent = w
+        .project_agents
+        .open("SHOP", "Why is checkout slow?")
+        .await
+        .unwrap();
+    let session = agent.session.clone().unwrap();
+    assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
+    world.w.stop().await;
+}
+
+/// A new conversation picks its own agent: a Noyan conversation opened on another agent than the one Noyan uses starts
+/// on that agent and stores it; an unknown one is refused.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_project_agent_opens_on_the_agent_asked_for() {
     let world = world().await;

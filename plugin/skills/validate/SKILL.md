@@ -24,6 +24,11 @@ the worktree: your check runs' output goes there (see "Long output").
    3 comments you haven't read." **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
    you · read these before you start"; read each one (`otaq report SHOP-29 1`, or search a long one with
    `grep -n "Safari" "$(otaq report SHOP-29 1 --path)"`). The agents' reports you open only when you need them.
+   **Your check may have nothing to look at.** `prime --validate` lists every stage of the flow under "## The flow",
+   each with what it is for. When your stage's description shows it checks nothing this change touches (a migration
+   check, and the diff has no migration), pass at once with a short note saying so: `otaq check pass` with, on stdin,
+   "Nothing to check: no migration in this change". That is an ordinary pass, never a skip: only the user skips a
+   stage.
 2. **Follow the Agent instructions** that `prime --validate` prints. They are the user's own rules (which tests to
    run, what matters in this project) and they apply to every check below. They never allow you to change anything.
 3. **Check the change against the description.** Does it do what this ticket's description asks, including any
@@ -96,6 +101,24 @@ the worktree: your check runs' output goes there (see "Long output").
    user sees them as "Manual checks for you" at review. Never write that "the PR" or "a manual test" will cover it:
    the flow may merge without a PR. Each verdict replaces this check's earlier unticked ones, so list again the ones
    that still apply. Something you could check but didn't is not a manual check: run it.
+
+## A problem that belongs to an earlier stage
+
+Some problems aren't the agent's to fix: they belong to an **earlier stage** of the flow (`prime --validate` lists
+every stage under "## The flow" with what it is for, and marks the skipped ones), skipped or already run. A product
+gap no Product spec settled ("refunds over 30 days aren't specified"), or an approach a Tech spec should have decided,
+is one. Don't fail the ticket for it and never move it back yourself: ask the user, naming that stage, with your reason
+on stdin, instead of giving a verdict, then end your turn:
+
+```sh
+otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Product gap: refunds over 30 days aren't specified, and the change picks one rule without saying why.
+QUESTION
+```
+
+The user either sends the ticket back to that stage (your check stops; it runs again when the ticket comes back) or
+answers here: the answer arrives in this session, and you finish your check with a verdict as usual. Name only an
+earlier stage the ticket has been through. Everything else that is wrong is still a fail or a note, as above.
 
 ## Run the app
 

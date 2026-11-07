@@ -5,7 +5,7 @@
 //! flow, [`DropOn`]), it says whether the move is allowed, needs a confirmation or a choice, or is refused (with a
 //! reason for people). The flow engine decides it from the kinds of the stages involved
 //! ([`crate::flow::engine::drag`], STG-06). [`Board::move_ticket`] carries out the bookkeeping moves: Start (a parked
-//! ticket returns to the stage it left), Unqueue, Reopen and PR rework. Park and Approve have their own requests;
+//! ticket returns to the stage it left), Unqueue and Reopen. Park and Approve have their own requests;
 //! the drags that stop or start sessions (back to any earlier stage, forward past stages) are
 //! [`crate::review::Review::drag`]'s. A ticket whose dependencies aren't merged can't be started past Ready for Dev,
 //! by a drag or by Start ([`blocks_start`], DPV-03, d0049): [`Board::check_drag`] refuses it ("SHOP-20 is blocked").
@@ -24,8 +24,8 @@ use crate::store::now_ms;
 use crate::store::tickets::{TicketRow, set_state_since};
 
 stored_enum! {
-    /// Where a card is dropped: one target per column of the default flow's board, and its Approved section
-    /// (d0066). [`DropTarget::in_flow`] says what each means in a flow.
+    /// Where a card is dropped: one target per column of the default flow's board (d0066). [`DropTarget::in_flow`]
+    /// says what each means in a flow.
     pub enum DropTarget ("drop target") {
         Backlog = "backlog",
         /// The go-ahead: the ticket starts when it can (SCH-01).
@@ -33,7 +33,6 @@ stored_enum! {
         /// Also the go-ahead from Backlog: the ticket lands in Ready for Dev when it can't start yet.
         Dev = "dev",
         ReadyForReview = "ready_for_review",
-        Approved = "approved",
         Done = "done",
     }
 }
@@ -48,10 +47,6 @@ stored_enum! {
         Unqueue = "unqueue",
         /// Dev → Backlog: stop the agent and keep the work (d0052).
         Park = "park",
-        /// Ready for Review → Approved: asks Local merge or Open PR (d0015).
-        Approve = "approve",
-        /// Approved → Ready for Review: PR rework (d0041).
-        PrRework = "pr_rework",
         /// Done (Closed) → Backlog (d0044).
         Reopen = "reopen",
         /// Back to an earlier Agent stage (FLW-18): asks for the instructions that stage's agent gets; its session
@@ -63,8 +58,7 @@ stored_enum! {
         MoveBack = "move_back",
         /// To the very next stage the ticket runs: Move to next stage (from an Agent stage) or Pass (a human check).
         NextStage = "next_stage",
-        /// Forward past one or more stages (or out of an agent check): they are skipped by you; the Delivery does
-        /// what the flow says.
+        /// Forward past one or more stages (or out of an agent check): they are skipped by you.
         SkipTo = "skip_to",
     }
 }
@@ -118,10 +112,6 @@ pub enum MoveCheck {
     Confirm {
         action: MoveAction,
     },
-    /// Allowed after the user picks how (Approve: Local merge or Open PR).
-    Choose {
-        action: MoveAction,
-    },
     Refused {
         reason: String,
     },
@@ -130,9 +120,7 @@ pub enum MoveCheck {
 impl MoveCheck {
     pub fn action(&self) -> Option<MoveAction> {
         match self {
-            Self::Allowed { action } | Self::Confirm { action } | Self::Choose { action } => {
-                Some(*action)
-            }
+            Self::Allowed { action } | Self::Confirm { action } => Some(*action),
             Self::Unchanged | Self::Refused { .. } => None,
         }
     }
@@ -225,7 +213,7 @@ impl Board {
             MoveCheck::Refused { reason } => {
                 return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));
             }
-            MoveCheck::Confirm { .. } | MoveCheck::Choose { .. } if !confirmed => {
+            MoveCheck::Confirm { .. } if !confirmed => {
                 return Err(BoardError::refused(
                     Refusal::NeedsConfirmation,
                     "This move needs your confirmation",
@@ -246,8 +234,6 @@ impl Board {
             MoveAction::Unqueue => self.unqueue(&ticket, actor).await,
             MoveAction::Reopen => self.reopen(key, actor).await,
             MoveAction::Park => not_yet("Park"),
-            MoveAction::Approve => not_yet("Approve"),
-            MoveAction::PrRework => self.pr_rework(&ticket, actor).await,
             // Carried out with the sessions they stop and start (`ticket.drag`, [`crate::review::Review::drag`]).
             MoveAction::SendBack
             | MoveAction::RunCheckAgain

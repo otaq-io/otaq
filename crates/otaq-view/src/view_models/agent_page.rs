@@ -1,15 +1,15 @@
 //! One agent's page on Settings → Agents (AGM-01, AGM-04; d0108, d0078, d0092; `s15-58` / `s15-59` "One agent",
-//! "Giving a role to another agent", "Deleting an agent that's in use, or holds a role"): its name, its model (the
-//! model picker of `s15-30`, with the tool's effort level where the tool has one), its role, its instructions (the
-//! Markdown editor), where it is used, and its amber mark (AGT-05). An agent has no skill list: a stage's `skill:` is
-//! the only place a skill is picked (T7). A saved agent's edits are saved one change at a time and apply to the next
+//! "Deleting an agent that's in use"): its name, its model (the model picker of `s15-30`, with the tool's effort level
+//! where the tool has one), its instructions (the Markdown editor), where it is used, and its amber mark (AGT-05). An
+//! agent has no role: each stage names its agent, and the agent Noyan uses is one setting on the Agents page. An agent
+//! has no skill list: a stage's `skill:` is the only place a skill is picked (T7). A saved agent's edits are saved one change at a time and apply to the next
 //! session that starts; New agent and Duplicate fill a draft that **Add agent** saves.
 //!
 //! The page holds the agent's fields as a [`Draft`]; every change goes through [`apply`], so the rules (a new tool
 //! clears the model and the effort) live here.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{Agent, AgentFields, AgentList, AgentModel, InUse, Role};
+use otaq_core::agents::{Agent, AgentFields, AgentList, AgentModel, InUse};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -119,7 +119,6 @@ pub fn apply(mut draft: Draft, change: Change) -> Draft {
 pub enum Field {
     Name,
     Model,
-    Role,
     Page,
 }
 
@@ -147,17 +146,17 @@ pub struct NameField {
     pub problem: Option<String>,
 }
 
-/// One choice of a small select (the tool, the effort, the role).
+/// One choice of a small select (the tool, the effort, the agent Noyan uses).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentOption")]
 pub struct Choice {
-    /// What the page sends back; empty for "none" (the default model, the tool's effort, no role).
+    /// What the page sends back; empty for "none" (the default model, the tool's effort).
     pub id: String,
     pub label: String,
     pub selected: bool,
 }
 
-fn choice(id: &str, label: &str, selected: bool) -> Choice {
+pub(crate) fn choice(id: &str, label: &str, selected: bool) -> Choice {
     Choice {
         id: id.to_owned(),
         label: label.to_owned(),
@@ -188,19 +187,6 @@ pub struct ModelField {
     /// The tool's model picker (`s15-30`); none on the default model.
     pub picker: Option<Picker>,
     pub effort: Option<EffortField>,
-    pub problem: Option<String>,
-}
-
-/// Role (AGM-01; `s15-58` "Giving a role to another agent").
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentRoleField")]
-pub struct RoleField {
-    pub label: String,
-    /// None · Noyan; ids `""`, `noyan`.
-    pub options: Vec<Choice>,
-    pub hint: String,
-    /// After a move: "Strong is now Noyan · the agent Noyan has no role".
-    pub moved: Option<String>,
     pub problem: Option<String>,
 }
 
@@ -239,7 +225,6 @@ pub struct Page {
     pub id: Option<String>,
     /// Its name as saved; "New agent" for a draft.
     pub title: String,
-    pub role_tag: Option<String>,
     pub came_from: Option<String>,
     pub back_label: String,
     /// "What this agent reads" on a saved agent (AGR-01).
@@ -250,7 +235,6 @@ pub struct Page {
     pub draft: Draft,
     pub name: NameField,
     pub model: ModelField,
-    pub role: Option<RoleField>,
     pub instructions: InstructionsField,
     pub used_in: Option<UsedIn>,
     pub mark: Option<MarkView>,
@@ -270,8 +254,6 @@ pub struct Inputs<'a> {
     pub draft: &'a Draft,
     pub uses: Option<&'a InUse>,
     pub refused: Option<&'a Refused>,
-    /// The role line after a move ([`moved_line`]).
-    pub moved: Option<String>,
 }
 
 /// The tool's name.
@@ -283,20 +265,7 @@ pub const DEFAULT_MODEL: &str = "Default model";
 pub const TOOL_DEFAULT_EFFORT: &str = "Tool default";
 pub const NEW_AGENT: &str = "New agent";
 
-/// After a role moved: "Strong is now Noyan · the agent Noyan has no role", "Strong is now Noyan · Planner has no
-/// role". An agent named as the role is "the agent Noyan".
-pub fn moved_line(role: Role, to: &str, from: Option<&str>) -> String {
-    let now = match role {
-        Role::ProjectAgent => format!("{to} is now {}", role.label()),
-    };
-    match from {
-        Some(from) if from == role.label() => format!("{now} \u{b7} the agent {from} has no role"),
-        Some(from) => format!("{now} \u{b7} {from} has no role"),
-        None => now,
-    }
-}
-
-/// Why a role can't be taken off its agent (AGM-01): "Noyan has the Noyan role. Give the role to another agent first."
+/// A refusal as a sentence: "Noyan uses Strong. Pick another agent for Noyan first."
 pub fn sentence(text: String) -> String {
     if text.ends_with('.') {
         text
@@ -384,25 +353,9 @@ pub fn page(input: &Inputs) -> Page {
             .map(|r| r.message.clone())
     };
     let saved = agent.is_some();
-    let role = agent.map(|a| RoleField {
-        label: "Role".to_owned(),
-        options: vec![
-            choice("", "None", a.role.is_none()),
-            choice(
-                Role::ProjectAgent.as_str(),
-                Role::ProjectAgent.label(),
-                a.role == Some(Role::ProjectAgent),
-            ),
-        ],
-        hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it."
-            .to_owned(),
-        moved: input.moved.clone(),
-        problem: problem(Field::Role),
-    });
     Page {
         id: agent.map(|a| a.id.clone()),
         title: agent.map_or(NEW_AGENT, |a| a.name.as_str()).to_owned(),
-        role_tag: agent.and_then(|a| a.role).map(|r| r.label().to_owned()),
         came_from: agent.map(came_from),
         back_label: "Back to Agents".to_owned(),
         reads_label: saved.then(|| super::agent_reads::TITLE.to_owned()),
@@ -415,7 +368,6 @@ pub fn page(input: &Inputs) -> Page {
             problem: problem(Field::Name),
         },
         model: model_field(input, agent, problem(Field::Model)),
-        role,
         instructions: InstructionsField {
             label: "Instructions".to_owned(),
             value: draft.instructions.clone(),
@@ -440,8 +392,8 @@ pub fn page(input: &Inputs) -> Page {
     }
 }
 
-/// Delete…'s dialog (AGM-01; `s15-58` "Deleting an agent that's in use, or holds a role"): refused with where it is
-/// used or the role it holds, or the plain question when nothing uses it.
+/// Delete…'s dialog (AGM-01; `s15-58` "Deleting an agent that's in use"): refused with where it is used (a stage, or
+/// Noyan), or the plain question when nothing uses it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "AgentDeleteDialog")]
@@ -473,17 +425,12 @@ pub fn delete_dialog(id: &str, uses: &InUse) -> DeleteDialog {
             id: id.to_owned(),
             title: format!("Delete {name}?"),
             text: format!(
-                "No stage and no role uses {name}. Sessions that ran on it keep its name in their history."
+                "Nothing uses {name}. Sessions that ran on it keep its name in their history."
             ),
             cancel_label: "Cancel".to_owned(),
             delete_label: "Delete".to_owned(),
         },
     }
-}
-
-/// A role as the page sends it (`""`: none).
-pub fn role_of(id: &str) -> Option<Role> {
-    id.parse().ok()
 }
 
 #[cfg(test)]
@@ -501,13 +448,12 @@ mod tests {
             draft: &Draft::of(agent),
             uses: uses.iter().find(|u| u.agent == agent.name),
             refused: None,
-            moved: None,
         })
     }
 
     /// AGM-01's refusals as `s15-58` draws them, and the plain question for an agent nothing uses.
     #[test]
-    fn delete_is_refused_for_a_stages_agent_and_a_roles_agent() {
+    fn delete_is_refused_for_a_stages_agent_and_the_agent_noyan_uses() {
         let (_, uses) = example();
         let of = |name: &str| uses.iter().find(|u| u.agent == name).unwrap();
         let refused = |d: DeleteDialog| match d {
@@ -526,12 +472,12 @@ mod tests {
             refused(delete_dialog("noyan", of("Noyan"))),
             (
                 "Can\u{2019}t delete Noyan".to_owned(),
-                "Noyan has the Noyan role. Give the role to another agent first.".to_owned()
+                "Noyan uses Noyan. Pick another agent for Noyan first.".to_owned()
             )
         );
         let spec_writer = InUse {
             agent: "Spec writer".into(),
-            role: None,
+            noyan: false,
             stages: vec![StageUse {
                 project: Some("shop-web".into()),
                 stage: "Product spec".into(),
@@ -546,8 +492,9 @@ mod tests {
             DeleteDialog::Confirm {
                 id: "strong".into(),
                 title: "Delete Strong?".into(),
-                text: "No stage and no role uses Strong. Sessions that ran on it keep its name in their history."
-                    .into(),
+                text:
+                    "Nothing uses Strong. Sessions that ran on it keep its name in their history."
+                        .into(),
                 cancel_label: "Cancel".into(),
                 delete_label: "Delete".into(),
             }
@@ -588,11 +535,11 @@ mod tests {
         );
     }
 
-    /// One agent's page (`s15-58` "One agent", "Giving a role to another agent"): the fields in order, the role with
-    /// None · Noyan and the line after a move, used in, and the note. An agent has no skill list (T7): the page has
-    /// no skills field, so its view carries none.
+    /// One agent's page (`s15-58` "One agent"): the fields in order, used in, and the note. An agent has no role:
+    /// no agent's page shows one, Noyan's agent included. An agent has no skill list (T7): the page has no skills
+    /// field, so its view carries none.
     #[test]
-    fn one_agents_page_with_its_role_and_used_in() {
+    fn one_agents_page_shows_no_role_and_its_used_in() {
         let (list, uses) = example();
         let tools = AgentTools::one(Some(claude_list()));
         let developer = page_of(&list, &tools, "developer", &uses);
@@ -608,17 +555,6 @@ mod tests {
         assert_eq!(
             developer.instructions.value,
             "Run `just test` before committing"
-        );
-        let role = developer.role.as_ref().unwrap();
-        let options: Vec<(&str, bool)> = role
-            .options
-            .iter()
-            .map(|o| (o.label.as_str(), o.selected))
-            .collect();
-        assert_eq!(options, [("None", true), ("Noyan", false)]);
-        assert_eq!(
-            role.hint,
-            "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it."
         );
         let view = serde_json::to_value(&developer).unwrap();
         assert!(view.get("skills").is_none(), "no skills field");
@@ -639,32 +575,19 @@ mod tests {
             developer.note.as_deref(),
             Some("Edits apply to the next session that starts.")
         );
-        // Noyan's page after Strong took its role… is Strong's, with the line.
-        let mut moved = list.clone();
-        moved.agents[0].role = None;
-        moved.agents[3].role = Some(Role::ProjectAgent);
-        let strong = page(&Inputs {
-            list: &moved,
-            tools: &tools,
-            id: Some("strong"),
-            draft: &Draft::of(&moved.agents[3]),
-            uses: None,
-            refused: None,
-            moved: Some(moved_line(Role::ProjectAgent, "Strong", Some("Noyan"))),
-        });
-        assert_eq!(strong.role_tag.as_deref(), Some("Noyan"));
+        // Noyan's own agent's page shows no role either: Noyan is only where it is used.
+        let noyan = page_of(&list, &tools, "noyan", &uses);
+        let view = serde_json::to_value(&noyan).unwrap();
+        assert!(view.get("role").is_none() && view.get("role_tag").is_none());
         assert_eq!(
-            strong.role.unwrap().moved.as_deref(),
-            Some("Strong is now Noyan \u{b7} the agent Noyan has no role")
+            noyan.used_in.as_ref().unwrap().items,
+            ["every project \u{b7} Noyan"]
         );
-        assert_eq!(
-            moved_line(Role::ProjectAgent, "Strong", Some("Planner")),
-            "Strong is now Noyan \u{b7} Planner has no role"
-        );
+        let strong = page_of(&list, &tools, "strong", &[]);
         assert_eq!(strong.used_in.unwrap().empty.as_deref(), Some("\u{2014}"));
     }
 
-    /// New agent and Duplicate fill a draft: no role, no used in, Add agent; a new tool starts on its default model
+    /// New agent and Duplicate fill a draft: no used in, Add agent; a new tool starts on its default model
     /// with no effort; the draft goes to `agents.add` as it reads.
     #[test]
     fn a_draft_changes_and_saves_as_it_reads() {
@@ -685,10 +608,9 @@ mod tests {
             draft: &draft,
             uses: None,
             refused: None,
-            moved: None,
         });
         assert_eq!(new.title, "New agent");
-        assert!(new.role.is_none() && new.used_in.is_none() && new.menu.is_empty());
+        assert!(new.used_in.is_none() && new.menu.is_empty());
         assert_eq!(new.add.as_ref().unwrap().add_label, "Add agent");
         let fields = draft.fields();
         assert_eq!(
@@ -716,7 +638,6 @@ mod tests {
             draft: &copy,
             uses: None,
             refused: Some(&refused),
-            moved: None,
         });
         assert_eq!(
             page.name.problem.as_deref(),

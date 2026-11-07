@@ -143,22 +143,6 @@
   text-overflow: ellipsis;
 }
 
-/* The External ID gives way first, so the pill keeps its label as long as it can. */
-.card-external-id {
-  overflow: hidden;
-  flex: 0 10 auto;
-  min-width: 36px;
-  max-width: 96px;
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: 3px;
-  background: var(--bg-column);
-  color: var(--text-secondary);
-  font: 400 10.5px var(--font-mono);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
 .ticket-card .card-head {
   height: 20px;
 }

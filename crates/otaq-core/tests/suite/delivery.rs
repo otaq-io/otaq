@@ -23,7 +23,7 @@ use otaq_core::flow::default::testing::{
     automatic_local_delivery, automatic_pr_delivery, skippable_validate, with_rounds,
     without_validate,
 };
-use otaq_core::flow::default::{DELIVER, DEV};
+use otaq_core::flow::default::{DEV, VALIDATE};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::review::delivery::Delivered;
@@ -436,7 +436,7 @@ async fn a_dirty_checkout_stops_it() {
         .unwrap();
     assert_eq!(
         (after.status, &after.place),
-        (Status::ToDeliver, &Place::stage_of(DELIVER))
+        (Status::ToDeliver, &Place::stage_of(VALIDATE))
     );
     assert_eq!(after.auto_merge_stop, None);
     w.stop().await;
@@ -666,7 +666,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let delivering = pass(&w, &t).await;
     assert_eq!(
         (delivering.status, &delivering.place),
-        (Status::ToDeliver, &Place::stage_of(DELIVER))
+        (Status::ToDeliver, &Place::stage_of(VALIDATE))
     );
     assert!(delivering.flags.delivering_automatically);
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
@@ -731,7 +731,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let open = w.prs.opened(&key, url.trim(), &as_agent).await.unwrap();
     assert_eq!(
         (open.status, &open.place),
-        (Status::PrOpen, &Place::stage_of(DELIVER))
+        (Status::PrOpen, &Place::stage_of(VALIDATE))
     );
     assert_eq!(open.flags.pr_number, Some(481));
     assert!(!open.flags.delivering_automatically);
@@ -836,9 +836,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                stage.agent = Some("Checker".into());
-            }
+            file.flow.delivery.agent = Some("Checker".into());
         })
         .await;
     let t = working(&w, "Login redirect", "login.ts").await;
@@ -895,9 +893,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
     w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let shipper = |file: &mut otaq_core::flow::FlowFile| {
-        for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-            stage.agent = Some("Checker".into());
-        }
+        file.flow.delivery.agent = Some("Checker".into());
     };
     w.board
         .edit_flow_for_tests("SHOP", |file| {
@@ -943,12 +939,8 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     );
     w.board
         .edit_flow_for_tests("SHOP", |file| {
-            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                stage.delivery = Some(otaq_core::flow::Delivery {
-                    mode: otaq_core::flow::DeliveryMode::Click,
-                    delivers: otaq_core::flow::Delivers::Pr,
-                });
-            }
+            file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
+            file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
         })
         .await;
     let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
@@ -984,9 +976,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                stage.agent = Some("Checker".into());
-            }
+            file.flow.delivery.agent = Some("Checker".into());
         })
         .await;
     let ended = |w: &TestService, session: String| {
@@ -1013,7 +1003,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
     let after = w.board.ticket(&key).await.unwrap();
     assert_eq!(
         (after.status, &after.place),
-        (Status::ToDeliver, &Place::stage_of(DELIVER))
+        (Status::ToDeliver, &Place::stage_of(VALIDATE))
     );
     assert!(after.flags.delivering_automatically);
     assert!(
@@ -1037,7 +1027,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
         .unwrap();
     assert_eq!(
         (open.status, &open.place, open.flags.pr_number),
-        (Status::PrOpen, &Place::stage_of(DELIVER), Some(12))
+        (Status::PrOpen, &Place::stage_of(VALIDATE), Some(12))
     );
 
     // PR open: a second leftover Dev session ending changes nothing either.
@@ -1084,7 +1074,7 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
         .unwrap();
     assert_eq!(
         (open.status, &open.place),
-        (Status::PrOpen, &Place::stage_of(DELIVER))
+        (Status::PrOpen, &Place::stage_of(VALIDATE))
     );
     assert_eq!(open.interrupted_from, None);
     w.stop().await;

@@ -3,10 +3,8 @@
 //! under the dragged card is drawn allowed (accent) or forbidden (red, with the reason). A drop does what the
 //! rules allow, and a ticket with a short or empty description starts without a warning (d0067). Backlog → Ready
 //! for Dev or Dev queues it (it lands in Ready for Dev until it can start), Ready for Dev → Backlog takes it out of
-//! the queue without asking (d0066). A drop on Approved (since d0087 the Review column's Approved section) asks how
-//! (Local merge or Open PR) and never approves by itself (T-0095); Dev → Backlog asks to park first (T-0107);
-//! Approved → Ready for Review (the Review column outside its Approved section) is PR rework (the PR stays,
-//! T-0150). The page's drop targets map onto the core's drop targets (`board_page::DropTargetId`,
+//! the queue without asking (d0066). Dev → Backlog asks to park first (T-0107). Approving is the card's Approve, never
+//! a drop: the delivery is no column. The page's drop targets map onto the core's drop targets (`board_page::DropTargetId`,
 //! `flow_columns::Columns::drop_target`). Each rule has a `_in` form that takes the project's flow; the short form
 //! is the default flow's.
 
@@ -128,21 +126,6 @@ pub fn drop_hint_in(
             IconName::SquareParking,
             "Drop to park · asks first".to_owned(),
         ),
-        // *Row · Review column (0086 · V)*: the Approved section as the target.
-        MoveAction::Approve => (
-            IconName::Check,
-            format!(
-                "Drop to approve {} \u{2192} choose Local merge or Open PR",
-                ticket.key
-            ),
-        ),
-        MoveAction::PrRework => (
-            IconName::RotateCcw,
-            match ticket.flags.pr_number {
-                Some(n) => format!("Drop to rework · PR #{n} stays"),
-                None => "Drop to rework".to_owned(),
-            },
-        ),
         MoveAction::Reopen => (IconName::RotateCcw, "Drop to reopen".to_owned()),
         // FLW-18: back to any earlier stage, forward to any later one.
         MoveAction::SendBack => (
@@ -187,8 +170,6 @@ pub enum DropAction {
     Nothing,
     /// Ask the service to move it.
     Move,
-    /// Ready for Review → Approved: the approve choice opens; cancelling leaves the card where it was.
-    ChooseApprove,
     /// Dev → Backlog: the Park confirmation; Cancel leaves the card in Dev.
     AskPark,
     /// Back to an earlier Agent stage or agent check (FLW-18): the dialog with the instructions or the note first;
@@ -218,7 +199,6 @@ pub fn on_drop_in(
                 MoveAction::Start
                 | MoveAction::Unqueue
                 | MoveAction::Reopen
-                | MoveAction::PrRework
                 | MoveAction::MoveBack
                 | MoveAction::NextStage
                 | MoveAction::SkipTo,
@@ -226,9 +206,6 @@ pub fn on_drop_in(
         MoveCheck::Confirm {
             action: MoveAction::SendBack | MoveAction::RunCheckAgain,
         } => DropAction::AskDragBack,
-        MoveCheck::Choose {
-            action: MoveAction::Approve,
-        } => DropAction::ChooseApprove,
         MoveCheck::Confirm {
             action: MoveAction::Park,
         } => DropAction::AskPark,
@@ -303,10 +280,8 @@ mod tests {
         assert_eq!(drop_hint(&backlog, &[], DropTarget::ReadyForReview), None);
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
-        assert_eq!(
-            drop_hint(&pr, &[], DropTarget::ReadyForReview).unwrap().1,
-            "Drop to rework · PR #481 stays"
-        );
+        // An open PR card is in Review already: no hint over its own column.
+        assert_eq!(drop_hint(&pr, &[], DropTarget::ReadyForReview), None);
         let working = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
         assert_eq!(
             drop_hint(&working, &[], DropTarget::Backlog).unwrap().1,
@@ -331,10 +306,6 @@ mod tests {
         t24.body = "Fix the links.".into();
         assert_eq!(on_drop(&t24, &[], DropTarget::Dev), DropAction::Move);
         assert_eq!(
-            on_drop(&t24, &[], DropTarget::Approved),
-            DropAction::Nothing
-        );
-        assert_eq!(
             on_drop(&t24, &[], DropTarget::ReadyForDev),
             DropAction::Move
         );
@@ -347,20 +318,21 @@ mod tests {
             DropAction::AskPark
         );
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        // Approving is the card's Approve, never a drop: dropped on its own column, nothing happens.
         assert_eq!(
-            on_drop(&review, &[], DropTarget::Approved),
-            DropAction::ChooseApprove
+            on_drop(&review, &[], DropTarget::ReadyForReview),
+            DropAction::Nothing
         );
         let mut pr = ticket("SHOP-26", "Add sitemap", Status::PrOpen);
         pr.flags.pr_number = Some(481);
         assert_eq!(
             feedback(&pr, &[], DropTarget::ReadyForReview),
-            DropFeedback::Allowed
+            DropFeedback::Home
         );
         assert_eq!(
             on_drop(&pr, &[], DropTarget::ReadyForReview),
-            DropAction::Move,
-            "PR rework: the PR stays"
+            DropAction::Nothing,
+            "its own column"
         );
         // Back to Dev from the open PR: the instructions dialog first (FLW-18).
         assert_eq!(feedback(&pr, &[], DropTarget::Dev), DropFeedback::Allowed);

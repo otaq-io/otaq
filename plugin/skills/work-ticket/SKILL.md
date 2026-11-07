@@ -29,6 +29,11 @@ types a reminder into this session.
    comment. **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
    you · read these before you start"; read each one (`otaq report SHOP-19 1`, or search a long one with
    `grep -n "Safari" "$(otaq report SHOP-19 1 --path)"`). The agents' reports you open only when you need them.
+   **Your stage may have nothing to add.** `prime` lists every stage of the flow under "## The flow", each with what
+   it is for. When this ticket needs nothing your stage does (the earlier stages' commits are already the whole
+   change), end your stage at once with a short note saying so: `otaq stage next` with, on stdin, "Nothing to build: the
+   docs Product spec committed are the whole change". That is an ordinary finish, never a skip: only the user skips a
+   stage. With no commits on the branch at all, it is nothing to deliver instead (`otaq stage done`, in Otaq's rules).
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (tests to run, skills to use,
    how to plan) and they apply to every step below. They add to these steps; they never remove getting the context
    (step 1) or ending your stage (step 6).
@@ -453,6 +458,25 @@ DECISION
 ```
 
 The user's Agent instructions may add to this rule (for example "always ask about copy text"); follow them.
+
+## A problem that belongs to an earlier stage: ask to send it back
+
+`prime` lists every stage of the flow under "## The flow", each with what it is for, and marks the ones this ticket
+skipped. When you find a problem that one of the **earlier** stages is for, skipped or already run (a product gap with
+no Product spec behind it, an approach Tech spec should have settled), don't settle it yourself in your stage and never
+move the ticket back: ask the user, naming that stage, with your reason on stdin, then end your turn:
+
+```sh
+otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Product gap: refunds over 30 days aren't specified, and the order rules decide what Dev builds.
+QUESTION
+```
+
+The question offers the user two ways out: **Send back to Product spec** (the ticket goes there, that stage runs again,
+a skip on it is cleared, and your session stops; the ticket comes back to your stage later with the stage's result) or
+**Answer here** (the answer arrives in this session like any other). Name only an earlier stage the ticket has been
+through: a later stage, your own, or one it never reached is refused. A small gap you can decide and record is not a
+reason to send it back (see "Product questions while you work").
 
 ## When you need the user
 

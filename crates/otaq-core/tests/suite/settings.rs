@@ -3,8 +3,8 @@
 
 use crate::common::Fixture;
 use otaq_core::board::settings::{
-    GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme, ThemeSetting,
-    WorkflowStep, resource_without_create,
+    GlobalSettings, KeyboardChange, KeyboardSettings, ProjectSettings, Theme, ThemeMode,
+    ThemeSetting, WorkflowStep, resource_without_create,
 };
 use otaq_core::git::testing::{git, snapshot};
 
@@ -60,7 +60,12 @@ async fn global_values_round_trip_and_keep_other_rows() {
     let mut global = GlobalSettings::default();
     global.agent_limits.enabled = true;
     global.agent_limits.max_concurrency = 8;
-    global.theme = ThemeSetting::Picked(Theme::TokyoNight);
+    global.theme = ThemeSetting {
+        mode: ThemeMode::Dark,
+        light: Theme::Daylight,
+        dark: Theme::TokyoNight,
+    };
+    global.os_dark = false;
     global.terminal_font_size = 15;
     global.notifications = false;
     global.description_source_mode = true;
@@ -89,7 +94,7 @@ async fn global_values_round_trip_and_keep_other_rows() {
 }
 
 #[tokio::test]
-async fn a_0069_mode_and_two_themes_become_one_theme() {
+async fn a_0069_mode_and_two_themes_become_a_mode_and_two_themes() {
     let f = Fixture::shop().await;
     let store = f.board.store();
     store.set_setting("appearance", "\"light\"").await.unwrap();
@@ -100,8 +105,15 @@ async fn a_0069_mode_and_two_themes_become_one_theme() {
     store.set_setting("light_theme", "\"nord\"").await.unwrap();
     store.set_setting("notifications", "false").await.unwrap();
     let global = f.board.global_settings().await.unwrap();
-    // Light mode showed the light theme; `nord` is no light theme, so it reads as Otaq Light.
-    assert_eq!(global.theme, ThemeSetting::Picked(Theme::OtaqLight));
+    // `nord` is no light theme, so it reads as Otaq Light.
+    assert_eq!(
+        global.theme,
+        ThemeSetting {
+            mode: ThemeMode::Light,
+            light: Theme::OtaqLight,
+            dark: Theme::TokyoNight,
+        }
+    );
     assert!(!global.notifications);
 
     // Saving stores `theme` and drops the old rows.
@@ -111,7 +123,7 @@ async fn a_0069_mode_and_two_themes_become_one_theme() {
     }
     assert_eq!(
         store.setting("theme").await.unwrap().as_deref(),
-        Some("\"otaq-light\"")
+        Some(r#"{"dark":"tokyo-night","light":"otaq-light","mode":"light"}"#)
     );
     assert_eq!(f.board.global_settings().await.unwrap(), global);
 }
@@ -146,9 +158,10 @@ async fn a_0069_system_mode_waits_for_the_os() {
     let global = f.board.global_settings().await.unwrap();
     assert_eq!(
         global.theme,
-        ThemeSetting::ByOs {
+        ThemeSetting {
+            mode: ThemeMode::System,
+            light: Theme::OtaqLight,
             dark: Theme::Dracula,
-            light: Theme::OtaqLight
         }
     );
 }

@@ -24,9 +24,11 @@ import {
   ToolProblemCallout,
   Tooltip,
   PLAIN_TEXT,
+  Select,
 } from "../../components";
 import type { AgentCloseDialog } from "../../generated/AgentCloseDialog";
 import type { AgentPanelAgent } from "../../generated/AgentPanelAgent";
+import type { AgentPanelAgentPick } from "../../generated/AgentPanelAgentPick";
 import type { AgentPanelAgentLine } from "../../generated/AgentPanelAgentLine";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelCreated } from "../../generated/AgentPanelCreated";
@@ -57,6 +59,7 @@ import {
   moreMenu,
   NEW_ITEM,
   newProjectAgent,
+  pickStartOn,
   type AgentPanelFocusRequest,
   agentPanelFocusRequests,
   sendFirstMessage,
@@ -66,6 +69,7 @@ import {
   toggleExpandAgentPanel,
 } from "./logic";
 import { CloseAgentDialog, RecentList } from "./parts";
+import { optionItems } from "../settings/Agents";
 
 /** The service events that change what the agent panel shows. */
 export const AGENT_PANEL_EVENTS = [
@@ -138,7 +142,7 @@ function AgentLine({ line, onRename }: { line: AgentPanelAgentLine; onRename?: (
 }
 
 /** A tool problem's notice under the agent line (M23, SHL-04): amber for a tool that isn't available, neutral for a
- * limit, with Sign in…, Resume after reset or "New agent on Sonnet". */
+ * limit, with Sign in… or Resume after reset; the conversation waits for its tool, and no other agent is offered. */
 function Notice({ notice, project }: { notice: ToolProblemCalloutView; project: string }) {
   return (
     <div className="agent-panel-notice">
@@ -300,6 +304,22 @@ function CreatedBox({
   );
 }
 
+/** The new conversation's own pick of agent: the agent Noyan uses unless another is picked here, for this conversation
+ * only. */
+function AgentPick({ pick, project }: { pick: AgentPanelAgentPick; project: string }) {
+  const current = pick.options.find((o) => o.selected);
+  return (
+    <Select
+      label={pick.label}
+      value={current?.label ?? pick.label}
+      items={optionItems(pick.options)}
+      onChange={(id) => {
+        pickStartOn(project, id, pick.usual);
+      }}
+    />
+  );
+}
+
 /** The empty agent panel (`SbFln`): what it will start, the examples, Recently ended and the first-message box. */
 function EmptyState({
   empty,
@@ -396,6 +416,7 @@ function EmptyState({
             }}
           />
           <div className="agent-panel-input-row">
+            {empty.pick !== null && <AgentPick pick={empty.pick} project={project} />}
             <span className="agent-panel-input-hint">{empty.hint}</span>
             <span className="agent-panel-spacer" />
             <button
@@ -791,7 +812,7 @@ function ProjectAgentPanel({ project }: { project: string }) {
   const shown = useStore(shownAgents);
   const starts = useStore(startOn);
   const chosen = chosenAgent(shown, project);
-  // After "New agent on …": the empty agent panel names that agent and its first message starts it.
+  // The new conversation's own pick: the empty agent panel names that agent and its first message starts it.
   const startsOn = chosen === null ? starts[project] : undefined;
   const chose = hasChoice(shown, project);
   const width = useWindowWidth();

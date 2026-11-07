@@ -71,7 +71,6 @@ pub fn edited_fields(before: &Ticket, after: &Ticket) -> Vec<Field> {
         (Field::Plan, before.plan != after.plan),
         (Field::Priority, before.priority != after.priority),
         (Field::BaseBranch, before.base != after.base),
-        (Field::ExternalId, before.external_id != after.external_id),
     ]
     .into_iter()
     .filter_map(|(field, changed)| changed.then_some(field))

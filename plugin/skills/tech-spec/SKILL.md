@@ -30,6 +30,14 @@ types a reminder into this session.
    **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
    you · read these before you start"; read each one (`otaq report SHOP-40 1`, or search a long one with
    `grep -n "share" "$(otaq report SHOP-40 1 --path)"`). The agents' reports you open only when you need them.
+   **Your stage may have nothing to settle.** `prime` lists every stage of the flow under "## The flow", each with
+   what it is for. When how to build this ticket is obvious and touches one place (a README-only change, a one-line
+   fix), write no decision for it: end your stage at once with a short note saying so, `otaq stage next` with, on stdin,
+   "Nothing to settle: README-only change". That is an ordinary finish, never a skip: only the user skips a stage.
+   **A product gap is Product spec's.** When what to build is unsettled and Product spec was skipped or missed it,
+   don't decide the product here and never move the ticket back yourself: ask the user to send it back, your reason
+   on stdin, `otaq ask human --send-back "Product spec" --stdin`, then end your turn. The user sends it back or
+   answers here.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 7).
 3. **Read what Product spec committed.** `prime`'s first line names the branch it merges into (for example `main`):

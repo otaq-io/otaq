@@ -118,6 +118,21 @@ impl Review {
         validation: &Validation,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
+        self.drag_asked(key, target, answers, None, validation, actor)
+            .await
+    }
+
+    /// [`Review::drag`] for the user's send back on an agent's question ([`crate::board::send_back_question`]):
+    /// `asked` joins the drag's History row (the stage that asked, its reason, a cleared skip).
+    pub(crate) async fn drag_asked(
+        &self,
+        key: &str,
+        target: &DropOn,
+        answers: DragAnswers<'_>,
+        asked: Option<&serde_json::Value>,
+        validation: &Validation,
+        actor: &Actor,
+    ) -> Result<ReturnOutcome, BoardError> {
         let board = self.board();
         let ticket = board.ticket(key).await?;
         // While a flow change waits for a span, a drop past its edge stops there (FED-08).
@@ -128,7 +143,7 @@ impl Review {
             MoveCheck::Refused { reason } => {
                 return Err(BoardError::refused(Refusal::MoveRefused, reason.clone()));
             }
-            MoveCheck::Confirm { .. } | MoveCheck::Choose { .. } if !answers.confirmed => {
+            MoveCheck::Confirm { .. } if !answers.confirmed => {
                 return Err(BoardError::refused(
                     Refusal::NeedsConfirmation,
                     "This move needs your confirmation",
@@ -143,7 +158,7 @@ impl Review {
         };
         match (action, to) {
             (MoveAction::SendBack, Some(to)) => {
-                self.send_back_by_drag(&ticket, &flow, to, answers, validation, actor)
+                self.send_back_by_drag(&ticket, &flow, to, answers, asked, validation, actor)
                     .await
             }
             (MoveAction::RunCheckAgain, Some(to)) => {
@@ -155,7 +170,8 @@ impl Review {
                     let head = board.submit_head(&ticket).await?;
                     self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
                         .await?;
-                    let event = event_of(&flow, &ticket, to, true, &[], false, answers.note);
+                    let event =
+                        event_of(&flow, &ticket, to, true, &[], false, answers.note).with(asked);
                     let moved = board.drag_moved(&ticket, &to.id).await?;
                     board
                         .record_drag(
@@ -180,7 +196,7 @@ impl Review {
             (MoveAction::MoveBack, Some(to)) => {
                 self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
                     .await?;
-                let event = event_of(&flow, &ticket, to, true, &[], false, "");
+                let event = event_of(&flow, &ticket, to, true, &[], false, "").with(asked);
                 let moved = board.drag_moved(&ticket, &to.id).await?;
                 board
                     .record_drag(
@@ -223,12 +239,14 @@ impl Review {
 
     /// Back to the earlier Agent stage `to` with the user's instructions as their comment (refused whole when too
     /// long or its report is missing, before anything stops).
+    #[allow(clippy::too_many_arguments)]
     async fn send_back_by_drag(
         &self,
         ticket: &Ticket,
         flow: &Flow,
         to: &Stage,
         answers: DragAnswers<'_>,
+        asked: Option<&serde_json::Value>,
         validation: &Validation,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -242,6 +260,7 @@ impl Review {
                 flow,
                 to,
                 answers,
+                asked,
                 hand_over.as_ref(),
                 validation,
                 actor,
@@ -262,6 +281,7 @@ impl Review {
         flow: &Flow,
         to: &Stage,
         answers: DragAnswers<'_>,
+        asked: Option<&serde_json::Value>,
         hand_over: Option<&HandOver>,
         validation: &Validation,
         actor: &Actor,
@@ -304,7 +324,7 @@ impl Review {
         self.stop_where_it_is(ticket, flow, Stop::AllBut(keep.as_deref()), validation)
             .await?;
         let ticket = board.ticket_by_id(&ticket.id).await?;
-        let event = event_of(flow, &ticket, to, true, &[], run_by_you, answers.note);
+        let event = event_of(flow, &ticket, to, true, &[], run_by_you, answers.note).with(asked);
         if ran {
             let back = Back {
                 hand_over,
@@ -526,6 +546,21 @@ fn event_of(
         "run_by_you": run_by_you,
         "note": (!note.is_empty()).then_some(note),
     })
+}
+
+/// Adds a send back's fields ([`crate::board::send_back_question`]) to a drag's History payload.
+trait WithAsked {
+    fn with(self, asked: Option<&serde_json::Value>) -> Self;
+}
+
+impl WithAsked for serde_json::Value {
+    fn with(mut self, asked: Option<&serde_json::Value>) -> Self {
+        if let (Some(event), Some(serde_json::Value::Object(asked))) = (self.as_object_mut(), asked)
+        {
+            event.extend(asked.clone());
+        }
+        self
+    }
 }
 
 async fn done(board: &Board, key: &str) -> Result<ReturnOutcome, BoardError> {

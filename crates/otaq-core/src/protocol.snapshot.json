@@ -1,5 +1,5 @@
 {
-  "protocol_version": 9,
+  "protocol_version": 11,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -139,10 +139,6 @@
         "name": {
           "ty": "String",
           "required": true
-        },
-        "role": {
-          "ty": "Option<Role>",
-          "omittable": true
         },
         "updated_at": {
           "ty": "i64",
@@ -331,6 +327,10 @@
         },
         "default_model": {
           "ty": "Option<ModelRef>",
+          "omittable": true
+        },
+        "noyan_agent": {
+          "ty": "Option<String>",
           "omittable": true
         }
       }
@@ -894,6 +894,10 @@
         "recommended": {
           "ty": "Option<u32>",
           "omittable": true
+        },
+        "send_back": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -1348,6 +1352,16 @@
             "to": {
               "ty": "String",
               "required": true
+            }
+          }
+        },
+        "description": {
+          "fields": {
+            "from": {
+              "ty": "Option<String>"
+            },
+            "to": {
+              "ty": "Option<String>"
             }
           }
         },
@@ -2459,7 +2473,6 @@
     "DropTarget": {
       "kind": "strings",
       "values": [
-        "approved",
         "backlog",
         "dev",
         "done",
@@ -3035,7 +3048,6 @@
       "values": [
         "base_branch",
         "body",
-        "external_id",
         "plan",
         "priority",
         "title"
@@ -3771,6 +3783,27 @@
         }
       }
     },
+    "FlowStage": {
+      "kind": "struct",
+      "fields": {
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "skipped": {
+          "ty": "bool",
+          "omittable": true
+        },
+        "yours": {
+          "ty": "bool",
+          "omittable": true
+        }
+      }
+    },
     "FlowState": {
       "kind": "strings",
       "values": [
@@ -3901,6 +3934,9 @@
           "ty": "bool"
         },
         "notifications": {
+          "ty": "bool"
+        },
+        "os_dark": {
           "ty": "bool"
         },
         "sheet_width": {
@@ -4187,6 +4223,21 @@
         "working"
       ]
     },
+    "Hint": {
+      "kind": "enum",
+      "variants": {
+        "gallery_sample": {}
+      }
+    },
+    "HintParams": {
+      "kind": "struct",
+      "fields": {
+        "hint": {
+          "ty": "Hint",
+          "required": true
+        }
+      }
+    },
     "HistoryEvent": {
       "kind": "struct",
       "fields": {
@@ -4293,6 +4344,10 @@
           "ty": "Option<u32>",
           "omittable": true
         },
+        "send_back": {
+          "ty": "Option<SendBackTo>",
+          "omittable": true
+        },
         "text": {
           "ty": "String",
           "required": true
@@ -4344,8 +4399,8 @@
           "ty": "String",
           "required": true
         },
-        "role": {
-          "ty": "Option<Role>",
+        "noyan": {
+          "ty": "bool",
           "omittable": true
         },
         "stages": {
@@ -5124,19 +5179,6 @@
         }
       }
     },
-    "MoveRoleParams": {
-      "kind": "struct",
-      "fields": {
-        "agent": {
-          "ty": "String",
-          "required": true
-        },
-        "role": {
-          "ty": "Role",
-          "required": true
-        }
-      }
-    },
     "MovedOn": {
       "kind": "struct",
       "fields": {
@@ -5363,10 +5405,6 @@
         "body": {
           "ty": "String"
         },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "first_comment": {
           "ty": "Option<FirstComment>",
           "omittable": true
@@ -5441,6 +5479,9 @@
         "question": {
           "ty": "bool"
         },
+        "ready_for_review": {
+          "ty": "bool"
+        },
         "tool_unavailable": {
           "ty": "bool"
         },
@@ -5465,6 +5506,15 @@
         },
         "permission": {
           "ty": "PermissionState",
+          "required": true
+        }
+      }
+    },
+    "NoyanAgentParams": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "String",
           "required": true
         }
       }
@@ -5720,10 +5770,6 @@
         },
         "rounds": {
           "ty": "Option<u32>",
-          "omittable": true
-        },
-        "shown_in": {
-          "ty": "Option<String>",
           "omittable": true
         },
         "skipped": {
@@ -6079,10 +6125,6 @@
           "ty": "Vec<FlowCommit>",
           "required": true
         },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
-        },
         "flow": {
           "ty": "Option<PrFlow>",
           "omittable": true
@@ -6249,6 +6291,10 @@
           "ty": "Vec<EarlierStage>",
           "omittable": true
         },
+        "flow": {
+          "ty": "Vec<FlowStage>",
+          "omittable": true
+        },
         "instructions": {
           "ty": "Option<Instructions>",
           "omittable": true
@@ -6339,10 +6385,6 @@
         "editable": {
           "ty": "bool",
           "required": true
-        },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
         },
         "key": {
           "ty": "TicketKey",
@@ -6852,6 +6894,10 @@
       "fields": {
         "choices": {
           "ty": "Vec<PrimeChoice>",
+          "omittable": true
+        },
+        "flow": {
+          "ty": "Vec<FlowStage>",
           "omittable": true
         },
         "instructions": {
@@ -7628,6 +7674,9 @@
         "helpers": {
           "newtype": "Vec<Helper>"
         },
+        "hints_seen": {
+          "newtype": "Vec<Hint>"
+        },
         "history": {
           "newtype": "Vec<HistoryEvent>"
         },
@@ -7959,8 +8008,8 @@
         "agents.models_retry": {
           "newtype": "ModelsParams"
         },
-        "agents.move_role": {
-          "newtype": "MoveRoleParams"
+        "agents.noyan": {
+          "newtype": "NoyanAgentParams"
         },
         "agents.pause": {
           "newtype": "PauseScope"
@@ -8140,6 +8189,10 @@
         "helper.start": {
           "newtype": "HelperStartParams"
         },
+        "hints.dismiss": {
+          "newtype": "HintParams"
+        },
+        "hints.seen": {},
         "hook": {
           "newtype": "HookParams"
         },
@@ -8756,12 +8809,6 @@
         }
       }
     },
-    "Role": {
-      "kind": "strings",
-      "values": [
-        "noyan"
-      ]
-    },
     "Route": {
       "kind": "strings",
       "values": [
@@ -9074,9 +9121,7 @@
         "tag=kind"
       ],
       "variants": {
-        "role": {
-          "newtype": "Role"
-        },
+        "noyan": {},
         "stage": {
           "newtype": "String"
         }
@@ -9160,6 +9205,19 @@
           "required": true
         },
         "path": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "SendBackTo": {
+      "kind": "struct",
+      "fields": {
+        "stage": {
+          "ty": "String",
+          "required": true
+        },
+        "stage_id": {
           "ty": "String",
           "required": true
         }
@@ -9870,10 +9928,6 @@
         "agent": {
           "ty": "Option<Agent>"
         },
-        "delivery": {
-          "ty": "bool",
-          "required": true
-        },
         "role": {
           "ty": "SessionRole",
           "required": true
@@ -10501,26 +10555,28 @@
         "tokyo-night"
       ]
     },
+    "ThemeMode": {
+      "kind": "strings",
+      "values": [
+        "dark",
+        "light",
+        "system"
+      ]
+    },
     "ThemeSetting": {
-      "kind": "enum",
-      "attrs": [
-        "untagged"
-      ],
-      "variants": {
-        "ByOs": {
-          "fields": {
-            "dark": {
-              "ty": "Theme",
-              "required": true
-            },
-            "light": {
-              "ty": "Theme",
-              "required": true
-            }
-          }
+      "kind": "struct",
+      "fields": {
+        "dark": {
+          "ty": "Theme",
+          "required": true
         },
-        "Picked": {
-          "newtype": "Theme"
+        "light": {
+          "ty": "Theme",
+          "required": true
+        },
+        "mode": {
+          "ty": "ThemeMode",
+          "required": true
         }
       }
     },
@@ -10563,10 +10619,6 @@
         "depends_on": {
           "ty": "Vec<TicketKey>",
           "required": true
-        },
-        "external_id": {
-          "ty": "Option<String>",
-          "omittable": true
         },
         "flags": {
           "ty": "Flags",
@@ -10914,10 +10966,6 @@
         },
         "choices": {
           "ty": "Vec<ChoicePick>",
-          "omittable": true
-        },
-        "external_id": {
-          "ty": "Option<String>",
           "omittable": true
         },
         "plan": {
@@ -11517,6 +11565,10 @@
         },
         "earlier": {
           "ty": "Vec<EarlierStage>",
+          "omittable": true
+        },
+        "flow": {
+          "ty": "Vec<FlowStage>",
           "omittable": true
         },
         "instructions": {
@@ -12223,7 +12275,8 @@
         },
         "other": {
           "newtype": "String"
-        }
+        },
+        "send_back": {}
       }
     },
     "crate::board::stage_choices::Choice": {

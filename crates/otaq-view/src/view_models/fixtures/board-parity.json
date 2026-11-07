@@ -45,14 +45,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -100,15 +92,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "hint": "Drop to resume · same conversation",
-              "icon": "play",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "hint": "Drop to resume · same conversation",
               "icon": "play",
@@ -169,14 +152,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -226,14 +201,6 @@
               "detail": null,
               "kind": "forbidden",
               "title": "Only agents move tickets to Ready for Review"
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
             }
           },
           {
@@ -289,14 +256,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -346,14 +305,6 @@
               "detail": null,
               "kind": "forbidden",
               "title": "Only agents move tickets to Ready for Review"
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
             }
           },
           {
@@ -409,14 +360,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -469,14 +412,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-8 can't move to the next stage now: its agent is in the middle of a turn"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -522,14 +457,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-9 can't move to the next stage now: its agent is in the middle of a turn"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -591,15 +518,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -648,15 +566,6 @@
             "target": "review",
             "verdict": {
               "hint": "Drop to skip Validate",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
               "icon": "skip-forward",
               "kind": "allowed",
               "note": null
@@ -717,15 +626,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -771,14 +671,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-13 can't move to the next stage now: it is Waiting for limit reset"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -840,15 +732,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -894,14 +777,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-15 can't move to the next stage now: it is Resume failed"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -961,14 +836,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-16 can't move to the next stage now: it is Merge conflict · fixing"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -1014,14 +881,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "ALL-17 can't move to the next stage now: it is Delivery stopped"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -1083,15 +942,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -1140,15 +990,6 @@
             "target": "review",
             "verdict": {
               "hint": "Drop to skip Validate",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
               "icon": "skip-forward",
               "kind": "allowed",
               "note": null
@@ -1209,15 +1050,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -1266,15 +1098,6 @@
             "target": "review",
             "verdict": {
               "hint": "Drop to skip Validate",
-              "icon": "skip-forward",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to skip Validate, Review",
               "icon": "skip-forward",
               "kind": "allowed",
               "note": null
@@ -1334,15 +1157,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to approve ALL-22 → choose Local merge or Open PR",
-              "icon": "check",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -1368,7 +1182,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Drag it back through Ready for Review: Approved tickets return with PR rework"
+              "title": "Use Send back to return it to Dev with your comments"
             }
           },
           {
@@ -1391,15 +1205,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "hint": "Drop to rework",
-              "icon": "rotate-ccw",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "kind": "home"
             }
@@ -1430,7 +1235,7 @@
             "verdict": {
               "detail": null,
               "kind": "forbidden",
-              "title": "Drag it back through Ready for Review: Approved tickets return with PR rework"
+              "title": "Use Send back to return it to Dev with your comments"
             }
           },
           {
@@ -1453,15 +1258,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "hint": "Drop to rework · PR #481 stays",
-              "icon": "rotate-ccw",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "kind": "home"
             }
@@ -1514,14 +1310,6 @@
           {
             "target": "review",
             "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "It waits for the ticket it was merged into and moves when that ticket lands or is closed"
-            }
-          },
-          {
-            "target": "approved",
-            "verdict": {
               "kind": "home"
             }
           },
@@ -1572,14 +1360,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": "Fixing merged work means a new ticket.",
-              "kind": "forbidden",
-              "title": "Merged tickets are locked"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": "Fixing merged work means a new ticket.",
               "kind": "forbidden",
@@ -1639,14 +1419,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Drag it to Backlog to reopen it first"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "kind": "home"
@@ -1659,7 +1431,6 @@
       {
         "key": "ALL-1",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Move",
           "done": "Nothing",
@@ -1671,7 +1442,6 @@
       {
         "key": "ALL-2",
         "steps": {
-          "approved": "Move",
           "backlog": "Nothing",
           "dev": "Move",
           "done": "Nothing",
@@ -1683,7 +1453,6 @@
       {
         "key": "ALL-3",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1695,7 +1464,6 @@
       {
         "key": "ALL-4",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1707,7 +1475,6 @@
       {
         "key": "ALL-5",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1719,7 +1486,6 @@
       {
         "key": "ALL-6",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1731,7 +1497,6 @@
       {
         "key": "ALL-7",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1743,7 +1508,6 @@
       {
         "key": "ALL-8",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1755,7 +1519,6 @@
       {
         "key": "ALL-9",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1767,7 +1530,6 @@
       {
         "key": "ALL-10",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1779,7 +1541,6 @@
       {
         "key": "ALL-11",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1791,7 +1552,6 @@
       {
         "key": "ALL-12",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1803,7 +1563,6 @@
       {
         "key": "ALL-13",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1815,7 +1574,6 @@
       {
         "key": "ALL-14",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1827,7 +1585,6 @@
       {
         "key": "ALL-15",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1839,7 +1596,6 @@
       {
         "key": "ALL-16",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1851,7 +1607,6 @@
       {
         "key": "ALL-17",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1863,7 +1618,6 @@
       {
         "key": "ALL-18",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "DragBack",
           "done": "Nothing",
@@ -1875,7 +1629,6 @@
       {
         "key": "ALL-19",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "DragBack",
           "done": "Nothing",
@@ -1887,7 +1640,6 @@
       {
         "key": "ALL-20",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "DragBack",
           "done": "Nothing",
@@ -1899,7 +1651,6 @@
       {
         "key": "ALL-21",
         "steps": {
-          "approved": "Move",
           "backlog": "Park",
           "dev": "DragBack",
           "done": "Nothing",
@@ -1911,7 +1662,6 @@
       {
         "key": "ALL-22",
         "steps": {
-          "approved": "Approve",
           "backlog": "Nothing",
           "dev": "DragBack",
           "done": "Nothing",
@@ -1923,31 +1673,28 @@
       {
         "key": "ALL-23",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Move",
+          "review": "Nothing",
           "validate": "DragBack"
         }
       },
       {
         "key": "ALL-24",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "DragBack",
           "done": "Nothing",
           "ready_for_dev": "Nothing",
-          "review": "Move",
+          "review": "Nothing",
           "validate": "DragBack"
         }
       },
       {
         "key": "ALL-25",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1959,7 +1706,6 @@
       {
         "key": "ALL-26",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Nothing",
           "done": "Nothing",
@@ -1971,7 +1717,6 @@
       {
         "key": "ALL-27",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Move",
           "dev": "Nothing",
           "done": "Nothing",
@@ -2053,7 +1798,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -2062,7 +1806,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -2244,7 +1987,6 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -2311,7 +2053,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -2588,7 +2329,6 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -2674,7 +2414,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -2839,7 +2578,6 @@
               "working_count": "4"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -2925,7 +2663,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -2936,12 +2673,140 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "ALL-22",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Ready for Review",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": {
+                    "icon": null,
+                    "kind": "local_merge",
+                    "label": "Local merge",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready to merge"
+                  },
+                  "key": "ALL-23",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready to merge",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "To deliver",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "PR #481 open"
+                  },
+                  "key": "ALL-24",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "PR open",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Merged into"
+                  },
+                  "key": "ALL-25",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Merged into",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -3027,160 +2892,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "ALL-22",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Ready for Review",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "To deliver"
-                      },
-                      "key": "ALL-23",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "To deliver",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "PR #481 open"
-                      },
-                      "key": "ALL-24",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": {
-                        "dot": "review",
-                        "icon": null,
-                        "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
-                        "tone": "secondary"
-                      },
-                      "time": null,
-                      "title": "PR open",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Merged into"
-                      },
-                      "key": "ALL-25",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Merged into",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "3",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": {
-                  "icon": "info",
-                  "text": "Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub."
-                },
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -3251,7 +2965,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -3299,7 +3012,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -3496,7 +3208,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -3505,7 +3216,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -3687,7 +3397,6 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -3754,7 +3463,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -4031,7 +3739,6 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -4117,7 +3824,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -4282,7 +3988,6 @@
               "working_count": "4"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -4368,7 +4073,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -4379,12 +4083,140 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "ALL-22",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Ready for Review",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": {
+                    "icon": null,
+                    "kind": "local_merge",
+                    "label": "Local merge",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready to merge"
+                  },
+                  "key": "ALL-23",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready to merge",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "To deliver",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "PR #481 open"
+                  },
+                  "key": "ALL-24",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "PR open",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Merged into"
+                  },
+                  "key": "ALL-25",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Merged into",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -4470,160 +4302,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "ALL-22",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Ready for Review",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "To deliver"
-                      },
-                      "key": "ALL-23",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "To deliver",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "PR #481 open"
-                      },
-                      "key": "ALL-24",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": {
-                        "dot": "review",
-                        "icon": null,
-                        "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
-                        "tone": "secondary"
-                      },
-                      "time": null,
-                      "title": "PR open",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Merged into"
-                      },
-                      "key": "ALL-25",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Merged into",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "3",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": {
-                  "icon": "info",
-                  "text": "Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub."
-                },
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -4694,7 +4375,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -4742,7 +4422,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -4939,7 +4618,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -4948,7 +4626,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -5130,7 +4807,6 @@
             "count": "5",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -5197,7 +4873,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -5474,7 +5149,6 @@
               "working_count": "10"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -5560,7 +5234,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -5725,7 +5398,6 @@
               "working_count": "4"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -5811,7 +5483,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -5822,12 +5493,140 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "ALL-22",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Ready for Review",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": {
+                    "icon": null,
+                    "kind": "local_merge",
+                    "label": "Local merge",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready to merge"
+                  },
+                  "key": "ALL-23",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "Ready to merge",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "To deliver",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "PR #481 open"
+                  },
+                  "key": "ALL-24",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": {
+                    "dot": "review",
+                    "icon": null,
+                    "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
+                    "tone": "secondary"
+                  },
+                  "time": null,
+                  "title": "PR open",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              },
+              {
+                "card": {
+                  "action": null,
+                  "avatar": null,
+                  "blocks": null,
+                  "edge": null,
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Merged into"
+                  },
+                  "key": "ALL-25",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Merged into",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "4",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -5913,160 +5712,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "ALL-22",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Ready for Review",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "To deliver"
-                      },
-                      "key": "ALL-23",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "To deliver",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "PR #481 open"
-                      },
-                      "key": "ALL-24",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": {
-                        "dot": "review",
-                        "icon": null,
-                        "text": "PR #481 open · Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub.",
-                        "tone": "secondary"
-                      },
-                      "time": null,
-                      "title": "PR open",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  },
-                  {
-                    "card": {
-                      "action": null,
-                      "avatar": null,
-                      "blocks": null,
-                      "edge": null,
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Merged into"
-                      },
-                      "key": "ALL-25",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Merged into",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "3",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": {
-                  "icon": "info",
-                  "text": "Otaq doesn’t watch PRs. Mark it once it’s merged on GitHub."
-                },
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -6137,7 +5785,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -6185,7 +5832,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -6350,14 +5996,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "API-1 can't move to the next stage now: its agent is in the middle of a turn"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -6372,7 +6010,6 @@
       {
         "key": "API-1",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -6393,7 +6030,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -6402,7 +6038,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -6413,7 +6048,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -6480,7 +6114,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -6530,7 +6163,6 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -6616,7 +6248,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -6630,7 +6261,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -6716,37 +6346,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -6757,7 +6359,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -6805,7 +6406,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -6942,7 +6542,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -6951,7 +6550,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -6962,7 +6560,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -7029,7 +6626,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -7079,7 +6675,6 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -7165,7 +6760,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -7179,7 +6773,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -7265,37 +6858,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -7306,7 +6871,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -7354,7 +6918,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -7491,7 +7054,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -7500,7 +7062,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -7511,7 +7072,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -7578,7 +7138,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -7628,7 +7187,6 @@
               "working_count": "1"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -7714,7 +7272,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -7728,7 +7285,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -7814,37 +7370,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -7855,7 +7383,6 @@
             "count": "0",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -7903,7 +7430,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -8077,15 +7603,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "hint": "Drop to approve NOTE-1 → choose Local merge or Open PR",
-              "icon": "check",
-              "kind": "allowed",
-              "note": null
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -8138,14 +7655,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -8199,14 +7708,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -8252,14 +7753,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "NOTE-4 can't move to the next stage now: its agent is in the middle of a turn"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -8320,14 +7813,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "Approve a ticket from Ready for Review"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "detail": null,
@@ -8381,14 +7866,6 @@
             }
           },
           {
-            "target": "approved",
-            "verdict": {
-              "detail": "Fixing merged work means a new ticket.",
-              "kind": "forbidden",
-              "title": "Merged tickets are locked"
-            }
-          },
-          {
             "target": "done",
             "verdict": {
               "kind": "home"
@@ -8432,14 +7909,6 @@
           },
           {
             "target": "review",
-            "verdict": {
-              "detail": null,
-              "kind": "forbidden",
-              "title": "NOTE-12 can't move to the next stage now: its agent is in the middle of a turn"
-            }
-          },
-          {
-            "target": "approved",
             "verdict": {
               "detail": null,
               "kind": "forbidden",
@@ -8461,7 +7930,6 @@
       {
         "key": "NOTE-1",
         "steps": {
-          "approved": "Approve",
           "backlog": "Nothing",
           "dev": "DragBack",
           "done": "Nothing",
@@ -8473,7 +7941,6 @@
       {
         "key": "NOTE-2",
         "steps": {
-          "approved": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }",
           "backlog": "Move",
           "dev": "Blocked { dialog: Dialog { key: \"NOTE-2\", title: \"NOTE-2 is blocked\", body: \"It waits for NOTE-1 (in Review) to merge. Started now, its agent works without its changes and may have to redo work when it lands.\", hint: \"To start it, remove the dependency in the ticket first.\", keep: \"Keep it waiting\" }, queue: false }",
           "done": "Nothing",
@@ -8485,7 +7952,6 @@
       {
         "key": "NOTE-3",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Move",
           "done": "Nothing",
@@ -8497,7 +7963,6 @@
       {
         "key": "NOTE-4",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -8509,7 +7974,6 @@
       {
         "key": "NOTE-10",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Move",
           "done": "Nothing",
@@ -8521,7 +7985,6 @@
       {
         "key": "NOTE-11",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Nothing",
           "dev": "Nothing",
           "done": "Nothing",
@@ -8533,7 +7996,6 @@
       {
         "key": "NOTE-12",
         "steps": {
-          "approved": "Nothing",
           "backlog": "Park",
           "dev": "Nothing",
           "done": "Nothing",
@@ -8645,7 +8107,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -8654,7 +8115,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -8698,7 +8158,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -8765,7 +8224,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -8847,7 +8305,6 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -8933,7 +8390,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -8953,7 +8409,6 @@
               "working_count": "0"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -9039,7 +8494,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -9050,12 +8504,47 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": {
+                    "line": "Blocks NOTE-2",
+                    "tag": "blocks 1"
+                  },
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "NOTE-1",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sort notes by date",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -9141,73 +8630,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": {
-                        "line": "Blocks NOTE-2",
-                        "tag": "blocks 1"
-                      },
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "NOTE-1",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Sort notes by date",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -9246,7 +8671,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -9294,7 +8718,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -9521,7 +8944,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -9530,7 +8952,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -9574,7 +8995,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -9641,7 +9061,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -9723,7 +9142,6 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -9809,7 +9227,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -9829,7 +9246,6 @@
               "working_count": "0"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -9915,7 +9331,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -9926,12 +9341,47 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": {
+                    "line": "Blocks NOTE-2",
+                    "tag": "blocks 1"
+                  },
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "NOTE-1",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sort notes by date",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -10017,73 +9467,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": {
-                        "line": "Blocks NOTE-2",
-                        "tag": "blocks 1"
-                      },
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "NOTE-1",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Sort notes by date",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -10122,7 +9508,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -10170,7 +9555,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }
@@ -10397,7 +9781,6 @@
             "count": "2",
             "dev": null,
             "empty_hint": "Write a ticket here: what to build and when it’s done.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-dashed",
@@ -10406,7 +9789,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Backlog",
             "tooltip": null
           },
@@ -10450,7 +9832,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Drag a ticket here from Backlog to start it when it’s ready.",
-            "folded": [],
             "hidden": null,
             "hint": "Starts in priority order",
             "icon": "hourglass",
@@ -10517,7 +9898,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Ready for Dev",
             "tooltip": null
           },
@@ -10599,7 +9979,6 @@
               "working_count": "2"
             },
             "empty_hint": "Tickets move here when their agent starts. Each agent works in its own worktree.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "activity",
@@ -10685,7 +10064,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Dev",
             "tooltip": {
               "detail": [],
@@ -10705,7 +10083,6 @@
               "working_count": "0"
             },
             "empty_hint": "An agent checks each ticket here before it moves on.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "shield-check",
@@ -10791,7 +10168,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Validate",
             "tooltip": {
               "detail": [
@@ -10802,12 +10178,47 @@
           },
           {
             "add": null,
-            "cards": [],
+            "cards": [
+              {
+                "card": {
+                  "action": {
+                    "icon": "eye",
+                    "kind": "review",
+                    "label": "Review",
+                    "primary": true
+                  },
+                  "avatar": null,
+                  "blocks": {
+                    "line": "Blocks NOTE-2",
+                    "tag": "blocks 1"
+                  },
+                  "edge": "review",
+                  "faded": null,
+                  "fresh": false,
+                  "hover": {
+                    "details": [],
+                    "status": "Ready for Review"
+                  },
+                  "key": "NOTE-1",
+                  "open_sheet": "Open panel",
+                  "open_sheet_keys": "↵",
+                  "open_terminal": "Open terminal",
+                  "origin": null,
+                  "priority": null,
+                  "skill_warning": null,
+                  "status": null,
+                  "time": null,
+                  "title": "Sort notes by date",
+                  "who": null
+                },
+                "kind": "ticket",
+                "needs_you": false
+              }
+            ],
             "collapsed": false,
             "count": "1",
             "dev": null,
             "empty_hint": "Agents move their ticket here when they submit it for your review.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "eye",
@@ -10893,73 +10304,9 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [
-              {
-                "cards": [
-                  {
-                    "card": {
-                      "action": {
-                        "icon": "eye",
-                        "kind": "review",
-                        "label": "Review",
-                        "primary": true
-                      },
-                      "avatar": null,
-                      "blocks": {
-                        "line": "Blocks NOTE-2",
-                        "tag": "blocks 1"
-                      },
-                      "edge": "review",
-                      "faded": null,
-                      "fresh": false,
-                      "hover": {
-                        "details": [],
-                        "status": "Ready for Review"
-                      },
-                      "key": "NOTE-1",
-                      "open_sheet": "Open panel",
-                      "open_sheet_keys": "↵",
-                      "open_terminal": "Open terminal",
-                      "origin": null,
-                      "priority": null,
-                      "skill_warning": null,
-                      "status": null,
-                      "time": null,
-                      "title": "Sort notes by date",
-                      "who": null
-                    },
-                    "kind": "ticket",
-                    "needs_you": false
-                  }
-                ],
-                "count": "1",
-                "drag_hint": null,
-                "empty": "Nothing to review",
-                "fold": "Fold Ready for Review",
-                "hidden": null,
-                "id": "ready_for_review",
-                "note": null,
-                "title": "READY FOR REVIEW",
-                "unfold": "Unfold Ready for Review"
-              },
-              {
-                "cards": [],
-                "count": "0",
-                "drag_hint": "Drag a ticket here from Ready for Review to approve it. It always asks how: Local merge or Open PR.",
-                "empty": "Nothing approved",
-                "fold": "Fold Approved",
-                "hidden": null,
-                "id": "approved",
-                "note": null,
-                "title": "APPROVED",
-                "unfold": "Unfold Approved"
-              }
-            ],
             "title": "Review",
             "tooltip": {
-              "detail": [
-                "Done · Developer · shown in Review"
-              ],
+              "detail": [],
               "title": "Review · your check"
             }
           },
@@ -10998,7 +10345,6 @@
             "count": "1",
             "dev": null,
             "empty_hint": "Merged and closed tickets end up here.",
-            "folded": [],
             "hidden": null,
             "hint": null,
             "icon": "circle-check",
@@ -11046,7 +10392,6 @@
             "menu_label": "Column menu",
             "quiet_icon": false,
             "rail": null,
-            "sections": [],
             "title": "Done",
             "tooltip": null
           }

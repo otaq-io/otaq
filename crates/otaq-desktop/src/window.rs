@@ -148,9 +148,29 @@ pub fn webkit_env(os: &str, existing: Option<&OsStr>) -> Option<(&'static str, &
 
 pub const WEBKIT_DMABUF: &str = "WEBKIT_DISABLE_DMABUF_RENDERER";
 
+/// How the window's own parts (its title bar, its menus and the menu-bar icon's menu) are drawn for the theme mode:
+/// `None` as the OS (Match system, so the page keeps reading the OS appearance and follows it), else always light or
+/// always dark, as the theme shown.
+pub fn native_appearance(mode: otaq_view::theme::Mode) -> Option<otaq_view::theme::Appearance> {
+    use otaq_view::theme::{Appearance, Mode};
+    match mode {
+        Mode::System => None,
+        Mode::Light => Some(Appearance::Light),
+        Mode::Dark => Some(Appearance::Dark),
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    #[test]
+    fn the_window_follows_the_os_on_match_system_and_the_mode_otherwise() {
+        use otaq_view::theme::{Appearance, Mode};
+        assert_eq!(native_appearance(Mode::System), None);
+        assert_eq!(native_appearance(Mode::Light), Some(Appearance::Light));
+        assert_eq!(native_appearance(Mode::Dark), Some(Appearance::Dark));
+    }
 
     const SCREEN: Rect = Rect {
         x: 0.0,

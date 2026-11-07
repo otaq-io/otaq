@@ -459,7 +459,7 @@ async fn both_tools_propose_and_use_this_flow_settles_the_project() {
     assert!(applied.waiting.is_none(), "a quiet board applies at once");
     assert_eq!(
         stage_names(&w, &shop).await,
-        ["Product spec", "Dev", "Security", "Review", "Done"]
+        ["Product spec", "Dev", "Security", "Review"]
     );
     assert!(!in_flow_setup(&w, &shop).await, "Flow setup is cleared");
     assert!(
@@ -548,10 +548,7 @@ async fn with_no_tool_connected_use_the_default_settles_the_project() {
     .unwrap();
     assert!(matches!(reply, Reply::Ok), "{reply:?}");
     assert!(!in_flow_setup(&w, &api).await, "Flow setup is cleared");
-    assert_eq!(
-        stage_names(&w, &api).await,
-        ["Dev", "Validate", "Review", "Done"]
-    );
+    assert_eq!(stage_names(&w, &api).await, ["Dev", "Validate", "Review"]);
     assert_eq!(created(&create(&w, &api, "Rate limit")), "API-1");
     w.stop().await;
 }

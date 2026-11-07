@@ -5,6 +5,8 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Tickets have no External ID.** The field is gone from New ticket, Edit ticket, the ticket's details line, the
+  PR dialog, `otaq show` and `prime`; History no longer lists changes to it. Your tickets keep everything else.
 - **Your skills stay where they are.** Otaq no longer copies or imports skills. Each tool loads your skills the
   way it always does, and Otaq's own skills come with its plugin. A stage runs only on a tool that has its skill:
   otherwise its card waits in Needs you with "<tool> doesn't have the skill `/<name>`", **Check again** and
@@ -21,6 +23,11 @@ before Publish (`scripts/README.md`, "Making a release").
   choice "required" just means the check happens, as the flow says. **Skip this check** and **Move on anyway** show only on checks the flow marks skippable.
   A skipped or moved-past check no longer turns an automatic Delivery into a click: it delivers as the flow says,
   marked "Delivered without all checks".
+- **Noyan uses one agent, set in Settings → Agents.** "Noyan uses" picks the agent every new conversation with
+  Noyan starts on, and a new conversation can pick another agent for itself in the panel before you send. Agents no
+  longer have a role: each stage names its agent, and the agent's page has no Role field. The agent that held the
+  Noyan role is the one Noyan uses after the update. A conversation whose tool can't run waits for it: the panel no
+  longer offers "New agent on …" in its place.
 - **A stage's skill can't be a tool's built-in command.** A flow whose stage names one, such as Claude Code's
   `/security-review`, is refused instead of applying and then holding the stage. Write a small skill that runs the
   command and name that skill.

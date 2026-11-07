@@ -1,31 +1,47 @@
-// The theme picker (UI-11, d0069, d0070; *14 · First run & onboarding → 2 · Theme*, *15 · Settings → Appearance*),
-// shared by onboarding (T-0233) and Settings (T-0234): the 15 theme cards under a Dark and a Light heading, each
-// preview a small window drawn in that theme's own variables. A click applies and saves the theme at once.
+// The theme picker (UI-11, d0069; *14 · First run & onboarding → 2 · Theme*, *15 · Settings → Appearance*), shared
+// by onboarding (T-0233) and Settings (T-0234): the mode (Match system, Light, Dark), then the 15 theme cards under a
+// Dark and a Light heading, each preview a small window drawn in that theme's own variables. One card is checked in
+// each heading: the dark and the light theme. A click on a card or a mode applies and saves it at once.
 import { useCallback } from "react";
 
 import type { ActiveTheme } from "../generated/ActiveTheme";
+import type { ThemeMode } from "../generated/ThemeMode";
+import type { ThemeModePick } from "../generated/ThemeModePick";
 import type { ThemeParams } from "../generated/ThemeParams";
 import type { ThemePick } from "../generated/ThemePick";
 import type { ThemePickerCard } from "../generated/ThemePickerCard";
-import type { ThemePickerSection } from "../generated/ThemePickerSection";
+import type { ThemePickerView } from "../generated/ThemePickerView";
 import { useServiceView, type ViewState } from "../service";
 import { request } from "../tauri";
 import { Icon } from "../theme/Icon";
 import { osIsDark } from "../theme/theme";
+import { Segmented } from "./Tabs";
 
-/** Stores `key` as the theme (`theme.pick`) and recolors this page at once; every window follows on the service's
- * `settings_changed`. */
+/** Stores `key` as the light or the dark theme, by its kind (`theme.pick`), and recolors this page at once with the
+ * theme that shows now; every window follows on the service's `settings_changed`. */
 export async function pickTheme(key: string, root: Pick<HTMLElement, "dataset"> = document.documentElement) {
-  root.dataset.theme = key;
   const params: ThemePick = { key };
-  return (await request("theme.pick", params)) as ActiveTheme;
+  const active = (await request("theme.pick", params)) as ActiveTheme;
+  root.dataset.theme = active.key;
+  return active;
 }
 
-/** The picker's sections with the theme in use checked, refetched on every settings change. */
-export function useThemePicker(): ViewState<ThemePickerSection[]> {
+/** Stores the theme mode (`theme.mode`) and recolors this page at once, like [`pickTheme`]. */
+export async function chooseThemeMode(
+  mode: ThemeMode,
+  root: Pick<HTMLElement, "dataset"> = document.documentElement,
+) {
+  const params: ThemeModePick = { mode };
+  const active = (await request("theme.mode", params)) as ActiveTheme;
+  root.dataset.theme = active.key;
+  return active;
+}
+
+/** The picker: the mode chosen, the dark and the light theme checked, refetched on every settings change. */
+export function useThemePicker(): ViewState<ThemePickerView> {
   const load = useCallback(() => {
     const params: ThemeParams = { os_dark: osIsDark() };
-    return request("theme.picker", params) as Promise<ThemePickerSection[]>;
+    return request("theme.picker", params) as Promise<ThemePickerView>;
   }, []);
   return useServiceView(load, ["settings_changed"]);
 }
@@ -95,16 +111,31 @@ function Card({ card, onPick }: { card: ThemePickerCard; onPick: (key: string) =
 }
 
 export interface ThemePickerProps {
-  sections: readonly ThemePickerSection[];
+  view: ThemePickerView;
   onPick: (key: string) => void;
+  onMode: (mode: ThemeMode) => void;
   /** Under Settings' row "Theme", which draws the line above; a line closes the picker. */
   inRows?: boolean;
 }
 
-export function ThemePicker({ sections, onPick, inRows = false }: ThemePickerProps) {
+export function ThemePicker({ view, onPick, onMode, inRows = false }: ThemePickerProps) {
   return (
     <div className="theme-picker" data-in-rows={inRows || undefined}>
-      {sections.map((section) => (
+      <div className="theme-modes">
+        <Segmented
+          label="Theme mode"
+          options={view.modes.map((m) => m.label)}
+          selected={Math.max(
+            0,
+            view.modes.findIndex((m) => m.selected),
+          )}
+          onSelect={(i) => {
+            const option = view.modes[i];
+            if (option) onMode(option.mode);
+          }}
+        />
+      </div>
+      {view.sections.map((section) => (
         <div key={section.label} className="theme-section" role="radiogroup" aria-label={section.label}>
           <span className="theme-section-label">{section.label}</span>
           {section.rows.map((row, r) => (

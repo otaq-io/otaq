@@ -29,7 +29,6 @@ pub fn field_name(field: Field) -> &'static str {
         Field::Plan => "Plan",
         Field::Priority => "Priority",
         Field::BaseBranch => "Start from and merge into",
-        Field::ExternalId => "External ID",
     }
 }
 

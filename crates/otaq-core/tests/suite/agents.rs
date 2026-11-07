@@ -1,5 +1,5 @@
-//! Agents (T-0405; AGM-01, AGM-03, AGM-05; d0108, d0088): a fresh install's agents, the name rules, one agent per
-//! role (delete and role removal refused, the role moved), delete refused while a stage uses an agent, models from
+//! Agents (T-0405; AGM-01, AGM-03, AGM-05; d0108, d0088): a fresh install's agents, the name rules, the agent Noyan
+//! uses (one app setting: changed, and its agent can't be deleted), delete refused while a stage uses an agent, models from
 //! the tool's list with the tool's own effort, skills, the default model, the flow's names bound to
 //! ids (a rename changes nothing), the holds' store, and the requests (the user's only).
 
@@ -9,7 +9,7 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::agents::store::HoldScope;
 use otaq_core::agents::{
     Agent, AgentFields, AgentHold, AgentModel, Agents, CameFrom, FixedModels, HoldReason, Mark,
-    ModelRef, Role, SessionRole, resolve,
+    ModelRef, SessionRole, resolve,
 };
 use otaq_core::board::Refusal;
 use otaq_core::client::{Client, ClientConfig, ClientError};
@@ -60,40 +60,26 @@ fn refusal<T: std::fmt::Debug>(
     (e.refusal().expect("a refusal"), e.to_string())
 }
 
-/// AGM-02 (fresh install): Otaq's agents file and the default flow's agents, every one on `default`, with their
-/// roles, skills and where they came from; the default model not set until a tool connects.
+/// AGM-02 (fresh install): Otaq's agents file and the default flow's agents, every one on `default`, with where
+/// they came from; Noyan uses the agents file's Noyan; the default model not set until a tool connects.
 #[tokio::test]
 async fn a_fresh_install_has_the_shipped_agents_on_default() {
     let (_f, agents) = world().await;
     let list = agents.list().await.unwrap();
-    let summary: Vec<(&str, Option<Role>, &AgentModel, &CameFrom)> = list
+    let summary: Vec<(&str, &AgentModel, &CameFrom)> = list
         .agents
         .iter()
-        .map(|a| (a.name.as_str(), a.role, &a.model, &a.came_from))
+        .map(|a| (a.name.as_str(), &a.model, &a.came_from))
         .collect();
     assert_eq!(
         summary,
         [
-            (
-                "Noyan",
-                Some(Role::ProjectAgent),
-                &AgentModel::Default,
-                &CameFrom::AgentsFile
-            ),
-            (
-                "Developer",
-                None,
-                &AgentModel::Default,
-                &CameFrom::DefaultPreset
-            ),
-            (
-                "Checker",
-                None,
-                &AgentModel::Default,
-                &CameFrom::DefaultPreset
-            ),
+            ("Noyan", &AgentModel::Default, &CameFrom::AgentsFile),
+            ("Developer", &AgentModel::Default, &CameFrom::DefaultPreset),
+            ("Checker", &AgentModel::Default, &CameFrom::DefaultPreset),
         ]
     );
+    assert_eq!(list.noyan().map(|a| a.name.as_str()), Some("Noyan"));
     assert_eq!(list.default_model, None);
 }
 
@@ -143,53 +129,45 @@ async fn names_are_new_ignoring_case_and_never_skip_or_underscore() {
     assert_eq!(renamed.name, "rust Developer");
 }
 
-/// AGM-01: exactly one agent holds each role: deleting it is refused with AGM-01's text, an edit keeps the role, and
-/// the role moves to another agent in one step (after which the old holder can go).
+/// "Noyan uses" is one app setting: changing it changes the agent the next Noyan conversation starts on (the
+/// agent itself is untouched); the agent Noyan uses can't be deleted ("Noyan uses Noyan. Pick another agent for Noyan
+/// first"), and once Noyan uses another, the old one can go. An unknown agent is refused.
 #[tokio::test]
-async fn one_agent_per_role_and_the_role_moves() {
+async fn noyan_uses_one_agent_and_it_can_be_changed() {
     let (_f, agents) = world().await;
-    let planner = named(&agents, "Noyan").await;
+    let noyan = named(&agents, "Noyan").await;
     assert_eq!(
-        refusal(agents.delete(&planner.id).await),
+        refusal(agents.delete(&noyan.id).await),
         (
             Refusal::AgentInUse,
-            "Noyan has the Noyan role. Give the role to another agent first".into()
+            "Noyan uses Noyan. Pick another agent for Noyan first".into()
         )
     );
-    // An edit can't remove the role.
-    let edited = agents
-        .edit(&planner.id, &fields("Noyan", claude(Some("opus"))))
+    // Editing the agent keeps it Noyan's.
+    agents
+        .edit(&noyan.id, &fields("Noyan", claude(Some("opus"))))
         .await
         .unwrap();
-    assert_eq!(edited.role, Some(Role::ProjectAgent));
+    assert_eq!(
+        agents.list().await.unwrap().noyan_agent,
+        Some(noyan.id.clone())
+    );
 
     let strong = agents
         .add(&fields("Strong", claude(Some("opus"))))
         .await
         .unwrap();
-    let moved = agents
-        .move_role(Role::ProjectAgent, &strong.id)
-        .await
-        .unwrap();
-    assert_eq!(moved.role, Some(Role::ProjectAgent));
-    assert_eq!(named(&agents, "Noyan").await.role, None);
-    let holders: Vec<String> = agents
-        .list()
-        .await
-        .unwrap()
-        .agents
-        .into_iter()
-        .filter(|a| a.role == Some(Role::ProjectAgent))
-        .map(|a| a.name)
-        .collect();
-    assert_eq!(holders, ["Strong"]);
-    // Giving it the role it holds changes nothing.
-    agents
-        .move_role(Role::ProjectAgent, &strong.id)
-        .await
-        .unwrap();
-    agents.delete(&planner.id).await.unwrap();
-    assert!(agents.agent(&planner.id).await.is_err());
+    let list = agents.set_noyan(&strong.id).await.unwrap();
+    assert_eq!(list.noyan().map(|a| a.name.as_str()), Some("Strong"));
+    let store = agents.agent(&strong.id).await.unwrap();
+    assert_eq!(store, strong, "the agent itself is unchanged");
+    assert!(agents.in_use(&strong.id).await.unwrap().noyan);
+    assert!(!agents.in_use(&noyan.id).await.unwrap().noyan);
+    // Setting it again changes nothing.
+    agents.set_noyan(&strong.id).await.unwrap();
+    assert!(agents.set_noyan("nope").await.is_err());
+    agents.delete(&noyan.id).await.unwrap();
+    assert!(agents.agent(&noyan.id).await.is_err());
 }
 
 /// AGM-01: delete is refused while a stage of a project's flow names the agent, naming the stages; with no project
@@ -202,7 +180,7 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
         refusal(agents.delete(&developer.id).await),
         (
             Refusal::AgentInUse,
-            "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Done. Change those stages first."
+            "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Delivery. Change those stages first."
                 .into()
         )
     );
@@ -403,8 +381,8 @@ async fn a_new_project_gets_the_default_flows_agents_it_names() {
     );
 }
 
-/// AGM-01, AGM-13: the test flow's own agents are created by `use_flow_for_tests` ("Added by SHOP's flow"; a role
-/// another agent holds stays with it); an unknown name in a flow is a check error naming the stage.
+/// AGM-01, AGM-13: the test flow's own agents are created by `use_flow_for_tests` ("Added by SHOP's flow"; an old
+/// file's `role:` is ignored, and Noyan keeps using its agent); an unknown name in a flow is a check error naming the stage.
 #[tokio::test]
 async fn a_flow_names_agents_and_an_unknown_one_is_a_check_error() {
     let (f, agents) = world().await;
@@ -721,8 +699,8 @@ async fn ask(client: &Client, method: &str, params: Value) -> Result<Reply, Clie
     client.request(request).await
 }
 
-/// The requests (AGM-04's page): list, add, edit, delete refused with the AGM-01 text, a role moved and the default
-/// model; each change publishes `agents_changed`; an agent's caller is refused every one of them.
+/// The requests (AGM-04's page): list, add, edit, delete refused with the AGM-01 text, the agent Noyan uses changed
+/// and the default model; each change publishes `agents_changed`; an agent's caller is refused every one of them.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_requests_are_the_users() {
     let w = TestService::start().await;
@@ -763,18 +741,15 @@ async fn the_requests_are_the_users() {
     assert_eq!(refused.data.as_ref().unwrap()["refusal"], "agent_in_use");
     assert_eq!(
         refused.message,
-        "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Done. Change those stages first."
+        "Developer is used in shop-web \u{b7} Dev and shop-web \u{b7} Delivery. Change those stages first."
     );
-    let Reply::Agent(holder) = ask(
-        &client,
-        "agents.move_role",
-        json!({"role": "noyan", "agent": strong.id}),
-    )
-    .await
-    .unwrap() else {
-        panic!("agents.move_role")
+    let Reply::Agents(changed) = ask(&client, "agents.noyan", json!({"agent": strong.id}))
+        .await
+        .unwrap()
+    else {
+        panic!("agents.noyan")
     };
-    assert_eq!(holder.role, Some(Role::ProjectAgent));
+    assert_eq!(changed.noyan_agent.as_deref(), Some(strong.id.as_str()));
     let Reply::Agents(list) = ask(
         &client,
         "agents.default_model",
@@ -800,10 +775,7 @@ async fn the_requests_are_the_users() {
             json!({"name": "X", "model": {"kind": "default"}}),
         ),
         ("agents.delete", json!({"id": strong.id})),
-        (
-            "agents.move_role",
-            json!({"role": "noyan", "agent": strong.id}),
-        ),
+        ("agents.noyan", json!({"agent": strong.id})),
         ("agents.default_model", json!({"model": {"tool": tool}})),
     ] {
         let mut request = json!({"method": method});

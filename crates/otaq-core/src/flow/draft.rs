@@ -249,7 +249,7 @@ fn marks_between(
             stage: change.stage,
             mark,
             by: by.to_owned(),
-            why: stage.and_then(|s| s.why.clone()),
+            why: stage.and_then(|s| s.description.clone()),
         });
     }
     marks
@@ -729,7 +729,7 @@ mod tests {
         now.flow.stages[2].agent = Some("Rust developer".into());
         let ids =
             |f: &FlowFile| -> Vec<String> { f.flow.stages.iter().map(|s| s.id.clone()).collect() };
-        assert_eq!(ids(&now), ["plan", "validate", "dev", "deliver"]);
+        assert_eq!(ids(&now), ["plan", "validate", "dev"]);
         let marks = marks_between(&before, &now, "Checkout slowness", &[], None);
         let tags: Vec<(&str, Mark)> = marks
             .iter()
@@ -746,14 +746,11 @@ mod tests {
         assert!(marks.iter().all(|m| m.by == "Checkout slowness"));
 
         let without_plan = undo_stage(&before, &now, "plan");
-        assert_eq!(ids(&without_plan), ["validate", "dev", "deliver"]);
+        assert_eq!(ids(&without_plan), ["validate", "dev"]);
         let review_back = undo_stage(&before, &now, "review");
-        assert_eq!(
-            ids(&review_back),
-            ["plan", "validate", "review", "dev", "deliver"]
-        );
+        assert_eq!(ids(&review_back), ["plan", "validate", "review", "dev"]);
         let dev_back = undo_stage(&before, &now, "dev");
-        assert_eq!(ids(&dev_back), ["dev", "plan", "validate", "deliver"]);
+        assert_eq!(ids(&dev_back), ["dev", "plan", "validate"]);
         assert_eq!(dev_back.flow.stage("dev"), before.flow.stage("dev"));
     }
 

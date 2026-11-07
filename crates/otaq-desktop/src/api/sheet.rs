@@ -2098,7 +2098,6 @@ mod tests {
                 stage_id: "validate".into(),
                 stage: "Validate".into(),
                 kind: PathKind::AgentCheck,
-                shown_in: None,
                 rounds: Some(1),
                 delivery: None,
                 agent: None,
@@ -2270,6 +2269,7 @@ mod tests {
             recommended: Some(1),
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         let answer = view.answer.unwrap();
@@ -2661,7 +2661,6 @@ mod tests {
                 plan: String::new(),
                 priority: None,
                 base_branch: None,
-                external_id: None,
                 first_comment: None,
             }))
             .await

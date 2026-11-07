@@ -38,7 +38,7 @@ use std::collections::{BTreeMap, HashSet};
 use serde::{Deserialize, Serialize};
 
 use super::draft::DraftMemory;
-use super::model::{Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
+use super::model::{Delivery, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use super::yaml;
 use crate::agent_tools::Tool;
 use crate::agents::in_use::StageUse;
@@ -288,6 +288,11 @@ pub enum Change {
         from: String,
         to: String,
     },
+    /// What the stage is for: every agent reads it in `prime`, so a new one is a change, applying at once.
+    Description {
+        from: Option<String>,
+        to: Option<String>,
+    },
 }
 
 impl Change {
@@ -437,8 +442,8 @@ pub struct Proposal {
     pub yaml: String,
     pub problems: Vec<ProposalProblem>,
     pub diff: FlowDiff,
-    /// The document's why lines (its `why:`s, FLW-04), stages in order, then agents: each names where the stage or
-    /// agent came from. Not a change: a document that differs only in them is the same flow.
+    /// The document's why lines, stages in order, then agents: each stage's description, then each agent's `why:`
+    /// (FLW-04: where it came from). An agent's is not a change; a stage's description is ([`Change::Description`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub why: Vec<WhyLine>,
     pub created_at: i64,
@@ -454,7 +459,7 @@ pub struct WhyLine {
 /// The why lines of `file`: its stages' (in order), then its agents'.
 pub fn why_lines(file: &FlowFile) -> Vec<WhyLine> {
     let stages = file.flow.stages.iter().filter_map(|s| {
-        s.why.as_ref().map(|text| WhyLine {
+        s.description.as_ref().map(|text| WhyLine {
             about: About::Stage {
                 id: s.id.clone(),
                 name: s.name.clone(),
@@ -571,7 +576,7 @@ fn assign_ids(base: &Flow, proposed: &mut Flow, written: &[bool]) {
     }
 }
 
-/// A stage's kind in the flow editor's words: "agent stage", "agent check", "your check", "Delivery".
+/// A stage's kind in the flow editor's words: "agent stage", "agent check", "your check".
 pub fn kind_word(kind: StageKind) -> &'static str {
     match kind {
         StageKind::Agent => "agent stage",
@@ -581,7 +586,6 @@ pub fn kind_word(kind: StageKind) -> &'static str {
         StageKind::Check {
             by: super::CheckBy::You,
         } => "your check",
-        StageKind::Delivery => "Delivery",
     }
 }
 
@@ -765,45 +769,82 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
                 },
             );
         }
-        if old.column != stage.column {
+        if old.description != stage.description {
             push(
                 stage,
-                Change::Column {
-                    from: old.column.as_str().to_owned(),
-                    to: stage.column.as_str().to_owned(),
+                Change::Description {
+                    from: old.description.clone(),
+                    to: stage.description.clone(),
                 },
             );
-        }
-        if let (Some(was), Some(now)) = (old.delivery, stage.delivery) {
-            if was.mode != now.mode {
-                push(
-                    stage,
-                    Change::Mode {
-                        from: was.mode.as_str().to_owned(),
-                        to: now.mode.as_str().to_owned(),
-                    },
-                );
-            }
-            if was.delivers != now.delivers {
-                push(
-                    stage,
-                    Change::Delivers {
-                        from: was.delivers.as_str().to_owned(),
-                        to: now.delivers.as_str().to_owned(),
-                    },
-                );
-            }
         }
     }
     for old in base.stages.iter().filter(|s| new.stage(&s.id).is_none()) {
         push(old, Change::Removed);
     }
+    changes.extend(delivery_changes(&base.delivery, &new.delivery, waiting));
     changes
+}
+
+/// The delivery's line in the stage changes: its id and name ([`crate::agents::facts::DELIVERY_STEP_ID`]).
+const DELIVERY_ID: &str = crate::agents::facts::DELIVERY_STEP_ID;
+const DELIVERY_NAME: &str = crate::agents::facts::DELIVERY_STEP;
+
+/// What changed in the flow's delivery (`delivery:`): what it delivers, its mode, the agent that opens the PR and its
+/// skill, as the stage changes list them under "Delivery". They apply at once: a ticket reads the delivery when it
+/// passes its last stage (unless a change already waits, `waiting`).
+fn delivery_changes(was: &Delivery, now: &Delivery, waiting: bool) -> Vec<StageChange> {
+    let mut found = Vec::new();
+    if was.delivers != now.delivers {
+        found.push(Change::Delivers {
+            from: was.delivers.as_str().to_owned(),
+            to: now.delivers.as_str().to_owned(),
+        });
+    }
+    if was.mode != now.mode {
+        found.push(Change::Mode {
+            from: was.mode.as_str().to_owned(),
+            to: now.mode.as_str().to_owned(),
+        });
+    }
+    if was.agent != now.agent {
+        found.push(Change::Agent {
+            from: was.agent.clone(),
+            to: now.agent.clone(),
+        });
+    }
+    if was.skill != now.skill {
+        found.push(Change::Skill {
+            from: was.skill.clone(),
+            to: now.skill.clone(),
+        });
+    }
+    found
+        .into_iter()
+        .map(|change| {
+            let (text, label) = describe_named(DELIVERY_NAME, StageKind::Agent, &change);
+            StageChange {
+                stage_id: DELIVERY_ID.to_owned(),
+                stage: DELIVERY_NAME.to_owned(),
+                change,
+                text,
+                label,
+                applies: match waiting {
+                    true => Applies::QuietBoard,
+                    false => Applies::AtOnce,
+                },
+            }
+        })
+        .collect()
 }
 
 /// The flow editor's line and the banner's label for one change.
 fn describe(stage: &Stage, change: &Change) -> (String, String) {
-    let name = &stage.name;
+    describe_named(&stage.name, stage.kind, change)
+}
+
+/// [`describe`] by the stage's name and kind.
+fn describe_named(name: &str, kind: StageKind, change: &Change) -> (String, String) {
     let detail = |field: &str, from: String, to: String| {
         format!("{name} \u{b7} {field}: {from} \u{2192} {to}")
     };
@@ -814,7 +855,7 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
                 None => "first".to_owned(),
             };
             (
-                format!("stage {name} ({}) {place}", kind_word(stage.kind)),
+                format!("stage {name} ({}) {place}", kind_word(kind)),
                 format!("{name} {place}"),
             )
         }
@@ -891,6 +932,15 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
             let text = detail(field, from.clone(), to.clone());
             (text.clone(), text)
         }
+        // The text itself can be long: the change only says what happened to it.
+        Change::Description { from, to } => {
+            let text = match (from, to) {
+                (None, _) => format!("{name} \u{b7} description added"),
+                (_, None) => format!("{name} \u{b7} description removed"),
+                _ => format!("{name} \u{b7} description changed"),
+            };
+            (text.clone(), text)
+        }
     }
 }
 
@@ -915,18 +965,16 @@ pub fn applied_now(base: &Flow, new: &Flow) -> Flow {
 }
 
 /// `base` with `new`'s edits (FLW-05): each stage `new` keeps with the same kind takes its new fields (name, agent,
-/// skill, options, rounds, column, mode, target); stages stay where they are, none is added or removed. What a swap
-/// to another flow applies now while the rest waits for a quiet board (FED-08).
+/// skill, options, rounds, description), and the delivery is `new`'s; stages stay where they are, none is added or
+/// removed. What a swap to another flow applies now while the rest waits for a quiet board (FED-08).
 pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
     Flow {
+        delivery: new.delivery.clone(),
         stages: base
             .stages
             .iter()
             .map(|old| match new.stage(&old.id) {
-                Some(now) if now.kind == old.kind => Stage {
-                    why: old.why.clone(),
-                    ..now.clone()
-                },
+                Some(now) if now.kind == old.kind => now.clone(),
                 _ => old.clone(),
             })
             .collect(),
@@ -972,8 +1020,20 @@ impl Board {
             model.on(default.as_ref()).map(|on| on.tool)
         };
         let mut out = Vec::new();
-        for stage in &file.flow.stages {
-            let Some(skill) = stage.skill.as_deref().map(str::trim) else {
+        // Every stage's skill, and the delivery's PR skill.
+        let delivery = &file.flow.delivery;
+        let uses = file
+            .flow
+            .stages
+            .iter()
+            .map(|s| (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()))
+            .chain(std::iter::once((
+                DELIVERY_NAME,
+                delivery.agent.as_deref(),
+                delivery.skill.as_deref(),
+            )));
+        for (name, agent, skill) in uses {
+            let Some(skill) = skill.map(str::trim) else {
                 continue;
             };
             if skill.is_empty() {
@@ -987,14 +1047,14 @@ impl Board {
             let text = if tools.is_empty() {
                 unknown_skill_text(skill)
             } else {
-                match stage.agent.as_deref().and_then(tool_of) {
+                match agent.and_then(tool_of) {
                     Some(tool) if !tools.contains(&tool) => missing_skill_text(tool, skill),
                     _ => continue,
                 }
             };
             out.push(Warning {
                 level: Level::Amber,
-                stage: Some(stage.name.clone()),
+                stage: Some(name.to_owned()),
                 text,
             });
         }
@@ -1002,49 +1062,44 @@ impl Board {
     }
 }
 
-/// The warnings on a flow (FLW-04): an automatic Delivery acts without asking (amber), or with no check before it
+/// The warnings on a flow (FLW-04): an automatic delivery acts without asking (amber), or with no check before it
 /// (red). `branch` is what a Local merge merges into, `provider` where a PR opens ("GitHub").
 pub fn warnings(flow: &Flow, branch: &str, provider: Option<&str>) -> Vec<Warning> {
-    let mut warnings = Vec::new();
-    for (i, stage) in flow.stages.iter().enumerate() {
-        let Some(delivery) = stage.delivery else {
-            continue;
-        };
-        if delivery.mode != super::DeliveryMode::Automatic {
-            continue;
-        }
-        let what = match delivery.delivers {
-            super::Delivers::Local => format!("merges into {branch}"),
-            super::Delivers::Pr | super::Delivers::Either => match provider {
-                Some(provider) => format!("opens a PR on {provider}"),
-                None => "opens a PR".to_owned(),
-            },
-        };
-        let checked = flow.stages[..i]
-            .iter()
-            .any(|s| matches!(s.kind, StageKind::Check { .. }));
-        warnings.push(if checked {
-            Warning {
-                level: Level::Amber,
-                stage: Some(stage.name.clone()),
-                text: format!("{} {what} without asking you.", stage.name),
-            }
-        } else {
-            Warning {
-                level: Level::Red,
-                stage: Some(stage.name.clone()),
-                text: format!("{} {what} without any check before it.", stage.name),
-            }
-        });
+    let delivery = &flow.delivery;
+    if delivery.mode != super::DeliveryMode::Automatic {
+        return Vec::new();
     }
-    warnings
+    let what = match delivery.delivers {
+        super::Delivers::Local => format!("merges into {branch}"),
+        super::Delivers::Pr | super::Delivers::Either => match provider {
+            Some(provider) => format!("opens a PR on {provider}"),
+            None => "opens a PR".to_owned(),
+        },
+    };
+    let checked = flow
+        .stages
+        .iter()
+        .any(|s| matches!(s.kind, StageKind::Check { .. }));
+    let name = DELIVERY_NAME;
+    vec![if checked {
+        Warning {
+            level: Level::Amber,
+            stage: Some(name.to_owned()),
+            text: format!("{name} {what} without asking you."),
+        }
+    } else {
+        Warning {
+            level: Level::Red,
+            stage: Some(name.to_owned()),
+            text: format!("{name} {what} without any check before it."),
+        }
+    }]
 }
 
 /// A stored agent as a flow file writes it: its model as `default`, `<tool>` or `<tool>:<model>`.
 pub fn flow_agent_of(agent: &Agent) -> FlowAgent {
     FlowAgent {
         name: agent.name.clone(),
-        role: agent.role.map(|r| r.as_str().to_owned()),
         instructions: agent.instructions.clone(),
         model: model_text(&agent.model),
         why: None,
@@ -1601,7 +1656,15 @@ fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::default_flow;
+
+    /// The shipped default flow without its stages' descriptions, as the documents these tests write have none.
+    fn default_flow() -> Flow {
+        let mut flow = crate::flow::default_flow();
+        for stage in &mut flow.stages {
+            stage.description = None;
+        }
+        flow
+    }
 
     fn names(flow: &Flow) -> Vec<(&str, &str)> {
         flow.stages
@@ -1647,12 +1710,7 @@ mod tests {
         let new = read(DEFAULT_RENAMED, &base);
         assert_eq!(
             names(&new),
-            [
-                ("dev", "Dev"),
-                ("validate", "Validate"),
-                ("review", "QA"),
-                ("deliver", "Done")
-            ]
+            [("dev", "Dev"), ("validate", "Validate"), ("review", "QA"),]
         );
         let changes = stage_changes(&base, &new, false);
         assert_eq!(changes.len(), 1, "{changes:?}");
@@ -1718,12 +1776,13 @@ mod tests {
              name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n",
             &base,
         );
-        assert_eq!(names(&new), [("build", "Dev"), ("deliver", "Done")]);
+        assert_eq!(names(&new), [("build", "Dev")]);
     }
 
-    /// FLW-04's why lines: read, written back, and never a change.
+    /// A stage's description, from an older file's `why:`: read, written back as `description:`, and a change that
+    /// applies at once (every agent reads it).
     #[test]
-    fn why_lines_round_trip_and_change_nothing() {
+    fn a_description_round_trips_and_applies_at_once() {
         let base = default_flow();
         let text = DEFAULT_RENAMED.replace(
             "  - name: QA\n",
@@ -1733,16 +1792,27 @@ mod tests {
         let mut flow = file.flow.clone();
         match_ids(&base, &mut flow, &written);
         assert_eq!(
-            flow.stage("review").unwrap().why.as_deref(),
+            flow.stage("review").unwrap().description.as_deref(),
             Some("Your PRs on GitHub always get one review before merging (gh)")
         );
-        assert!(stage_changes(&base, &flow, false).is_empty());
-        assert_eq!(applied_now(&base, &flow), base);
+        let changes = stage_changes(&base, &flow, false);
+        let labels: Vec<(&str, &Applies)> = changes
+            .iter()
+            .map(|c| (c.label.as_str(), &c.applies))
+            .collect();
+        assert_eq!(
+            labels,
+            [("Review \u{b7} description added", &Applies::AtOnce)]
+        );
+        assert_eq!(applied_now(&base, &flow), flow);
         let again = FlowFile {
             agents: Vec::new(),
             flow,
         };
-        assert_eq!(yaml::read(&yaml::write(&again)).unwrap(), again);
+        let written = yaml::write(&again);
+        assert!(written.contains("    description: "), "{written}");
+        assert!(!written.contains("why:"), "{written}");
+        assert_eq!(yaml::read(&written).unwrap(), again);
         let lines = why_lines(&again);
         assert_eq!(lines.len(), 1);
         assert_eq!(
@@ -1881,28 +1951,26 @@ mod tests {
     #[test]
     fn warnings_for_automatic_delivery() {
         let mut flow = default_flow();
-        for stage in &mut flow.stages {
-            if stage.is_delivery() {
-                stage.agent = None;
-                stage.delivery = Some(crate::flow::Delivery {
-                    mode: crate::flow::DeliveryMode::Automatic,
-                    delivers: crate::flow::Delivers::Local,
-                });
-            }
-        }
+        assert_eq!(warnings(&flow, "main", None), [], "on your click");
+        flow.delivery = crate::flow::Delivery {
+            mode: crate::flow::DeliveryMode::Automatic,
+            delivers: crate::flow::Delivers::Local,
+            agent: None,
+            skill: None,
+        };
         assert_eq!(
             warnings(&flow, "main", None),
             [Warning {
                 level: Level::Amber,
-                stage: Some("Done".into()),
-                text: "Done merges into main without asking you.".into()
+                stage: Some("Delivery".into()),
+                text: "Delivery merges into main without asking you.".into()
             }]
         );
         flow.stages
             .retain(|s| !matches!(s.kind, StageKind::Check { .. }));
         assert_eq!(
             warnings(&flow, "main", Some("GitHub"))[0].text,
-            "Done merges into main without any check before it."
+            "Delivery merges into main without any check before it."
         );
     }
 }

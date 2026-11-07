@@ -4,7 +4,7 @@
 // Review, d0125; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the PLAN under it (`PlanSection`, d0133) and at a check of planning WHAT PLANNING DID (`PlanningDid`, d0129), the agent's recorded decisions, the
-// DEPENDENCIES with Blocked by and Blocks (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, STAGES (the
+// DEPENDENCIES with Waits for and the read-only Waiting for it (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, STAGES (the
 // ticket's choices and path, `ChoicesAndPath`, `sheet.view`'s words), then the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker, several files), files dropped anywhere on Overview, or files pasted outside a

@@ -9,7 +9,7 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::flow::apply::WaitingChange;
 use otaq_core::flow::check::DEFAULT_VALIDATION_ROUNDS;
 use otaq_core::flow::model::{
-    CheckBy, Column, Delivers, DeliveryMode, Flow, FlowFile, Stage, StageKind, StageOption,
+    CheckBy, Delivers, Delivery, FlowFile, Stage, StageKind, StageOption,
 };
 use otaq_core::flow::presets::{Preset, presets};
 use otaq_core::flow::store::{AppliedBy, FlowVersion};
@@ -227,16 +227,16 @@ pub fn waiting_line(waiting: &WaitingChange) -> WaitingLine {
     }
 }
 
-/// The table's rows, one per stage in order.
+/// The table's rows, one per stage in order, then the flow's delivery (a setting of the flow, not a stage).
 pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<StageRow> {
     let flow = &file.flow;
-    flow.stages
+    let model_of = |name: &str| {
+        find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
+    };
+    let mut rows: Vec<StageRow> = flow
+        .stages
         .iter()
-        .enumerate()
-        .map(|(i, stage)| {
-            let model_of = |name: &str| {
-                find(agents, name).map(|a| list_model(a, tools, agents.default_model.as_ref()))
-            };
+        .map(|stage| {
             let (agent, model) = match (stage.kind, stage.named_agents().next()) {
                 (StageKind::Check { by: CheckBy::You }, _) => ("You".to_owned(), None),
                 (_, Some(name)) => (stage.agents_line(), model_of(name)),
@@ -245,13 +245,36 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
             StageRow {
                 icon: stage_icon(stage),
                 name: stage.name.clone(),
-                kind: kind_line(flow, i),
+                kind: kind_line(stage),
                 agent,
                 model,
                 options: options(stage),
             }
         })
-        .collect()
+        .collect();
+    let delivery = &flow.delivery;
+    // A Local merge runs no agent.
+    let opener = delivery.agent.as_deref().filter(|_| delivery.can_open_pr());
+    rows.push(StageRow {
+        icon: delivery_icon(&flow.delivery),
+        name: DELIVERY.to_owned(),
+        kind: delivery.line(),
+        agent: opener.map_or_else(|| NONE.to_owned(), str::to_owned),
+        model: opener.and_then(model_of),
+        options: NONE.to_owned(),
+    });
+    rows
+}
+
+/// The delivery row's name in the table.
+pub const DELIVERY: &str = "Delivery";
+
+/// The delivery's icon: a PR, or a merge.
+pub fn delivery_icon(delivery: &Delivery) -> IconName {
+    match delivery.delivers {
+        Delivers::Pr => IconName::GitPullRequest,
+        _ => IconName::GitMerge,
+    }
 }
 
 const NONE: &str = "\u{2014}";
@@ -263,25 +286,18 @@ fn find<'a>(agents: &'a AgentList, name: &str) -> Option<&'a Agent> {
         .find(|a| a.name.eq_ignore_ascii_case(name))
 }
 
-/// A stage's icon, as its column's (`board.rs`'s `column_look` on a quiet board): a bot, a shield, a person, a merge
-/// or a PR.
+/// A stage's icon, as its column's (`board.rs`'s `column_look` on a quiet board): a bot, a shield or a person.
 pub fn stage_icon(stage: &Stage) -> IconName {
     match stage.kind {
         StageKind::Agent => IconName::Bot,
         StageKind::Check { by: CheckBy::Agent } => IconName::ShieldCheck,
         StageKind::Check { by: CheckBy::You } => IconName::UserCheck,
-        StageKind::Delivery => match stage.delivery.map(|d| d.delivers) {
-            Some(Delivers::Pr) => IconName::GitPullRequest,
-            _ => IconName::GitMerge,
-        },
     }
 }
 
-/// "Agent", "Check · agent · 3 rounds · shown in Dev", "Check · you", "Delivery · PR · automatic", "Delivery · click ·
-/// shown in Review".
-pub fn kind_line(flow: &Flow, index: usize) -> String {
-    let stage = &flow.stages[index];
-    let mut parts: Vec<String> = match stage.kind {
+/// "Agent", "Check · agent · 3 rounds", "Check · you".
+pub fn kind_line(stage: &Stage) -> String {
+    let parts: Vec<String> = match stage.kind {
         StageKind::Agent => vec!["Agent".into()],
         StageKind::Check { by } => {
             let mut parts = vec!["Check".to_owned(), by.as_str().to_owned()];
@@ -295,33 +311,7 @@ pub fn kind_line(flow: &Flow, index: usize) -> String {
             }
             parts
         }
-        StageKind::Delivery => {
-            let mut parts = vec!["Delivery".to_owned()];
-            if let Some(d) = stage.delivery {
-                match d.delivers {
-                    Delivers::Local => parts.push("Local merge".into()),
-                    Delivers::Pr => parts.push("PR".into()),
-                    Delivers::Either => {}
-                }
-                parts.push(
-                    match d.mode {
-                        DeliveryMode::Click => "click",
-                        DeliveryMode::Automatic => "automatic",
-                    }
-                    .into(),
-                );
-            }
-            parts
-        }
     };
-    if stage.column == Column::WithPrevious
-        && let Some(owner) = flow
-            .column_owner(index)
-            .and_then(|i| flow.stages.get(i))
-            .filter(|o| o.id != stage.id)
-    {
-        parts.push(format!("shown in {}", owner.name));
-    }
     parts.join(" \u{b7} ")
 }
 
@@ -351,7 +341,7 @@ pub struct PresetColumn {
 #[ts(rename = "PresetCard")]
 pub struct PresetCard {
     pub name: String,
-    /// "Done · click", "Done · Local merge, automatic".
+    /// "Local merge or PR · click", "Local merge · automatic".
     pub delivers: String,
     pub line: String,
     pub columns: Vec<PresetColumn>,
@@ -378,27 +368,20 @@ pub fn preset_dialog(project: &ProjectInfo) -> PresetDialog {
     }
 }
 
-/// A preset's card: the diagram is Ready for Dev, each stage with its own column but the Delivery, and Done
-/// ([`Preset::columns`]), with the stages' icons.
+/// A preset's card: the diagram is Ready for Dev, every stage, and Done ([`Preset::columns`]), with the stages' icons;
+/// Done's is how the flow delivers.
 pub fn preset_card(preset: &Preset) -> PresetCard {
     let file = preset.read();
-    let stages = &file.flow.stages;
-    let delivery = stages.iter().find(|s| s.is_delivery());
     let mut columns = vec![PresetColumn {
         icon: IconName::Hourglass,
         label: "Ready for Dev".to_owned(),
     }];
-    columns.extend(
-        stages
-            .iter()
-            .filter(|s| s.column == Column::Own && !s.is_delivery())
-            .map(|s| PresetColumn {
-                icon: stage_icon(s),
-                label: s.name.clone(),
-            }),
-    );
+    columns.extend(file.flow.stages.iter().map(|s| PresetColumn {
+        icon: stage_icon(s),
+        label: s.name.clone(),
+    }));
     columns.push(PresetColumn {
-        icon: delivery.map_or(IconName::GitMerge, stage_icon),
+        icon: delivery_icon(&file.flow.delivery),
         label: "Done".to_owned(),
     });
     PresetCard {
@@ -545,6 +528,7 @@ mod tests {
                 on(Tool::Claude, "opus", "Security reviewer"),
                 on(Tool::Claude, "haiku", "Shipper"),
             ],
+            noyan_agent: None,
             default_model: Some(ModelRef {
                 tool: Tool::Claude,
                 model: Some("sonnet".into()),
@@ -633,7 +617,7 @@ mod tests {
                 ),
                 (
                     "Validate",
-                    "Check \u{b7} agent \u{b7} 3 rounds \u{b7} shown in Dev",
+                    "Check \u{b7} agent \u{b7} 3 rounds",
                     "Validator",
                     Some("Codex \u{b7} gpt-5.5"),
                     "\u{2014}"
@@ -647,8 +631,8 @@ mod tests {
                 ),
                 ("QA", "Check \u{b7} you", "You", None, "skip"),
                 (
-                    "Done",
-                    "Delivery \u{b7} PR \u{b7} automatic",
+                    "Delivery",
+                    "PR \u{b7} automatic",
                     "Shipper",
                     Some("Claude Code \u{b7} haiku"),
                     "\u{2014}"
@@ -703,6 +687,7 @@ mod tests {
         };
         let agents = AgentList {
             agents: Vec::new(),
+            noyan_agent: None,
             default_model: None,
         };
         let (tools, project) = (tools(), project());
@@ -727,7 +712,7 @@ mod tests {
                 "Agent",
                 "Check \u{b7} agent \u{b7} 3 rounds",
                 "Check \u{b7} you",
-                "Delivery \u{b7} click \u{b7} shown in Review"
+                "Local merge or PR \u{b7} click"
             ]
         );
         assert_eq!(s.rows[0].model, None, "an agent the list doesn't have");
@@ -777,25 +762,25 @@ mod tests {
             [
                 (
                     default.as_str(),
-                    "Done \u{b7} click",
+                    "Local merge or PR \u{b7} click",
                     "Today\u{2019}s board",
                     DEFAULT_FLOW_FILE
                 ),
                 (
                     "Solo autopilot",
-                    "Done \u{b7} Local merge, automatic",
+                    "Local merge \u{b7} automatic",
                     "Solo projects that trust the checks",
                     "solo-autopilot.yaml"
                 ),
                 (
                     "Spec first",
-                    "Done \u{b7} click",
+                    "Local merge or PR \u{b7} click",
                     "Plan on the board, then build",
                     "spec-first.yaml"
                 ),
                 (
                     "Team PR",
-                    "Done \u{b7} PR, automatic",
+                    "PR \u{b7} automatic",
                     "Teams that review on GitHub or GitLab: the PR is the review",
                     "team-pr.yaml"
                 ),

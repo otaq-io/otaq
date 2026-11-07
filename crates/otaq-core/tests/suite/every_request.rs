@@ -75,8 +75,7 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agents.add" || method == "agents.edit" {
             params["model"] = json!({"kind": "default"});
         }
-        if method == "agents.move_role" {
-            params["role"] = json!("noyan");
+        if method == "agents.noyan" {
             params["agent"] = json!("nope");
         }
         if method == "agents.default_model" {
@@ -116,6 +115,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "ticket.manual_check_tick" {
             params["n"] = json!(1);
             params["ticked"] = json!(true);
+        }
+        if method == "hints.dismiss" {
+            params["hint"] = json!("gallery_sample");
         }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
@@ -174,6 +176,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AppFirstHideShown
         | Request::UpdatePrefs
         | Request::UpdateSetPrefs(_)
+        | Request::HintsSeen
+        | Request::HintDismiss(_)
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)
@@ -377,7 +381,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::AgentsMoveRole(_)
+        | Request::AgentsNoyan(_)
         | Request::AgentsDefaultModel(_)
         | Request::AgentsReads(_)
         | Request::AgentsPause(_)

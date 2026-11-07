@@ -330,6 +330,16 @@ pub(super) async fn handle(
                 crate::updates::change(shared.board.store(), &change).await?,
             ))
         }),
+        // One-time hints: shown until dismissed, then never again for this data folder.
+        Request::HintsSeen => {
+            boxed(
+                move || async move { Ok(Reply::HintsSeen(shared.board.store().hints_seen().await?)) },
+            )
+        }
+        Request::HintDismiss(p) => boxed(move || async move {
+            shared.board.store().see_hint(p.hint).await?;
+            Ok(Reply::Ok)
+        }),
         // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
         Request::AgentsPause(scope) => boxed(move || async move {
             let counts = shared.pause.pause(&scope).await?;
@@ -1256,6 +1266,15 @@ pub(super) async fn handle(
         }),
         Request::NeedsYouAnswer(p) => boxed(move || async move {
             let project = project_of(&p.key);
+            if p.choice == crate::board::questions::Choice::SendBack {
+                return mutate(
+                    shared,
+                    &project,
+                    Box::pin(send_back_on_request(shared, &p.key, p.clear, &actor)),
+                )
+                .await
+                .map(Reply::Delivery);
+            }
             mutate(
                 shared,
                 &project,
@@ -1676,7 +1695,7 @@ pub(super) async fn handle(
         | Request::AgentsDuplicate(_)
         | Request::AgentsDelete(_)
         | Request::AgentsInUse(_)
-        | Request::AgentsMoveRole(_)
+        | Request::AgentsNoyan(_)
         | Request::AgentsDefaultModel(_)
         | Request::AgentsReads(_)
         | Request::HelperStart(_)
@@ -1770,6 +1789,20 @@ async fn ask_human(
     }
     validate_options(&p.options, p.recommended)?;
     crate::board::questions::validate_notes(&p.options, &p.notes)?;
+    if p.send_back.is_some() {
+        if !p.options.is_empty() || p.recommended.is_some() {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "A send-back question takes no --option: its two ways out are Send back and Answer here",
+            ));
+        }
+        if matches!(caller, Caller::Helper { .. }) {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "Only the ticket's own agent asks to send it back: tell the agent in charge instead",
+            ));
+        }
+    }
     // A helper's question goes to the agent in charge first (d0133 audit 3); its turn's Stop isn't Idle.
     if let Caller::Helper { session, .. } = caller {
         let reply = shared
@@ -1792,9 +1825,20 @@ async fn ask_human(
             .await
             .map(|t| Reply::Ticket(Box::new(t)));
     }
-    board
-        .store_question(&ticket.id, &p.question, &p.options, &p.notes, p.recommended)
-        .await?;
+    // A send-back question names an earlier stage the ticket is past; only the user's answer moves it back.
+    match &p.send_back {
+        Some(stage) => {
+            let to = board.send_back_target(&ticket, stage).await?;
+            board
+                .store_send_back_question(&ticket.id, &p.question, &to)
+                .await?;
+        }
+        None => {
+            board
+                .store_question(&ticket.id, &p.question, &p.options, &p.notes, p.recommended)
+                .await?;
+        }
+    }
     shared
         .signals
         .ask_human(caller, &ticket.id, p.question.trim())
@@ -1803,6 +1847,108 @@ async fn ask_human(
         .ticket_by_id(&ticket.id)
         .await
         .map(|t| Reply::Ticket(Box::new(t)))
+}
+
+/// The user's Send back on an agent's send-back question ([`crate::board::send_back_question`]): the skip on the
+/// named stage is cleared, then the ticket goes back there as the user's own drag would take it (the asking agent's
+/// session stops, its conversation kept for when the ticket returns to its stage; the stage sent back to resumes its
+/// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the user's
+/// comment. The question closes with the answer, and History's row names the stage that asked and its reason.
+async fn send_back_on_request(
+    shared: &Shared,
+    key: &str,
+    clear: bool,
+    actor: &Actor,
+) -> Result<crate::session::deliveries::Delivery, BoardError> {
+    use crate::board::moves::{DropOn, MoveCheck};
+    use crate::board::questions::{AnsweredVia, Choice, format_answer};
+    use crate::review::ReturnOutcome;
+    use crate::session::deliveries::Delivery;
+    let board = &shared.board;
+    let ticket = board.ticket(key).await?;
+    let not_asked = || {
+        BoardError::refused(
+            Refusal::BadQuestion,
+            format!("{}'s agent didn't ask to send it back", ticket.key),
+        )
+    };
+    let question = board
+        .open_user_question(&ticket.id)
+        .await?
+        .ok_or_else(not_asked)?;
+    let to = question.send_back.clone().ok_or_else(not_asked)?;
+    let target = DropOn::stage(&to.stage_id);
+    // A refused move changes nothing: the skip stays until the ticket can go back.
+    if let MoveCheck::Refused { reason } = board.check_drag(&ticket, &target).await? {
+        return Err(BoardError::refused(Refusal::MoveRefused, reason));
+    }
+    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let asked_by = ticket
+        .place
+        .stage()
+        .and_then(|id| flow.stage(id))
+        .map(|s| s.name.clone());
+    let cleared = board.clear_skip(&ticket, &to.stage_id).await?;
+    let skip_cleared = cleared.is_some();
+    let reason = question.text.trim();
+    let note = match &asked_by {
+        Some(by) => format!(
+            "{by} asked to send {} back to {}: {reason}",
+            ticket.key, to.stage
+        ),
+        None => format!("Sent back to {}: {reason}", to.stage),
+    };
+    let asked =
+        crate::board::send_back_question::asked_payload(asked_by.as_deref(), reason, skip_cleared);
+    let answers = crate::review::drag::DragAnswers {
+        note: &note,
+        attachments: &[],
+        confirmed: true,
+        clear_first: clear,
+    };
+    let outcome = shared
+        .review
+        .drag_asked(
+            key,
+            &target,
+            answers,
+            Some(&asked),
+            &shared.validation,
+            actor,
+        )
+        .await;
+    let undo = || async {
+        if let Some(skip) = &cleared {
+            board.restore_skip(skip).await;
+        }
+    };
+    match outcome {
+        Ok(ReturnOutcome::Done { .. }) => {
+            board
+                .close_question(
+                    &question.id,
+                    Some(&format_answer(&question, &Choice::SendBack)),
+                    AnsweredVia::Box,
+                )
+                .await?;
+            publish_ticket_changed(shared, &ticket.key).await;
+            Ok(Delivery::Sent { count: 1 })
+        }
+        Ok(ReturnOutcome::NeedsConfirmation {
+            ticket: asked_ticket,
+            unclearable_by,
+        }) => {
+            undo().await;
+            Ok(Delivery::NeedsConfirmation {
+                ticket: Some(asked_ticket),
+                unclearable_by,
+            })
+        }
+        Err(e) => {
+            undo().await;
+            Err(e)
+        }
+    }
 }
 
 /// `otaq decision record` (DEC-02, d0084): stores the decision and its History line. The ticket's state doesn't
@@ -1922,7 +2068,7 @@ async fn terminal(
 
 /// `--stage <name>` on `otaq show --terminal` and `otaq attach` (FLW-20, d0108): the stage `name` names in the
 /// ticket's flow (its id, or its name ignoring case) and the kind of the session its agent runs in: an Agent stage's
-/// or a Delivery's is the ticket's agent session, an agent check's is the check's.
+/// is the ticket's agent session, an agent check's is the check's.
 /// Refused unless the ticket is in that stage; a check by you has no agent.
 pub(super) async fn stage_session(
     board: &Board,
@@ -1961,7 +2107,7 @@ pub(super) async fn stage_session(
             ));
         }
         crate::flow::StageKind::Check { .. } => SessionKind::Validator,
-        crate::flow::StageKind::Agent | crate::flow::StageKind::Delivery => SessionKind::Agent,
+        crate::flow::StageKind::Agent => SessionKind::Agent,
     };
     Ok((kind, stage.clone()))
 }

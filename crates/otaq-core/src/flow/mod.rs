@@ -1,4 +1,5 @@
-//! A project's flow (d0108, SDD §7.6): the stages a ticket walks between Backlog and Done. `model` holds the types,
+//! A project's flow (d0108, SDD §7.6): the stages a ticket walks between Backlog and Done, and its delivery after
+//! the last one. `model` holds the types,
 //! `yaml` reads and writes flow files (STG-01), `check` holds the rules every flow must follow (STG-02), `default`
 //! the shipped default flow (STG-03), `store` each project's applied flow and the ones before it (FLW-01), `engine`
 //! the moves between stages (STG-06), `proposal` a proposed flow checked and compared (FLW-03, FLW-04), `apply` what
@@ -24,7 +25,7 @@ pub mod yaml;
 pub use check::{Problem, Rule, check, check_agents, check_skills};
 pub use default::{default_file, default_flow};
 pub use model::{
-    CheckBy, Column, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
+    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
     StageOption,
 };
 pub use store::{AppliedBy, FlowVersion, NewFlowVersion};

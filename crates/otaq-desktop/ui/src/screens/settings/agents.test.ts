@@ -53,7 +53,6 @@ const MENU = [item("duplicate", "Duplicate"), item("delete", "Delete…", { dang
 const row = (id: string, name: string, over: Partial<AgentListRow> = {}): AgentListRow => ({
   id,
   name,
-  role: null,
   came_from: "Added by you",
   model: "Claude Code · opus",
   used_in: "—",
@@ -95,10 +94,20 @@ const SECTION: AgentsSectionView = {
     description: "A new agent, or one a preset adds, starts with it.",
     dropdown: { value: "Claude Code · haiku", choices: CHOICES, read_only: false },
   },
+  noyan: {
+    label: "Noyan uses",
+    description:
+      "Each new conversation with Noyan starts on this agent. You can pick another when you start one.",
+    value: "Noyan",
+    options: [
+      { id: "noyan", label: "Noyan", selected: true },
+      { id: "validator", label: "Validator", selected: false },
+      { id: "strong", label: "Strong", selected: false },
+    ],
+  },
   columns: ["Name", "Model", "Used in"],
   rows: [
     row("noyan", "Noyan", {
-      role: "Noyan",
       came_from: "From Otaq’s agents file",
       used_in: "every project · Noyan",
     }),
@@ -118,7 +127,7 @@ const CONFIRM: AgentDeleteDialog = {
   kind: "confirm",
   id: "strong",
   title: "Delete Strong?",
-  text: "No stage and no role uses Strong. Sessions that ran on it keep its name in their history.",
+  text: "Nothing uses Strong. Sessions that ran on it keep its name in their history.",
   cancel_label: "Cancel",
   delete_label: "Delete",
 };
@@ -127,7 +136,6 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
   return {
     id: "strong",
     title: "Strong",
-    role_tag: null,
     came_from: "Added by you",
     back_label: "Back to Agents",
     reads_label: "What this agent reads",
@@ -170,16 +178,6 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
           { id: "high", label: "high", selected: false },
         ],
       },
-      problem: null,
-    },
-    role: {
-      label: "Role",
-      options: [
-        { id: "", label: "None", selected: true },
-        { id: "noyan", label: "Noyan", selected: false },
-      ],
-      hint: "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it.",
-      moved: null,
       problem: null,
     },
     instructions: {
@@ -292,8 +290,22 @@ describe("the Agents page", () => {
     // No row names a skill.
     expect(document.querySelector(".settings-agents-table")?.textContent).not.toMatch(/skill/i);
     expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
-    expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Noyan");
+    // No row shows a role.
+    expect(document.querySelector(".settings-agents-table")?.textContent).not.toMatch(/role/i);
     expect(document.body.textContent).toContain("From Otaq’s agents file");
+  });
+
+  it("Noyan uses: one setting, changed with one request", async () => {
+    const calls = await openSection({
+      "settings.noyan_agent": () => ({ ...SECTION, noyan: { ...SECTION.noyan, value: "Strong" } }),
+    });
+    const pick = document.querySelector('button[aria-label="Noyan uses"]');
+    expect(pick?.textContent).toContain("Noyan");
+    click(pick);
+    click(byText(".menu-item", "Strong"));
+    await settle();
+    expect(calls).toContainEqual(["settings.noyan_agent", { id: "strong" }]);
+    expect(document.querySelector('button[aria-label="Noyan uses"]')?.textContent).toContain("Strong");
   });
 
   it("⋯ → Apply the shipped agents file again proposes it for the project on screen (FLW-10)", async () => {
@@ -337,8 +349,7 @@ describe("the Agents page", () => {
 
   it("⋯ → Duplicate opens a draft from the agent", async () => {
     const calls = await openSection({
-      "settings.agent": () =>
-        agentPage({ id: null, title: "New agent", role: null, used_in: null, note: null }),
+      "settings.agent": () => agentPage({ id: null, title: "New agent", used_in: null, note: null }),
     });
     await openMenu("Strong", "Duplicate");
     expect(calls).toContainEqual([
@@ -368,31 +379,13 @@ describe("one agent's page", () => {
     ]);
   });
 
-  it("opens from its row and moves a role with one request, saying whose it was", async () => {
-    const role = agentPage().role;
-    if (!role) throw new Error("a saved agent has a role field");
-    const moved = agentPage({
-      role_tag: "Noyan",
-      role: {
-        ...role,
-        options: [
-          { id: "", label: "None", selected: false },
-          { id: "noyan", label: "Noyan", selected: true },
-        ],
-        moved: "Strong is now Noyan · the agent Noyan has no role",
-      },
-    });
-    const calls = await openAgent(agentPage(), { "settings.agent_role": () => moved });
+  it("opens from its row and shows no role", async () => {
+    const calls = await openAgent(agentPage());
     expect(calls).toContainEqual([
       "settings.agent",
       { id: "strong", duplicate: null, draft: null, change: null },
     ]);
-    click(byText('[role="radio"]', "Noyan"));
-    await settle();
-    expect(calls).toContainEqual(["settings.agent_role", { id: "strong", role: "noyan" }]);
-    expect(document.querySelector(".settings-agent-moved")?.textContent).toBe(
-      "Strong is now Noyan · the agent Noyan has no role",
-    );
+    expect(document.querySelector(".settings-agent-page")?.textContent).not.toMatch(/role/i);
   });
 
   it("has no skills: no Skills field, no Import skill folder…, no Add skill (T7)", async () => {
@@ -403,7 +396,6 @@ describe("one agent's page", () => {
     expect([...document.querySelectorAll(".settings-agent-label")].map((l) => l.textContent)).toEqual([
       "Name",
       "Model",
-      "Role",
       "Instructions",
       "Used in",
     ]);
@@ -439,7 +431,6 @@ describe("one agent's page", () => {
       id: null,
       title: "New agent",
       menu: [],
-      role: null,
       used_in: null,
       note: null,
       add: { add_label: "Add agent", cancel_label: "Cancel" },

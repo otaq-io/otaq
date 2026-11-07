@@ -286,13 +286,32 @@ describe("the editor", () => {
       "Add a title",
       "P3 Normal",
       "What and why",
+      "Waits for",
       "Start from and merge into",
-      "External ID",
     ]) {
       expect(out).toContain(text);
     }
-    // Nobody has Depends on (the sheet's, DPV-04).
-    expect(out).not.toContain("Depends on");
+    expect(out).not.toContain("External ID");
+    // A link is added only from the waiting ticket: no "Blocks" here.
+    expect(out).not.toContain("Blocks");
+  });
+
+  it("a new ticket's Waits for lists what it picked, each with its ✕; an existing ticket has none", () => {
+    const props = {
+      view: VIEW,
+      form: { ...FORM, waits_for: ["SHOP-12"] },
+      onChange: noop,
+      titleMissing: false,
+      refusal: null,
+      onSave: noop,
+    };
+    const out = html(createElement(EditorFields, props));
+    expect(out).toContain("SHOP-12");
+    expect(out).toContain('aria-label="Remove SHOP-12"');
+    const edit = html(
+      createElement(EditorFields, { ...props, view: { ...VIEW, create: false, waits_for: null } }),
+    );
+    expect(edit).not.toContain("Waits for");
   });
 
   it("a locked base shows why", () => {

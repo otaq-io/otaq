@@ -74,7 +74,7 @@ fn plan_after_product_spec(file: &mut FlowFile) {
     plan.id = "plan".into();
     plan.name = "Plan".into();
     plan.options.clear();
-    plan.why = Some("Big tickets in shop-web get a plan first".into());
+    plan.description = Some("Big tickets in shop-web get a plan first".into());
     file.flow.stages.insert(1, plan);
 }
 
@@ -425,10 +425,7 @@ async fn a_reorder_waits_for_its_span_only() {
     assert!(w.board.waiting_change(&key).await.unwrap().is_none());
     let flow = w.board.effective_flow(&key).await.unwrap();
     let order: Vec<&str> = flow.stages.iter().map(|s| s.id.as_str()).collect();
-    assert_eq!(
-        order,
-        ["product-spec", "dev", "security", "validate", "qa", "ship"]
-    );
+    assert_eq!(order, ["product-spec", "dev", "security", "validate", "qa"]);
     w.stop().await;
 }
 

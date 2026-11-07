@@ -1730,7 +1730,6 @@ mod tests {
             status: Status::WaitingForYou,
             base: crate::board::tickets::Base::Branch("main".into()),
             base_locked: true,
-            external_id: None,
             depends_on: vec![],
             flags: crate::domain::Flags::default(),
             created_by: Actor::User("me".into()),

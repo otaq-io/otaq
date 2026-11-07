@@ -261,13 +261,9 @@ pub struct PlanFacts<'a> {
 }
 
 /// The removed stage `id`'s place in `new`: the index of the first stage that followed it in `old` and survives (the
-/// Delivery at the latest). A stage `old` doesn't have stands before the Delivery.
+/// end, after the last stage, at the latest). A stage `old` doesn't have stands at the end.
 pub fn removed_place(old: &Flow, new: &Flow, id: &str) -> usize {
-    let end = new
-        .stages
-        .iter()
-        .position(Stage::is_delivery)
-        .unwrap_or(new.stages.len());
+    let end = new.stages.len();
     match old.position(id) {
         Some(at) => old.stages[at + 1..]
             .iter()
@@ -281,15 +277,8 @@ pub fn removed_place(old: &Flow, new: &Flow, id: &str) -> usize {
 /// moves out of it are decided, as drags from there. Its index in the result too.
 pub fn with_removed(walk: &Flow, new: &Flow, removed: &Stage, place: usize) -> (Flow, usize) {
     let at_or_after = |s: &Stage| {
-        let at = match new.position(&s.id) {
-            Some(at) => at,
-            // A stage the new flow doesn't have stands just before the Delivery.
-            None => new
-                .stages
-                .iter()
-                .position(Stage::is_delivery)
-                .unwrap_or(new.stages.len()),
-        };
+        // A stage the new flow doesn't have stands at the end.
+        let at = new.position(&s.id).unwrap_or(new.stages.len());
         at >= place
     };
     let index = walk
@@ -299,7 +288,13 @@ pub fn with_removed(walk: &Flow, new: &Flow, removed: &Stage, place: usize) -> (
         .unwrap_or(walk.stages.len());
     let mut stages = walk.stages.clone();
     stages.insert(index, removed.clone());
-    (Flow { stages }, index)
+    (
+        Flow {
+            stages,
+            delivery: walk.delivery.clone(),
+        },
+        index,
+    )
 }
 
 /// The removed stage a ticket is in or waits before, if it is one: a stage of the old flow the new flow doesn't have.

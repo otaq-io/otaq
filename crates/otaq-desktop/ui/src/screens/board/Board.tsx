@@ -10,9 +10,9 @@
 // (FIL-01) the project Files view (`files_view/FilesView.tsx`) takes the columns' place under the same toolbar and
 // strip; the columns stay mounted, hidden, so switching back lays them out at once. A drag is the UIT-04 way
 // (`drag.ts`): one `board.drag` at its start, then only this page works while the pointer moves, drawing the targets'
-// verdicts (Review's Approved section is a target of its own), the lifted card and the hint or reason under it; a release on an allowed target sends
-// `board.drop`, whose answer may be the Park confirmation, the Approve choice (Ready for Review → Approved: nothing
-// moves until 1 or 2 is picked; Esc and the card stays) or the drag-back dialog (an earlier stage, FLW-18). Esc cancels a drag. While the ticket sheet is open over the
+// verdicts (every column is one target), the lifted card and the hint or reason under it; a release on an allowed
+// target sends `board.drop`, whose answer may be the Park confirmation or the drag-back dialog (an earlier stage,
+// FLW-18). Approving is the card's Approve, never a drop: the delivery is no column. Esc cancels a drag. While the ticket sheet is open over the
 // board (SHL-05) the board keeps its width, gets the sheet's width of room after the columns and scrolls the selected
 // card's column into the part the sheet leaves; the sheet's backdrop takes every click on the board and closes the
 // sheet (`app/scrim.ts`). "Show on board" in a Project agent panel filters the board to its tickets
@@ -38,13 +38,9 @@ import { useShortcut } from "../../app/registry";
 import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { RESTING, TicketCard } from "../../cards";
-import { type Anchor, Tooltip } from "../../components";
-import type { ApproveChoice as Choice } from "../../generated/ApproveChoice";
-import type { ApproveMenu } from "../../generated/ApproveMenu";
+import { Tooltip } from "../../components";
 import type { BoardCard } from "../../generated/BoardCard";
-import type { BoardColumn } from "../../generated/BoardColumn";
 import type { BoardColumnId } from "../../generated/BoardColumnId";
-import type { DragVerdict } from "../../generated/DragVerdict";
 import type { BoardDropParams } from "../../generated/BoardDropParams";
 import type { BoardDropTarget } from "../../generated/BoardDropTarget";
 import type { BoardParams } from "../../generated/BoardParams";
@@ -65,7 +61,6 @@ import { filesViewWanted } from "../files_view/logic";
 import { List, type ListHandlers } from "../list/List";
 import { findRow, groupSpans, listTargets, nextRow, rowKeys } from "../list/rows";
 import { NeedsYouStrip } from "../strip/Strip";
-import { ApproveChoice } from "./ApproveChoice";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
@@ -94,8 +89,6 @@ import {
   requestSearchFocus,
 } from "./filter";
 import { rememberBoardScroll, rememberColumnScroll, scrollPlace } from "./prefs";
-
-const NO_SECTIONS: readonly string[] = [];
 
 /** The service events that change what the board shows. */
 export const BOARD_EVENTS = [
@@ -197,47 +190,14 @@ export function confirmPark(dialog: ParkDialog, ask: typeof request = request): 
   });
 }
 
-/** An approve choice opens its dialog (T-0226's Local merge, T-0227's Open PR / Push to PR, the Merge into picker,
- * Done, don't merge's confirmation); Done, nothing to merge, has none and finishes the ticket at once. */
-export function openApproveChoice(choice: Choice, ticket: string): void {
-  switch (choice) {
-    case "done":
-      // Its toasts (Rust's) say how it ended, a refusal too.
-      request("review.done", { key: ticket }).catch(() => undefined);
-      return;
-    case "local_merge":
-      openOverlay("local_merge", { ticket });
-      return;
-    case "open_pr":
-    case "push_to_pr":
-      openOverlay("open_pr", { ticket });
-      return;
-    case "merge_into":
-      openOverlay("merge_into", { ticket });
-      return;
-    case "done_not_merged":
-      openOverlay("done_not_merged", { ticket });
-      return;
-  }
-}
-
 /** What happens after a drop, as Rust answered it. */
-export function afterDrop(
-  outcome: DropOutcome,
-  showApprove: (menu: ApproveMenu) => void,
-  ask: typeof request = request,
-): void {
+export function afterDrop(outcome: DropOutcome, ask: typeof request = request): void {
   switch (outcome.kind) {
     case "nothing":
     case "moved":
       return;
     case "park":
       confirmPark(outcome.dialog, ask);
-      return;
-    case "approve":
-      // One way to deliver: its dialog at once, without the choice (dogfood #18).
-      if (outcome.menu.direct !== null) openApproveChoice(outcome.menu.direct, outcome.menu.key);
-      else showApprove(outcome.menu);
       return;
     case "drag_back":
       openOverlay("drag_back", outcome.dialog);
@@ -260,27 +220,12 @@ export function afterDrop(
   }
 }
 
-/** The verdict of `column`'s section with a target of its own (Review's Approved) while a card is dragged. */
-function sectionDrag(
-  column: BoardColumn,
-  drag: DragState | null,
-): { verdict: DragVerdict | undefined; over: boolean } | undefined {
-  const target = column.sections.find((s) => s.target !== null)?.target;
-  if (!drag || target == null) return undefined;
-  return { verdict: verdictOf(drag.answer, target), over: drag.over === target };
-}
-
 /** Sends a drop to Rust and carries out its answer. */
-export function dropCard(
-  key: string,
-  target: BoardDropTarget,
-  showApprove: (menu: ApproveMenu) => void,
-  ask: typeof request = request,
-): Promise<void> {
+export function dropCard(key: string, target: BoardDropTarget, ask: typeof request = request): Promise<void> {
   const params: BoardDropParams = { key, target };
   return ask("board.drop", params).then(
     (outcome) => {
-      afterDrop(outcome as DropOutcome, showApprove, ask);
+      afterDrop(outcome as DropOutcome, ask);
     },
     (error: unknown) => {
       toast(error, ask);
@@ -293,7 +238,7 @@ export function dropCard(
 export function startTicket(key: string, ask: typeof request = request): Promise<void> {
   return ask("board.start", { key }).then(
     (outcome) => {
-      afterDrop(outcome as DropOutcome, () => undefined, ask);
+      afterDrop(outcome as DropOutcome, ask);
     },
     (error: unknown) => {
       toast(error, ask);
@@ -398,7 +343,6 @@ export function Board() {
   const loaded = useServiceView(load, BOARD_EVENTS).view;
   // Another project's board is never drawn while the shown one loads.
   const view = loaded?.project === project ? loaded.board : undefined;
-  const foldedSections = view?.prefs.folded_sections ?? NO_SECTIONS;
 
   // One change of the view preferences (SHB-05), stored by the service; then the view again.
   const changeView = useCallback(
@@ -449,7 +393,6 @@ export function Board() {
 
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
-  const [approve, setApprove] = useState<{ menu: ApproveMenu; anchor: Anchor } | null>(null);
   const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
@@ -465,37 +408,6 @@ export function Board() {
     listKeysRef.current = listKeys;
     listTargetsRef.current = list === null ? [] : listTargets(list);
   }, [list, listKeys]);
-  const pointer = useRef({ x: 0, y: 0 });
-  // The sections that are drop targets of their own (Review's Approved), with the column each is in (STG-08).
-  const sectionOwners = useMemo(
-    () =>
-      new Map(
-        (view?.columns ?? []).flatMap((c) =>
-          c.sections.flatMap((s): [BoardDropTarget, BoardDropTarget][] =>
-            s.target === null ? [] : [[s.target, c.id]],
-          ),
-        ),
-      ),
-    [view],
-  );
-  const sectionOwnersRef = useRef(sectionOwners);
-  useLayoutEffect(() => {
-    sectionOwnersRef.current = sectionOwners;
-  }, [sectionOwners]);
-
-  // The approve choice opens over the section it approves into (Approved), else its column.
-  const showApprove = useCallback((menu: ApproveMenu) => {
-    const [section] = [...sectionOwnersRef.current.entries()];
-    const approved = (
-      section &&
-      (columns.current.get(section[0]) ?? columns.current.get(section[1]))
-    )?.getBoundingClientRect();
-    const anchor = approved
-      ? { left: approved.left + 8, top: approved.top + 40, width: approved.width - 16, height: 0 }
-      : { left: pointer.current.x, top: pointer.current.y, width: 0, height: 0 };
-    setApprove({ menu, anchor });
-  }, []);
-
   const controller = useMemo(
     () =>
       createDrag(request, {
@@ -508,29 +420,17 @@ export function Board() {
   );
 
   const placeGhost = useCallback((x: number, y: number) => {
-    pointer.current = { x, y };
     if (ghost.current) ghost.current.style.transform = `translate(${String(x)}px, ${String(y)}px)`;
   }, []);
 
-  // A section that is a target of its own (Review's Approved) is one from its label down to its column's bottom,
-  // where the cards scroll.
+  // Every column is one drop target, its full height.
   const spans = useCallback(
     (): ColumnSpan[] =>
       listRef.current !== null
         ? groupSpans(listGroups.current)
         : [...columns.current.entries()].map(([id, el]) => {
             const r = el.getBoundingClientRect();
-            const owner = sectionOwnersRef.current.get(id);
-            if (owner === undefined) return { id, left: r.left, right: r.right };
-            const column = columns.current.get(owner)?.getBoundingClientRect();
-            const cards = el.closest(".board-column-cards")?.getBoundingClientRect();
-            return {
-              id,
-              left: r.left,
-              right: r.right,
-              top: Math.max(r.top, cards?.top ?? r.top),
-              bottom: column?.bottom ?? r.bottom,
-            };
+            return { id, left: r.left, right: r.right };
           }),
     [],
   );
@@ -546,8 +446,8 @@ export function Board() {
       if (done.key === selectedRef.current) closeTicket();
       else openTicket(done.key);
     }
-    if (done.kind === "drop") void dropCard(done.key, done.target, showApprove);
-  }, [controller, showApprove]);
+    if (done.kind === "drop") void dropCard(done.key, done.target);
+  }, [controller]);
 
   // The pointer is followed on the window while pressed, so a drag keeps going over anything.
   useEffect(() => {
@@ -596,11 +496,8 @@ export function Board() {
 
   const order = useMemo(() => view?.columns.map((c) => c.id) ?? [], [view]);
   const targets = useMemo(() => targetOrder(view?.columns ?? []), [view]);
-  // The arrow keys walk the cards; never those of a folded section.
-  const keys = useMemo(
-    () => view?.columns.map((c) => walkOf(c, foldedSections).map((card) => card.card.key)) ?? [],
-    [view, foldedSections],
-  );
+  // The arrow keys walk the cards.
+  const keys = useMemo(() => view?.columns.map((c) => walkOf(c).map((card) => card.card.key)) ?? [], [view]);
   const keysRef = useRef(keys);
   const orderRef = useRef(order);
   const targetsRef = useRef(targets);
@@ -689,17 +586,17 @@ export function Board() {
   const startOn = view?.columns.find((c) => c.kind === "agent")?.id;
   const startSelected = useCallback(() => {
     if (selected === null || startOn === undefined) return false;
-    void dropCard(selected, startOn, showApprove);
+    void dropCard(selected, startOn);
     return true;
-  }, [selected, startOn, showApprove]);
+  }, [selected, startOn]);
   useShortcut("start_dev", startSelected);
   // Park (0097, palette only unless the user gives it a key): the selected ticket as if dropped on Backlog, which
   // asks the Park confirmation (CLS-06).
   const parkSelected = useCallback(() => {
     if (selected === null) return false;
-    void dropCard(selected, BACKLOG, showApprove);
+    void dropCard(selected, BACKLOG);
     return true;
-  }, [selected, showApprove]);
+  }, [selected]);
   useShortcut("park", parkSelected);
 
   const element$ = useCallback((id: BoardDropTarget, el: HTMLElement | null) => {
@@ -757,11 +654,11 @@ export function Board() {
         requestCardAction(key, kind);
       },
       start: (key, target) => {
-        void dropCard(key, target, showApprove);
+        void dropCard(key, target);
       },
       menu: openMenu,
     }),
-    [controller, release, placeGhost, openMenu, showApprove],
+    [controller, release, placeGhost, openMenu],
   );
 
   const place = scrollPlace(project ?? "");
@@ -794,9 +691,7 @@ export function Board() {
     return found ? { key: drag.key, title: found.row.card.title } : null;
   }, [drag, view, draggedCard]);
   const overVerdict = drag ? verdictOf(drag.answer, drag.over) : undefined;
-  // Over Approved (a section with a target of its own) the hint is drawn in the section itself (*Review column · drop
-  // target*).
-  const ghostHint = drag?.over != null && sectionOwners.has(drag.over) ? undefined : overVerdict;
+  const ghostHint = overVerdict;
 
   // The sheet over the board (SHL-05): room after the columns to scroll into, and the selected card's column
   // scrolled into the part the sheet leaves (*x9qiI*), when it opens, moves to another card or is resized.
@@ -952,9 +847,7 @@ export function Board() {
                 onAdd={() => {
                   openOverlay("new_ticket");
                 }}
-                foldedSections={foldedSections}
                 doneLine={column.id === lastOpen ? view.done : null}
-                approved={sectionDrag(column, drag)}
                 element={element$}
               />
             ))}
@@ -1011,19 +904,6 @@ export function Board() {
             }}
             onClose={() => {
               setCardMenu(null);
-            }}
-          />
-        )}
-        {approve && (
-          <ApproveChoice
-            menu={approve.menu}
-            anchor={approve.anchor}
-            onChoose={(choice) => {
-              setApprove(null);
-              openApproveChoice(choice, approve.menu.key);
-            }}
-            onCancel={() => {
-              setApprove(null);
             }}
           />
         )}

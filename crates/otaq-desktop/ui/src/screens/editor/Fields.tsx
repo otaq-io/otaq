@@ -1,12 +1,13 @@
 // The editor's form (UI-05, TKT-03, TKT-09, DEP-02, DEP-04; d0019, d0051, d0065, d0067; *08 · Ticket editor → Full
-// form · filled, Validation · empty form, Row · base branch per ticket*): Title, Priority, What and why, Start from
-// and merge into, External ID. Dependencies are the
-// sheet's (DPV-04, `screens/dependencies`). Text fields are the webview's own (selection, IME,
+// form · filled, Validation · empty form, Row · base branch per ticket*): Title, Priority, What and why, Waits for (a
+// new ticket only: an existing one's dependencies are Overview's, `screens/dependencies`), Start from and merge into.
+// Text fields are the webview's own (selection, IME,
 // undo); What and why is the Markdown editor with its toolbar (TKT-10; d0078 D5; *08 → b · Filled · edit mode,
 // i · At max height, scrolled*). Used by the modal (new ticket, ⌘N) and the Ticket tab.
-import { type ReactNode, useEffect, useRef, useState } from "react";
+import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { Button, Field, Kbd, Segmented, Select, StageChoices, PLAIN_TEXT } from "../../components";
+import { Button, Field, Kbd, Popover, Segmented, Select, StageChoices, PLAIN_TEXT } from "../../components";
+import type { DependencySearchRow } from "../../generated/DependencySearchRow";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorView } from "../../generated/EditorView";
@@ -28,6 +29,7 @@ import {
 } from "../../markdown";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { LinkedRow, PickerBody, useWaitSearch } from "../dependencies/Dependencies";
 import { isSaveKey, refusalFor, SAVE_KEYS, shownPriority } from "./logic";
 
 const ignore = () => undefined;
@@ -74,6 +76,85 @@ function ChoicesField({
           });
         }}
       />
+    </div>
+  );
+}
+
+/**
+ * A new ticket's "Waits for": the tickets it will wait for, each with its ✕, and Add to search the project for one
+ * (the same search as Overview's). The picked keys go with Create, which links them (`form.waits_for`); a link the
+ * service refuses shows under the form, the ticket created.
+ */
+export function WaitsForField({
+  view,
+  form,
+  onChange,
+}: {
+  view: EditorView;
+  form: EditorForm;
+  onChange: (form: EditorForm) => void;
+}) {
+  const add = useRef<HTMLButtonElement>(null);
+  const [open, setOpen] = useState(false);
+  const [query, setQuery] = useState("");
+  // The titles of the picked tickets, as the search showed them.
+  const [titles, setTitles] = useState<Readonly<Record<string, string>>>({});
+  const rows = useWaitSearch(open, { mode: "new", project: view.project, picked: form.waits_for }, query);
+  const close = useCallback(() => {
+    setOpen(false);
+    setQuery("");
+  }, []);
+  const field = view.waits_for;
+  if (field === null) return null;
+  const pick = (row: DependencySearchRow) => {
+    setTitles((t) => ({ ...t, [row.key]: row.title }));
+    onChange({ ...form, waits_for: [...form.waits_for, row.key] });
+    close();
+  };
+  return (
+    <div className="editor-field">
+      <div className="editor-label">
+        <span>{field.label}</span>
+        <span className="editor-hint">{field.hint}</span>
+        <span className="editor-spacer" />
+        <button
+          ref={add}
+          type="button"
+          className="overview-add"
+          aria-expanded={open}
+          onClick={() => {
+            if (open) close();
+            else setOpen(true);
+          }}
+        >
+          <Icon name="plus" size={12} />
+          {field.add}
+        </button>
+      </div>
+      {form.waits_for.map((key) => (
+        <LinkedRow
+          key={key}
+          row={{ key, title: titles[key] ?? "" }}
+          remove={field.remove}
+          opens={false}
+          onRemove={() => {
+            onChange({ ...form, waits_for: form.waits_for.filter((k) => k !== key) });
+          }}
+        />
+      ))}
+      {open && (
+        <Popover label={field.add} anchor={add} align="end" onClose={close}>
+          <PickerBody
+            search={field.search}
+            rule={null}
+            query={query}
+            onQuery={setQuery}
+            rows={rows}
+            refusal={null}
+            onPick={pick}
+          />
+        </Popover>
+      )}
     </div>
   );
 }
@@ -377,6 +458,7 @@ export function EditorFields({
           onSave={onSave}
         />
       </div>
+      <WaitsForField view={view} form={form} onChange={onChange} />
       <div className="editor-field">
         <div className="editor-label">
           <span>{t.base}</span>
@@ -385,25 +467,6 @@ export function EditorFields({
         <BaseSelect view={view} form={form} onChange={onChange} />
         <RefusalBox refusal={refusalFor(refusal, "base")} />
       </div>
-      {view.external_id_shown && (
-        <div className="editor-field">
-          <div className="editor-label">
-            <span>{t.external_id}</span>
-            <span className="editor-hint">{t.external_id_hint}</span>
-          </div>
-          <input
-            {...PLAIN_TEXT}
-            className="text-input"
-            data-mono
-            value={form.external_id}
-            placeholder={t.external_id_placeholder}
-            aria-label={t.external_id}
-            onChange={(e) => {
-              onChange({ ...form, external_id: e.target.value });
-            }}
-          />
-        </div>
-      )}
       <RefusalBox refusal={refusalFor(refusal, "form")} />
     </div>
   );

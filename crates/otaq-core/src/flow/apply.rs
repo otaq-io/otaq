@@ -39,7 +39,7 @@ use super::proposal::{
 use super::store::{AppliedBy, FlowVersion, NewFlowVersion};
 use super::yaml;
 use crate::agents::store::NewAgent;
-use crate::agents::{CameFrom, ModelCatalog, Role, shipped};
+use crate::agents::{CameFrom, ModelCatalog, shipped};
 use crate::board::moves::DropOn;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
@@ -869,7 +869,6 @@ impl Board {
                         instructions: agent.instructions.clone(),
                         model: model.clone(),
                         effort,
-                        role: mine.role,
                     };
                     store
                         .update_agent(&mine.id, &fields, mine.model != model)
@@ -877,18 +876,11 @@ impl Board {
                     done.push(mine.name.clone());
                 }
                 None => {
-                    let mut role = agent.role.as_deref().and_then(|r| r.parse::<Role>().ok());
-                    if let Some(held) = role
-                        && store.role_agent(held).await?.is_some()
-                    {
-                        role = None;
-                    }
                     let new = NewAgent {
                         name: agent.name.trim().to_owned(),
                         instructions: agent.instructions.clone(),
                         model,
                         effort: None,
-                        role,
                     };
                     store.insert_agent(&new, &came_from, None).await?;
                     done.push(new.name);

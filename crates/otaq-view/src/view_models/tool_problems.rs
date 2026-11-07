@@ -9,7 +9,8 @@
 //!   "Codex isn't available · logged out" with Open agent… and Sign in…; "Claude Code limit reached · resets 3:45
 //!   pm"; "Model unavailable" with Open agent…. It waits for its own tool: nothing moves to another one.
 //! - **A running or ended agent** whose tool isn't available or is at its limit ([`agent_notice`]):
-//!   it waits, since a conversation never moves tools; the agent panel offers Sign in… and "New agent on Sonnet".
+//!   it waits, since a conversation never moves tools; the agent panel offers Sign in… (or Resume after reset), and
+//!   never another agent in its place.
 //!
 //! Unavailable, a model no longer listed and moves are amber; limits are neutral; nothing here is turquoise (d0077).
 
@@ -184,8 +185,6 @@ pub enum Action {
     /// Check again on a stage held because its tool doesn't have the stage's skill: Otaq's finder is asked again and
     /// the stage starts if the skill is found (`ticket.check_again`).
     CheckAgain,
-    /// The agent panel's empty state on `agent` (a named agent's id); it starts when you send (CHANGES-v §4).
-    NewAgent { agent: String },
     /// Settings → Agents at the project's Project agent default, `agent` (Q-O).
     AgentSettings {
         project: String,
@@ -394,25 +393,10 @@ pub fn hold_callouts(holds: &[AgentHold], agents: &[Agent], tools: &Tools) -> Ve
         .collect()
 }
 
-/// Where "New agent on …" starts a Project agent whose tool can't run (CHANGES-v §4; the user's click, a new
-/// conversation): the Project agent role's agent (`default`), else the first agent on a tool that can run now.
-pub fn new_agent_on<'a>(
-    tool: Tool,
-    default: Option<&'a Agent>,
-    agents: &'a [Agent],
-    tools: &Tools,
-) -> Option<&'a Agent> {
-    let runs = |a: &&Agent| {
-        tools
-            .tool_of(a)
-            .is_some_and(|t| t != tool && tools.problem(t).is_none())
-    };
-    default.filter(runs).or_else(|| agents.iter().find(runs))
-}
-
-/// The agent panel's notice for a running or ended Project agent whose tool isn't available or is at its limit (18
-/// `VDJkG`): it waits, since its conversation can't move tools; `new_agent` is where "New agent on …" starts.
-pub fn agent_notice(tool: Tool, tools: &Tools, new_agent: Option<&Agent>) -> Option<Callout> {
+/// The agent panel's notice for a running or ended Noyan conversation whose tool isn't available or is at its limit
+/// (18 `VDJkG`): it waits, since a conversation never moves tools, and no other agent is offered in its place (no
+/// fallback agents: if the tool can't run, the conversation waits).
+pub fn agent_notice(tool: Tool, tools: &Tools) -> Option<Callout> {
     let problem = tools.problem(tool)?;
     let (tone, heading, mut buttons) = match &problem {
         Problem::Unavailable {
@@ -448,13 +432,6 @@ pub fn agent_notice(tool: Tool, tools: &Tools, new_agent: Option<&Agent>) -> Opt
     if let Some(first) = buttons.first_mut() {
         first.primary = true;
     }
-    buttons.extend(new_agent.map(|a| Button {
-        label: format!("New agent on {}", a.name),
-        action: Action::NewAgent {
-            agent: a.id.clone(),
-        },
-        primary: false,
-    }));
     Some(Callout {
         role: None,
         tone,
@@ -467,13 +444,12 @@ pub fn agent_notice(tool: Tool, tools: &Tools, new_agent: Option<&Agent>) -> Opt
 }
 
 /// The empty agent panel's notice for a held first message (Q-O): Model unavailable opens Settings → Agents at the
-/// project's Project agent default; a tool that can't run waits like a running agent, with "New agent on …".
+/// agent it would start on; a tool that can't run waits like a running conversation.
 pub fn first_message_notice(
     hold: &AgentHold,
     project: &str,
     agents: &[Agent],
     tools: &Tools,
-    new_agent: Option<&Agent>,
 ) -> Callout {
     let tool = hold.tool;
     let name = find(agents, hold.agent_id.as_deref()).map_or("The agent", |a| a.name.as_str());
@@ -500,7 +476,7 @@ pub fn first_message_notice(
             }],
         };
     }
-    let mut notice = agent_notice(tool, tools, new_agent).unwrap_or_else(|| Callout {
+    let mut notice = agent_notice(tool, tools).unwrap_or_else(|| Callout {
         role: None,
         tone: if hold.reason == HoldReason::ToolLimit {
             Tone::Neutral
@@ -849,43 +825,27 @@ mod tests {
         assert_eq!(roles, [Some(RoleId::Developer), Some(RoleId::Validator)]);
     }
 
-    /// 18 `VDJkG`: the notice for unavailable (Sign in…, New agent on Strong) and for a limit (Resume after reset).
+    /// 18 `VDJkG`: the notice for unavailable (Sign in…) and for a limit (Resume after reset). No other agent is
+    /// offered in its place: the conversation waits for its own tool.
     #[test]
     fn the_agent_panels_notice_for_unavailable_and_limit() {
-        let all = agents();
         let tools = codex_logged_out();
-        let on = new_agent_on(CODEX, Some(&all[1]), &all, &tools);
-        assert_eq!(
-            on.map(|a| a.name.as_str()),
-            Some("Strong"),
-            "the first agent on a tool that can run"
-        );
-        let c = agent_notice(CODEX, &tools, on).unwrap();
+        let c = agent_notice(CODEX, &tools).unwrap();
         assert_eq!(
             c.heading,
             "Codex isn\u{2019}t available \u{b7} signed out. This agent continues after you sign in."
         );
-        assert_eq!(labels(&c), ["Sign in\u{2026}", "New agent on Strong"]);
-        assert_eq!(
-            c.buttons[1].action,
-            Action::NewAgent {
-                agent: "strong".into()
-            }
-        );
+        assert_eq!(labels(&c), ["Sign in\u{2026}"]);
         assert_eq!(c.tone, Tone::Amber);
         let tools = at_limit(CODEX, None);
-        let c = agent_notice(CODEX, &tools, on).unwrap();
+        let c = agent_notice(CODEX, &tools).unwrap();
         assert_eq!(
             c.heading,
             "Codex limit reached. This agent continues after the reset."
         );
-        assert_eq!(labels(&c), ["Resume after reset", "New agent on Strong"]);
+        assert_eq!(labels(&c), ["Resume after reset"]);
         assert_eq!(c.tone, Tone::Neutral);
-        assert_eq!(agent_notice(CLAUDE, &tools, None), None, "its tool runs");
-        // The Project agent's own agent first when it runs elsewhere; never one on the same tool.
-        let on = new_agent_on(CODEX, Some(&all[4]), &all, &tools);
-        assert_eq!(on.map(|a| a.name.as_str()), Some("Verifier"));
-        assert_eq!(new_agent_on(CODEX, None, &all[1..2], &tools), None);
+        assert_eq!(agent_notice(CLAUDE, &tools), None, "its tool runs");
     }
 
     /// Q-O: a first message held for Model unavailable → Change agent opens Settings → Agents at its agent.
@@ -900,7 +860,7 @@ mod tests {
         );
         h.ticket_id = None;
         h.project_id = Some("p".into());
-        let c = first_message_notice(&h, "SHOP", &agents(), &several(), None);
+        let c = first_message_notice(&h, "SHOP", &agents(), &several());
         assert_eq!(c.heading, "Model unavailable");
         assert_eq!(labels(&c), ["Open agent\u{2026}"]);
         assert_eq!(
@@ -911,18 +871,12 @@ mod tests {
             }
         );
         h.reason = HoldReason::ToolUnavailable;
-        let c = first_message_notice(
-            &h,
-            "SHOP",
-            &agents(),
-            &codex_logged_out(),
-            Some(&agents()[2]),
-        );
+        let c = first_message_notice(&h, "SHOP", &agents(), &codex_logged_out());
         assert_eq!(
             c.heading,
             "Codex isn\u{2019}t available \u{b7} signed out. Your message is kept: it starts after you sign in."
         );
-        assert_eq!(labels(&c), ["Sign in\u{2026}", "New agent on Sonnet"]);
+        assert_eq!(labels(&c), ["Sign in\u{2026}"], "no other agent is offered");
     }
 
     #[test]

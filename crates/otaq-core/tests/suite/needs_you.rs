@@ -27,7 +27,6 @@ fn t(key: &str, title: &str, status: Status, minutes_ago: i64) -> Ticket {
         status,
         base: Base::Branch("main".into()),
         base_locked: false,
-        external_id: None,
         depends_on: Vec::new(),
         flags: Flags::default(),
         created_by: Actor::User("me".into()),
@@ -81,6 +80,7 @@ fn shop_web() -> Vec<Ticket> {
         recommended: None,
         notes: Vec::new(),
         asked_at: NOW - 6 * MIN,
+        send_back: None,
     });
     let mut start = t("SHOP-28", "Cart badge count", Status::StartInterrupted, 20);
     start.start_problem = Some(StartProblem {

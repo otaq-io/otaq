@@ -7,7 +7,6 @@
 //!   - id: dev
 //!     name: Dev
 //!     kind: agent
-//!     column: own
 //!     agent: Developer
 //!     skill: work-ticket
 //!     options: [skip]
@@ -15,18 +14,26 @@
 //!     name: Validate
 //!     kind: check
 //!     by: agent
-//!     column: own
 //!     agent: Validator
 //!     skill: validate
 //!     rounds: 3
 //!     fail_to: Dev
+//! delivery:
+//!   delivers: either
+//!   mode: click
+//!   agent: Developer
+//!   skill: open-pr
 //! ```
 //!
-//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds fail_to mode delivers
-//! why`; agents: `name role instructions model why`); a field with nothing in it is left out, except `column`.
-//! `agents:` is left out when the file defines none. An agent check names its one agent with `agent:`, like an Agent
-//! stage; an older file's `agents: [Validator]` (one name) still reads as `agent: Validator`, and its check with
-//! several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
+//! Fields come in a fixed order (stages: `id name kind by agent skill options rounds fail_to description`; the delivery:
+//! `delivers mode agent skill`; agents: `name instructions model why`); a field with nothing in it is left out.
+//! `agents:` is left out when the file defines none. Every flow says how its work is delivered after the last stage
+//! (`delivery:`): it is a setting of the flow, not a stage. Every stage is its own column.
+//!
+//! Older files still read: their Delivery stage (`kind: delivery` with `mode` and `delivers`) reads as the flow's
+//! `delivery:`, and a stage's `column:` (`own`, `with-previous`) is read and ignored. An agent check names its one
+//! agent with `agent:`, like an Agent stage; an older file's `agents: [Validator]` (one name) still reads as `agent:
+//! Validator`, and its check with several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
 //! names a stage by its name, as `agent:` names agents; Otaq keeps it by the stage's id, so a rename carries it
 //! along, and a stage removed leaves the check on the nearest Agent stage (d0131). Comments are not kept.
 
@@ -35,7 +42,7 @@ use std::fmt;
 use serde::Deserialize;
 
 use super::model::{
-    CheckBy, Column, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
+    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
     StageOption,
 };
 
@@ -57,13 +64,35 @@ struct RawFile {
     #[serde(default)]
     agents: Vec<RawAgent>,
     flow: Vec<RawStage>,
+    delivery: Option<RawDelivery>,
+}
+
+/// The flow's `delivery:`.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawDelivery {
+    delivers: Option<Delivers>,
+    mode: Option<DeliveryMode>,
+    agent: Option<String>,
+    skill: Option<String>,
+}
+
+/// An older file's stage `column:`: read so the file still opens, then ignored (every stage is its own column).
+#[derive(Deserialize)]
+#[serde(rename_all = "kebab-case")]
+enum RawColumn {
+    Own,
+    WithPrevious,
 }
 
 #[derive(Deserialize)]
 #[serde(deny_unknown_fields)]
 struct RawAgent {
     name: String,
-    role: Option<String>,
+    /// An old file's agent role (`noyan`): read so the file still opens, then ignored (an agent has no role; the
+    /// agent Noyan uses is an app setting).
+    #[serde(default, rename = "role")]
+    _role: serde::de::IgnoredAny,
     #[serde(default)]
     instructions: String,
     /// An old file's agent skills: read so the file still opens, then ignored (an agent has no skills).
@@ -80,7 +109,8 @@ struct RawStage {
     name: String,
     kind: RawKind,
     by: Option<CheckBy>,
-    column: Option<Column>,
+    #[serde(default)]
+    column: Option<RawColumn>,
     agent: Option<String>,
     agents: Option<Vec<String>>,
     skill: Option<String>,
@@ -90,7 +120,9 @@ struct RawStage {
     fail_to: Option<String>,
     mode: Option<DeliveryMode>,
     delivers: Option<Delivers>,
-    why: Option<String>,
+    /// What the stage is for; an older file's `why:` reads as it.
+    #[serde(alias = "why")]
+    description: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -98,6 +130,7 @@ struct RawStage {
 enum RawKind {
     Agent,
     Check,
+    /// An older file's Delivery stage, read as the flow's `delivery:`.
     Delivery,
 }
 
@@ -119,7 +152,6 @@ fn format_error(e: impl fmt::Display) -> FormatError {
 fn agent(a: RawAgent) -> FlowAgent {
     FlowAgent {
         name: a.name,
-        role: a.role,
         instructions: a.instructions,
         model: a.model,
         why: why(a.why),
@@ -135,12 +167,31 @@ pub fn read(text: &str) -> Result<FlowFile, FormatError> {
 /// which a proposal matches to the flow it changes instead ([`super::proposal`]). A copy split off an older check
 /// ([`Split`]) counts as written when its stage's id was.
 pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), FormatError> {
-    read_all(text).map(|(file, written, _)| (file, written))
+    read_all(text).map(|read| (read.file, read.written))
 }
 
 /// [`read`], also saying which check stages were split because they listed several agents ([`Split`]).
 pub fn read_split(text: &str) -> Result<(FlowFile, Vec<Split>), FormatError> {
-    read_all(text).map(|(file, _, splits)| (file, splits))
+    read_all(text).map(|read| (read.file, read.splits))
+}
+
+/// An older document written with a Delivery stage or a stage's `column:`, as Otaq writes it now (the delivery as
+/// the flow's `delivery:`, no columns); `None` for a document already in today's form, or one that doesn't read.
+pub fn upgraded(text: &str) -> Option<String> {
+    read_all(text)
+        .ok()
+        .filter(|read| read.old_form)
+        .map(|read| write(&read.file))
+}
+
+/// A document as [`read_all`] reads it.
+struct Read {
+    file: FlowFile,
+    /// Which stages had their id written ([`read_with_written_ids`]).
+    written: Vec<bool>,
+    splits: Vec<Split>,
+    /// It has a Delivery stage or a stage's `column:` ([`upgraded`]).
+    old_form: bool,
 }
 
 /// An older flow's agent check that listed several agents (`agents: [Security reviewer, Validator]`), as read: one
@@ -148,7 +199,7 @@ pub fn read_split(text: &str) -> Result<(FlowFile, Vec<Split>), FormatError> {
 /// other copy gets the id `<id>-<agent>` (the agent's name as an id: `security-validator`, with `-2` added if that
 /// id is taken) and the name `<stage> · <agent>` ("Security · Validator", with " 2" added if that name is taken), so
 /// every read of the same document gives the same ids. Each copy keeps the stage's kind, skill, rounds, fails go to,
-/// options and why, and shows in the first copy's column (`with-previous`). The split is never stored by reading:
+/// options and why, and is its own column, as every stage is. The split is never stored by reading:
 /// a document written from the flow ([`write`]) holds it, so the user's next change saves it.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct Split {
@@ -158,12 +209,27 @@ pub struct Split {
     pub copies: Vec<String>,
 }
 
-fn read_all(text: &str) -> Result<(FlowFile, Vec<bool>, Vec<Split>), FormatError> {
+fn read_all(text: &str) -> Result<Read, FormatError> {
     let raw: RawFile = serde_saphyr::from_str(text).map_err(format_error)?;
     let agents = raw.agents.into_iter().map(agent).collect();
     let mut stages = Vec::with_capacity(raw.flow.len());
     let mut others = Vec::with_capacity(raw.flow.len());
+    let mut old_form = false;
+    // An older file's Delivery stage, by its name: the flow's delivery.
+    let mut old_delivery: Option<(String, Delivery)> = None;
     for raw in raw.flow {
+        old_form |= raw.column.is_some() || matches!(raw.kind, RawKind::Delivery);
+        if matches!(raw.kind, RawKind::Delivery) {
+            let (name, delivery) = old_delivery_stage(raw)?;
+            if let Some((first, _)) = &old_delivery {
+                return Err(FormatError(format!(
+                    "{first} and {name} are both Delivery stages: a flow is delivered one way, set once with \
+                     `delivery:`"
+                )));
+            }
+            old_delivery = Some((name, delivery));
+            continue;
+        }
         let (stage, more) = stage(raw)?;
         stages.push(stage);
         others.push(more);
@@ -171,15 +237,33 @@ fn read_all(text: &str) -> Result<(FlowFile, Vec<bool>, Vec<Split>), FormatError
     let mut written: Vec<bool> = stages.iter().map(|s| !s.id.is_empty()).collect();
     give_ids(&mut stages);
     fail_to_ids(&mut stages)?;
+    let delivery = match (raw.delivery, old_delivery) {
+        (Some(raw), None) => delivery(raw)?,
+        (None, Some((_, delivery))) => delivery,
+        (Some(_), Some((name, _))) => {
+            return Err(FormatError(format!(
+                "{name} is a Delivery stage and the flow has `delivery:` too: say how the work is delivered once, \
+                 with `delivery:`"
+            )));
+        }
+        (None, None) => {
+            return Err(FormatError(
+                "The flow doesn't say how its work is delivered: add `delivery:` with what it `delivers` (local, \
+                 pr or either) and its `mode` (click or automatic)"
+                    .to_owned(),
+            ));
+        }
+    };
     let splits = split(&mut stages, &mut written, others);
-    Ok((
-        FlowFile {
+    Ok(Read {
+        file: FlowFile {
             agents,
-            flow: Flow { stages },
+            flow: Flow { stages, delivery },
         },
         written,
         splits,
-    ))
+        old_form,
+    })
 }
 
 /// Splits each agent check that listed several agents ([`Split`]): `others[i]` are stage `i`'s agents after its
@@ -205,7 +289,6 @@ fn split(stages: &mut Vec<Stage>, written: &mut Vec<bool>, others: Vec<Vec<Strin
             let copy = Stage {
                 id: id.clone(),
                 name,
-                column: Column::WithPrevious,
                 agent: Some(agent),
                 ..first.clone()
             };
@@ -254,9 +337,6 @@ fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
     for agent in agents {
         let mut item = Item::new(out);
         item.field("name", &agent.name);
-        if let Some(role) = &agent.role {
-            item.field("role", role);
-        }
         if !agent.instructions.is_empty() {
             item.text("instructions", &agent.instructions);
         }
@@ -280,7 +360,6 @@ pub fn write(file: &FlowFile) -> String {
         if let StageKind::Check { by } = stage.kind {
             item.field("by", by.as_str());
         }
-        item.field("column", stage.column.as_str());
         if let Some(agent) = &stage.agent {
             item.field("agent", agent);
         }
@@ -299,15 +378,93 @@ pub fn write(file: &FlowFile) -> String {
         if let Some(target) = fail_to.and_then(|id| file.flow.stage(id)) {
             item.field("fail_to", &target.name);
         }
-        if let Some(delivery) = stage.delivery {
-            item.field("mode", delivery.mode.as_str());
-            item.field("delivers", delivery.delivers.as_str());
-        }
-        if let Some(why) = &stage.why {
-            item.text("why", why);
+        if let Some(description) = &stage.description {
+            item.text("description", description);
         }
     }
+    let delivery = &file.flow.delivery;
+    out.push_str("delivery:\n");
+    let field = |out: &mut String, key: &str, value: &str| {
+        out.push_str(&format!("  {key}: {}\n", scalar(value)));
+    };
+    field(&mut out, "delivers", delivery.delivers.as_str());
+    field(&mut out, "mode", delivery.mode.as_str());
+    if let Some(agent) = &delivery.agent {
+        field(&mut out, "agent", agent);
+    }
+    if let Some(skill) = &delivery.skill {
+        field(&mut out, "skill", skill);
+    }
     out
+}
+
+/// The flow's `delivery:`: what it delivers and when, and for one that can open a PR the agent that opens it (with
+/// an optional skill); a local merge runs no agent.
+fn delivery(raw: RawDelivery) -> Result<Delivery, FormatError> {
+    checked_delivery("The delivery", raw.mode, raw.delivers, raw.agent, raw.skill)
+}
+
+/// An older file's Delivery stage (`kind: delivery`), as the flow's delivery; its name, for the errors.
+fn old_delivery_stage(raw: RawStage) -> Result<(String, Delivery), FormatError> {
+    let name = raw.name.trim().to_owned();
+    let refuse = |field: &str| {
+        Err(FormatError(format!(
+            "{name} is a Delivery stage: `{field}` belongs to a check"
+        )))
+    };
+    if raw.by.is_some() {
+        return refuse("by");
+    }
+    if raw.rounds.is_some() {
+        return refuse("rounds");
+    }
+    if raw.fail_to.is_some() {
+        return refuse("fail_to");
+    }
+    if raw.agents.is_some() {
+        return refuse("agents");
+    }
+    let delivery = checked_delivery(&name, raw.mode, raw.delivers, raw.agent, raw.skill)?;
+    Ok((name, delivery))
+}
+
+fn checked_delivery(
+    what: &str,
+    mode: Option<DeliveryMode>,
+    delivers: Option<Delivers>,
+    agent: Option<String>,
+    skill: Option<String>,
+) -> Result<Delivery, FormatError> {
+    let (Some(mode), Some(delivers)) = (mode, delivers) else {
+        return Err(FormatError(format!(
+            "{what} needs its `mode` (click or automatic) and what it `delivers` (local, pr or either)"
+        )));
+    };
+    let agent = agent.map(|a| a.trim().to_owned()).filter(|a| !a.is_empty());
+    let skill = skill.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
+    if delivers == Delivers::Local {
+        let refuse = |field: &str| {
+            Err(FormatError(format!(
+                "{what} is a Local merge, which runs no agent: `{field}` belongs to a delivery that opens a PR"
+            )))
+        };
+        if agent.is_some() {
+            return refuse("agent");
+        }
+        if skill.is_some() {
+            return refuse("skill");
+        }
+    } else if agent.is_none() {
+        return Err(FormatError(format!(
+            "{what} can open a PR: name the agent that opens it with `agent:`"
+        )));
+    }
+    Ok(Delivery {
+        mode,
+        delivers,
+        agent,
+        skill,
+    })
 }
 
 /// A stage from its raw fields: the kind's own fields must be there, and no other kind's. With an older agent
@@ -330,23 +487,24 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
             )));
         }
         (RawKind::Agent, Some(_)) => return refuse("an Agent stage", "by", "a check"),
-        (RawKind::Delivery, Some(_)) => return refuse("a Delivery stage", "by", "a check"),
         (RawKind::Agent, None) => StageKind::Agent,
-        (RawKind::Delivery, None) => StageKind::Delivery,
+        // Read as the flow's delivery before a stage is made ([`old_delivery_stage`]).
+        (RawKind::Delivery, _) => {
+            return Err(FormatError(format!(
+                "{name} is a Delivery stage: say how the work is delivered with the flow's `delivery:`"
+            )));
+        }
     };
     let what = match kind {
         StageKind::Agent => "an Agent stage",
         StageKind::Check { by: CheckBy::Agent } => "an agent check",
         StageKind::Check { by: CheckBy::You } => "a check by you",
-        StageKind::Delivery => "a Delivery stage",
     };
-    if kind != StageKind::Delivery {
-        if raw.mode.is_some() {
-            return refuse(what, "mode", "the Delivery stage");
-        }
-        if raw.delivers.is_some() {
-            return refuse(what, "delivers", "the Delivery stage");
-        }
+    if raw.mode.is_some() {
+        return refuse(what, "mode", "the flow's `delivery:`");
+    }
+    if raw.delivers.is_some() {
+        return refuse(what, "delivers", "the flow's `delivery:`");
     }
     let agent_check = kind == StageKind::Check { by: CheckBy::Agent };
     if !agent_check && raw.rounds.is_some() {
@@ -382,23 +540,10 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
             first
         }
     };
-    let delivery = match kind {
-        StageKind::Delivery => {
-            let (Some(mode), Some(delivers)) = (raw.mode, raw.delivers) else {
-                return Err(FormatError(format!(
-                    "{name} is the Delivery stage: set its `mode` (click or automatic) and what it `delivers` \
-                     (local, pr or either)"
-                )));
-            };
-            Some(Delivery { mode, delivers })
-        }
-        _ => None,
-    };
-    // Who runs the stage: an agent for an Agent stage, an agent check and a Delivery that can open a PR.
+    // Who runs the stage: an agent for an Agent stage and an agent check.
     let runs_agent = match kind {
         StageKind::Agent | StageKind::Check { by: CheckBy::Agent } => true,
         StageKind::Check { by: CheckBy::You } => false,
-        StageKind::Delivery => delivery.is_some_and(|d| d.delivers != Delivers::Local),
     };
     // An Agent stage or an agent check with no `skill:` reads (the editor's draft holds one until its skill is
     // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]). So does an agent
@@ -411,11 +556,6 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         }
     } else {
         let belongs = "a stage an agent runs";
-        let what = if kind == StageKind::Delivery {
-            "a Local merge, which runs no agent"
-        } else {
-            what
-        };
         if agent.is_some() {
             return refuse(what, "agent", belongs);
         }
@@ -441,20 +581,18 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         id: raw.id.map(|id| id.trim().to_owned()).unwrap_or_default(),
         name,
         kind,
-        column: raw.column.unwrap_or_default(),
         agent,
         skill: raw.skill,
         options,
         rounds: raw.rounds,
         // A stage's name until [`fail_to_ids`] makes it the stage's id.
         fail_to: raw.fail_to.map(|n| n.trim().to_owned()),
-        delivery,
-        why: why(raw.why),
+        description: why(raw.description),
     };
     Ok((stage, more))
 }
 
-/// A `why:` as kept: trimmed, none when empty.
+/// A `why:` or a stage's `description:` as kept: trimmed, none when empty.
 fn why(text: Option<String>) -> Option<String> {
     text.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty())
 }

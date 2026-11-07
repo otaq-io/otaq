@@ -121,8 +121,6 @@ pub struct PrFlowView {
     pub pr_number: Option<u32>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub pr_url: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub external_id: Option<String>,
     /// The skill that proposes: the project's Open PR skill, or its Push skill for a ticket with a PR.
     #[serde(default)]
     pub skill: String,
@@ -250,7 +248,6 @@ impl Board {
                 .collect(),
             pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
             pr_url: row.pr_url,
-            external_id: ticket.external_id.clone(),
             key: ticket.key,
         })
     }
@@ -503,67 +500,7 @@ impl Board {
 }
 
 impl Board {
-    /// **PR rework** (REV-14, d0041): Approved · PR open → Ready for Review. The PR stays (number, URL, locked
-    /// branch); the review starts again from the branch's head, so the user can Send back as usual.
-    pub(crate) async fn pr_rework(
-        &self,
-        ticket: &Ticket,
-        actor: &Actor,
-    ) -> Result<Ticket, BoardError> {
-        let row = self
-            .store()
-            .ticket(&ticket.id)
-            .await?
-            .ok_or_else(|| BoardError::NotFound(ticket.key.to_string()))?;
-        let repo = PathBuf::from(self.project(ticket.key.project.as_str()).await?.repo_path);
-        let head = match &row.branch_name {
-            Some(branch) => {
-                self.git()?
-                    .resolve(&repo, &format!("refs/heads/{branch}"))
-                    .await?
-            }
-            None => None,
-        };
-        let to = Status::WaitingForYou;
-        // Back from the open PR to the human check before the Delivery (STG-06).
-        let moved = self
-            .moved(ticket, ticket.status, crate::flow::engine::Move::PrRework)
-            .await?;
-        let now = now_ms();
-        let mut tx = self.store().begin_write().await?;
-        moved.record(&mut tx, &ticket.id, None).await?;
-        sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = COALESCE(?, review_head_sha),
-                                review_entered_at = ?, pr_rework = TRUE, updated_by = ?, updated_at = ?, ",
-            crate::store::tickets::set_state_since!(),
-            " WHERE id = ?"
-        ))
-        .bind(moved.place.stage_id())
-        .bind(to.as_str())
-        .bind(head)
-        .bind(now)
-        .bind(actor.to_string())
-        .bind(now)
-        .bind(to.as_str())
-        .bind(now)
-        .bind(&ticket.id)
-        .execute(&mut *tx)
-        .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::Moved,
-            actor,
-            json!({ "from": ticket.status, "to": to, "rework": true }),
-        )
-        .await?;
-        tx.commit().await?;
-        self.ticket_by_id(&ticket.id).await
-    }
-}
-
-impl Board {
-    /// **Send back with PR comments** (FLW-16, d0108): Delivery · PR open → the nearest earlier Agent stage, Working
+    /// **Send back with PR comments** (FLW-16, d0108): PR open → the last Agent stage before the delivery, Working
     /// (its live session gets the skill) or Queued before it with the skill still to run. The PR stays (number,
     /// URL, locked branch); the optional note is the user's comment (`hand_over`, CMT-05), posted first, and the agent
     /// reads the PR's unresolved comments with `otaq review feedback`. Every agent check's counter restarts at 0, as

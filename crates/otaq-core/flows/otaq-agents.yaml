@@ -1,4 +1,3 @@
 agents:
   - name: Noyan
-    role: noyan
     model: default

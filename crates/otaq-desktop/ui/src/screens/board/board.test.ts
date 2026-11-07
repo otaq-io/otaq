@@ -9,8 +9,7 @@ import type { BoardCard } from "../../generated/BoardCard";
 import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
-import type { BoardReviewSection } from "../../generated/BoardReviewSection";
-import { afterDrop, coveredWidth, dropCard, openApproveChoice } from "./Board";
+import { afterDrop, coveredWidth, dropCard } from "./Board";
 import { EMPTY_BOX, fileAttachment, pastedAttachment, withAdded } from "../editor/commentRules";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import { BlockedBody } from "./BlockedDialog";
@@ -111,20 +110,6 @@ const cardOf = (key: string): BoardCard => ({
     pieces: null,
     open_terminal: "Open terminal",
   },
-});
-
-const sectionOf = (key: string): BoardReviewSection => ({
-  id: "ready_for_review",
-  target: null,
-  title: "READY FOR REVIEW",
-  count: "1",
-  cards: [cardOf(key)],
-  hidden: null,
-  empty: "",
-  note: null,
-  drag_hint: null,
-  fold: "",
-  unfold: "",
 });
 
 const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
@@ -286,7 +271,7 @@ describe("drops", () => {
       asked.push([method, params]);
       return Promise.resolve(null);
     };
-    afterDrop(park, () => undefined, ask);
+    afterDrop(park, ask);
     const open = overlays.store.get();
     expect(open.map((o) => o.id)).toEqual(["confirm"]);
     const confirm = open[0];
@@ -299,79 +284,22 @@ describe("drops", () => {
     expect(asked).toEqual([["board.park", { key: "SHOP-25" }]]);
   });
 
-  it("a drop on Approved shows the approve choice and moves nothing; its choices open their dialogs", async () => {
-    const menus: string[] = [];
-    const asked: [string, unknown][] = [];
-    const ask = (method: string, params?: unknown) => {
-      asked.push([method, params]);
-      return Promise.resolve(
-        method === "board.drop"
-          ? ({
-              kind: "approve",
-              menu: {
-                key: "SHOP-18",
-                title: "Approve SHOP-18 Checkout API",
-                items: [],
-                note: "",
-                direct: null,
-              },
-            } satisfies DropOutcome)
-          : null,
-      );
-    };
-    await dropCard("SHOP-18", "approved", (menu) => menus.push(menu.title), ask);
-    expect(menus).toEqual(["Approve SHOP-18 Checkout API"]);
-    // The drop only asked what to do: until 1 or 2 is picked nothing else is sent, so Esc leaves the card in Ready
-    // for Review (the choice closes without a request).
-    expect(asked).toEqual([["board.drop", { key: "SHOP-18", target: "approved" }]]);
-    expect(overlays.store.get()).toEqual([]);
-    openApproveChoice("local_merge", "SHOP-18");
-    openApproveChoice("push_to_pr", "SHOP-26");
-    openApproveChoice("merge_into", "SHOP-20");
-    openApproveChoice("done_not_merged", "SHOP-21");
-    expect(overlays.store.get()).toEqual([
-      { id: "local_merge", params: { ticket: "SHOP-18" } },
-      { id: "open_pr", params: { ticket: "SHOP-26" } },
-      { id: "merge_into", params: { ticket: "SHOP-20" } },
-      { id: "done_not_merged", params: { ticket: "SHOP-21" } },
-    ]);
-  });
-
-  it("a drop with one way to deliver opens its dialog without the choice (dogfood #18)", () => {
-    const menus: string[] = [];
-    afterDrop(
-      {
-        kind: "approve",
-        menu: {
-          key: "SHOP-41",
-          title: "Approve SHOP-41 Wishlist API",
-          items: [],
-          note: "",
-          direct: "local_merge",
-        },
-      },
-      (menu) => menus.push(menu.title),
-    );
-    expect(menus).toEqual([]);
-    expect(overlays.store.get()).toEqual([{ id: "local_merge", params: { ticket: "SHOP-41" } }]);
-  });
-
   it("a move needs nothing more; a not-yet move and a refusal are toasts", async () => {
     const asked: [string, unknown][] = [];
     const ask = (method: string, params?: unknown) => {
       asked.push([method, params]);
-      if (method === "board.drop") return Promise.reject(new Error("PR rework isn't available yet"));
+      if (method === "board.drop") return Promise.reject(new Error("This move isn't available yet"));
       return Promise.resolve(null);
     };
-    afterDrop({ kind: "moved" }, () => undefined, ask);
+    afterDrop({ kind: "moved" }, ask);
     expect(asked).toEqual([]);
-    afterDrop({ kind: "not_yet", message: "This move isn’t available yet" }, () => undefined, ask);
+    afterDrop({ kind: "not_yet", message: "This move isn’t available yet" }, ask);
     expect(asked[0]?.[0]).toBe("notices.toast");
-    await dropCard("SHOP-26", "review", () => undefined, ask);
+    await dropCard("SHOP-26", "review", ask);
     expect(asked[1]).toEqual(["board.drop", { key: "SHOP-26", target: "review" }]);
     expect(asked[2]).toEqual([
       "notices.toast",
-      { level: "error", title: "PR rework isn't available yet", text: null, link: null, ticket: null },
+      { level: "error", title: "This move isn't available yet", text: null, link: null, ticket: null },
     ]);
     expect(overlays.store.get()).toEqual([]);
   });
@@ -451,7 +379,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
       asked.push(method);
       return Promise.resolve(null);
     };
-    afterDrop({ kind: "drag_back", dialog: sendBack }, () => undefined, ask);
+    afterDrop({ kind: "drag_back", dialog: sendBack }, ask);
     expect(overlays.store.get()).toEqual([{ id: "drag_back", params: sendBack }]);
     expect(asked).toEqual([]);
   });
@@ -465,14 +393,10 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
       keep: "Keep it waiting",
     };
     const asked: string[] = [];
-    afterDrop(
-      { kind: "blocked", dialog: blocked },
-      () => undefined,
-      (method: string) => {
-        asked.push(method);
-        return Promise.resolve(null);
-      },
-    );
+    afterDrop({ kind: "blocked", dialog: blocked }, (method: string) => {
+      asked.push(method);
+      return Promise.resolve(null);
+    });
     expect(overlays.store.get()).toEqual([{ id: "blocked", params: blocked }]);
     expect(asked).toEqual([]);
     const out = renderToStaticMarkup(createElement(BlockedBody, { view: blocked }));
@@ -584,7 +508,6 @@ describe("the board screen", () => {
     icon: "eye",
     count: "0",
     quiet_icon: false,
-    folded: [],
     tooltip: null,
     hint: null,
     empty_hint: "Agents move their ticket here when they submit it for your review.",
@@ -594,7 +517,6 @@ describe("the board screen", () => {
     menu_label: "Column menu",
     hidden: null,
     cards: [],
-    sections: [],
     dev: null,
     add: null,
     ...over,
@@ -661,7 +583,7 @@ describe("the board screen", () => {
     );
   });
 
-  it("heads a stage with its muted kind icon, its folded stages and who runs it (FLW-12)", () => {
+  it("heads a stage with its muted kind icon and who runs it (FLW-12)", () => {
     const dev = renderToStaticMarkup(
       createElement(
         Column,
@@ -673,34 +595,18 @@ describe("the board screen", () => {
             icon: "bot",
             quiet_icon: true,
             count: "3",
-            folded: [{ tag: "Validating", count: "1" }],
             tooltip: { title: "Dev · Rust developer · work-ticket", detail: ["Claude Code · sonnet"] },
           }),
         ),
       ),
     );
     expect(dev).toContain('style="color:var(--text-muted)"');
-    expect(dev).toMatch(/board-column-title">Dev<.*board-column-count">3<.*·.*Validating<.*>1</);
+    expect(dev).toMatch(/board-column-title">Dev<.*board-column-count">3</);
     // The tooltip wraps the title (it shows on hover).
     expect(dev).toMatch(/tooltip-anchor[^>]*><span class="board-column-title">Dev</);
     // The default flow's icons keep their status colour.
     const review = renderToStaticMarkup(createElement(Column, props(column({}))));
     expect(review).toContain('style="color:var(--st-review)"');
-    expect(review).not.toContain("board-column-folded");
-  });
-
-  it("shrinks a folded stage's name with the title, so neither is squeezed to a letter", async () => {
-    // Two check stages in one column ("Validate 0 · Validate · Security reviewer 0"): the folded name used to keep
-    // its whole width and the title shrank to "V…". Read as text with Node's fs (CSS imports reach tests empty).
-    const fsModule = "node:fs";
-    const fs = (await import(fsModule)) as { readFileSync(path: string, encoding: "utf8"): string };
-    const here = (import.meta as ImportMeta & { dirname: string }).dirname;
-    const css = fs.readFileSync(`${here}/board.css`, "utf8");
-    const rule = (name: string) => new RegExp(`\\n\\.${name} \\{([^}]*)\\}`).exec(css)?.[1] ?? "";
-    expect(rule("board-column-folded")).toContain("flex: 0 1 auto;");
-    expect(rule("board-column-folded")).toContain("min-width: 0;");
-    expect(rule("board-column-folded-tag")).toContain("text-overflow: ellipsis;");
-    expect(rule("board-column-count")).toContain("flex: none;");
   });
 
   it("draws a folded column as its rail: icon, count, the needs-you dot and its name (`s26-10`)", () => {
@@ -767,69 +673,6 @@ describe("the board screen", () => {
 });
 
 describe("the Review column (T-0328, d0087)", () => {
-  // SHOP-18 is Ready for Review: Review is its home, Approved asks the Approve choice.
-  const RFR: DragAnswer = {
-    key: "SHOP-18",
-    targets: [
-      { target: "backlog", verdict: { kind: "forbidden", title: "No", detail: null } },
-      { target: "ready_for_dev", verdict: { kind: "forbidden", title: "No", detail: null } },
-      { target: "dev", verdict: { kind: "forbidden", title: "No", detail: null } },
-      { target: "review", verdict: { kind: "home" } },
-      {
-        target: "approved",
-        verdict: {
-          kind: "allowed",
-          icon: "circle-check",
-          hint: "Drop to approve SHOP-18 → choose Local merge or Open PR",
-          note: null,
-        },
-      },
-      { target: "done", verdict: { kind: "forbidden", title: "No", detail: null } },
-    ],
-  };
-  // Approved's section: from its label (y 300) down to the column's bottom.
-  const REVIEW_SPANS = [...SPANS, { id: "approved", left: 682, right: 1122, top: 300, bottom: 900 }] as const;
-
-  it("finds Approved by its section and the rest of Review by its column", () => {
-    expect(columnAt(REVIEW_SPANS, 700, 320)).toBe("approved");
-    expect(columnAt(REVIEW_SPANS, 700, 200)).toBe("review");
-    expect(columnAt(REVIEW_SPANS, 300, 320)).toBe("ready_for_dev");
-    const sections = (id: string) =>
-      id === "review"
-        ? [{ ...sectionOf("NOTE-7") }, { ...sectionOf("NOTE-8"), id: "approved", target: "approved" }]
-        : [];
-    expect(
-      targetOrder(
-        ["backlog", "ready_for_dev", "dev", "review", "done"].map((id) => ({ id, sections: sections(id) })),
-      ),
-    ).toEqual(["backlog", "ready_for_dev", "dev", "review", "approved", "done"]);
-  });
-
-  it("looks up each section's verdict: Ready for Review drops on Approved, not on its own section", async () => {
-    let answer: (value: unknown) => void = () => undefined;
-    const drag = createDrag(
-      () =>
-        new Promise((resolve) => {
-          answer = resolve;
-        }),
-      { onState: () => undefined },
-    );
-    drag.press("SHOP-18", 700, 150);
-    drag.move(705, 160, () => REVIEW_SPANS);
-    answer(RFR);
-    await flush();
-    expect(drag.state()?.over).toBe("review");
-    drag.move(705, 400, () => REVIEW_SPANS);
-    expect(drag.state()?.over).toBe("approved");
-    expect(drag.release()).toEqual({ kind: "drop", key: "SHOP-18", target: "approved" });
-
-    drag.press("SHOP-18", 700, 150);
-    drag.move(705, 200, () => REVIEW_SPANS);
-    answer(RFR);
-    await flush();
-    expect(drag.release(), "home").toEqual({ kind: "none" });
-  });
-
   const card = (key: string): BoardCard => ({
     kind: "ticket",
     needs_you: false,
@@ -856,49 +699,23 @@ describe("the Review column (T-0328, d0087)", () => {
       open_terminal: "Open terminal",
     },
   });
-  const section = (over: Partial<BoardReviewSection>): BoardReviewSection => ({
-    id: "ready_for_review",
-    target: null,
-    title: "READY FOR REVIEW",
-    count: "0",
-    cards: [],
-    hidden: null,
-    empty: "Nothing to review",
-    note: null,
-    drag_hint: null,
-    fold: "Fold Ready for Review",
-    unfold: "Unfold Ready for Review",
-    ...over,
-  });
+  // A ticket waiting for you and one being delivered (PR open): one list, with no sections.
   const review: BoardColumn = {
     id: "review",
     kind: "human_check",
     title: "Review",
     icon: "eye",
-    count: "1",
+    count: "2",
     quiet_icon: false,
-    folded: [],
     tooltip: null,
     hint: null,
-    empty_hint: "",
+    empty_hint: "Agents move their ticket here when they submit it for your review.",
     collapsed: false,
     rail: null,
     menu: [],
     menu_label: "Column menu",
     hidden: null,
-    cards: [],
-    sections: [
-      section({ count: "1", cards: [card("NOTE-7")] }),
-      section({
-        id: "approved",
-        target: "approved",
-        title: "APPROVED",
-        empty: "Nothing approved",
-        drag_hint: "Drag a ticket here from Ready for Review to approve it.",
-        fold: "Fold Approved",
-        unfold: "Unfold Approved",
-      }),
-    ],
+    cards: [card("NOTE-7"), card("NOTE-8")],
     dev: null,
     add: null,
   };
@@ -923,38 +740,26 @@ describe("the Review column (T-0328, d0087)", () => {
     element: () => undefined,
   };
 
-  it("draws both sections with their counts, and an empty one's line", () => {
+  it("lists its cards in one list, with no Approved section; the keyboard walks them all", () => {
     const drawn = renderToStaticMarkup(createElement(Column, props));
-    expect(drawn).toContain("READY FOR REVIEW");
     expect(drawn).toContain('data-card="NOTE-7"');
-    expect(drawn).toContain("Nothing approved");
-    expect(drawn.indexOf("NOTE-7")).toBeLessThan(drawn.indexOf("APPROVED"));
+    expect(drawn).toContain('data-card="NOTE-8"');
+    expect(drawn).not.toContain("APPROVED");
+    expect(drawn).not.toContain("data-section");
+    expect(walkOf(review).map((c) => c.card.key)).toEqual(["NOTE-7", "NOTE-8"]);
+    expect(targetOrder([{ id: "backlog" }, { id: "dev" }, { id: "review" }, { id: "done" }])).toEqual([
+      "backlog",
+      "dev",
+      "review",
+      "done",
+    ]);
   });
 
-  it("a folded section keeps its label and count, hides its cards, and the keyboard skips them", () => {
+  it("an empty Review says what comes there", () => {
     const drawn = renderToStaticMarkup(
-      createElement(Column, { ...props, foldedSections: ["ready_for_review"] }),
+      createElement(Column, { ...props, column: { ...review, cards: [], count: "0" } }),
     );
-    expect(drawn).toContain("READY FOR REVIEW");
-    expect(drawn).toMatch(/aria-expanded="false"[^]*READY FOR REVIEW[^]*>1</);
-    expect(drawn).not.toContain('data-card="NOTE-7"');
-    expect(walkOf(review, ["ready_for_review"])).toEqual([]);
-    expect(walkOf(review).map((c) => c.card.key)).toEqual(["NOTE-7"]);
-  });
-
-  it("lights Approved with the hint only while the card is over it; an empty Approved says how meanwhile", () => {
-    const verdict = RFR.targets.find((t) => t.target === "approved")?.verdict;
-    const near = renderToStaticMarkup(
-      createElement(Column, { ...props, dragging: true, approved: { verdict, over: false } }),
-    );
-    expect(near).toContain("Drag a ticket here from Ready for Review");
-    expect(near).not.toContain("Drop to approve");
-    expect(near).not.toContain('data-section="approved" data-verdict');
-    const over = renderToStaticMarkup(
-      createElement(Column, { ...props, dragging: true, approved: { verdict, over: true } }),
-    );
-    expect(over).toContain('data-section="approved" data-verdict="allowed"');
-    expect(over).toContain("Drop to approve SHOP-18 → choose Local merge or Open PR");
+    expect(drawn).toContain("Agents move their ticket here when they submit it for your review.");
   });
 });
 
@@ -1117,7 +922,6 @@ describe("the sheet over the board (SHL-05)", () => {
       icon: "eye",
       count: "0",
       quiet_icon: false,
-      folded: [],
       tooltip: null,
       hint: null,
       empty_hint: "",
@@ -1126,8 +930,7 @@ describe("the sheet over the board (SHL-05)", () => {
       menu: [],
       menu_label: "Column menu",
       hidden: null,
-      cards: id === "dev" ? [{ ...cardOf("NOTE-6") }] : [],
-      sections: id === "review" ? [{ ...sectionOf("NOTE-7") }] : [],
+      cards: id === "dev" ? [{ ...cardOf("NOTE-6") }] : id === "review" ? [{ ...cardOf("NOTE-7") }] : [],
       dev: null,
       add: null,
     }));

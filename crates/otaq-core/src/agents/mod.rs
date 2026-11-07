@@ -3,11 +3,12 @@
 //! the tool's own effort level where the tool has a documented one. Agents belong to the account and are shared by
 //! every project; flows name them by name and Otaq keeps their ids, so a rename changes nothing.
 //!
-//! - The types: [`Agent`], [`AgentModel`], [`Role`] (the two roles an agent can hold), [`CameFrom`],
-//!   [`ModelRef`] (a tool and a model: the default model) and [`SessionRole`] (which kind of
-//!   session a hold or a token count is about).
-//! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, move a role, the default model). An
-//!   agent has no skills: a stage's `skill:` is the only place a skill is picked (T6).
+//! - The types: [`Agent`], [`AgentModel`], [`CameFrom`], [`ModelRef`] (a tool and a model: the default model) and
+//!   [`SessionRole`] (which kind of session a hold or a token count is about).
+//! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, the agent Noyan uses, the default
+//!   model). An agent has no skills: a stage's `skill:` is the only place a skill is picked (T6). An agent has no
+//!   role either: each stage names its agent, and Noyan's agent is one app setting (the agent Noyan uses), which a
+//!   new conversation may swap for another.
 //! - [`store`]: the tables; [`shipped`]: Otaq's agents file and the default flow's agents, applied at the first
 //!   start; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
 //!   [`gate`]: the check before every launch: an agent whose tool can't run waits for it; [`limits`]: the
@@ -37,36 +38,9 @@ use crate::session::{SessionAgent, StoredConversation};
 pub use in_use::InUse;
 
 stored_enum! {
-    /// The role an agent can hold (AGM-01, d0108, d0133): Otaq starts "the agent with that role" for a project's
-    /// Project agent, so a rename changes nothing. Exactly one agent holds it.
-    pub enum Role ("agent role") {
-        /// The Project agent (d0068, d0091, d0128): onboarding, Split, proposals.
-        ProjectAgent = "noyan",
-    }
-}
-
-impl Role {
-    /// The role as people read it: "Noyan".
-    pub fn label(self) -> &'static str {
-        match self {
-            Self::ProjectAgent => "Noyan",
-        }
-    }
-
-    /// AGM-01's refusal of deleting the agent holding the role, or removing its role: "Noyan has the Noyan role.
-    /// Give the role to another agent first".
-    pub fn holder_refusal(self, name: &str) -> String {
-        format!(
-            "{name} has the {} role. Give the role to another agent first",
-            self.label()
-        )
-    }
-}
-
-stored_enum! {
     /// Which kind of session something is about: a hold (stored as its `role`), a token count, a running session.
     /// The Developer is an Agent stage's session (and its answers and PR), the Validator an agent check's round, the
-    /// Project agent runs its role's agent.
+    /// Project agent is a Noyan conversation (on the agent Noyan uses, or the one picked for the conversation).
     pub enum SessionRole ("session role") {
         Developer = "developer",
         Validator = "validator",
@@ -81,14 +55,6 @@ impl SessionRole {
             Self::Developer => "Developer",
             Self::Validator => "Checker",
             Self::ProjectAgent => "Noyan",
-        }
-    }
-
-    /// The role whose agent this session runs: the Project agent's.
-    pub fn role(self) -> Option<Role> {
-        match self {
-            Self::ProjectAgent => Some(Role::ProjectAgent),
-            Self::Developer | Self::Validator => None,
         }
     }
 }
@@ -235,8 +201,6 @@ pub struct Agent {
     /// ([`Tool::effort_levels`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub role: Option<Role>,
     pub came_from: CameFrom,
     pub mark: Option<Mark>,
     pub created_at: i64,
@@ -350,8 +314,7 @@ impl ModelCatalog for FixedModels {
 }
 
 /// An agent's fields as its page sends them (`agents.add`, `agents.edit`) and as Duplicate's draft ("<name> copy",
-/// not saved). A model text comes from the tool's list (`"default"` or empty = the tool's default). The role moves
-/// with its own request (`agents.move_role`).
+/// not saved). A model text comes from the tool's list (`"default"` or empty = the tool's default).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentFields {
     pub name: String,
@@ -363,12 +326,22 @@ pub struct AgentFields {
 }
 
 /// The answer to `agents.list`: every agent (oldest first), the default model for new agents (`None` until a tool
-/// connects).
+/// connects) and the agent Noyan uses (its id; `None` while none is set).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentList {
     pub agents: Vec<Agent>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub default_model: Option<ModelRef>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub noyan_agent: Option<String>,
+}
+
+impl AgentList {
+    /// The agent Noyan uses, when it is one of the agents.
+    pub fn noyan(&self) -> Option<&Agent> {
+        let id = self.noyan_agent.as_deref()?;
+        self.agents.iter().find(|a| a.id == id)
+    }
 }
 
 /// What a session launches on (AGM-05, ADP-04; d0088 "The exact tool, model and agent are saved on the session"):
@@ -467,6 +440,7 @@ impl Agents {
         Ok(AgentList {
             agents: store.agents().await?,
             default_model: store.default_model().await?,
+            noyan_agent: store.noyan_agent_id().await?,
         })
     }
 
@@ -514,8 +488,8 @@ impl Agents {
         })
     }
 
-    /// Deletes an agent nothing uses (AGM-01): refused for a role's agent ("Noyan has the Noyan role. Give the role
-    /// to another agent first") and while a stage or a stage option names it ("Spec writer is used in shop-web ·
+    /// Deletes an agent nothing uses (AGM-01): refused for the agent Noyan uses ("Noyan uses Strong. Pick another
+    /// agent for Noyan first") and while a stage or a stage option names it ("Spec writer is used in shop-web ·
     /// Product spec. Change that stage first.").
     pub async fn delete(&self, id: &str) -> Result<(), BoardError> {
         let uses = self.in_use(id).await?;
@@ -532,18 +506,12 @@ impl Agents {
         in_use::in_use(&self.board, &agent).await
     }
 
-    /// Gives `role` to the agent `to` (AGM-01: "the role can be moved to another agent"), in one step: the agent
-    /// that held it loses it. Refused when `to` holds another role, which would be left without its agent.
-    pub async fn move_role(&self, role: Role, to: &str) -> Result<Agent, BoardError> {
-        let agent = self.agent(to).await?;
-        if let Some(held) = agent.role.filter(|held| *held != role) {
-            return Err(BoardError::refused(
-                Refusal::AgentInUse,
-                held.holder_refusal(&agent.name),
-            ));
-        }
-        self.board.store().move_role(role, to).await?;
-        self.agent(to).await
+    /// The agent Noyan uses (an app setting): every new Noyan conversation starts on it unless the conversation
+    /// picks another. The next conversation uses it; running ones keep the agent they started on.
+    pub async fn set_noyan(&self, id: &str) -> Result<AgentList, BoardError> {
+        let agent = self.agent(id).await?;
+        self.board.store().set_noyan_agent(&agent.id).await?;
+        self.list().await
     }
 
     /// Default model for new agents (AGM-03): a tool and a model from its list.
@@ -611,7 +579,6 @@ impl Agents {
             instructions: fields.instructions.clone(),
             model,
             effort,
-            role: editing.and_then(|a| a.role),
         })
     }
 
@@ -683,13 +650,7 @@ mod tests {
     }
 
     #[test]
-    fn roles_are_stored_as_the_files_name_them() {
-        let stored: Vec<&str> = Role::ALL.iter().map(|r| r.as_str()).collect();
-        assert_eq!(stored, ["noyan"]);
-        assert_eq!(
-            Role::ProjectAgent.holder_refusal("Noyan"),
-            "Noyan has the Noyan role. Give the role to another agent first"
-        );
+    fn session_roles_are_stored_as_named() {
         let sessions: Vec<&str> = SessionRole::ALL.iter().map(|r| r.as_str()).collect();
         assert_eq!(sessions, ["developer", "validator", "project_agent"]);
     }

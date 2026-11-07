@@ -213,6 +213,32 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
     .map_err(|e| e.to_string())
 }
 
+/// The theme mode, for the window's own parts ([`crate::window::native_appearance`]): its title bar and menus, and the
+/// menu-bar icon's menu, whose dots are drawn again for it. The page calls it whenever the theme it shows changes.
+#[tauri::command]
+fn window_theme(window: tauri::WebviewWindow, mode: otaq_view::theme::Mode) -> Result<(), String> {
+    use otaq_view::theme::Appearance;
+    let theme = crate::window::native_appearance(mode).map(|appearance| match appearance {
+        Appearance::Light => tauri::Theme::Light,
+        Appearance::Dark => tauri::Theme::Dark,
+    });
+    window.set_theme(theme).map_err(|e| e.to_string())?;
+    let handle = tauri::Manager::app_handle(&window);
+    let shown = {
+        use tauri::Manager;
+        handle
+            .state::<ShownStatusSummary>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner())
+            .clone()
+    };
+    if let (Some(summary), Some(icon)) = (shown, handle.tray_by_id(STATUS_ICON)) {
+        set_status_menu(handle, &icon, &summary).map_err(|e| e.to_string())?;
+    }
+    Ok(())
+}
+
 /// The window's place as last seen, saved when the app quits.
 struct Placement {
     file: Option<PathBuf>,
@@ -402,6 +428,10 @@ struct StatusIconUp(AtomicBool);
 /// its menu, and the latest summary's is set once it closes ([`set_status_menu`]).
 #[derive(Default)]
 struct PendingStatusMenu(Mutex<Option<otaq_view::view_models::status_icon::Summary>>);
+
+/// The summary the icon shows, so its menu can be drawn again when the window's appearance changes.
+#[derive(Default)]
+struct ShownStatusSummary(Mutex<Option<otaq_view::view_models::status_icon::Summary>>);
 
 /// How often a waiting menu checks whether the open one has closed.
 const PENDING_MENU_CHECK: std::time::Duration = std::time::Duration::from_millis(250);
@@ -763,6 +793,14 @@ fn show_status_icon(
     let Some(icon) = handle.tray_by_id(STATUS_ICON) else {
         return Ok(());
     };
+    {
+        use tauri::Manager;
+        *handle
+            .state::<ShownStatusSummary>()
+            .0
+            .lock()
+            .unwrap_or_else(|e| e.into_inner()) = Some(summary.clone());
+    }
     icon.set_icon(Some(status_image(handle, summary)?))?;
     if cfg!(target_os = "macos") {
         icon.set_icon_as_template(true)?;
@@ -1297,6 +1335,7 @@ pub fn run(
         .manage(placement)
         .manage(StatusIconUp::default())
         .manage(PendingStatusMenu::default())
+        .manage(ShownStatusSummary::default())
         .register_asynchronous_uri_scheme_protocol(
             crate::attachment_images::SCHEME,
             move |_, request, responder| {
@@ -1308,6 +1347,7 @@ pub fn run(
             subscribe_events,
             attach_terminal,
             window,
+            window_theme,
             pick_folder,
             pick_flow_file,
             pick_report_file,

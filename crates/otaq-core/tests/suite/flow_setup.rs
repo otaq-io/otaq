@@ -20,7 +20,7 @@ use std::time::Duration;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::agent_tools::{LaunchContext, Tool};
-use otaq_core::agents::{AgentModel, FixedModels, Role};
+use otaq_core::agents::{AgentModel, FixedModels};
 use otaq_core::board::batch::parse_markdown;
 use otaq_core::board::projects::{AddProject, flow_not_set_up};
 use otaq_core::board::tickets::NewTicketInput;
@@ -98,8 +98,8 @@ fn heard(bin: &Path) -> std::path::PathBuf {
     bin.with_file_name("heard")
 }
 
-/// Claude Code and OpenCode connected, Copilot found but signed out, Codex not installed; the Project agent role's
-/// agent on Claude Code's opus at high effort.
+/// Claude Code and OpenCode connected, Copilot found but signed out, Codex not installed; the agent Noyan
+/// uses on Claude Code's opus at high effort.
 async fn world() -> World {
     let tools = TempDir::new().unwrap();
     let bin = tools.path().join("bin");
@@ -110,10 +110,10 @@ async fn world() -> World {
     let role = w
         .board
         .store()
-        .role_agent(Role::ProjectAgent)
+        .noyan_agent()
         .await
         .unwrap()
-        .expect("a Project agent");
+        .expect("the agent Noyan uses");
     w.edit_agent(&role.name, |page| {
         page.model = AgentModel::Tool {
             tool: Tool::Claude,
@@ -284,7 +284,7 @@ async fn asking_starts_a_flow_agent_on_the_tool_default_one_per_tool() {
     let World { w, _tools } = world().await;
     let shop = add_in_flow_setup(&w, "shop-web").await;
 
-    // An ordinary Project agent runs on the role's model; a flow agent on the asked tool with no model option.
+    // An ordinary Project agent runs on its agent's model; a flow agent on the asked tool with no model option.
     let ordinary = w
         .project_agents
         .open(&shop, "Why is checkout slow?")

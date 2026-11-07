@@ -89,6 +89,7 @@ pub fn sending(choice: &Choice) -> String {
     match choice {
         Choice::Other(text) => format!("Your answer: {text}"),
         Choice::Option(n) => format!("Your answer: option {n}"),
+        Choice::SendBack => "Your answer: send it back".to_owned(),
     }
 }
 
