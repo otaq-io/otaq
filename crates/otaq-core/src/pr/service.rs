@@ -561,7 +561,11 @@ impl Prs {
             ));
         }
         board.end_pr_flow(&ticket.id).await?;
-        self.end_delivery(&ticket).await?;
+        // A click's Open PR ran nothing before the confirm: a delivery session there is the one writing the
+        // delivery's message, which goes on.
+        if flow.kind == FlowKind::Push || flow.automatic {
+            self.end_delivery(&ticket).await?;
+        }
         let mut tx = board.store().begin_write().await?;
         record_event(
             &mut tx,
