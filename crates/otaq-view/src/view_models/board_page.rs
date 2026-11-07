@@ -35,6 +35,7 @@ use crate::view_models::check_dialogs;
 use crate::view_models::close;
 use crate::view_models::drag::{self, DropAction, DropFeedback};
 use crate::view_models::empty_board;
+use crate::view_models::filter::Scope;
 use crate::view_models::flow_columns::{self, ColumnKind, Columns};
 use crate::view_models::list_view;
 use crate::view_models::search_page::FilterState;
@@ -536,8 +537,9 @@ pub fn page(
     now_ms: i64,
     keys: &KeyLabels,
 ) -> BoardPage {
-    let filter = params.filter.filter();
-    let mut visible = filter.visible(tickets);
+    let scope = Scope::of(project.flow, tickets, project.agents, project.agent_list);
+    let filter = params.filter.filter(&scope);
+    let mut visible = filter.visible(tickets, &scope);
     // The agent filter (d0087) narrows whatever the search shows.
     let agent_filter = project
         .agent_filter

@@ -179,3 +179,51 @@ async fn the_default_flow_has_a_path_and_a_choice_per_agent_stage() {
     assert!(t.path.iter().all(|s| !s.skipped));
     w.stop().await;
 }
+
+/// The search's agent filter reads each card's stage agent: the agent of the stage the ticket is in, its own pick
+/// there if it made one, else the stage's; none in a check by you or in Backlog.
+#[tokio::test(flavor = "multi_thread")]
+async fn each_card_names_the_agent_of_its_stage() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let picked = w.create("SHOP", "Fix README typo").await;
+    let validating = w.create("SHOP", "Saved carts").await;
+    let in_qa = w.create("SHOP", "Gift cards").await;
+    w.create("SHOP", "Wishlist").await;
+    choose(
+        &w,
+        "SHOP-1",
+        &[pick("Dev", "Quick developer", None)],
+        &Chooser::User,
+    )
+    .await;
+    for (ticket, state, stage) in [
+        (&picked, "working", "dev"),
+        (&validating, "validating", "validate"),
+        (&in_qa, "ready_for_review", "qa"),
+    ] {
+        sqlx::query("UPDATE tickets SET state = ?, stage_id = ? WHERE id = ?")
+            .bind(state)
+            .bind(stage)
+            .bind(&ticket.id)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+    }
+    let board = board_agents(&w.board, "SHOP").await.unwrap();
+    let agent = |key: &str| {
+        board
+            .cards
+            .iter()
+            .find(|c| c.key.to_string() == key)
+            .unwrap()
+            .stage_agent
+            .clone()
+    };
+    assert_eq!(agent("SHOP-1").as_deref(), Some("Quick developer"));
+    assert_eq!(agent("SHOP-2").as_deref(), Some("Validator"));
+    assert_eq!(agent("SHOP-3"), None, "a check by you");
+    assert_eq!(agent("SHOP-4"), None, "Backlog");
+    w.stop().await;
+}

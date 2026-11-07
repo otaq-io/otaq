@@ -1100,6 +1100,7 @@ mod tests {
                 model: None,
             }),
             refused_agent: None,
+            stage_agent: None,
         };
         let agents = BoardAgents {
             agent_count: 5,

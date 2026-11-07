@@ -1235,6 +1235,10 @@
         "running_validator_on": {
           "ty": "Option<RunsOnTool>"
         },
+        "stage_agent": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "starts": {
           "ty": "Option<CardStart>",
           "omittable": true

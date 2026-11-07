@@ -1,17 +1,20 @@
 // The header's search and filter field (*03 · Board & columns → Search & filter*; UI-02, EPC-01, KEY-09), drawn
 // by the header in place of its search entry (the `header_search` slot). Filter the board (`/`) focuses it; typing filters the board as
 // you type; a finished token (`is:needs-you `) becomes a chip with its ×; the list under the field suggests filters
-// with their counts (↑/↓ and ↵, or a click, add one); ↵ on a half-typed token adds the first suggestion, and on
-// "cleanup" opens Recovery and Cleanup; Esc clears the filter and leaves. What it says is `board.search`'s.
+// with their counts (↑/↓ and ↵, or a click, add one), then lists the matching tickets with their column and status,
+// Done included (↵ or a click opens one); ↵ on a half-typed token adds the first suggestion, on "cleanup" opens
+// Recovery and Cleanup, and otherwise opens the first ticket listed; Esc clears the filter and leaves. What it says
+// is `board.search`'s.
 import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
-import { useSelection } from "../../app/selection";
+import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, useFloatingStyle, PLAIN_TEXT } from "../../components";
+import { Kbd, useFloatingStyle, PLAIN_TEXT, StatusPill } from "../../components";
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { SearchParams } from "../../generated/SearchParams";
 import type { SearchSuggestion } from "../../generated/SearchSuggestion";
+import type { SearchTicket } from "../../generated/SearchTicket";
 import type { SearchView } from "../../generated/SearchView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -39,20 +42,64 @@ export function stepSuggestion(
   return (current + (key === "ArrowDown" ? 1 : count - 1)) % count;
 }
 
+/** How many rows ↑/↓ walk: the suggestions, then the tickets. */
+export function rowCount(view: SearchView | undefined): number {
+  return (view?.suggestions.length ?? 0) + (view?.tickets.length ?? 0);
+}
+
+/** What ↵ does. */
+export type EnterAction =
+  { kind: "cleanup" } | { kind: "add"; token: string } | { kind: "open"; key: string } | null;
+
+/**
+ * ↵: "cleanup" opens Recovery and Cleanup; a highlighted row adds its filter or opens its ticket; else a half-typed
+ * token adds the first suggestion, and anything else opens the first ticket listed.
+ */
+export function enterAction(view: SearchView | undefined, highlighted: number | null): EnterAction {
+  if (!view) return null;
+  if (view.enter_opens_cleanup) return { kind: "cleanup" };
+  if (highlighted !== null) {
+    const suggestion = view.suggestions[highlighted];
+    if (suggestion) return { kind: "add", token: suggestion.token };
+    const ticket = view.tickets[highlighted - view.suggestions.length];
+    if (ticket) return { kind: "open", key: ticket.key };
+  }
+  if (view.enter_adds !== null) return { kind: "add", token: view.enter_adds };
+  if (view.enter_opens !== null) return { kind: "open", key: view.enter_opens };
+  return null;
+}
+
 interface SuggestionsProps {
   anchor: RefObject<HTMLElement | null>;
   header: string;
   suggestions: readonly SearchSuggestion[];
+  ticketsHeader: string;
+  tickets: readonly SearchTicket[];
   highlighted: number | null;
   onPick: (token: string) => void;
+  onOpen: (key: string) => void;
 }
 
-function Suggestions({ anchor, header, suggestions, highlighted, onPick }: SuggestionsProps) {
+function Suggestions({
+  anchor,
+  header,
+  suggestions,
+  ticketsHeader,
+  tickets,
+  highlighted,
+  onPick,
+  onOpen,
+}: SuggestionsProps) {
   const floating = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, floating);
+  const first = suggestions.length;
+  // ↑/↓ keep the highlighted row in sight when the list scrolls.
+  useEffect(() => {
+    floating.current?.querySelector("[data-highlighted]")?.scrollIntoView({ block: "nearest" });
+  }, [highlighted]);
   return (
     <div ref={floating} className="board-search-list" role="listbox" style={style}>
-      <div className="board-search-list-header">{header}</div>
+      {suggestions.length > 0 && <div className="board-search-list-header">{header}</div>}
       {suggestions.map((s, i) => (
         <button
           key={s.token}
@@ -75,6 +122,29 @@ function Suggestions({ anchor, header, suggestions, highlighted, onPick }: Sugge
           <span className="board-search-option-count">{s.count}</span>
         </button>
       ))}
+      {tickets.length > 0 && <div className="board-search-list-header">{ticketsHeader}</div>}
+      {tickets.map((t, i) => (
+        <button
+          key={t.key}
+          type="button"
+          role="option"
+          tabIndex={-1}
+          aria-selected={first + i === highlighted}
+          className="board-search-option board-search-ticket"
+          data-highlighted={first + i === highlighted || undefined}
+          onMouseDown={(e) => {
+            e.preventDefault();
+          }}
+          onClick={() => {
+            onOpen(t.key);
+          }}
+        >
+          <span className="board-search-option-token">{t.key}</span>
+          <span className="board-search-option-text board-search-ticket-title">{t.title}</span>
+          <span className="board-search-ticket-column">{t.column}</span>
+          <StatusPill pill={t.status} />
+        </button>
+      ))}
     </div>
   );
 }
@@ -87,6 +157,7 @@ export interface SearchBoxProps {
   onType: (text: string) => void;
   onRemove: (index: number) => void;
   onPick: (token: string) => void;
+  onOpen: (key: string) => void;
   onKeyDown: (e: KeyboardEvent<HTMLInputElement>) => void;
   onFocusChange: (focused: boolean) => void;
   input?: RefObject<HTMLInputElement | null>;
@@ -101,6 +172,7 @@ export function SearchBox({
   onType,
   onRemove,
   onPick,
+  onOpen,
   onKeyDown,
   onFocusChange,
   input,
@@ -162,13 +234,16 @@ export function SearchBox({
       ) : (
         view?.keys != null && <Kbd keys={view.keys} />
       )}
-      {focused && view && view.suggestions.length > 0 && (
+      {focused && view && rowCount(view) > 0 && (
         <Suggestions
           anchor={box}
           header={view.suggestions_header}
           suggestions={view.suggestions}
+          ticketsHeader={view.tickets_header}
+          tickets={view.tickets}
           highlighted={highlighted}
           onPick={onPick}
+          onOpen={onOpen}
         />
       )}
     </div>
@@ -206,7 +281,7 @@ export function SearchField() {
     if (next) setFilter(project, next);
   }, [answer, project]);
 
-  const count = view?.suggestions.length ?? 0;
+  const count = rowCount(view);
   const highlighted =
     highlight !== null && highlight.text === filter.text && highlight.index < count ? highlight.index : null;
 
@@ -215,8 +290,12 @@ export function SearchField() {
     addToken(project, token);
     setHighlight(null);
   };
+  const open = (key: string) => {
+    setHighlight(null);
+    input.current?.blur();
+    openTicket(key);
+  };
   const onKeyDown = (e: KeyboardEvent<HTMLInputElement>) => {
-    const suggestions = view?.suggestions ?? [];
     switch (e.key) {
       case "Escape":
         e.preventDefault();
@@ -228,20 +307,22 @@ export function SearchField() {
         e.preventDefault();
         setHighlight({
           text: filter.text,
-          index: stepSuggestion(suggestions.length, highlighted, e.key) ?? 0,
+          index: stepSuggestion(count, highlighted, e.key) ?? 0,
         });
         return;
       case "Enter": {
         if (e.nativeEvent.isComposing) return;
         e.preventDefault();
-        if (view?.enter_opens_cleanup) {
+        const action = enterAction(view, highlighted);
+        if (action?.kind === "cleanup") {
           clearFilter(project);
           e.currentTarget.blur();
           openOverlay("cleanup");
-          return;
+        } else if (action?.kind === "add") {
+          pick(action.token);
+        } else if (action?.kind === "open") {
+          open(action.key);
         }
-        const chosen = highlighted !== null ? suggestions[highlighted]?.token : view?.enter_adds;
-        if (chosen) pick(chosen);
         return;
       }
       default:
@@ -262,6 +343,7 @@ export function SearchField() {
         removeToken(project, index);
       }}
       onPick={pick}
+      onOpen={open}
       onKeyDown={onKeyDown}
       onFocusChange={setFocused}
     />

@@ -44,6 +44,7 @@ use otaq_view::view_models::board_page::{
 use otaq_view::view_models::card_menu::{self, Choice};
 use otaq_view::view_models::delete::{self as delete_text, DeleteText};
 use otaq_view::view_models::menu::MenuItem;
+use otaq_view::view_models::filter::Scope;
 use otaq_view::view_models::search_page::{self, FilterState, SearchView};
 use otaq_view::view_models::send_back as sb;
 use otaq_view::view_models::terminal_strip::{Click, UnsentPrompt};
@@ -522,15 +523,33 @@ pub async fn park(app: &App, params: TicketParams) -> Result<(), RequestError> {
     Ok(())
 }
 
-/// The header's field: chips, the count, and the suggestions with theirs.
+/// The header's field: chips, the count, the suggestions with theirs, and the matching tickets.
 pub async fn search(app: &App, params: SearchParams) -> Result<SearchView, RequestError> {
     let board = snapshot(app, &params.project).await?;
     let tickets: Vec<Ticket> = board.tickets().cloned().collect();
     let selected = params.selected.and_then(|k| k.parse().ok());
+    // `in:` reads the flow's stages, `by:` the agent working each ticket's stage.
+    let agents = match app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: params.project.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::BoardAgents(agents)) => Some(*agents),
+        _ => None,
+    };
+    let agent_list = match app.service.send(Request::AgentsList).await {
+        Ok(Reply::Agents(list)) => Some(*list),
+        _ => None,
+    };
+    let flow = flow(app, &params.project).await;
+    let scope = Scope::of(&flow, &tickets, agents.as_ref(), agent_list.as_ref());
     Ok(search_page::view(
         &params.filter,
         &tickets,
         selected.as_ref(),
+        &scope,
         &super::keymap::labels(app).await,
     ))
 }

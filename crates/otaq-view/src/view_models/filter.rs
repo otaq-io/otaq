@@ -1,14 +1,108 @@
 //! Search and filter (UI-02; KEY-09: `/` focuses it; *03 · Board & columns → Search & filter*): one field does
 //! both. Free text matches the key and the title; tokens filter by state (`is:needs-you`, `is:working`, `has:run`,
-//! …) or by chain (`dep:SHOP-18`). Everything combines (all must match). Non-matching cards hide; columns show
+//! …), by chain (`dep:SHOP-18`), by the column a ticket is in (`in:review`, `in:backlog`, `in:done`) or by the agent
+//! working its stage (`by:strong`). Everything combines (all must match). Non-matching cards hide; columns show
 //! "shown/total".
 
-use crate::view_models::flow_columns::place_set;
+use std::collections::HashMap;
+
+use crate::view_models::flow_columns::{Columns, place_set};
+use otaq_core::agents::AgentList;
+use otaq_core::agents::facts::BoardAgents;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::StatusSet;
 use otaq_core::domain::{Status, TicketKey};
+use otaq_core::flow::Flow;
 
 use crate::view_models::chain::chain;
+
+/// A name as a filter word: lower case, its spaces as dashes ("Product spec" is `product-spec`).
+fn word(name: &str) -> String {
+    name.split_whitespace()
+        .collect::<Vec<_>>()
+        .join("-")
+        .to_lowercase()
+}
+
+/// What the stage and agent filters read besides the tickets: the board's columns (Backlog, every stage of the
+/// project's flow, Done), the column each ticket shows in, every agent and the agent working each ticket's stage.
+#[derive(Debug, Clone, Default, PartialEq, Eq)]
+pub struct Scope {
+    /// Each column's id and name, left to right.
+    pub columns: Vec<(String, String)>,
+    /// The column each ticket's card shows in, by id.
+    pub spots: HashMap<TicketKey, String>,
+    /// Every agent's name.
+    pub agents: Vec<String>,
+    /// The agent of the stage each ticket is in or waits before: its own choice there, else the stage's.
+    pub stage_agents: HashMap<TicketKey, String>,
+}
+
+impl Scope {
+    /// The scope of `tickets` on `flow`, with the cards' agents and every agent when they could be read.
+    pub fn of(
+        flow: &Flow,
+        tickets: &[Ticket],
+        cards: Option<&BoardAgents>,
+        list: Option<&AgentList>,
+    ) -> Self {
+        let columns = Columns::of(flow);
+        let stage_agents: HashMap<TicketKey, String> = cards
+            .map(|b| {
+                b.cards
+                    .iter()
+                    .filter_map(|c| Some((c.key.clone(), c.stage_agent.clone()?)))
+                    .collect()
+            })
+            .unwrap_or_default();
+        let mut agents: Vec<String> = list
+            .map(|l| l.agents.iter().map(|a| a.name.clone()).collect())
+            .unwrap_or_default();
+        for name in stage_agents.values() {
+            if !agents.iter().any(|a| word(a) == word(name)) {
+                agents.push(name.clone());
+            }
+        }
+        Self {
+            columns: columns
+                .iter()
+                .map(|c| (c.id.clone(), c.title.clone()))
+                .collect(),
+            spots: tickets
+                .iter()
+                .map(|t| (t.key.clone(), columns.spot(t).to_owned()))
+                .collect(),
+            agents,
+            stage_agents,
+        }
+    }
+
+    /// The column `value` names, by id or name, ignoring case: its id and name.
+    fn column(&self, value: &str) -> Option<&(String, String)> {
+        let value = word(value);
+        self.columns
+            .iter()
+            .find(|(id, name)| word(id) == value || word(name) == value)
+    }
+
+    /// The name of the column `key`'s card shows in.
+    pub fn column_of(&self, key: &TicketKey) -> Option<&str> {
+        let id = self.spots.get(key)?;
+        self.columns
+            .iter()
+            .find(|(c, _)| c == id)
+            .map(|(_, name)| name.as_str())
+    }
+
+    /// The agent `value` names, ignoring case.
+    fn agent(&self, value: &str) -> Option<&str> {
+        let value = word(value);
+        self.agents
+            .iter()
+            .find(|a| word(a) == value)
+            .map(String::as_str)
+    }
+}
 
 /// A state filter.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]
@@ -115,13 +209,31 @@ pub enum Token {
     Is(Is),
     /// In this ticket's chain (parents and children, transitively).
     Dep(TicketKey),
+    /// In this column (`in:review`): its id, and its name as the chip says it.
+    In {
+        column: String,
+        name: String,
+    },
+    /// The agent working the ticket's stage (`by:strong`), its name as a filter word.
+    By(String),
 }
 
 impl Token {
-    /// Reads `is:needs-you`, `has:run`, `dep:SHOP-18`. The old `is:needs-me` still reads as
-    /// `is:needs-you`, and `is:running` (agents only, d0093) as `is:working`.
-    pub fn parse(word: &str) -> Option<Self> {
-        let (kind, value) = word.split_once(':')?;
+    /// Reads `is:needs-you`, `has:run`, `dep:SHOP-18`, `in:review`, `by:strong`. The old `is:needs-me` still reads as
+    /// `is:needs-you`, and `is:running` (agents only, d0093) as `is:working`. A stage or agent `scope` doesn't have
+    /// reads as nothing, like any unknown filter: it stays typed text.
+    pub fn parse(text: &str, scope: &Scope) -> Option<Self> {
+        let (kind, value) = text.split_once(':')?;
+        match kind.to_lowercase().as_str() {
+            "in" => {
+                return scope.column(value).map(|(id, name)| Self::In {
+                    column: id.clone(),
+                    name: word(name),
+                });
+            }
+            "by" => return scope.agent(value).map(|name| Self::By(word(name))),
+            _ => {}
+        }
         let (kind, value) = (kind.to_lowercase(), value.to_lowercase());
         match (kind.as_str(), value.as_str()) {
             ("is", "needs-me") => return Some(Self::Is(Is::NeedsMe)),
@@ -142,6 +254,20 @@ impl Token {
         match self {
             Self::Is(i) => format!("{}:{}", i.kind(), i.name()),
             Self::Dep(k) => format!("dep:{k}"),
+            Self::In { name, .. } => format!("in:{name}"),
+            Self::By(name) => format!("by:{name}"),
+        }
+    }
+
+    fn matches(&self, t: &Ticket, all: &[Ticket], scope: &Scope) -> bool {
+        match self {
+            Self::Is(i) => i.matches(t),
+            Self::Dep(k) => chain(k, all).is_some_and(|c| c.members.contains(&t.key)),
+            Self::In { column, .. } => scope.spots.get(&t.key) == Some(column),
+            Self::By(name) => scope
+                .stage_agents
+                .get(&t.key)
+                .is_some_and(|a| word(a) == *name),
         }
     }
 }
@@ -157,16 +283,17 @@ impl Filter {
         !self.tokens.is_empty() || !self.text.trim().is_empty()
     }
 
-    /// Takes the field's text: complete tokens (followed by a space) become chips, the rest stays text.
-    pub fn take_input(&mut self, input: &str) -> String {
+    /// Takes the field's text: complete tokens (followed by a space) become chips, the rest stays text. `scope`
+    /// says which stages and agents `in:` and `by:` know.
+    pub fn take_input(&mut self, input: &str, scope: &Scope) -> String {
         let ends_with_space = input.ends_with(' ');
         let words: Vec<&str> = input.split_whitespace().collect();
         let mut rest = Vec::new();
-        for (i, word) in words.iter().enumerate() {
+        for (i, typed) in words.iter().enumerate() {
             let complete = i + 1 < words.len() || ends_with_space;
-            match Token::parse(word) {
+            match Token::parse(typed, scope) {
                 Some(token) if complete => self.add(token),
-                _ => rest.push(*word),
+                _ => rest.push(*typed),
             }
         }
         let mut text = rest.join(" ");
@@ -195,44 +322,34 @@ impl Filter {
     }
 
     /// Whether a ticket stays visible. `all` is the project (for chains).
-    pub fn matches(&self, t: &Ticket, all: &[Ticket]) -> bool {
+    pub fn matches(&self, t: &Ticket, all: &[Ticket], scope: &Scope) -> bool {
         let text = self.text.trim().to_lowercase();
         let text_ok = text.is_empty()
-            || text.split_whitespace().all(|word| {
-                t.key.to_string().to_lowercase().contains(word)
-                    || t.title.to_lowercase().contains(word)
+            || text.split_whitespace().all(|w| {
+                t.key.to_string().to_lowercase().contains(w) || t.title.to_lowercase().contains(w)
             });
-        text_ok
-            && self.tokens.iter().all(|token| match token {
-                Token::Is(i) => i.matches(t),
-                Token::Dep(k) => chain(k, all).is_some_and(|c| c.members.contains(&t.key)),
-            })
+        text_ok && self.tokens.iter().all(|token| token.matches(t, all, scope))
     }
 
     /// The keys that stay visible, or `None` when no filter is active.
-    pub fn visible(&self, all: &[Ticket]) -> Option<Vec<TicketKey>> {
+    pub fn visible(&self, all: &[Ticket], scope: &Scope) -> Option<Vec<TicketKey>> {
         self.is_active().then(|| {
             all.iter()
-                .filter(|t| self.matches(t, all))
+                .filter(|t| self.matches(t, all, scope))
                 .map(|t| t.key.clone())
                 .collect()
         })
     }
 
     /// The suggestions under the field: every state filter and the selected ticket's chain, with how many cards
-    /// each would show.
+    /// each would show; once something is typed, also every column (`in:`) and agent (`by:`) it starts.
     pub fn suggestions(
         &self,
         all: &[Ticket],
         selected: Option<&TicketKey>,
+        scope: &Scope,
     ) -> Vec<(Token, String, usize)> {
-        let count = |token: &Token| {
-            let f = Filter {
-                tokens: vec![token.clone()],
-                text: String::new(),
-            };
-            all.iter().filter(|t| f.matches(t, all)).count()
-        };
+        let count = |token: &Token| all.iter().filter(|t| token.matches(t, all, scope)).count();
         let mut out: Vec<(Token, String)> = Is::ALL
             .iter()
             .map(|i| (Token::Is(*i), i.description().to_owned()))
@@ -241,6 +358,21 @@ impl Filter {
             out.push((Token::Dep(k.clone()), format!("in {k}’s chain")));
         }
         let typed = self.text.trim().to_lowercase();
+        if !typed.is_empty() {
+            out.extend(scope.columns.iter().map(|(id, name)| {
+                let token = Token::In {
+                    column: id.clone(),
+                    name: word(name),
+                };
+                (token, format!("in {name}"))
+            }));
+            out.extend(
+                scope
+                    .agents
+                    .iter()
+                    .map(|name| (Token::By(word(name)), format!("worked by {name}"))),
+            );
+        }
         out.into_iter()
             .filter(|(t, _)| !self.tokens.contains(t))
             .filter(|(t, _)| typed.is_empty() || t.label().to_lowercase().starts_with(&typed))
@@ -275,7 +407,7 @@ mod tests {
 
     fn shown(filter: &Filter, all: &[Ticket]) -> Vec<String> {
         filter
-            .visible(all)
+            .visible(all, &Scope::default())
             .unwrap()
             .iter()
             .map(ToString::to_string)
@@ -286,38 +418,38 @@ mod tests {
     fn text_matches_key_and_title() {
         let all = sample();
         let mut f = Filter::default();
-        f.take_input("checkout");
+        f.take_input("checkout", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-20"]);
-        f.take_input("SHOP-44");
+        f.take_input("SHOP-44", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-44"]);
-        f.take_input("wishlist");
+        f.take_input("wishlist", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-40", "SHOP-44"]);
         f.clear();
-        assert_eq!(f.visible(&all), None);
+        assert_eq!(f.visible(&all, &Scope::default()), None);
     }
 
     #[test]
     fn tokens_and_combinations() {
         let all = sample();
         let mut f = Filter::default();
-        let rest = f.take_input("is:needs-you ");
+        let rest = f.take_input("is:needs-you ", &Scope::default());
         assert_eq!(rest, "");
         assert_eq!(f.tokens, vec![Token::Is(Is::NeedsMe)]);
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-22"]);
-        f.take_input("checkout");
+        f.take_input("checkout", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-18"], "token and text combine");
         let mut f = Filter::default();
-        f.take_input("dep:shop-20 ");
+        f.take_input("dep:shop-20 ", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-20"]);
         let mut f = Filter::default();
-        f.take_input("has:run is:working ");
+        f.take_input("has:run is:working ", &Scope::default());
         assert_eq!(shown(&f, &all), ["SHOP-19"]);
         assert_eq!(f.tokens[0].label(), "has:run");
         f.remove(0);
         assert_eq!(f.tokens, vec![Token::Is(Is::Working)]);
         // An unfinished token stays text until a space follows.
         let mut f = Filter::default();
-        assert_eq!(f.take_input("is:park"), "is:park");
+        assert_eq!(f.take_input("is:park", &Scope::default()), "is:park");
         assert!(f.tokens.is_empty());
     }
 
@@ -326,21 +458,25 @@ mod tests {
     fn old_and_agent_words_still_read() {
         let all = sample();
         let mut f = Filter::default();
-        assert_eq!(f.take_input("is:needs-me "), "");
+        assert_eq!(f.take_input("is:needs-me ", &Scope::default()), "");
         assert_eq!(f.tokens, vec![Token::Is(Is::NeedsMe)]);
         assert_eq!(f.tokens[0].label(), "is:needs-you");
         assert_eq!(shown(&f, &all), ["SHOP-18", "SHOP-22"]);
-        f.take_input("is:needs-you ");
+        f.take_input("is:needs-you ", &Scope::default());
         assert_eq!(
             f.tokens.len(),
             1,
             "the alias and the new word are one token"
         );
         let mut f = Filter::default();
-        f.take_input("is:running ");
+        f.take_input("is:running ", &Scope::default());
         assert_eq!(f.tokens, vec![Token::Is(Is::Working)]);
-        assert_eq!(Token::parse("is:run"), None, "a Run process is has:run");
-        assert_eq!(Token::parse("has:running"), None);
+        assert_eq!(
+            Token::parse("is:run", &Scope::default()),
+            None,
+            "a Run process is has:run"
+        );
+        assert_eq!(Token::parse("has:running", &Scope::default()), None);
     }
 
     #[test]
@@ -348,7 +484,7 @@ mod tests {
         let all = sample();
         let mut f = Filter::default();
         let key: TicketKey = "SHOP-18".parse().unwrap();
-        let s = f.suggestions(&all, Some(&key));
+        let s = f.suggestions(&all, Some(&key), &Scope::default());
         let needs = s
             .iter()
             .find(|(t, _, _)| *t == Token::Is(Is::NeedsMe))
@@ -357,9 +493,9 @@ mod tests {
         assert!(s.iter().any(|(t, d, n)| *t == Token::Dep(key.clone())
             && d == "in SHOP-18’s chain"
             && *n == 2));
-        f.take_input("is:p");
+        f.take_input("is:p", &Scope::default());
         let labels: Vec<String> = f
-            .suggestions(&all, None)
+            .suggestions(&all, None, &Scope::default())
             .iter()
             .map(|(t, _, _)| t.label())
             .collect();
@@ -384,7 +520,7 @@ mod tests {
         ];
         let only = |token: &str| {
             let mut f = Filter::default();
-            f.take_input(&format!("{token} "));
+            f.take_input(&format!("{token} "), &Scope::default());
             shown(&f, &all)
         };
         assert_eq!(
@@ -397,7 +533,7 @@ mod tests {
             ["SHOP-29", "SHOP-33", "SHOP-32", "SHOP-34"]
         );
         let f = Filter::default();
-        let suggested = f.suggestions(&all, None);
+        let suggested = f.suggestions(&all, None, &Scope::default());
         assert!(
             suggested
                 .iter()

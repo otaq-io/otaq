@@ -5571,6 +5571,7 @@ mod tests {
             holds: Vec::new(),
             starts: None,
             refused_agent: None,
+            stage_agent: None,
         };
         let board = |connected: Vec<Tool>| BoardAgents {
             agent_count: 3,
