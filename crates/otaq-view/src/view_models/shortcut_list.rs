@@ -323,7 +323,7 @@ mod tests {
             drawn(&list, KeyGroup::TheTerminal),
             [
                 (
-                    "Terminals: open, close, leave the terminal",
+                    "Terminal: open, close, leave the terminal",
                     keys(&[&["⌃`"], &["g", "t"]]),
                     None
                 ),
@@ -337,7 +337,7 @@ mod tests {
                 ("List", keys(&[&["g", "l"]]), None),
                 ("Files", keys(&[&["⇧⌘O"], &["g", "f"]]), None),
                 ("Pause / Resume agents", keys(&[&["⇧⌘."]]), None),
-                ("Activity", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
+                ("Running", keys(&[&["⇧⌘U"], &["g", "a"]]), None),
                 ("Settings", keys(&[&["⌘,"]]), None),
                 ("Open / close Noyan", keys(&[&["⌘L"]]), None),
                 ("New conversation with Noyan", keys(&[&["⇧⌘L"]]), None),
@@ -424,7 +424,7 @@ mod tests {
             ]),
             true,
         );
-        let activity = row_of(&list, "Activity").unwrap();
+        let activity = row_of(&list, "Running").unwrap();
         assert_eq!(activity.keys[0].kbds, ["⌘J"]);
         assert_eq!(activity.mark, Some("changed"));
         assert!(row_of(&list, "Next item that needs you").is_none());
@@ -451,7 +451,7 @@ mod tests {
         assert_eq!(
             drawn(&list, KeyGroup::TheTerminal)[0],
             (
-                "Terminals: open, close, leave the terminal",
+                "Terminal: open, close, leave the terminal",
                 keys(&[&["⌃`"]]),
                 None
             )

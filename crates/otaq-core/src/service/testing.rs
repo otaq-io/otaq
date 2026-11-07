@@ -227,7 +227,7 @@ impl TestService {
 
     async fn step_agent(&self, step: crate::board::settings::WorkflowStep) -> crate::agents::Agent {
         let role = match step {
-            crate::board::settings::WorkflowStep::Validate => "Validator",
+            crate::board::settings::WorkflowStep::Validate => "Checker",
             _ => "Developer",
         };
         self.board

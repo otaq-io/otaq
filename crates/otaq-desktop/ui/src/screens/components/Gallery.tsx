@@ -457,10 +457,10 @@ function TabsAndToggles() {
   const [on, setOn] = useState(true);
   const [off, setOff] = useState(false);
   const tabs = [
-    { icon: "square-terminal", label: "Terminal", indicator: { kind: "live" }, keys: "1" },
+    { icon: "square-terminal", label: "Agent", indicator: { kind: "live" }, keys: "1" },
     { icon: "file-diff", label: "Diff", indicator: { kind: "note", text: "+412 −38" }, keys: "2" },
     { icon: "play", label: "Run", indicator: { kind: "note", text: ":4020" }, keys: "3" },
-    { icon: "terminal", label: "Shell", keys: "4" },
+    { icon: "terminal", label: "Terminal", keys: "4" },
     { icon: "file-text", label: "Ticket", keys: "5" },
     { icon: "history", label: "History", indicator: { kind: "live_attention" }, keys: "6" },
   ] as const;
@@ -2315,10 +2315,10 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <AgentPanelSection />
         <AskBarSection />
         <DrawerSection />
-        <Section title="02 · Header v2, Activity states and popover (T-0329)">
+        <Section title="02 · Header v2, Running states and popover (T-0329)">
           <ActivityGallery />
         </Section>
-        <Section title="11 · Limit banner per tool; 02 · Activity with four tools (T-0368)">
+        <Section title="11 · Limit banner per tool; 02 · Running with four tools (T-0368)">
           <LimitLinesGallery />
         </Section>
         <Section title="Mark · Command tent (d0076; 15 · Settings → About)">
@@ -2355,7 +2355,7 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <Section title="28 · The project Files view · the tree with chips, filters, states, the picker (T-0478)">
           <FilesViewGallery />
         </Section>
-        <Section title="25 · Session's switch and lines, Activity's filters (T-0466)">
+        <Section title="25 · Session's switch and lines, History's filters (T-0466)">
           <SessionGallery />
         </Section>
         <EnvVarsSection />

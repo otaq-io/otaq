@@ -72,7 +72,7 @@ function map(letters: boolean): Keymap {
     ],
     sequences: [
       { then: "b", name: "Board" },
-      { then: "t", name: "Terminals" },
+      { then: "t", name: "Terminal" },
       { then: "p", name: "Park" },
     ],
   };
@@ -141,7 +141,7 @@ test("the hint shows after g with the user's sequences, and goes on the letter",
   act(() => root?.render(createElement(SequenceHint)));
   expect(hint()).toBeNull();
   expect(press("g").defaultPrevented).toBe(true);
-  expect(hint()).toBe("g→bBoard·tTerminals·pPark");
+  expect(hint()).toBe("g→bBoard·tTerminal·pPark");
   press("p");
   expect(ran).toEqual(["park"]);
   expect(hint()).toBeNull();

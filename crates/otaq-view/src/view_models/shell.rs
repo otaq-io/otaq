@@ -1,10 +1,10 @@
-//! The Shell tab's strip and states (RUN-05; *13 · Run & Shell → Shell tab · BILL-4*): "Shell · not the agent", the
+//! The Shell tab's strip and states (RUN-05; *13 · Run & Shell → Shell tab · BILL-4*): "Terminal · not the agent", the
 //! worktree, "Run port · $PORT=4004", and the stopped-by-restart state with its Reopen click (d0045).
 
 use otaq_core::session::{END_STOPPED_BY_RESTART, SessionInfo};
 
 /// The strip's label: the Shell is never the agent.
-pub const SHELL_LABEL: &str = "Shell · not the agent";
+pub const SHELL_LABEL: &str = "Terminal · not the agent";
 
 /// "Run port · $PORT=4004".
 pub fn port_label(port: u16) -> String {

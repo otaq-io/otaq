@@ -1,6 +1,6 @@
 //! What Otaq ships about agents (AGM-02, d0108): the account-level `otaq-agents.yaml` (the Project agent **Noyan**),
 //! embedded at build time like the default flow, and the names of Otaq's own skills.
-//! A flow file's agents (the default flow's Developer and Validator, the test flow's) become stored agents through
+//! A flow file's agents (the default flow's Developer and Checker, the test flow's) become stored agents through
 //! [`new_agent`].
 //!
 //! A file's `model:` is `default` (the account's default model; every shipped file says it), a tool's stored name
@@ -79,7 +79,7 @@ pub fn new_agent(agent: &FlowAgent) -> NewAgent {
 }
 
 /// Otaq's first start (AGM-02, FLW-01): with no agents stored yet, applies `otaq-agents.yaml` (Noyan)
-/// and the default flow's `agents:` (Developer, Validator), in one transaction. A role agent can't be deleted, so
+/// and the default flow's `agents:` (Developer, Checker), in one transaction. A role agent can't be deleted, so
 /// the table is never empty again and a later start changes nothing. Whether it applied them.
 pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
     let mut tx = store.begin_write().await?;
@@ -98,6 +98,32 @@ pub async fn apply_on_first_start(store: &Store) -> Result<bool, StoreError> {
     tx.commit().await?;
     tracing::info!("the shipped agents applied (AGM-02)");
     Ok(true)
+}
+
+/// Adds, in `tx`, the default flow's agents that no stored agent is named like yet (ignoring case): a new project
+/// starts on the default flow, so the agents its stages name are there even when the first start applied an older
+/// default flow that named them otherwise. Whether it added any.
+pub(crate) async fn add_missing_default_agents_in(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+) -> Result<bool, StoreError> {
+    let names: Vec<String> = sqlx::query_scalar("SELECT name FROM agents")
+        .fetch_all(&mut **tx)
+        .await?;
+    let mut added = false;
+    for agent in &crate::flow::default_file().agents {
+        let folded = agent.name.trim().to_lowercase();
+        if names.iter().any(|n| n.to_lowercase() == folded) {
+            continue;
+        }
+        let new = NewAgent {
+            role: None,
+            ..new_agent(agent)
+        };
+        Store::insert_agent_in(tx, &new, &CameFrom::DefaultPreset, None).await?;
+        tracing::info!(agent = %new.name, "a default flow's agent added for a new project");
+        added = true;
+    }
+    Ok(added)
 }
 
 /// Sets the default model for new agents to the first connected tool with its default model when none is set (a

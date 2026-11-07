@@ -51,7 +51,7 @@ function page(changed = 0): ShortcutsPage {
       label: "Reset all",
       enabled: changed > 0,
       question: `Reset all ${String(changed)} changed shortcuts to their defaults?`,
-      body: "Activity, New ticket and Next item that needs you go back to their default keys.",
+      body: "New ticket, Next item that needs you and Running go back to their default keys.",
       cancel: "Cancel",
     },
     letters: { label: "Single-letter shortcuts", description: "Keys like j, k, / and g then b.", on: true },
@@ -69,7 +69,7 @@ function page(changed = 0): ShortcutsPage {
       {
         title: "Views",
         rows: [
-          row("open_activity", "Activity", [
+          row("open_activity", "Running", [
             key(slot({ action: "open_activity" }, 0), ["⇧⌘U"]),
             key(slot({ action: "open_activity" }, 1), ["g", "a"]),
           ]),

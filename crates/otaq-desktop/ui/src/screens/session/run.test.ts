@@ -88,7 +88,7 @@ const COMMAND: RunCommandView = {
 
 const SHELL: ShellTabView = {
   key: "BILL-4",
-  label: "Shell · not the agent",
+  label: "Terminal · not the agent",
   path: "~/.otaq/wt/billing-api/BILL-4",
   port: "Run port · $PORT=4004",
   session: null,
@@ -273,7 +273,7 @@ describe("the Run & Shell screen", () => {
       createElement(ShellTabBody, { view: SHELL, state: INITIAL_STATE, onState: noop, onReopen: noop }),
     );
     for (const text of [
-      "Shell · not the agent",
+      "Terminal · not the agent",
       "~/.otaq/wt/billing-api/BILL-4",
       "Run port · $PORT=4004",
       "Stopped by restart · was open at 08:24",

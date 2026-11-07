@@ -793,7 +793,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     let cmd = naming::COMMAND_NAME;
     let mut out = format!("# Validate {} · {}\n\n", t.key, t.title);
     out.push_str(&format!(
-        "You are the validator for {} ticket {}: a read-only judge of its agent's work (round {} of {}). Never \
+        "You are the checker for {} ticket {}: a read-only judge of its agent's work (round {} of {}). Never \
          edit files, never commit and never fix anything.\n",
         naming::PRODUCT_NAME,
         t.key,

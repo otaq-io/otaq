@@ -393,7 +393,7 @@ describe("start from scratch", () => {
       kept: ["Branch otaq/BILL-4 and its commits"],
       lost_title: "Lost",
       lost: "The previous conversation",
-      note: "Activity records this.",
+      note: "History records this.",
       confirm: "Start from scratch",
     };
     const html = renderToStaticMarkup(createElement(ScratchBody, { view, error: null }));

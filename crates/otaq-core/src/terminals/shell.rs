@@ -115,7 +115,7 @@ impl Shells {
             return Err(BoardError::refused(
                 Refusal::NoWorktree,
                 format!(
-                    "{} has no worktree. The Shell opens once the ticket has started, until it is done.",
+                    "{} has no worktree. The Terminal opens once the ticket has started, until it is done.",
                     ticket.key
                 ),
             ));

@@ -75,11 +75,11 @@ stored_enum! {
 }
 
 impl SessionRole {
-    /// "Developer", "Validator", "Noyan".
+    /// "Developer", "Checker", "Noyan".
     pub fn label(self) -> &'static str {
         match self {
             Self::Developer => "Developer",
-            Self::Validator => "Validator",
+            Self::Validator => "Checker",
             Self::ProjectAgent => "Noyan",
         }
     }

@@ -41,7 +41,7 @@ const tab = (n: number): DrawerTab => ({
 });
 
 const view = (tabs: DrawerTab[]): DrawerView => ({
-  title: "Terminals",
+  title: "Terminal",
   tabs,
   selected: "terminal:t1",
   new_label: "New terminal",

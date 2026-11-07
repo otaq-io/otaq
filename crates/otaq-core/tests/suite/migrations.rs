@@ -1446,7 +1446,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         [
             ("Noyan", &CameFrom::AgentsFile, true),
             ("Developer", &CameFrom::DefaultPreset, true),
-            ("Validator", &CameFrom::DefaultPreset, true),
+            ("Checker", &CameFrom::DefaultPreset, true),
         ]
     );
     assert!(agents.iter().all(|a| a.instructions.is_empty()));
@@ -1481,7 +1481,9 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 /// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525), and with its agents' skill
 /// lists, which a stored flow keeps and Otaq now reads and ignores (T6).
 fn default_as_0050_stored() -> String {
+    // 0050 stored the default flow of its day, whose checker was still called Validator.
     let stored = naming::DEFAULT_FLOW_YAML
+        .replace("Checker", "Validator")
         .replace(
             "  - name: Developer\n    model: default",
             "  - name: Developer\n    skills: [work-ticket, commit]\n    model: default",
@@ -1580,7 +1582,7 @@ async fn a_fresh_install_applies_the_two_files() {
         .collect();
     assert_eq!(
         names,
-        [("Noyan", true), ("Developer", true), ("Validator", true)]
+        [("Noyan", true), ("Developer", true), ("Checker", true)]
     );
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);

@@ -182,9 +182,9 @@ pub fn settings_rows(limits: &AgentLimits) -> [LimitRow; 3] {
         LimitRow {
             label: "Limit agents",
             description: if on {
-                "Activity shows “3/5 agents”; adjust it in its popover."
+                "Running shows “3/5 agents”; adjust it in its popover."
             } else {
-                "Off by default. When on, Activity shows “3/5 agents”."
+                "Off by default. When on, Running shows “3/5 agents”."
             },
             enabled: true,
         },

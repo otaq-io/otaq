@@ -87,7 +87,7 @@ async fn a_fresh_install_has_the_shipped_agents_on_default() {
                 &CameFrom::DefaultPreset
             ),
             (
-                "Validator",
+                "Checker",
                 None,
                 &AgentModel::Default,
                 &CameFrom::DefaultPreset
@@ -130,7 +130,7 @@ async fn names_are_new_ignoring_case_and_never_skip_or_underscore() {
     assert_eq!(
         refusal(
             agents
-                .edit(&rust.id, &fields("VALIDATOR", AgentModel::Default))
+                .edit(&rust.id, &fields("CHECKER", AgentModel::Default))
                 .await
         )
         .0,
@@ -206,10 +206,10 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
                 .into()
         )
     );
-    let validator = named(&agents, "Validator").await;
+    let validator = named(&agents, "Checker").await;
     assert_eq!(
         refusal(agents.delete(&validator.id).await).1,
-        "Validator is used in shop-web \u{b7} Validate. Change that stage first."
+        "Checker is used in shop-web \u{b7} Validate. Change that stage first."
     );
     // shop-web turns Validation off: Validator is still the default flow's.
     f.board
@@ -219,7 +219,7 @@ async fn delete_is_refused_while_a_stage_uses_the_agent() {
     assert_eq!(
         uses.refusal().unwrap(),
         format!(
-            "Validator is used in {}'s default flow \u{b7} Validate. Change that stage first.",
+            "Checker is used in {}'s default flow \u{b7} Validate. Change that stage first.",
             otaq_core::naming::PRODUCT_NAME
         )
     );
@@ -354,10 +354,53 @@ async fn a_rename_changes_nothing_for_the_flow() {
         (running.id.as_str(), running.name.as_str()),
         (developer.id.as_str(), "Rust developer")
     );
-    let validator = resolve::session_agent(&f.board, &t, SessionRole::Validator)
+    let checker = resolve::session_agent(&f.board, &t, SessionRole::Validator)
         .await
         .unwrap();
-    assert_eq!(validator.name, "Validator");
+    assert_eq!(checker.name, "Checker");
+}
+
+/// An install whose first start stored the default flow's checker under another name (an older default flow, or
+/// the user's rename) keeps that agent, and a new project, on today's default flow, gets the Checker its Validate
+/// stage names; a second new project adds nothing more.
+#[tokio::test]
+async fn a_new_project_gets_the_default_flows_agents_it_names() {
+    let (f, agents) = world().await;
+    let checker = named(&agents, "Checker").await;
+    agents
+        .edit(&checker.id, &fields("Validator", AgentModel::Default))
+        .await
+        .unwrap();
+    let new = |key: &str, name: &str| otaq_core::store::projects::NewProject {
+        key: key.into(),
+        name: name.into(),
+        repo_path: format!("/tmp/{name}"),
+        base_branch: "main".into(),
+        flow_setup: false,
+    };
+    f.board
+        .store()
+        .insert_project(&new("NOTE", "pocket-notes"))
+        .await
+        .unwrap();
+    f.board
+        .store()
+        .insert_project(&new("API", "pocket-api"))
+        .await
+        .unwrap();
+    let names: Vec<String> = agents
+        .list()
+        .await
+        .unwrap()
+        .agents
+        .into_iter()
+        .map(|a| a.name)
+        .collect();
+    assert_eq!(names, ["Noyan", "Developer", "Validator", "Checker"]);
+    assert_eq!(
+        named(&agents, "Checker").await.came_from,
+        CameFrom::DefaultPreset
+    );
 }
 
 /// AGM-01, AGM-13: the test flow's own agents are created by `use_flow_for_tests` ("Added by SHOP's flow"; a role

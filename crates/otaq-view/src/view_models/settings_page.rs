@@ -354,7 +354,7 @@ pub fn notification_kind_row(kind: Kind) -> (&'static str, &'static str, &'stati
         Kind::Permission => (
             "notification_kinds.permission",
             "Permission prompts",
-            "Agents, validators and Noyan.",
+            "Agents, checkers and Noyan.",
         ),
         Kind::Question => (
             "notification_kinds.question",
@@ -1204,7 +1204,7 @@ const REMOVE_VARIABLE: &str = "Remove variable";
 /// variables as `${…}` (d0087; [`otaq_core::session::env::substitute`]).
 fn env_vars_description() -> String {
     format!(
-        "Set in every agent session, Run and Shell of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+        "Set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
         naming::db_name_env_var()
     )
 }
@@ -2502,7 +2502,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                ("Permission prompts", "Agents, validators and Noyan."),
+                ("Permission prompts", "Agents, checkers and Noyan."),
                 ("Questions", "Agents and Noyan."),
                 ("Agent ended its turn", ""),
                 ("Session interrupted", ""),
@@ -3399,7 +3399,7 @@ mod tests {
         assert_eq!(
             row.description,
             format!(
-                "Set in every agent session, Run and Shell of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+                "Set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
                 naming::db_name_env_var()
             )
         );

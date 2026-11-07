@@ -954,7 +954,7 @@ mod tests {
             [
                 ("Noyan", &json!("Noyan")),
                 ("Developer", &Value::Null),
-                ("Validator", &Value::Null),
+                ("Checker", &Value::Null),
             ]
         );
         // An agent has no skill list (T7): no Skills column, and no row names a skill.
@@ -1022,7 +1022,7 @@ mod tests {
         let validator = id(2);
         let refused = ask("settings.agent_delete_dialog", json!({ "id": validator })).await.unwrap();
         assert_eq!(refused["kind"], "refused");
-        assert_eq!(refused["title"], "Can\u{2019}t delete Validator");
+        assert_eq!(refused["title"], "Can\u{2019}t delete Checker");
         let confirm = ask("settings.agent_delete_dialog", json!({ "id": quick })).await.unwrap();
         assert_eq!(confirm["kind"], "confirm");
         let deleted = ask("settings.agent_delete", json!({ "id": quick })).await.unwrap();

@@ -204,7 +204,7 @@ agents:
     model: default
   - name: Developer
     model: default
-  - name: Validator
+  - name: Checker
     model: default
 flow:
   - id: product-spec
@@ -242,7 +242,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agent: Checker
     skill: validate
     rounds: 3
     fail_to: Dev

@@ -527,7 +527,7 @@ impl Board {
         )
         .bind(now)
         .bind(ValidationOutcome::NoResult.as_str())
-        .bind(format!("The validator didn't start: {reason}"))
+        .bind(format!("The checker didn't start: {reason}"))
         .bind(ticket_id)
         .execute(&mut *tx)
         .await?;
@@ -537,7 +537,7 @@ impl Board {
             " WHERE id = ?"
         ))
         .bind(to.as_str())
-        .bind(format!("The validator didn't start: {reason}"))
+        .bind(format!("The checker didn't start: {reason}"))
         .bind(now)
         .bind(now)
         .bind(to.as_str())

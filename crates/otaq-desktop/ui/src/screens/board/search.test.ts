@@ -135,7 +135,7 @@ describe("the search field", () => {
         processes: null,
         warning: null,
         hover: { title: "0 agents running across all projects", lines: [] },
-        label: "Activity",
+        label: "Running",
         keys: null,
       },
     } as unknown as HeaderView;

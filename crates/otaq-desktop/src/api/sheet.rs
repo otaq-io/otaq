@@ -2109,7 +2109,7 @@ mod tests {
         };
         let view = view_of(&Facts { agents: Some(&held), ..facts(&checking, &all, &[]) });
         assert_eq!(view.pill.label, "Validate waits for Codex checker");
-        assert!(!labels(&view).contains(&"Open terminal \u{b7} Validator"), "{:?}", labels(&view));
+        assert!(!labels(&view).contains(&"Open terminal \u{b7} Checker"), "{:?}", labels(&view));
 
         // Running: the round and the checker's terminal.
         let mut checker = agent(SessionState::Running);
@@ -2120,7 +2120,7 @@ mod tests {
             ..facts(&checking, &all, std::slice::from_ref(&checker))
         });
         assert_eq!(view.pill.label, "Validating\u{2026} \u{b7} round 1 of 1");
-        assert!(labels(&view).contains(&"Open terminal \u{b7} Validator"), "{:?}", labels(&view));
+        assert!(labels(&view).contains(&"Open terminal \u{b7} Checker"), "{:?}", labels(&view));
     }
 
     /// KEY-08: the sheet's tabs show `1`–`4` (the user's keys), full page `e`, Close Esc; a recorded key shows, a
@@ -2204,11 +2204,11 @@ mod tests {
         let crumbs: Vec<&str> = view.sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(crumbs, ["shop-web", "SHOP-19"]);
         let tabs: Vec<&str> = view.sheet.tabs.iter().map(|t| t.label).collect();
-        assert_eq!(tabs, ["Overview", "Session", "Files", "Activity"]);
+        assert_eq!(tabs, ["Overview", "Session", "Changes", "History"]);
         assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
-        assert_eq!(view.sheet.tabs[3].mark, None, "no count on Activity");
+        assert_eq!(view.sheet.tabs[3].mark, None, "no count on History");
         let parts: Vec<&str> = view.sheet.tabs[1].parts.iter().map(|p| p.label.as_str()).collect();
-        assert_eq!(parts, ["Agent", "Run", "Shell"], "no check ran: no check side");
+        assert_eq!(parts, ["Agent", "Run", "Terminal"], "no check ran: no check side");
         assert_eq!(view.sheet.tabs[1].parts[0].dot, Some(Dot::Running));
         assert_eq!(
             view.sheet.tabs[1].contents,
@@ -2454,7 +2454,7 @@ mod tests {
             view.token_split.as_deref(),
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
-        assert_eq!(labels(&view), ["Open terminal \u{b7} Validator", "Run"]);
+        assert_eq!(labels(&view), ["Open terminal \u{b7} Checker", "Run"]);
         assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
         // Session's switch (SHT-04): the validator's side, running, named after its agent; Session lands on it.
@@ -2478,7 +2478,7 @@ mod tests {
         let parts: Vec<_> = session.parts.iter().map(|p| (p.label.as_str(), p.dot)).collect();
         assert_eq!(
             parts,
-            [("Agent", None), ("Validator", Some(Dot::Running)), ("Run", None), ("Shell", None)]
+            [("Agent", None), ("Validator", Some(Dot::Running)), ("Run", None), ("Terminal", None)]
         );
         assert_eq!(session.lands_on, Content::Check);
         assert_eq!(session.mark, Some(Mark::Live));
@@ -2530,7 +2530,7 @@ mod tests {
         let r = view.refusal.unwrap();
         assert_eq!(r.heading, "Claude Code couldn\u{2019}t run the model", "no sessions in these facts");
         assert!(r.message.starts_with('\u{201c}') && r.error);
-        let t = fixture("No result \u{b7} the validator\u{2019}s model");
+        let t = fixture("No result \u{b7} the checker\u{2019}s model");
         let view = view_of(&facts(&t, std::slice::from_ref(&t), &[]));
         assert_eq!(labels(&view), ["Open agent\u{2026}", "Retry validation"], "Validate not skippable");
         let view = view_of(&Facts {
@@ -2677,7 +2677,7 @@ mod tests {
             .unwrap();
         assert_eq!(load["view"]["title"], "Price table");
         // Not started: "Files" without a count (Q421).
-        assert_eq!(load["view"]["sheet"]["tabs"][2]["label"], "Files");
+        assert_eq!(load["view"]["sheet"]["tabs"][2]["label"], "Changes");
         assert_eq!(load["view"]["sheet"]["tabs"][2]["count"], Value::Null);
         assert_eq!(load["view"]["buttons"][0]["action"], "start");
         assert_eq!(load["view"]["sheet"]["tabs"][0]["tab"], "overview");

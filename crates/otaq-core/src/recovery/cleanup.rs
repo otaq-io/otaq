@@ -572,7 +572,9 @@ impl Cleanup {
                     FreeOutcome::Freed { .. } | FreeOutcome::NotNeeded => Ok(()),
                     FreeOutcome::Waiting => Err(BoardError::refused(
                         Refusal::NotAllowed,
-                        format!("{key}'s Run or Shell is open; its build is freed when it closes"),
+                        format!(
+                            "{key}'s Run or Terminal is open; its build is freed when it closes"
+                        ),
                     )),
                     FreeOutcome::Failed(problem) => {
                         Err(BoardError::refused(Refusal::NotAllowed, problem))

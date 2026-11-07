@@ -1,7 +1,7 @@
 //! The line that says a ticket's build was set aside (d0125; STG-11, d0082): on entering a human check or Delivery
 //! a ticket's build output leaves its worktree to save disk (`ticket_env/free.rs`), and a Run or a new Shell brings it
 //! back first (`ticket_env/fetch.rs`). The Overview, and the Run and Shell of such a ticket, say so: "The build was set
-//! aside to save disk · Run or Shell brings it back"; while it comes back, "Bringing the build back…". Only a build
+//! aside to save disk · Run or Terminal brings it back"; while it comes back, "Bringing the build back…". Only a build
 //! that was actually freed is mentioned; when it is in the worktree nothing shows.
 
 use otaq_core::board::tickets::Ticket;
@@ -13,7 +13,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 
 pub const SET_ASIDE: &str =
-    "The build was set aside to save disk \u{b7} Run or Shell brings it back";
+    "The build was set aside to save disk \u{b7} Run or Terminal brings it back";
 pub const BRINGING_BACK: &str = "Bringing the build back\u{2026}";
 
 /// The line, with its icon; `bringing` while the build comes back (the page shows its spinner).
@@ -70,7 +70,7 @@ mod tests {
             let l = line(&with_build(status, BuildState::Freed)).expect("freed at Review");
             assert_eq!(
                 l.text,
-                "The build was set aside to save disk \u{b7} Run or Shell brings it back"
+                "The build was set aside to save disk \u{b7} Run or Terminal brings it back"
             );
             assert!(!l.bringing);
             assert_eq!(

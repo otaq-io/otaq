@@ -88,7 +88,7 @@ fn the_default_flow_is_dev_validate_review_done() {
         (
             StageKind::Check { by: CheckBy::Agent },
             Column::Own,
-            Some("Validator"),
+            Some("Checker"),
             Some("validate"),
             Some(3)
         )

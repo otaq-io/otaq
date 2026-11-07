@@ -165,7 +165,7 @@ describe("the sheet", () => {
     });
     expect(html).toContain('aria-label="External ID: PAY-123. Copy External ID"');
     expect(html).toContain('<span class="sheet-detail-value" data-mono="true">PAY-123</span>');
-    expect(html).toMatch(/Files<\/span><span class="tab-note">3<\/span>/);
+    expect(html).toMatch(/Changes<\/span><span class="tab-note">3<\/span>/);
   });
 
   it("only the first load of an opening takes the Files count again (Q421)", () => {

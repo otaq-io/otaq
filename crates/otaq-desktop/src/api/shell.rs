@@ -748,7 +748,7 @@ mod tests {
         assert_eq!(rail["items"][1]["title"], format!("docs-site · {}", docs.key));
         assert_eq!(rail["items"][1]["idle"], true);
         assert_eq!(rail["width"], 64);
-        assert_eq!(rail["bottom"]["terminals"]["label"], "Terminals");
+        assert_eq!(rail["bottom"]["terminals"]["label"], "Terminal");
         assert_eq!(rail["bottom"]["settings"]["label"], "Settings");
 
         // The page's selection is kept; a project that is gone falls back to the first.
@@ -805,7 +805,7 @@ mod tests {
         assert_eq!(popover["usage"]["tools"][0]["avatar"], Value::Null);
         assert_eq!(popover["usage"]["tools"][0]["notes"][0], "No plan limit · tokens only");
         assert_eq!(popover["processes"], Value::Null);
-        assert_eq!(popover["open_terminals"]["label"], "Open Terminals");
+        assert_eq!(popover["open_terminals"]["label"], "Open Terminal");
 
         let broom = request(&h.app, "shell.cleanup", Value::Null).await.unwrap();
         assert_eq!(broom["count"], 0);

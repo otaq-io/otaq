@@ -47,7 +47,7 @@ const TABS: DrawerTab[] = [
 ];
 
 const VIEW: DrawerView = {
-  title: "Terminals",
+  title: "Terminal",
   tabs: TABS,
   selected: "terminal:t1",
   new_label: "New terminal",
@@ -110,7 +110,7 @@ describe("the drawer", () => {
     expect(html).not.toContain("aria-haspopup");
     expect(html).not.toContain("Recently ended");
     expect(html).not.toContain("data-dot");
-    expect(html).toContain('aria-label="Terminals"');
+    expect(html).toContain('aria-label="Terminal"');
     expect(html).toContain("height:380px");
   });
 
@@ -133,7 +133,7 @@ describe("the drawer", () => {
   });
 });
 
-describe("Terminals", () => {
+describe("Terminal", () => {
   it("registers the drawer and Terminals from its folder (New conversation with Noyan is the agent panel's)", () => {
     const app = registerScreens({ terminals });
     expect(registered(app)).toMatchObject({ overlays: ["terminals"] });

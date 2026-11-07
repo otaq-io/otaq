@@ -1,8 +1,8 @@
 //! The ticket sheet (SHT-01, SHT-02; d0087, d0095, d0097; canvas `s25-02`, `s25-03`, `s25-10`): a 1040 px sheet over
 //! the board (920 px beside the agent panel), or the whole content area at full page (⤢, "← Board"). Its header is
 //! the breadcrumb (project / key), the title and status, **Move…** and ⋯; under it the **details line** (Assignee,
-//! Model, Working, Priority, Branch, External ID) and the flow path; then the tabs **Overview · Session · Files ·
-//! Activity**, `1`–`4` and `g o` / `g s` / `g f` / `g a`. Files carries its count ("Files 3", Q421, [`FilesCounts`]).
+//! Model, Working, Priority, Branch, External ID) and the flow path; then the tabs **Overview · Session · Changes ·
+//! History**, `1`–`4` and `g o` / `g s` / `g f` / `g a`. Changes carries its count ("Changes 3", Q421, [`FilesCounts`]).
 //!
 //! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
 //! `session_tab.rs`, T-0466). Each tab's screen registers its body: Overview (`overview.rs`, T-0465), Session, Files
@@ -66,8 +66,8 @@ impl SheetTab {
         match self {
             Self::Overview => "Overview",
             Self::Session => "Session",
-            Self::Files => "Files",
-            Self::Activity => "Activity",
+            Self::Files => "Changes",
+            Self::Activity => "History",
         }
     }
 
@@ -1058,7 +1058,7 @@ mod tests {
             SheetTab::Files
         );
         let labels: Vec<_> = shown.iter().map(|t| t.label()).collect();
-        assert_eq!(labels, ["Overview", "Session", "Files", "Activity"]);
+        assert_eq!(labels, ["Overview", "Session", "Changes", "History"]);
         assert_eq!(
             SheetTab::Session.contents(),
             [Content::Agent, Content::Check, Content::Run, Content::Shell]

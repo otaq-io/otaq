@@ -127,8 +127,8 @@ impl Action {
             Self::MarkClosed => "Mark closed",
             Self::ViewDiff => "View diff",
             Self::Reopen => "Reopen",
-            Self::OpenValidator => "Open terminal \u{b7} Validator",
-            Self::AnswerValidator => "Answer in terminal \u{b7} Validator",
+            Self::OpenValidator => "Open terminal \u{b7} Checker",
+            Self::AnswerValidator => "Answer in terminal \u{b7} Checker",
             Self::MoveOnAnyway => "Move on anyway",
             Self::AnotherRound => "Give it another round",
             Self::AnswerAgent => "Answer the agent\u{2026}",
@@ -362,7 +362,7 @@ pub fn refusal(ticket: &Ticket, agents: Option<&TicketAgents>) -> Option<Refusal
     let (model, message) = card::validator_refusal(ticket)?;
     Some(Refusal {
         heading: format!(
-            "The validator couldn\u{2019}t run {} \u{b7} not counted as a round",
+            "The checker couldn\u{2019}t run {} \u{b7} not counted as a round",
             model.as_deref().unwrap_or("its model")
         ),
         message: quoted(&message),
@@ -740,7 +740,7 @@ mod tests {
             all(Status::DeliveryStopped),
             [(A::RetryMerge, Primary), (A::MoveToReview, Secondary)]
         );
-        assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Validator");
+        assert_eq!(A::OpenValidator.label(), "Open terminal \u{b7} Checker");
         // It opens the agent's session, not a shell (dogfood #42, Q467).
         assert_eq!(A::OpenTerminal.label(), "Open agent session");
         assert_eq!(A::AnswerAgent.label(), "Answer the agent\u{2026}");
@@ -870,7 +870,7 @@ mod tests {
         );
         assert_eq!(r.message, format!("\u{201c}{MODEL_ISSUE_MESSAGE}\u{201d}"));
         assert!(r.error);
-        let no_result = fixture("No result \u{b7} the validator\u{2019}s model");
+        let no_result = fixture("No result \u{b7} the checker\u{2019}s model");
         assert_eq!(
             buttons(&no_result),
             [
@@ -889,7 +889,7 @@ mod tests {
         let r = refusal(&no_result, None).unwrap();
         assert_eq!(
             r.heading,
-            "The validator couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
+            "The checker couldn\u{2019}t run claude-fable-5-1 \u{b7} not counted as a round"
         );
         assert!(!r.error);
         assert_eq!(A::OpenAgent.label(), "Open agent\u{2026}");

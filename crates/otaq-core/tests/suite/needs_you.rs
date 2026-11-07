@@ -344,7 +344,7 @@ fn the_m12_items_read_as_the_frame() {
             (
                 "SHOP-33".into(),
                 Family,
-                "validator permission: Allow Bash(pnpm test)?".into()
+                "checker permission: Allow Bash(pnpm test)?".into()
             ),
             (
                 "SHOP-18".into(),

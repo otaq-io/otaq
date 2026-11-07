@@ -66,7 +66,7 @@ pub const FLAG_MAX_CHARS: usize = 12;
 /// …except "Parent closed", the design's own label (13)…
 pub const PARENT_CLOSED: &str = "Parent closed";
 /// …and "Validator asks" (14), the glossary's short flag for the validator's question (d0093).
-pub const VALIDATOR_ASKS: &str = "Validator asks";
+pub const VALIDATOR_ASKS: &str = "Checker asks";
 /// The full label of an Idle that a failed turn left (F10): the tool stopped on an error of its own.
 pub const IDLE_ON_ERROR: &str = "Idle \u{b7} stopped on an error";
 
@@ -831,7 +831,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Legend::ValidatorNeedsYou,
             ),
             Some(format!(
-                "validator: {}",
+                "checker: {}",
                 x.question
                     .clone()
                     .unwrap_or_else(|| "Waiting for your permission".into())
@@ -990,7 +990,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             )
             .hover(Some(refusal_hover(
                 format!(
-                    "The validator couldn\u{2019}t run {}",
+                    "The checker couldn\u{2019}t run {}",
                     model.as_deref().unwrap_or("its model")
                 ),
                 &message,
@@ -1281,7 +1281,7 @@ pub fn pending_hand_off(ticket: &Ticket, status: Status) -> Option<HandOffKind> 
 }
 
 /// The situation line of a No result on the validator's model (update Y §3).
-pub const VALIDATOR_COULDNT_RUN_ITS_MODEL: &str = "Validator couldn\u{2019}t run its model";
+pub const VALIDATOR_COULDNT_RUN_ITS_MODEL: &str = "Checker couldn\u{2019}t run its model";
 
 /// *Approved · PR open*'s line: Otaq doesn't follow the PR (d0017).
 pub fn pr_not_watched() -> String {
@@ -1917,7 +1917,7 @@ pub fn status_line(
         (Some(flag), Some(words)) => {
             let head = flag_words(flag);
             let words = words
-                .strip_prefix("validator: ")
+                .strip_prefix("checker: ")
                 .map_or(words.clone(), str::to_owned);
             if says(&words, &head) {
                 words
@@ -2448,9 +2448,7 @@ pub fn validator_refusal(ticket: &Ticket) -> Option<(Option<String>, String)> {
         return None;
     }
     let text = ticket.signal.as_ref()?.text.as_deref()?;
-    let rest = text
-        .strip_prefix(otaq_core::validation::VALIDATOR_COULDNT_RUN)?
-        .trim_start();
+    let rest = otaq_core::validation::couldnt_run_rest(text)?.trim_start();
     Some(
         match rest.strip_prefix('`').and_then(|r| r.split_once("`:")) {
             Some((model, message)) => (Some(model.to_owned()), message.trim().to_owned()),
@@ -3043,9 +3041,9 @@ mod tests {
                 Some("[Resume]"),
             ),
             (
-                "Needs you · validator (0063)",
-                Some("Validator asks"),
-                Some("validator: Allow Bash(pnpm test)?"),
+                "Needs you · checker (0063)",
+                Some("Checker asks"),
+                Some("checker: Allow Bash(pnpm test)?"),
                 Some("[Answer]"),
             ),
             (
@@ -3458,7 +3456,7 @@ mod tests {
             (Tone::Attention, Tone::Secondary, true)
         );
         assert_eq!(
-            look("Needs you · validator (0063)"),
+            look("Needs you · checker (0063)"),
             (Tone::Attention, Tone::Secondary, true)
         );
         assert_eq!(
@@ -3602,7 +3600,7 @@ mod tests {
         assert_eq!(
             labels,
             [
-                "Validator asks",
+                "Checker asks",
                 "Needs you",
                 "Asks you",
                 "Idle",
@@ -3984,7 +3982,7 @@ mod tests {
                 "validator",
                 Status::CheckerNeedsYou,
                 |_, _| {},
-                "Needs you · validator",
+                "Needs you · checker",
             ),
             (
                 "failed",
@@ -4684,7 +4682,7 @@ mod tests {
         });
         assert_eq!(
             line(&from_signal(&t, NOW)),
-            Some("Validation discarded: the validator changed files")
+            Some("Validation discarded: the checker changed files")
         );
         let (_, vm) = variant("Validation ended without a result");
         let action = vm.footer.unwrap().action.unwrap();
@@ -4846,9 +4844,9 @@ mod tests {
                 Some("[Open agent\u{2026}]"),
             ),
             (
-                "No result \u{b7} the validator\u{2019}s model",
+                "No result \u{b7} the checker\u{2019}s model",
                 Some("No result"),
-                Some("Validator couldn\u{2019}t run its model"),
+                Some("Checker couldn\u{2019}t run its model"),
                 Some("[Open agent\u{2026}]"),
             ),
             (
@@ -4912,13 +4910,13 @@ mod tests {
         );
         assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
 
-        let (t, vm) = variant("No result \u{b7} the validator\u{2019}s model");
+        let (t, vm) = variant("No result \u{b7} the checker\u{2019}s model");
         assert_eq!(vm.flag.as_ref().unwrap().palette, Palette::Attn);
         assert_eq!(vm.outline, Outline::Attention);
         let hover = &vm.situation.as_ref().unwrap().hovers[0];
         assert_eq!(
             hover.title,
-            "The validator couldn\u{2019}t run claude-fable-5-1"
+            "The checker couldn\u{2019}t run claude-fable-5-1"
         );
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
         assert_eq!(action.kind, CardActionKind::OpenAgent);
@@ -5057,7 +5055,7 @@ mod tests {
                 Some((K::ChangeAgent, false)),
             ),
             (
-                "Model unavailable \u{b7} the validator",
+                "Model unavailable \u{b7} the checker",
                 "CX",
                 Some(("Can\u{2019}t start", Palette::Error)),
                 "Old GPT\u{2019}s model can\u{2019}t run: Codex no longer lists gpt-5.4",
@@ -5097,7 +5095,7 @@ mod tests {
                 Some((K::ChangeAgent, false)),
             ),
             (
-                "Validator held \u{b7} tool not available",
+                "Checker held \u{b7} tool not available",
                 "CP",
                 Some(("Can\u{2019}t start", Palette::Error)),
                 "Verifier\u{2019}s model can\u{2019}t run: GitHub Copilot isn\u{2019}t available",

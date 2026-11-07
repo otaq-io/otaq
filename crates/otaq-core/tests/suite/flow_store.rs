@@ -147,9 +147,9 @@ async fn a_rename_follows_into_every_stored_flow() {
     let f = Fixture::shop().await;
     f.board.edit_flow_for_tests("SHOP", with_rounds(2)).await;
     let store = f.board.store();
-    let validator = store.agent_named("Validator").await.unwrap().unwrap();
+    let validator = store.agent_named("Checker").await.unwrap().unwrap();
     let mut fields = otaq_core::agents::store::NewAgent {
-        name: "Checker".into(),
+        name: "Gatekeeper".into(),
         instructions: validator.instructions.clone(),
         model: validator.model.clone(),
         effort: validator.effort.clone(),
@@ -161,13 +161,13 @@ async fn a_rename_follows_into_every_stored_flow() {
         .unwrap();
     for version in f.board.flow_versions("SHOP").await.unwrap() {
         let file = version.file().unwrap();
-        assert!(file.agents.iter().any(|a| a.name == "Checker"));
-        assert!(!version.yaml.contains("Validator"), "{}", version.yaml);
+        assert!(file.agents.iter().any(|a| a.name == "Gatekeeper"));
+        assert!(!version.yaml.contains("Checker"), "{}", version.yaml);
     }
     let running = f.board.effective_flow("SHOP").await.unwrap();
     assert_eq!(
         running.stage("validate").unwrap().check_agent(),
-        Some("Checker")
+        Some("Gatekeeper")
     );
     assert_eq!(running.stage("validate").unwrap().rounds, Some(2));
     // Saving it with its name unchanged rewrites nothing.

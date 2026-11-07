@@ -2705,7 +2705,7 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · validator"
+                      "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
                     "open_sheet": "Open panel",
@@ -2717,11 +2717,11 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validator asks: waiting for your permission",
+                      "text": "Checker asks: waiting for your permission",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you · validator",
+                    "title": "Needs you · checker",
                     "who": null
                   },
                   "kind": "ticket",
@@ -2931,7 +2931,7 @@
               "detail": [
                 "up to 3 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {
@@ -4148,7 +4148,7 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · validator"
+                      "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
                     "open_sheet": "Open panel",
@@ -4160,11 +4160,11 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validator asks: waiting for your permission",
+                      "text": "Checker asks: waiting for your permission",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you · validator",
+                    "title": "Needs you · checker",
                     "who": null
                   },
                   "kind": "ticket",
@@ -4374,7 +4374,7 @@
               "detail": [
                 "up to 3 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {
@@ -5591,7 +5591,7 @@
                     "fresh": false,
                     "hover": {
                       "details": [],
-                      "status": "Needs you · validator"
+                      "status": "Needs you · checker"
                     },
                     "key": "ALL-19",
                     "open_sheet": "Open panel",
@@ -5603,11 +5603,11 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validator asks: waiting for your permission",
+                      "text": "Checker asks: waiting for your permission",
                       "tone": "attention"
                     },
                     "time": null,
-                    "title": "Needs you · validator",
+                    "title": "Needs you · checker",
                     "who": null
                   },
                   "kind": "ticket",
@@ -5817,7 +5817,7 @@
               "detail": [
                 "up to 3 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {
@@ -9045,7 +9045,7 @@
               "detail": [
                 "up to 2 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {
@@ -9921,7 +9921,7 @@
               "detail": [
                 "up to 2 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {
@@ -10797,7 +10797,7 @@
               "detail": [
                 "up to 2 rounds"
               ],
-              "title": "Validate · Validator · validate"
+              "title": "Validate · Checker · validate"
             }
           },
           {

@@ -1,7 +1,7 @@
 agents:
   - name: Developer
     model: default
-  - name: Validator
+  - name: Checker
     model: default
 flow:
   - id: dev
@@ -15,7 +15,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agent: Checker
     skill: validate
     rounds: 3
   - id: review

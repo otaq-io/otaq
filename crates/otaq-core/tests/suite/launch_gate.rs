@@ -701,7 +701,7 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
     let t = w.create("SHOP", "Cart totals").await;
     world
         .set_model(
-            "Validator",
+            "Checker",
             AgentModel::Tool {
                 tool: A,
                 model: Some("sonnet".into()),

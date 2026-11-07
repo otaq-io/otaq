@@ -362,7 +362,7 @@ async fn a_check_round_runs_its_own_agent() {
     let w = &world.w;
     let t = create(w, "Coupon field").await;
     world.set_model("Developer", Some("opus")).await;
-    world.set_model("Validator", Some("haiku")).await;
+    world.set_model("Checker", Some("haiku")).await;
     let developer = start(w, &t).await;
     let validator = w
         .validation
@@ -382,7 +382,7 @@ async fn a_check_round_runs_its_own_agent() {
         (
             Some(Tool::Claude),
             Some("haiku".into()),
-            named(&world.agent("Validator").await)
+            named(&world.agent("Checker").await)
         )
     );
     let dev_id = developer.tool_session_id.clone().unwrap();
@@ -396,7 +396,7 @@ async fn a_check_round_runs_its_own_agent() {
 
     // Between rounds the agent may change (d0088): the next round runs on its model now.
     w.sessions.stop(&validator.id).await.unwrap();
-    world.set_model("Validator", Some("sonnet")).await;
+    world.set_model("Checker", Some("sonnet")).await;
     let next = w
         .validation
         .start_validator(&t.id, otaq_core::session::Start::Auto)

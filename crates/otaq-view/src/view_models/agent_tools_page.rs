@@ -288,7 +288,7 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
     if settings && connected {
         if s.limits == Some(WindowsSource::ToolFiles) {
             notes.push(format!(
-                "Limits come from {name}\u{2019}s session file. If {PRODUCT_NAME} can\u{2019}t read it, Activity shows \u{201c}Limits not reported\u{201d}."
+                "Limits come from {name}\u{2019}s session file. If {PRODUCT_NAME} can\u{2019}t read it, Running shows \u{201c}Limits not reported\u{201d}."
             ));
         }
         notes.extend(s.notes.iter().map(|note| format!("{name}: {note}")));
@@ -864,7 +864,7 @@ mod tests {
         assert_eq!(
             quiet.notes,
             [format!(
-                "Limits come from Codex’s session file. If {PRODUCT_NAME} can’t read it, Activity shows “Limits not reported”."
+                "Limits come from Codex’s session file. If {PRODUCT_NAME} can’t read it, Running shows “Limits not reported”."
             )]
         );
         let noted = settings_row(&codex_with_notes());

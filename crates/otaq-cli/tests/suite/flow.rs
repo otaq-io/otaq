@@ -117,7 +117,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let stages: Vec<&str> = file.flow.stages.iter().map(|s| s.name.as_str()).collect();
     assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
     let agents: Vec<&str> = file.agents.iter().map(|a| a.name.as_str()).collect();
-    assert_eq!(agents, ["Developer", "Validator"]);
+    assert_eq!(agents, ["Developer", "Checker"]);
     let same = user(&w, &repo, &["flow", "propose", "--stdin"], Some(&shown));
     assert_eq!(same.status.code(), Some(1), "{same:?}");
     assert_eq!(text(&same.stderr).trim(), format!("error: {SAME}"));
@@ -133,7 +133,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
     let json: Value = serde_json::from_slice(&json.stdout).unwrap();
     assert_eq!(json["project"], api);
     assert_eq!(json["document"]["flow"][0]["name"], "Dev");
-    assert_eq!(json["document"]["flow"][1]["agent"], "Validator");
+    assert_eq!(json["document"]["flow"][1]["agent"], "Checker");
 
     // A check that names where its fails go (d0131), and an agent check with another agent: shown as set.
     let notes = key_of(&w, "pocket-notes").await;
@@ -183,7 +183,7 @@ async fn show_presets_and_propose_from_the_users_terminal() {
         json[0]["yaml"]
             .as_str()
             .unwrap()
-            .contains("    agent: Validator\n"),
+            .contains("    agent: Checker\n"),
         "{json}"
     );
 

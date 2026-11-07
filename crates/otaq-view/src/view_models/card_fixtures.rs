@@ -226,7 +226,7 @@ pub fn variants() -> Vec<Variant> {
     live(&mut t, 60, 64_000);
     t.signal = Some(signal("Allow Bash(pnpm test)?"));
     out.push(v(
-        "Needs you · validator (0063)",
+        "Needs you · checker (0063)",
         t.clone(),
         base().with_signal(&t, NOW),
     ));
@@ -448,7 +448,7 @@ pub fn agent_variants() -> Vec<Variant> {
     });
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
-        "No result \u{b7} the validator\u{2019}s model",
+        "No result \u{b7} the checker\u{2019}s model",
         t.clone(),
         CardExtras {
             agents: named("Claude Code"),
@@ -1066,7 +1066,7 @@ pub fn tool_variants() -> Vec<Variant> {
     t.priority = Priority::High;
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
-        "Model unavailable \u{b7} the validator",
+        "Model unavailable \u{b7} the checker",
         t,
         CardExtras {
             validator: av(AvatarTool::Codex, Some("gpt-5.4")),
@@ -1153,7 +1153,7 @@ pub fn tool_variants() -> Vec<Variant> {
     let mut t = ticket("SHOP-33", "Shipping estimate", Status::Checking);
     t.started_at = Some(NOW - 3_600_000);
     out.push(v(
-        "Validator held \u{b7} tool not available",
+        "Checker held \u{b7} tool not available",
         t,
         CardExtras {
             validator: av(AvatarTool::Copilot, None),

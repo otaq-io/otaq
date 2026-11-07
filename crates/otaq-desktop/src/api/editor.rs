@@ -1408,7 +1408,7 @@ mod tests {
             .iter()
             .map(|r| (r["label"].as_str().unwrap(), r["value"].as_str().unwrap()))
             .collect();
-        assert_eq!(rows, [("Dev:", "Developer"), ("Validate:", "Validator")]);
+        assert_eq!(rows, [("Dev:", "Developer"), ("Validate:", "Checker")]);
 
         let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await
@@ -1433,7 +1433,7 @@ mod tests {
         table(
             &h.app,
             "sheet.set_choice",
-            json!({ "key": key, "stage": "dev", "choice": "Validator" }),
+            json!({ "key": key, "stage": "dev", "choice": "Checker" }),
         )
         .await
         .unwrap();

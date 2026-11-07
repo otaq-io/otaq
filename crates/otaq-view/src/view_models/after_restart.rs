@@ -528,7 +528,7 @@ pub fn summary_with(
     let untouched: Vec<&Ticket> = report.session_ended.iter().filter_map(find).collect();
     if !untouched.is_empty() {
         notes.push(format!(
-            "Review and Approved are untouched — {}. Run and Shell show “stopped by restart”.",
+            "Review and Approved are untouched — {}. Run and Terminal show “stopped by restart”.",
             joined(&untouched)
         ));
     }
@@ -660,7 +660,7 @@ mod tests {
             page.notes,
             [
                 "Turquoise tickets keep their question — SHOP-22. Answering it from Needs you resumes and delivers it.",
-                "Review and Approved are untouched — SHOP-18. Run and Shell show “stopped by restart”."
+                "Review and Approved are untouched — SHOP-18. Run and Terminal show “stopped by restart”."
             ]
         );
         // Unticked: Resume selected leaves it out; nothing resumed it.

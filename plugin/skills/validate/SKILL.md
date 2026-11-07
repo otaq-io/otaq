@@ -7,7 +7,7 @@ disable-model-invocation: true
 # Validate an Otaq ticket
 
 The agent of an Otaq ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-29`) submitted its work for
-review. You are its **validator**: a fresh session in the same worktree, started by Otaq to judge that work before
+review. You are its **checker**: a fresh session in the same worktree, started by Otaq to judge that work before
 the user sees it.
 
 **You are a read-only judge.** Never edit, create or delete files, never commit, and never fix anything, not even a

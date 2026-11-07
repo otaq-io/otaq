@@ -837,7 +837,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
             for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                stage.agent = Some("Validator".into());
+                stage.agent = Some("Checker".into());
             }
         })
         .await;
@@ -896,7 +896,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let shipper = |file: &mut otaq_core::flow::FlowFile| {
         for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-            stage.agent = Some("Validator".into());
+            stage.agent = Some("Checker".into());
         }
     };
     w.board
@@ -985,7 +985,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
             for stage in file.flow.stages.iter_mut().filter(|s| s.id == DELIVER) {
-                stage.agent = Some("Validator".into());
+                stage.agent = Some("Checker".into());
             }
         })
         .await;

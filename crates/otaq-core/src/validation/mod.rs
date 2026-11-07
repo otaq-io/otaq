@@ -75,18 +75,29 @@ pub fn cancelled_message(check: &str) -> String {
     )
 }
 
-/// Starts the No result text of a round whose validator's model the tool refused (AGT-05): "The validator couldn't
+/// Starts the No result text of a round whose checker's model the tool refused (AGT-05): "The checker couldn't
 /// run `claude-fable-5-1`: There's an issue with the selected model …". [`refused_its_model`] tells it apart.
-pub const VALIDATOR_COULDNT_RUN: &str = "The validator couldn't run";
+pub const VALIDATOR_COULDNT_RUN: &str = "The checker couldn't run";
 
-/// The No result text of a refused validator's model (`model`: as the mark names it).
+/// The same start as written before the checker had its plain name: a ticket that stopped on it then still reads as
+/// a refused model.
+const COULDNT_RUN_BEFORE: &str = "The validator couldn't run";
+
+/// The No result text of a refused checker's model (`model`: as the mark names it).
 pub fn couldnt_run_text(model: &str, message: &str) -> String {
     format!("{VALIDATOR_COULDNT_RUN} `{model}`: {}", message.trim())
 }
 
-/// Whether a No result's text says the tool refused the validator's model (Change validator, T-0345).
+/// What follows the start of a refused model's No result text ("`model`: message"), `None` for any other text.
+pub fn couldnt_run_rest(signal_text: &str) -> Option<&str> {
+    signal_text
+        .strip_prefix(VALIDATOR_COULDNT_RUN)
+        .or_else(|| signal_text.strip_prefix(COULDNT_RUN_BEFORE))
+}
+
+/// Whether a No result's text says the tool refused the checker's model (Change checker, T-0345).
 pub fn refused_its_model(signal_text: &str) -> bool {
-    signal_text.starts_with(VALIDATOR_COULDNT_RUN)
+    couldnt_run_rest(signal_text).is_some()
 }
 
 /// The size a validator starts with until a terminal attaches.
@@ -1533,4 +1544,22 @@ fn validating(status: Status) -> bool {
 
 fn other(e: impl std::fmt::Display) -> BoardError {
     BoardError::refused(Refusal::SessionEnded, e.to_string())
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// A refused model's No result reads the same whether it was written with the checker's plain name or with the
+    /// name it had before; any other text is no refusal.
+    #[test]
+    fn a_refused_models_text_reads_under_either_name() {
+        let now = couldnt_run_text("claude-fable-5-1", " gone ");
+        assert_eq!(now, "The checker couldn't run `claude-fable-5-1`: gone");
+        assert_eq!(couldnt_run_rest(&now), Some(" `claude-fable-5-1`: gone"));
+        let before = "The validator couldn't run `claude-fable-5-1`: gone";
+        assert_eq!(couldnt_run_rest(before), Some(" `claude-fable-5-1`: gone"));
+        assert!(refused_its_model(&now) && refused_its_model(before));
+        assert!(!refused_its_model("The agent ended its turn"));
+    }
 }
