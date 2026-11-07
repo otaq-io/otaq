@@ -37,7 +37,7 @@ use tokio::sync::{broadcast, watch};
 
 use crate::agent_tools::{PrepareStep, Tool};
 use crate::attention::{ClientId, Focus};
-use crate::board::settings::{TerminalColors, Theme, ThemeSetting};
+use crate::board::settings::{GlobalSettings, TerminalColors, Theme};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -836,7 +836,7 @@ impl Sessions {
         let theme = match (spec.theme, self.inner.theme.get()) {
             (Some(theme), _) => theme,
             (None, Some(provider)) => provider().await,
-            (None, None) => ThemeSetting::default().in_use(),
+            (None, None) => GlobalSettings::default().theme_in_use(),
         };
         // COLORFGBG ("text;background" as two of the 16 colours) comes last, so a ticket's or the spec's variable
         // of that name doesn't override what the theme is.

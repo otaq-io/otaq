@@ -5,6 +5,7 @@ import { Channel, convertFileSrc, invoke } from "@tauri-apps/api/core";
 
 import type { OverviewFileChip } from "./generated/OverviewFileChip";
 import type { TerminalFeed } from "./generated/TerminalFeed";
+import type { ThemeMode } from "./generated/ThemeMode";
 import type { WindowAction } from "./generated/WindowAction";
 
 /**
@@ -58,6 +59,12 @@ export function attachTerminal(
 /** An action on the page's window: a caption button's (minimize, maximize or restore, close), or bringing it forward. */
 export function windowAction(action: WindowAction): Promise<void> {
   return invoke("window", { action });
+}
+
+/** Draws the window's own parts (title bar, menus, the menu-bar icon's menu) for the theme mode: as the OS on Match
+ * system, else light or dark. */
+export function windowTheme(mode: ThemeMode): Promise<void> {
+  return invoke("window_theme", { mode });
 }
 
 /** The system folder picker titled `title`: the folder chosen, or `null` when cancelled (Add project). */

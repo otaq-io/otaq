@@ -176,7 +176,7 @@ pub fn theme_step() -> ThemeStep {
     ThemeStep {
         title: "Pick a look".to_owned(),
         text: format!(
-            "Pick one theme. {} uses it all the time, and the board, panels and terminal recolor as soon as you click.",
+            "{} matches your system: the light theme while it is light, the dark one while it is dark. Pick one of each, or keep it light or dark; the board, panels and terminal recolor as soon as you click.",
             naming::PRODUCT_NAME
         ),
         foot: "Change it anytime in Settings \u{2192} Appearance.".to_owned(),

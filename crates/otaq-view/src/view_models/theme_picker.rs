@@ -1,11 +1,13 @@
-//! The theme picker shared by onboarding and Settings → Appearance (UI-11, d0069, d0070; *14 · First run &
-//! onboarding → 2 · Theme*, *15 · Settings → Global · Usage, notifications, data, appearance*): the 15 theme cards
-//! under a Dark and a Light heading (labels only). One card is picked; a click picks it, applied and saved at once.
+//! The theme picker shared by onboarding and Settings → Appearance (UI-11, d0069; *14 · First run & onboarding → 2 ·
+//! Theme*, *15 · Settings → Global · Usage, notifications, data, appearance*): the mode (Match system, Light, Dark),
+//! then the 15 theme cards under a Dark and a Light heading. One card is checked in each: the dark and the light
+//! pick. A click on a card picks it for its kind, a click on a mode chooses it; both apply and save at once.
 
+use otaq_core::board::settings::ThemeSetting;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::theme::{Appearance, ThemeId};
+use crate::theme::{Appearance, Mode, ThemeId};
 
 /// One theme card: the preview is drawn from `id`'s own colours. On the page (`ThemePickerCard`) `id` is the
 /// theme's key, the value of `data-theme`, so the preview draws itself in that theme's variables.
@@ -28,6 +30,43 @@ pub struct PickerSection {
     pub label: &'static str,
     /// Rows of five cards.
     pub rows: Vec<Vec<ThemeCard>>,
+}
+
+/// One choice of the mode row. `ThemeModeOption` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemeModeOption")]
+pub struct ModeOption {
+    pub mode: Mode,
+    pub label: &'static str,
+    pub selected: bool,
+}
+
+/// The whole picker: the mode row, then the Dark and the Light cards. `ThemePickerView` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "ThemePickerView")]
+pub struct Picker {
+    pub modes: Vec<ModeOption>,
+    pub sections: Vec<PickerSection>,
+}
+
+/// The picker for `setting`: its mode chosen, its dark and its light theme checked.
+pub fn picker(setting: ThemeSetting) -> Picker {
+    let mode = Mode::from(setting.mode);
+    Picker {
+        modes: Mode::ALL
+            .into_iter()
+            .map(|m| ModeOption {
+                mode: m,
+                label: m.label(),
+                selected: m == mode,
+            })
+            .collect(),
+        sections: sections(
+            ThemeId::from_stored(setting.dark),
+            ThemeId::from_stored(setting.light),
+        )
+        .into(),
+    }
 }
 
 /// Cards per row in both frames.
@@ -54,9 +93,9 @@ pub fn tagline(id: ThemeId) -> &'static str {
     }
 }
 
-/// Both groups, with `selected` checked.
-pub fn sections(selected: ThemeId) -> [PickerSection; 2] {
-    let section = |kind: Appearance, label, themes: &[ThemeId]| {
+/// Both groups, with the dark pick checked in Dark and the light pick in Light.
+pub fn sections(dark: ThemeId, light: ThemeId) -> [PickerSection; 2] {
+    let section = |kind: Appearance, label, themes: &[ThemeId], selected: ThemeId| {
         let cards: Vec<ThemeCard> = themes
             .iter()
             .map(|&id| ThemeCard {
@@ -73,8 +112,8 @@ pub fn sections(selected: ThemeId) -> [PickerSection; 2] {
         }
     };
     [
-        section(Appearance::Dark, "Dark", &ThemeId::DARK),
-        section(Appearance::Light, "Light", &ThemeId::LIGHT),
+        section(Appearance::Dark, "Dark", &ThemeId::DARK, dark),
+        section(Appearance::Light, "Light", &ThemeId::LIGHT, light),
     ]
 }
 
@@ -96,7 +135,7 @@ mod tests {
 
     #[test]
     fn two_groups_as_in_the_frames() {
-        let [dark, light] = sections(ThemeId::OtaqLight);
+        let [dark, light] = sections(ThemeId::OtaqDark, ThemeId::OtaqLight);
         assert_eq!((dark.label, light.label), ("Dark", "Light"));
         assert_eq!(
             dark.rows.iter().map(Vec::len).collect::<Vec<_>>(),
@@ -107,13 +146,13 @@ mod tests {
         assert_eq!(dark.rows[0][4].name, "Tokyo Night");
         assert_eq!(dark.rows[0][4].tagline, "Neon city after dark");
         assert_eq!(light.rows[0][3].name, "Solarized Light");
-        assert_eq!(selected(&dark), []);
+        assert_eq!(selected(&dark), [ThemeId::OtaqDark]);
         assert_eq!(selected(&light), [ThemeId::OtaqLight]);
     }
 
     #[test]
     fn the_page_gets_each_card_by_its_key() {
-        let json = serde_json::to_value(sections(ThemeId::Dracula)).unwrap();
+        let json = serde_json::to_value(sections(ThemeId::Dracula, ThemeId::Daylight)).unwrap();
         assert_eq!(json[0]["label"], "Dark");
         assert_eq!(
             json[0]["rows"][1][0],
@@ -128,11 +167,44 @@ mod tests {
     }
 
     #[test]
-    fn exactly_one_card_is_checked() {
-        for id in ThemeId::DARK.into_iter().chain(ThemeId::LIGHT) {
-            let [dark, light] = sections(id);
-            let checked: Vec<ThemeId> = [selected(&dark), selected(&light)].concat();
-            assert_eq!(checked, [id]);
+    fn one_card_is_checked_in_each_group() {
+        for dark_id in ThemeId::DARK {
+            for light_id in ThemeId::LIGHT {
+                let [dark, light] = sections(dark_id, light_id);
+                assert_eq!(selected(&dark), [dark_id]);
+                assert_eq!(selected(&light), [light_id]);
+            }
         }
+    }
+
+    #[test]
+    fn the_mode_row_offers_match_system_light_and_dark_with_the_stored_one_chosen() {
+        use otaq_core::board::settings::{Theme, ThemeMode};
+        let setting = ThemeSetting {
+            mode: ThemeMode::Light,
+            light: Theme::SolarizedLight,
+            dark: Theme::Nord,
+        };
+        let json = serde_json::to_value(picker(setting)).unwrap();
+        assert_eq!(
+            json["modes"],
+            serde_json::json!([
+                {"mode": "system", "label": "Match system", "selected": false},
+                {"mode": "light", "label": "Light", "selected": true},
+                {"mode": "dark", "label": "Dark", "selected": false},
+            ])
+        );
+        let sections = picker(setting).sections;
+        let checked: Vec<ThemeId> = sections.iter().flat_map(selected).collect();
+        assert_eq!(checked, [ThemeId::Nord, ThemeId::SolarizedLight]);
+        assert_eq!(
+            picker(ThemeSetting::default()).modes[0],
+            ModeOption {
+                mode: Mode::System,
+                label: "Match system",
+                selected: true,
+            },
+            "a fresh install matches the system"
+        );
     }
 }

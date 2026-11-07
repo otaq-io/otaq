@@ -7,6 +7,7 @@ import { openOverlay } from "../../app/overlays";
 import {
   AnchoredMenu,
   Button,
+  chooseThemeMode,
   Checkbox,
   CodeText,
   IconButton,
@@ -224,10 +225,13 @@ function Themes() {
   if (!picker.view) return null;
   return (
     <ThemePicker
-      sections={picker.view}
+      view={picker.view}
       inRows
       onPick={(key) => {
         void pickTheme(key);
+      }}
+      onMode={(mode) => {
+        void chooseThemeMode(mode);
       }}
     />
   );

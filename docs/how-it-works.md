@@ -263,7 +263,9 @@ with **Undo** in the project's settings.
 
 ### Themes
 
-15 bundled themes, picked on first run and in Settings: Otaq Dark (the screenshot at the top) and Otaq Light,
+15 bundled themes. Otaq matches the system by default, showing a light theme while macOS or Windows is light and a
+dark one while it is dark, and switches as the system does; Settings → Appearance keeps it light or dark instead, and
+picks the light and the dark theme: Otaq Dark (the screenshot at the top) and Otaq Light,
 Catppuccin (Latte, Frappé, Macchiato, Mocha), Tokyo Night, Dracula, Nord, Gruvbox Dark, Rosé Pine and Rosé Pine Dawn,
 One Dark, Daylight (the board above) and Solarized Light.
 

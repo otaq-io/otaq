@@ -1,5 +1,5 @@
 {
-  "protocol_version": 9,
+  "protocol_version": 10,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -3901,6 +3901,9 @@
           "ty": "bool"
         },
         "notifications": {
+          "ty": "bool"
+        },
+        "os_dark": {
           "ty": "bool"
         },
         "sheet_width": {
@@ -10501,26 +10504,28 @@
         "tokyo-night"
       ]
     },
+    "ThemeMode": {
+      "kind": "strings",
+      "values": [
+        "dark",
+        "light",
+        "system"
+      ]
+    },
     "ThemeSetting": {
-      "kind": "enum",
-      "attrs": [
-        "untagged"
-      ],
-      "variants": {
-        "ByOs": {
-          "fields": {
-            "dark": {
-              "ty": "Theme",
-              "required": true
-            },
-            "light": {
-              "ty": "Theme",
-              "required": true
-            }
-          }
+      "kind": "struct",
+      "fields": {
+        "dark": {
+          "ty": "Theme",
+          "required": true
         },
-        "Picked": {
-          "newtype": "Theme"
+        "light": {
+          "ty": "Theme",
+          "required": true
+        },
+        "mode": {
+          "ty": "ThemeMode",
+          "required": true
         }
       }
     },

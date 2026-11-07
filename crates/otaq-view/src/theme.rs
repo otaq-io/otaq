@@ -4,12 +4,12 @@
 //! density. Each UI turns the hex values into its own colour type; every screen reads its colours from the active
 //! theme, never from literals.
 //!
-//! The user picks one theme and it is used all the time (d0070, stored in the global settings). Until one is
-//! picked, the theme follows the OS at start-up ([`ThemeId::from_setting`]).
+//! The user picks a theme mode (Match system, Light or Dark) and one light and one dark theme (stored in the global
+//! settings). Match system shows the light or the dark one as the OS appearance is now ([`ThemeId::from_setting`]).
 
-use otaq_core::board::settings::{Theme as StoredTheme, ThemeSetting};
+use otaq_core::board::settings::{Theme as StoredTheme, ThemeMode, ThemeSetting};
 use otaq_core::naming;
-use serde::{Serialize, Serializer};
+use serde::{Deserialize, Serialize, Serializer};
 use ts_rs::TS;
 
 use crate::icons::IconName;
@@ -19,6 +19,50 @@ use crate::icons::IconName;
 pub enum Appearance {
     Light,
     Dark,
+}
+
+/// The theme mode as the page names it (`ThemeMode`): which of the two picked themes shows. Match system follows
+/// the OS appearance, live; Light and Dark always show that one.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "ThemeMode")]
+pub enum Mode {
+    System,
+    Light,
+    Dark,
+}
+
+impl Mode {
+    pub const ALL: [Mode; 3] = [Self::System, Self::Light, Self::Dark];
+
+    /// Its name in the picker.
+    pub fn label(self) -> &'static str {
+        match self {
+            Self::System => "Match system",
+            Self::Light => "Light",
+            Self::Dark => "Dark",
+        }
+    }
+}
+
+impl From<ThemeMode> for Mode {
+    fn from(mode: ThemeMode) -> Self {
+        match mode {
+            ThemeMode::System => Self::System,
+            ThemeMode::Light => Self::Light,
+            ThemeMode::Dark => Self::Dark,
+        }
+    }
+}
+
+impl From<Mode> for ThemeMode {
+    fn from(mode: Mode) -> Self {
+        match mode {
+            Mode::System => Self::System,
+            Mode::Light => Self::Light,
+            Mode::Dark => Self::Dark,
+        }
+    }
 }
 
 /// The 15 bundled themes (d0069, d0070), in the order of the design's `palette` axis, Otaq's two versions first.
@@ -121,7 +165,7 @@ impl ThemeId {
             .expect("every theme is stored")
     }
 
-    /// The theme to draw with: the picked one, or, until one is picked, the one for the OS (window) appearance.
+    /// The theme to draw with: the mode's, on Match system the one for the OS appearance now.
     pub fn from_setting(setting: ThemeSetting, os: Appearance) -> Self {
         Self::from_stored(setting.resolve(os == Appearance::Dark))
     }
@@ -593,6 +637,8 @@ impl Status {
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::board::settings::ThemeMode;
+
     use super::*;
 
     /// The service answers a program's colour questions with the core's copy of `term-fg` / `term-bg` (d0117 point
@@ -757,18 +803,34 @@ mod tests {
     }
 
     #[test]
-    fn a_picked_theme_ignores_the_os_and_an_unpicked_one_follows_it() {
-        let picked = ThemeSetting::Picked(StoredTheme::Daylight);
-        for os in [Appearance::Dark, Appearance::Light] {
-            assert_eq!(ThemeId::from_setting(picked, os), ThemeId::Daylight);
-        }
-        let unpicked = ThemeSetting::default();
+    fn match_system_follows_the_os_and_a_fixed_mode_ignores_it() {
+        let system = ThemeSetting {
+            light: StoredTheme::Daylight,
+            dark: StoredTheme::Nord,
+            ..ThemeSetting::default()
+        };
         assert_eq!(
-            ThemeId::from_setting(unpicked, Appearance::Dark),
+            ThemeId::from_setting(system, Appearance::Dark),
+            ThemeId::Nord
+        );
+        assert_eq!(
+            ThemeId::from_setting(system, Appearance::Light),
+            ThemeId::Daylight
+        );
+        let light = ThemeSetting {
+            mode: ThemeMode::Light,
+            ..system
+        };
+        for os in [Appearance::Dark, Appearance::Light] {
+            assert_eq!(ThemeId::from_setting(light, os), ThemeId::Daylight);
+        }
+        let fresh = ThemeSetting::default();
+        assert_eq!(
+            ThemeId::from_setting(fresh, Appearance::Dark),
             ThemeId::OtaqDark
         );
         assert_eq!(
-            ThemeId::from_setting(unpicked, Appearance::Light),
+            ThemeId::from_setting(fresh, Appearance::Light),
             ThemeId::OtaqLight
         );
     }

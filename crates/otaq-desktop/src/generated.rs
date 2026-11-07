@@ -58,10 +58,13 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::FileLinkCheck::export_all(&cfg)?;
     otaq_view::file_paths::FileLink::export_all(&cfg)?;
     crate::api::ThemePick::export_all(&cfg)?;
+    // Also writes `ThemeMode`.
+    crate::api::ThemeModePick::export_all(&cfg)?;
     // The "Help improve Otaq" dialog (d0085); also writes `UsageDataDialog`.
     crate::api::UsageDataAsk::export_all(&cfg)?;
     crate::api::UsageChoice::export_all(&cfg)?;
-    otaq_view::view_models::theme_picker::PickerSection::export_all(&cfg)?;
+    // Also writes `ThemePickerSection`, `ThemePickerCard` and `ThemeModeOption`.
+    otaq_view::view_models::theme_picker::Picker::export_all(&cfg)?;
     otaq_view::view_models::status::PillView::export_all(&cfg)?;
     otaq_view::view_models::priority::PriorityView::export_all(&cfg)?;
     otaq_view::view_models::menu::MenuItem::export_all(&cfg)?;

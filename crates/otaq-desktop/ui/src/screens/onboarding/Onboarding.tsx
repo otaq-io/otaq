@@ -13,7 +13,7 @@ import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { useRegistries } from "../../app/registry";
 import { useStore } from "../../app/store";
-import { Button, pickTheme, ThemePicker, useThemePicker } from "../../components";
+import { Button, chooseThemeMode, pickTheme, ThemePicker, useThemePicker } from "../../components";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTexts } from "../../generated/OnboardingTexts";
 import type { OnboardingTools } from "../../generated/OnboardingTools";
@@ -206,9 +206,12 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
             <p className="onboarding-text">{texts.theme.text}</p>
             {picker && (
               <ThemePicker
-                sections={picker}
+                view={picker}
                 onPick={(key) => {
                   void pickTheme(key);
+                }}
+                onMode={(mode) => {
+                  void chooseThemeMode(mode);
                 }}
               />
             )}

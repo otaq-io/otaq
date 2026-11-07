@@ -164,22 +164,34 @@ impl Theme {
     }
 }
 
-/// The theme setting (d0070): one theme, used all the time. Until one is picked (a fresh install, or System mode
-/// from before d0070) it holds a theme for a dark OS and one for a light OS; the app picks by the OS at its next
-/// start and stores that theme.
+stored_enum! {
+    /// Which of the two picked themes shows: the one matching the OS appearance, live (the default), or always the
+    /// light or always the dark one.
+    pub enum ThemeMode ("theme mode") {
+        System = "system",
+        Light = "light",
+        Dark = "dark",
+    }
+}
+
+/// The theme setting: a mode and one light and one dark theme. Match system shows the light theme while the OS is
+/// light and the dark one while it is dark, switching as the OS does; Light and Dark always show that one.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(untagged)]
-pub enum ThemeSetting {
-    Picked(Theme),
-    ByOs { dark: Theme, light: Theme },
+pub struct ThemeSetting {
+    pub mode: ThemeMode,
+    /// A light theme.
+    pub light: Theme,
+    /// A dark theme.
+    pub dark: Theme,
 }
 
 impl Default for ThemeSetting {
-    /// Otaq Dark on a dark OS, Otaq Light on a light one.
+    /// Match system, with Otaq Light and Otaq Dark.
     fn default() -> Self {
-        Self::ByOs {
-            dark: Theme::OtaqDark,
+        Self {
+            mode: ThemeMode::System,
             light: Theme::OtaqLight,
+            dark: Theme::OtaqDark,
         }
     }
 }
@@ -199,38 +211,47 @@ pub struct TerminalColors {
 }
 
 impl ThemeSetting {
-    /// The theme in use, as the service sees it: the picked one. Before one is picked (a fresh install, until the
-    /// app's first start stores the theme for the OS) the service, which can't see the OS, takes the dark one.
-    pub fn in_use(self) -> Theme {
-        self.resolve(true)
+    /// The theme to show, given whether the OS is dark now (only Match system asks).
+    pub fn resolve(self, os_dark: bool) -> Theme {
+        let dark = match self.mode {
+            ThemeMode::System => os_dark,
+            ThemeMode::Light => false,
+            ThemeMode::Dark => true,
+        };
+        if dark { self.dark } else { self.light }
     }
 
-    /// The theme to use, given whether the OS is dark.
-    pub fn resolve(self, os_dark: bool) -> Theme {
-        match self {
-            Self::Picked(theme) => theme,
-            Self::ByOs { dark, light } => {
-                if os_dark {
-                    dark
-                } else {
-                    light
-                }
+    /// Picks `theme` as the light or the dark theme, by its kind. With the mode fixed on the other kind, the mode
+    /// turns to the theme's kind, so the pick shows; Match system stays.
+    pub fn pick(&mut self, theme: Theme) {
+        if theme.is_dark() {
+            self.dark = theme;
+            if self.mode == ThemeMode::Light {
+                self.mode = ThemeMode::Dark;
+            }
+        } else {
+            self.light = theme;
+            if self.mode == ThemeMode::Dark {
+                self.mode = ThemeMode::Light;
             }
         }
     }
 
-    /// The setting d0069 stored as a mode (`appearance`) and two themes: Dark and Light mode keep the theme they
-    /// showed, System mode keeps both until the OS decides. `None` when nothing of it was stored.
+    /// The setting d0069 stored as a mode (`appearance`) and two themes, kept as they were. `None` when nothing of
+    /// it was stored.
     fn from_0069(stored: &Map<String, Value>) -> Option<Self> {
         if !THEME_KEYS_0069.iter().any(|key| stored.contains_key(*key)) {
             return None;
         }
-        let dark = Theme::from_0069(stored.get("dark_theme"), true);
-        let light = Theme::from_0069(stored.get("light_theme"), false);
-        Some(match stored.get("appearance").and_then(Value::as_str) {
-            Some("dark") => Self::Picked(dark),
-            Some("light") => Self::Picked(light),
-            _ => Self::ByOs { dark, light },
+        let mode = match stored.get("appearance").and_then(Value::as_str) {
+            Some("dark") => ThemeMode::Dark,
+            Some("light") => ThemeMode::Light,
+            _ => ThemeMode::System,
+        };
+        Some(Self {
+            mode,
+            light: Theme::from_0069(stored.get("light_theme"), false),
+            dark: Theme::from_0069(stored.get("dark_theme"), true),
         })
     }
 }
@@ -249,8 +270,12 @@ pub struct GlobalSettings {
     pub notification_kinds: NotificationKinds,
     /// Notifications play the OS's default sound (d0090). On by default.
     pub notification_sound: bool,
-    /// One theme, used all the time (d0070).
+    /// The theme mode and the light and dark themes.
     pub theme: ThemeSetting,
+    /// Whether the OS was dark when the app last looked, kept current by the app while the theme matches the
+    /// system: what the service, which can't see the OS, takes for Match system (a session's `COLORFGBG`). Not a
+    /// row of the Settings page.
+    pub os_dark: bool,
     pub terminal_font_size: u32,
     /// The terminal font (d0117 point 5): an installed monospace family; `None` is Geist Mono. Checked against the
     /// installed fonts when set ([`Self::set_terminal_font_family`]); one no longer installed reads as Geist Mono
@@ -284,6 +309,11 @@ pub const TERMINAL_FONT_SIZES: std::ops::RangeInclusive<u32> = 8..=32;
 pub const DEFAULT_TERMINAL_FONT_FAMILY: &str = "Geist Mono";
 
 impl GlobalSettings {
+    /// The theme shown now: the mode's, with the OS appearance the app last saw.
+    pub fn theme_in_use(&self) -> Theme {
+        self.theme.resolve(self.os_dark)
+    }
+
     /// Chooses the terminal font from the installed monospace families: `""` (or Geist Mono) goes back to the
     /// default, a name not in `installed` is refused. Stored with the installed family's own spelling.
     pub fn set_terminal_font_family(
@@ -323,6 +353,7 @@ impl Default for GlobalSettings {
             notification_kinds: NotificationKinds::default(),
             notification_sound: true,
             theme: ThemeSetting::default(),
+            os_dark: true,
             terminal_font_size: DEFAULT_TERMINAL_FONT_SIZE,
             terminal_font_family: None,
             terminal_renderer: TerminalRenderer::default(),
@@ -825,7 +856,7 @@ impl Board {
         Ok(read_or_default(Value::Object(object)))
     }
 
-    /// The theme in use now ([`ThemeSetting::in_use`]), read when asked: what a session or launch starting now is
+    /// The theme in use now ([`GlobalSettings::theme_in_use`]), read when asked: what a session or launch starting now is
     /// told (d0117 point 4). Settings that can't be read count as the default.
     pub async fn theme_in_use(&self) -> Theme {
         self.global_settings()
@@ -834,8 +865,7 @@ impl Board {
                 tracing::warn!(error = %e, "can't read the theme");
                 GlobalSettings::default()
             })
-            .theme
-            .in_use()
+            .theme_in_use()
     }
 
     /// Stores every global setting.
@@ -1363,24 +1393,17 @@ mod tests {
         let dark = Theme::ALL.iter().filter(|t| t.is_dark()).count();
         assert_eq!(dark, 10);
         assert!(Theme::ALL[..dark].iter().all(|t| t.is_dark()));
-        for theme in Theme::ALL {
-            let json = serde_json::to_value(ThemeSetting::Picked(*theme)).unwrap();
-            assert_eq!(json, serde_json::json!(theme.as_str()));
-            assert_eq!(
-                serde_json::from_value::<ThemeSetting>(json).unwrap(),
-                ThemeSetting::Picked(*theme)
-            );
-        }
         let defaults = GlobalSettings::default();
+        assert_eq!(defaults.theme.mode, ThemeMode::System);
         assert_eq!(defaults.theme.resolve(true), Theme::OtaqDark);
         assert_eq!(defaults.theme.resolve(false), Theme::OtaqLight);
-        let by_os = serde_json::to_value(defaults.theme).unwrap();
+        let stored = serde_json::to_value(defaults.theme).unwrap();
         assert_eq!(
-            by_os,
-            serde_json::json!({"dark": naming::THEME_DARK, "light": naming::THEME_LIGHT})
+            stored,
+            serde_json::json!({"mode": "system", "light": naming::THEME_LIGHT, "dark": naming::THEME_DARK})
         );
         assert_eq!(
-            serde_json::from_value::<ThemeSetting>(by_os).unwrap(),
+            serde_json::from_value::<ThemeSetting>(stored).unwrap(),
             defaults.theme
         );
     }
@@ -1425,15 +1448,67 @@ mod tests {
     }
 
     #[test]
-    fn a_picked_theme_is_used_whatever_the_os() {
-        let picked = ThemeSetting::Picked(Theme::Dracula);
-        assert_eq!(picked.resolve(true), Theme::Dracula);
-        assert_eq!(picked.resolve(false), Theme::Dracula);
+    fn match_system_follows_the_os_and_light_or_dark_ignore_it() {
+        let mut setting = ThemeSetting {
+            mode: ThemeMode::System,
+            light: Theme::Daylight,
+            dark: Theme::Dracula,
+        };
+        assert_eq!(setting.resolve(true), Theme::Dracula);
+        assert_eq!(setting.resolve(false), Theme::Daylight);
+        setting.mode = ThemeMode::Light;
+        assert_eq!(setting.resolve(true), Theme::Daylight);
+        setting.mode = ThemeMode::Dark;
+        assert_eq!(setting.resolve(false), Theme::Dracula);
+        // The service takes the OS appearance the app last saw.
+        let settings = GlobalSettings {
+            theme: ThemeSetting {
+                mode: ThemeMode::System,
+                ..setting
+            },
+            os_dark: false,
+            ..GlobalSettings::default()
+        };
+        assert_eq!(settings.theme_in_use(), Theme::Daylight);
     }
 
     #[test]
-    fn an_unknown_theme_reads_as_unpicked_and_keeps_the_others() {
-        let stored = serde_json::json!({"theme": "monokai", "terminal_font_size": 15});
+    fn a_picked_theme_fills_its_kinds_place_and_a_fixed_mode_turns_to_show_it() {
+        let mut setting = ThemeSetting::default();
+        setting.pick(Theme::Nord);
+        setting.pick(Theme::SolarizedLight);
+        assert_eq!(
+            setting,
+            ThemeSetting {
+                mode: ThemeMode::System,
+                light: Theme::SolarizedLight,
+                dark: Theme::Nord,
+            }
+        );
+        setting.mode = ThemeMode::Light;
+        setting.pick(Theme::Dracula);
+        assert_eq!(
+            (setting.mode, setting.dark),
+            (ThemeMode::Dark, Theme::Dracula)
+        );
+        setting.pick(Theme::OneDark);
+        assert_eq!(
+            (setting.mode, setting.dark),
+            (ThemeMode::Dark, Theme::OneDark)
+        );
+        setting.pick(Theme::Daylight);
+        assert_eq!(
+            (setting.mode, setting.light),
+            (ThemeMode::Light, Theme::Daylight)
+        );
+    }
+
+    #[test]
+    fn an_unknown_theme_reads_as_the_default_and_keeps_the_others() {
+        let stored = serde_json::json!({
+            "theme": {"mode": "dark", "light": "monokai", "dark": "dracula"},
+            "terminal_font_size": 15,
+        });
         let settings: GlobalSettings = read_or_default(stored);
         assert_eq!(settings.theme, ThemeSetting::default());
         assert_eq!(settings.terminal_font_size, 15);
@@ -1454,30 +1529,31 @@ mod tests {
                 "light_theme": "daylight",
             }))
         };
-        assert_eq!(both("dark"), Some(ThemeSetting::Picked(Theme::TokyoNight)));
-        assert_eq!(both("light"), Some(ThemeSetting::Picked(Theme::Daylight)));
+        let with = |mode, light, dark| Some(ThemeSetting { mode, light, dark });
+        assert_eq!(
+            both("dark"),
+            with(ThemeMode::Dark, Theme::Daylight, Theme::TokyoNight)
+        );
+        assert_eq!(
+            both("light"),
+            with(ThemeMode::Light, Theme::Daylight, Theme::TokyoNight)
+        );
         assert_eq!(
             both("system"),
-            Some(ThemeSetting::ByOs {
-                dark: Theme::TokyoNight,
-                light: Theme::Daylight
-            })
+            with(ThemeMode::System, Theme::Daylight, Theme::TokyoNight)
         );
         // Both Otaq versions were stored as `otaq`; unknown names read as Otaq.
         assert_eq!(
             read(serde_json::json!({"appearance": "light", "light_theme": naming::THEME_KEY})),
-            Some(ThemeSetting::Picked(Theme::OtaqLight))
+            with(ThemeMode::Light, Theme::OtaqLight, Theme::OtaqDark)
         );
         assert_eq!(
             read(serde_json::json!({"appearance": "dark", "dark_theme": "monokai"})),
-            Some(ThemeSetting::Picked(Theme::OtaqDark))
+            with(ThemeMode::Dark, Theme::OtaqLight, Theme::OtaqDark)
         );
         assert_eq!(
             read(serde_json::json!({"dark_theme": "nord"})),
-            Some(ThemeSetting::ByOs {
-                dark: Theme::Nord,
-                light: Theme::OtaqLight
-            })
+            with(ThemeMode::System, Theme::OtaqLight, Theme::Nord)
         );
         assert_eq!(read(serde_json::json!({"notifications": false})), None);
     }

@@ -150,7 +150,7 @@ pub use terminal_tab::{
     DeliverParams as TerminalTabDeliverParams, Load as TerminalTabLoad, Params as TerminalTabParams,
 };
 #[cfg(test)]
-pub use theme::{ActiveTheme, ThemeParams, ThemePick};
+pub use theme::{ActiveTheme, ThemeModePick, ThemeParams, ThemePick};
 #[cfg(test)]
 pub use ticket_comments::export_types as export_ticket_comment_types;
 #[cfg(test)]

@@ -323,7 +323,7 @@ async fn themes_travel_in_the_settings_requests() {
     };
     let mut settings = reply.settings;
     assert_eq!(settings.theme, ThemeSetting::default());
-    settings.theme = ThemeSetting::Picked(Theme::Dracula);
+    settings.theme.pick(Theme::Dracula);
     settings.terminal_font_size = 15;
     client
         .request(Request::SettingsSet(settings.clone()))

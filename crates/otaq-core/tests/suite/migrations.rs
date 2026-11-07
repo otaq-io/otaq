@@ -1546,7 +1546,8 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     }
     assert_eq!(
         store.setting("theme").await.unwrap().as_deref(),
-        Some("\"dracula\"")
+        Some(r#"{"mode":"dark","light":"otaq-light","dark":"dracula"}"#),
+        "a later migration turns the theme into a mode"
     );
     assert_eq!(
         project_json(&store, "NOTE").await,
@@ -2735,4 +2736,57 @@ async fn migration_0084_turns_a_stored_you_choice_into_required() {
     );
     assert_eq!(read(&payloads[1], "by"), Some("you".into()));
     assert_eq!(payloads[2], json!({"choice": "you"}));
+}
+
+/// The stored `theme` row after the migrations, as the settings read it, for a row stored before 0090 as `value`.
+async fn theme_after_0090(value: &str) -> otaq_core::board::settings::ThemeSetting {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 84).await;
+    sqlx::query(
+        "INSERT INTO settings (key, value_json, updated_at)
+         VALUES ('theme', ?, 0), ('notifications', 'false', 0)",
+    )
+    .bind(value)
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String, String)> = sqlx::query_as("SELECT key, value_json FROM settings")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    let object: serde_json::Map<String, serde_json::Value> = rows
+        .into_iter()
+        .map(|(key, value)| (key, serde_json::from_str(&value).unwrap()))
+        .collect();
+    assert_eq!(object["notifications"], json!(false), "the other rows stay");
+    serde_json::from_value(object["theme"].clone()).unwrap()
+}
+
+/// The theme becomes a mode with a light and a dark pick: migration 0090 makes a picked light theme the light pick
+/// with the mode Light, a picked dark theme the dark pick with the mode Dark, and a setting still waiting for the OS
+/// Match system with its two themes.
+#[tokio::test]
+async fn migration_0090_keeps_the_picked_theme_as_the_pick_of_its_kind() {
+    use otaq_core::board::settings::{Theme, ThemeMode, ThemeSetting};
+    let with = |mode, light, dark| ThemeSetting { mode, light, dark };
+    assert_eq!(
+        theme_after_0090("\"daylight\"").await,
+        with(ThemeMode::Light, Theme::Daylight, Theme::OtaqDark)
+    );
+    assert_eq!(
+        theme_after_0090(&format!("\"{}\"", naming::THEME_LIGHT)).await,
+        with(ThemeMode::Light, Theme::OtaqLight, Theme::OtaqDark)
+    );
+    assert_eq!(
+        theme_after_0090("\"tokyo-night\"").await,
+        with(ThemeMode::Dark, Theme::OtaqLight, Theme::TokyoNight)
+    );
+    assert_eq!(
+        theme_after_0090(r#"{"dark":"dracula","light":"rose-pine-dawn"}"#).await,
+        with(ThemeMode::System, Theme::RosePineDawn, Theme::Dracula)
+    );
 }

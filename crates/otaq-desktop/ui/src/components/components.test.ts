@@ -184,18 +184,33 @@ describe("overlays and feedback", () => {
 });
 
 describe("the theme picker", () => {
-  it("draws each card's preview in its own theme and checks the one in use", () => {
+  it("offers the mode, draws each card's preview in its own theme and checks the picks", () => {
     const card = (id: string, selected: boolean) => ({ id, name: id, tagline: "t", selected });
     const out = html(
       createElement(ThemePicker, {
-        sections: [{ label: "Dark", rows: [[card("dracula", true), card("nord", false)]] }],
+        view: {
+          modes: [
+            { mode: "system", label: "Match system", selected: true },
+            { mode: "light", label: "Light", selected: false },
+            { mode: "dark", label: "Dark", selected: false },
+          ],
+          sections: [
+            { label: "Dark", rows: [[card("dracula", true), card("nord", false)]] },
+            { label: "Light", rows: [[card("daylight", true)]] },
+          ],
+        },
         onPick: () => undefined,
+        onMode: () => undefined,
       }),
     );
+    expect(out).toContain('role="radiogroup" aria-label="Theme mode"');
+    expect(out).toMatch(/aria-checked="true"[^>]*>Match system</);
     expect(out).toContain('role="radiogroup" aria-label="Dark"');
     expect(out).toContain('data-theme="dracula"');
     expect(out).toMatch(/aria-checked="true"[^]*data-theme="dracula"/);
-    expect(out.match(/aria-checked="false"/g)).toHaveLength(1);
+    expect(out).toMatch(/aria-checked="true"[^]*data-theme="daylight"/);
+    // Light and Dark in the mode row, and Nord.
+    expect(out.match(/aria-checked="false"/g)).toHaveLength(3);
   });
 });
 

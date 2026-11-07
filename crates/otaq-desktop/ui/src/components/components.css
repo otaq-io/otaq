@@ -1107,12 +1107,14 @@
   padding: 0 0 20px;
 }
 
-.theme-section:first-child {
+/* The mode row (Match system, Light, Dark) above the cards. */
+.theme-modes {
+  display: flex;
   padding: 16px 0 18px;
   border-top: 1px solid var(--border);
 }
 
-.theme-picker[data-in-rows] > .theme-section:first-child {
+.theme-picker[data-in-rows] > .theme-modes {
   padding-top: 2px;
   border-top: none;
 }
