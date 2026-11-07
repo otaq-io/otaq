@@ -16,10 +16,8 @@ const option = (label: string, selected: boolean) => ({
 });
 
 const TOOLBAR = {
-  views: { label: "View", options: [option("Board", true), option("List", false)] },
-  lanes: null,
-  group_by: null,
-  dependencies: null,
+  views: { label: "View", options: [option("Board", true), option("Files", false)] },
+  layouts: null,
   switch: null,
   subtitle: null,
   live: null,

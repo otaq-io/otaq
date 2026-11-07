@@ -1,10 +1,10 @@
-// The board (*24 · The two views*; UI-02, SHL-06, BRD-01, BRD-02): the toolbar (Board · List, Group by, Fold
-// empty columns, All tickets, New ticket; `Toolbar.tsx`), then the columns of the shown project's flow from
+// The board (UI-02, SHL-06, BRD-01, BRD-02): the toolbar (Board · Files, the layout switch, Fold empty columns, All
+// tickets, New ticket; `Toolbar.tsx`), then the columns of the shown project's flow from
 // `board.view`, refetched on the service's events, at the board's size (one width rule: every open column at least
 // `min_column_width`, sharing the width when they fit, else the board scrolls sideways with the "7 more stages" pill at
-// its right edge; Rust folds Dev by height). The List view (`list/List.tsx`, LST-01) draws `board.view`'s `list` in
-// place of the columns: its rows press, open, drag and open their menu as cards do, and Group by Stage's groups are the
-// drop targets (a row dragged onto Ready queues it); ↑/↓ walk the rows. How the board looks is
+// its right edge; Rust folds Dev by height). In its List layout (`list/List.tsx`) the same board is drawn as rows from
+// `board.view`'s `list` in place of the columns: its rows press, open, drag and open their menu as cards do, and each
+// group is its column's drop target; ↑/↓ walk the rows. How the board looks is
 // the project's view preferences, kept by the service (SHB-05): folds and the view change with
 // `board.set_view`, then the board asks for its view again; `g b`, `g l` and ⇧⌘O / `g f` switch the view. On Files
 // (FIL-01) the project Files view (`files_view/FilesView.tsx`) takes the columns' place under the same toolbar and
@@ -402,7 +402,7 @@ export function Board() {
   const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
-  // The List's groups that take a drop (LST-02), measured like the columns when a drag starts.
+  // The List's groups (and its Done line), its columns' drop targets, measured like the columns when a drag starts.
   const listGroups = useRef(new Map<BoardDropTarget, HTMLElement>());
   const list = view?.list ?? null;
   const listRef = useRef(list);
@@ -619,9 +619,9 @@ export function Board() {
     else listGroups.current.delete(id);
   }, []);
 
-  // A List row does what a card does (LST-02): a press is a click or a drag, its action opens the ticket and asks for
-  // it, Start is ⌘D's drop, the menu is the card's. Space lifts it onto its own group (Group by Stage), ↑/↓ then move
-  // it between the groups that take it, and walk the rows otherwise.
+  // A List row does what a card does: a press is a click or a drag, its action opens the ticket and asks for it (Start
+  // starts it), the menu is the card's. Space lifts it onto its own group, ↑/↓ then move it between the groups, and
+  // walk the rows otherwise.
   const listHandlers: ListHandlers = useMemo(
     () => ({
       press: (key, e: PointerEvent) => {
@@ -667,9 +667,6 @@ export function Board() {
         }
         openTicket(key);
         requestCardAction(key, kind);
-      },
-      start: (key, target) => {
-        void dropCard(key, target);
       },
       menu: openMenu,
     }),

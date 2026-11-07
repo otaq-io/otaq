@@ -3,20 +3,26 @@ import type { ToolbarGroup } from "./ToolbarGroup";
 import type { ToolbarOption } from "./ToolbarOption";
 
 /**
- * The toolbar at the top of the board, in every view (*24 · The two views*, `s28-03`). `BoardToolbar` on the page.
+ * The toolbar at the top of the board, in every view (`s28-03`). `BoardToolbar` on the page.
  */
 export type BoardToolbar = { 
 /**
- * Board · List · Files (BRD-01, FIL-01).
+ * Board · Files (BRD-01, FIL-01): Board is chosen in either layout, and from Files it goes back to the layout
+ * last shown.
  */
 views: ToolbarGroup, 
+/**
+ * The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files.
+ */
+layouts: ToolbarGroup | null, 
 /**
  * "Settings", after the views: the project's settings (they open over the board until they are a view of
  * their own).
  */
 settings: string, 
 /**
- * "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
+ * "Edit flow" on the board, in either layout: the project's flow, changed from the board (it opens the flow
+ * editor).
  */
 edit_flow: string | null, 
 /**
@@ -28,7 +34,7 @@ subtitle: string | null,
  */
 live: string | null, 
 /**
- * Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
+ * Fold empty columns, in either layout (the List folds an empty stage's group): a switch; none on Files.
  */
 switch: ToolbarOption | null, 
 /**

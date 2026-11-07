@@ -11787,6 +11787,9 @@
         "hide_empty_stages": {
           "ty": "bool"
         },
+        "list_layout": {
+          "ty": "bool"
+        },
         "view": {
           "ty": "BoardView"
         }

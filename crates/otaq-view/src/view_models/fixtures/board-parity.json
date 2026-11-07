@@ -2793,8 +2793,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -2804,6 +2802,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -2829,7 +2855,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -2838,20 +2864,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -4172,8 +4187,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -4183,6 +4196,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -4208,7 +4249,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -4217,20 +4258,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -5562,8 +5592,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -5573,6 +5601,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -5598,7 +5654,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -5607,20 +5663,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -6066,8 +6111,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -6077,6 +6120,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6102,7 +6173,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -6111,20 +6182,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -6517,8 +6577,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -6528,6 +6586,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -6553,7 +6639,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -6562,20 +6648,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -6979,8 +7054,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -6990,6 +7063,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -7015,7 +7116,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -7024,20 +7125,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -8152,8 +8242,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -8163,6 +8251,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8188,7 +8304,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -8197,20 +8313,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -8939,8 +9044,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -8950,6 +9053,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -8975,7 +9106,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -8984,20 +9115,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,
@@ -9737,8 +9857,6 @@
             "done"
           ],
           "folded_sections": [],
-          "group_by": "stage",
-          "hide_empty_stages": false,
           "view": "board"
         },
         "scroll_chip": {
@@ -9748,6 +9866,34 @@
         "toolbar": {
           "all_tickets": "All tickets",
           "edit_flow": "Edit flow",
+          "layouts": {
+            "icon": null,
+            "label": null,
+            "options": [
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "board"
+                },
+                "icon": "columns-3",
+                "keys": "⇧⌘B",
+                "label": "Columns",
+                "selected": true,
+                "tooltip": "Columns"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "list"
+                },
+                "icon": "list",
+                "keys": "g l",
+                "label": "List",
+                "selected": false,
+                "tooltip": "List"
+              }
+            ]
+          },
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
@@ -9773,7 +9919,7 @@
                   "kind": "view",
                   "view": "board"
                 },
-                "icon": "columns-3",
+                "icon": null,
                 "keys": "⇧⌘B",
                 "label": "Board",
                 "selected": true,
@@ -9782,20 +9928,9 @@
               {
                 "change": {
                   "kind": "view",
-                  "view": "list"
-                },
-                "icon": "list",
-                "keys": "g l",
-                "label": "List",
-                "selected": false,
-                "tooltip": "List view"
-              },
-              {
-                "change": {
-                  "kind": "view",
                   "view": "files"
                 },
-                "icon": "folder-open",
+                "icon": null,
                 "keys": "⇧⌘O · g f",
                 "label": "Files",
                 "selected": false,

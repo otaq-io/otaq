@@ -1,7 +1,8 @@
-// The board's toolbar, in every view (BRD-01, FIL-01; *24 · The two views*, `s28-03`): Board · List · Files first
-// (`g b`, `g l`, `g f`) and Settings after them (the project's settings, which open over the board until they are a
-// view of their own); on the right the Board's Edit flow (the flow editor), its one option Fold empty columns (or the
-// List's Hide empty stages), All tickets and New ticket. On Files: its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
+// The board's toolbar, in every view (BRD-01, FIL-01; `s28-03`): the views Board · Files first and Settings after them
+// (the project's settings, which open over the board until they are a view of their own); while the board shows, its
+// layout switch beside them, two icons (columns `g b`, list `g l`: Board and List are layouts of the same board), and
+// on the right Edit flow (the flow editor), its one option Fold empty columns, All tickets and New ticket. On Files:
+// its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
 import type { KeyboardEvent, ReactNode } from "react";
@@ -106,7 +107,48 @@ function Segments({
   );
 }
 
-/** Fold empty columns (Board) or Hide empty stages (List). */
+/** The board's layout switch: two icons, each named by its tooltip (columns or list). */
+function Layouts({ group, onView }: { group: ToolbarGroup; onView: ToolbarProps["onView"] }) {
+  const selected = Math.max(
+    0,
+    group.options.findIndex((o) => o.selected),
+  );
+  const onKeyDown = (e: KeyboardEvent<HTMLDivElement>) => {
+    const next = stepSegment(e.key, selected, group.options.length);
+    const option = next === null ? undefined : group.options[next];
+    if (option === undefined) return;
+    e.preventDefault();
+    onView(option.change);
+  };
+  return (
+    // eslint-disable-next-line jsx-a11y/interactive-supports-focus -- its radios take the focus
+    <div className="board-segments board-layouts" role="radiogroup" aria-label="Layout" onKeyDown={onKeyDown}>
+      {group.options.map((option) => (
+        <Tooltip
+          key={option.label}
+          text={option.tooltip ?? option.label}
+          {...(option.keys === null ? {} : { keys: option.keys })}
+        >
+          <button
+            type="button"
+            role="radio"
+            className="board-segment board-layout"
+            aria-checked={option.selected}
+            aria-label={option.label}
+            tabIndex={option.selected ? 0 : -1}
+            onClick={() => {
+              if (!option.selected) onView(option.change);
+            }}
+          >
+            {option.icon !== null && <Icon name={option.icon} size={14} />}
+          </button>
+        </Tooltip>
+      ))}
+    </div>
+  );
+}
+
+/** Fold empty columns. */
 function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProps["onView"] }) {
   return (
     <button
@@ -154,6 +196,7 @@ export function Toolbar({
           </button>
         }
       />
+      {toolbar.layouts !== null && <Layouts group={toolbar.layouts} onView={onView} />}
       {toolbar.subtitle !== null && (
         <>
           <span className="board-toolbar-divider board-toolbar-subtitle-divider" aria-hidden />
