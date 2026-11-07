@@ -534,12 +534,16 @@ impl Board {
         } else {
             Some(self.plan_writer(actor, None).await)
         };
-        // The first comment's text is checked before anything is created; its report is copied once the key is known.
+        // The first comment is checked before anything is created (text, or at least one attachment); its attachments
+        // are copied once the key is known.
         let first_comment = match &input.first_comment {
-            Some(c) => Some((
-                super::ticket_comments::check_body(&c.body)?,
-                c.report.clone(),
-            )),
+            Some(c) => {
+                let sources = c.sources();
+                Some((
+                    super::ticket_comments::check_comment(&c.body, sources.len())?,
+                    sources,
+                ))
+            }
             None => None,
         };
         let now = now_ms();
@@ -583,11 +587,11 @@ impl Board {
         )
         .await?;
         let stored = match first_comment {
-            Some((body, report)) => {
+            Some((body, sources)) => {
                 let key = key_from_parts(&project.key, number)
                     .ok_or_else(|| BoardError::NotFound(format!("no key for ticket {id}")))?;
                 Some(
-                    self.post_first_comment(&mut tx, &project, &id, &key, &body, report, actor)
+                    self.post_first_comment(&mut tx, &project, &id, &key, &body, sources, actor)
                         .await?,
                 )
             }
@@ -605,7 +609,7 @@ impl Board {
     }
 
     /// Posts a new ticket's first comment inside its creation's transaction (RPT-03): the user's, "at creation", with
-    /// its report copied first. Returns the stored report, which the caller discards when the transaction fails.
+    /// its attachments copied first. Returns them as stored, which the caller discards when the transaction fails.
     #[allow(clippy::too_many_arguments)]
     async fn post_first_comment(
         &self,
@@ -614,14 +618,11 @@ impl Board {
         ticket_id: &str,
         key: &TicketKey,
         body: &str,
-        report: Option<super::reports::ReportSource>,
+        sources: Vec<super::reports::ReportSource>,
         actor: &Actor,
     ) -> Result<Option<super::reports::StoredAttachments>, BoardError> {
-        // The New ticket form takes one report (RPT-03): the comment's attachment 1.
         let repo = crate::warm::store::repo_name(project);
-        let stored = self
-            .prepare_attachments_in(&repo, key, report.into_iter().collect())
-            .await?;
+        let stored = self.prepare_attachments_in(&repo, key, sources).await?;
         let author = super::ticket_comments::CommentAuthor::User {
             name: actor.to_string(),
         };

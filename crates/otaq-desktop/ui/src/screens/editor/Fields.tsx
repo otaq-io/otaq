@@ -159,7 +159,7 @@ export function WaitsForField({
   );
 }
 
-function BaseSelect({
+export function BaseSelect({
   view,
   form,
   onChange,

@@ -2,7 +2,7 @@
 // "Dark mode" in words as Rust gives them (`editor.open`).
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
-import type { EditorReportField } from "../../generated/EditorReportField";
+import type { EditorAttachmentsField } from "../../generated/EditorAttachmentsField";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
@@ -34,7 +34,7 @@ export const TEXTS: EditorTexts = {
   close_word: "close",
   cancel: "Cancel",
   close: "Close",
-  primary: "Create ticket",
+  primary: "Create",
   create_and_start: "Create & start",
   start_word: "create & start",
   save_and_start: "Save & start",
@@ -67,6 +67,32 @@ export const FORM: EditorForm = {
   waits_for: [],
 };
 
+/** The new-ticket form's attachments place, as `attachments_field()` words it. */
+export const ATTACHMENTS_FIELD: EditorAttachmentsField = {
+  label: "Attachments",
+  hint: "optional",
+  drop: "Drop files or paste screenshots",
+  pick_title: "Attach files to the new ticket",
+  posted: "Posted as your first comment · agents read it before they start",
+  chips: {
+    label: null,
+    placeholder: "Add a comment for the next stage…",
+    submit: null,
+    footer: "",
+    footer_icon: "message-square",
+    pasted: "Pasted text",
+    file_line: null,
+    remove_file: "Remove the file",
+    open: "Open",
+    remove: "Remove the pasted text",
+    attach: "Attach",
+    attach_title: "Attach files to the comment",
+    optional: true,
+    limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    tell_agent: null,
+  },
+};
+
 export const VIEW: EditorView = {
   create: true,
   key: null,
@@ -89,7 +115,7 @@ export const VIEW: EditorView = {
   read: null,
   source_mode: false,
   choices: null,
-  report: null,
+  attachments: ATTACHMENTS_FIELD,
   waits_for: {
     label: "Waits for",
     hint: "optional · it starts once they merge",
@@ -109,31 +135,4 @@ export const READ: EditorReadView = {
   priority_menu: [],
   base: "main",
   marked: ["body"],
-};
-
-/** The New ticket form's report place (RPT-03, T-0474), as `report_field()` words it. */
-export const REPORT_FIELD: EditorReportField = {
-  label: "Report",
-  hint: "Optional · posted as your first comment; agents read yours before they start",
-  add: "Add",
-  pick_title: "Attach a report",
-  drop: "Drop files here or paste",
-  line_box: {
-    label: null,
-    placeholder: "One line: what the report shows…",
-    submit: null,
-    footer: "Posted as your first comment · You · at creation",
-    footer_icon: "message-square",
-    pasted: "Pasted text",
-    file_line: "A comment always has its own line; the file goes with it.",
-    remove_file: "Remove the file",
-    open: "Open",
-    remove: "Remove the pasted text",
-    // One report: no Attach (`CommentBoxView::one_report`).
-    attach: null,
-    attach_title: "Attach files to the comment",
-    optional: true,
-    limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
-    tell_agent: null,
-  },
 };

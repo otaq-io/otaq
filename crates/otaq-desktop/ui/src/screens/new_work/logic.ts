@@ -146,3 +146,14 @@ export function openNewWork(openForm: () => void, onScreen: Store<boolean> = box
   if (onScreen.get()) openRequests.update((n) => n + 1);
   else openForm();
 }
+
+/**
+ * Counts the tickets created by a full form that More options… opened from the box: the box keeps what was typed
+ * while the form is open and lets go of it only once the form created its ticket, so a Cancel hands the text back.
+ */
+export const boxTakenByForm: Store<number> = createStore(0);
+
+/** The full form opened from the box created its ticket: the box lets go of what was typed. */
+export function boxTicketCreated(taken: Store<number> = boxTakenByForm): void {
+  taken.update((n) => n + 1);
+}

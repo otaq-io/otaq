@@ -609,18 +609,3 @@
   max-height: 160px;
   overflow-y: auto;
 }
-
-/* ---- The New ticket form's report (RPT-03, T-0474): Add on the label row, the drop line or the box ---- */
-
-.editor-report-head {
-  display: flex;
-  align-items: center;
-}
-
-.editor-report .comment-box {
-  margin: 0;
-}
-
-.new-ticket-report-gallery {
-  width: 560px;
-}

@@ -89,7 +89,7 @@ function PastedChip({
 }
 
 /** "perf-notes.md 2 KB ✕", or an image's thumbnail before its name (tuq 002). */
-function FileChip({
+export function FileChip({
   file,
   view,
   onRemove,

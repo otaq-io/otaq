@@ -879,6 +879,7 @@ async fn prime_lists_the_users_reports_first() {
                 first_comment: Some(FirstComment {
                     body: "Fails 2 in 20 on Safari.\nThe full run is attached.".into(),
                     report: Some(ReportSource::Path(mine)),
+                    ..Default::default()
                 }),
                 ..Default::default()
             },

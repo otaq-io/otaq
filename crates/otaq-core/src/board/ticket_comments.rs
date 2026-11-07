@@ -74,12 +74,27 @@ pub fn told_session_kind(status: crate::domain::Status) -> crate::session::Sessi
     }
 }
 
-/// The first comment of a new ticket (RPT-03): the user's line and, usually, the report the New ticket form took.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+/// The first comment of a new ticket (RPT-03): the files the New ticket form took, several of any type (tuq 001,
+/// 002), with an optional line: a comment needs text or an attachment (tuq 007).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FirstComment {
     pub body: String,
+    /// One attachment, as an older app sends it: posted before [`Self::attachments`].
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub report: Option<ReportSource>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub attachments: Vec<ReportSource>,
+}
+
+impl FirstComment {
+    /// Its attachments in the order they are posted.
+    pub fn sources(&self) -> Vec<ReportSource> {
+        self.report
+            .iter()
+            .chain(&self.attachments)
+            .cloned()
+            .collect()
+    }
 }
 
 /// How many characters of a comment History's "commented" line keeps.

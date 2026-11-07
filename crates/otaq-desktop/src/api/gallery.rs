@@ -82,8 +82,8 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.sheet" => reply(&super::sheet::sheet_gallery()),
         // 25 · Overview's attachments and description words for SHOP-22 (T-0465).
         "gallery.overview" => reply(&otaq_view::view_models::overview::gallery()),
-        // The New ticket form's report: its words and its box (T-0474).
-        "gallery.new_ticket_report" => reply(&otaq_view::view_models::editor::report_field()),
+        // The New ticket form's attachments: its words and its chips.
+        "gallery.new_ticket_attachments" => reply(&otaq_view::view_models::editor::attachments_field()),
         // 24 · Dependencies: a blocked card, a blocker, the sheet's section and picker, DPV-03's dialog (T-0463).
         "gallery.dependencies" => reply(&otaq_view::view_models::dependencies::gallery()),
         _ => Err(unknown(method)),
@@ -158,7 +158,10 @@ mod tests {
         let choices = crate::api::request(&h.app, "gallery.stage_choices", Value::Null)
             .await
             .unwrap();
-        assert_eq!(choices["samples"][0]["choices"]["rows"][1]["value"], "Rust developer");
+        assert_eq!(
+            choices["samples"][0]["choices"]["rows"][1]["value"],
+            "Uses the stage\u{2019}s agent \u{b7} Rust developer"
+        );
         assert_eq!(choices["samples"][1]["path"]["rows"][1]["detail"], "Rust developer \u{b7} working");
         let notifications = crate::api::request(&h.app, "gallery.notifications", Value::Null)
             .await

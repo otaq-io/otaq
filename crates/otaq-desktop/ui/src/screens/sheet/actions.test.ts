@@ -294,6 +294,7 @@ describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
   /** SHOP-29 mid-flow (*05 → Row · Stage choices and path*). */
   const CHOICES: StageChoicesView = {
     heading: "Choices",
+    hint: null,
     set_by: "set by Noyan",
     rows: [
       {

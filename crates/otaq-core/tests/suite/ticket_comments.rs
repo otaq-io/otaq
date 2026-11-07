@@ -593,6 +593,7 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
         first_comment: Some(FirstComment {
             body: line.into(),
             report: Some(report),
+            ..Default::default()
         }),
         ..Default::default()
     };
@@ -660,7 +661,47 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
     assert!(first.at_creation);
     assert_eq!(first.attachments[0].name, "Pasted text");
 
-    // Refused before anything is created: a missing report, an empty line.
+    // Several files of any kind and no line (the New ticket form's attachments): one comment holding them all, in
+    // order, the older single `report` first.
+    let shot = resources.path().join("before.png");
+    std::fs::write(&shot, [0x89, b'P', b'N', b'G']).unwrap();
+    let several = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Cart badge count".into(),
+                first_comment: Some(FirstComment {
+                    body: String::new(),
+                    report: None,
+                    attachments: vec![
+                        ReportSource::Path(shot.clone()),
+                        ReportSource::Path(run.clone()),
+                    ],
+                }),
+                ..Default::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    let first = w
+        .board
+        .ticket_comment(&several.key.to_string(), 1)
+        .await
+        .unwrap();
+    assert!(first.at_creation);
+    assert_eq!(first.body, "");
+    assert_eq!(
+        first
+            .attachments
+            .iter()
+            .map(|a| a.name.as_str())
+            .collect::<Vec<_>>(),
+        ["before.png", "test-run-login.md"]
+    );
+
+    // Refused before anything is created: a missing file, no line and no attachment.
     let files_before = report_files(&w);
     let missing = w
         .board
@@ -676,11 +717,22 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
     assert_eq!(missing.refusal(), Some(Refusal::BadReport), "{missing}");
     let empty = w
         .board
-        .create_ticket(&input(ReportSource::Path(run.clone()), "  "), &me())
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Nothing to say".into(),
+                first_comment: Some(FirstComment {
+                    body: "  ".into(),
+                    ..Default::default()
+                }),
+                ..Default::default()
+            },
+            &me(),
+        )
         .await
         .unwrap_err();
     assert_eq!(empty.refusal(), Some(Refusal::EmptyField), "{empty}");
-    assert!(w.board.ticket("SHOP-3").await.is_err(), "nothing created");
+    assert!(w.board.ticket("SHOP-4").await.is_err(), "nothing created");
     assert_eq!(report_files(&w), files_before, "no file left behind");
 
     // An agent can't send one (its tickets have no first comment from it).

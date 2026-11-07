@@ -1,0 +1,126 @@
+/*
+ * The full new-ticket form (*New ticket · More options… · the full form*): Priority (180 px) beside Waits for
+ * (260 px) on one row, the attachments' dashed place, and two folds (a chevron, the heading in 12.5/600 and muted
+ * words beside it). Inside "Stages for this ticket" each stage's name sits in a 120 px column before its 300 px
+ * picker.
+ */
+.new-ticket-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 20px;
+}
+
+.new-ticket-priority {
+  flex: none;
+  width: 180px;
+}
+
+.new-ticket-waits {
+  flex: 1;
+}
+
+.new-ticket-search {
+  width: 260px;
+  max-width: 100%;
+}
+
+.new-ticket-search .select-value {
+  color: var(--text-muted);
+}
+
+.new-ticket-drop {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 10px 12px;
+  border: 1px dashed var(--border-strong);
+  border-radius: var(--r-md);
+  background: transparent;
+  color: var(--text-muted);
+  font: 400 12.5px var(--font-ui);
+  text-align: start;
+  cursor: pointer;
+}
+
+.new-ticket-drop:hover {
+  border-color: var(--text-muted);
+  color: var(--text-secondary);
+}
+
+.new-ticket-drop:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.new-ticket-fold {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+.new-ticket-fold-head {
+  display: inline-flex;
+  align-self: flex-start;
+  align-items: center;
+  gap: 6px;
+  padding: 2px 4px 2px 0;
+  border: 0;
+  border-radius: var(--r-sm);
+  background: transparent;
+  color: var(--text-secondary);
+  cursor: pointer;
+}
+
+.new-ticket-fold-head:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.new-ticket-fold-heading {
+  color: var(--text-primary);
+  font: 600 12.5px var(--font-ui);
+}
+
+.new-ticket-fold-aside {
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+.new-ticket-fold-aside[data-mono] {
+  font-family: var(--font-mono);
+}
+
+.new-ticket-fold-body {
+  padding-left: 20px;
+}
+
+.new-ticket-stages .stage-choices-rows {
+  grid-template-columns: 120px minmax(0, 300px);
+  column-gap: 10px;
+}
+
+.new-ticket-stages .stage-choice-label {
+  color: var(--text-primary);
+  font-weight: 500;
+}
+
+.new-ticket-stages .stage-choice-select {
+  width: 300px;
+}
+
+.new-ticket-base {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+  max-width: 300px;
+}
+
+/* The gallery draws the attachments place at the form's width. */
+.new-ticket-gallery {
+  width: 672px;
+}
+
+/* The footer's keys keep each label on one line ("create & start"). */
+.editor-keys > span {
+  white-space: nowrap;
+}
