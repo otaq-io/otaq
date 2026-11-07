@@ -390,7 +390,7 @@ fn the_format_refuses_what_isnt_a_flow() {
     assert_eq!(
         refused("flow:\n  - id: dev\n    name: Dev\n    colour: blue\n"),
         "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, agent, agents, \
-         skill, options, rounds, fail_to, mode, delivers, why"
+         skill, options, rounds, fail_to, mode, delivers, description, why"
     );
     assert_eq!(
         refused("flows: []\n"),
@@ -678,14 +678,14 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
             copy.rounds,
             &copy.fail_to,
             &copy.options,
-            &copy.why
+            &copy.description
         ),
         (
             &first.skill,
             first.rounds,
             &first.fail_to,
             &first.options,
-            &first.why
+            &first.description
         )
     );
     assert_eq!(

@@ -1480,9 +1480,14 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 /// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
 /// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill), before d0130's
 /// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525), and with its agents' skill
-/// lists, which a stored flow keeps and Otaq now reads and ignores (T6).
+/// lists, which a stored flow keeps and Otaq now reads and ignores (T6), and before its stages had descriptions.
 fn default_as_0050_stored() -> String {
-    let stored = naming::DEFAULT_FLOW_YAML
+    let undescribed: String = naming::DEFAULT_FLOW_YAML
+        .lines()
+        .filter(|l| !l.starts_with("    description: "))
+        .map(|l| format!("{l}\n"))
+        .collect();
+    let stored = undescribed
         .replace(
             "  - name: Developer\n    model: default",
             "  - name: Developer\n    skills: [work-ticket, commit]\n    model: default",

@@ -1,6 +1,6 @@
 //! `otaq prime --project` (PAG-03, CLI-06; d0068): what a Project agent reads first. Every ticket of the
 //! project with its status, priority and dependencies; for each started ticket its worktree and branch (it
-//! may read and run code there); the **stage choices** it may set on the tickets it creates (AGM-06, AGM-08; none on
+//! may read and run code there); **the flow**: every stage with what it is for (its description); the **stage choices** it may set on the tickets it creates (AGM-06, AGM-08; none on
 //! the default flow); the rules of what it may change; and what it is told to follow: the Project agent role's
 //! agent's **instructions**, then the project's notes (AGM-06; d0068, d0108). Concise Markdown ([`render`]); `--json`
 //! prints the [`ProjectPrime`] itself.
@@ -12,7 +12,9 @@ use crate::board::{Board, BoardError};
 use crate::domain::{Priority, Status, StatusSet, TicketKey};
 use crate::naming;
 use crate::policy::BACKLOG_ONLY;
-use crate::prime::{Instructions, PrimeChoice, render_choices};
+use crate::prime::{
+    FlowStage, Instructions, PrimeChoice, flow_stages, render_choices, render_flow,
+};
 
 /// Everything `prime --project` prints.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -26,6 +28,9 @@ pub struct ProjectPrime {
     pub tickets: Vec<PrimeTicket>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub instructions: Option<Instructions>,
+    /// Every stage of the project's flow, in order, with what it is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<FlowStage>,
     /// The stage choices it may set on the tickets it creates (AGM-08); none on the default flow. Filled by the
     /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -78,16 +83,21 @@ impl Board {
             .role_agent(crate::agents::Role::ProjectAgent)
             .await?;
         let instructions = self.instructions(&p.key, agent.as_ref()).await?;
+        let flow = flow_stages(&self.effective_flow(&p.key).await?, None, &[]);
         Ok(ProjectPrime {
             project: p.key,
             name: p.name,
             repo_path: p.repo_path,
             tickets: tickets.iter().map(PrimeTicket::of).collect(),
             instructions,
+            flow,
             choices: Vec::new(),
         })
     }
 }
+
+/// What Noyan is told above the flow's stages: what a new ticket walks through, so it can say what each stage does.
+const FLOW_LEAD: &str = "The stages every ticket walks, in order, and what each is for.";
 
 /// The Markdown a Project agent reads.
 pub fn render(ctx: &ProjectPrime) -> String {
@@ -123,6 +133,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
         }
     }
 
+    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
     out.push_str(&render_choices(&ctx.choices));
 
     out.push_str(&format!("\n## {}'s rules\n\n", naming::PRODUCT_NAME));
@@ -195,6 +206,21 @@ mod tests {
                 project: "shop-web".into(),
                 notes: "Ask before touching the payment code.".into(),
             }),
+            flow: vec![
+                FlowStage {
+                    name: "Dev".into(),
+                    description: Some("Builds what the ticket asks for.".into()),
+                    yours: false,
+                    skipped: false,
+                },
+                // A stage the flow file describes not at all is listed by its name alone.
+                FlowStage {
+                    name: "Review".into(),
+                    description: None,
+                    yours: false,
+                    skipped: false,
+                },
+            ],
             choices: Vec::new(),
         };
         let cmd = naming::COMMAND_NAME;
@@ -212,6 +238,13 @@ the user's own checkout; agents build tickets later in their own worktrees.
   worktree /data/wt/shop-web/SHOP-19 · branch `feature/price-table`
 - SHOP-40 · Wishlist (Backlog · P3 · Normal)
 - SHOP-41 · Wishlist API (Backlog · P3 · Normal) · depends on SHOP-19
+
+## The flow
+
+The stages every ticket walks, in order, and what each is for.
+
+- Dev: Builds what the ticket asks for.
+- Review
 
 ## {product}'s rules
 

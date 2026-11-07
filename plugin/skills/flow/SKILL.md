@@ -1,6 +1,6 @@
 ---
 name: flow
-description: Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a why line that names its source, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
+description: Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it is for, ending with its source when you add or change it, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
 disable-model-invocation: true
 ---
 
@@ -33,7 +33,7 @@ editor as the draft, each stage you changed marked, and nothing changes until th
 4. **Write the whole file**: every agent the stages name, and every stage, in the format below. Keep the stages and
    agents you aren't asked to change exactly as `flow show` printed them, and keep each stage's `id`: Otaq matches
    stages by id, name or position, so renaming Review to QA stays a rename.
-5. **Propose it**, with a `why:` line on each stage (see "Why lines" below), on stdin:
+5. **Propose it**, with a `description:` on each stage (see "Descriptions" below), on stdin:
 
    ```sh
    otaq flow propose --stdin <<'FLOW'
@@ -51,7 +51,7 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        column: own
        agent: Developer
        skill: work-ticket
-       why: Unchanged from the current flow.
+       description: "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
      - id: security
        name: Security
        kind: check
@@ -59,7 +59,7 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        column: own
        agent: Security reviewer
        skill: team-security-review
-       why: The user asked for a security check on opus in this conversation.
+       description: "Checks the change for unescaped SQL and leaked secrets: matters when it touches queries, auth or config. The user asked for it in this conversation."
      …
    FLOW
    ```
@@ -100,10 +100,11 @@ two things:
 **Nothing else.** Not GitHub or GitLab (no `gh`, no other host's CLI, no website), not the skills, plugins or
 instruction files in the home folder, not other repos on this Mac.
 
-Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Every why line
-names its source **and your tool**, with a count you actually found: "From 41 /security-review runs in billing-api
+Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Every stage's
+description ends with a sentence that names its source **and your tool**, with a count you actually found:
+"From 41 /security-review runs in billing-api
 (Claude Code)", "`CONTRIBUTING.md` in this repo asks for a review before merging (Claude Code)". With nothing behind
-a stage, its why line says "No evidence found" (see "Why lines"); never guess a count. Don't add `skip` options,
+a stage, that sentence says "No evidence found" (see "Descriptions"); never guess a count. Don't add `skip` options,
 or an automatic Delivery with no check before it, unless the user asks (see "What you add only when the user asks").
 Then propose it with `otaq flow propose --stdin` and **end your turn** (steps 5 and 6): the user picks **Use this
 flow**, **Ask for changes** or **Use the default**, and their answer is your next message (if they pick another
@@ -145,7 +146,7 @@ agents:
     instructions: |                # optional: this agent's own rules, given at every start
       Follow our error-handling rules: no unwrap in library code.
     model: default                 # default · claude · claude:opus · codex:<model> · copilot · opencode:<model>
-    why: From 41 /commit-compact runs in shop-web (Claude Code).   # optional; see "Why lines"
+    why: From 41 /commit-compact runs in shop-web (Claude Code).   # optional; see "Descriptions"
 ```
 
 - **`name`**: what the board and Settings show. Agents belong to the account and are shared by every project: an
@@ -155,7 +156,8 @@ agents:
 - **`role`** (rare): `noyan`. Exactly one agent holds it; leave it out unless the user
   asks to move a role.
 - **`instructions`**: Markdown, optional.
-- **`why`**: optional, one line on why the agent is there; the flow editor shows it. Otaq doesn't act on it.
+- **`why`**: optional, one line on why the agent is there, naming its source; the flow editor shows it. Otaq doesn't
+  act on it.
 - **`model`**: `default` (the account's default model; prefer it unless the user names one), a tool (`claude`,
   `codex`, `copilot`, `opencode`: that tool's default model) or `tool:model` (`claude:opus`, `claude:haiku`).
 
@@ -170,7 +172,7 @@ flow:
     agent: Spec writer           # who runs it
     skill: product-spec          # the skill it runs first
     options: [skip]              # optional: a ticket may skip it
-    why: The user asked to settle what to build before any code is written.
+    description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does."
 ```
 
 | Field | Kinds | What it says |
@@ -186,7 +188,7 @@ flow:
 | `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user. |
 | `fail_to` | check | Where a Fail goes back to: an Agent stage before the check, by name (`fail_to: Product spec`). Leave it out for the nearest Agent stage before it (the usual). |
 | `mode` | delivery | `click`: waits for the user's Local merge or Open PR. `automatic`: merges, or pushes and opens the PR, with no click and no dialog. |
-| `why` | every stage | One line on why the stage is there, naming its source (below). The flow editor shows it; Otaq doesn't act on it. |
+| `description` | every stage | What the stage settles and when it matters (below). Every agent working a ticket reads every stage's in `otaq prime`, and so do you in `prime --project`; the flow editor shows it. An older file's `why:` reads as it. |
 | `delivers` | delivery | `local` (Local merge, no agent), `pr` (runs its agent and skill), or `either` (the user picks; click mode only). |
 
 A whole example, the stages and agents of the Spec first preset (`otaq flow presets` lists it): Backlog → Ready →
@@ -213,30 +215,35 @@ flow:
     column: own
     agent: Spec writer
     skill: product-spec
+    description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does; a bug fix or a purely technical change has nothing to settle here."
   - id: tech-spec
     name: Tech spec
     kind: agent
     column: own
     agent: Architect
     skill: tech-spec
+    description: "Settles how it's built: needed when the change touches several parts or its approach isn't obvious."
   - id: milestone-plan
     name: Milestone plan
     kind: agent
     column: own
     agent: Milestone planner
     skill: milestone-plan
+    description: "Splits the work into pieces, in order, in the ticket's Plan: needed when the change is too big to build and review in one go."
   - id: spec-review
     name: Spec review
     kind: check
     by: you
     column: own
     fail_to: Product spec
+    description: "The user reads what the spec stages settled and passes it, or sends it back: their say before any code is written."
   - id: dev
     name: Dev
     kind: agent
     column: own
     agent: Developer
     skill: work-ticket
+    description: "Builds what the specs and the Plan settled, with its tests, and commits it: every ticket that changes the code needs it."
   - id: validate
     name: Validate
     kind: check
@@ -246,12 +253,14 @@ flow:
     skill: validate
     rounds: 3
     fail_to: Dev
+    description: "Checks the work against the ticket and its specs and runs the project's checks, so what Dev missed is caught before anyone reviews it."
   - id: code-review
     name: Code review
     kind: check
     by: you
     column: own
     fail_to: Dev
+    description: "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
   - id: deliver
     name: Done
     kind: delivery
@@ -287,16 +296,21 @@ flow:
   `skip` on a check before an automatic Delivery lets tickets merge without that check. Say so when you add one.
 - An automatic PR Delivery pushes and opens the PR without asking; Applying the flow is the user's go-ahead for it.
 
-## Why lines
+## Descriptions
 
-The flow editor shows one line per stage saying **why it is there**: the stage's `why:` (and an agent you add or change
-can carry one too). Give every stage one. **Every why line names its source**: what you read that led to it, with
-the numbers you actually counted:
+Every stage has a `description:`: **what the stage settles and when it matters**, in a sentence or two ("Settles how
+it's built: needed when the change touches several parts or its approach isn't obvious"). Every agent working a
+ticket reads every stage's description, so a stage's agent can tell when its stage has nothing to add for a ticket
+(it then finishes at once, with a short note), and any agent can tell which stage a problem belongs to. Write it for
+those agents and for the user: plain words, no source counts in the first sentence.
+
+Keep the description of a stage you don't change exactly as `flow show` printed it. On a stage **you add or change**,
+end the description with a short sentence that **names its source**: what you read that led to it, with the numbers
+you actually counted (an agent you add or change carries its source on its own `why:`):
 
 - "The user asked for it in this conversation."
 - "From 41 /security-review runs in shop-web and api (Claude Code)." (from your tool's history: name the tool)
 - "`CONTRIBUTING.md` asks for a review before merging."
-- "Unchanged from the current flow."
 
 **With no evidence, say so** ("No evidence found"); never guess a count or invent a source.
 

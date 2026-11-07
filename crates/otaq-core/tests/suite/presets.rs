@@ -206,6 +206,27 @@ fn the_presets_stages_run_their_agents_and_skills() {
     assert_eq!(presets::presets()[0].yaml, naming::DEFAULT_FLOW_YAML);
 }
 
+/// Every shipped flow says what each of its stages is for: every agent reads the descriptions in `prime`, so a
+/// stage's agent can tell when its stage has nothing to add. The Delivery is left out: it settles nothing about the
+/// work.
+#[test]
+fn every_shipped_stage_says_what_it_is_for() {
+    for p in presets() {
+        for stage in p.read().flow.stages {
+            if stage.is_delivery() {
+                continue;
+            }
+            let description = stage.description.unwrap_or_default();
+            assert!(
+                description.len() > 20,
+                "{}: {} has no description",
+                p.file,
+                stage.name
+            );
+        }
+    }
+}
+
 /// An agent several presets define is the same agent in each (agents are shared by name, so a second preset adds
 /// no import clash for Developer or Validator).
 #[test]

@@ -23,7 +23,7 @@
 //! ```
 //!
 //! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds fail_to mode delivers
-//! why`; agents: `name role instructions model why`); a field with nothing in it is left out, except `column`.
+//! description`; agents: `name role instructions model why`); a field with nothing in it is left out, except `column`.
 //! `agents:` is left out when the file defines none. An agent check names its one agent with `agent:`, like an Agent
 //! stage; an older file's `agents: [Validator]` (one name) still reads as `agent: Validator`, and its check with
 //! several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
@@ -90,7 +90,9 @@ struct RawStage {
     fail_to: Option<String>,
     mode: Option<DeliveryMode>,
     delivers: Option<Delivers>,
-    why: Option<String>,
+    /// What the stage is for; an older file's `why:` reads as it.
+    #[serde(alias = "why")]
+    description: Option<String>,
 }
 
 #[derive(Deserialize, Clone, Copy)]
@@ -303,8 +305,8 @@ pub fn write(file: &FlowFile) -> String {
             item.field("mode", delivery.mode.as_str());
             item.field("delivers", delivery.delivers.as_str());
         }
-        if let Some(why) = &stage.why {
-            item.text("why", why);
+        if let Some(description) = &stage.description {
+            item.text("description", description);
         }
     }
     out
@@ -449,12 +451,12 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         // A stage's name until [`fail_to_ids`] makes it the stage's id.
         fail_to: raw.fail_to.map(|n| n.trim().to_owned()),
         delivery,
-        why: why(raw.why),
+        description: why(raw.description),
     };
     Ok((stage, more))
 }
 
-/// A `why:` as kept: trimmed, none when empty.
+/// A `why:` or a stage's `description:` as kept: trimmed, none when empty.
 fn why(text: Option<String>) -> Option<String> {
     text.map(|t| t.trim().to_owned()).filter(|t| !t.is_empty())
 }

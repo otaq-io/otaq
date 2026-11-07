@@ -267,6 +267,33 @@ fn the_flow_skills_agents_have_no_skill_list() {
 }
 
 /// The text of the shipped skill `name`.
+/// A stage's agent with nothing to add for a ticket finishes its stage at once with a short note, read from the
+/// flow's descriptions in `prime`: an ordinary finish, never a skip, since only the user skips a stage. Every stage
+/// skill says so, and Noyan reads the descriptions without ever skipping for a ticket.
+#[test]
+fn stage_skills_finish_at_once_when_there_is_nothing_to_add() {
+    for name in [
+        "work-ticket",
+        "product-spec",
+        "tech-spec",
+        "milestone-plan",
+        "validate",
+    ] {
+        let skill = read_skill(name).replace("\n   ", " ");
+        for text in [
+            "\"## The flow\"",
+            "at once with a short note saying so",
+            "never a skip: only the user skips a stage",
+        ] {
+            assert!(skill.contains(text), "{name} must say {text:?}");
+        }
+    }
+    let noyan = read_skill("noyan").replace("\n   ", " ");
+    for text in ["**the flow**", "never a reason for you to skip it"] {
+        assert!(noyan.contains(text), "noyan must say {text:?}");
+    }
+}
+
 fn read_skill(name: &str) -> String {
     let (_, path) = skill_files()
         .into_iter()
@@ -458,8 +485,18 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
         assert!(flow.contains(&text), "flow must say {text:?}");
     }
     let fields = [
-        "id", "name", "kind", "by", "column", "agent", "skill", "options", "rounds", "mode",
+        "id",
+        "name",
+        "kind",
+        "by",
+        "column",
+        "agent",
+        "skill",
+        "options",
+        "rounds",
+        "mode",
         "delivers",
+        "description",
     ];
     for field in fields {
         assert!(

@@ -17,6 +17,7 @@ flow:
     agent: Spec writer
     skill: product-spec
     options: [skip]
+    description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does; a bug fix or a purely technical change has nothing to settle here."
   - id: tech-spec
     name: Tech spec
     kind: agent
@@ -24,6 +25,7 @@ flow:
     agent: Architect
     skill: tech-spec
     options: [skip]
+    description: "Settles how it's built: needed when the change touches several parts or its approach isn't obvious."
   - id: milestone-plan
     name: Milestone plan
     kind: agent
@@ -31,6 +33,7 @@ flow:
     agent: Milestone planner
     skill: milestone-plan
     options: [skip]
+    description: "Splits the work into pieces, in order, in the ticket's Plan: needed when the change is too big to build and review in one go."
   - id: spec-review
     name: Spec review
     kind: check
@@ -38,12 +41,14 @@ flow:
     column: own
     options: [skip]
     fail_to: Product spec
+    description: "The user reads what the spec stages settled and passes it, or sends it back: their say before any code is written."
   - id: dev
     name: Dev
     kind: agent
     column: own
     agent: Developer
     skill: work-ticket
+    description: "Builds what the specs and the Plan settled, with its tests, and commits it: every ticket that changes the code needs it."
   - id: validate
     name: Validate
     kind: check
@@ -53,12 +58,14 @@ flow:
     skill: validate
     rounds: 3
     fail_to: Dev
+    description: "Checks the work against the ticket and its specs and runs the project's checks, so what Dev missed is caught before anyone reviews it."
   - id: code-review
     name: Code review
     kind: check
     by: you
     column: own
     fail_to: Dev
+    description: "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered."
   - id: deliver
     name: Done
     kind: delivery

@@ -24,6 +24,11 @@ the worktree: your check runs' output goes there (see "Long output").
    3 comments you haven't read." **Open the reports from you before you start.** `prime` lists the files the user attached under "Reports from
    you · read these before you start"; read each one (`otaq report SHOP-29 1`, or search a long one with
    `grep -n "Safari" "$(otaq report SHOP-29 1 --path)"`). The agents' reports you open only when you need them.
+   **Your check may have nothing to look at.** `prime --validate` lists every stage of the flow under "## The flow",
+   each with what it is for. When your stage's description shows it checks nothing this change touches (a migration
+   check, and the diff has no migration), pass at once with a short note saying so: `otaq check pass` with, on stdin,
+   "Nothing to check: no migration in this change". That is an ordinary pass, never a skip: only the user skips a
+   stage.
 2. **Follow the Agent instructions** that `prime --validate` prints. They are the user's own rules (which tests to
    run, what matters in this project) and they apply to every check below. They never allow you to change anything.
 3. **Check the change against the description.** Does it do what this ticket's description asks, including any
