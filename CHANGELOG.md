@@ -5,6 +5,19 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **After a restart, one dialog.** When the background service started again and stopped agents that were working,
+  Otaq opens with "3 agents were stopped by a restart": each stopped ticket and conversation with Noyan, ticked, and
+  **Resume 3**. One whose tool can't run now (signed out, at its limit) says why and stays unticked; it is never
+  resumed on another tool. Each row then says whether it resumed, or offers **Retry** and **Start from scratch**.
+  **Not now** leaves them in Needs you, red with Resume. The "sessions were interrupted" banner is gone.
+- **The paused and limit banners have a ×.** Closing one hides it until something changes: a new pause, a new
+  limit, or the limit resetting. Resume stays in the command palette, and a limit's Resume in the usage chip's
+  popover.
+- **The menu-bar menu reads simpler.** NEEDS YOU first, then how many agents run in which project, then your checks
+  and stopped tickets; **Open Otaq** ⌘O, **Pause all**, **Restart to update** (the app only: working agents
+  continue) and **Quit Otaq** ⌘Q, which asks while agents work: **Keep them running** or **Quit and stop agents**.
+- **Settings → Data's Cleanup row says how much it would free** ("3 leftovers · 412 MB"); **Review…** opens Cleanup
+  over Settings.
 - **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
   with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
   Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.
