@@ -391,7 +391,8 @@ pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
     }
 }
 
-/// Edit, Copy text, Delete… (`s05-43`).
+/// Edit, Copy text, Delete… (`s05-43`); the page leaves Copy text out for a comment with no text (`commentMenu`,
+/// tuq 007).
 pub fn menu() -> Vec<MenuItem> {
     vec![
         MenuItem::new(EDIT, "Edit").icon(IconName::Pencil),

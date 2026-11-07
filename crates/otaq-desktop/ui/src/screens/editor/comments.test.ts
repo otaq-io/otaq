@@ -12,7 +12,7 @@ import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import { overlays } from "../../app/overlays";
 import type { CommentLimits } from "../../generated/CommentLimits";
 import { CommentBox } from "./CommentBox";
-import { CommentThread, EditInPlace } from "./CommentThread";
+import { CommentThread, commentMenu, EditInPlace } from "./CommentThread";
 import { ImageViewer } from "./ImageViewer";
 import { dropTargets } from "../../terminal/drops";
 import { pastedName } from "./attachmentAdding";
@@ -546,6 +546,48 @@ describe("CommentThread", () => {
     });
     expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4, attachment: 2 }]);
     setReportOpener(() => undefined);
+  });
+});
+
+describe("a comment's ⋯ menu", () => {
+  const item = (id: string, label: string): CommentThreadView["menu"][number] => ({
+    id,
+    label,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+  });
+  const MENU = [item("edit", "Edit"), item("copy", "Copy text"), item("delete", "Delete…")];
+
+  it("offers Copy text only on a comment with text", () => {
+    expect(commentMenu(MENU, { body: "Looks good." }).map((i) => i.id)).toEqual(["edit", "copy", "delete"]);
+    expect(commentMenu(MENU, { body: "" }).map((i) => i.id)).toEqual(["edit", "delete"]);
+  });
+
+  it("leaves Copy text out of the menu of a comment of only a screenshot (tuq 007)", async () => {
+    ipc.thread = {
+      ...THREAD,
+      comments: [row(5, { body: "", thumbnails: [SHOT] })],
+      menu: MENU,
+    } satisfies CommentThreadView;
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(CommentThread, { ticket: "SHOP-34" }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    const more = host.querySelector<HTMLButtonElement>('.comment button[aria-label="Comment actions"]');
+    await act(async () => {
+      more?.click();
+      await Promise.resolve();
+    });
+    const items = [...document.querySelectorAll('[role="menuitem"]')].map((r) => r.textContent);
+    expect(items).toEqual(["Edit", "Delete…"]);
   });
 });
 

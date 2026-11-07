@@ -141,7 +141,23 @@ export function AttachmentChips({
   );
 }
 
-function MoreMenu({ view, onChoose }: { view: CommentThreadView; onChoose: (id: string) => void }) {
+/** A comment's ⋯ items: the thread's, without Copy text on a comment of only attachments (it has no text, tuq 007). */
+export function commentMenu(
+  items: CommentThreadView["menu"],
+  row: Pick<CommentRow, "body">,
+): CommentThreadView["menu"] {
+  return row.body === "" ? items.filter((i) => i.id !== "copy") : items;
+}
+
+function MoreMenu({
+  view,
+  row,
+  onChoose,
+}: {
+  view: CommentThreadView;
+  row: CommentRow;
+  onChoose: (id: string) => void;
+}) {
   const more = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
   return (
@@ -159,7 +175,7 @@ function MoreMenu({ view, onChoose }: { view: CommentThreadView; onChoose: (id: 
           anchor={more}
           align="end"
           label={view.menu_label}
-          items={view.menu}
+          items={commentMenu(view.menu, row)}
           width={180}
           onChoose={(id) => {
             setOpen(false);
@@ -280,7 +296,7 @@ function Comment({
         <span className="comment-meta">{editing ? row.editing_meta : row.meta}</span>
         {row.edited !== null && !editing && <span className="comment-meta">{row.edited}</span>}
         <span className="editor-spacer" />
-        {!editing && <MoreMenu view={view} onChoose={choose} />}
+        {!editing && <MoreMenu view={view} row={row} onChoose={choose} />}
       </div>
       {editing ? (
         // Its attachments are the edit box's chips while it is edited (tuq 008).
