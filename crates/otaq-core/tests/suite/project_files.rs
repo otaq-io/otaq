@@ -716,9 +716,9 @@ async fn three_owners_are_named_furthest_along_first_and_other_bases_are_never_c
     assert!(!note.keys.contains(&hotfix.key));
 }
 
-/// #43: the user's own worktrees of the repository are in the picker's YOUR WORKTREES (not the main checkout, not a
-/// ticket's), and one picked reads from git at its HEAD, read-only: committed files, not its edits on disk; any
-/// other folder is refused.
+/// #43: the user's own worktrees of the repository are in the picker's YOUR WORKTREES (the project's folder first,
+/// as its checked-out branch; never a ticket's), and one picked reads from git at its HEAD, read-only: committed
+/// files, not its edits on disk; any other folder is refused.
 #[tokio::test]
 async fn your_own_worktrees_are_listed_and_read_from_git() {
     let f = Fixture::shop().await;
@@ -763,14 +763,15 @@ async fn your_own_worktrees_are_listed_and_read_from_git() {
     let yours: Vec<_> = sources
         .yours
         .iter()
-        .map(|w| (w.label().to_owned(), w.head == head))
+        .map(|w| (w.label().to_owned(), w.head == head, w.main_folder))
         .collect();
     let main_short = &git(&repo, &["rev-parse", "main"])[..7];
     assert_eq!(
         yours,
         [
-            (main_short.to_owned(), false),
-            ("experiment/accent".to_owned(), true)
+            ("main".to_owned(), false, true),
+            (main_short.to_owned(), false, false),
+            ("experiment/accent".to_owned(), true, false)
         ],
         "{:?}",
         sources.yours
@@ -781,7 +782,7 @@ async fn your_own_worktrees_are_listed_and_read_from_git() {
             .iter()
             .all(|w| Path::new(&w.path) != ticket_wt)
     );
-    let picked = sources.yours[1].path.clone();
+    let picked = sources.yours[2].path.clone();
 
     let tree = f
         .board
@@ -826,8 +827,54 @@ async fn your_own_worktrees_are_listed_and_read_from_git() {
     // Nothing was written in the worktree.
     assert_eq!(git(&experiment, &["status", "--porcelain"]), checkout);
 
-    for other in [path(&repo), path(&ticket_wt), path(&f.repos.root())] {
+    for other in [path(&ticket_wt), path(&f.repos.root())] {
         let refused = f.board.files_worktree_tree("SHOP", &other, "").await;
         assert!(refused.is_err(), "{other}");
     }
+}
+
+/// The project's own folder is in the picker as its checked-out branch and reads as committed: an uncommitted edit
+/// or an untracked file there never shows.
+#[tokio::test]
+async fn your_folder_shows_its_branch_as_committed() {
+    let f = Fixture::shop().await;
+    let repo = f.repo();
+    seed_base(&repo);
+    git(&repo, &["checkout", "--quiet", "-b", "feature/tax"]);
+    commit(&repo, "tax.ts", "export const rate = 0.2;\n");
+    std::fs::write(repo.join("tax.ts"), "edited on disk\n").unwrap();
+    std::fs::write(repo.join("scratch.txt"), "untracked\n").unwrap();
+    let checkout = git(&repo, &["status", "--porcelain"]);
+
+    let sources = f.board.files_project_sources("SHOP").await.unwrap();
+    let folder = &sources.yours[0];
+    assert!(folder.main_folder, "{:?}", sources.yours);
+    assert_eq!(folder.label(), "feature/tax");
+    let picked = folder.path.clone();
+
+    let tree = f
+        .board
+        .files_worktree_tree("SHOP", &picked, "")
+        .await
+        .unwrap();
+    assert_eq!(tree.source.base_branch, "feature/tax");
+    assert!(tree.source.main_folder);
+    let names: Vec<_> = tree.entries.iter().map(|e| e.name.as_str()).collect();
+    assert!(names.contains(&"tax.ts"), "{names:?}");
+    assert!(!names.contains(&"scratch.txt"), "{names:?}");
+
+    let file = f
+        .board
+        .files_worktree_read("SHOP", &picked, "tax.ts")
+        .await
+        .unwrap();
+    assert_eq!(file.text, "export const rate = 0.2;\n");
+    assert!(
+        f.board
+            .files_worktree_read("SHOP", &picked, "scratch.txt")
+            .await
+            .is_err()
+    );
+    // Nothing was written in the folder.
+    assert_eq!(git(&repo, &["status", "--porcelain"]), checkout);
 }

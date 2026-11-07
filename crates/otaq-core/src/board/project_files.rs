@@ -67,11 +67,15 @@ pub struct ProjectSource {
     /// (its commit when detached), `base_sha` its HEAD, and nothing of any ticket is on top.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub worktree: Option<String>,
+    /// That worktree is the project's own folder (the main checkout), shown as its checked-out branch, committed.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub main_folder: bool,
 }
 
-/// One of the user's own git worktrees of the project's repository, in the picker's YOUR WORKTREES (#43): every
-/// worktree `git worktree list` gives except the main checkout and Otaq's own (in its data folder, or a ticket's).
-/// It shows read-only from git objects at its HEAD, as the base does (d0087: never the checkout's files on disk).
+/// One of the user's own git worktrees of the project's repository, in the picker's YOUR WORKTREES (#43): the
+/// project's own folder (the main checkout) first, then every other worktree `git worktree list` gives except Otaq's
+/// own (in its data folder, or a ticket's). Each shows read-only from git objects at its HEAD, as the base does
+/// (d0087: never the checkout's files on disk, so an uncommitted edit there never shows).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct UserWorktree {
     /// Its folder, as git lists it.
@@ -82,6 +86,9 @@ pub struct UserWorktree {
     /// Its HEAD commit.
     pub head: String,
     pub head_short: String,
+    /// The project's own folder: the main checkout, "Your folder" in the picker.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub main_folder: bool,
 }
 
 impl UserWorktree {
@@ -1043,9 +1050,9 @@ impl Board {
         })
     }
 
-    /// The user's own worktrees of the project's repository (#43), by folder: `git worktree list` without the main
-    /// checkout, bare or prunable entries, folders that are gone, and Otaq's own (under its data folder, or a
-    /// ticket's worktree wherever it is).
+    /// The user's own worktrees of the repository (#43): the project's folder (the main checkout) first, then the
+    /// others by folder: `git worktree list` without bare or prunable entries, folders that are gone, and Otaq's own
+    /// (under its data folder, or a ticket's worktree wherever it is).
     async fn user_worktrees(
         &self,
         project: &Project,
@@ -1080,11 +1087,10 @@ impl Board {
                 continue;
             };
             let at = real(&path);
+            let main_folder = at == main;
             if skip
                 || !path.is_dir()
-                || at == main
-                || at.starts_with(&ours)
-                || tickets.contains(&at)
+                || (!main_folder && (at.starts_with(&ours) || tickets.contains(&at)))
             {
                 continue;
             }
@@ -1093,9 +1099,10 @@ impl Board {
                 branch,
                 head_short: short_sha(&head),
                 head,
+                main_folder,
             });
         }
-        found.sort_by(|a, b| a.path.cmp(&b.path));
+        found.sort_by(|a, b| (!a.main_folder, &a.path).cmp(&(!b.main_folder, &b.path)));
         Ok(found)
     }
 
@@ -1126,6 +1133,7 @@ impl Board {
             base_branch: found.label().to_owned(),
             base_sha: found.head.clone(),
             base_short: found.head_short.clone(),
+            main_folder: found.main_folder,
             worktree: Some(found.path),
         };
         Ok((project, source))
@@ -1279,6 +1287,7 @@ impl Board {
             base_short: short_sha(&sha),
             base_sha: sha,
             worktree: None,
+            main_folder: false,
         };
         Ok((project, source))
     }

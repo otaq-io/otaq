@@ -3,8 +3,11 @@
 //! ("main · every ticket’s changes" over "the base branch · 8 tickets, 11 files"), the search box (⌥⌘P, Go to file),
 //! All · Changed 11 · Needs you 6 · Same file 1, and the tree of the project's base branch with every ticket's changes
 //! on top: a changed file carries one chip per ticket, its mark and +/−, a folder counts the changed files below it, a
-//! ticket on another base is tagged with that branch. The source bar opens the picker ("Find a ticket"): BASE BRANCH,
-//! TICKETS · THEIR WORKTREE and the tickets with no worktree yet; a ticket picked there shows its own Files tab's tree, read-only, with "Open SHOP-29" and the back link.
+//! ticket on another base is tagged with that branch. The source bar opens the picker ("Find a ticket"): SHOW FILES
+//! FROM (the base branch, then each ticket's copy), YOUR WORKTREES · COMMITTED ONLY (your folder as its checked-out
+//! branch, then your other worktrees) and the tickets with no worktree yet; a ticket picked there shows its own Files
+//! tab's tree, read-only, with "Open SHOP-29" and the back link. Files only ever shows what is committed: your folder
+//! and your worktrees are read at their HEAD, never the files on disk.
 //!
 //! The rows are the tab's ([`TreeRow`], [`SearchView`]), widened with the chips; the data is `board/project_files.rs`'s
 //! (`files.project_*`). The base branch is the project's setting (d0051): every label names it. The page keeps the
@@ -49,12 +52,14 @@ pub const COUNTING: &str = "\u{2026}";
 pub const EMPTY_TITLE: &str = "No ticket is changing files right now.";
 pub const EMPTY_TEXT: &str = "Start one from the board, or ask Noyan.";
 pub const FIND: &str = "Find a ticket";
-pub const BASE_SECTION: &str = "BASE BRANCH";
-pub const THE_DEFAULT: &str = "the default";
-pub const TICKETS_SECTION: &str = "TICKETS \u{b7} THEIR WORKTREE";
-/// Your own git worktrees of the repository (#43), shown read-only.
-pub const YOURS_SECTION: &str = "YOUR WORKTREES";
+/// The picker's first section: the base branch, then each ticket's copy.
+pub const SHOW_FROM_SECTION: &str = "SHOW FILES FROM";
+pub const YOUR_BASE_BRANCH: &str = "Your base branch";
+/// Your own folder and git worktrees of the repository (#43), each as committed.
+pub const YOURS_SECTION: &str = "YOUR WORKTREES \u{b7} COMMITTED ONLY";
 pub const YOUR_WORKTREE: &str = "your worktree";
+pub const YOUR_FOLDER: &str = "your folder";
+pub const AS_COMMITTED: &str = "as committed";
 pub const READ_ONLY: &str = "read-only";
 
 /// "main · every ticket’s changes": the view's default source, and the picker's back link.
@@ -93,12 +98,18 @@ pub struct SourceBar {
 }
 
 /// `counts` is `None` while the tickets' changes load (the bare base shows at once, FIL-02). One of your worktrees:
-/// "experiment/accent · your worktree" over "~/code/habitat-experiment · read-only" (#43).
+/// "experiment/accent · your worktree" over "~/code/habitat-experiment, as committed" (#43); your folder: "main · your
+/// folder" over "~/code/shop-web, as committed".
 pub fn source_bar(source: &ProjectSource, counts: Option<&ProjectCounts>) -> SourceBar {
     if let Some(folder) = &source.worktree {
+        let whose = if source.main_folder {
+            YOUR_FOLDER
+        } else {
+            YOUR_WORKTREE
+        };
         return SourceBar {
-            title: format!("{} \u{b7} {YOUR_WORKTREE}", source.base_branch),
-            subtitle: format!("{} \u{b7} {READ_ONLY}", tilde(folder)),
+            title: format!("{} \u{b7} {whose}", source.base_branch),
+            subtitle: format!("{}, {AS_COMMITTED}", tilde(folder)),
         };
     }
     let subtitle = match counts {
@@ -551,7 +562,7 @@ pub enum Pick {
 #[ts(rename = "FilesViewPickerRow")]
 pub struct PickerRow {
     pub pick: Pick,
-    /// The ticket's key; `None` for the base branch and a worktree of yours.
+    /// The ticket's key; `None` for the base branch, your folder and a worktree of yours.
     pub key: Option<String>,
     pub title: String,
     pub detail: Option<String>,
@@ -570,7 +581,8 @@ pub struct PickerSection {
 #[ts(rename = "FilesViewPicker")]
 pub struct Picker {
     pub placeholder: &'static str,
-    /// BASE BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
+    /// SHOW FILES FROM (the base branch, then each ticket's copy) and YOUR WORKTREES · COMMITTED ONLY (when there
+    /// are any).
     pub sections: Vec<PickerSection>,
     /// "No worktree yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its worktree when it reaches
     /// Dev."
@@ -601,15 +613,21 @@ fn ticket_row(t: &OwnerTicket) -> PickerRow {
     }
 }
 
-/// "experiment/accent" "~/code/habitat-experiment · read-only".
+/// "Your folder · main" "~/code/shop-web, as committed": the project's own folder as its checked-out branch;
+/// "experiment/accent" "~/code/habitat-experiment, as committed".
 fn worktree_row(w: &UserWorktree) -> PickerRow {
+    let title = if w.main_folder {
+        format!("Your folder \u{b7} {}", w.label())
+    } else {
+        w.label().to_owned()
+    };
     PickerRow {
         pick: Pick::Worktree {
             path: w.path.clone(),
         },
         key: None,
-        title: w.label().to_owned(),
-        detail: Some(format!("{} \u{b7} {READ_ONLY}", tilde(&w.path))),
+        title,
+        detail: Some(format!("{}, {AS_COMMITTED}", tilde(&w.path))),
     }
 }
 
@@ -651,21 +669,18 @@ pub fn no_worktree_line(tickets: &[NoWorktree], first_stage: &str) -> Option<Str
 }
 
 pub fn picker(sources: &ProjectSources, first_stage: &str) -> Picker {
+    let base = PickerRow {
+        pick: Pick::Base,
+        key: None,
+        title: sources.source.base_branch.clone(),
+        detail: Some(YOUR_BASE_BRANCH.to_owned()),
+    };
     let mut sections = vec![PickerSection {
-        title: BASE_SECTION,
-        rows: vec![PickerRow {
-            pick: Pick::Base,
-            key: None,
-            title: every_change(&sources.source.base_branch),
-            detail: Some(THE_DEFAULT.to_owned()),
-        }],
+        title: SHOW_FROM_SECTION,
+        rows: std::iter::once(base)
+            .chain(sources.tickets.iter().map(ticket_row))
+            .collect(),
     }];
-    if !sources.tickets.is_empty() {
-        sections.push(PickerSection {
-            title: TICKETS_SECTION,
-            rows: sources.tickets.iter().map(ticket_row).collect(),
-        });
-    }
     if !sources.yours.is_empty() {
         sections.push(PickerSection {
             title: YOURS_SECTION,
@@ -1399,6 +1414,7 @@ pub mod example {
             base_sha: "a1b2c3d4".to_owned(),
             base_short: "a1b2c3d".to_owned(),
             worktree: None,
+            main_folder: false,
         }
     }
 
@@ -2051,12 +2067,22 @@ pub fn gallery() -> Gallery {
             status: Status::Working,
             stage: Some("Product spec".to_owned()),
         }],
-        yours: vec![UserWorktree {
-            path: "~/code/habitat-experiment".to_owned(),
-            branch: Some("experiment/accent".to_owned()),
-            head: "e4f5a6b7c8".to_owned(),
-            head_short: "e4f5a6b".to_owned(),
-        }],
+        yours: vec![
+            UserWorktree {
+                path: "~/code/shop-web".to_owned(),
+                branch: Some("main".to_owned()),
+                head: "a1b2c3d4e5".to_owned(),
+                head_short: "a1b2c3d".to_owned(),
+                main_folder: true,
+            },
+            UserWorktree {
+                path: "~/code/habitat-experiment".to_owned(),
+                branch: Some("experiment/accent".to_owned()),
+                head: "e4f5a6b7c8".to_owned(),
+                head_short: "e4f5a6b".to_owned(),
+                main_folder: false,
+            },
+        ],
     };
     Gallery {
         all: page(&source, Some(&counts), Filter::All, top, keys.clone(), true),
@@ -2237,8 +2263,11 @@ mod tests {
         };
         let pick = picker(&sources, "Dev");
         assert_eq!(
-            pick.sections[0].rows[0].title,
-            "develop \u{b7} every ticket\u{2019}s changes"
+            (
+                pick.sections[0].rows[0].title.as_str(),
+                pick.sections[0].rows[0].detail.as_deref()
+            ),
+            ("develop", Some("Your base branch"))
         );
         assert_eq!(pick.sections.len(), 1);
         assert_eq!(pick.no_worktree, None);
@@ -2403,8 +2432,9 @@ mod tests {
         );
     }
 
-    /// `s28-04`: BASE BRANCH, the tickets in flow order with stage and files, your own
-    /// worktrees (#43), the line naming the tickets with no worktree yet.
+    /// The picker: SHOW FILES FROM (the base branch, then the tickets' copies in flow order with stage and files),
+    /// YOUR WORKTREES · COMMITTED ONLY (your folder as its checked-out branch first, then your other worktrees), the
+    /// line naming the tickets with no worktree yet.
     #[test]
     fn the_picker_has_its_sections_in_order() {
         let mut shop36 = ticket("SHOP-36", "VAT rounding hotfix", Status::Working, "Dev");
@@ -2470,16 +2500,25 @@ mod tests {
             .collect(),
             yours: vec![
                 UserWorktree {
+                    path: "/work/shop-web".to_owned(),
+                    branch: Some("feature/tax".to_owned()),
+                    head: "9f8e7d6c5b".to_owned(),
+                    head_short: "9f8e7d6".to_owned(),
+                    main_folder: true,
+                },
+                UserWorktree {
                     path: "/work/habitat-experiment".to_owned(),
                     branch: Some("experiment/accent".to_owned()),
                     head: "e4f5a6b7c8".to_owned(),
                     head_short: "e4f5a6b".to_owned(),
+                    main_folder: false,
                 },
                 UserWorktree {
                     path: "/work/bisect".to_owned(),
                     branch: None,
                     head: "0a1b2c3d4e".to_owned(),
                     head_short: "0a1b2c3".to_owned(),
+                    main_folder: false,
                 },
             ],
         };
@@ -2508,12 +2547,9 @@ mod tests {
             shown,
             [
                 (
-                    "BASE BRANCH",
-                    vec!["main \u{b7} every ticket\u{2019}s changes | the default".to_owned()]
-                ),
-                (
-                    "TICKETS \u{b7} THEIR WORKTREE",
+                    "SHOW FILES FROM",
                     vec![
+                        "main | Your base branch".to_owned(),
                         "SHOP-22 | Fix flaky login redirect | Dev \u{b7} 3 files".to_owned(),
                         "SHOP-29 | Coupon field | Dev \u{b7} 2 files".to_owned(),
                         "SHOP-19 | Price table | Security \u{b7} 2 files".to_owned(),
@@ -2523,18 +2559,19 @@ mod tests {
                     ]
                 ),
                 (
-                    "YOUR WORKTREES",
+                    "YOUR WORKTREES \u{b7} COMMITTED ONLY",
                     vec![
-                        "experiment/accent | /work/habitat-experiment \u{b7} read-only".to_owned(),
-                        "0a1b2c3 | /work/bisect \u{b7} read-only".to_owned(),
+                        "Your folder \u{b7} feature/tax | /work/shop-web, as committed".to_owned(),
+                        "experiment/accent | /work/habitat-experiment, as committed".to_owned(),
+                        "0a1b2c3 | /work/bisect, as committed".to_owned(),
                     ]
                 ),
             ]
         );
         assert_eq!(
-            p.sections[2].rows[0].pick,
+            p.sections[1].rows[0].pick,
             Pick::Worktree {
-                path: "/work/habitat-experiment".to_owned()
+                path: "/work/shop-web".to_owned()
             }
         );
         assert_eq!(
@@ -2545,7 +2582,7 @@ mod tests {
             )
         );
         assert_eq!(
-            p.sections[1].rows[1].pick,
+            p.sections[0].rows[2].pick,
             Pick::Ticket {
                 key: "SHOP-29".to_owned()
             }
@@ -2575,9 +2612,20 @@ mod tests {
             true,
         );
         assert_eq!(p.source.title, "experiment/accent \u{b7} your worktree");
+        assert_eq!(p.source.subtitle, "/work/habitat-experiment, as committed");
+        let folder = ProjectSource {
+            base_branch: "feature/tax".to_owned(),
+            worktree: Some("/work/shop-web".to_owned()),
+            main_folder: true,
+            ..base("main")
+        };
+        let bar = source_bar(&folder, None);
         assert_eq!(
-            p.source.subtitle,
-            "/work/habitat-experiment \u{b7} read-only"
+            (bar.title.as_str(), bar.subtitle.as_str()),
+            (
+                "feature/tax \u{b7} your folder",
+                "/work/shop-web, as committed"
+            )
         );
         assert!(p.filters.is_empty());
         assert_eq!((p.loading, p.empty, p.working), (None, None, false));
