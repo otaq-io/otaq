@@ -1,6 +1,7 @@
 //! `palette.*`: the command palette (KEY-06, d0097; *02 · Command palette*). `palette.view` answers the list for what
 //! is typed, from every project's tickets, the user's keys and the recent items the service keeps; which actions can
-//! run is decided from the ticket open in the sheet. `palette.record` keeps a use for the recent items: the page sends
+//! run is decided from the ticket open in the sheet, and an empty field's Next that needs you names where ⌘J goes from
+//! what the page shows (`strip.next`'s answer). `palette.record` keeps a use for the recent items: the page sends
 //! every action run (palette or keys), ticket opened and project switched to, from anywhere.
 
 use otaq_core::board::snapshot::ProjectInfo;
@@ -9,6 +10,7 @@ use otaq_core::protocol::{ProjectParams, RecentItemsParams, Reply, Request};
 use otaq_core::store::recents::{RecentItem, RecentUse};
 use otaq_view::keymap::{self, KeyAction, Platform};
 use otaq_view::keymap_edit;
+use otaq_view::view_models::needs_you_strip::{self as strip_vm, Item as StripItem, Open};
 use otaq_view::view_models::palette::{self, Context, Inputs, OpenTicket, View};
 use serde::Deserialize;
 use serde_json::Value;
@@ -48,6 +50,10 @@ pub struct ViewParams {
     /// A terminal had the keyboard when the palette opened.
     #[serde(default)]
     pub terminal: bool,
+    /// What the page shows, which ⌘J moves on from (as `strip.next` takes it).
+    #[serde(default)]
+    #[ts(optional)]
+    pub open: Option<Open>,
 }
 
 /// What `palette.record` takes: one use. `PaletteUse` on the page.
@@ -117,6 +123,21 @@ pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
         }
         None => false,
     };
+    // Where ⌘J goes now, in the Needs you strip's order; none when nothing waits or the strip can't answer.
+    let next_label = match params.project.as_deref() {
+        Some(project) if params.query.trim().is_empty() => {
+            super::strip::items(app).await.ok().and_then(|(items, projects)| {
+                let order = super::strip::keys_of(&projects);
+                strip_vm::next(&items, project, params.open.as_ref(), &order).map(|step| {
+                    match step.item() {
+                        StripItem::Ticket(t) => t.key.to_string(),
+                        StripItem::Agent(a) => a.name.clone(),
+                    }
+                })
+            })
+        }
+        _ => None,
+    };
     let inputs = Inputs {
         bindings: &bindings,
         letters: keyboard.letters,
@@ -129,6 +150,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
             terminal: params.terminal,
             files_view,
         },
+        next_needs_you: next_label.as_deref(),
     };
     Ok(palette::view(&params.query, &inputs))
 }
@@ -237,9 +259,13 @@ mod tests {
             request(&h.app, "palette.record", used).await.unwrap();
         }
         let view = request(&h.app, "palette.view", params("")).await.unwrap();
-        assert_eq!(view["section"], "Recent");
+        // Nothing needs the user: the suggestions start with New ticket, and the recent items follow them.
+        assert_eq!(view["section"], "Suggested");
+        let listed = words(&view);
+        assert_eq!(listed[0], "New ticket");
+        let at = listed.iter().position(|w| w == "Recent").unwrap();
         assert_eq!(
-            words(&view),
+            listed[at + 1..],
             ["Switch to pocket-api", "NOTE-2 null", "Park", "API-1 \"· pocket-api\""],
             "next ticket isn't kept"
         );

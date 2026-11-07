@@ -7056,6 +7056,10 @@
           "ty": "String",
           "required": true
         },
+        "main_folder": {
+          "ty": "bool",
+          "omittable": true
+        },
         "project": {
           "ty": "String",
           "required": true
@@ -11545,6 +11549,10 @@
         "head_short": {
           "ty": "String",
           "required": true
+        },
+        "main_folder": {
+          "ty": "bool",
+          "omittable": true
         },
         "path": {
           "ty": "String",

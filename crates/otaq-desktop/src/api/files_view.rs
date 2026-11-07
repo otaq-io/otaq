@@ -538,11 +538,15 @@ mod tests {
         let picker = table(&h.app, "files_view.sources", json!({ "project": key }))
             .await
             .unwrap();
+        assert_eq!(picker["sections"][0]["title"], "SHOW FILES FROM", "{picker}");
+        assert_eq!(picker["sections"][0]["rows"][0]["detail"], "Your base branch");
         let yours = &picker["sections"][1];
-        assert_eq!(yours["title"], "YOUR WORKTREES", "{picker}");
-        assert_eq!(yours["rows"][0]["title"], "experiment/accent");
-        let folder = yours["rows"][0]["pick"]["path"].clone();
-        assert_eq!(yours["rows"][0]["pick"]["kind"], "worktree");
+        assert_eq!(yours["title"], "YOUR WORKTREES \u{b7} COMMITTED ONLY", "{picker}");
+        // The project's own folder first, as its checked-out branch.
+        assert_eq!(yours["rows"][0]["title"], "Your folder \u{b7} main");
+        assert_eq!(yours["rows"][1]["title"], "experiment/accent");
+        let folder = yours["rows"][1]["pick"]["path"].clone();
+        assert_eq!(yours["rows"][1]["pick"]["kind"], "worktree");
         let view = table(
             &h.app,
             "files_view.view",
