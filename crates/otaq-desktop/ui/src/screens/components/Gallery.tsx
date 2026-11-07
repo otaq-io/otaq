@@ -1617,7 +1617,11 @@ function AgentPanelSection() {
             <div className="gallery-stack-tight">
               <Caption>SWITCHER (NAME ▾) OPEN</Caption>
               <div className="popover" style={{ position: "static" }}>
-                <SwitcherList switcher={running.switcher} onPick={() => undefined} />
+                <SwitcherList
+                  switcher={running.switcher}
+                  onPick={() => undefined}
+                  onResume={() => undefined}
+                />
               </div>
             </div>
             <div className="gallery-stack-tight">

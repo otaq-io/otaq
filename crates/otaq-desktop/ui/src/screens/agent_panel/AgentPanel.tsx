@@ -32,10 +32,12 @@ import type { AgentPanelAgentPick } from "../../generated/AgentPanelAgentPick";
 import type { AgentPanelAgentLine } from "../../generated/AgentPanelAgentLine";
 import type { AgentPanelButton } from "../../generated/AgentPanelButton";
 import type { AgentPanelCreated } from "../../generated/AgentPanelCreated";
+import type { AgentPanelCreatedRow } from "../../generated/AgentPanelCreatedRow";
 import type { AgentPanelEmpty } from "../../generated/AgentPanelEmpty";
 import type { AgentPanelEnded } from "../../generated/AgentPanelEnded";
 import type { AgentPanelParams } from "../../generated/AgentPanelParams";
 import type { AgentPanelSwitcher } from "../../generated/AgentPanelSwitcher";
+import type { AgentPanelSwitcherRow } from "../../generated/AgentPanelSwitcherRow";
 import type { AgentPanelView } from "../../generated/AgentPanelView";
 import type { RecentAgents } from "../../generated/RecentAgents";
 import type { ToolProblemCallout as ToolProblemCalloutView } from "../../generated/ToolProblemCallout";
@@ -44,6 +46,7 @@ import { request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { AgentQuestionBox } from "./AgentQuestion";
 import { Icon } from "../../theme/Icon";
+import { startTicket } from "../board/Board";
 import { showAgentOnBoard } from "../board/filter";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import {
@@ -131,6 +134,7 @@ function AgentLine({ line, onRename }: { line: AgentPanelAgentLine; onRename?: (
         {line.note}
       </span>
       <span className="agent-panel-spacer" />
+      <span className="agent-panel-line-reads">{line.reads}</span>
       {line.rename !== null && (
         <button type="button" className="agent-panel-rename" onClick={onRename}>
           <Icon name="pencil" size={11} />
@@ -157,36 +161,78 @@ function Notice({ notice, project }: { notice: ToolProblemCalloutView; project: 
   );
 }
 
-/** The switcher's list (`h038v`): the project's agents with their states, then the empty agent panel. */
+/** One conversation in the switcher: a click shows it; Resume on an ended one continues it. */
+function SwitcherItem({
+  row,
+  onPick,
+  onResume,
+}: {
+  row: AgentPanelSwitcherRow;
+  onPick: (agent: string) => void;
+  onResume: (agent: string) => void;
+}) {
+  return (
+    <div className="agent-panel-switcher-item">
+      <button
+        type="button"
+        role="menuitem"
+        className="agent-panel-switcher-row"
+        data-selected={row.selected || undefined}
+        data-palette={row.pill.palette}
+        onClick={() => {
+          onPick(row.id);
+        }}
+      >
+        <Icon name="bot" size={14} />
+        <span className="agent-panel-switcher-name" data-unnamed={row.unnamed || undefined}>
+          {row.name}
+        </span>
+        {row.avatar !== null && <ToolAvatar avatar={row.avatar} />}
+        <span className="agent-panel-switcher-state">{row.pill.label}</span>
+      </button>
+      {row.resume !== null && (
+        <button
+          type="button"
+          role="menuitem"
+          className="agent-panel-switcher-resume"
+          aria-label={`${row.resume} ${row.name}`}
+          onClick={() => {
+            onResume(row.id);
+          }}
+        >
+          <Icon name="play" size={12} />
+          <span>{row.resume}</span>
+        </button>
+      )}
+    </div>
+  );
+}
+
+/** The switcher's list (`h038v`): the project's open conversations with their states, the recently ended ones (each
+ * continues with Resume), then the empty agent panel. */
 export function SwitcherList({
   switcher,
   onPick,
+  onResume,
 }: {
   switcher: AgentPanelSwitcher;
   onPick: (agent: string | null) => void;
+  onResume: (agent: string) => void;
 }) {
   return (
     <div className="agent-panel-switcher" role="menu">
       {switcher.rows.map((row) => (
-        <button
-          key={row.id}
-          type="button"
-          role="menuitem"
-          className="agent-panel-switcher-row"
-          data-selected={row.selected || undefined}
-          data-palette={row.pill.palette}
-          onClick={() => {
-            onPick(row.id);
-          }}
-        >
-          <Icon name="bot" size={14} />
-          <span className="agent-panel-switcher-name" data-unnamed={row.unnamed || undefined}>
-            {row.name}
-          </span>
-          {row.avatar !== null && <ToolAvatar avatar={row.avatar} />}
-          <span className="agent-panel-switcher-state">{row.pill.label}</span>
-        </button>
+        <SwitcherItem key={row.id} row={row} onPick={onPick} onResume={onResume} />
       ))}
+      {switcher.recent.length > 0 && (
+        <>
+          <span className="agent-panel-caps agent-panel-switcher-caps">{switcher.recent_title}</span>
+          {switcher.recent.map((row) => (
+            // A closed conversation has nothing to show until it continues: a click resumes it too.
+            <SwitcherItem key={row.id} row={row} onPick={onResume} onResume={onResume} />
+          ))}
+        </>
+      )}
       <button
         type="button"
         role="menuitem"
@@ -241,65 +287,97 @@ function NameField({
   );
 }
 
-/** Created and changed (collapsible; folded to one line at the 1280 class): links, Delete, Show on board. */
+/** One created or changed ticket: its key (opens it), title, then Start while it is in Backlog (only the user starts
+ * a ticket; `board.start`, as a Backlog card's Start), else where it is and what its card says; Delete while it never
+ * started. */
+function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key: string) => void }) {
+  return (
+    <div className="agent-panel-created-row" data-edited={row.edited || undefined}>
+      <Icon name={row.icon} size={13} />
+      <button
+        type="button"
+        className="agent-panel-created-key"
+        onClick={() => {
+          openTicket(row.key);
+        }}
+      >
+        {row.key}
+      </button>
+      <span className="agent-panel-created-text">
+        <span className="agent-panel-created-title">{row.title}</span>
+        {row.line !== null && <span className="agent-panel-created-line">{row.line}</span>}
+      </span>
+      {row.place !== "" && <span className="agent-panel-created-place">{row.place}</span>}
+      {row.delete !== null && (
+        <Tooltip text={row.delete}>
+          <button
+            type="button"
+            className="agent-panel-created-delete"
+            aria-label={`${row.delete} ${row.key}`}
+            onClick={() => {
+              openOverlay("delete_ticket", { ticket: row.key });
+            }}
+          >
+            <Icon name="trash-2" size={13} />
+          </button>
+        </Tooltip>
+      )}
+      {row.start !== null && (
+        <Button
+          compact
+          variant="secondary"
+          icon="play"
+          label={row.start}
+          onClick={() => {
+            onStart(row.key);
+          }}
+        />
+      )}
+    </div>
+  );
+}
+
+/** Created and changed (collapsible; folded to one line at the 1280 class): the created tickets on top with Start,
+ * then the changed ones; Show on board. */
 function CreatedBox({
   created,
   open,
   onToggle,
   onShowOnBoard,
+  onStart,
 }: {
   created: AgentPanelCreated;
   open: boolean;
   onToggle: () => void;
   onShowOnBoard: () => void;
+  onStart: (key: string) => void;
 }) {
+  // Open, the head names the created tickets ("CREATED 2 · IN BACKLOG"), or the changed ones when none was created.
+  const head = open ? (created.title ?? created.changed_title ?? created.line) : created.line;
+  const changedTitle = created.title !== null ? created.changed_title : null;
   return (
     <div className="agent-panel-created" data-open={open || undefined}>
       <div className="agent-panel-created-head">
         <button type="button" className="agent-panel-created-toggle" aria-expanded={open} onClick={onToggle}>
           <Icon name={open ? "chevron-down" : "chevron-right"} size={12} />
-          <span>{created.line}</span>
+          <span>{head}</span>
         </button>
         <span className="agent-panel-spacer" />
         <button type="button" className="agent-panel-link" onClick={onShowOnBoard}>
           {created.show_on_board.label}
         </button>
       </div>
-      {open &&
-        created.rows.map((row) => (
-          <div
-            key={`${row.key}-${String(row.edited)}`}
-            className="agent-panel-created-row"
-            data-edited={row.edited || undefined}
-          >
-            <Icon name={row.icon} size={13} />
-            <button
-              type="button"
-              className="agent-panel-created-key"
-              onClick={() => {
-                openTicket(row.key);
-              }}
-            >
-              {row.key}
-            </button>
-            <span className="agent-panel-created-title">{row.title}</span>
-            <span className="agent-panel-created-place">{row.place}</span>
-            {row.delete !== null && (
-              <Tooltip text={row.delete}>
-                <button
-                  type="button"
-                  className="agent-panel-created-delete"
-                  aria-label={`${row.delete} ${row.key}`}
-                  onClick={() => {
-                    openOverlay("delete_ticket", { ticket: row.key });
-                  }}
-                >
-                  <Icon name="trash-2" size={13} />
-                </button>
-              </Tooltip>
-            )}
-          </div>
-        ))}
+      {open && (
+        <>
+          {created.rows.map((row) => (
+            <CreatedRow key={row.key} row={row} onStart={onStart} />
+          ))}
+          {changedTitle !== null && <span className="agent-panel-caps">{changedTitle}</span>}
+          {created.changed.map((row) => (
+            <CreatedRow key={`${row.key}-changed`} row={row} onStart={onStart} />
+          ))}
+        </>
+      )}
     </div>
   );
 }
@@ -468,6 +546,9 @@ function RunningAgent({
           open={createdOpen}
           onToggle={onToggleCreated}
           onShowOnBoard={onShowOnBoard}
+          onStart={(key) => {
+            void startTicket(key);
+          }}
         />
       )}
       {agent.question !== null && !agent.ended && (
@@ -752,6 +833,7 @@ export function AgentPanelBody({ view, project, followFocus = false }: AgentPane
               if (agent === null) newProjectAgent();
               else showAgent(project, agent);
             }}
+            onResume={resume}
           />
         </Popover>
       )}
