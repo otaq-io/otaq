@@ -75,13 +75,19 @@ pub struct PostParams {
     pub tell_agent: bool,
 }
 
-/// `{"key": "SHOP-34", "n": 3, "body": "…"}`: comment 3's new text.
+/// `{"key": "SHOP-34", "n": 3, "body": "…", "remove": [1], "attachments": [{"kind": "file", "path": "/Users/me/fixed.png"}]}`:
+/// Save on comment 3 being edited (tuq 008): its new text, the attachments it removes by their numbers and the new
+/// ones its box added, applied together.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "CommentEditParams")]
 pub struct EditParams {
     pub key: String,
     pub n: u32,
     pub body: String,
+    #[serde(default)]
+    pub remove: Vec<u32>,
+    #[serde(default)]
+    pub attachments: Vec<Sent>,
 }
 
 /// `{"key": "SHOP-34", "n": 4}`.
@@ -190,9 +196,14 @@ pub async fn edit(app: &App, params: EditParams) -> Result<Done, RequestError> {
             key: params.key,
             n: params.n,
             body: params.body,
+            keep_body: false,
+            remove: params.remove,
+            attachments: sources(&params.attachments),
         }))
         .await?;
-    posted("ticket.comment_edit", answer)
+    let done = posted("ticket.comment_edit", answer)?;
+    attachments::release(app, &params.attachments);
+    Ok(done)
 }
 
 pub async fn delete(app: &App, params: DeleteParams) -> Result<Done, RequestError> {
@@ -368,6 +379,66 @@ mod tests {
         assert_eq!(chips[1]["name"], "Pasted text");
         assert!(!std::path::Path::new(&shot.path).exists(), "the staged copy went");
         assert!(notes.exists(), "the user's own file stays");
+
+        // tuq 008: Save on the edited comment removes its image and adds a new screenshot, with its text, together.
+        let n = view["comments"][0]["n"].as_u64().unwrap();
+        let fixed = attachments::stage(&h.app, "image.png".into(), b"\x89PNG\r\n\x1a\nfixed".to_vec())
+            .await
+            .unwrap();
+        table(
+            &h.app,
+            "ticket_comments.edit",
+            json!({
+                "key": key,
+                "n": n,
+                "body": "After.",
+                "remove": [1],
+                "attachments": [{ "kind": "file", "path": fixed.path }],
+            }),
+        )
+        .await
+        .unwrap();
+        assert!(!std::path::Path::new(&fixed.path).exists(), "the staged copy went");
+        let view = table(&h.app, "ticket_comments.thread", json!({ "key": key }))
+            .await
+            .unwrap();
+        let edited = &view["comments"][0];
+        assert_eq!(edited["body"], "After.");
+        let thumbs: Vec<u64> = edited["thumbnails"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|t| t["attachment"].as_u64().unwrap())
+            .collect();
+        assert_eq!(thumbs, [4], "the new image, numbered after the three");
+        let chips: Vec<&str> = edited["attachments"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|c| c["name"].as_str().unwrap())
+            .collect();
+        assert_eq!(chips, ["perf-notes.md", "Pasted text"]);
+        // History names what went and came, and the removed image still loads.
+        let history = table(&h.app, "sections.history", json!({ "key": key }))
+            .await
+            .unwrap();
+        let row = &history["rows"][0];
+        assert_eq!(row["title"], "You edited your comment");
+        assert_eq!(row["detail"], "Removed image.png \u{b7} added image.png");
+        assert_eq!(row["opens"]["thumbnails"][0]["thumbnail"]["attachment"], 1);
+        assert_eq!(row["opens"]["thumbnails"][0]["change"], "Removed");
+        let removed = crate::attachment_images::serve(&h.app, &format!("/{key}/{n}/1")).await;
+        assert_eq!(removed.status, 200);
+        assert_eq!(removed.body, b"\x89PNG\r\n\x1a\n");
+        // Nothing left: refused.
+        let refused = table(
+            &h.app,
+            "ticket_comments.edit",
+            json!({ "key": key, "n": n, "body": "", "remove": [2, 3, 4] }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(refused.message, "Write the comment first");
         h.service.stop_all().await;
     }
 }

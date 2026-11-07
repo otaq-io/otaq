@@ -5,19 +5,11 @@
 // `ticket_comments.thread` (Rust); it reloads on `ticket_changed`, so a comment an agent posts shows at once. React
 // keeps only the moment: the text being typed, which comment is edited, the open menu and dialog. Overview's
 // Attachments (Add, a drop; RPT-02) hand it a file with `attachReport`: the box takes it as its chip and the keyboard.
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
 import { createStore, type Store, useStore } from "../../app/store";
-import {
-  AnchoredMenu,
-  Button,
-  ConfirmDialog,
-  IconButton,
-  OtaqMark,
-  ToolAvatar,
-  PROSE_TEXT,
-} from "../../components";
+import { AnchoredMenu, Button, ConfirmDialog, IconButton, OtaqMark, ToolAvatar } from "../../components";
 import type { CommentAttachmentChip } from "../../generated/CommentAttachmentChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
@@ -30,11 +22,12 @@ import {
   type BoxAttachment,
   type BoxValue,
   boxState,
+  editBox,
+  editChanges,
   EMPTY_BOX,
   sentAttachments,
   withAdded,
 } from "./commentRules";
-import { isSaveKey } from "./logic";
 import { openReport } from "./reportOpener";
 
 /** A comment posted, edited or deleted changes the ticket; a session starting or ending changes the quiet line. */
@@ -182,8 +175,12 @@ function MoreMenu({ view, onChoose }: { view: CommentThreadView; onChoose: (id: 
   );
 }
 
-/** Edit in place: the text, Cancel · Save; ⌘↵ saves, Esc cancels. The limit holds as in the box. */
-function EditInPlace({
+/**
+ * Edit in place (tuq 008): the comment box with its text and its attachments as chips with ✕, taking new ones by
+ * paste, drop and Attach; Cancel · Save; ⌘↵ saves, Esc cancels. Save sends the text, the attachments removed and the
+ * new ones together. The limit holds as in the box, and it must keep text or an attachment (tuq 007).
+ */
+export function EditInPlace({
   view,
   row,
   onDone,
@@ -192,65 +189,55 @@ function EditInPlace({
   row: CommentRow;
   onDone: () => void;
 }) {
-  const [text, setText] = useState(row.body);
+  const [value, setValue] = useState<BoxValue>(() => editBox(row));
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  // Its text may go while it keeps an attachment (tuq 007).
-  const attached = row.thumbnails.length > 0 || row.attachments.length > 0;
-  const state = boxState({ text, attachments: [] }, view.box.limits, attached);
+  const text = useRef<HTMLTextAreaElement>(null);
+  useEffect(() => {
+    // Edit was just chosen for this comment.
+    text.current?.focus();
+  }, []);
+  const state = boxState(value, view.box.limits);
   const save = () => {
     if (!state.canSubmit || busy) return;
-    if (text.trim() === row.body) {
+    const { remove, attachments, changed } = editChanges(row, value);
+    if (!changed) {
       onDone();
       return;
     }
     setBusy(true);
-    request("ticket_comments.edit", { key: view.key, n: row.n, body: text }).then(onDone, (e: unknown) => {
-      setBusy(false);
-      setError(asRequestError(e).message);
-    });
+    request("ticket_comments.edit", { key: view.key, n: row.n, body: value.text, remove, attachments }).then(
+      onDone,
+      (e: unknown) => {
+        setBusy(false);
+        setError(asRequestError(e).message);
+      },
+    );
   };
-  const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
-    if (isSaveKey(e)) {
-      e.preventDefault();
-      e.stopPropagation();
-      save();
-    } else if (e.key === "Escape") {
-      e.preventDefault();
-      e.stopPropagation();
-      onDone();
-    }
-  };
+  // The thread's box, without its own button, line and tick box: Cancel · Save instead.
+  const box = { ...view.box, label: null, submit: null, footer: null, tell_agent: null, optional: false };
   return (
-    <div className="comment-edit" data-over={state.over || undefined}>
-      <textarea
-        {...PROSE_TEXT}
-        className="text-input text-area comment-box-text"
-        value={text}
-        aria-label={row.heading}
-        aria-invalid={state.over || undefined}
-        // eslint-disable-next-line jsx-a11y/no-autofocus -- Edit was just chosen for this comment
-        autoFocus
-        onChange={(e) => {
-          setText(e.target.value);
+    <div className="comment-edit">
+      <CommentBox
+        ticket={view.key}
+        view={box}
+        value={value}
+        onChange={(next) => {
+          setValue(next);
+          setError(null);
         }}
-        onKeyDown={onKeyDown}
+        onSubmit={save}
+        busy={busy}
+        error={error}
+        ref={text}
+        onCancel={onDone}
+        actions={
+          <>
+            <Button variant="ghost" label={view.edit.cancel} onClick={onDone} />
+            <Button label={view.edit.save} disabled={!state.canSubmit} loading={busy} onClick={save} />
+          </>
+        }
       />
-      <div className="comment-box-actions">
-        {state.counter !== null && (
-          <span className="comment-box-counter" role="status">
-            {state.counter}
-          </span>
-        )}
-        <span className="editor-spacer" />
-        <Button variant="ghost" label={view.edit.cancel} onClick={onDone} />
-        <Button label={view.edit.save} disabled={!state.canSubmit} loading={busy} onClick={save} />
-      </div>
-      {error !== null && (
-        <p className="comment-box-error" role="alert">
-          {error}
-        </p>
-      )}
     </div>
   );
 }
@@ -296,17 +283,20 @@ function Comment({
         {!editing && <MoreMenu view={view} onChoose={choose} />}
       </div>
       {editing ? (
+        // Its attachments are the edit box's chips while it is edited (tuq 008).
         <EditInPlace view={view} row={row} onDone={onEditDone} />
       ) : (
-        row.body !== "" && <p className="comment-body">{row.body}</p>
+        <>
+          {row.body !== "" && <p className="comment-body">{row.body}</p>}
+          <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
+          <AttachmentChips
+            chips={row.attachments}
+            onOpen={(attachment) => {
+              openReport({ kind: "comment", ticket: view.key, n: row.n, attachment });
+            }}
+          />
+        </>
       )}
-      <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
-      <AttachmentChips
-        chips={row.attachments}
-        onOpen={(attachment) => {
-          openReport({ kind: "comment", ticket: view.key, n: row.n, attachment });
-        }}
-      />
     </article>
   );
 }

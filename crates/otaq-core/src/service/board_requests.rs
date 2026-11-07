@@ -2308,11 +2308,21 @@ async fn ticket_comment_request(
         }
         Request::TicketReport(p) => {
             let report = board.ticket_report(&p.key, p.n, p.attachment).await?;
-            // A deleted comment's report is the user's (History); agents that start later never read it (Q375).
+            // A deleted comment's report is the user's (History); agents that start later never read it (Q375). So is
+            // an attachment an edit removed: agents read a comment's attachments as they are now (tuq 008).
             if report.deleted && !matches!(caller, Caller::User) {
                 return Err(BoardError::refused(
                     Refusal::NotAllowed,
                     format!("Comment {} on {} was deleted.", report.n, report.key),
+                ));
+            }
+            if report.removed && !matches!(caller, Caller::User) {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    format!(
+                        "Attachment {} of comment {} on {} was removed.",
+                        report.attachment.n, report.n, report.key
+                    ),
                 ));
             }
             return Ok(Reply::TicketReport(Box::new(report)));
@@ -2328,8 +2338,13 @@ async fn ticket_comment_request(
             (p.key, posted)
         }
         Request::TicketCommentEdit(p) => {
+            let edit = crate::board::ticket_comments::CommentEdit {
+                body: (!p.keep_body).then_some(p.body),
+                remove: p.remove,
+                add: p.attachments,
+            };
             let edited = board
-                .edit_ticket_comment(&p.key, p.n, &p.body, actor)
+                .edit_ticket_comment_with(&p.key, p.n, &edit, actor)
                 .await?;
             (p.key, edited)
         }

@@ -9,4 +9,8 @@ export type HistoryThumbnail = {
 /**
  * The comment's number.
  */
-n: number, thumbnail: CommentThumbnail, };
+n: number, thumbnail: CommentThumbnail, 
+/**
+ * On an edit's row (tuq 008): "Removed" or "Added", under the thumbnail.
+ */
+change: string | null, };

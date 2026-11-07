@@ -12,24 +12,36 @@ import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import { overlays } from "../../app/overlays";
 import type { CommentLimits } from "../../generated/CommentLimits";
 import { CommentBox } from "./CommentBox";
-import { CommentThread } from "./CommentThread";
+import { CommentThread, EditInPlace } from "./CommentThread";
 import { ImageViewer } from "./ImageViewer";
 import { dropTargets } from "../../terminal/drops";
 import {
   type BoxValue,
   boxState,
   chars,
+  editBox,
+  editChanges,
   EMPTY_BOX,
   pasteAction,
   sentAttachments,
+  withAdded,
+  withoutAttachment,
   withPasted,
 } from "./commentRules";
 import { type ReportTarget, setReportOpener } from "./reportOpener";
 
 const ipc = vi.hoisted(
-  (): { calls: string[]; posts: unknown[]; thread: unknown; staged: string[]; picked: string[] } => ({
+  (): {
+    calls: string[];
+    posts: unknown[];
+    edits: unknown[];
+    thread: unknown;
+    staged: string[];
+    picked: string[];
+  } => ({
     calls: [],
     posts: [],
+    edits: [],
     thread: null,
     staged: [],
     picked: [],
@@ -47,6 +59,7 @@ vi.mock(import("../../tauri"), async (original) => ({
   request: (method: string, params?: unknown) => {
     ipc.calls.push(method);
     if (method === "ticket_comments.post") ipc.posts.push(params);
+    if (method === "ticket_comments.edit") ipc.edits.push(params);
     if (method === "ticket_comments.thread") return Promise.resolve(ipc.thread);
     if (method === "overview.file") {
       const { path } = params as { path: string };
@@ -76,6 +89,7 @@ beforeAll(() => {
 afterEach(() => {
   ipc.calls = [];
   ipc.posts = [];
+  ipc.edits = [];
   ipc.staged = [];
   ipc.picked = [];
   document.body.innerHTML = "";
@@ -486,6 +500,117 @@ describe("CommentThread", () => {
     });
     expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4, attachment: 2 }]);
     setReportOpener(() => undefined);
+  });
+});
+
+describe("editing a comment's attachments (tuq 008)", () => {
+  const edited = THREAD.comments[0] as CommentRow;
+
+  it("starts the box with the comment's text and its attachments, in order, and sends only what changed", () => {
+    const value = editBox(edited);
+    expect(value.text).toBe(edited.body);
+    expect(
+      value.attachments.map((a) => (a.kind === "posted" ? [a.attachment, a.name, a.size] : a.kind)),
+    ).toEqual([
+      [1, "shot.png", "120 KB"],
+      [2, "test-run.txt", "48 KB"],
+    ]);
+    expect(sentAttachments(value)).toEqual([]);
+    expect(editChanges(edited, value)).toEqual({ remove: [], attachments: [], changed: false });
+    const shot = value.attachments[0];
+    if (!shot) throw new Error("no chip");
+    const next = withAdded(withoutAttachment(value, shot.id), [
+      {
+        kind: "file",
+        id: -1,
+        path: "/Users/me/fixed.png",
+        name: "fixed.png",
+        size: "2 KB",
+        image: true,
+        thumb: null,
+      },
+    ]);
+    expect(editChanges(edited, next)).toEqual({
+      remove: [1],
+      attachments: [{ kind: "file", path: "/Users/me/fixed.png" }],
+      changed: true,
+    });
+    // Its text may go while an attachment stays; with neither, Save is off.
+    expect(boxState({ ...next, text: "" }, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ text: " ", attachments: [] }, LIMITS).canSubmit).toBe(false);
+  });
+
+  it("shows its attachments as chips with ✕, takes new ones by Attach, and Save sends them with the text", async () => {
+    ipc.picked = ["/Users/me/fixed.png"];
+    let done = 0;
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(
+        createElement(EditInPlace, {
+          view: THREAD,
+          row: edited,
+          onDone: () => {
+            done += 1;
+          },
+        }),
+      );
+      await Promise.resolve();
+    });
+    expect(chipLabels(host)).toEqual(["shot.png", "test-run.txt"]);
+    // A posted image shows its own thumbnail, loaded by its numbers.
+    expect(host.querySelector("[data-posted] .comment-chip-thumb")?.getAttribute("src")).toBe(
+      "otaq-attachment://localhost/SHOP-34%2F4%2F1",
+    );
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>('[aria-label="Remove the file shot.png"]')?.click();
+      await Promise.resolve();
+    });
+    const attach = [...host.querySelectorAll("button")].find((b) => b.textContent === "Attach");
+    await act(async () => {
+      attach?.click();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(chipLabels(host)).toEqual(["test-run.txt", "fixed.png"]);
+    await type(host, "The fixed badge.");
+    const save = [...host.querySelectorAll("button")].find((b) => b.textContent === "Save");
+    await act(async () => {
+      save?.click();
+      await Promise.resolve();
+    });
+    await settle();
+    expect(ipc.edits).toEqual([
+      {
+        key: "SHOP-34",
+        n: 4,
+        body: "The fixed badge.",
+        remove: [1],
+        attachments: [{ kind: "file", path: "/Users/me/fixed.png" }],
+      },
+    ]);
+    expect(done).toBe(1);
+  });
+
+  it("turns Save off when the text and every attachment are gone (tuq 007)", async () => {
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(
+        createElement(EditInPlace, { view: THREAD, row: edited, onDone: () => undefined }),
+      );
+      await Promise.resolve();
+    });
+    await type(host, "");
+    for (const name of ["shot.png", "test-run.txt"]) {
+      await act(async () => {
+        host.querySelector<HTMLButtonElement>(`[aria-label="Remove the file ${name}"]`)?.click();
+        await Promise.resolve();
+      });
+    }
+    const save = [...host.querySelectorAll("button")].find((b) => b.textContent === "Save");
+    expect(save?.disabled).toBe(true);
+    expect(ipc.edits).toEqual([]);
   });
 });
 

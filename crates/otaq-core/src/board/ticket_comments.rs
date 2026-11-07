@@ -8,6 +8,10 @@
 //!   007).
 //! - `n` numbers a ticket's comments 1, 2, 3…, never reused: a deleted comment keeps its row (History shows what it
 //!   said) and no list shows it. Its attachments stay until the ticket is deleted.
+//! - Editing a comment changes its text and can remove attachments and add new ones, all in one change (tuq 008,
+//!   [`CommentEdit`]). A removed attachment leaves the comment (the thread, `prime`, `otaq comments`) but its row and
+//!   file stay, marked `removed_at` (migration 0077): History's edit row names it and still opens it. An added one
+//!   takes the next number after every one the comment ever had, so numbers and files are never reused.
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
 //! - A comment the user wrote with a new ticket ([`super::tickets::NewTicketInput::first_comment`], RPT-03) is marked
 //!   "at creation": its row's `stage_id` is [`AT_CREATION`] (a user's comment has no stage otherwise).
@@ -20,7 +24,10 @@ use serde::{Deserialize, Serialize};
 use serde_json::{Value, json};
 use sqlx::{FromRow, Sqlite, Transaction};
 
-use super::reports::{Attachment, AttachmentKind, ReportSource, StoredAttachments, count_label};
+use super::reports::{
+    Attachment, AttachmentKind, ReportSource, StoredAttachment, StoredAttachments, check_sources,
+    count_label,
+};
 use super::tickets::{EventKind, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::agent_tools::Tool;
@@ -255,6 +262,32 @@ pub struct ReportFile {
     /// Its comment was deleted; History still opens its attachments (CMT-14).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub deleted: bool,
+    /// An edit removed it from its comment; History still opens it (tuq 008).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub removed: bool,
+}
+
+/// What an edit changes on a posted comment (tuq 008), applied together: its new text (`None` keeps it), the
+/// attachments it removes by their numbers, and the new ones it adds after them. The comment must keep text or an
+/// attachment (tuq 007).
+#[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
+pub struct CommentEdit {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub body: Option<String>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub remove: Vec<u32>,
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub add: Vec<ReportSource>,
+}
+
+impl CommentEdit {
+    /// An edit of the text alone.
+    pub fn text(body: impl Into<String>) -> Self {
+        Self {
+            body: Some(body.into()),
+            ..Self::default()
+        }
+    }
 }
 
 /// A comment just posted inside a transaction ([`post_in`]).
@@ -283,7 +316,7 @@ struct Row {
 const COLUMNS: &str = "id, n, author_kind, author_id, author_name, author_tool, stage_id, round, body, posted_at, \
                        edited_at, deleted_at";
 
-/// One row of `comment_attachments` (migration 0076).
+/// One row of `comment_attachments` (migrations 0076, 0077).
 #[derive(FromRow)]
 struct AttachmentRow {
     comment_id: String,
@@ -293,9 +326,11 @@ struct AttachmentRow {
     kind: String,
     bytes: i64,
     lines: Option<i64>,
+    removed_at: Option<i64>,
 }
 
-const ATTACHMENT_COLUMNS: &str = "a.comment_id, a.n, a.file, a.name, a.kind, a.bytes, a.lines";
+const ATTACHMENT_COLUMNS: &str =
+    "a.comment_id, a.n, a.file, a.name, a.kind, a.bytes, a.lines, a.removed_at";
 
 impl AttachmentRow {
     fn attachment(self, root: &std::path::Path) -> Attachment {
@@ -323,7 +358,7 @@ fn by_comment(rows: Vec<AttachmentRow>, root: &std::path::Path) -> AttachmentsBy
     all
 }
 
-/// Every attachment of the ticket's comments, deleted ones' too.
+/// Every attachment the ticket's comments carry now, deleted ones' too; not those an edit removed (tuq 008).
 async fn ticket_attachments<'e>(
     executor: impl sqlx::SqliteExecutor<'e>,
     ticket_id: &str,
@@ -332,7 +367,7 @@ async fn ticket_attachments<'e>(
     let rows: Vec<AttachmentRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {ATTACHMENT_COLUMNS} FROM comment_attachments a
          JOIN ticket_comments c ON c.id = a.comment_id
-         WHERE c.ticket_id = ? ORDER BY a.comment_id, a.n"
+         WHERE c.ticket_id = ? AND a.removed_at IS NULL ORDER BY a.comment_id, a.n"
     )))
     .bind(ticket_id)
     .fetch_all(executor)
@@ -340,19 +375,49 @@ async fn ticket_attachments<'e>(
     Ok(by_comment(rows, root))
 }
 
-/// One comment's attachments, in order.
+/// One comment's attachments, in order, each with whether an edit removed it (tuq 008).
 async fn comment_attachments<'e>(
     executor: impl sqlx::SqliteExecutor<'e>,
     comment_id: &str,
     root: &std::path::Path,
-) -> Result<Vec<Attachment>, BoardError> {
+) -> Result<Vec<(Attachment, bool)>, BoardError> {
     let rows: Vec<AttachmentRow> = sqlx::query_as(sqlx::AssertSqlSafe(format!(
         "SELECT {ATTACHMENT_COLUMNS} FROM comment_attachments a WHERE a.comment_id = ? ORDER BY a.n"
     )))
     .bind(comment_id)
     .fetch_all(executor)
     .await?;
-    Ok(rows.into_iter().map(|r| r.attachment(root)).collect())
+    Ok(rows
+        .into_iter()
+        .map(|r| {
+            let removed = r.removed_at.is_some();
+            (r.attachment(root), removed)
+        })
+        .collect())
+}
+
+/// Stores `files` as attachments of the comment `comment_id` (posted, or edited: tuq 008).
+async fn insert_attachments(
+    tx: &mut Transaction<'_, Sqlite>,
+    comment_id: &str,
+    files: &[StoredAttachment],
+) -> Result<(), BoardError> {
+    for file in files {
+        sqlx::query(
+            "INSERT INTO comment_attachments (comment_id, n, file, name, kind, bytes, lines)
+             VALUES (?, ?, ?, ?, ?, ?, ?)",
+        )
+        .bind(comment_id)
+        .bind(i64::from(file.n))
+        .bind(&file.relative)
+        .bind(&file.name)
+        .bind(file.kind.as_str())
+        .bind(i64::try_from(file.bytes).unwrap_or(i64::MAX))
+        .bind(file.lines.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
+        .execute(&mut **tx)
+        .await?;
+    }
+    Ok(())
 }
 
 impl Row {
@@ -512,21 +577,12 @@ pub(crate) async fn post_comment_in(
     .bind(now_ms())
     .execute(&mut **tx)
     .await?;
-    for file in attachments.map(|a| a.files.as_slice()).unwrap_or_default() {
-        sqlx::query(
-            "INSERT INTO comment_attachments (comment_id, n, file, name, kind, bytes, lines)
-             VALUES (?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(i64::from(file.n))
-        .bind(&file.relative)
-        .bind(&file.name)
-        .bind(file.kind.as_str())
-        .bind(i64::try_from(file.bytes).unwrap_or(i64::MAX))
-        .bind(file.lines.map(|l| i64::try_from(l).unwrap_or(i64::MAX)))
-        .execute(&mut **tx)
-        .await?;
-    }
+    insert_attachments(
+        tx,
+        &id,
+        attachments.map(|a| a.files.as_slice()).unwrap_or_default(),
+    )
+    .await?;
     let mut detail = json!({
         "n": n,
         "excerpt": excerpt(body),
@@ -579,7 +635,7 @@ impl Board {
     }
 
     /// Changes comment `n`'s text (the limit applies again), logging the before and after. The text may go only while
-    /// the comment keeps an attachment (tuq 007).
+    /// the comment keeps an attachment (tuq 007). [`Self::edit_ticket_comment_with`] also changes its attachments.
     pub async fn edit_ticket_comment(
         &self,
         key: &str,
@@ -587,32 +643,114 @@ impl Board {
         body: &str,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
-        // The limit first, before anything is read; whether it may be empty once its attachments are known.
-        check_comment(body, usize::MAX)?;
+        self.edit_ticket_comment_with(key, n, &CommentEdit::text(body), actor)
+            .await
+    }
+
+    /// Edits comment `n` (tuq 008): its text (the limit applies again), the attachments `edit.remove` names (each one
+    /// the comment carries now, refused by number otherwise) and the new ones `edit.add` copies (checked and refused by
+    /// name before anything changes), all in one change logged as `comment_edited` with the text before and after and
+    /// the attachments removed and added. The comment must keep text or an attachment (tuq 007). A removed attachment
+    /// leaves the comment; its row and file stay for History. An edit that changes nothing returns the comment as it
+    /// is.
+    pub async fn edit_ticket_comment_with(
+        &self,
+        key: &str,
+        n: u32,
+        edit: &CommentEdit,
+        actor: &Actor,
+    ) -> Result<TicketComment, BoardError> {
+        // The limit and the new files first, before anything is read or copied.
+        if let Some(body) = &edit.body {
+            check_comment(body, usize::MAX)?;
+        }
+        check_sources(&edit.add)?;
         let ticket = self.ticket(key).await?;
-        let mut tx = self.store.begin_write().await?;
-        let row = live_row(&mut tx, &ticket.id, &ticket.key, n).await?;
-        let attached: i64 =
-            sqlx::query_scalar("SELECT COUNT(*) FROM comment_attachments WHERE comment_id = ?")
+        let current = self.ticket_comment(&ticket.key.to_string(), n).await?;
+        let mut remove: Vec<u32> = Vec::new();
+        for a in &edit.remove {
+            if !current.attachments.iter().any(|x| x.n == *a) {
+                return Err(BoardError::NotFound(format!(
+                    "{}'s comment {n} has no attachment {a}",
+                    ticket.key
+                )));
+            }
+            if !remove.contains(a) {
+                remove.push(*a);
+            }
+        }
+        if edit.body.is_none() && remove.is_empty() && edit.add.is_empty() {
+            return Ok(current);
+        }
+        let keeps = current.attachments.len() - remove.len() + edit.add.len();
+        let body = check_comment(edit.body.as_deref().unwrap_or(&current.body), keeps)?;
+        let row = row(self.store.pool(), &ticket.id, n)
+            .await?
+            .ok_or_else(|| no_comment(&ticket.key, n))?;
+        // After every number the comment ever had, removed ones included: never reused.
+        let last: Option<i64> =
+            sqlx::query_scalar("SELECT MAX(n) FROM comment_attachments WHERE comment_id = ?")
                 .bind(&row.id)
-                .fetch_one(&mut *tx)
+                .fetch_one(self.store.pool())
                 .await?;
-        let body = check_comment(body, usize::try_from(attached).unwrap_or(0))?;
-        sqlx::query("UPDATE ticket_comments SET body = ?, edited_at = ? WHERE id = ?")
-            .bind(&body)
-            .bind(now_ms())
-            .bind(&row.id)
-            .execute(&mut *tx)
+        let first = u32::try_from(last.unwrap_or(0) + 1).unwrap_or(u32::MAX);
+        let added = self
+            .prepare_added_attachments(&ticket.key, &row.id, first, edit.add.clone())
             .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::CommentEdited,
-            actor,
-            json!({"n": n, "before": row.body, "after": body, "author": row.author()}),
-        )
-        .await?;
-        tx.commit().await?;
+        let removed: Vec<&Attachment> = current
+            .attachments
+            .iter()
+            .filter(|a| remove.contains(&a.n))
+            .collect();
+        let edited = async {
+            let mut tx = self.store.begin_write().await?;
+            let row = live_row(&mut tx, &ticket.id, &ticket.key, n).await?;
+            let now = now_ms();
+            sqlx::query("UPDATE ticket_comments SET body = ?, edited_at = ? WHERE id = ?")
+                .bind(&body)
+                .bind(now)
+                .bind(&row.id)
+                .execute(&mut *tx)
+                .await?;
+            for a in &remove {
+                sqlx::query(
+                    "UPDATE comment_attachments SET removed_at = ?
+                     WHERE comment_id = ? AND n = ? AND removed_at IS NULL",
+                )
+                .bind(now)
+                .bind(&row.id)
+                .bind(i64::from(*a))
+                .execute(&mut *tx)
+                .await?;
+            }
+            insert_attachments(
+                &mut tx,
+                &row.id,
+                added
+                    .as_ref()
+                    .map(|a| a.files.as_slice())
+                    .unwrap_or_default(),
+            )
+            .await?;
+            let mut detail =
+                json!({"n": n, "before": row.body, "after": body, "author": row.author()});
+            if !removed.is_empty() {
+                detail["removed"] = attachments_json(removed.iter().copied());
+            }
+            if added.is_some() {
+                detail["added"] = stored_json(added.as_ref());
+            }
+            record_event(&mut tx, &ticket.id, EventKind::CommentEdited, actor, detail).await?;
+            tx.commit().await?;
+            Ok::<_, BoardError>(())
+        }
+        .await;
+        if let Err(e) = edited {
+            if let Some(added) = &added {
+                added.discard();
+            }
+            return Err(e);
+        }
         self.ticket_comment(&ticket.key.to_string(), n).await
     }
 
@@ -699,7 +837,7 @@ impl Board {
 
     /// Where attachment `attachment` (1, 2, 3…) of comment `n` is; with `None`, its only one. A comment with several
     /// refuses `None`, listing them, so the caller names one. A deleted comment's attachments still open (History,
-    /// CMT-14).
+    /// CMT-14), and so does one an edit removed (tuq 008), by its number.
     pub async fn ticket_report(
         &self,
         key: &str,
@@ -711,6 +849,10 @@ impl Board {
             .await?
             .ok_or_else(|| no_comment(&ticket.key, n))?;
         let mut all = comment_attachments(self.store.pool(), &row.id, self.data().root()).await?;
+        // Without a number, the comment's only one now: one an edit removed doesn't count (tuq 008).
+        if attachment.is_none() {
+            all.retain(|(_, removed)| !removed);
+        }
         let picked = match (attachment, all.len()) {
             (_, 0) => {
                 return Err(BoardError::NotFound(format!(
@@ -722,7 +864,7 @@ impl Board {
             (None, _) => {
                 let list = all
                     .iter()
-                    .map(|a| format!("{} {}", a.n, a.name))
+                    .map(|(a, _)| format!("{} {}", a.n, a.name))
                     .collect::<Vec<_>>()
                     .join(", ");
                 return Err(BoardError::refused(
@@ -734,7 +876,7 @@ impl Board {
                     ),
                 ));
             }
-            (Some(a), _) => match all.iter().position(|x| x.n == a) {
+            (Some(a), _) => match all.iter().position(|(x, _)| x.n == a) {
                 Some(i) => all.remove(i),
                 None => {
                     return Err(BoardError::NotFound(format!(
@@ -744,9 +886,11 @@ impl Board {
                 }
             },
         };
+        let (picked, removed) = picked;
         Ok(ReportFile {
             attachment: picked,
             deleted: row.deleted_at.is_some(),
+            removed,
             key: ticket.key,
             n,
         })
@@ -844,7 +988,8 @@ impl Board {
         })
     }
 
-    /// The report files of these tickets' comments, deleted ones included: what Delete removes with them (d0060).
+    /// The report files of these tickets' comments, deleted ones' and those an edit removed (tuq 008) included: what
+    /// Delete removes with them (d0060).
     pub(crate) async fn report_files_of(
         &self,
         ticket_ids: &[&str],

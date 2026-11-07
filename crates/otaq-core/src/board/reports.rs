@@ -164,9 +164,10 @@ pub struct StoredAttachment {
     pub path: PathBuf,
 }
 
-/// The attachments copied for a comment that is about to be posted ([`Board::prepare_attachments`]), all in the
-/// comment's folder. The comment takes its id. If the comment isn't posted after all (its transaction failed),
-/// [`Self::discard`] removes the folder.
+/// The attachments copied for a comment that is about to be posted ([`Board::prepare_attachments`]), or added to a
+/// posted one by an edit ([`Board::prepare_added_attachments`], tuq 008), all in the comment's folder. A new comment
+/// takes its id. If the comment isn't posted or edited after all (its transaction failed), [`Self::discard`] removes
+/// these files, never one the comment already had.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct StoredAttachments {
     /// The id the comment gets: its folder is named after it.
@@ -178,9 +179,15 @@ pub struct StoredAttachments {
 }
 
 impl StoredAttachments {
-    /// Removes the copied files and their comment's folder: its comment wasn't posted.
+    /// Removes the copied files (each in its numbered folder), and the comment's folder once empty: its comment wasn't
+    /// posted or edited. The comment's other files stay.
     pub fn discard(&self) {
-        remove_folder(&self.folder);
+        for file in &self.files {
+            if let Some(numbered) = file.path.parent() {
+                remove_folder(numbered);
+            }
+        }
+        let _ = std::fs::remove_dir(&self.folder);
     }
 }
 
@@ -456,24 +463,42 @@ pub(crate) fn copy_report(
     copied
 }
 
-/// Copies every source into `folder` (`<folder>/<n>/<name>`), in order. On any refusal the folder is removed:
-/// nothing is left behind.
+/// The folder attachment `n` goes in inside its comment's `folder`: `<n>`, or `<n>-2`, `<n>-3`… when something is
+/// already there (an old report kept as `<comment id>/<name>` by migration 0076 could be called `2`), so a copy never
+/// lands on another attachment's file.
+fn numbered_folder(folder: &Path, n: u32) -> PathBuf {
+    let mut path = folder.join(n.to_string());
+    let mut k = 2;
+    while path.symlink_metadata().is_ok() {
+        path = folder.join(format!("{n}-{k}"));
+        k += 1;
+    }
+    path
+}
+
+/// Copies every source into `folder` (`<folder>/<n>/<name>`), in order, numbered from `first` (1 for a new comment;
+/// after every number the comment ever had for an edit's additions, tuq 008). On any refusal what this call copied is
+/// removed (and the folder, once empty): nothing is left behind, and the comment's other files stay.
 fn copy_all(
     sources: &[ReportSource],
     folder: &Path,
     root: &Path,
+    first: u32,
 ) -> Result<Vec<StoredAttachment>, BoardError> {
+    let mut made: Vec<PathBuf> = Vec::with_capacity(sources.len());
     let copied = (|| {
         let mut files = Vec::with_capacity(sources.len());
         for (i, source) in sources.iter().enumerate() {
-            let n = u32::try_from(i + 1).unwrap_or(u32::MAX);
+            let n = first.saturating_add(u32::try_from(i).unwrap_or(u32::MAX));
             let name = display_name(source);
             let file_name = source_name(source).unwrap_or_else(|| PASTED_FILE.to_owned());
             let file_name = match file_name.as_str() {
                 "" | "." | ".." => PASTED_FILE.to_owned(),
                 _ => file_name,
             };
-            let path = folder.join(n.to_string()).join(&file_name);
+            let numbered = numbered_folder(folder, n);
+            made.push(numbered.clone());
+            let path = numbered.join(&file_name);
             let copied = copy_report(source, &name, &path)?;
             let kind = match source {
                 ReportSource::Text(_) => AttachmentKind::Text,
@@ -496,7 +521,10 @@ fn copy_all(
         Ok(files)
     })();
     if copied.is_err() {
-        remove_folder(folder);
+        for numbered in &made {
+            remove_folder(numbered);
+        }
+        let _ = std::fs::remove_dir(folder);
     }
     copied
 }
@@ -523,7 +551,7 @@ impl Board {
             .map_err(|e| refused(format!("Can't store the report: {e}")))?;
         let root = self.data().root().to_path_buf();
         let dest = folder.clone();
-        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &dest, &root))
+        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &dest, &root, 1))
             .await
             .map_err(|e| refused(format!("Can't store the report: {e}")))??;
         Ok(Some(StoredAttachments {
@@ -545,6 +573,39 @@ impl Board {
         let project = self.project(key.project.as_str()).await?;
         let repo = crate::warm::store::repo_name(&project);
         self.prepare_attachments_in(&repo, key, sources).await
+    }
+
+    /// Copies the attachments an edit adds to the posted comment `comment_id` on the ticket `key` (tuq 008), into its
+    /// folder, numbered from `first` (after every number it ever had, removed ones included): checked first like a new
+    /// comment's, refused by name before anything is copied. `None` without sources. On a failed edit
+    /// [`StoredAttachments::discard`] removes only these.
+    pub async fn prepare_added_attachments(
+        &self,
+        key: &TicketKey,
+        comment_id: &str,
+        first: u32,
+        sources: Vec<ReportSource>,
+    ) -> Result<Option<StoredAttachments>, BoardError> {
+        if sources.is_empty() {
+            return Ok(None);
+        }
+        check_sources(&sources)?;
+        let project = self.project(key.project.as_str()).await?;
+        let repo = crate::warm::store::repo_name(&project);
+        let folder = self
+            .data()
+            .comment_attachments_dir(&repo, key, comment_id)
+            .map_err(|e| refused(format!("Can't store the report: {e}")))?;
+        let root = self.data().root().to_path_buf();
+        let dest = folder.clone();
+        let files = tokio::task::spawn_blocking(move || copy_all(&sources, &dest, &root, first))
+            .await
+            .map_err(|e| refused(format!("Can't store the report: {e}")))??;
+        Ok(Some(StoredAttachments {
+            comment_id: comment_id.to_owned(),
+            folder,
+            files,
+        }))
     }
 
     /// An attachment's full path from what its comment stores.
@@ -734,6 +795,7 @@ mod tests {
             ],
             &folder,
             dir.path(),
+            1,
         )
         .unwrap();
         let seen: Vec<(u32, &str, AttachmentKind, Option<u64>, &str)> = files
@@ -771,9 +833,41 @@ mod tests {
             ],
             &dir.path().join("reports").join("c2"),
             dir.path(),
+            1,
         );
         assert!(refused.is_err());
         assert!(!dir.path().join("reports").join("c2").exists());
+
+        // An edit adds to c1 after its numbers (tuq 008): a refusal removes only what it copied, never 1–4.
+        let refused = copy_all(
+            &[
+                ReportSource::Path(src.join("shot.png")),
+                ReportSource::Path(src.join("nope.txt")),
+            ],
+            &folder,
+            dir.path(),
+            5,
+        );
+        assert!(refused.is_err());
+        assert!(!folder.join("5").exists());
+        for (n, f) in [("1", "run.txt"), ("2", "run.txt"), ("3", "shot.png")] {
+            assert!(folder.join(n).join(f).exists(), "{n}/{f} stays");
+        }
+        // A file already called `6` in the folder (an old report, migration 0076) is never written over.
+        std::fs::write(folder.join("6"), "old report").unwrap();
+        let added = copy_all(
+            &[ReportSource::Path(src.join("shot.png"))],
+            &folder,
+            dir.path(),
+            6,
+        )
+        .unwrap();
+        assert_eq!(added[0].n, 6);
+        assert_eq!(added[0].path, folder.join("6-2").join("shot.png"));
+        assert_eq!(
+            std::fs::read_to_string(folder.join("6")).unwrap(),
+            "old report"
+        );
     }
 
     #[test]

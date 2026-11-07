@@ -8,7 +8,7 @@
 // in the report view (a deleted comment's too). The rows, their kinds and the filters are Rust's (`sections.history`,
 // `history.rs`); the page keeps the filter picked and the rows opened. Above them, the Messages between the ticket and its linked tickets (MSG-01;
 // the old panel's section, SHT-01, T-0469), when there are any.
-import { Fragment, useCallback, useState } from "react";
+import { Fragment, type ReactNode, useCallback, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
 import { Tooltip } from "../../components";
@@ -46,6 +46,17 @@ function CopyId({ id, hint, copied }: { id: string; hint: string; copied: string
   );
 }
 
+/** An edit's attachment with what happened to it under it, "Removed" or "Added" (tuq 008); others as they are. */
+function Changed({ change, children }: { change: string | null; children: ReactNode }) {
+  if (change === null) return children;
+  return (
+    <span className="history-changed" data-change={change.toLowerCase()}>
+      {children}
+      <span className="history-change">{change}</span>
+    </span>
+  );
+}
+
 /** What a description or comment row opens: its label, "Before / after", the lines and the comment's report. */
 function Opened({ opens, ticket }: { opens: HistoryOpens; ticket: string }) {
   return (
@@ -63,20 +74,23 @@ function Opened({ opens, ticket }: { opens: HistoryOpens; ticket: string }) {
       {opens.thumbnails.length > 0 && (
         <div className="comment-thumbnails">
           {opens.thumbnails.map((t) => (
-            <Thumbnail key={t.thumbnail.attachment} ticket={ticket} n={t.n} thumbnail={t.thumbnail} />
+            <Changed key={t.thumbnail.attachment} change={t.change}>
+              <Thumbnail ticket={ticket} n={t.n} thumbnail={t.thumbnail} />
+            </Changed>
           ))}
         </div>
       )}
       {opens.attachments.length > 0 && (
         <span className="comment-attachments">
           {opens.attachments.map((a) => (
-            <AttachmentChip
-              key={a.chip.attachment}
-              chip={a.chip}
-              onOpen={() => {
-                openReport({ kind: "comment", ticket, n: a.n, attachment: a.chip.attachment });
-              }}
-            />
+            <Changed key={a.chip.attachment} change={a.change}>
+              <AttachmentChip
+                chip={a.chip}
+                onOpen={() => {
+                  openReport({ kind: "comment", ticket, n: a.n, attachment: a.chip.attachment });
+                }}
+              />
+            </Changed>
           ))}
         </span>
       )}
