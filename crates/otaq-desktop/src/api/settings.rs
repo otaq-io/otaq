@@ -492,9 +492,12 @@ async fn view(app: &App) -> Result<page::View, RequestError> {
         Ok(Reply::SchedulerStatus(s)) => Some(s),
         _ => None,
     };
-    let cleanup_count = match app.service.send(Request::CleanupScan).await {
-        Ok(Reply::CleanupScan(items)) => items.len(),
-        _ => 0,
+    let (cleanup_count, cleanup_bytes) = match app.service.send(Request::CleanupScan).await {
+        Ok(Reply::CleanupScan(items)) => (
+            items.len(),
+            items.iter().filter_map(|i| i.size_bytes).sum(),
+        ),
+        _ => (0, 0),
     };
     // What macOS allows, for the status line under the notifications switch (ATT-14).
     let notification_permission = match app.service.send(Request::NotificationsState).await {
@@ -508,6 +511,7 @@ async fn view(app: &App) -> Result<page::View, RequestError> {
         scheduler: scheduler.as_ref(),
         data: app.service.data().map(|d| data_paths(&d)),
         cleanup_count,
+        cleanup_bytes,
         os: Os::current(),
         notification_permission,
         fonts: &fonts,

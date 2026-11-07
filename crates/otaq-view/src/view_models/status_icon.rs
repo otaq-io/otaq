@@ -11,13 +11,12 @@ use std::time::{Duration, Instant};
 
 use otaq_core::agents::pause::PauseCounts;
 use otaq_core::attention::needs_you::NeedsYouList;
-use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem, RunningItem};
+use otaq_core::board::needs_you::{NeedsYouGroup, NeedsYouItem};
 use otaq_core::domain::Status;
 use otaq_core::naming::PRODUCT_NAME;
 
 use crate::view_models::connection::LinkState;
 use crate::view_models::needs_you_strip::{self, Item, Target};
-use crate::view_models::session_tab;
 use crate::view_models::sheet::Content;
 
 /// How long the link may be down (reconnecting, stopped, failed) before the icon says not connected. The client
@@ -44,27 +43,24 @@ pub enum IconLook {
 pub enum IconAction {
     /// Shows and focuses the window.
     OpenOtaq,
-    /// Quits the app only, agents keep working (stand-in until T-0569's Stop agents and quit; T-0568 keeps it as the
-    /// not-connected menu's Quit Otaq, audit AS q2).
+    /// Quit Otaq: while agents work it asks first, with Keep them running as the default and Quit and stop agents as
+    /// the second choice; with none working (or not connected) it quits at once.
     Quit,
     /// Pauses every project (0112's All projects scope, no question).
     PauseAll,
     /// Lifts what an All projects pause set (d0112 2026-10-27).
     ResumeAll,
-    /// Stops every agent and the service, pauses all projects, then quits (T-0569).
-    StopAgentsAndQuit,
     /// Puts the ready update in place and reopens the app (UPD-05, page 32 item 3): only the app for a compatible
     /// update, the service too for one it can't work with.
     RestartToUpdate,
 }
 
 impl IconAction {
-    pub const ALL: [IconAction; 6] = [
+    pub const ALL: [IconAction; 5] = [
         IconAction::OpenOtaq,
         IconAction::Quit,
         IconAction::PauseAll,
         IconAction::ResumeAll,
-        IconAction::StopAgentsAndQuit,
         IconAction::RestartToUpdate,
     ];
 
@@ -75,13 +71,21 @@ impl IconAction {
             Self::Quit => "quit",
             Self::PauseAll => "pause_all",
             Self::ResumeAll => "resume_all",
-            Self::StopAgentsAndQuit => "stop_and_quit",
             Self::RestartToUpdate => "restart_to_update",
         }
     }
 
     pub fn from_id(id: &str) -> Option<Self> {
         Self::ALL.into_iter().find(|a| a.id() == id)
+    }
+
+    /// Its key in the menu: ⌘O for Open Otaq, ⌘Q for Quit Otaq (as an accelerator: Ctrl on Windows and Linux).
+    pub fn accelerator(self) -> Option<&'static str> {
+        match self {
+            Self::OpenOtaq => Some("CmdOrCtrl+O"),
+            Self::Quit => Some("CmdOrCtrl+Q"),
+            _ => None,
+        }
     }
 }
 
@@ -90,7 +94,7 @@ pub fn open_label() -> String {
     format!("Open {PRODUCT_NAME}")
 }
 
-/// "Quit Otaq" (page 31's not-connected menu, audit AS q2).
+/// "Quit Otaq": the menu's last action.
 pub fn quit_label() -> String {
     format!("Quit {PRODUCT_NAME}")
 }
@@ -161,32 +165,31 @@ impl IconLink {
 // - The count is what blocks an agent right now: the needs-you family (questions, permission prompts, Idle, a check
 //   that needs a decision; also a paused or interrupted ticket that kept its question, d0045) and the Noyan
 //   conversations waiting for an answer. Your checks and Interrupted / Start failed tickets never count. Never capped.
-// - The lists, in order: Needs you (0016's order), Your checks and stopped tickets (listed, not counted), Running (one
-//   line per ticket an agent works on, with its stage). A ticket shows once, in the first list it belongs to. A paused
-//   project's Interrupted tickets wait for its Resume (as the strip leaves them out). Projects paused on their own
-//   are named under Paused.
+// - The lists, in order: NEEDS YOU (0016's order); what runs as two quiet lines ("4 agents running", "shop-web 3 ·
+//   billing-api 1"); YOUR CHECKS AND STOPPED TICKETS (listed, not counted). A ticket shows once, in the first list it
+//   belongs to. A paused project's Interrupted tickets wait for its Resume (as the strip leaves them out). Projects
+//   paused on their own are named under PAUSED.
 // - The cap: at most [`CAP`] ticket lines; needs-you lines come first, so they are cut last; past the cap "and 31 more
-//   · Open Otaq". The headings' counts stay true ("Running · 36").
-// - The actions: Open Otaq; Pause all while any project isn't paused; Resume all only while an All projects pause
-//   exists (audit AS q1); Stop agents and quit. Not connected: Pause all disabled, a plain Quit Otaq (audit AS q2).
+//   · Open Otaq". The heading's count stays true.
+// - The actions: Open Otaq ⌘O; Pause all while any project isn't paused; Resume all only while an All projects pause
+//   exists (audit AS q1); Restart to update while an update is ready (the app only: working agents continue); Quit
+//   Otaq ⌘Q, which asks while agents work. Not connected: Pause all disabled.
 
 /// The most ticket lines the menu lists (page 31: "The long list stops at 10 ticket lines").
 pub const CAP: usize = 10;
 
-pub const NEEDS_YOU: &str = "Needs you";
-pub const CHECKS_AND_STOPPED: &str = "Your checks and stopped tickets";
-pub const RUNNING: &str = "Running";
-pub const PAUSED: &str = "Paused";
+pub const NEEDS_YOU: &str = "NEEDS YOU";
+pub const CHECKS_AND_STOPPED: &str = "YOUR CHECKS AND STOPPED TICKETS";
+pub const PAUSED: &str = "PAUSED";
 pub const ALL_PAUSED_NOTHING_RUNNING: &str = "All projects paused \u{b7} nothing running";
 pub const NOTHING: &str = "Nothing needs you \u{b7} nothing running";
-pub const PAUSE_ALL: &str = "Pause all projects";
-pub const RESUME_ALL: &str = "Resume all projects";
-pub const STOP_AND_QUIT: &str = "Stop agents and quit";
+pub const PAUSE_ALL: &str = "Pause all";
+pub const RESUME_ALL: &str = "Resume all";
 
 /// One line of the menu, above its actions.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Line {
-    /// A disabled heading: "Needs you · 2", "Your checks and stopped tickets", "Running · 2", "Paused".
+    /// A disabled heading: "NEEDS YOU · 2", "YOUR CHECKS AND STOPPED TICKETS", "PAUSED".
     Heading(String),
     /// A ticket's or a Noyan conversation's line ("SHOP-22 · allow a command"); picking it opens `target`.
     /// `status` is the ticket's, for its coloured dot (the board's colours); `None` for a Noyan conversation.
@@ -195,8 +198,8 @@ pub enum Line {
         status: Option<Status>,
         target: Target,
     },
-    /// A disabled line: "web-app · paused on its own", "Nothing needs you · nothing running", "Otaq lost its
-    /// connection".
+    /// A disabled line: "4 agents running", "shop-web 3 · billing-api 1", "web-app · paused on its own", "Nothing
+    /// needs you · nothing running", "Otaq lost its connection".
     Note(String),
     /// "and 31 more · Open Otaq": picking it opens the window.
     More(String),
@@ -297,9 +300,15 @@ pub fn summary(
             }
         }
     }
+    // What runs, by project in the order first seen: "shop-web 3 · billing-api 1".
     for r in &list.running {
-        if lists.first_time(r.key.to_string()) {
-            lists.running.push(running_line(r));
+        match lists
+            .running
+            .iter_mut()
+            .find(|(name, _)| *name == r.project_name)
+        {
+            Some((_, n)) => *n += 1,
+            None => lists.running.push((r.project_name.clone(), 1)),
         }
     }
 
@@ -339,11 +348,7 @@ pub fn summary(
     if pause.all_pause_exists() {
         actions.push(action(IconAction::ResumeAll, RESUME_ALL.to_owned(), true));
     }
-    actions.push(action(
-        IconAction::StopAgentsAndQuit,
-        STOP_AND_QUIT.to_owned(),
-        true,
-    ));
+    actions.push(action(IconAction::Quit, quit_label(), true));
     Summary {
         look,
         count,
@@ -353,7 +358,7 @@ pub fn summary(
     }
 }
 
-/// Adds Restart to update under Open Otaq while an update is ready and not skipped (page 32 item 3); `label` is
+/// Adds Restart to update above Quit Otaq while an update is ready and not skipped (page 32 item 3); `label` is
 /// `updates::restart_item`'s. Not in the not-connected menu.
 pub fn with_restart(mut summary: Summary, label: Option<String>) -> Summary {
     if let Some(label) = label
@@ -362,8 +367,8 @@ pub fn with_restart(mut summary: Summary, label: Option<String>) -> Summary {
         let at = summary
             .actions
             .iter()
-            .position(|a| a.action == IconAction::OpenOtaq)
-            .map_or(0, |i| i + 1);
+            .position(|a| a.action == IconAction::Quit)
+            .unwrap_or(summary.actions.len());
         summary
             .actions
             .insert(at, action(IconAction::RestartToUpdate, label, true));
@@ -379,12 +384,13 @@ fn action(action: IconAction, label: String, enabled: bool) -> Action {
     }
 }
 
-/// The three lists before the cap, and the tickets already listed.
+/// The lists before the cap, what runs per project, and the tickets already listed.
 #[derive(Default)]
 struct Lists {
     needs_you: Vec<Line>,
     checks: Vec<Line>,
-    running: Vec<Line>,
+    /// Each project's name and how many of its tickets an agent works on.
+    running: Vec<(String, usize)>,
     seen: std::collections::HashSet<String>,
 }
 
@@ -394,26 +400,42 @@ impl Lists {
         self.seen.insert(key)
     }
 
-    /// The lists with their headings, at most [`CAP`] item lines in this order, then "and N more · Open Otaq". A
-    /// heading shows while any of its list's lines does, with its full count.
+    /// The lists with their headings, at most [`CAP`] item lines (needs you first), what runs between them, then
+    /// "and N more · Open Otaq". A heading shows while any of its list's lines does, Needs you's with its full count.
     fn capped(self, count: u32) -> Vec<Line> {
-        let total = self.needs_you.len() + self.checks.len() + self.running.len();
+        let total = self.needs_you.len() + self.checks.len();
         let mut left = CAP;
         let mut lines = Vec::new();
-        let running = self.running.len();
-        for (heading, items) in [
-            (Some(format!("{NEEDS_YOU} \u{b7} {count}")), self.needs_you),
-            (Some(CHECKS_AND_STOPPED.to_owned()), self.checks),
-            (Some(format!("{RUNNING} \u{b7} {running}")), self.running),
-        ] {
+        let mut list = |lines: &mut Vec<Line>, heading: String, items: Vec<Line>| {
             if items.is_empty() || left == 0 {
-                continue;
+                return;
             }
-            lines.extend(heading.map(Line::Heading));
+            lines.push(Line::Heading(heading));
             let shown = items.len().min(left);
             left -= shown;
             lines.extend(items.into_iter().take(shown));
+        };
+        list(
+            &mut lines,
+            format!("{NEEDS_YOU} \u{b7} {count}"),
+            self.needs_you,
+        );
+        let agents: usize = self.running.iter().map(|(_, n)| n).sum();
+        if agents > 0 {
+            lines.push(Line::Note(if agents == 1 {
+                "1 agent running".to_owned()
+            } else {
+                format!("{agents} agents running")
+            }));
+            lines.push(Line::Note(
+                self.running
+                    .iter()
+                    .map(|(name, n)| format!("{name} {n}"))
+                    .collect::<Vec<_>>()
+                    .join(" \u{b7} "),
+            ));
         }
+        list(&mut lines, CHECKS_AND_STOPPED.to_owned(), self.checks);
         let hidden = total - (CAP - left);
         if hidden > 0 {
             lines.push(Line::More(format!(
@@ -438,29 +460,6 @@ fn ticket_reason(t: &NeedsYouItem, target: Target) -> String {
         _ => {}
     }
     needs_you_strip::ticket_chip(t, target).map_or_else(|| t.reason.clone(), |c| c.reason)
-}
-
-/// "SHOP-18 · Dev · working", "WEB-9 · Validate · checking"; it opens the ticket on its working side.
-fn running_line(r: &RunningItem) -> Line {
-    let doing = if r.status == Status::Checking {
-        "checking"
-    } else {
-        "working"
-    };
-    let text = match &r.stage {
-        Some(stage) => format!("{} \u{b7} {stage} \u{b7} {doing}", r.key),
-        None => format!("{} \u{b7} {doing}", r.key),
-    };
-    Line::Item {
-        text,
-        status: Some(r.status),
-        target: Target::Ticket {
-            project: r.project.clone(),
-            key: r.key.to_string(),
-            tab: session_tab::lands_on(r.status),
-            piece: None,
-        },
-    }
 }
 
 // Drawing the summary (T-0568; TRY-04, TRY-06; page 31 `s31-01`, `s31-04`): the native menu's rows, what a line
@@ -536,6 +535,8 @@ pub enum MenuRow {
         action: IconAction,
         label: String,
         enabled: bool,
+        /// "CmdOrCtrl+Q".
+        accelerator: Option<&'static str>,
     },
     Separator,
 }
@@ -576,6 +577,7 @@ pub fn menu(summary: &Summary) -> Vec<MenuRow> {
             action: a.action,
             label: a.label.clone(),
             enabled: a.enabled,
+            accelerator: a.action.accelerator(),
         });
     }
     rows
@@ -733,7 +735,7 @@ mod tests {
 mod summary_tests {
     use otaq_core::agents::pause::{PauseKind, ProjectPause};
     use otaq_core::attention::needs_you::NeedsYouCounts;
-    use otaq_core::board::needs_you::WaitingIn;
+    use otaq_core::board::needs_you::{RunningItem, WaitingIn};
     use otaq_core::project_agents::AgentNeedsYou;
 
     use super::*;
@@ -864,21 +866,20 @@ mod summary_tests {
         assert_eq!(
             texts(&s),
             [
-                "# Needs you \u{b7} 1",
+                "# NEEDS YOU \u{b7} 1",
                 "SHOP-22 \u{b7} allow a command",
-                "# Your checks and stopped tickets",
+                "(2 agents running)",
+                "(shop 1 \u{b7} web 1)",
+                "# YOUR CHECKS AND STOPPED TICKETS",
                 "WEB-7 \u{b7} your check",
-                "# Running \u{b7} 2",
-                "SHOP-18 \u{b7} Dev \u{b7} working",
-                "WEB-9 \u{b7} Validate \u{b7} checking",
             ]
         );
         assert_eq!(
             actions(&s),
             [
                 (o("Open @"), true),
-                ("Pause all projects".to_owned(), true),
-                ("Stop agents and quit".to_owned(), true)
+                ("Pause all".to_owned(), true),
+                (o("Quit @"), true)
             ]
         );
         // Picking SHOP-22 opens its terminal; WEB-7 its review (d0139 G5).
@@ -895,9 +896,6 @@ mod summary_tests {
         );
         assert!(
             matches!(targets[1], Target::Ticket { key, tab: Content::Files, .. } if key == "WEB-7")
-        );
-        assert!(
-            matches!(targets[3], Target::Ticket { key, tab: Content::Check, .. } if key == "WEB-9")
         );
     }
 
@@ -922,7 +920,9 @@ mod summary_tests {
         assert_eq!(
             texts(&s),
             [
-                "# Your checks and stopped tickets",
+                "(1 agent running)",
+                "(web 1)",
+                "# YOUR CHECKS AND STOPPED TICKETS",
                 "SHOP-30 \u{b7} Interrupted",
                 "SHOP-31 \u{b7} Start failed",
                 "WEB-7 \u{b7} your check",
@@ -956,14 +956,14 @@ mod summary_tests {
         assert_eq!(s.look, IconLook::Plain);
         assert_eq!(
             texts(&s),
-            ["# Paused", "(web-app \u{b7} paused on its own)"]
+            ["# PAUSED", "(web-app \u{b7} paused on its own)"]
         );
         assert_eq!(
             actions(&s),
             [
                 (o("Open @"), true),
-                ("Pause all projects".to_owned(), true),
-                ("Stop agents and quit".to_owned(), true)
+                ("Pause all".to_owned(), true),
+                (o("Quit @"), true)
             ]
         );
 
@@ -980,8 +980,8 @@ mod summary_tests {
             actions(&s),
             [
                 (o("Open @"), true),
-                ("Resume all projects".to_owned(), true),
-                ("Stop agents and quit".to_owned(), true)
+                ("Resume all".to_owned(), true),
+                (o("Quit @"), true)
             ]
         );
 
@@ -1019,7 +1019,7 @@ mod summary_tests {
         assert_eq!(s.name, o("@ \u{b7} all projects paused \u{b7} 1 needs you"));
         assert_eq!(
             texts(&s),
-            ["# Needs you \u{b7} 1", "SHOP-12 \u{b7} a question"]
+            ["# NEEDS YOU \u{b7} 1", "SHOP-12 \u{b7} a question"]
         );
 
         // No projects: plain, and nothing to pause.
@@ -1030,34 +1030,36 @@ mod summary_tests {
         );
         assert_eq!(s.look, IconLook::Plain);
         assert_eq!(texts(&s), ["(Nothing needs you \u{b7} nothing running)"]);
-        assert_eq!(
-            actions(&s),
-            [
-                (o("Open @"), true),
-                ("Stop agents and quit".to_owned(), true)
-            ]
-        );
+        assert_eq!(actions(&s), [(o("Open @"), true), (o("Quit @"), true)]);
     }
 
     /// R6 (page 31 "A long list (capped)"): 40 items → 10 ticket lines, needs-you first, "and 30 more · Open Otaq";
-    /// the count and the headings stay true.
+    /// the count stays true, and what runs is counted, never listed.
     #[test]
     fn a_long_list_is_capped_and_the_count_is_not() {
-        let asks: Vec<NeedsYouItem> = (1..=4)
+        let mut items: Vec<NeedsYouItem> = (1..=4)
             .map(|n| ticket(&format!("API-{n}"), "x", Status::AsksYou, "asks"))
             .collect();
+        items.extend((1..=36).map(|n| review(&format!("WEB-{n}"))));
         let runs: Vec<RunningItem> = (1..=36)
             .map(|n| running(&format!("SHOP-{n}"), "Dev", Status::Working))
             .collect();
         let s = summary(
             IconLook::Plain,
-            Some(&list(asks, Vec::new(), runs)),
+            Some(&list(items, Vec::new(), runs)),
             Some(&running_projects()),
         );
         assert_eq!(s.count, 4);
         let t = texts(&s);
-        assert_eq!(t[0], "# Needs you \u{b7} 4");
-        assert_eq!(t[5], "# Running \u{b7} 36");
+        assert_eq!(t[0], "# NEEDS YOU \u{b7} 4");
+        assert_eq!(
+            t[5..8],
+            [
+                "(36 agents running)",
+                "(shop 36)",
+                "# YOUR CHECKS AND STOPPED TICKETS"
+            ]
+        );
         let items = s
             .lines
             .iter()
@@ -1081,9 +1083,8 @@ mod summary_tests {
         );
         assert_eq!((s.count, s.name.clone()), (12, o("@ \u{b7} 12 need you")));
         let t = texts(&s);
-        assert_eq!(t.len(), 1 + CAP + 1);
-        assert!(!t.iter().any(|l| l.starts_with("# Running")));
-        assert_eq!(*t.last().unwrap(), o("> and 3 more \u{b7} Open @"));
+        assert_eq!(t.len(), 1 + CAP + 2 + 1);
+        assert_eq!(*t.last().unwrap(), o("> and 2 more \u{b7} Open @"));
     }
 
     /// d0139 G7, audit AS q2: not connected wins; one disabled line, Pause all disabled, a plain Quit Otaq.
@@ -1104,7 +1105,7 @@ mod summary_tests {
             actions(&s),
             [
                 (o("Open @"), true),
-                ("Pause all projects".to_owned(), false),
+                ("Pause all".to_owned(), false),
                 (o("Quit @"), true)
             ]
         );
@@ -1118,16 +1119,25 @@ mod summary_tests {
             .map(|r| match r {
                 MenuRow::Text(t) => format!("({t})"),
                 MenuRow::Open { id, label, dot } => format!("{label} [{id}] {dot:?}"),
-                MenuRow::Action { label, enabled, .. } => {
-                    format!("{label}{}", if *enabled { "" } else { " (off)" })
+                MenuRow::Action {
+                    label,
+                    enabled,
+                    accelerator,
+                    ..
+                } => {
+                    format!(
+                        "{label}{}{}",
+                        if *enabled { "" } else { " (off)" },
+                        accelerator.map(|a| format!(" {a}")).unwrap_or_default()
+                    )
                 }
                 MenuRow::Separator => "---".to_owned(),
             })
             .collect()
     }
 
-    /// T-0568 (TRY-04, TRY-06; page 31): the story's menu in page 31's order, each line opening what TRY-06 says, a
-    /// dot per line, separators before the actions and before Stop agents and quit; the count as the item's text.
+    /// The menu as drawn: needs you first, what runs, your checks and stopped tickets, each line opening what TRY-06
+    /// says with a dot, separators before the actions and before Quit Otaq; the count as the item's text.
     #[test]
     fn the_story_draws_page_31s_menu() {
         let mut story = story();
@@ -1144,20 +1154,19 @@ mod summary_tests {
         assert_eq!(
             rows(&menu(&s)),
             [
-                "(Needs you \u{b7} 2)",
+                "(NEEDS YOU \u{b7} 2)",
                 "SHOP-22 \u{b7} allow a command [open:SHOP-22] Some(Attention)",
                 "Noyan \u{b7} Checkout slowness asks [open:agent:SHOP:pa1] Some(Attention)",
-                "(Your checks and stopped tickets)",
+                "(2 agents running)",
+                "(shop 1 \u{b7} web 1)",
+                "(YOUR CHECKS AND STOPPED TICKETS)",
                 "WEB-7 \u{b7} your check [open:review:WEB-7] Some(Review)",
                 "SHOP-30 \u{b7} Interrupted [open:sheet:SHOP-30] Some(Stopped)",
-                "(Running \u{b7} 2)",
-                "SHOP-18 \u{b7} Dev \u{b7} working [open:SHOP-18] Some(Working)",
-                "WEB-9 \u{b7} Validate \u{b7} checking [open:validator:WEB-9] Some(Working)",
                 "---",
-                &o("Open @"),
-                "Pause all projects",
+                &o("Open @ CmdOrCtrl+O"),
+                "Pause all",
                 "---",
-                "Stop agents and quit",
+                &o("Quit @ CmdOrCtrl+Q"),
             ]
         );
         assert_eq!(title(&s).as_deref(), Some("2"));
@@ -1180,10 +1189,10 @@ mod summary_tests {
             [
                 o("(@ lost its connection)"),
                 "---".to_owned(),
-                o("Open @"),
-                "Pause all projects (off)".to_owned(),
+                o("Open @ CmdOrCtrl+O"),
+                "Pause all (off)".to_owned(),
                 "---".to_owned(),
-                o("Quit @"),
+                o("Quit @ CmdOrCtrl+Q"),
             ]
         );
         assert_eq!(title(&s), None);
@@ -1193,11 +1202,9 @@ mod summary_tests {
     #[test]
     fn and_more_opens_the_window() {
         let many = list(
+            (1..=12).map(|n| review(&format!("WEB-{n}"))).collect(),
             Vec::new(),
             Vec::new(),
-            (1..=12)
-                .map(|n| running(&format!("SHOP-{n}"), "Dev", Status::Working))
-                .collect(),
         );
         let s = summary(IconLook::Plain, Some(&many), Some(&running_projects()));
         let rows = menu(&s);
@@ -1244,15 +1251,20 @@ mod summary_tests {
     }
 
     #[test]
-    fn restart_to_update_sits_under_open() {
-        let plain = summary(IconLook::Plain, None, None);
-        let with = with_restart(plain.clone(), Some("Restart to update · 0.2.0".into()));
+    fn restart_to_update_sits_above_quit() {
+        let plain = summary(IconLook::Plain, None, Some(&running_projects()));
+        let with = with_restart(plain.clone(), Some("Restart to update".into()));
         let actions: Vec<_> = with.actions.iter().map(|a| a.action).collect();
         assert_eq!(
-            actions[..2],
-            [IconAction::OpenOtaq, IconAction::RestartToUpdate]
+            actions,
+            [
+                IconAction::OpenOtaq,
+                IconAction::PauseAll,
+                IconAction::RestartToUpdate,
+                IconAction::Quit
+            ]
         );
-        assert_eq!(with.actions[1].label, "Restart to update · 0.2.0");
+        assert_eq!(with.actions[2].label, "Restart to update");
         assert_eq!(with_restart(plain.clone(), None), plain);
         let down = summary(IconLook::NotConnected, None, None);
         assert_eq!(with_restart(down.clone(), Some("x".into())), down);

@@ -1,10 +1,10 @@
-//! **Quitting** (T-0569; TRY-03, TRY-07; d0139 R2, R5, G2, C4; page 31 items 4 and 5, the notes `s31-04` "NEW
-//! WORDING", audit AS finding 2): the ⌘Q question while agents work, and what the window says when Stop agents and
-//! quit didn't quit. The steps themselves (the service's `service.stop_agents`, waiting for it to exit) are the app's.
+//! **Quitting** (T-0569; TRY-03, TRY-07; d0139 R2, R5, G2, C4): the question while agents work, and what the window
+//! says when Quit and stop agents didn't quit. The steps themselves (the service's `service.stop_agents`, waiting for
+//! it to exit) are the app's.
 //!
-//! - **⌘Q / Dock → Quit with agents working** asks "2 agents are working": **Keep them working and quit** (first: what
-//!   ⌘Q means elsewhere on macOS), **Stop agents and quit**, **Cancel**. With nothing working, or no service to ask,
-//!   it quits at once.
+//! - **⌘Q, or the menu bar's Quit Otaq, with agents working** asks "Quit Otaq?": **Keep them running** (the default:
+//!   the agents keep working in the background), **Quit and stop agents** (the clear second choice), **Cancel**. With
+//!   nothing working, or no service to ask, it quits at once.
 //! - **A failed stop** brings the window back with "Otaq didn't quit": the service couldn't be reached (nothing was
 //!   stopped), or it hadn't exited within [`STOP_WAIT_SECS`] (the pause is stored; the ticket whose agent was still
 //!   running is named, and "may still be working" is said only then, since the service couldn't confirm the end).
@@ -16,8 +16,8 @@ use otaq_core::naming::PRODUCT_NAME;
 /// that outlives its grace period hard, so a wait this long means the service itself didn't finish.
 pub const STOP_WAIT_SECS: u64 = 20;
 
-pub const KEEP_WORKING_AND_QUIT: &str = "Keep them working and quit";
-pub const STOP_AGENTS_AND_QUIT: &str = "Stop agents and quit";
+pub const KEEP_WORKING_AND_QUIT: &str = "Keep them running";
+pub const STOP_AGENTS_AND_QUIT: &str = "Quit and stop agents";
 pub const CANCEL: &str = "Cancel";
 pub const TRY_AGAIN: &str = "Try again";
 pub const NOT_NOW: &str = "Not now";
@@ -25,10 +25,11 @@ pub const NOT_NOW: &str = "Not now";
 /// The ⌘Q question (page 31 item 4).
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct QuitQuestion {
-    /// "2 agents are working".
+    /// "Quit Otaq?".
     pub title: String,
+    /// "2 agents are working. Quitting keeps them running in the background; …".
     pub text: String,
-    /// In order: Keep them working and quit, Stop agents and quit, Cancel.
+    /// In order: Keep them running (the default), Quit and stop agents, Cancel.
     pub keep: &'static str,
     pub stop: &'static str,
     pub cancel: &'static str,
@@ -46,17 +47,16 @@ pub enum QuitAnswer {
 /// The question when `working` agents work; `None` quits at once (nothing working, or the service can't say).
 pub fn quit_question(working: Option<u32>) -> Option<QuitQuestion> {
     let n = working.filter(|n| *n > 0)?;
+    let (agents, them, they_are) = if n == 1 {
+        ("1 agent is working".to_owned(), "it", "it is")
+    } else {
+        (format!("{n} agents are working"), "them", "they are")
+    };
     Some(QuitQuestion {
-        title: if n == 1 {
-            "1 agent is working".to_owned()
-        } else {
-            format!("{n} agents are working")
-        },
+        title: format!("Quit {PRODUCT_NAME}?"),
         text: format!(
-            "{} keep working in the background with no window and no icon to show it, or stop {} and pause every \
-             project so nothing starts until you resume.",
-            if n == 1 { "It" } else { "They" },
-            if n == 1 { "it" } else { "them" }
+            "{agents}. Quitting keeps {them} running in the background; {STOP_AGENTS_AND_QUIT} stops {them} where \
+             {they_are} (Resume later)."
         ),
         keep: KEEP_WORKING_AND_QUIT,
         stop: STOP_AGENTS_AND_QUIT,
@@ -134,24 +134,24 @@ mod tests {
     fn quit_asks_only_while_agents_work() {
         assert_eq!(quit_question(None), None, "no service to ask: quit");
         assert_eq!(quit_question(Some(0)), None);
-        let q = quit_question(Some(2)).unwrap();
-        assert_eq!(q.title, "2 agents are working");
+        let q = quit_question(Some(4)).unwrap();
+        assert_eq!(q.title, o("Quit @?"));
         assert_eq!(
             q.text,
-            "They keep working in the background with no window and no icon to show it, or stop them and pause \
-             every project so nothing starts until you resume."
+            "4 agents are working. Quitting keeps them running in the background; Quit and stop agents stops them \
+             where they are (Resume later)."
         );
         assert_eq!(
             [q.keep, q.stop, q.cancel],
-            [
-                "Keep them working and quit",
-                "Stop agents and quit",
-                "Cancel"
-            ]
+            ["Keep them running", "Quit and stop agents", "Cancel"]
         );
         let one = quit_question(Some(1)).unwrap();
-        assert_eq!(one.title, "1 agent is working");
-        assert!(one.text.starts_with("It keep"), "{}", one.text);
+        assert!(
+            one.text
+                .starts_with("1 agent is working. Quitting keeps it running"),
+            "{}",
+            one.text
+        );
     }
 
     #[test]

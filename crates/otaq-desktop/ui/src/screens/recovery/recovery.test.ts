@@ -27,78 +27,52 @@ const notices = (summary_for: number | null): Notices => ({
   service_down: false,
   input_enabled: true,
   summary_for,
+  limit_lines: [],
 });
 
-function row(key: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow {
+function row(id: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow {
   return {
-    key,
-    project: "shop-web",
-    title: "Upgrade to Next.js 15",
-    state: "interrupted",
-    headline: null,
-    detail: "was Working · 311k",
-    checked: true,
-    resuming: `${key} · Resuming…`,
-    resuming_detail: "Reattaching claude --resume in ~/.otaq/wt/shop-web/" + key,
-    agent: null,
+    id,
+    kind: "ticket",
+    tag: id,
+    title: "Wishlist share link",
+    state: "stopped",
+    detail: "was working in Dev",
     problem: null,
-    sign_in: null,
+    checked: true,
     ...extra,
   };
 }
 
 const SUMMARY: AfterRestartSummary = {
-  title: "8 sessions were interrupted",
-  text: "Only Dev tickets that were working become Interrupted.",
+  title: "4 agents were stopped by a restart",
+  text: "Each can continue its same conversation, in its own copy. Resuming uses tokens.",
   rows: [
-    row("SHOP-25"),
-    row("SHOP-19", { state: "resumed", headline: "SHOP-19 · Resumed", detail: "Working again" }),
-    row("BILL-4", {
+    row("SHOP-27"),
+    row("a1", { kind: "conversation", tag: "Noyan", title: "Checkout and footer", detail: "conversation" }),
+    row("SHOP-19", { state: "resumed", detail: "Resumed", checked: false }),
+    row("SHOP-30", {
       state: "failed",
-      headline: "BILL-4 · Couldn’t resume",
-      detail: "Claude has no saved conversation",
+      detail: "Couldn’t resume: Claude has no saved conversation",
+      checked: false,
     }),
+    row("BILL-4", { problem: "Codex isn’t signed in · sign in first", checked: false }),
   ],
-  more: {
-    count: "+3",
-    keys: "SHOP-30, SHOP-40.4, SHOP-40.2",
-    detail: "was working · expand to resume one by one",
-    checked: true,
-    resumable: ["SHOP-30", "SHOP-40.4", "SHOP-40.2"],
-  },
-  agents: {
-    title: "CONVERSATIONS WITH NOYAN · NOT IN RESUME SELECTED · TERMINALS ARE GONE",
-    rows: [
-      {
-        id: "a1",
-        project: "shop-web",
-        tag: "agent",
-        name: "Checkout slowness",
-        detail: "Ended by restart · same conversation",
-        resumable: true,
-        agent: null,
-        problem: null,
-        sign_in: null,
-      },
-    ],
-    discarded: "A “New conversation” that had no request yet is discarded, not listed.",
-  },
-  notes_title: "NOT IN RESUME SELECTED",
-  notes: ["Turquoise tickets keep their question — SHOP-22."],
-  resume: "Resume",
+  notes: ["SHOP-22 still waits for your answer; answering resumes it."],
   retry: "Retry",
   scratch: "Start from scratch",
-  foot: "They stay in Needs you if you close this.",
+  resuming: "Resuming…",
+  foot: "They wait in Needs you if you close this.",
   later: "Not now",
-  resume_selected: "Resume selected (4)",
-  selected: ["SHOP-25", "SHOP-30", "SHOP-40.4", "SHOP-40.2"],
-  skipped: [],
+  resume_selected: "Resume 2",
+  selected: ["SHOP-27"],
+  selected_agents: ["a1"],
 };
 
 const CLEANUP: CleanupPage = {
   title: "Cleanup",
   count: "3 items",
-  text: "Leftovers that no ticket owns. Review and select — nothing is deleted automatically.",
+  text: "Copies, branches and processes no ticket uses any more. Nothing is selected until you choose.",
   groups: [
     {
       group: "worktrees",
@@ -191,73 +165,44 @@ describe("the after-restart sheet", () => {
     expect(summaryToOpen(notices(43), 42)).toBe(43);
   });
 
-  it("draws rows, what each Resume did, the folded row and the notes", () => {
+  it("draws the rows, what each Resume did and the notes", () => {
     const html = renderToStaticMarkup(
       createElement(SummaryBody, {
         view: SUMMARY,
-        resuming: new Set(["SHOP-25"]),
+        resuming: new Set(["SHOP-27"]),
         onCheck: nothing,
-        onResume: nothing,
         onRetry: nothing,
-        onUnfold: nothing,
-        onLater: nothing,
-        onResumeAgent: nothing,
       }),
     );
     for (const text of [
-      "8 sessions were interrupted",
-      "SHOP-25 · Resuming…",
-      "SHOP-19 · Resumed",
-      "BILL-4 · Couldn’t resume",
+      "Each can continue its same conversation",
+      "Resuming…",
+      "Noyan",
+      "Checkout and footer",
+      "Resumed",
+      "Couldn’t resume",
+      "Retry",
       "Start from scratch",
-      "+3",
-      "SHOP-30, SHOP-40.4, SHOP-40.2",
-      "NOT IN RESUME SELECTED",
-      "CONVERSATIONS WITH NOYAN",
-      "Checkout slowness",
-      "Ended by restart · same conversation",
-      "is discarded, not listed",
-      "Resume selected (4)",
-      "Not now",
+      "SHOP-22 still waits for your answer",
+      "They wait in Needs you if you close this.",
     ]) {
       expect(html).toContain(text);
     }
     expect(html).toContain('data-state="failed"');
   });
 
-  it("with several tools: the agent and tool, Sign in… in place of Resume, what Resume selected skips", () => {
-    const view: AfterRestartSummary = {
-      ...SUMMARY,
-      rows: [
-        row("SHOP-25", { agent: "Strong · Claude Code" }),
-        row("SHOP-19", {
-          agent: "Standard · Codex",
-          problem: "Codex isn't available (signed out)",
-          checked: false,
-          sign_in: { label: "Sign in…", action: { kind: "sign_in", tool: "codex" }, primary: true },
-        }),
-      ],
-      more: null,
-      skipped: ["Resume selected skips the Codex session until you sign in"],
-    };
+  it("leaves a row whose tool can't run unticked, with why, and its checkbox off", () => {
     const html = renderToStaticMarkup(
       createElement(SummaryBody, {
-        view,
+        view: SUMMARY,
         resuming: new Set<string>(),
         onCheck: nothing,
-        onResume: nothing,
         onRetry: nothing,
-        onUnfold: nothing,
-        onLater: nothing,
-        onResumeAgent: nothing,
       }),
     );
-    expect(html).toContain("Strong · Claude Code");
-    expect(html).toContain('data-problem="true">Standard · Codex · Codex isn&#x27;t available (signed out)');
-    expect(html).toContain("Sign in…");
-    expect(html).toContain("Resume selected skips the Codex session until you sign in");
-    const signInRow = html.slice(html.indexOf("SHOP-19"));
-    expect(signInRow.slice(0, signInRow.indexOf("Sign in…"))).not.toContain(">Resume<");
+    const bill = html.slice(html.lastIndexOf("<input", html.indexOf("BILL-4")));
+    expect(bill.slice(0, bill.indexOf(">"))).toContain("disabled");
+    expect(html).toContain('data-problem="true">Codex isn’t signed in · sign in first');
   });
 
   it("ticks and unticks keys together", () => {

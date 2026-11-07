@@ -1,315 +1,176 @@
-// The after-restart summary sheet (*16 → Opening after a reboot*; REC-01, REC-06, d0045, d0022): beside the "sessions
-// were interrupted" banner, the interrupted tickets with a checkbox (all ticked) and Resume each, Resume selected,
-// what each Resume did (resumed, or Couldn't resume with Retry and Start from scratch) and what the restart left
-// alone. It opens by itself once per service start and from the banner's Review & resume; Later (or Esc) closes it
-// and the tickets stay in Needs you. Nothing resumes without a click. What it says is `recovery.summary`'s
-// (`after_restart.rs`); a ticket that was validating says Resume starts a fresh validation, and the Project agents
-// the restart ended have their own rows with Resume, outside Resume selected (T-0244). With several tools (M23) each
-// row names its agent and tool; a row whose tool is logged out says so in amber with Sign in… in place of Resume, and
-// the foot says what Resume selected skips (*16 → Recovery per tool (0086)*).
+// The after-restart dialog (REC-01, REC-06, d0045, d0022): opened by itself once per service start that stopped agents,
+// "3 agents were stopped by a restart". One row per stopped ticket and per conversation with Noyan, ticked; a row whose
+// tool can't run now says why in amber and can't be ticked, so nothing resumes on a tool that can't run. Resume 3
+// resumes the ticked rows; each row then says what its Resume did (resumed, or couldn't, with Retry and Start from
+// scratch). Not now (or Esc) closes it: the stopped tickets wait in Needs you, red with Resume. Nothing resumes without
+// a click. What it says is `recovery.summary`'s (`after_restart.rs`).
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
-import { Button } from "../../components";
+import { Button, Dialog } from "../../components";
 import type { AfterRestartParams } from "../../generated/AfterRestartParams";
 import type { AfterRestartRow } from "../../generated/AfterRestartRow";
 import type { AfterRestartSummary } from "../../generated/AfterRestartSummary";
 import type { RecoveryResumeParams } from "../../generated/RecoveryResumeParams";
-import type { ToolProblemButton } from "../../generated/ToolProblemButton";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { setUnchecked } from "./logic";
 
 export interface SummaryBodyProps {
   view: AfterRestartSummary;
-  /** Tickets whose Resume the page is waiting for. */
+  /** Rows whose Resume the page is waiting for. */
   resuming: ReadonlySet<string>;
-  onCheck: (keys: readonly string[], checked: boolean) => void;
-  onResume: (keys: readonly string[]) => void;
+  onCheck: (id: string, checked: boolean) => void;
   onRetry: (key: string) => void;
-  onUnfold: () => void;
-  onLater: () => void;
-  /** A Project agent's Resume: the same conversation. */
-  onResumeAgent: (id: string) => void;
 }
 
-/** The agent and its tool ("Standard · Codex"), with several tools; amber with why its tool can't resume it now. */
-function ToolLine({ agent, problem }: { agent: string | null; problem: string | null }) {
-  if (agent === null && problem === null) return null;
+/** What a resumed, resuming or failed row says in place of its detail. */
+function Outcome({
+  row,
+  view,
+  waiting,
+  onRetry,
+}: {
+  row: AfterRestartRow;
+  view: AfterRestartSummary;
+  waiting: boolean;
+  onRetry: (key: string) => void;
+}) {
+  const state = waiting ? "resuming" : row.state;
   return (
-    <span className="summary-tool" data-problem={problem !== null || undefined}>
-      {[agent, problem].filter((part) => part !== null).join(" · ")}
+    <span className="summary-detail" data-state={state}>
+      <Icon
+        name={waiting ? "loader-circle" : row.state === "failed" ? "circle-x" : "circle-check"}
+        size={13}
+      />
+      <span>{waiting ? view.resuming : row.detail}</span>
+      {row.state === "failed" && !waiting && (
+        <span className="summary-state-buttons">
+          <Button
+            compact
+            variant="secondary"
+            icon="rotate-ccw"
+            label={view.retry}
+            onClick={() => {
+              onRetry(row.id);
+            }}
+          />
+          <Button
+            compact
+            variant="ghost"
+            label={view.scratch}
+            onClick={() => {
+              openOverlay("start_from_scratch", { ticket: row.id });
+            }}
+          />
+        </span>
+      )}
     </span>
   );
 }
 
-/** Sign in… in place of Resume while the row's tool is logged out: the tool's own login in a terminal. */
-function SignIn({ button }: { button: ToolProblemButton }) {
+function Row({ row, view, resuming, onCheck, onRetry }: { row: AfterRestartRow } & SummaryBodyProps) {
+  const waiting = resuming.has(row.id) && row.state === "stopped";
+  const stopped = row.state === "stopped" && !waiting;
   return (
-    <Button
-      compact
-      variant={button.primary ? "primary" : "secondary"}
-      label={button.label}
-      onClick={() => {
-        toolProblemAction(button.action, {});
-      }}
-    />
-  );
-}
-
-function Row({
-  row,
-  view,
-  resuming,
-  onCheck,
-  onResume,
-  onRetry,
-}: { row: AfterRestartRow } & Omit<SummaryBodyProps, "onUnfold" | "onLater" | "onResumeAgent">) {
-  const waiting = resuming.has(row.key) && row.state === "interrupted";
-  if (waiting || row.state !== "interrupted") {
-    const state = waiting ? "resuming" : row.state;
-    return (
-      <div className="summary-state" data-state={state}>
-        <Icon
-          name={waiting ? "loader-circle" : row.state === "failed" ? "circle-x" : "circle-check"}
-          size={15}
-        />
-        <div className="summary-state-text">
-          <strong>{waiting ? row.resuming : row.headline}</strong>
-          <span>{waiting ? row.resuming_detail : row.detail}</span>
-          {row.state === "failed" && (
-            <span className="summary-state-buttons">
-              <Button
-                compact
-                variant="secondary"
-                icon="rotate-ccw"
-                label={view.retry}
-                onClick={() => {
-                  onRetry(row.key);
-                }}
-              />
-              <Button
-                compact
-                icon="rotate-ccw"
-                label={view.scratch}
-                onClick={() => {
-                  openOverlay("start_from_scratch", { ticket: row.key });
-                }}
-              />
-            </span>
-          )}
-        </div>
-      </div>
-    );
-  }
-  return (
-    <div className="summary-row">
+    <div className="summary-row" data-kind={row.kind} data-state={waiting ? "resuming" : row.state}>
       <input
         type="checkbox"
         className="checkbox"
-        aria-label={row.key}
-        checked={row.checked}
+        aria-label={`${row.tag} ${row.title}`}
+        checked={row.checked && stopped}
+        disabled={!stopped || row.problem !== null}
         onChange={(e) => {
-          onCheck([row.key], e.target.checked);
+          onCheck(row.id, e.target.checked);
         }}
       />
-      <span className="summary-project">{row.project}</span>
-      <span className="summary-key">{row.key}</span>
-      <span className="summary-text">
-        <span className="summary-title">{row.title}</span>
-        <span className="summary-detail">{row.detail}</span>
-        <ToolLine agent={row.agent} problem={row.problem} />
-      </span>
-      {row.sign_in !== null ? (
-        <SignIn button={row.sign_in} />
+      <span className="summary-key">{row.tag}</span>
+      <span className="summary-title">{row.title}</span>
+      {stopped ? (
+        <span className="summary-detail" data-problem={row.problem !== null || undefined}>
+          {row.problem ?? row.detail}
+        </span>
       ) : (
-        <Button
-          compact
-          variant="secondary"
-          icon="play"
-          label={view.resume}
-          onClick={() => {
-            onResume([row.key]);
-          }}
-        />
+        <Outcome row={row} view={view} waiting={waiting} onRetry={onRetry} />
       )}
     </div>
   );
 }
 
-/** The sheet for a loaded summary (also what the markup tests render). */
+/** The dialog's body for a loaded view (also what the markup tests render). */
 export function SummaryBody(props: SummaryBodyProps) {
-  const { view, resuming, onCheck, onResume, onUnfold, onLater, onResumeAgent } = props;
-  const { more } = view;
+  const { view } = props;
   return (
     <>
-      <div className="summary-body">
-        <h2 className="summary-heading">{view.title}</h2>
-        <p className="summary-intro">{view.text}</p>
-        <div className="summary-list">
-          {view.rows.map((row) => (
-            <Row key={row.key} row={row} {...props} />
-          ))}
-          {more && (
-            <div className="summary-row">
-              <input
-                type="checkbox"
-                className="checkbox"
-                aria-label={more.count}
-                checked={more.checked}
-                disabled={more.resumable.length === 0}
-                onChange={(e) => {
-                  onCheck(more.resumable, e.target.checked);
-                }}
-              />
-              <span className="summary-key">{more.count}</span>
-              <span className="summary-text">
-                <span className="summary-title">{more.keys}</span>
-                <button type="button" className="summary-unfold" onClick={onUnfold}>
-                  {more.detail}
-                </button>
-              </span>
-              <Button
-                compact
-                variant="secondary"
-                icon="play"
-                label={view.resume}
-                disabled={more.resumable.length === 0 || more.resumable.every((k) => resuming.has(k))}
-                onClick={() => {
-                  onResume(more.resumable);
-                }}
-              />
-            </div>
-          )}
-        </div>
-        {view.agents && (
-          <div className="summary-agents">
-            <span className="summary-notes-title">{view.agents.title}</span>
-            {view.agents.rows.length > 0 && (
-              <div className="summary-list">
-                {view.agents.rows.map((agent) => (
-                  <div key={agent.id} className="summary-row">
-                    <Icon name="bot" size={14} />
-                    <span className="summary-project">{agent.project}</span>
-                    <span className="summary-key">{agent.tag}</span>
-                    <span className="summary-text">
-                      <span className="summary-title">{agent.name}</span>
-                      <span className="summary-detail">{agent.detail}</span>
-                      <ToolLine agent={agent.agent} problem={agent.problem} />
-                    </span>
-                    {agent.sign_in !== null ? (
-                      <SignIn button={agent.sign_in} />
-                    ) : (
-                      agent.resumable && (
-                        <Button
-                          compact
-                          variant="secondary"
-                          icon="play"
-                          label={view.resume}
-                          onClick={() => {
-                            onResumeAgent(agent.id);
-                          }}
-                        />
-                      )
-                    )}
-                  </div>
-                ))}
-              </div>
-            )}
-            {view.agents.discarded !== null && <p className="summary-discarded">{view.agents.discarded}</p>}
-          </div>
-        )}
-        {view.notes.length > 0 && (
-          <div className="summary-notes">
-            <span className="summary-notes-title">{view.notes_title}</span>
-            {view.notes.map((note) => (
-              <p key={note}>{note}</p>
-            ))}
-          </div>
-        )}
+      <p className="summary-intro">{view.text}</p>
+      <div className="summary-list">
+        {view.rows.map((row) => (
+          <Row key={row.id} row={row} {...props} />
+        ))}
       </div>
-      <div className="summary-foot">
-        <span className="summary-foot-text">
-          <span>{view.foot}</span>
-          {view.skipped.map((line) => (
-            <span key={line} className="summary-skipped">
-              {line}
-            </span>
-          ))}
-        </span>
-        <span className="cleanup-spacer" />
-        <Button variant="ghost" label={view.later} onClick={onLater} />
-        <Button
-          icon="play"
-          label={view.resume_selected}
-          disabled={view.selected.length === 0}
-          onClick={() => {
-            onResume(view.selected);
-          }}
-        />
-      </div>
+      {view.notes.map((note) => (
+        <p key={note} className="summary-note">
+          {note}
+        </p>
+      ))}
+      <p className="summary-note">{view.foot}</p>
     </>
   );
 }
 
 export function AfterRestart({ close }: OverlayProps<"after_restart">) {
-  const [unchecked, setUncheckedKeys] = useState<ReadonlySet<string>>(new Set());
-  const [unfolded, setUnfolded] = useState(false);
+  const [unchecked, setUncheckedIds] = useState<ReadonlySet<string>>(new Set());
   const [resuming, setResuming] = useState<ReadonlySet<string>>(new Set());
   const load = useCallback(() => {
-    const params: AfterRestartParams = { unchecked: [...unchecked], unfolded };
+    const params: AfterRestartParams = { unchecked: [...unchecked] };
     return request("recovery.summary", params) as Promise<AfterRestartSummary | null>;
-  }, [unchecked, unfolded]);
-  const { view } = useServiceView(load, ["ticket_changed"]);
-  // Esc is Later. A dialog opened from the sheet (Start from scratch) keeps its own Esc: it stops it on its way up.
-  useEffect(() => {
-    const onKey = (e: KeyboardEvent) => {
-      if (e.key === "Escape") close();
-    };
-    document.addEventListener("keydown", onKey);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-    };
-  }, [close]);
+  }, [unchecked]);
+  const { view } = useServiceView(load, ["ticket_changed", "project_agent_changed"]);
   useEffect(() => {
     if (view === null) close();
   }, [view, close]);
   if (!view) return null;
+  const resume = () => {
+    const ids = [...view.selected, ...view.selected_agents];
+    setResuming((r) => new Set([...r, ...ids]));
+    const params: RecoveryResumeParams = { keys: view.selected, agents: view.selected_agents };
+    request("recovery.resume", params)
+      .catch(() => undefined)
+      .finally(() => {
+        setResuming((r) => {
+          const next = new Set(r);
+          for (const id of ids) next.delete(id);
+          return next;
+        });
+      });
+  };
+  const count = view.selected.length + view.selected_agents.length;
   return (
-    <div className="summary" role="dialog" aria-label={view.title}>
+    <Dialog
+      title={view.title}
+      width={600}
+      hint="close"
+      onCancel={close}
+      onConfirm={count > 0 ? resume : undefined}
+      footer={
+        <>
+          <Button variant="ghost" label={view.later} onClick={close} />
+          <Button icon="play" label={view.resume_selected} disabled={count === 0} onClick={resume} />
+        </>
+      }
+    >
       <SummaryBody
         view={view}
         resuming={resuming}
-        onCheck={(keys, checked) => {
-          setUncheckedKeys((u) => setUnchecked(u, keys, checked));
-        }}
-        onResume={(keys) => {
-          setResuming((r) => new Set([...r, ...keys]));
-          const params: RecoveryResumeParams = { keys: [...keys] };
-          request("recovery.resume", params)
-            .catch(() => undefined)
-            .finally(() => {
-              setResuming((r) => {
-                const next = new Set(r);
-                for (const k of keys) next.delete(k);
-                return next;
-              });
-            });
+        onCheck={(id, checked) => {
+          setUncheckedIds((u) => setUnchecked(u, [id], checked));
         }}
         onRetry={(key) => {
           request("recovery.retry", { key }).catch(() => undefined);
         }}
-        onUnfold={() => {
-          setUnfolded(true);
-        }}
-        onLater={close}
-        onResumeAgent={(id) => {
-          request("recovery.resume_agent", { id }).catch(() => undefined);
-        }}
       />
-    </div>
+    </Dialog>
   );
 }

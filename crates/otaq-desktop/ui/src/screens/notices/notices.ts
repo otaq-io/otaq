@@ -89,11 +89,6 @@ export async function pressBanner(
     else if (on !== null) stack.open("apply_now", { project: on });
     return;
   }
-  // "Review & resume": the after-restart summary sheet, where each ticket resumes on its own (T-0235).
-  if (button === "secondary") {
-    stack.open("after_restart");
-    return;
-  }
   // The paused banner's Resume: the project on screen, or every project an All projects pause holds.
   if (kind === "paused" && button === "resume") {
     await ask("notices.resume_paused");
@@ -111,10 +106,6 @@ export async function pressBanner(
     // Nothing runs any more, so starting interrupts no one: no confirmation.
     case "service_stopped":
       await ask("notices.restart");
-      return;
-    // The confirmation listing every project's sessions (T-0230); it closes itself when nothing is left to resume.
-    case "sessions_interrupted":
-      stack.open("resume_all");
       return;
     case "permission_warning":
       await ask("notices.open_docs");

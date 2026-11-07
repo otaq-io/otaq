@@ -1,6 +1,7 @@
 // The Activity popover under the header's Activity button (SHL-03, RUN-04, SCH-03; d0087, d0086, d0016; *02 → Row ·
 // Header parts: Activity, rail (0086 · V) → Activity popover*, *Row · Activity popover states (0087)*), opened by a
-// click or ⇧⌘U. Top to bottom: the agent-limit stepper while limits are on (each press saves at once and reaches the
+// click or ⇧⌘U. Top to bottom: while a tool is at its limit, the limit banner's lines with Resume <tool> (so Resume
+// stays reachable from the usage chip after the banner's × closed it); the agent-limit stepper while limits are on (each press saves at once and reaches the
 // scheduler without restarting anything), AGENTS RUNNING, USAGE · WHAT'S LEFT with a bar per window, PROCESSES (the
 // Run rows of `Processes.tsx`; a row opens its ticket's Run tab) and "Open Terminals ⌃`". Every word, number and
 // which bar is amber is Rust's (`activity.rs`, `limits.rs`); no dollar figure anywhere.
@@ -15,13 +16,17 @@ import type { ActivityToolUsage } from "../../generated/ActivityToolUsage";
 import type { ActivityWindow } from "../../generated/ActivityWindow";
 import type { HeaderView } from "../../generated/HeaderView";
 import type { LimitField } from "../../generated/LimitField";
+import type { LimitLine } from "../../generated/LimitLine";
 import type { LimitStep } from "../../generated/LimitStep";
 import type { LimitStepper } from "../../generated/LimitStepper";
 import type { LimitsPopover } from "../../generated/LimitsPopover";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { LimitLines } from "../notices/LimitLines";
+import { noticesStore } from "../notices/notices";
 import { ProcessesBody } from "../session/Processes";
 import { openTerminals } from "../terminals";
+import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { activityAnchor, headerStore } from "./Header";
 
 function Stepper({ stepper, onStep }: { stepper: LimitStepper; onStep: (up: boolean) => void }) {
@@ -132,16 +137,34 @@ export function UsageTools({ tools }: { tools: readonly ActivityToolUsage[] }) {
 
 export interface ActivityBodyProps {
   view: ActivityView;
+  /** The limit banner's lines while a tool is at its limit, with their Resume. */
+  limitLines?: readonly LimitLine[];
   onStep: (field: LimitField, up: boolean) => void;
   onOpenTicket: (key: string) => void;
   onOpenTerminals: () => void;
 }
 
 /** The popover's content, top to bottom. */
-export function ActivityBody({ view, onStep, onOpenTicket, onOpenTerminals }: ActivityBodyProps) {
+export function ActivityBody({
+  view,
+  limitLines = [],
+  onStep,
+  onOpenTicket,
+  onOpenTerminals,
+}: ActivityBodyProps) {
   const { agents, usage, processes } = view;
   return (
     <div className="activity">
+      {limitLines.length > 0 && (
+        <section className="activity-section">
+          <LimitLines
+            lines={limitLines}
+            onAction={(action) => {
+              toolProblemAction(action, {});
+            }}
+          />
+        </section>
+      )}
       {view.limits && (
         <section className="activity-section">
           <LimitsBody view={view.limits} onStep={onStep} />
@@ -187,6 +210,7 @@ export function ActivityBody({ view, onStep, onOpenTicket, onOpenTerminals }: Ac
 /** The `activity` overlay, asked again with each new header view. A step's answer shows at once, until the next one. */
 export function ActivityOverlay({ close }: OverlayProps<"activity">) {
   const header = useStore(headerStore);
+  const limitLines = useStore(noticesStore)?.limit_lines ?? [];
   const [view, setView] = useState<ActivityView | null>(null);
   const [answer, setAnswer] = useState<{ after: HeaderView | undefined; limits: LimitsPopover }>();
   useEffect(() => {
@@ -219,6 +243,7 @@ export function ActivityOverlay({ close }: OverlayProps<"activity">) {
     >
       <ActivityBody
         view={shown}
+        limitLines={limitLines}
         onStep={step}
         onOpenTicket={(key) => {
           close();

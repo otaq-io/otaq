@@ -199,7 +199,7 @@ pub fn banner_resume(shown: Option<&str>, counts: &PauseCounts) -> Option<Scope>
 }
 
 /// The paused banner after a Stop agents and quit (TRY-07, page 31 item 6), while every project is still paused:
-/// "All projects are paused" · "Stop agents and quit stopped 7 agents in 2 projects yesterday at 18:02. Resume
+/// "All projects are paused" · "Quit and stop agents stopped 7 agents in 2 projects yesterday at 18:02. Resume
 /// continues where each one was; queued tickets wait until then." Else [`banner`]'s.
 pub fn banner_after_stop(
     shown: Option<&str>,
@@ -213,12 +213,13 @@ pub fn banner_after_stop(
         Some(stop) if every && find(counts, shown).is_some() => Some(Situation::Paused {
             title: "All projects are paused".to_owned(),
             text: format!(
-                "Stop agents and quit stopped {} {} {}. Resume continues where each one was; queued tickets wait \
+                "Quit and stop agents stopped {} {} {}. Resume continues where each one was; queued tickets wait \
                  until then.",
                 agents(stop.agents),
                 in_projects(usize::try_from(stop.projects).unwrap_or(usize::MAX)),
                 stopped_when(stop.at, now_ms)
             ),
+            state: format!("stopped@{}", stop.at),
         }),
         _ => banner(shown, counts, service_started_at),
     }
@@ -285,7 +286,9 @@ pub fn banner(
             format!("{stopped} stopped where {were}; {LEAVES}{keeps}"),
         )
     };
-    Some(Situation::Paused { title, text })
+    // This pause: the project and when it began (a restart words it anew, but it is the same pause).
+    let state = format!("{}@{since}", project.project);
+    Some(Situation::Paused { title, text, state })
 }
 
 /// The palette's Pause and Resume rows (PAU-08): "Pause this project" or "Resume this project" for the open one,
@@ -572,7 +575,7 @@ mod tests {
 
     fn texts(s: Option<Situation>) -> (String, String) {
         match s {
-            Some(Situation::Paused { title, text }) => (title, text),
+            Some(Situation::Paused { title, text, .. }) => (title, text),
             other => panic!("not the paused banner: {other:?}"),
         }
     }
@@ -669,7 +672,7 @@ mod tests {
         assert_eq!(
             text,
             format!(
-                "Stop agents and quit stopped 7 agents in 2 projects yesterday at {}. Resume continues where each \
+                "Quit and stop agents stopped 7 agents in 2 projects yesterday at {}. Resume continues where each \
                  one was; queued tickets wait until then.",
                 crate::view_models::clock::local_hhmm(at)
             )
