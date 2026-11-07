@@ -299,6 +299,7 @@ async fn onboarding_state_and_remembered_dismissal() {
             trust_note: false,
             trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),
+            first_approve: false,
         }
     );
     assert_eq!(
@@ -336,6 +337,7 @@ async fn onboarding_state_and_remembered_dismissal() {
             trust_note: false,
             trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),
+            first_approve: false,
         }
     );
     stopper.stop();

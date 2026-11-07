@@ -7,7 +7,10 @@ use otaq_core::agent_tools::Tool;
 use otaq_core::protocol::{
     ProjectParams, Reply, Request, ResumeAllParams, ToolParams,
 };
-use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
+use otaq_core::attention::notify::PermissionState;
+use otaq_view::view_models::banners::{
+    NotificationsLine, PERMISSION_DOCS_URL, Situation, SituationKind, notifications_line,
+};
 use otaq_view::view_models::limit_banner::{
     RESUME_ALL_FAILED, RESUME_FAILED, resumed,
 };
@@ -56,6 +59,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "notices.open_at_start" => reply(&app.notices.take_open_at_start()),
         "notices.open_target" => open_target(parse(params)?),
         "notices.notifications_allow" => allow_notifications(app).await,
+        "notices.first_start" => reply(&first_start(app).await?),
         "notices.notifications_not_now" => {
             app.service.send(Request::NotificationsAskAnswered).await?;
             Ok(Value::Null)
@@ -176,6 +180,31 @@ pub(super) async fn allow_notifications(app: &App) -> Result<Value, RequestError
     Ok(Value::Null)
 }
 
+/// `notices.first_start`, just before a Create & start: while macOS was never asked, its notifications question comes
+/// up now, with Otaq's one line on why ([`NotificationsLine`]); otherwise nothing (`null`). Asked once: the answer
+/// is kept, so neither this nor the "Allow notifications?" banner at an agent's start asks again.
+/// Whether Create & start brings up macOS's question: only while it was never asked. Allowed, turned off, outside the
+/// bundle (no question exists) or not read yet: nothing.
+fn asks_on_first_start(permission: PermissionState) -> bool {
+    permission == PermissionState::NotAsked
+}
+
+async fn first_start(app: &App) -> Result<Option<NotificationsLine>, RequestError> {
+    let state = match app.service.send(Request::NotificationsState).await? {
+        Reply::NotificationsState(state) => state,
+        other => {
+            return Err(RequestError::plain(format!(
+                "unexpected answer to notifications.state: {other:?}"
+            )));
+        }
+    };
+    if !asks_on_first_start(state.permission) {
+        return Ok(None);
+    }
+    allow_notifications(app).await?;
+    Ok(Some(notifications_line()))
+}
+
 /// Otaq's entry in System Settings → Notifications (the blocked banner, the Settings status line). Where the URL
 /// doesn't select the app, macOS opens the Notifications pane.
 fn open_notification_settings() -> Result<Value, RequestError> {
@@ -291,6 +320,36 @@ mod tests {
     use super::*;
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
+
+    /// The first Create & start asks macOS while it never was, with Otaq's line on why; outside the bundle (this test
+    /// service) nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_first_create_and_start_asks_for_notifications_once() {
+        assert!(asks_on_first_start(PermissionState::NotAsked));
+        for answered in [
+            PermissionState::Allowed,
+            PermissionState::TurnedOff,
+            PermissionState::OutsideBundle,
+            PermissionState::Unknown,
+        ] {
+            assert!(!asks_on_first_start(answered), "{answered:?}");
+        }
+        let line = notifications_line();
+        assert_eq!(
+            line.text,
+            format!(
+                "So you know when an agent asks you something, even with {} closed.",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        assert_eq!(
+            request(&h.app, "notices.first_start", Value::Null).await.unwrap(),
+            Value::Null
+        );
+        h.service.stop_all().await;
+    }
 
     /// T-0372: Not now and Allow answer the ask (outside the bundle Allow asks macOS nothing); the blocked banner's
     /// close is the service's; Open System Settings names the app's entry.

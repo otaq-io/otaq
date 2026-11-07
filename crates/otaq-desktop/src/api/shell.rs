@@ -18,7 +18,6 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::shell::tilde;
 use otaq_view::view_models::activity::{self, Button as ActivityButton, Inputs};
-use otaq_view::view_models::flow_setup_page::{self, Header as HeaderFlowSetup};
 use otaq_view::view_models::limits::{self, Field, Popover};
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::project_menu::{self, ProjectMenu};
@@ -79,9 +78,6 @@ pub struct Project {
     /// The project switcher: every project with a dot on one that needs you and a check on this one, then Add
     /// project….
     pub menu: ProjectMenu,
-    /// While the project is in Flow setup (ASK-04): "Flow setup" and "2 agents at work" or "2 proposals" after the
-    /// name, in place of the base branch.
-    pub flow_setup: Option<HeaderFlowSetup>,
 }
 
 /// A button's tooltip: its name and the user's key for it.
@@ -200,32 +196,12 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
         switcher::add_waiting_agents(&mut projects, &agents);
     }
     let shown = params.project.as_deref();
-    // The shown project's Flow setup, for its title bar part; without an answer the name shows alone.
-    let setup = match shown.filter(|p| flow_setup_page::in_flow_setup(&projects, p)) {
-        Some(project) => {
-            optional(
-                app,
-                Request::OnboardingFlowSetup(ProjectParams {
-                    project: project.to_owned(),
-                }),
-                |r| match r {
-                    Reply::FlowSetup(setup) => Some(*setup),
-                    _ => None,
-                },
-            )
-            .await
-        }
-        None => None,
-    };
-    let mut view = header_view(
+    let view = header_view(
         &projects,
         shown,
         &data.inputs(otaq_core::store::now_ms(), &tool_avatar::connected()),
         &keys,
     );
-    if let (Some(project), Some(setup)) = (view.project.as_mut(), setup.as_ref()) {
-        project.flow_setup = flow_setup_page::header(setup);
-    }
     Ok(view)
 }
 
@@ -248,7 +224,6 @@ fn header_view(
                     menu: project_menu::switcher(projects, shown, tilde),
                     path,
                     repo_path: p.repo_path.clone(),
-                    flow_setup: None,
                 }
             }),
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
@@ -611,68 +586,6 @@ mod tests {
             Reply::ProjectAdded { project: p, .. } => p,
             other => panic!("{other:?}"),
         }
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn a_project_in_flow_setup_is_marked_in_the_rail_and_the_title_bar() {
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        let shop = add(&h, &repos, "shop-web").await;
-        let path = repos.repo("billing-api", 1);
-        let bill = match h
-            .app
-            .service
-            .send(Request::ProjectAdd(AddProject {
-                path: path.display().to_string(),
-                key: Some("BILL".into()),
-                base_branch: None,
-                flow_setup: true,
-            }))
-            .await
-            .unwrap()
-        {
-            Reply::ProjectAdded { project: p, .. } => p,
-            other => panic!("{other:?}"),
-        };
-
-        let rail = request(&h.app, "shell.rail", json!({ "project": bill.key }))
-            .await
-            .unwrap();
-        assert_eq!(rail["items"][0]["flow_setup"], Value::Null);
-        assert_eq!(rail["items"][1]["flow_setup"], "Flow setup");
-        let header = request(&h.app, "shell.header", json!({ "project": bill.key }))
-            .await
-            .unwrap();
-        assert_eq!(header["project"]["flow_setup"]["label"], "Flow setup");
-        // Nothing asked yet: no pill.
-        assert_eq!(header["project"]["flow_setup"]["status"], Value::Null);
-        let page = request(&h.app, "onboarding.flow_setup_page", json!({ "project": bill.key }))
-            .await
-            .unwrap();
-        assert_eq!(page["shows"], true);
-        let settled = request(&h.app, "onboarding.flow_setup_page", json!({ "project": shop.key }))
-            .await
-            .unwrap();
-        assert_eq!(settled["shows"], false);
-
-        // Skip, use the default: the board, and the marks go.
-        request(
-            &h.app,
-            "flow_editor.cancel",
-            json!({ "project": bill.key, "from": "onboarding" }),
-        )
-        .await
-        .unwrap();
-        let header = request(&h.app, "shell.header", json!({ "project": bill.key }))
-            .await
-            .unwrap();
-        assert_eq!(header["project"]["flow_setup"], Value::Null);
-        let page = request(&h.app, "onboarding.flow_setup_page", json!({ "project": bill.key }))
-            .await
-            .unwrap();
-        assert_eq!(page["shows"], false);
-        h.service.stop_all().await;
     }
 
     #[tokio::test(flavor = "multi_thread")]

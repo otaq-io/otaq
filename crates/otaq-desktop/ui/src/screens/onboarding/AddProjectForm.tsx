@@ -1,21 +1,35 @@
 // The Add project form (PRJ-01…PRJ-03; *14 → 3 · Add project · valid*, *Not a git repo*, *Already added*, *Adding a
 // second project later*): the folder picker (the system's, through the door), the service's check of the folder,
-// the detected name and base branch (another local or remote branch can be picked before adding), and the key with its live check and "Used in ticket
-// IDs like SHOP-18. Can’t be changed later." The page holds what was picked and typed; Rust words the rest
-// (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding card and the dialog share it. Under the
-// folder, the line that adding it lets the connected tools work there (*14* `z8OVF` · step 4, d0086); when a tool's
-// trust couldn't be recorded, the project is added all the same and the form says which and why, waiting for Continue
-// (PRJ-07, d0085).
+// the detected name and base branch (another local or remote branch can be picked before adding), and the ticket key
+// with its live check and "SHOP-1, SHOP-2, … Can’t be changed later." The page holds what was picked and typed; Rust
+// words the rest (`onboarding.form`) and adds the project (`onboarding.add`). The onboarding step and the dialog share
+// it. Under the folder, which tools will run their hooks and settings there (d0086); when a tool's trust couldn't be
+// recorded, the project is added all the same and the form says which and why, waiting for Continue (PRJ-07, d0085).
+// The dialog of a project added after the first has a light Flow choice: Otaq default, Same as <project>, Suggest one.
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
-import { Button, Select, TextInput } from "../../components";
+import { Button, Radio, Select, TextInput } from "../../components";
+import type { AddProjectFlow } from "../../generated/AddProjectFlow";
+import type { AddProjectFlowPick } from "../../generated/AddProjectFlowPick";
 import type { AddProjectOutcome } from "../../generated/AddProjectOutcome";
 import type { AddProjectParams } from "../../generated/AddProjectParams";
 import type { AddProjectView } from "../../generated/AddProjectView";
 import { asRequestError } from "../../service";
 import { pickFolder as systemPicker, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { adoptKey, type Ask, baseLabel, keyText, newForm, pickFolder, typeBase, typeKey } from "./logic";
+import {
+  adoptKey,
+  type Ask,
+  baseLabel,
+  flowPicked,
+  keyText,
+  newForm,
+  pickFlow,
+  pickFolder,
+  sameFlowPick,
+  typeBase,
+  typeKey,
+} from "./logic";
 
 /** How long typing settles before the form is asked again. */
 const TYPING_SETTLE_MS = 120;
@@ -36,7 +50,7 @@ export interface AddProjectState {
 export function useAddProject(
   firstRun: boolean,
   folder: string | null,
-  onAdded: (key: string) => void,
+  onAdded: (key: string, flow: AddProjectFlowPick) => void,
   ask: Ask = request,
 ): AddProjectState {
   const [form, setFormState] = useState<AddProjectParams>(() => newForm(firstRun, folder));
@@ -72,7 +86,7 @@ export function useAddProject(
 
   const add = () => {
     if (added !== null) {
-      onAdded(added);
+      onAdded(added, flowPicked(latest.current));
       return;
     }
     if (!view?.can_add || adding) return;
@@ -83,7 +97,7 @@ export function useAddProject(
         const outcome = answer as AddProjectOutcome;
         switch (outcome.kind) {
           case "added":
-            onAdded(outcome.key);
+            onAdded(outcome.key, flowPicked(latest.current));
             break;
           case "added_untrusted":
             setView(outcome.form);
@@ -149,6 +163,37 @@ function FolderRow({ view, onChoose }: { view: AddProjectView; onChoose: () => v
   );
 }
 
+/** The dialog's light Flow choice: Otaq default (selected), Same as <project>, Suggest one for <new project>. */
+function FlowChoice({
+  flow,
+  picked,
+  onPick,
+}: {
+  flow: AddProjectFlow;
+  picked: AddProjectFlowPick;
+  onPick: (pick: AddProjectFlowPick) => void;
+}) {
+  return (
+    <fieldset className="add-project-flow">
+      <legend className="add-project-key-title">{flow.label}</legend>
+      {flow.options.map((option) => (
+        <div key={option.name} className="add-project-flow-option">
+          <Radio
+            name="add-project-flow"
+            label={option.name}
+            checked={sameFlowPick(option.pick, picked)}
+            onChange={(on) => {
+              if (on) onPick(option.pick);
+            }}
+          />
+          <span className="add-project-flow-line">{option.line}</span>
+        </div>
+      ))}
+      <span className="add-project-detected-note">{flow.foot}</span>
+    </fieldset>
+  );
+}
+
 /** The fields under the folder: the error, the detected values, the key. */
 export function AddProjectFields({ state }: { state: AddProjectState }) {
   const { view, form, setForm, add } = state;
@@ -181,6 +226,7 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
             }}
           />
         </span>
+        <span className="add-project-detected-note">{view.base.note}</span>
       </div>,
     );
   const keyField = view.key && (
@@ -254,6 +300,15 @@ export function AddProjectFields({ state }: { state: AddProjectState }) {
       {/* The onboarding card shows what was detected, then the key; the dialog leads with the key. */}
       {view.first_run ? detectedBox : keyField}
       {view.first_run ? keyField : detectedBox}
+      {view.flow && (
+        <FlowChoice
+          flow={view.flow}
+          picked={flowPicked(form)}
+          onPick={(pick) => {
+            setForm((f) => pickFlow(f, pick));
+          }}
+        />
+      )}
       {view.add_error !== null && <span className="add-project-failure">{view.add_error}</span>}
       {state.failure !== null && <span className="add-project-failure">{state.failure}</span>}
     </div>

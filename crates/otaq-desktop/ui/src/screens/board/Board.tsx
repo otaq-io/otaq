@@ -83,7 +83,7 @@ import {
   targetOrder,
   verdictOf,
 } from "./drag";
-import { EmptyBoard } from "./EmptyBoard";
+import { BoardHintLayer, FirstTicketCard, NotificationsNote, UsageBanner } from "./FirstRun";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
 import { FilterStrip } from "./FilterStrip";
@@ -881,7 +881,9 @@ export function Board() {
       {view?.filter_strip && project !== null && !filesShown && (
         <FilterStrip strip={view.filter_strip} project={project} />
       )}
+      {project !== null && <UsageBanner seen={view} />}
       <NeedsYouStrip />
+      <NotificationsNote />
       {filesShown && project !== null && <FilesView project={project} />}
       {settingsShown && project !== null && (
         <ProjectSettings
@@ -943,7 +945,18 @@ export function Board() {
                 chain={chain}
                 lifted={drag?.key ?? null}
                 handlers={handlers}
-                showEmptyHint={!view.empty}
+                showEmptyHint={!(column.kind === "backlog" && view.first_ticket !== null)}
+                lead={
+                  column.kind === "backlog" && view.first_ticket !== null && project !== null ? (
+                    <FirstTicketCard
+                      view={view.first_ticket}
+                      project={project}
+                      onAnswered={() => {
+                        setViewVersion((v) => v + 1);
+                      }}
+                    />
+                  ) : null
+                }
                 scrollTop={place.columns[column.id] ?? 0}
                 onScroll={onScroll}
                 onView={changeView}
@@ -960,7 +973,16 @@ export function Board() {
             {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
           </div>
         )}
-        {view?.empty && <EmptyBoard view={view.empty} />}
+        {view?.hint && project !== null && (
+          <BoardHintLayer
+            hint={view.hint}
+            project={project}
+            board={element}
+            onDismissed={() => {
+              setViewVersion((v) => v + 1);
+            }}
+          />
+        )}
         {project === null && <NoProjects />}
         {list === null && <ChainLayer chain={chain} hovered={hovered} board={element} layout={view} />}
         <div className="board-ghost" ref={ghost} hidden={drag === null}>

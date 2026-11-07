@@ -123,7 +123,7 @@ describe("the draft's requests", () => {
     await saveDraft(VIEW, ask);
     expect(calls[0]).toEqual([
       "flow_editor.apply",
-      { project: "SHOP", from: "project", proposal: 7, choices: { clashes: {}, models: {} } },
+      { project: "SHOP", proposal: 7, choices: { clashes: {}, models: {} } },
     ]);
     expect(calls[1]?.[0]).toBe("notices.toast");
     expect(calls[1]?.[1]).toMatchObject({ level: "success", title: "Flow saved", text: "Applied now." });

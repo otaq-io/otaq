@@ -1,27 +1,26 @@
-//! `onboarding.*`: first run and Add project (UI-08, UI-11, SET-02, PRJ-01, PRJ-02, PRJ-03; d0011, d0021, d0023,
-//! d0069, d0070; *14 · First run & onboarding*, *02 → No projects yet*). The steps' words come once
-//! (`onboarding.texts`); the tools step runs the service's tools check and answers the checklist; the Add project
-//! form sends what the user picked and typed and gets the form back as Rust words it (the folder's check, the
-//! detected values, the key's live check, the connected tools that keep folder trust); `onboarding.add` adds the
-//! project or says why not, and which tools' folder trust wasn't recorded and why (PRJ-07, d0085, d0086). The Tools
-//! step's agent tool rows act through `agent_tools.*` (Sign in…, Show, Hide). A folder dropped on the window reaches
-//! the page as a `files_dropped` event ([`crate::drops`]).
+//! `onboarding.*`: first run and Add project (UI-08, UI-11, SET-02, PRJ-01, PRJ-02, PRJ-03; d0021, d0023; *02 → No
+//! projects yet*). A new user walks Welcome → Tools → Project → the board. The steps' words come once
+//! (`onboarding.texts`); the Tools step runs the service's tools check and answers the agent tools and git; the Add
+//! project form sends what the user picked and typed and gets the form back as Rust words it (the folder's check, the
+//! detected values, the key's live check, the tools that will run their hooks in the folder, and, for a project added
+//! after the first, its Flow choice); `onboarding.add` adds the project or says why not, and which tools' folder trust
+//! wasn't recorded and why (PRJ-07, d0085, d0086). The Tools step's agent tool rows act through `agent_tools.*` (Sign
+//! in…, Show, Hide). A folder dropped on the window reaches the page as a `files_dropped` event ([`crate::drops`]).
 //!
-//! The Flow step and a later project's Flow setup page are the flow editor (`flow_editor.*` with `from:
-//! "onboarding"`; FED-09, d0115): its Made for <project> asks each tool, Use this flow and Skip, use the default settle
-//! the flow. `onboarding.flow_setup_page` says whether the shown project's main area is that page. The project stays
-//! in Flow setup until its flow is settled, so onboarding reopens on the Flow step while no project's flow is
-//! (`onboarding.start`).
+//! Every project starts on its flow in use at once (Otaq default), with no Flow setup: a later project's Flow choice
+//! copies another project's flow when added ("Same as <project>"), or the page opens Edit flow on Noyan's agent's
+//! suggestion ("Suggest one").
 
-use otaq_core::board::projects::AddProject;
-use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::agent_tools::SetupOutcome as Outcome;
 use otaq_core::agent_tools::Tool;
+use otaq_core::board::projects::AddProject;
+use otaq_core::board::snapshot::ProjectInfo;
+use otaq_core::flow::draft::DraftEdit;
+use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::protocol::{OnboardingState, PathParams, Reply, Request};
 use otaq_view::view_models::add_project::AddProjectModel;
-use otaq_view::view_models::flow_setup_page;
 use otaq_view::view_models::onboarding::OnboardingModel;
-use otaq_view::view_models::onboarding_page::{self, AddProjectPage, Texts, Tools};
+use otaq_view::view_models::onboarding_page::{self, AddProjectPage, FlowPick, OtherFlow, Texts, Tools};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -32,15 +31,10 @@ use crate::App;
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
         "onboarding.start" => reply(&start(app).await?),
-        "onboarding.texts" => reply(&texts(app).await),
+        "onboarding.texts" => reply(&texts()),
         "onboarding.tools" => reply(&tools(app).await?),
-        "onboarding.dismiss_warning" => {
-            app.service.send(Request::DismissPermissionWarning).await?;
-            Ok(Value::Null)
-        }
         "onboarding.form" => reply(&form(app, parse(params)?).await?.1),
         "onboarding.add" => reply(&add(app, parse(params)?).await?),
-        "onboarding.flow_setup_page" => reply(&flow_setup_page(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -53,20 +47,11 @@ fn unexpected(method: &str, other: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {method}: {other:?}"))
 }
 
-/// Whether onboarding opens at start: first run means no project is stored yet (UI-08), or every project is still in
-/// Flow setup (first run was left on the Flow step, ASK-04): then it opens on that step for the first of them.
+/// Whether onboarding opens at start: first run means no project is stored yet (UI-08).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingStart")]
 pub struct Start {
     pub show: bool,
-    /// The step it opens on when not the first.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub step: Option<onboarding_page::StepId>,
-    /// The project whose Flow step it opens on.
-    #[serde(skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub project: Option<String>,
 }
 
 async fn state(app: &App) -> Result<OnboardingState, RequestError> {
@@ -76,25 +61,34 @@ async fn state(app: &App) -> Result<OnboardingState, RequestError> {
     }
 }
 
+/// A ticket was approved and reached Done: the box for new work, the usage-data banner and the hints that close a new
+/// user's first run wait for it. `false` when the service can't say.
+pub(super) async fn first_approve(app: &App) -> bool {
+    state(app).await.is_ok_and(|s| s.first_approve)
+}
+
+/// The one-time hints the user dismissed; none when the service can't say.
+pub(super) async fn hints_seen(app: &App) -> Vec<otaq_core::store::settings::Hint> {
+    match app.service.send(Request::HintsSeen).await {
+        Ok(Reply::HintsSeen(seen)) => seen,
+        _ => Vec::new(),
+    }
+}
+
 async fn start(app: &App) -> Result<Start, RequestError> {
-    let projects = projects(app).await?;
-    let unsettled = projects.iter().all(|p| p.flow_setup_since.is_some());
-    let flow = projects.first().filter(|_| unsettled);
     Ok(Start {
-        show: projects.is_empty() || flow.is_some(),
-        step: flow.map(|_| onboarding_page::StepId::Flow),
-        project: flow.map(|p| p.key.clone()),
+        show: projects(app).await?.is_empty(),
     })
 }
 
-async fn texts(app: &App) -> Texts {
-    onboarding_page::texts(&super::keymap::labels(app).await)
+fn texts() -> Texts {
+    onboarding_page::texts()
 }
 
-/// Runs the service's tools check and answers the checklist (Re-check asks again).
+/// Runs the service's tools check and answers the Tools step (Check again asks again).
 async fn tools(app: &App) -> Result<Tools, RequestError> {
     let state = state(app).await?;
-    let mut model = OnboardingModel::new(state.permission_warning_dismissed);
+    let mut model = OnboardingModel::new();
     model.start_check();
     let result = match app.service.send(Request::ToolsCheck).await {
         Ok(Reply::ToolsCheck(report)) => Ok(report),
@@ -105,7 +99,8 @@ async fn tools(app: &App) -> Result<Tools, RequestError> {
     Ok(onboarding_page::tools(&model, state.has_projects))
 }
 
-/// What the Add project form holds: the folder picked (or dropped), and the key and base branch as typed.
+/// What the Add project form holds: the folder picked (or dropped), the key and base branch as typed, and the Flow
+/// choice of a project added after the first.
 #[derive(Debug, Clone, Default, Deserialize, TS)]
 #[ts(rename = "AddProjectParams")]
 pub struct FormParams {
@@ -116,14 +111,28 @@ pub struct FormParams {
     pub base_branch: String,
     /// The user typed in the base-branch field (else the detected one is used).
     pub base_edited: bool,
-    /// The onboarding card (else the dialog).
+    /// The onboarding step (else the dialog).
     pub first_run: bool,
+    /// The dialog's Flow choice; Otaq default when left out.
+    #[serde(default)]
+    #[ts(optional)]
+    pub flow: Option<FlowPick>,
 }
 
 async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
     match app.service.send(Request::ProjectList).await? {
         Reply::Projects(projects) => Ok(projects),
         other => Err(unexpected("project.list", &other)),
+    }
+}
+
+/// The name of the agent that drafts a suggested flow: Noyan's.
+async fn suggester(app: &App) -> String {
+    match app.service.send(Request::AgentsList).await {
+        Ok(Reply::Agents(list)) => list
+            .noyan()
+            .map_or_else(|| "Noyan".to_owned(), |a| a.name.clone()),
+        _ => "Noyan".to_owned(),
     }
 }
 
@@ -157,7 +166,20 @@ async fn form(
     if params.base_edited {
         model.set_base(&params.base_branch);
     }
-    let page = onboarding_page::add_project(&model, &projects, params.first_run);
+    let mut page = onboarding_page::add_project(&model, &projects, params.first_run);
+    // A project added after the first: which flow it starts on.
+    if !params.first_run && !projects.is_empty() {
+        let other = match projects.last() {
+            Some(p) => Some(OtherFlow {
+                key: &p.key,
+                name: &p.name,
+                line: otaq_view::view_models::flow_board::chain(&super::board::flow(app, &p.key).await),
+            }),
+            None => None,
+        };
+        let name = model.probe.as_ref().map(|p| p.name.as_str());
+        page.flow = Some(onboarding_page::flow_choice(other, name, &suggester(app).await));
+    }
     Ok(((model, projects), page))
 }
 
@@ -182,65 +204,86 @@ pub enum AddOutcome {
 
 async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> {
     let first_run = params.first_run;
+    let pick = params.flow.clone().unwrap_or_default();
     let ((mut model, projects), page) = form(app, params).await?;
     let Some(probe) = model.probe.clone().filter(|_| page.can_add) else {
         return Ok(AddOutcome::Refused {
             form: Box::new(page),
         });
     };
-    match app
+    let added = app
         .service
         .send(Request::ProjectAdd(AddProject {
             path: probe.repo_path,
             key: Some(model.key.clone()),
             base_branch: Some(model.base_branch.clone()),
-            // The user's Add project: the project stays in Flow setup until its flow is settled (ASK-04).
-            flow_setup: true,
+            // Every project starts on its flow in use (Otaq default); Edit flow changes it.
+            flow_setup: false,
         }))
-        .await
+        .await;
+    if let Ok(Reply::ProjectAdded { project, .. }) = &added
+        && let FlowPick::SameAs { project: from } = &pick
     {
+        same_flow_as(app, &project.key, from).await;
+    }
+    match added {
         // A service whose tools keep no folder trust answers none: nothing to say.
         Ok(Reply::ProjectAdded {
             project,
             trust: Some(Outcome::Failed { reason }),
         }) => {
             model.added_untrusted(failed_tools(app, &project.key, reason).await);
+            let mut form = onboarding_page::add_project(&model, &projects, first_run);
+            form.flow = page.flow;
             Ok(AddOutcome::AddedUntrusted {
                 key: project.key,
-                form: Box::new(onboarding_page::add_project(&model, &projects, first_run)),
+                form: Box::new(form),
             })
         }
         Ok(Reply::ProjectAdded { project, .. }) => Ok(AddOutcome::Added { key: project.key }),
         Ok(other) => Err(unexpected("project.add", &other)),
         Err(e) => {
             model.add_failed(e.refusal.as_deref(), e.message);
+            let mut form = onboarding_page::add_project(&model, &projects, first_run);
+            form.flow = page.flow;
             Ok(AddOutcome::Refused {
-                form: Box::new(onboarding_page::add_project(&model, &projects, first_run)),
+                form: Box::new(form),
             })
         }
     }
 }
 
-/// `{"project": "SHOP"}`: the project in Flow setup.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "OnboardingProjectParams")]
-pub struct ProjectKey {
-    pub project: String,
+/// "Same as <project>": the new project's flow becomes a copy of `from`'s, saved at once. When that fails the project
+/// stays on Otaq default and a toast says why; Edit flow can copy it later.
+async fn same_flow_as(app: &App, project: &str, from: &str) {
+    let copied = async {
+        let draft = super::flow_editor::update(
+            app,
+            project,
+            DraftEdit::StartFrom {
+                source: ProposeFrom::Project {
+                    project: from.to_owned(),
+                },
+            },
+        )
+        .await?;
+        match app
+            .service
+            .send(Request::FlowApply(ApplyParams {
+                project: project.to_owned(),
+                proposal: draft.proposal.id,
+                choices: Default::default(),
+            }))
+            .await?
+        {
+            Reply::FlowApplied(_) => Ok(()),
+            other => Err(unexpected("flow.apply", &other)),
+        }
+    };
+    if let Err(e) = copied.await {
+        super::flow_editor::toast_error(app, "The flow wasn\u{2019}t copied", &e);
+    }
 }
-
-/// Whether the shown project's main area is its Flow setup page (`{"project": "BILL"}`; ASK-04): a project added
-/// later shows it instead of its board until its flow is settled. Its body is the flow editor (FED-09).
-async fn flow_setup_page(app: &App, params: ProjectKey) -> Result<flow_setup_page::Page, RequestError> {
-    Ok(flow_setup_page::page(&projects(app).await?, &params.project))
-}
-
-/// The Flow setup page's type (T-0436).
-#[cfg(test)]
-pub fn export_flow_setup_page_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
-    ProjectKey::export_all(cfg)?;
-    flow_setup_page::Page::export_all(cfg)
-}
-
 /// Which tools' trust failed for the project just added, from the service's notices (each tool's reason); the
 /// combined reason under the first tool that keeps folder trust when they can't be read.
 async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String)> {
@@ -265,10 +308,6 @@ async fn failed_tools(app: &App, key: &str, reason: String) -> Vec<(Tool, String
 
 #[cfg(test)]
 mod tests {
-    // The Flow step's tests are Unix only: Claude Code's stand-in is an `sh` script found by name, which Windows can't
-    // run (Q598). On Windows their helpers go unused.
-    #![cfg_attr(not(unix), allow(dead_code, unused_imports))]
-
     use std::path::Path;
 
     use otaq_core::git::testing::TempRepos;
@@ -291,7 +330,7 @@ mod tests {
         let texts = request(&h.app, "onboarding.texts", Value::Null)
             .await
             .unwrap();
-        assert_eq!(texts["theme"]["title"], "Pick a look");
+        assert_eq!(texts["welcome"]["button"], "Get started");
         // `onboarding.tools` isn't asked here: the tools check runs `claude --version` (the view is tested in
         // otaq-view with made-up reports).
 
@@ -328,361 +367,45 @@ mod tests {
             again["error"]["title"],
             format!("shop-web is already in {}", otaq_core::naming::PRODUCT_NAME)
         );
-        // Its flow isn't settled: onboarding reopens on its Flow step (ASK-04).
+        // The project is on its board at once: no Flow step, and onboarding doesn't open again.
         let start = request(&h.app, "onboarding.start", Value::Null)
             .await
             .unwrap();
-        assert_eq!(
-            start,
-            json!({ "show": true, "step": "flow", "project": "SHOP" })
-        );
-        h.service.stop_all().await;
-    }
+        assert_eq!(start, json!({ "show": false }));
 
-    /// A service whose agents start as a stand-in (`sh` running `cat`; no agent tool runs) and whose tools PATH holds
-    /// only a `claude` that prints a version (Claude Code connected), with shop-web in Flow setup. The last part keeps
-    /// the temporary folders.
-    #[cfg(unix)]
-    async fn flow_world() -> (Harness, TempRepos, tempfile::TempDir) {
-        use otaq_core::agent_tools::LaunchContext;
-        use otaq_core::agent_tools::claude::ClaudeLaunch;
-
-        let bin = tempfile::tempdir().unwrap();
-        let claude = bin.path().join("claude");
-        std::fs::write(&claude, "#!/bin/sh\necho '2.1.4 (Claude Code)'\n").unwrap();
-        std::fs::set_permissions(&claude, std::os::unix::fs::PermissionsExt::from_mode(0o755)).unwrap();
-        let path = bin.path().as_os_str().to_owned();
-        let h = Harness::configured(move |c| {
-            c.tools.path = path.clone();
-            c.launch = Some(LaunchContext {
-                bin_dir: "/nonexistent".into(),
-                plugin_dir: "/nonexistent/plugin".into(),
-                path: std::env::var_os("PATH").unwrap_or_default(),
-                claude: ClaudeLaunch {
-                    program: vec!["sh".into(), "-c".into(), "exec cat".into(), "sh".into()],
-                    config_dir: None,
-                },
-            });
-        });
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        let repo = repos.repo("shop-web", 1);
-        h.app
-            .service
-            .send(Request::ProjectAdd(AddProject {
-                path: repo.display().to_string(),
-                key: Some("SHOP".into()),
-                base_branch: None,
-                flow_setup: true,
-            }))
+        // A second project: the dialog's Flow choice, Otaq default first; Same as shop-web copies its flow.
+        let billing = repos.repo("billing-api", 1);
+        let dialog = |flow: Value| {
+            json!({ "folder": billing.display().to_string(), "key": "", "key_edited": false,
+                    "base_branch": "", "base_edited": false, "first_run": false, "flow": flow })
+        };
+        let later = request(&h.app, "onboarding.form", dialog(Value::Null))
             .await
             .unwrap();
-        // The service's check at start finds the stand-in `claude`: its row is in the Flow setup.
-        tokio::time::timeout(std::time::Duration::from_secs(20), async {
-            loop {
-                if flow_setup(&h.app, "SHOP")
-                    .await
-                    .is_ok_and(|s| !s.tools.is_empty())
-                {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-            }
-        })
-        .await
-        .expect("Claude Code connected");
-        (h, repos, bin)
-    }
-
-    /// The project's Flow setup now: each tool's row and the open proposals (ASK-04).
-    async fn flow_setup(
-        app: &App,
-        project: &str,
-    ) -> Result<otaq_core::project_agents::first_flow::FlowSetup, RequestError> {
-        match app
-            .service
-            .send(Request::OnboardingFlowSetup(otaq_core::protocol::ProjectParams {
-                project: project.to_owned(),
-            }))
-            .await?
-        {
-            Reply::FlowSetup(setup) => Ok(*setup),
-            other => Err(unexpected("onboarding.flow_setup", &other)),
-        }
-    }
-
-    /// The Flow step: the flow editor opened from onboarding.
-    async fn editor(h: &Harness) -> Value {
-        request(
-            &h.app,
-            "flow_editor.view",
-            json!({ "project": "SHOP", "from": "onboarding" }),
-        )
-        .await
-        .unwrap()
-    }
-
-    /// Claude Code's row under Made for shop-web.
-    async fn claude_row(h: &Harness) -> Value {
-        editor(h).await["start_from"]["made_for"]["tools"][0].clone()
-    }
-
-    /// Asks Claude Code for SHOP's flow from the editor's Made for: the flow agent's id and session.
-    async fn ask_claude(h: &Harness) -> (String, String) {
-        let asked = request(
-            &h.app,
-            "flow_editor.ask",
-            json!({ "project": "SHOP", "from": "onboarding", "tool": "claude" }),
-        )
-        .await
-        .unwrap();
-        let id = asked["agent"].as_str().unwrap().to_owned();
-        let session = agent_of(h, &id).await.session.unwrap().id;
-        (id, session)
-    }
-
-    async fn agent_of(h: &Harness, id: &str) -> otaq_core::project_agents::ProjectAgent {
-        h.service.agents().0.get(id).await.unwrap()
-    }
-
-    /// The agent's hook, as the service handles it: the signals map it, the Project agents apply it.
-    async fn hook(h: &Harness, id: &str, event: &str, payload: Value) {
-        let (agents, signals, _) = h.service.agents();
-        let agent = agents.get(id).await.unwrap();
-        let caller = otaq_core::caller::Caller::ProjectAgent {
-            project: agent.project.clone(),
-            agent: agent.id.clone(),
-            session: agent.session.as_ref().unwrap().id.clone(),
-        };
-        for signal in signals
-            .hook(&caller, agent.tool, event, &payload)
-            .await
+        let names: Vec<&str> = later["flow"]["options"]
+            .as_array()
             .unwrap()
-        {
-            agents.hook(id, &signal).await.unwrap();
-        }
-    }
-
-    /// Waits until Claude Code's row under Made for says `status`, and answers the row.
-    async fn row_says(h: &Harness, status: &str) -> Value {
-        tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                let row = claude_row(h).await;
-                if row["status"] == status {
-                    return row;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-        })
-        .await
-        .unwrap_or_else(|_| panic!("Claude Code's row: {status}"))
-    }
-
-    /// FED-09 (T-0473; was T-0434's ASK-05, ASK-06, d0088): the Flow step is the editor from Otaq default with Use
-    /// this flow · Skip, use the default; Made for's Ask starts the tool's flow agent, which its row shows working;
-    /// the plan limit stops it and the tool's Resume continues the same session; Stop ends it into Recently ended and
-    /// its row offers Ask again; Skip, use the default settles the flow.
-    #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn asking_a_tool_its_limit_stop_and_skip() {
-        use otaq_core::usage::limit::{LimitHit, LimitKind};
-
-        let (h, _repos, _bin) = flow_world().await;
-        let step = editor(&h).await;
-        assert_eq!(step["from"], "onboarding");
-        assert_eq!(step["footer"]["cancel"], "Skip, use the default");
-        assert_eq!(step["footer"]["apply"], "Use this flow");
-        let default = format!("{} default", otaq_core::naming::PRODUCT_NAME);
+            .iter()
+            .map(|o| o["name"].as_str().unwrap())
+            .collect();
         assert_eq!(
-            step["flow"]["summary"],
-            format!("5 steps \u{b7} starting from {default}")
+            names,
+            [
+                format!("{} default", otaq_core::naming::PRODUCT_NAME).as_str(),
+                "Same as shop-web",
+                "Suggest one for billing-api"
+            ]
         );
-        let row = &step["start_from"]["made_for"]["tools"][0];
-        assert_eq!(row["tool"], "claude");
-        assert_eq!(row["status"], "Connected");
-        assert_eq!(row["ask"], "Ask");
-        assert!(
-            h.service.agents().0.list("SHOP").await.unwrap().open.is_empty(),
-            "opening the step starts nothing"
-        );
-
-        let (id, session) = ask_claude(&h).await;
-        let row = row_says(&h, "Working").await;
-        assert_eq!(row["ask"], Value::Null, "no Ask while it works");
-        assert_eq!(agent_of(&h, &id).await.name, "Flow setup \u{b7} Claude Code");
-        // Asking again: the same agent.
-        assert_eq!(ask_claude(&h).await.0, id);
-
-        // The plan limit stops it.
-        hook(&h, &id, "UserPromptSubmit", json!({ "prompt": "/flow" })).await;
-        let hit = LimitHit {
-            kind: LimitKind::Session,
-            text: "You've hit your session limit".into(),
-        };
-        hook(
-            &h,
-            &id,
-            "StopFailure",
-            json!({ "error": "rate_limit", "last_assistant_message": hit.text }),
-        )
-        .await;
-        let tool = agent_of(&h, &id).await.tool;
-        let now = otaq_core::store::now_ms();
-        h.service
-            .agents()
-            .2
-            .record_hit_reset(tool, &hit, Some(now + 72 * 60_000), now)
-            .await
-            .unwrap();
-        row_says(&h, "Plan limit").await;
-
-        // The tool's Resume (once the limit resets): "continue" goes to the same session, which keeps running.
-        request(&h.app, "limits.resume_tool", json!({ "tool": "claude" }))
-            .await
-            .unwrap();
-        let typed = tokio::time::timeout(std::time::Duration::from_secs(10), async {
-            loop {
-                let seen = h
-                    .service
-                    .sessions()
-                    .attach(&session)
-                    .map(|s| String::from_utf8_lossy(&s.scrollback).contains("continue"))
-                    .unwrap_or(false);
-                if seen {
-                    return;
-                }
-                tokio::time::sleep(std::time::Duration::from_millis(50)).await;
-            }
-        })
-        .await;
-        assert!(typed.is_ok(), "continue typed into the same session");
-        hook(&h, &id, "UserPromptSubmit", json!({ "prompt": "continue" })).await;
-        let agent = agent_of(&h, &id).await;
-        assert_eq!(agent.session.as_ref().unwrap().id, session, "the same session");
-        row_says(&h, "Working").await;
-
-        // Stop: the agent ends into Recently ended; its row offers Ask again.
-        let ended = request(
+        let added = request(
             &h.app,
-            "agent_panel.end",
-            json!({ "project": "SHOP", "id": id, "confirm": true }),
+            "onboarding.add",
+            dialog(json!({ "kind": "same_as", "project": "SHOP" })),
         )
         .await
         .unwrap();
-        assert_eq!(ended["outcome"], "done");
-        let list = h.service.agents().0.list("SHOP").await.unwrap();
-        assert!(list.open.iter().all(|a| a.id != id));
-        assert_eq!(list.recent.first().map(|a| a.id.as_str()), Some(id.as_str()));
-        let row = row_says(&h, "Ended without a proposal").await;
-        assert_eq!(row["ask"], "Ask");
-
-        // Skip, use the default: the flow is settled, onboarding no longer reopens on the step.
-        let start = request(&h.app, "onboarding.start", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(
-            start,
-            json!({ "show": true, "step": "flow", "project": "SHOP" })
-        );
-        let step = editor(&h).await;
-        request(
-            &h.app,
-            "flow_editor.cancel",
-            json!({ "project": "SHOP", "from": "onboarding", "proposal": step["proposal"] }),
-        )
-        .await
-        .unwrap();
-        let start = request(&h.app, "onboarding.start", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(start, json!({ "show": false }));
-        h.service.stop_all().await;
-    }
-
-    /// T-0434 (ASK-06, d0088): its session ends before a proposal (a crash, or `/exit`): the ended row, and the
-    /// agent's Resume continues the same conversation.
-    #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn ending_without_a_proposal_shows_its_row_and_resume_continues_the_conversation() {
-        let (h, _repos, _bin) = flow_world().await;
-        let (id, session) = ask_claude(&h).await;
-        let conversation = agent_of(&h, &id).await.tool_session_id;
-        assert!(conversation.is_some());
-
-        h.service.sessions().stop(&session).await.unwrap();
-        let row = row_says(&h, "Ended without a proposal").await;
-        assert_eq!(row["ask"], "Ask");
-
-        let resumed = request(&h.app, "agent_panel.resume", json!({ "id": id }))
-            .await
-            .unwrap();
-        assert_eq!(resumed, json!(id));
-        let agent = agent_of(&h, &id).await;
-        assert_eq!(agent.tool_session_id, conversation, "the same conversation");
-        row_says(&h, "Working").await;
-        h.service.stop_all().await;
-    }
-
-    /// A tool that isn't connected can't be asked: the refusal comes back, and nothing starts.
-    #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn asking_a_tool_that_isnt_connected_is_refused() {
-        let (h, _repos, _bin) = flow_world().await;
-        let refused = request(
-            &h.app,
-            "flow_editor.ask",
-            json!({ "project": "SHOP", "from": "onboarding", "tool": "opencode" }),
-        )
-        .await
-        .unwrap_err();
-        assert!(refused.message.contains("OpenCode"), "{}", refused.message);
-        assert!(h.service.agents().0.list("SHOP").await.unwrap().open.is_empty());
-        h.service.stop_all().await;
-    }
-
-    /// FED-09: Use this flow on an untouched step keeps Otaq default; a preset picked in the step and used becomes
-    /// the project's flow. Either settles Flow setup, so onboarding doesn't reopen.
-    #[cfg(unix)]
-    #[tokio::test(flavor = "multi_thread")]
-    async fn use_this_flow_settles_the_flow_step() {
-        let (h, _repos, _bin) = flow_world().await;
-        request(
-            &h.app,
-            "flow_editor.pick",
-            json!({ "project": "SHOP", "pick": { "pick": "preset", "file": "spec-first.yaml" } }),
-        )
-        .await
-        .unwrap();
-        let step = editor(&h).await;
-        assert_eq!(step["flow"]["steps"][1]["name"], "Product spec");
-        assert_ne!(step["proposal"], 0);
-        request(
-            &h.app,
-            "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "onboarding", "proposal": step["proposal"] }),
-        )
-        .await
-        .unwrap();
-        let start = request(&h.app, "onboarding.start", Value::Null)
-            .await
-            .unwrap();
-        assert_eq!(start, json!({ "show": false }));
-        let page = request(&h.app, "onboarding.flow_setup_page", json!({ "project": "SHOP" }))
-            .await
-            .unwrap();
-        assert_eq!(page["shows"], false, "the board shows");
-        let current = h
-            .app
-            .service
-            .send(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
-                project: "SHOP".into(),
-            }))
-            .await
-            .unwrap();
-        let Reply::FlowVersion(version) = current else {
-            panic!("{current:?}")
-        };
-        assert!(version.file().unwrap().flow.stage("product-spec").is_some());
+        assert_eq!(added, json!({ "kind": "added", "key": "BILL" }));
+        let projects = projects(&h.app).await.unwrap();
+        assert!(projects.iter().all(|p| p.flow_setup_since.is_none()));
         h.service.stop_all().await;
     }
 

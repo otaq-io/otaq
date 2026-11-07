@@ -611,6 +611,26 @@ pub fn flow_waiting_text(summary: &str, count: usize) -> String {
 /// anything applies. Not offered while the change waits for no ticket (it applies at the scheduler's next pass).
 pub const APPLY_NOW_ASKS: &str = "Apply now\u{2026}";
 
+/// The one line beside macOS's notifications question on the first Create & start: why Otaq asks.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "NotificationsLine")]
+pub struct NotificationsLine {
+    pub title: String,
+    pub text: String,
+    pub button: String,
+}
+
+pub fn notifications_line() -> NotificationsLine {
+    NotificationsLine {
+        title: "Turn on notifications".to_owned(),
+        text: format!(
+            "So you know when an agent asks you something, even with {} closed.",
+            otaq_core::naming::PRODUCT_NAME
+        ),
+        button: "OK".to_owned(),
+    }
+}
+
 /// Otaq's ask before macOS's own question (ATT-13, d0090).
 pub fn notifications_ask() -> String {
     format!(

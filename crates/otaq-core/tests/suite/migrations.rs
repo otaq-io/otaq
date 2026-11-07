@@ -3087,3 +3087,37 @@ async fn migration_0093_forgets_the_ready_for_dev_column_and_keeps_its_tickets_w
     let place = otaq_core::domain::Place::of(otaq_core::domain::Status::Queued, None, None);
     assert!(place.waits_to_begin());
 }
+
+/// A new user's first run is for a data folder without projects: migration 0111 counts one that already has projects
+/// as past it (its first-run hints seen, its first approve reached, so the box for new work stays), and leaves an empty
+/// one alone. No project waits in Flow setup afterwards.
+#[tokio::test]
+async fn migration_0111_counts_a_data_folder_with_projects_as_past_its_first_run() {
+    use otaq_core::store::settings::Hint;
+
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 108).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at,
+                               flow_setup_since)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0, 5)",
+    )
+    .await;
+    pool.close().await;
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(store.hints_seen().await.unwrap(), Hint::FIRST_RUN);
+    assert!(store.first_approve().await.unwrap());
+    let setup: Option<i64> = sqlx::query_scalar("SELECT flow_setup_since FROM projects")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(setup, None, "out of Flow setup");
+
+    // A fresh data folder gets the first run.
+    let tmp = tempfile::tempdir().unwrap();
+    let store = Store::open(&tmp.path().join("otaq.db")).await.unwrap();
+    assert_eq!(store.hints_seen().await.unwrap(), vec![]);
+    assert!(!store.first_approve().await.unwrap());
+}

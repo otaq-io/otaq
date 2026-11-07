@@ -2,6 +2,7 @@
 import type { AddProjectBase } from "./AddProjectBase";
 import type { AddProjectDetected } from "./AddProjectDetected";
 import type { AddProjectError } from "./AddProjectError";
+import type { AddProjectFlow } from "./AddProjectFlow";
 import type { AddProjectKey } from "./AddProjectKey";
 import type { FolderLook } from "./FolderLook";
 
@@ -40,12 +41,15 @@ name: AddProjectDetected | null, base: AddProjectBase | null, key: AddProjectKey
 footnote: string | null, add: string, adding: string, can_add: boolean, add_error: string | null, cancel: string, 
 /**
  * Under the folder once one is picked (PRJ-07, d0086), naming the connected tools that keep folder trust:
- * "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and
- * settings will run)."
+ * "Claude Code, Codex and Copilot will run their hooks and settings in this folder."
  */
 trust_line: string | null, 
 /**
  * The project was added but some tools' trust wasn't recorded: why, one sentence per tool, in the form's
  * inline error style. The form then waits for [`Self::continue_label`] instead of Add.
  */
-trust_error: string | null, continue_label: string, };
+trust_error: string | null, continue_label: string, 
+/**
+ * The dialog of a project added after the first: which flow it starts on.
+ */
+flow: AddProjectFlow | null, };

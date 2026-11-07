@@ -1,35 +1,31 @@
-// First run (UI-08, UI-11, ONB-04, ONB-10; *14 · First run & onboarding*): over the whole window, its own title bar
-// with the step indicator (Welcome · Theme · Tools · Project · Flow) between the OS's window controls, and one
-// card per step: Welcome, Theme ("Pick a look", T-0217's picker: a click applies and saves), Tools (the agent tools
-// and the checklist, Re-check, Continue only once an agent tool is connected; a row's Sign in…, Show or Hide checks
-// again once done), Project (Add your first project), Flow (the flow editor from Otaq default, `FlowEditorPage`;
-// FED-09, `s27-03`: Use this flow · Skip, use the default). The Flow step ends it on the project's board (*6 · Done*)
-// once the flow is settled; with the warning shown and not closed, the permission-mode banner follows (T-0231).
-// Quitting during the Flow step leaves the project in Flow setup, and the next start reopens onboarding on its Flow
-// step (ASK-04).
+// First run (UI-08, UI-11, ONB-10): over the whole window, its own title bar with the step indicator (Welcome · Tools ·
+// Project) between the OS's window controls, and one card per step. Welcome teaches the model with the board itself
+// (the default flow's columns, who acts in each, the turquoise card) and one button; Tools is the agent tools and git
+// (Check again, Continue once an agent tool is ready; a row's Install / Sign in… runs in a terminal under it); Project
+// adds the first project. Adding it ends onboarding on the project's board, on Otaq default, with "Your first ticket"
+// in Backlog. No Theme step (the theme follows the system) and no Flow step (Edit flow is offered after the first
+// approve).
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
-import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { useRegistries } from "../../app/registry";
 import { useStore } from "../../app/store";
-import { Button, chooseThemeMode, pickTheme, ThemePicker, useThemePicker } from "../../components";
+import { Button } from "../../components";
+import type { OnboardingColumn } from "../../generated/OnboardingColumn";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { OnboardingTexts } from "../../generated/OnboardingTexts";
-import type { OnboardingTools } from "../../generated/OnboardingTools";
 import type { OnboardingTitleBar } from "../../generated/OnboardingTitleBar";
+import type { OnboardingTools } from "../../generated/OnboardingTools";
+import type { OnboardingWelcome } from "../../generated/OnboardingWelcome";
 import { asRequestError } from "../../service";
 import { DRAG_REGION, request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
-import { askUsageDataWhenNeeded } from "./UsageData";
 import { agentStillOffered, useAgentToolActions } from "../settings/AgentTools";
-import { useRowTerminals } from "./RowTerminal";
-import { checklistStillOffered } from "./Tools";
+import { AddButton, AddProjectFields, useAddProject } from "./AddProjectForm";
 import { droppedFolder } from "./drops";
-import { FlowEditorPage } from "../flow_editor/FlowEditor";
-import { afterFlowStep, afterTools, finishOnboarding, STEP_ORDER } from "./logic";
-import { ToolsList } from "./Tools";
+import { added, afterTools, STEP_ORDER } from "./logic";
+import { useRowTerminals } from "./RowTerminal";
+import { checklistStillOffered, ToolsList } from "./Tools";
 
 /** The title bar: the OS's controls (the title bar screen's two ends), the product name and the steps. */
 function TitleBar({ bar }: { bar: OnboardingTitleBar | undefined }) {
@@ -65,6 +61,51 @@ function Card({ children, wide = false }: { children: ReactNode; wide?: boolean 
   );
 }
 
+/** One column of Welcome's picture: its name, who acts there, and the sample card when it has one. */
+function PictureColumn({ column }: { column: OnboardingColumn }) {
+  return (
+    <div className="onboarding-model-column">
+      <span className="onboarding-model-title">{column.title}</span>
+      <span className="onboarding-model-cards">
+        {column.card && (
+          <span className="onboarding-model-card" data-needs-you={column.card.needs_you || undefined}>
+            <span className="onboarding-model-key">{column.card.key}</span>
+            <span className="onboarding-model-card-title">{column.card.title}</span>
+            <span className="onboarding-model-status">{column.card.status}</span>
+          </span>
+        )}
+      </span>
+      <span className="onboarding-model-who">{column.who}</span>
+    </div>
+  );
+}
+
+function WelcomeStep({ welcome, onNext }: { welcome: OnboardingWelcome; onNext: () => void }) {
+  return (
+    <Card wide>
+      <h1 className="onboarding-title onboarding-title-large">{welcome.title}</h1>
+      <p className="onboarding-text onboarding-text-large">{welcome.text}</p>
+      <div
+        className="onboarding-model"
+        role="img"
+        aria-label={welcome.columns.map((c) => c.title).join(", ")}
+      >
+        {welcome.columns.map((column) => (
+          <PictureColumn key={column.title} column={column} />
+        ))}
+      </div>
+      <p className="onboarding-model-note">
+        <span className="onboarding-model-dot" />
+        <span>{welcome.needs_you}</span>
+      </p>
+      <div className="onboarding-foot">
+        <span className="onboarding-foot-text">{welcome.foot}</span>
+        <Button label={welcome.button} icon="arrow-right" onClick={onNext} />
+      </div>
+    </Card>
+  );
+}
+
 function ProjectStep({ onAdded, drop }: { onAdded: (key: string) => void; drop: string | null }) {
   const state = useAddProject(true, drop, onAdded);
   const { view } = state;
@@ -87,11 +128,7 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
   const [texts, setTexts] = useState<OnboardingTexts>();
   const [tools, setTools] = useState<OnboardingTools>();
   const [checking, setChecking] = useState(first === "tools");
-  const [dismissed, setDismissed] = useState(false);
   const [failure, setFailure] = useState<string | null>(null);
-  // The project just added, or the one still in Flow setup when onboarding reopened on its Flow step: the Flow step's.
-  const [added, setAdded] = useState<string | null>(params?.project ?? null);
-  const picker = useThemePicker().view;
   const drop = useStore(droppedFolder);
   const focusRef = useRef<HTMLDivElement>(null);
 
@@ -127,7 +164,7 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
     setChecking(true);
     void runCheck();
   }, [runCheck]);
-  // One Install / Sign in… terminal for the agent tools and git, gh, az; `tools.check` checks every tool again.
+  // One Install / Sign in… terminal for the agent tools and git; `tools.check` checks every tool again.
   const terminals = useRowTerminals(
     (key) =>
       agentStillOffered(tools?.agent_tools.rows ?? [], key) || checklistStillOffered(tools?.rows ?? [], key),
@@ -154,73 +191,12 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
     void runCheck();
   };
 
-  const warningShown = tools?.warning !== null && tools?.warning !== undefined && !dismissed;
-  const finish = () => {
-    finishOnboarding(warningShown, request).catch(() => undefined);
-    close();
-    // The last question of first run: anonymous usage data, asked once (d0085).
-    askUsageDataWhenNeeded(request, (dialog) => {
-      openOverlay("usage_data", dialog);
-    }).catch(() => undefined);
-  };
-
   const bar = texts?.title_bars[STEP_ORDER.indexOf(step)];
   let body: ReactNode = null;
   if (texts) {
     switch (step) {
       case "welcome":
-        body = (
-          <Card>
-            <h1 className="onboarding-title onboarding-title-large">{texts.welcome.title}</h1>
-            <p className="onboarding-text onboarding-text-large">{texts.welcome.text}</p>
-            <ul className="onboarding-points">
-              {texts.welcome.points.map((point) => (
-                <li key={point.title} className="onboarding-point">
-                  <span className="onboarding-point-icon">
-                    <Icon name={point.icon} size={16} />
-                  </span>
-                  <span className="onboarding-point-text">
-                    <span className="onboarding-point-title">{point.title}</span>
-                    <span>{point.text}</span>
-                  </span>
-                </li>
-              ))}
-            </ul>
-            <div className="onboarding-foot">
-              <span className="onboarding-foot-text">{texts.welcome.foot}</span>
-              <Button
-                label={texts.welcome.button}
-                icon="arrow-right"
-                onClick={() => {
-                  setStep("theme");
-                }}
-              />
-            </div>
-          </Card>
-        );
-        break;
-      case "theme":
-        body = (
-          <Card wide>
-            <h1 className="onboarding-title">{texts.theme.title}</h1>
-            <p className="onboarding-text">{texts.theme.text}</p>
-            {picker && (
-              <ThemePicker
-                view={picker}
-                onPick={(key) => {
-                  void pickTheme(key);
-                }}
-                onMode={(mode) => {
-                  void chooseThemeMode(mode);
-                }}
-              />
-            )}
-            <div className="onboarding-foot">
-              <span className="onboarding-foot-text">{texts.theme.foot}</span>
-              <Button label={texts.theme.button} icon="arrow-right" onClick={check} />
-            </div>
-          </Card>
-        );
+        body = <WelcomeStep welcome={texts.welcome} onNext={check} />;
         break;
       case "tools":
         body = (
@@ -229,19 +205,13 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
               <ToolsList
                 tools={tools}
                 checking={checking}
-                warning={warningShown}
-                onDismiss={() => {
-                  setDismissed(true);
-                  request("onboarding.dismiss_warning").catch(() => undefined);
-                }}
                 onRecheck={() => {
                   setChecking(true);
                   void runCheck();
                 }}
                 onContinue={() => {
-                  const next = afterTools(tools, added);
-                  if (next === "done") finish();
-                  else setStep(next);
+                  if (afterTools(tools) === "done") close();
+                  else setStep("project");
                 }}
                 onAgentAction={agentTools.act}
                 terminals={terminals}
@@ -258,25 +228,12 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
             key={drop?.seq ?? 0}
             drop={drop?.path ?? null}
             onAdded={(key) => {
-              setAdded(key);
-              setStep("flow");
+              // The board, on Otaq default, with the first ticket in Backlog.
+              added(key);
+              close();
             }}
           />
         );
-        break;
-      case "flow":
-        if (added !== null) {
-          body = (
-            <FlowEditorPage
-              key={added}
-              project={added}
-              onDone={(agent) => {
-                afterFlowStep(added, agent);
-                finish();
-              }}
-            />
-          );
-        }
         break;
     }
   }

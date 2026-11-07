@@ -14,6 +14,7 @@ const requestMock = vi.mocked(request);
 
 const VIEW: HintView = {
   id: "gallery_sample",
+  title: null,
   text: "A hint like this shows once, when something first matters, and never again.",
   button: "Got it",
 };

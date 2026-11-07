@@ -115,7 +115,6 @@ export function clampStep(at: number, steps: readonly FlowBoardWatchStep[]): num
 export async function saveDraft(view: FlowBoardView, ask: Ask = request): Promise<void> {
   await ask("flow_editor.apply", {
     project: view.project,
-    from: "project",
     proposal: view.proposal,
     choices: view.choices,
   });
@@ -131,7 +130,7 @@ export async function saveDraft(view: FlowBoardView, ask: Ask = request): Promis
 
 /** Cancel and Discard: the draft goes; nothing changed. */
 export function dropDraft(view: FlowBoardView, ask: Ask = request): Promise<unknown> {
-  return ask("flow_editor.cancel", { project: view.project, from: "project", proposal: view.proposal });
+  return ask("flow_editor.cancel", { project: view.project, proposal: view.proposal });
 }
 
 /** Import a flow file…: the open dialog, then its flow in the draft. Cancelling the dialog does nothing. */

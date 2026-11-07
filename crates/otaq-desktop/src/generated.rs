@@ -60,7 +60,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ThemePick::export_all(&cfg)?;
     // Also writes `ThemeMode`.
     crate::api::ThemeModePick::export_all(&cfg)?;
-    // The "Help improve Otaq" dialog (d0085); also writes `UsageDataDialog`.
+    // The "Help improve Otaq?" banner (d0085); also writes `UsageDataBanner`.
     crate::api::UsageDataAsk::export_all(&cfg)?;
     crate::api::UsageChoice::export_all(&cfg)?;
     // Also writes `ThemePickerSection`, `ThemePickerCard` and `ThemeModeOption`.
@@ -93,6 +93,8 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // One-time hints; also writes `HintId`.
     crate::api::HintParams::export_all(&cfg)?;
     otaq_view::view_models::hint::View::export_all(&cfg)?;
+    // The line beside macOS's notifications question on the first Create & start.
+    otaq_view::view_models::banners::NotificationsLine::export_all(&cfg)?;
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
     crate::api::NotificationOpen::export_all(&cfg)?;
@@ -327,7 +329,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentToolDisconnectOutcome::export_all(&cfg)?;
     // The Tools step's gallery (T-0365).
     otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
-    // The flow editor (T-0471): its view, the requests' params and answers, and its gallery.
+    // The flow editor requests Edit flow on the board sends (T-0471): their params and answers.
     crate::api::export_flow_editor_types(&cfg)?;
     crate::api::export_flow_board_types(&cfg)?;
     // Decide on a card whose check ran out of rounds.
@@ -349,8 +351,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // The project menu (T-0473, FED-09): its view and its gallery.
     otaq_view::view_models::project_menu::ProjectMenu::export_all(&cfg)?;
     otaq_view::view_models::project_menu::Gallery::export_all(&cfg)?;
-    // The Flow setup page (T-0436): whether it shows instead of the board.
-    crate::api::export_flow_setup_page_types(&cfg)?;
     // The project Files view (T-0478, FIL-01…FIL-04, FIL-07): its page, filters, picker and picked source.
     crate::api::export_files_view_types(&cfg)?;
     Ok(())

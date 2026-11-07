@@ -2,12 +2,13 @@
 import type { BoardAgentChip } from "./BoardAgentChip";
 import type { BoardColumn } from "./BoardColumn";
 import type { BoardDoneLine } from "./BoardDoneLine";
+import type { BoardHint } from "./BoardHint";
 import type { BoardMoreStages } from "./BoardMoreStages";
 import type { BoardScrollChip } from "./BoardScrollChip";
 import type { BoardToolbar } from "./BoardToolbar";
 import type { ChainView } from "./ChainView";
-import type { EmptyBoardView } from "./EmptyBoardView";
 import type { FilterStrip } from "./FilterStrip";
+import type { FirstTicketView } from "./FirstTicketView";
 import type { ListView } from "./ListView";
 import type { ViewPrefs } from "./ViewPrefs";
 
@@ -16,9 +17,14 @@ import type { ViewPrefs } from "./ViewPrefs";
  */
 export type BoardView = { columns: Array<BoardColumn>, 
 /**
- * The centred card of a project with no tickets (the columns stay behind it).
+ * "Your first ticket" in Backlog: a new user's first project with no tickets ([`empty_board`]); set by
+ * [`first_run`].
  */
-empty: EmptyBoardView | null, scroll_chip: BoardScrollChip, 
+first_ticket: FirstTicketView | null, 
+/**
+ * The first-run hint whose moment is on this board now ([`hint::board`]); set by [`first_run`].
+ */
+hint: BoardHint | null, scroll_chip: BoardScrollChip, 
 /**
  * What waits for each card others wait for, lit while it is hovered or selected.
  */

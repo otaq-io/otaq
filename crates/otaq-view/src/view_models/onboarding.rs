@@ -1,16 +1,17 @@
-//! First run (UI-08, UI-11, SET-02; *14 · First run & onboarding*): Welcome, then the Theme step ("Pick a look",
-//! d0069), then the tools checklist from `tools.check`. `git` missing, or no agent tool connected (SET-02 `[M23]`,
-//! d0086), blocks Continue; gh and az are optional. The permission-mode
-//! warning shows only when the check says "prompting", and stays away once dismissed. Nothing on these screens
-//! installs a tool or changes a setting on its own (d0021, d0011): each command is shown for copying, and its
-//! Install / Sign in… button runs exactly that command in a visible terminal under the row, on the user's click.
+//! First run (UI-08, UI-11, SET-02; *14 · First run & onboarding*): Welcome → Tools → Project → the board. Welcome
+//! shows the model in one picture; Tools is the agent tools and git from `tools.check`: no agent tool ready, or `git`
+//! missing, blocks Continue (one tool is enough). The pull request tools (gh, az) aren't asked for here: they're set up
+//! in Settings the first time a ticket opens a PR. Nothing on these screens installs a tool or changes a setting on its
+//! own (d0021, d0011): each command is shown, and its Install / Sign in… button runs exactly that command in a visible
+//! terminal under the row, on the user's click.
 //!
-//! After Tools comes 4 · Project (the add-project form, T-0034), then 5 · Flow (ONB-04: the project's flow, from an
-//! agent, a preset or the default); once the flow is settled the onboarding steps disappear and the empty board shows.
-//! The indicator lists only the five steps it shows (no "Done" step; dogfood report 2026-10-24, #3).
+//! After Project the board opens on the default flow with the first ticket in Backlog. No Theme step (the theme
+//! follows the system; Appearance changes it) and no Flow step (the flow is learned by watching the first ticket, and
+//! Edit flow is offered after the first approve). Claude Code's permission mode isn't a warning here any more: it is a
+//! one-time hint at the first permission prompt. The indicator lists only the three steps.
 
 use otaq_core::naming;
-use otaq_core::tools::{PermissionVerdict, Tool, ToolAction, ToolStatus, ToolsReport};
+use otaq_core::tools::{Tool, ToolAction, ToolStatus, ToolsReport};
 
 /// What the tools step needs besides git (SET-02 `[M23]`; *14* `z8OVF` "None connected · blocking").
 const CONNECT_AN_AGENT_TOOL: &str = "connect one agent tool";
@@ -18,24 +19,20 @@ const CONNECT_AN_AGENT_TOOL: &str = "connect one agent tool";
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum Step {
     Welcome,
-    Theme,
     Tools,
     Project,
-    Flow,
 }
 
-/// The step indicator in the title bar (ONB-10): only the steps onboarding shows; the board after Flow isn't one.
-pub const STEPS: [&str; 5] = ["Welcome", "Theme", "Tools", "Project", "Flow"];
+/// The step indicator in the title bar (ONB-10): only the steps onboarding shows; the board after Project isn't one.
+pub const STEPS: [&str; 3] = ["Welcome", "Tools", "Project"];
 
 impl Step {
     /// The step's place in [`STEPS`] (0-based; the indicator shows it plus one).
     pub fn index(self) -> usize {
         match self {
             Self::Welcome => 0,
-            Self::Theme => 1,
-            Self::Tools => 2,
-            Self::Project => 3,
-            Self::Flow => 4,
+            Self::Tools => 1,
+            Self::Project => 2,
         }
     }
 }
@@ -87,6 +84,12 @@ pub struct ContinueState {
     pub reason: Option<String>,
 }
 
+impl Default for OnboardingModel {
+    fn default() -> Self {
+        Self::new()
+    }
+}
+
 #[derive(Debug, Clone, PartialEq)]
 pub struct OnboardingModel {
     pub step: Step,
@@ -94,26 +97,19 @@ pub struct OnboardingModel {
     pub checking: bool,
     /// The last `tools.check` failed (service unreachable).
     pub error: Option<String>,
-    pub permission_dismissed: bool,
 }
 
 impl OnboardingModel {
-    pub fn new(permission_dismissed: bool) -> Self {
+    pub fn new() -> Self {
         Self {
             step: Step::Welcome,
             report: None,
             checking: false,
             error: None,
-            permission_dismissed,
         }
     }
 
-    /// "Choose a theme" on Welcome: the Theme step.
-    pub fn choose_theme(&mut self) {
-        self.step = Step::Theme;
-    }
-
-    /// "Check my tools" on the Theme step: go to the tools step and run the check.
+    /// "Get started" on Welcome: go to the tools step and run the check.
     pub fn start_check(&mut self) {
         self.step = Step::Tools;
         self.checking = true;
@@ -163,16 +159,6 @@ impl OnboardingModel {
             enabled: reason.is_none() && !self.checking,
             reason,
         }
-    }
-
-    /// Claude Code's dismissable warning above the list: only from a report whose agent tools carry no warning
-    /// of their own (since M23 each tool's row has its own, SET-02).
-    pub fn show_permission_warning(&self) -> bool {
-        !self.permission_dismissed
-            && self.report.as_ref().is_some_and(|r| {
-                r.permission.verdict == PermissionVerdict::Prompting
-                    && r.agent_tools.iter().all(|t| t.permission_warning.is_none())
-            })
     }
 }
 
@@ -342,36 +328,28 @@ pub(crate) mod tests {
     }
 
     fn checked(tools: Vec<ToolStatus>, verdict: PermissionVerdict) -> OnboardingModel {
-        let mut m = OnboardingModel::new(false);
+        let mut m = OnboardingModel::new();
         m.start_check();
         m.finish_check(Ok(report(tools, verdict)));
         m
     }
 
     #[test]
-    fn welcome_then_theme_then_tools() {
-        let mut m = OnboardingModel::new(false);
+    fn welcome_then_tools() {
+        let mut m = OnboardingModel::new();
         assert_eq!(m.step, Step::Welcome);
         assert!(m.rows().is_empty());
         assert!(!m.continue_state().enabled);
-        m.choose_theme();
-        assert_eq!(m.step, Step::Theme);
-        assert!(!m.checking, "the check starts with Check my tools");
+        assert!(!m.checking, "the check starts with Get started");
         m.start_check();
         assert_eq!(m.step, Step::Tools);
         assert!(m.checking);
     }
 
     #[test]
-    fn the_indicator_has_five_steps_ending_with_flow() {
-        assert_eq!(STEPS, ["Welcome", "Theme", "Tools", "Project", "Flow"]);
-        for (step, n) in [
-            (Step::Welcome, 1),
-            (Step::Theme, 2),
-            (Step::Tools, 3),
-            (Step::Project, 4),
-            (Step::Flow, 5),
-        ] {
+    fn the_indicator_has_three_steps_ending_with_project() {
+        assert_eq!(STEPS, ["Welcome", "Tools", "Project"]);
+        for (step, n) in [(Step::Welcome, 1), (Step::Tools, 2), (Step::Project, 3)] {
             assert_eq!(step.index() + 1, n, "{step:?}");
             assert_eq!(STEPS[step.index()], format!("{step:?}"));
         }
@@ -405,7 +383,6 @@ pub(crate) mod tests {
                 reason: None
             }
         );
-        assert!(!m.show_permission_warning());
     }
 
     #[test]
@@ -452,10 +429,6 @@ pub(crate) mod tests {
         assert_eq!(rows[1].command.as_deref(), Some(Tool::Gh.install_command()));
         assert_eq!(rows[2].status, "not found — needed for Azure DevOps PRs");
         assert!(m.continue_state().enabled);
-        assert!(
-            m.show_permission_warning(),
-            "this step can show the warning"
-        );
     }
 
     #[test]
@@ -474,33 +447,6 @@ pub(crate) mod tests {
             rows[2].command.as_deref(),
             Some("az extension add --name azure-devops")
         );
-    }
-
-    #[test]
-    fn permission_warning_only_when_prompting_and_not_dismissed() {
-        for (verdict, shown) in [
-            (PermissionVerdict::Prompting, true),
-            (PermissionVerdict::NotPrompting, false),
-            (PermissionVerdict::Unknown, false),
-        ] {
-            assert_eq!(
-                checked(everything_installed(), verdict).show_permission_warning(),
-                shown,
-                "{verdict:?}"
-            );
-        }
-        let mut m = checked(everything_installed(), PermissionVerdict::Prompting);
-        m.permission_dismissed = true;
-        assert!(!m.show_permission_warning());
-    }
-
-    #[test]
-    fn a_tool_row_with_its_own_warning_replaces_the_one_above_the_list() {
-        let mut m = checked(everything_installed(), PermissionVerdict::Prompting);
-        assert!(m.show_permission_warning());
-        m.report.as_mut().unwrap().agent_tools[0].permission_warning =
-            Some("Your Claude Code settings ask for permission prompts".into());
-        assert!(!m.show_permission_warning());
     }
 
     #[test]

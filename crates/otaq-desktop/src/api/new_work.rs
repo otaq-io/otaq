@@ -18,10 +18,10 @@ pub async fn request(app: &App, method: &str, _params: Value) -> Result<Value, R
 
 pub async fn view(app: &App) -> NewWorkView {
     let keys = super::keymap::labels(app).await;
-    // The box is on every board today: a rule that keeps it off a board sets this.
+    // Not on a new user's board: the box appears once the first ticket was approved.
     vm::view(&vm::Facts {
         keys: &keys,
-        shown: true,
+        shown: super::onboarding::first_approve(app).await,
     })
 }
 
@@ -40,11 +40,15 @@ mod tests {
     use crate::api::request as table;
     use crate::service::testing::{Harness, connected};
 
-    /// The box answers, shown, with the user's New ticket key.
+    /// The box is hidden on a new user's board and shows once a ticket was approved, with the user's New ticket key.
     #[tokio::test(flavor = "multi_thread")]
-    async fn the_box_answers_shown() {
+    async fn the_box_shows_after_the_first_approve() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
+        let view = table(&h.app, "new_work.view", json!({})).await.unwrap();
+        assert_eq!(view["shown"], false, "a new user");
+        h.set_setting(otaq_core::store::settings::FIRST_APPROVE, "true")
+            .await;
         let view = table(&h.app, "new_work.view", json!({})).await.unwrap();
         assert_eq!(view["shown"], true);
         assert_eq!(view["placeholder"], "New ticket, or ask Noyan\u{2026}");

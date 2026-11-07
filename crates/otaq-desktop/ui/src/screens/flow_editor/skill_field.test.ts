@@ -8,7 +8,10 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorSkillState } from "../../generated/FlowEditorSkillState";
-import { recordingActions, SkillField } from "./FlowEditor";
+import { type EditorActions, SkillField } from "./FlowEditor";
+
+const ignore = () => undefined;
+const actions: EditorActions = { edit: ignore, write: ignore, skill: ignore, fix: ignore };
 
 (globalThis as { IS_REACT_ACT_ENVIRONMENT?: boolean }).IS_REACT_ACT_ENVIRONMENT = true;
 
@@ -40,9 +43,7 @@ function show(state: FlowEditorSkillState, focus = false) {
     },
   };
   act(() => {
-    root.render(
-      createElement(SkillField, { field, stage: "plan", actions: recordingActions(() => undefined), focus }),
-    );
+    root.render(createElement(SkillField, { field, stage: "plan", actions, focus }));
   });
 }
 

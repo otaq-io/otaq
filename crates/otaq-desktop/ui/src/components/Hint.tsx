@@ -13,7 +13,9 @@ import { type Anchor, useFloatingStyle } from "./Floating";
 export interface HintPopoverProps {
   /** The element the hint explains. */
   anchor: Anchor;
-  /** The one sentence. */
+  /** Its title, when it has one ("An agent needs you"). */
+  title?: string | null | undefined;
+  /** The note. */
   text: string;
   /** The one button's label ("Got it"). */
   button: string;
@@ -22,12 +24,13 @@ export interface HintPopoverProps {
 }
 
 /** The popover itself, drawn from what a hint's view says. */
-export function HintPopover({ anchor, text, button, align, onDismiss }: HintPopoverProps) {
+export function HintPopover({ anchor, title, text, button, align, onDismiss }: HintPopoverProps) {
   const floating = useRef<HTMLDivElement>(null);
   // No `onDismiss` here: nothing but the button closes it, and it follows its anchor.
   const style = useFloatingStyle(anchor, floating, align);
   return (
     <div ref={floating} className="hint" role="status" style={style}>
+      {title !== null && title !== undefined && <p className="hint-title">{title}</p>}
       <p className="hint-text">{text}</p>
       <Button variant="primary" compact label={button} onClick={onDismiss} />
     </div>
@@ -68,6 +71,7 @@ export function OneTimeHint({ hint, anchor, align }: OneTimeHintProps) {
   return (
     <HintPopover
       anchor={anchor}
+      title={view.title}
       text={view.text}
       button={view.button}
       align={align}

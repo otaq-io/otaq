@@ -1,11 +1,10 @@
-//! First run and Add project as the Tauri page draws them (T-0233; UI-08, UI-11, SET-02, PRJ-01…PRJ-03; *14 · First
-//! run & onboarding*, *02 → No projects yet*): the title bar's step indicator (Welcome · Theme · Tools · Project ·
-//! Flow, ONB-10), the Welcome and Theme steps' words, the tools checklist from [`OnboardingModel`] (rows, the permission-mode
-//! warning, Continue and why it is off), the Add project form from [`AddProjectModel`] (the onboarding card and the
-//! later dialog), and the "No projects yet" board. Every text the GPUI app wrote in its drawing code lives here now.
-//! The form says that adding a project lets Claude Code work in its folder, and why the trust wasn't recorded when it
-//! wasn't (PRJ-07, d0085; *14 → step 4*, *Claude Code's trust couldn't be recorded*). The Flow step after Add your
-//! first project is the flow editor (`flow_editor.rs`, FED-09, d0115) and stays until the flow is settled.
+//! First run and Add project as the Tauri page draws them (T-0233; UI-08, UI-11, SET-02, PRJ-01…PRJ-03; *02 → No
+//! projects yet*): the title bar's step indicator (Welcome · Tools · Project, ONB-10), Welcome's picture of the model,
+//! the Tools step from [`OnboardingModel`] (the agent tools and git, Continue and why it is off), the Add project form
+//! from [`AddProjectModel`] (the onboarding step and the later dialog, with its Flow choice), and the "No projects yet"
+//! board. The form says which tools will run their hooks and settings in the folder, and why a tool's trust wasn't
+//! recorded when it wasn't (PRJ-07, d0085). After Project the board opens on the default flow with the first ticket in
+//! Backlog: there is no Theme or Flow step.
 
 use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::snapshot::ProjectInfo;
@@ -14,8 +13,6 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::key_labels::KeyLabels;
-use crate::keymap::KeyAction;
 use crate::shell::tilde;
 use crate::view_models::add_project::AddProjectModel;
 use crate::view_models::agent_tools_page::{self, Place};
@@ -30,30 +27,20 @@ use crate::view_models::onboarding::{OnboardingModel, RowIcon, STEPS, Step, Tool
 #[ts(rename = "OnboardingStepId")]
 pub enum StepId {
     Welcome,
-    Theme,
     Tools,
     Project,
-    Flow,
 }
 
 impl StepId {
     pub fn step(self) -> Step {
         match self {
             Self::Welcome => Step::Welcome,
-            Self::Theme => Step::Theme,
             Self::Tools => Step::Tools,
             Self::Project => Step::Project,
-            Self::Flow => Step::Flow,
         }
     }
 
-    pub const ALL: [Self; 5] = [
-        Self::Welcome,
-        Self::Theme,
-        Self::Tools,
-        Self::Project,
-        Self::Flow,
-    ];
+    pub const ALL: [Self; 3] = [Self::Welcome, Self::Tools, Self::Project];
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -75,7 +62,7 @@ pub struct Dot {
     pub state: DotState,
 }
 
-/// The window's title bar during onboarding: the product name and the five steps.
+/// The window's title bar during onboarding: the product name and the three steps.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingTitleBar")]
 pub struct TitleBar {
@@ -103,97 +90,94 @@ pub fn title_bar(step: StepId) -> TitleBar {
     }
 }
 
+/// A sample card in Welcome's picture.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "OnboardingPoint")]
-pub struct Point {
-    pub icon: IconName,
+#[ts(rename = "OnboardingSampleCard")]
+pub struct SampleCard {
+    pub key: String,
     pub title: String,
-    pub text: String,
+    pub status: String,
+    /// Turquoise: an agent needs the user.
+    pub needs_you: bool,
 }
 
-/// *1 · Welcome*.
+/// One column of Welcome's picture: the default flow's columns, who acts in each.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OnboardingColumn")]
+pub struct Column {
+    pub title: String,
+    /// "An agent writes the code".
+    pub who: String,
+    pub card: Option<SampleCard>,
+}
+
+/// Welcome: what Otaq is, in one picture: the board itself, with the default flow the project will start on, who acts
+/// in each column, and the turquoise card. One button.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingWelcome")]
 pub struct Welcome {
     pub title: String,
     pub text: String,
-    pub points: Vec<Point>,
+    pub columns: Vec<Column>,
+    /// Under the picture: the turquoise card and the notification.
+    pub needs_you: String,
     pub foot: String,
     pub button: String,
 }
 
-pub fn welcome(keys: &KeyLabels) -> Welcome {
-    // Without a key for Next item that needs you the sentence about it is left out.
-    let next_key = keys
-        .label(KeyAction::NextNeedsYouItem)
-        .map(|k| format!(" {k} opens the next."))
-        .unwrap_or_default();
+/// The ticket the picture follows.
+const SAMPLE_KEY: &str = "SHOP-1";
+
+pub fn welcome() -> Welcome {
+    let flow = otaq_core::flow::default::default_flow();
+    let card = |status: &str, needs_you: bool| SampleCard {
+        key: SAMPLE_KEY.to_owned(),
+        title: crate::view_models::empty_board::TITLE.to_owned(),
+        status: status.to_owned(),
+        needs_you,
+    };
+    let column = |title: &str, who: &str, card: Option<SampleCard>| Column {
+        title: title.to_owned(),
+        who: who.to_owned(),
+        card,
+    };
+    let mut columns = vec![column(
+        "Backlog",
+        "You write a ticket",
+        Some(card("Not started", false)),
+    )];
+    columns.extend(flow.stages.iter().map(|stage| {
+        if stage.is_human_check() {
+            column(&stage.name, "You review, then approve", None)
+        } else if stage.is_agent_check() {
+            column(
+                &stage.name,
+                "A checker tests it, and sends it back if it fails",
+                None,
+            )
+        } else {
+            let first = flow.first_agent_stage().is_some_and(|s| s.id == stage.id);
+            column(
+                &stage.name,
+                "An agent writes the code",
+                first.then(|| card("Asks you", true)),
+            )
+        }
+    }));
+    columns.push(column("Done", "Merged, or sent as a pull request", None));
     Welcome {
-        title: "Run coding agents from a board".to_owned(),
-        text: format!(
-            "{} turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) \u{2014} one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR.",
+        title: "Coding agents that follow your process".to_owned(),
+        text: "Your board\u{2019}s columns are your process. A ticket moves through them: agents do the work, other \
+               agents check it, and you decide what gets merged."
+            .to_owned(),
+        columns,
+        needs_you: format!(
+            "When an agent needs you, its card turns turquoise and {} lets you know, even when the window is closed.",
             naming::PRODUCT_NAME
         ),
-        points: vec![
-            Point {
-                icon: IconName::SquareTerminal,
-                title: "Real sessions".to_owned(),
-                text: format!(
-                    "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with {} attach SHOP-18.",
-                    naming::COMMAND_NAME
-                ),
-            },
-            Point {
-                icon: IconName::Inbox,
-                title: "Needs you".to_owned(),
-                text: format!(
-                    "Permission prompts, questions and reviews wait in one strip above the board.{next_key}"
-                ),
-            },
-            Point {
-                icon: IconName::ShieldCheck,
-                title: "You stay in control".to_owned(),
-                text: "Nothing starts, retries or deletes without a click. Your repos are never written to by settings."
-                    .to_owned(),
-            },
-        ],
-        foot: "Takes about a minute".to_owned(),
-        button: "Choose a theme".to_owned(),
+        foot: "Next: connect an agent tool and add a project. About 2 minutes.".to_owned(),
+        button: "Get started".to_owned(),
     }
-}
-
-/// *2 · Theme* around the picker (d0070).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "OnboardingTheme")]
-pub struct ThemeStep {
-    pub title: String,
-    pub text: String,
-    pub foot: String,
-    pub button: String,
-}
-
-pub fn theme_step() -> ThemeStep {
-    ThemeStep {
-        title: "Pick a look".to_owned(),
-        text: format!(
-            "{} matches your system: the light theme while it is light, the dark one while it is dark. Pick one of each, or keep it light or dark; the board, panels and terminal recolor as soon as you click.",
-            naming::PRODUCT_NAME
-        ),
-        foot: "Change it anytime in Settings \u{2192} Appearance.".to_owned(),
-        button: "Check my tools".to_owned(),
-    }
-}
-
-/// The permission-mode warning on the tools step (d0011): a link to the docs in the middle of its text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "PermissionWarningView")]
-pub struct PermissionWarning {
-    pub title: String,
-    pub before: String,
-    pub link: String,
-    pub after: String,
-    /// The close button's name.
-    pub close: String,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -286,42 +270,31 @@ pub fn tool_button(row: &ToolRow) -> Option<ToolButton> {
     })
 }
 
-/// The checklist's intro (onboarding and Settings).
-pub fn tools_intro() -> String {
-    format!(
-        "{} uses the tools already on your machine and never updates them. Install and Sign in\u{2026} run the \
-         command shown, in a terminal here \u{2014} nothing installs without your click.",
-        naming::PRODUCT_NAME
-    )
-}
-
-/// The agent tools on the Tools step (*14* `y2FCwP`, `z8OVF`; SET-02 `[M23]`, d0086): the same rows as Settings →
-/// Agent tools without Disconnect…, and the rule "at least one connected".
+/// The agent tools on the Tools step (SET-02 `[M23]`, d0086): the same rows as Settings → Agent tools without
+/// Disconnect…, and the rule "one tool is enough".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingAgentTools")]
 pub struct AgentTools {
-    /// "AGENT TOOLS · AT LEAST ONE".
+    /// "AGENT TOOLS".
     pub heading: String,
-    /// "3 connected", "none connected", "2 connected · 1 hidden".
+    /// "1 ready", "none ready", "2 ready · 1 hidden".
     pub count: String,
     pub rows: Vec<agent_tools_page::Row>,
-    /// With none connected, above the list: "No agent tool is connected. …".
+    /// With none ready, said once at the top: "No agent tool is ready yet. …".
     pub blocked: Option<String>,
     /// The … button's name.
     pub menu_label: String,
 }
 
-/// *2 · Tool checklist*, *gh and az missing · non-blocking*, *14* `y2FCwP` / `z8OVF` (the agent tools).
+/// Tools: connect an agent tool. Only what's needed to start: the agent tools and git. The pull request tools (gh, az)
+/// aren't asked for here; they're set up in Settings the first time a ticket opens a PR.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OnboardingTools")]
 pub struct Tools {
     pub title: String,
     pub text: String,
-    /// Claude Code's dismissable warning above the list, from a service whose tools carry no warning of their
-    /// own; since M23 each agent tool's row has its own ([`agent_tools_page::Row::warning`]).
-    pub warning: Option<PermissionWarning>,
     pub agent_tools: AgentTools,
-    /// "OTHER TOOLS": git, gh and az.
+    /// "ALSO NEEDED": git.
     pub other_heading: String,
     pub rows: Vec<ToolRowView>,
     /// While no report is in: "Checking your tools…".
@@ -330,13 +303,13 @@ pub struct Tools {
     pub recheck: String,
     pub continue_label: String,
     pub continue_enabled: bool,
-    /// "Install claude to continue".
+    /// Next to a Continue that is off for another reason than the one said at the top: "Install git to continue".
     pub continue_reason: Option<String>,
     /// The user has projects already (Check tools from the board): Continue ends here, no Project step.
     pub has_projects: bool,
     pub copy: String,
     pub terminal: ToolTerminalTexts,
-    /// Under the list once a tool is connected (*14* `ODRG2`, M22): the starter entry and where to make others.
+    /// Under the lists: where more tools are added later.
     pub agents_line: Option<String>,
 }
 
@@ -357,63 +330,59 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
         .count();
     let none_connected = model.report.is_some() && connected == 0;
     let mut count = match connected {
-        0 => "none connected".to_owned(),
-        n => format!("{n} connected"),
+        0 => "none ready".to_owned(),
+        n => format!("{n} ready"),
     };
     if hidden > 0 {
         count.push_str(&format!(" \u{b7} {hidden} hidden"));
     }
+    // git is the one tool besides an agent tool that's needed to start.
+    let rows: Vec<ToolRowView> = model
+        .rows()
+        .into_iter()
+        .filter(|r| r.required)
+        .map(|r| {
+            let (look, icon) = match r.icon {
+                RowIcon::Found => (RowLook::Found, IconName::CircleCheck),
+                RowIcon::MissingRequired => (RowLook::MissingRequired, IconName::CircleX),
+                RowIcon::MissingOptional => (RowLook::MissingOptional, IconName::CircleMinus),
+            };
+            ToolRowView {
+                tool: r.tool.command().to_owned(),
+                button: tool_button(&r),
+                note: r.note.clone(),
+                name: r.name.to_owned(),
+                badge: "required".to_owned(),
+                look,
+                icon,
+                status: r.status,
+                explanation: r.explanation,
+                command: r.command,
+            }
+        })
+        .collect();
+    let git_missing = rows.iter().any(|r| r.look == RowLook::MissingRequired);
     Tools {
-        title: "Tools".to_owned(),
-        text: tools_intro(),
-        warning: model.show_permission_warning().then(|| PermissionWarning {
-            title: "Your Claude Code settings ask for permission prompts".to_owned(),
-            before: "With 5\u{2013}10 agents, prompts will stop agents often. Consider allowlists or auto mode ("
-                .to_owned(),
-            link: "Claude Code docs \u{2197}".to_owned(),
-            after: format!(
-                "). {} won\u{2019}t change your settings.",
-                naming::PRODUCT_NAME
-            ),
-            close: "Close".to_owned(),
-        }),
+        title: "Connect an agent tool".to_owned(),
+        text: format!(
+            "{product} runs the coding agents you already use, with your own sign-in and plan. You need one to start; \
+             {product} never installs or signs in without your click.",
+            product = naming::PRODUCT_NAME
+        ),
         agent_tools: AgentTools {
-            heading: "AGENT TOOLS \u{b7} AT LEAST ONE".to_owned(),
+            heading: "AGENT TOOLS".to_owned(),
             count,
             rows: statuses
                 .iter()
                 .map(|s| agent_tools_page::row(s, Place::Onboarding, none_connected))
                 .collect(),
             blocked: none_connected.then(|| {
-                "No agent tool is connected. Install and sign in to at least one; agents can\u{2019}t start without it."
-                    .to_owned()
+                "No agent tool is ready yet. Install one and sign in, then Continue.".to_owned()
             }),
             menu_label: "More actions".to_owned(),
         },
-        other_heading: "OTHER TOOLS".to_owned(),
-        rows: model
-            .rows()
-            .into_iter()
-            .map(|r| {
-                let (look, icon) = match r.icon {
-                    RowIcon::Found => (RowLook::Found, IconName::CircleCheck),
-                    RowIcon::MissingRequired => (RowLook::MissingRequired, IconName::CircleX),
-                    RowIcon::MissingOptional => (RowLook::MissingOptional, IconName::CircleMinus),
-                };
-                ToolRowView {
-                    tool: r.tool.command().to_owned(),
-                    button: tool_button(&r),
-                    note: r.note.clone(),
-                    name: r.name.to_owned(),
-                    badge: if r.required { "required" } else { "optional" }.to_owned(),
-                    look,
-                    icon,
-                    status: r.status,
-                    explanation: r.explanation,
-                    command: r.command,
-                }
-            })
-            .collect(),
+        other_heading: "ALSO NEEDED".to_owned(),
+        rows,
         waiting: model.report.is_none().then(|| {
             if model.checking {
                 CHECKING
@@ -423,26 +392,21 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
             .to_owned()
         }),
         error: model.error.as_ref().map(|e| format!("Check failed: {e}")),
-        recheck: "Re-check".to_owned(),
+        recheck: "Check again".to_owned(),
         continue_label: "Continue".to_owned(),
         continue_enabled: state.enabled,
-        continue_reason: state.reason,
+        // The missing agent tool is said once, at the top.
+        continue_reason: state.reason.filter(|_| git_missing),
         has_projects,
         copy: "Copy".to_owned(),
         terminal: tool_terminal_texts(),
-        agents_line: state.enabled.then(agents_line),
+        agents_line: Some(agents_line()),
     }
 }
 
-/// The tools step's line about the starter entry (*14* `ODRG2`, `z8OVF`; d0086), after "You can connect more later in
-/// Settings → Agent tools.".
+/// The Tools step's last line: where more tools are added later.
 pub fn agents_line() -> String {
-    let tool = super::tool_avatar::AvatarTool::from(super::agents::new_entry_tool()).name();
-    format!(
-        "You can connect more later in Settings \u{2192} Agent tools. {} starts you with one agent, {tool} \u{b7} {} ({tool} picks its own model). Make others, like Strong or Light, in Settings \u{2192} Agents.",
-        naming::PRODUCT_NAME,
-        super::agents::TOOL_DEFAULT,
-    )
+    "You can add more tools later in Settings \u{2192} Agent tools.".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -482,7 +446,7 @@ pub struct KeyField {
     pub note: String,
     pub value: String,
     pub placeholder: String,
-    /// "Used in ticket IDs like SHOP-18. Can’t be changed later." while the key is fine.
+    /// "SHOP-1, SHOP-2, … Can’t be changed later." while the key is fine.
     pub hint: Option<String>,
     pub error: Option<String>,
 }
@@ -495,6 +459,8 @@ pub struct BaseField {
     pub icon: IconName,
     pub label: String,
     pub value: String,
+    /// Under the field: "Agents start from here; work merges back here."
+    pub note: String,
     /// The dropdown's rows: LOCAL, then REMOTE branches, the current one checked.
     pub items: Vec<MenuItem>,
     pub search: MenuSearch,
@@ -532,17 +498,101 @@ pub struct AddProjectPage {
     pub add_error: Option<String>,
     pub cancel: String,
     /// Under the folder once one is picked (PRJ-07, d0086), naming the connected tools that keep folder trust:
-    /// "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and
-    /// settings will run)."
+    /// "Claude Code, Codex and Copilot will run their hooks and settings in this folder."
     pub trust_line: Option<String>,
     /// The project was added but some tools' trust wasn't recorded: why, one sentence per tool, in the form's
     /// inline error style. The form then waits for [`Self::continue_label`] instead of Add.
     pub trust_error: Option<String>,
     pub continue_label: String,
+    /// The dialog of a project added after the first: which flow it starts on.
+    pub flow: Option<FlowChoice>,
 }
 
 pub const PICKER_TITLE: &str = "Add project";
 
+/// Which flow a project added after the first starts on: Otaq default, the same as another project's, or the default
+/// while Noyan's agent drafts a suggestion in Edit flow. `AddProjectFlowPick` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "AddProjectFlowPick")]
+pub enum FlowPick {
+    #[default]
+    Default,
+    SameAs {
+        project: String,
+    },
+    Suggest,
+}
+
+/// One of the Flow choice's options.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AddProjectFlowOption")]
+pub struct FlowOption {
+    pub pick: FlowPick,
+    /// "Otaq default", "Same as shop-web", "Suggest one for billing-api".
+    pub name: String,
+    /// "Dev → Validate → Review · merge or PR on Approve", or what Suggest does.
+    pub line: String,
+}
+
+/// The light Flow choice in Add project, after the first project: Otaq default selected.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "AddProjectFlow")]
+pub struct FlowChoice {
+    pub label: String,
+    pub options: Vec<FlowOption>,
+    /// "Change it any time with Edit flow."
+    pub foot: String,
+}
+
+/// Another project whose flow a new one can copy: its key, name and flow's line.
+pub struct OtherFlow<'a> {
+    pub key: &'a str,
+    pub name: &'a str,
+    pub line: String,
+}
+
+/// The Flow choice: Otaq default, Same as `other` (the project added last), Suggest one for the new project (named
+/// once its folder is picked). `suggester` is the agent that drafts it.
+pub fn flow_choice(
+    other: Option<OtherFlow>,
+    new_name: Option<&str>,
+    suggester: &str,
+) -> FlowChoice {
+    let default = otaq_core::flow::default::default_flow();
+    let mut options = vec![FlowOption {
+        pick: FlowPick::Default,
+        name: format!("{} default", naming::PRODUCT_NAME),
+        line: super::flow_board::chain(&default),
+    }];
+    options.extend(other.map(|o| FlowOption {
+        pick: FlowPick::SameAs {
+            project: o.key.to_owned(),
+        },
+        name: format!("Same as {}", o.name),
+        line: o.line,
+    }));
+    options.push(FlowOption {
+        pick: FlowPick::Suggest,
+        name: match new_name {
+            Some(name) => format!("Suggest one for {name}"),
+            None => "Suggest one for this project".to_owned(),
+        },
+        line: format!(
+            "After adding, {suggester} reads the project and drafts a flow in Edit flow. The board starts on {} \
+             default meanwhile.",
+            naming::PRODUCT_NAME
+        ),
+    });
+    FlowChoice {
+        label: "Flow".to_owned(),
+        options,
+        foot: "Change it any time with Edit flow.".to_owned(),
+    }
+}
+
+/// The form. `flow` is the dialog's Flow choice (a project added after the first); none on the onboarding step,
+/// where every project starts on Otaq default.
 pub fn add_project(
     model: &AddProjectModel,
     projects: &[ProjectInfo],
@@ -562,22 +612,16 @@ pub fn add_project(
     let key_error = probe.and_then(|_| model.key_error(projects));
     AddProjectPage {
         first_run,
-        title: if first_run {
-            "Add your first project"
-        } else {
-            "Add project"
-        }
-        .to_owned(),
+        title: "Add a project".to_owned(),
         text: first_run.then(|| {
-            format!(
-                "Pick a folder that is a git repository. {} keeps everything in its own database; nothing is written into the repo.",
-                naming::PRODUCT_NAME
-            )
+            "A project is a git repository on your machine. Agents work in their own copies of it; only a merge you \
+             approve updates your base branch."
+                .to_owned()
         }),
-        folder: model
-            .folder
-            .as_deref()
-            .map_or_else(|| "No folder chosen yet".to_owned(), tilde),
+        folder: model.folder.as_deref().map_or_else(
+            || "Choose a folder, or drop one here".to_owned(),
+            tilde,
+        ),
         folder_look,
         choose: if !first_run && picked {
             "Change\u{2026}"
@@ -592,7 +636,7 @@ pub fn add_project(
             detail: e.detail.clone(),
         }),
         repo_path: probe.map(|p| p.repo_path.clone()),
-        name: probe.filter(|_| first_run).map(|p| Detected {
+        name: probe.map(|p| Detected {
             icon: IconName::Tag,
             label: "Name".to_owned(),
             value: p.name.clone(),
@@ -601,11 +645,12 @@ pub fn add_project(
             icon: IconName::GitBranch,
             label: "Base branch".to_owned(),
             value: model.base_branch.clone(),
+            note: "Agents start from here; work merges back here.".to_owned(),
             items: branch_items(&p.branches.local, &p.branches.remote, &model.base_branch),
             search: MenuSearch::branches(),
         }),
         key: probe.map(|_| KeyField {
-            label: "Project key".to_owned(),
+            label: "Ticket key".to_owned(),
             note: "prefilled from the repo name".to_owned(),
             value: model.key.clone(),
             placeholder: "KEY".to_owned(),
@@ -613,8 +658,7 @@ pub fn add_project(
             error: key_error,
         }),
         footnote: first_run.then(|| {
-            "Setup command, run command and env files can be added later in project settings."
-                .to_owned()
+            "Run command and environment can wait: they\u{2019}re in the project\u{2019}s settings.".to_owned()
         }),
         add: "Add project".to_owned(),
         adding: "Adding\u{2026}".to_owned(),
@@ -624,9 +668,9 @@ pub fn add_project(
         trust_line: picked.then(|| model.trust_line()).flatten(),
         trust_error: Some(model.trust_errors().join(" ")).filter(|e| !e.is_empty()),
         continue_label: "Continue".to_owned(),
+        flow: None,
     }
 }
-
 /// One form of the folder trust gallery.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "TrustFormCell")]
@@ -672,7 +716,7 @@ pub fn trust_gallery() -> TrustGallery {
                 branches: Branches::default(),
             }),
             &[],
-            &KeyLabels::default(),
+            &crate::key_labels::KeyLabels::default(),
         );
         m
     };
@@ -793,7 +837,7 @@ pub fn tools_gallery() -> ToolsGallery {
         account: None,
     };
     let step = |statuses| {
-        let mut m = OnboardingModel::new(false);
+        let mut m = OnboardingModel::new();
         m.start_check();
         m.finish_check(Ok(ToolsReport {
             tools: vec![
@@ -881,7 +925,6 @@ pub fn no_projects() -> NoProjects {
 #[ts(rename = "OnboardingTexts")]
 pub struct Texts {
     pub welcome: Welcome,
-    pub theme: ThemeStep,
     /// The title bar at each step, in [`StepId::ALL`]'s order.
     pub title_bars: Vec<TitleBar>,
     pub no_projects: NoProjects,
@@ -889,10 +932,9 @@ pub struct Texts {
     pub checking: String,
 }
 
-pub fn texts(keys: &KeyLabels) -> Texts {
+pub fn texts() -> Texts {
     Texts {
-        welcome: welcome(keys),
-        theme: theme_step(),
+        welcome: welcome(),
         title_bars: StepId::ALL.iter().map(|s| title_bar(*s)).collect(),
         no_projects: no_projects(),
         checking: CHECKING.to_owned(),
@@ -924,7 +966,7 @@ mod tests {
     }
 
     fn checked(claude: bool, verdict: PermissionVerdict) -> OnboardingModel {
-        let mut m = OnboardingModel::new(false);
+        let mut m = OnboardingModel::new();
         m.start_check();
         let connected: &[otaq_core::agent_tools::Tool] = if claude {
             &[otaq_core::agent_tools::Tool::Claude]
@@ -952,125 +994,73 @@ mod tests {
         let bar = title_bar(StepId::Tools);
         assert_eq!(bar.product, naming::PRODUCT_NAME);
         let states: Vec<DotState> = bar.steps.iter().map(|d| d.state).collect();
-        assert_eq!(
-            states,
-            [
-                DotState::Done,
-                DotState::Done,
-                DotState::Current,
-                DotState::Next,
-                DotState::Next
-            ]
-        );
+        assert_eq!(states, [DotState::Done, DotState::Current, DotState::Next]);
         let labels: Vec<(&str, &str)> = bar
             .steps
             .iter()
             .map(|d| (d.number.as_str(), d.label.as_str()))
             .collect();
+        assert_eq!(labels, [("1", "Welcome"), ("2", "Tools"), ("3", "Project")]);
+        assert_eq!(texts().title_bars.len(), 3);
+    }
+
+    /// Welcome teaches the model with the board itself: the default flow's columns, who acts in each, and the
+    /// turquoise card.
+    #[test]
+    fn welcome_shows_the_default_flow_and_who_acts_in_each_column() {
+        let w = welcome();
+        assert_eq!(w.title, "Coding agents that follow your process");
+        let columns: Vec<(&str, &str)> = w
+            .columns
+            .iter()
+            .map(|c| (c.title.as_str(), c.who.as_str()))
+            .collect();
         assert_eq!(
-            labels,
+            columns,
             [
-                ("1", "Welcome"),
-                ("2", "Theme"),
-                ("3", "Tools"),
-                ("4", "Project"),
-                ("5", "Flow")
+                ("Backlog", "You write a ticket"),
+                ("Dev", "An agent writes the code"),
+                (
+                    "Validate",
+                    "A checker tests it, and sends it back if it fails"
+                ),
+                ("Review", "You review, then approve"),
+                ("Done", "Merged, or sent as a pull request"),
             ]
         );
-        // s14-12: on the Flow step the four before it are checked, and Flow is the last step.
-        let flow = title_bar(StepId::Flow);
-        let states: Vec<DotState> = flow.steps.iter().map(|d| d.state).collect();
+        let asks = w.columns[1].card.as_ref().unwrap();
+        assert!(asks.needs_you);
         assert_eq!(
-            states,
-            [
-                DotState::Done,
-                DotState::Done,
-                DotState::Done,
-                DotState::Done,
-                DotState::Current
-            ]
+            (asks.key.as_str(), asks.status.as_str()),
+            ("SHOP-1", "Asks you")
         );
-        assert_eq!(texts(&fixtures::base()).title_bars.len(), 5);
+        assert_eq!(w.button, "Get started");
+        assert!(
+            w.foot
+                .starts_with("Next: connect an agent tool and add a project.")
+        );
     }
 
     #[test]
-    fn welcome_and_theme_words_match_the_frames() {
-        let w = welcome(&fixtures::base());
-        assert_eq!(w.title, "Run coding agents from a board");
-        assert_eq!(
-            w.text,
-            format!(
-                "{} turns tickets into real agent sessions (Claude Code, Codex, Copilot or OpenCode) — one per ticket, each in its own git worktree. You watch and type into them from an embedded terminal, review the diff, and merge or open a PR.",
-                naming::PRODUCT_NAME
-            )
-        );
-        assert_eq!(w.points.len(), 3);
-        assert_eq!(
-            w.points[0].text,
-            format!(
-                "Each agent is its tool's own CLI, not a wrapper. Attach from any terminal with {} attach SHOP-18.",
-                naming::COMMAND_NAME
-            )
-        );
-        assert!(
-            w.points[1]
-                .text
-                .ends_with("above the board. ⌘J opens the next.")
-        );
-        // KEY-08: the user's key for Next item that needs you, and no sentence about it without one.
-        let custom = fixtures::replaced("next_needs_you_item", None, 0, "⇧⌘J");
-        assert!(
-            welcome(&custom).points[1]
-                .text
-                .ends_with(" ⇧⌘J opens the next.")
-        );
-        let moved = fixtures::mac(&fixtures::activity_on_cmd_j());
-        assert!(
-            welcome(&moved).points[1]
-                .text
-                .ends_with("in one strip above the board.")
-        );
-        assert!(
-            welcome(&fixtures::letters_off()).points[1]
-                .text
-                .ends_with("⌘J opens the next.")
-        );
-        assert_eq!(w.foot, "Takes about a minute");
-        assert_eq!(w.button, "Choose a theme");
-        let t = theme_step();
-        assert_eq!(t.title, "Pick a look");
-        assert_eq!(t.button, "Check my tools");
-    }
-
-    #[test]
-    fn no_connected_agent_tool_blocks_continue_and_optional_tools_dont() {
+    fn no_connected_agent_tool_blocks_continue_and_only_git_is_asked_besides() {
         let blocked = tools(&checked(false, PermissionVerdict::NotPrompting), false);
         assert!(!blocked.continue_enabled);
         assert_eq!(
-            blocked.continue_reason.as_deref(),
-            Some("Connect one agent tool to continue")
+            blocked.agent_tools.blocked.as_deref(),
+            Some("No agent tool is ready yet. Install one and sign in, then Continue.")
         );
-        let git = &blocked.rows[0];
-        assert_eq!(git.badge, "required");
+        assert_eq!(blocked.continue_reason, None, "said once, at the top");
         let fine = tools(&checked(true, PermissionVerdict::NotPrompting), false);
         assert!(fine.continue_enabled);
-        // The starter entry's line (*14* `ODRG2`, `z8OVF`), after M23's "Agent tools" sentence.
-        assert_eq!(blocked.agents_line, None);
+        assert_eq!(fine.other_heading, "ALSO NEEDED");
+        let names: Vec<&str> = fine.rows.iter().map(|r| r.name.as_str()).collect();
+        assert_eq!(names, ["git"], "gh and az aren't asked for here");
         assert_eq!(
             fine.agents_line.as_deref(),
-            Some(
-                format!(
-                    "You can connect more later in Settings → Agent tools. {} starts you with one agent, Claude Code · tool default (Claude Code picks its own model). Make others, like Strong or Light, in Settings → Agents.",
-                    naming::PRODUCT_NAME
-                )
-                .as_str()
-            )
+            Some("You can add more tools later in Settings → Agent tools.")
         );
-        assert_eq!(fine.rows[1].look, RowLook::MissingOptional);
-        assert_eq!(fine.rows[2].name, "az + azure-devops");
-        assert!(fine.rows[1].command.is_some());
-        assert_eq!(fine.warning, None);
         assert_eq!(fine.waiting, None);
+        assert_eq!(fine.recheck, "Check again");
     }
 
     fn with_agent_tools(
@@ -1082,7 +1072,7 @@ mod tests {
     }
 
     #[test]
-    fn the_agent_tools_block_with_none_connected_and_with_codex_only() {
+    fn the_agent_tools_block_with_none_ready_and_with_codex_only() {
         use crate::view_models::agent_tools_page::fixtures::{connected, status};
         use otaq_core::agent_tools::Tool;
         use otaq_core::agent_tools::connected::AgentToolState;
@@ -1093,14 +1083,8 @@ mod tests {
             false,
         );
         let block = &none.agent_tools;
-        assert_eq!(block.heading, "AGENT TOOLS · AT LEAST ONE");
-        assert_eq!(block.count, "none connected");
-        assert_eq!(
-            block.blocked.as_deref(),
-            Some(
-                "No agent tool is connected. Install and sign in to at least one; agents can’t start without it."
-            )
-        );
+        assert_eq!(block.heading, "AGENT TOOLS");
+        assert_eq!(block.count, "none ready");
         assert_eq!(block.rows.len(), 4);
         assert!(
             block
@@ -1109,11 +1093,6 @@ mod tests {
                 .all(|r| r.detail == "not installed" && r.install.is_some())
         );
         assert!(!none.continue_enabled);
-        assert_eq!(
-            none.continue_reason.as_deref(),
-            Some("Connect one agent tool to continue")
-        );
-        assert_eq!(none.other_heading, "OTHER TOOLS");
 
         // Codex alone is enough (d0086: no longer claude).
         let codex_only = tools(
@@ -1129,44 +1108,25 @@ mod tests {
             false,
         );
         let block = &codex_only.agent_tools;
-        assert_eq!(block.count, "1 connected · 1 hidden");
+        assert_eq!(block.count, "1 ready · 1 hidden");
         assert_eq!(block.blocked, None);
-        assert_eq!(block.rows[0].detail, "not installed · optional now");
         assert_eq!(block.rows[1].detail, "v0.157.1 · signed in with ChatGPT");
-        assert_eq!(block.rows[3].detail, "hidden by you");
         assert!(codex_only.continue_enabled);
-        assert!(codex_only.agents_line.is_some());
-
-        // A tool's own warning on its row; then no warning above the list.
-        let mut codex = status(Tool::Codex, connected("0.157.1", None));
-        codex.permission_warning = Some("Your Codex settings ask for permission prompts".into());
-        let mut m = with_agent_tools(vec![codex]);
-        m.report.as_mut().unwrap().permission.verdict = PermissionVerdict::Prompting;
-        let warned = tools(&m, false);
-        assert_eq!(warned.warning, None);
-        assert_eq!(
-            warned.agent_tools.rows[0].warning.as_ref().unwrap().title,
-            "Your Codex settings ask for permission prompts"
-        );
     }
 
+    /// The permission-mode warning left this step: it is a one-time hint at the first permission prompt.
     #[test]
-    fn the_permission_warning_shows_while_prompting() {
+    fn the_tools_step_says_nothing_about_permission_prompts() {
         let t = tools(&checked(true, PermissionVerdict::Prompting), false);
-        let w = t.warning.unwrap();
-        assert_eq!(
-            w.title,
-            "Your Claude Code settings ask for permission prompts"
-        );
-        assert_eq!(w.link, "Claude Code docs ↗");
-        let mut waiting = OnboardingModel::new(false);
+        let json = serde_json::to_string(&t).unwrap();
+        assert!(!json.contains("permission prompts"), "{json}");
+        let mut waiting = OnboardingModel::new();
         waiting.start_check();
         assert_eq!(
             tools(&waiting, false).waiting.as_deref(),
             Some("Checking your tools…")
         );
     }
-
     fn probe() -> FolderProbe {
         FolderProbe {
             repo_path: "/code/shop-web".into(),
@@ -1184,8 +1144,8 @@ mod tests {
     fn the_form_shows_the_detected_values_and_the_key_hint() {
         let mut m = AddProjectModel::default();
         let empty = add_project(&m, &[], true);
-        assert_eq!(empty.title, "Add your first project");
-        assert_eq!(empty.folder, "No folder chosen yet");
+        assert_eq!(empty.title, "Add a project");
+        assert_eq!(empty.folder, "Choose a folder, or drop one here");
         assert_eq!(empty.folder_look, FolderLook::Empty);
         assert!(!empty.can_add && empty.key.is_none());
         m.pick("/code/shop-web".into());
@@ -1216,16 +1176,20 @@ mod tests {
         assert_eq!(key.value, "SHOP");
         assert_eq!(
             key.hint.as_deref(),
-            Some("Used in ticket IDs like SHOP-18. Can’t be changed later.")
+            Some("SHOP-1, SHOP-2, … Can’t be changed later.")
         );
         assert!(valid.can_add);
         assert_eq!(valid.repo_path.as_deref(), Some("/code/shop-web"));
         let dialog = add_project(&m, &[], false);
         assert_eq!(
             (dialog.title.as_str(), dialog.choose.as_str()),
-            ("Add project", "Change…")
+            ("Add a project", "Change…")
         );
-        assert!(dialog.name.is_none() && dialog.footnote.is_none());
+        assert!(dialog.footnote.is_none() && dialog.flow.is_none());
+        assert_eq!(
+            add_project(&m, &[], true).base.unwrap().note,
+            "Agents start from here; work merges back here."
+        );
     }
 
     #[test]
@@ -1248,7 +1212,7 @@ mod tests {
 
     #[test]
     fn the_trust_line_shows_once_a_folder_is_picked() {
-        let line = "Adding a project also lets Claude Code work in this folder (its hooks and settings will run).";
+        let line = "Claude Code will run its hooks and settings in this folder.";
         let mut m = claude_trusts();
         for first_run in [true, false] {
             assert_eq!(add_project(&m, &[], first_run).trust_line, None);
@@ -1284,20 +1248,16 @@ mod tests {
         };
         assert_eq!(
             line(&[Tool::Codex]).as_deref(),
-            Some(
-                "Adding a project also lets Codex work in this folder (its hooks and settings will run)."
-            )
+            Some("Codex will run its hooks and settings in this folder.")
         );
         assert_eq!(
             line(&[Tool::Claude, Tool::Codex]).as_deref(),
-            Some(
-                "Adding a project also lets Claude Code and Codex work in this folder (their hooks and settings will run)."
-            )
+            Some("Claude Code and Codex will run their hooks and settings in this folder.")
         );
         assert_eq!(
             line(&[Tool::Claude, Tool::Codex, Tool::Copilot]).as_deref(),
             Some(
-                "Adding a project also lets Claude Code, Codex and GitHub Copilot work in this folder (their hooks and settings will run)."
+                "Claude Code, Codex and Copilot will run their hooks and settings in this folder."
             )
         );
         // Only OpenCode connected: it keeps no folder trust, so there is nothing to say.
@@ -1365,12 +1325,7 @@ mod tests {
             .collect();
         assert_eq!(
             counts,
-            [
-                "3 connected",
-                "none connected",
-                "1 connected",
-                "2 connected · 1 hidden"
-            ]
+            ["3 ready", "none ready", "1 ready", "2 ready · 1 hidden"]
         );
         let enabled: Vec<bool> = g.cells.iter().map(|c| c.tools.continue_enabled).collect();
         assert_eq!(enabled, [true, false, true, true]);

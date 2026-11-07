@@ -11,7 +11,6 @@ import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
-import type { UsageDataDialog } from "../../generated/UsageDataDialog";
 import type { GlobalSection } from "./settings";
 
 /** A confirmation's texts, from the view models, and what its confirm button does. */
@@ -62,11 +61,8 @@ export interface OverlayParams {
   activity: undefined;
   /** Add project (T-0233), with a folder already picked or dropped on the window. */
   add_project: { folder?: string } | undefined;
-  /** First run (T-0233), over the whole window; Check tools opens it on its tools step, and a start while first run's
-   * project is still in Flow setup on its Flow step (`project`, ASK-04). */
-  onboarding: { step?: OnboardingStepId; project?: string } | undefined;
-  /** "Help improve Otaq": anonymous usage data, asked once after first run (d0085). */
-  usage_data: UsageDataDialog;
+  /** First run (T-0233), over the whole window; Check tools opens it on its tools step. */
+  onboarding: { step?: OnboardingStepId } | undefined;
   /** The delete confirmation of a never-started ticket (T-0221). */
   delete_ticket: { ticket: string };
   /** The Close ticket confirmation (T-0222). */
@@ -137,7 +133,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   activity: false,
   add_project: true,
   onboarding: true,
-  usage_data: true,
   delete_ticket: true,
   close_ticket: true,
   submit_for_review: true,

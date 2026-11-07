@@ -9,6 +9,10 @@ import type { MenuSearch } from "./MenuSearch";
  */
 export type AddProjectBase = { icon: IconName, label: string, value: string, 
 /**
+ * Under the field: "Agents start from here; work merges back here."
+ */
+note: string, 
+/**
  * The dropdown's rows: LOCAL, then REMOTE branches, the current one checked.
  */
 items: Array<MenuItem>, search: MenuSearch, };

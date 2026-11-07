@@ -1,41 +1,29 @@
-//! `flow_editor.*`: the flow editor (T-0471; FED-01, FED-03, FED-04, FED-07; d0115, d0087; `s27-02`…`s27-07`).
-//! `flow_editor.view` answers everything the editor draws for a project (`otaq-view`'s `flow_editor.rs`) from the
-//! project's draft (`flow.draft`, T-0470), its tools and proposals (`onboarding.flow_setup`), the agents and the panel's
-//! Project agent. The others are its clicks, and **every one of the user's edits goes through `flow.draft_update`**:
-//! `flow_editor.edit` (a step's name, kind, agent, options, a move, an added or removed stage: the whole document),
-//! `flow_editor.pick` (Start from), `flow_editor.undo` (one stage the agent changed, or all) and `flow_editor.import`
-//! (a file). `flow_editor.apply` and `flow_editor.cancel` are the footer's buttons (Apply · Cancel in the project, Use
-//! this flow · Skip, use the default in onboarding). `flow_editor.send` and `flow_editor.ask` are the agent panel's:
-//! **nothing starts before the user's words, a chip or an Ask** (d0087); the first message starts the project's
-//! Project agent on the `flow` skill (`/flow …`, through `agent_panel.send`).
+//! `flow_editor.*`: the requests Edit flow on the board (`flow_board.*`, `otaq-view`'s `flow_board.rs`) sends for the
+//! project's draft (`flow.draft`, T-0470). **Every one of the user's edits goes through `flow.draft_update`**:
+//! `flow_editor.edit` (a stage's name, kind, agent, options, a move, a ready stage added or a stage removed: the whole
+//! document), `flow_editor.pick` (Start from) and `flow_editor.import` (a file). `flow_editor.apply` and
+//! `flow_editor.cancel` are Save flow and Cancel.
 //!
-//! The Skill field (T-0472; FED-05, FED-06): a template and Pick a skill… are edits (`flow_editor.edit`); the picker
-//! lists what `skills.list` finds for the project (the user's own skills, then Otaq's), and takes a typed name. Ask the
-//! agent to write it (and the Write the skill chip) **sends nothing** (Q441): the page puts "Write a skill for the
-//! Plan stage: " in the idle panel's box, or `flow_editor.prefill` types it into the running agent's input line
-//! without Return; `flow_editor.write_skill` is the user's send from the box (the Project agent starts with their
-//! words, and only then the field says it is being written; a running agent's field says so once it asks for its
-//! folder). `flow_editor.stop_writing` is Stop (it interrupts the agent's turn), `flow_editor.undo_skill` the written
-//! skill's Undo (its folder goes only while it is uncommitted and unchanged, else the field just clears) and
+//! The Skill field (T-0472; FED-05, FED-06): Pick a skill… is an edit (`flow_editor.edit`); the picker lists what
+//! `skills.list` finds for the project (the user's own skills, then Otaq's), and takes a typed name. Ask the agent to
+//! write it **sends nothing** (Q441): the page asks for the user's words, and `flow_editor.write_skill` is their send
+//! (Noyan's agent starts on the `flow` skill with them, and only then the field says it is being written).
+//! `flow_editor.stop_writing` is Stop (it interrupts the agent's turn), `flow_editor.undo_skill` the written skill's
+//! Undo (its folder goes only while it is uncommitted and unchanged, else the field just clears) and
 //! `flow_editor.open_skill` its Open (its folder in the project's checkout, in the file manager).
 //!
-//! Problems that need a pick (Q426): `flow_editor.view` takes the page's picks (`choices`) and `flow_editor.apply`
+//! Problems that need a pick (Q426): `flow_board.view` takes the page's picks (`choices`) and `flow_editor.apply`
 //! sends them with the draft (`flow.apply`'s `ApplyChoices`, as FLW-04's preview did).
 
-use otaq_core::agent_tools::Tool;
 use otaq_core::agents::Agent;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
 use otaq_core::flow::yaml;
-use otaq_core::project_agents::first_flow::FlowSetup;
 use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
+use otaq_core::protocol::{InputParams, ProjectParams, Reply, Request, encode_bytes};
 use otaq_core::skills::found::{self, FoundSkill, Homes};
-use otaq_core::protocol::{
-    InputParams, OnboardingAskParams, ProjectParams, Reply, Request,
-    encode_bytes,
-};
-use otaq_view::view_models::flow_editor::{self as vm, Choices, Opened, Pick, StageEdit};
+use otaq_view::view_models::flow_editor::{self as vm, Choices, Pick, StageEdit};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
@@ -46,17 +34,12 @@ use crate::App;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
-        "flow_editor.view" => reply(&view(app, parse(params)?).await?),
         "flow_editor.edit" => reply(&edit(app, parse(params)?).await?),
         "flow_editor.pick" => reply(&pick(app, parse(params)?).await?),
-        "flow_editor.undo" => reply(&undo(app, parse(params)?).await?),
         "flow_editor.import" => reply(&import(app, parse(params)?).await?),
         "flow_editor.apply" => reply(&apply(app, parse(params)?).await?),
         "flow_editor.cancel" => reply(&cancel(app, parse(params)?).await?),
-        "flow_editor.send" => reply(&send(app, parse(params)?).await?),
-        "flow_editor.ask" => reply(&ask(app, parse(params)?).await?),
         "flow_editor.write_skill" => reply(&write_skill(app, parse(params)?).await?),
-        "flow_editor.prefill" => reply(&prefill(app, parse(params)?).await?),
         "flow_editor.stop_writing" => reply(&stop_writing(app, parse(params)?).await?),
         "flow_editor.undo_skill" => reply(&undo_skill(app, parse(params)?).await?),
         "flow_editor.open_skill" => reply(&open_skill(app, parse(params)?).await?),
@@ -72,7 +55,7 @@ fn unexpected(what: &str, other: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected reply to {what}: {other:?}"))
 }
 
-fn toast_error(app: &App, title: &str, error: &RequestError) {
+pub(super) fn toast_error(app: &App, title: &str, error: &RequestError) {
     app.notices.toast(NewToast::new(
         ToastLevel::Error,
         title,
@@ -82,40 +65,15 @@ fn toast_error(app: &App, title: &str, error: &RequestError) {
 
 #[cfg(test)]
 pub fn export_types(cfg: &ts_rs::Config) -> Result<(), ts_rs::ExportError> {
-    ViewParams::export_all(cfg)?;
     EditParams::export_all(cfg)?;
     PickParams::export_all(cfg)?;
-    UndoParams::export_all(cfg)?;
     ImportParams::export_all(cfg)?;
     ProjectFrom::export_all(cfg)?;
-    SendParams::export_all(cfg)?;
-    AskParams::export_all(cfg)?;
     SkillParams::export_all(cfg)?;
     WriteParams::export_all(cfg)?;
     Edited::export_all(cfg)?;
     Started::export_all(cfg)?;
-    vm::View::export_all(cfg)?;
-    vm::Gallery::export_all(cfg)?;
     Ok(())
-}
-
-/// What `flow_editor.view` takes: the project, where it opened, the selected step and the panel's agent (both the
-/// page's own state).
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "FlowEditorParams")]
-pub struct ViewParams {
-    pub project: String,
-    pub from: Opened,
-    #[serde(default)]
-    #[ts(optional)]
-    pub selected: Option<String>,
-    #[serde(default)]
-    #[ts(optional)]
-    pub agent: Option<String>,
-    /// The user's picks for the draft's problems so far (Q426).
-    #[serde(default)]
-    #[ts(optional)]
-    pub choices: Option<Choices>,
 }
 
 #[derive(Debug, Clone, Deserialize, TS)]
@@ -132,17 +90,7 @@ pub struct PickParams {
     pub pick: Pick,
 }
 
-/// Undo on a tinted step (`stage`), or Undo all (none).
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "FlowEditorUndoParams")]
-pub struct UndoParams {
-    pub project: String,
-    #[serde(default)]
-    #[ts(optional)]
-    pub stage: Option<String>,
-}
-
-/// Import a flow… → A file…: the picked file's path.
+/// Import…: the picked file's path.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorImportParams")]
 pub struct ImportParams {
@@ -150,13 +98,11 @@ pub struct ImportParams {
     pub path: String,
 }
 
-/// Apply and Cancel: the project, where the editor opened, the draft Apply applies and the picks it sends (the view's
-/// `choices`).
+/// Save flow and Cancel: the project, the draft Save applies and the picks it sends (the view's `choices`).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorProjectFrom")]
 pub struct ProjectFrom {
     pub project: String,
-    pub from: Opened,
     #[serde(default)]
     #[ts(optional)]
     pub proposal: Option<u32>,
@@ -165,37 +111,15 @@ pub struct ProjectFrom {
     pub choices: Option<Choices>,
 }
 
-/// The panel's first message: typed, or a chip's words.
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "FlowEditorSendParams")]
-pub struct SendParams {
-    pub project: String,
-    pub text: String,
-}
-
-/// An Ask under Made for <project>, the chooser's tool, or "Ask Claude Code" (onboarding's Flow step and the Flow setup
-/// page).
-#[derive(Debug, Clone, Deserialize, TS)]
-#[ts(rename = "FlowEditorAskParams")]
-pub struct AskParams {
-    pub project: String,
-    #[ts(type = "string")]
-    pub tool: Tool,
-}
-
-/// The Skill field's buttons on a stage: Ask the agent to write it on a running agent (`flow_editor.prefill`, the
-/// panel's agent), Stop, Undo, Open.
+/// The Skill field's buttons on a stage: Stop, Undo, Open.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorSkillParams")]
 pub struct SkillParams {
     pub project: String,
     pub stage: String,
-    #[serde(default)]
-    #[ts(optional)]
-    pub agent: Option<String>,
 }
 
-/// The user's send from the idle panel's box that Ask the agent to write it prefilled: their words, for `stage`.
+/// The user's send from the box Ask the agent to write it opened: their words, for `stage`.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorWriteParams")]
 pub struct WriteParams {
@@ -204,14 +128,14 @@ pub struct WriteParams {
     pub text: String,
 }
 
-/// After an edit: the step to select (a stage just added), if any.
+/// After an edit: the stage to select (a stage just added), if any.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowEditorEdited")]
 pub struct Edited {
     pub selected: Option<String>,
 }
 
-/// The agent the panel now shows.
+/// The agent that now drafts or writes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowEditorStarted")]
 pub struct Started {
@@ -231,7 +155,11 @@ pub(super) async fn draft(app: &App, project: &str) -> Result<Draft, RequestErro
     }
 }
 
-pub(super) async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<Draft, RequestError> {
+pub(super) async fn update(
+    app: &App,
+    project: &str,
+    edit: DraftEdit,
+) -> Result<Draft, RequestError> {
     let request = Request::FlowDraftUpdate(DraftUpdateParams {
         project: project.to_owned(),
         edit,
@@ -246,20 +174,7 @@ pub(super) async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<
     }
 }
 
-async fn setup(app: &App, project: &str) -> Result<FlowSetup, RequestError> {
-    match app
-        .service
-        .send(Request::OnboardingFlowSetup(ProjectParams {
-            project: project.to_owned(),
-        }))
-        .await?
-    {
-        Reply::FlowSetup(setup) => Ok(*setup),
-        other => Err(unexpected("onboarding.flow_setup", &other)),
-    }
-}
-
-/// The flow in use now (the In use entry); the default flow before one was applied.
+/// The flow in use now; the default flow before one was applied.
 async fn in_use(app: &App, project: &str) -> FlowFile {
     let current = app
         .service
@@ -274,12 +189,13 @@ async fn in_use(app: &App, project: &str) -> FlowFile {
     .unwrap_or_else(|| otaq_core::flow::presets::presets()[0].read())
 }
 
-/// Every project's key and name.
-async fn projects(app: &App) -> Result<Vec<(String, String)>, RequestError> {
-    match app.service.send(Request::ProjectList).await? {
-        Reply::Projects(list) => Ok(list.into_iter().map(|p| (p.key, p.name)).collect()),
-        other => Err(unexpected("project.list", &other)),
+/// The project's name, or its key when the service can't say.
+async fn project_name(app: &App, project: &str) -> String {
+    match app.service.send(Request::ProjectList).await {
+        Ok(Reply::Projects(list)) => list.into_iter().find(|p| p.key == project).map(|p| p.name),
+        _ => None,
     }
+    .unwrap_or_else(|| project.to_owned())
 }
 
 /// The skills the user already has for `project` and Otaq's own (`skills.list`): Pick a skill… and the captions
@@ -298,51 +214,33 @@ async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
     }
 }
 
-/// Everything the editor reads for a project, owned, so the overlay's and the board's editors build their facts from
-/// one gathering.
+/// Everything the board's editor reads for a project, owned.
 pub(super) struct Gathered {
     pub draft: Draft,
     pub file: FlowFile,
     pub in_use: FlowFile,
-    pub setup: FlowSetup,
+    pub project_name: String,
     pub stored: Vec<Agent>,
     pub tools: otaq_view::view_models::tool_problems::Tools,
-    pub others: Vec<(String, String)>,
     pub skills: Vec<FoundSkill>,
     pub open: Vec<otaq_core::project_agents::ProjectAgent>,
     pub new_agent: Option<Agent>,
-    pub keys: otaq_view::key_labels::KeyLabels,
 }
 
 pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, RequestError> {
     let draft = draft(app, project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let in_use = in_use(app, project).await;
-    let setup = setup(app, project).await?;
-    let stored = super::settings::agent_list(app).await?.agents;
-    let tools = super::agent_panel::tools(app).await;
-    let others: Vec<(String, String)> = projects(app)
-        .await?
-        .into_iter()
-        .filter(|(key, _)| key != project)
-        .collect();
-    let skills = skills(app, project).await;
-    let open = super::agent_panel::agents(app, project).await?.open;
-    let new_agent = super::agent_panel::project_agent(app).await?;
-    let keys = super::keymap::labels(app).await;
     Ok(Gathered {
         draft,
         file,
-        in_use,
-        setup,
-        stored,
-        tools,
-        others,
-        skills,
-        open,
-        new_agent,
-        keys,
+        in_use: in_use(app, project).await,
+        project_name: project_name(app, project).await,
+        stored: super::settings::agent_list(app).await?.agents,
+        tools: super::agent_panel::tools(app).await,
+        skills: skills(app, project).await,
+        open: super::agent_panel::agents(app, project).await?.open,
+        new_agent: super::agent_panel::project_agent(app).await?,
     })
 }
 
@@ -350,51 +248,33 @@ impl Gathered {
     pub(super) fn facts<'a>(
         &'a self,
         project: &'a str,
-        opened: Opened,
         selected: Option<&'a str>,
         agent: Option<&str>,
         choices: &'a Choices,
     ) -> vm::Facts<'a> {
         vm::Facts {
             project,
-            project_name: &self.setup.project_name,
-            opened,
+            project_name: &self.project_name,
             proposal: &self.draft.proposal,
             marks: &self.draft.marks,
-            can_undo_all: self.draft.can_undo_all,
             swap: self.draft.swap,
             applies: &self.draft.applies,
             file: &self.file,
             in_use: &self.in_use,
             stored: &self.stored,
             tools: &self.tools,
-            setup: &self.setup,
-            projects: &self.others,
             skills: &self.skills,
             writing: &self.draft.writing,
             written: &self.draft.written,
             selected,
             agent: agent.and_then(|id| self.open.iter().find(|a| a.id == id)),
             new_agent: self.new_agent.as_ref(),
-            keys: &self.keys,
             choices,
         }
     }
 }
 
-pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
-    let gathered = gather(app, &params.project).await?;
-    let choices = params.choices.unwrap_or_default();
-    Ok(vm::view(&gathered.facts(
-        &params.project,
-        params.from,
-        params.selected.as_deref(),
-        params.agent.as_deref(),
-        &choices,
-    )))
-}
-
-/// A step's edit: the draft's document with it, sent whole (`flow.draft_update`, as the CLI sends one).
+/// A stage's edit: the draft's document with it, sent whole (`flow.draft_update`, as the CLI sends one).
 async fn edit(app: &App, params: EditParams) -> Result<Edited, RequestError> {
     let draft = draft(app, &params.project).await?;
     let file = yaml::read(&draft.proposal.yaml)
@@ -432,16 +312,7 @@ async fn pick(app: &App, params: PickParams) -> Result<Edited, RequestError> {
     Ok(Edited { selected: None })
 }
 
-async fn undo(app: &App, params: UndoParams) -> Result<Edited, RequestError> {
-    let edit = match params.stage {
-        Some(stage) => DraftEdit::UndoStage { stage },
-        None => DraftEdit::UndoAll,
-    };
-    update(app, &params.project, edit).await?;
-    Ok(Edited { selected: None })
-}
-
-/// Import a flow… → A file…: the file's flow copied into the draft.
+/// Import…: the file's flow copied into the draft.
 async fn import(app: &App, params: ImportParams) -> Result<Edited, RequestError> {
     let source = super::settings::read_flow_file(&params.path)
         .await
@@ -450,15 +321,11 @@ async fn import(app: &App, params: ImportParams) -> Result<Edited, RequestError>
     Ok(Edited { selected: None })
 }
 
-/// Apply (the project) or Use this flow (onboarding): the draft applies; in onboarding an untouched draft keeps the
-/// default, as Skip does.
+/// Save flow: the draft applies, with the picks its problems got.
 async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
     let proposal = params.proposal.unwrap_or(0);
     if proposal == 0 {
-        return match params.from {
-            Opened::Onboarding => use_default(app, &params.project).await,
-            Opened::Project => Err(RequestError::plain("Nothing changed")),
-        };
+        return Err(RequestError::plain("Nothing changed"));
     }
     let request = Request::FlowApply(ApplyParams {
         project: params.project,
@@ -475,34 +342,22 @@ async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
     }
 }
 
-async fn use_default(app: &App, project: &str) -> Result<(), RequestError> {
-    app.service
-        .send(Request::OnboardingUseDefault(ProjectParams {
-            project: project.to_owned(),
-        }))
-        .await?;
-    Ok(())
-}
-
-/// Cancel drops the draft (the project); Skip, use the default keeps the default flow (onboarding).
+/// Cancel drops the draft.
 async fn cancel(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
-    match params.from {
-        Opened::Onboarding => use_default(app, &params.project).await,
-        Opened::Project if params.proposal.unwrap_or(0) == 0 => Ok(()),
-        Opened::Project => {
-            match app
-                .service
-                .send(Request::FlowCancelProposal(ProjectParams {
-                    project: params.project,
-                }))
-                .await
-            {
-                Ok(_) => Ok(()),
-                // Gone meanwhile (applied or cancelled elsewhere): nothing left to drop.
-                Err(e) if e.not_found => Ok(()),
-                Err(e) => Err(e),
-            }
-        }
+    if params.proposal.unwrap_or(0) == 0 {
+        return Ok(());
+    }
+    match app
+        .service
+        .send(Request::FlowCancelProposal(ProjectParams {
+            project: params.project,
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        // Gone meanwhile (applied or cancelled elsewhere): nothing left to drop.
+        Err(e) if e.not_found => Ok(()),
+        Err(e) => Err(e),
     }
 }
 
@@ -511,46 +366,9 @@ pub fn flow_message(text: &str) -> String {
     format!("{FLOW_COMMAND} {}", text.trim())
 }
 
-/// The panel's first message (typed, or a chip): the project's Project agent starts on the `flow` skill with it.
-async fn send(app: &App, params: SendParams) -> Result<Started, RequestError> {
-    if params.text.trim().is_empty() {
-        return Err(RequestError::plain(
-            otaq_core::project_agents::EMPTY_MESSAGE,
-        ));
-    }
-    let agent = super::agent_panel::send(
-        app,
-        super::agent_panel::SendParams {
-            project: params.project,
-            message: flow_message(&params.text),
-            agent: None,
-        },
-    )
-    .await?;
-    Ok(Started { agent })
-}
-
-/// Ask <Tool> (onboarding's Flow step and a later project's Flow setup page): the tool's flow agent
-/// (`onboarding.ask`), its proposal its own Made for entry. A project's own flow is edited on its board, where Suggest a
-/// flow asks Noyan's agent (`flow_board.suggest`).
-async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
-    let request = Request::OnboardingAsk(OnboardingAskParams {
-        project: params.project,
-        tool: params.tool,
-    });
-    match app.service.send(request).await {
-        Ok(Reply::ProjectAgent(agent)) => Ok(Started { agent: agent.id }),
-        Ok(other) => Err(unexpected("onboarding.ask", &other)),
-        Err(e) => {
-            toast_error(app, "The tool wasn\u{2019}t asked", &e);
-            Err(e)
-        }
-    }
-}
-
-/// The user's send from the box Ask the agent to write it (or the Write the skill chip) prefilled (FED-06, Q441): the
-/// project's Project agent starts on the `flow` skill with the user's words, and the field says it is being written by
-/// that agent. Nothing reaches an agent before this.
+/// The user's send from the box Ask the agent to write it opened (FED-06, Q441): Noyan's agent starts on the `flow`
+/// skill with the user's words, and the field says it is being written by that agent. Nothing reaches an agent before
+/// this.
 async fn write_skill(app: &App, params: WriteParams) -> Result<Started, RequestError> {
     if params.text.trim().is_empty() {
         return Err(RequestError::plain(
@@ -576,39 +394,6 @@ async fn write_skill(app: &App, params: WriteParams) -> Result<Started, RequestE
     )
     .await?;
     Ok(Started { agent })
-}
-
-/// Ask the agent to write it while the panel's agent runs (FED-06, Q441): "Write a skill for the Plan stage: " is
-/// typed into its input line, without Return, only when that line is empty (refused with a toast over unsent text);
-/// the user finishes it and sends in its terminal. The field says it is
-/// being written once the agent asks for its folder (`otaq flow write-skill`).
-async fn prefill(app: &App, params: SkillParams) -> Result<(), RequestError> {
-    let draft = draft(app, &params.project).await?;
-    let file = yaml::read(&draft.proposal.yaml)
-        .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let open = super::agent_panel::agents(app, &params.project).await?.open;
-    let session = params
-        .agent
-        .and_then(|id| open.into_iter().find(|a| a.id == id))
-        .filter(|a| a.state == AgentState::Running)
-        .and_then(|a| a.session.map(|s| s.id))
-        .ok_or_else(|| RequestError::plain("Noyan isn\u{2019}t running"))?;
-    type_if_empty(app, session, &vm::write_skill_prefill(&file, &params.stage)).await
-}
-
-/// `text` typed into `session`'s input line without Return, never over the user's unsent text (SDD §2, d0048): the
-/// service then types nothing and refuses, which a toast says.
-async fn type_if_empty(app: &App, session: String, text: &str) -> Result<(), RequestError> {
-    app.service
-        .send(Request::SessionInput(InputParams {
-            session,
-            data: encode_bytes(text.as_bytes()),
-            reply: false,
-            if_empty: true,
-        }))
-        .await
-        .inspect_err(|e| toast_error(app, "Not typed", e))?;
-    Ok(())
 }
 
 /// Stop on a skill being written: the field is empty again, the agent's folder goes, and the agent writing it (the
@@ -678,7 +463,9 @@ async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> 
         .written
         .iter()
         .find(|w| w.stage_id == stage.id)
-        .ok_or_else(|| RequestError::plain(format!("The agent wrote no skill for {}", stage.name)))?;
+        .ok_or_else(|| {
+            RequestError::plain(format!("The agent wrote no skill for {}", stage.name))
+        })?;
     let checkout = match app.service.send(Request::ProjectList).await? {
         Reply::Projects(list) => list
             .into_iter()
@@ -687,7 +474,10 @@ async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> 
             .ok_or_else(|| RequestError::plain(format!("No project {}", draft.proposal.project)))?,
         _ => return Err(RequestError::plain("project.list answered something else")),
     };
-    let folder = written.folder.split('/').fold(checkout, |p, part| p.join(part));
+    let folder = written
+        .folder
+        .split('/')
+        .fold(checkout, |p, part| p.join(part));
     open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))?;
     Ok(())
 }
@@ -696,6 +486,7 @@ async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> 
 mod tests {
     use otaq_core::board::projects::AddProject;
     use otaq_core::git::testing::TempRepos;
+    use otaq_view::view_models::flow_board::View as BoardEditor;
     use serde_json::json;
 
     use super::*;
@@ -704,7 +495,10 @@ mod tests {
 
     #[test]
     fn the_first_message_runs_the_flow_skill() {
-        assert_eq!(flow_message("  What\u{2019}s Validate? "), "/flow What\u{2019}s Validate?");
+        assert_eq!(
+            flow_message("  What\u{2019}s Validate? "),
+            "/flow What\u{2019}s Validate?"
+        );
         assert_eq!(
             otaq_core::project_agents::first_skill(&flow_message("Suggest a flow for shop-web.")).0,
             "flow"
@@ -722,12 +516,12 @@ mod tests {
             .unwrap();
     }
 
-    async fn load(h: &Harness, selected: Option<&str>) -> vm::View {
-        view(
+    /// The board's editor over the draft, the stage `selected` open.
+    async fn load(h: &Harness, selected: Option<&str>) -> BoardEditor {
+        super::super::flow_board::view(
             &h.app,
-            ViewParams {
+            super::super::flow_board::ViewParams {
                 project: "SHOP".into(),
-                from: Opened::Project,
                 selected: selected.map(str::to_owned),
                 agent: None,
                 choices: None,
@@ -735,6 +529,10 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    fn names(v: &BoardEditor) -> Vec<&str> {
+        v.columns.iter().map(|c| c.name.as_str()).collect()
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -745,36 +543,29 @@ mod tests {
         shop_web(&h, &repos).await;
 
         // Opening the editor stores nothing and starts nothing.
-        let v = request(&h.app, "flow_editor.view", json!({ "project": "SHOP", "from": "project" }))
+        let v = load(&h, None).await;
+        assert_eq!(v.proposal, 0);
+        assert!(!v.bar.save_enabled);
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP")
             .await
             .unwrap();
-        assert_eq!(v["proposal"], 0);
-        assert_eq!(v["agent"]["pill"]["label"], "Not started");
-        assert_eq!(v["footer"]["apply"], "No changes");
-        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
-        assert!(agents.open.is_empty(), "no agent starts when the editor opens");
+        assert!(
+            agents.open.is_empty(),
+            "no agent starts when the editor opens"
+        );
 
-        // Add a stage after Dev: the draft holds it, selected.
+        // A Blank stage after Dev: the draft holds it, selected.
         let edited = request(
             &h.app,
             "flow_editor.edit",
-            json!({ "project": "SHOP", "edit": { "edit": "add", "after": "dev" } }),
+            json!({ "project": "SHOP", "edit": { "edit": "add_template", "after": "dev", "template": "new-stage" } }),
         )
         .await
         .unwrap();
         assert_eq!(edited["selected"], "new-stage");
-        let v = request(
-            &h.app,
-            "flow_editor.view",
-            json!({ "project": "SHOP", "from": "project", "selected": "new-stage" }),
-        )
-        .await
-        .unwrap();
-        assert_ne!(v["proposal"], 0);
-        assert_eq!(v["flow"]["steps"][2]["name"], "New stage");
-        assert_eq!(v["flow"]["details"]["title"], "New stage");
-        assert_eq!(v["footer"]["apply"], "Apply to shop-web");
-        assert_eq!(v["flow"]["summary"], "6 steps \u{b7} 1 change, not applied");
+        let v = load(&h, Some("new-stage")).await;
+        assert_ne!(v.proposal, 0);
+        assert_eq!(names(&v)[2], "New stage");
 
         // Rename it, then Cancel: the draft is gone.
         request(
@@ -785,17 +576,17 @@ mod tests {
         .await
         .unwrap();
         let v = load(&h, None).await;
-        assert_eq!(v.flow.steps[2].name, "Plan");
+        assert_eq!(names(&v)[2], "Plan");
         request(
             &h.app,
             "flow_editor.cancel",
-            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0);
-        assert_eq!(v.flow.steps.len(), 5);
+        assert_eq!(names(&v), ["Backlog", "Dev", "Validate", "Review", "Done"]);
     }
 
     #[tokio::test(flavor = "multi_thread")]
@@ -812,18 +603,17 @@ mod tests {
         .await
         .unwrap();
         let v = load(&h, None).await;
-        assert!(v.start_from.entries.iter().any(|e| e.name == "Spec first" && e.chosen));
-        assert_eq!(v.flow.steps[1].name, "Product spec");
+        assert_eq!(names(&v)[1], "Product spec");
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0);
-        assert_eq!(v.flow.summary, "9 steps \u{b7} in use");
+        assert_eq!(names(&v)[1], "Product spec", "in use");
     }
 
     /// T-0529 (d0131): another agent for Validate (a check has one) and Code review's fails sent to Product spec go
@@ -838,7 +628,7 @@ mod tests {
             request(
                 &h.app,
                 "flow_editor.apply",
-                json!({ "project": "SHOP", "from": "project", "proposal": proposal }),
+                json!({ "project": "SHOP", "proposal": proposal }),
             )
         };
         request(
@@ -854,59 +644,57 @@ mod tests {
             json!({ "edit": "agent", "stage": "validate", "agent": "Developer" }),
             json!({ "edit": "fail_to", "stage": "code-review", "to": "product-spec" }),
         ] {
-            request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
-                .await
-                .unwrap();
+            request(
+                &h.app,
+                "flow_editor.edit",
+                json!({ "project": "SHOP", "edit": edit }),
+            )
+            .await
+            .unwrap();
         }
         let v = load(&h, Some("validate")).await;
-        assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
+        assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         apply(v.proposal).await.unwrap();
 
         let v = load(&h, Some("validate")).await;
         assert_eq!(v.proposal, 0, "applied");
-        let step = |name: &str| v.flow.steps.iter().find(|s| s.name == name).unwrap();
-        assert_eq!(step("Validate").who.as_deref(), Some("Developer"));
-        assert_eq!(step("Validate").fails_to.as_deref(), Some("fails go to Dev"));
-        assert_eq!(step("Code review").fails_to.as_deref(), Some("fails go to Product spec"));
-        let agent = v.flow.details.unwrap().agent.unwrap();
+        let column = |name: &str| v.columns.iter().find(|c| c.name == name).unwrap();
+        assert_eq!(column("Validate").who.as_deref(), Some("Developer"));
+        assert!(
+            column("Code review")
+                .check_line
+                .as_deref()
+                .is_some_and(|l| l.ends_with("go to Product spec")),
+            "{:?}",
+            column("Code review").check_line
+        );
+        let agent = v.details.unwrap().agent.unwrap();
         assert_eq!(agent.name, "Developer");
     }
 
-    /// FED-05, FED-06: Plan picked in a new stage keeps Apply off ("Plan needs a skill"); a skill picked or typed for
-    /// it turns Apply on, and it applies.
+    /// FED-05, FED-06: a Blank stage keeps Save off ("New stage needs a skill"); a skill typed for it turns Save on,
+    /// and it applies.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_new_stage_waits_for_a_skill_and_takes_a_picked_one() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
         shop_web(&h, &repos).await;
-        let added = request(
+        request(
             &h.app,
             "flow_editor.edit",
-            json!({ "project": "SHOP", "edit": { "edit": "add", "after": "dev" } }),
+            json!({ "project": "SHOP", "edit": { "edit": "add_template", "after": "dev", "template": "new-stage" } }),
         )
         .await
         .unwrap();
-        let picked = request(
-            &h.app,
-            "flow_editor.edit",
-            json!({ "project": "SHOP", "edit": { "edit": "template", "stage": added["selected"], "template": "plan" } }),
-        )
-        .await
-        .unwrap();
-        assert_eq!(picked["selected"], "plan");
-        let v = load(&h, Some("plan")).await;
-        let details = v.flow.details.as_ref().unwrap();
-        assert_eq!(
-            details.templates.as_ref().map(|t| t.title.as_str()),
-            Some("New stage after Dev")
-        );
+        let v = load(&h, Some("new-stage")).await;
+        let details = v.details.as_ref().unwrap();
         assert!(matches!(
             details.skill.as_ref().map(|s| &s.state),
             Some(vm::SkillState::Empty { .. })
         ));
-        assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.reason.as_deref(), Some("Plan needs a skill"));
+        assert!(!v.bar.save_enabled);
+        assert_eq!(v.bar.reason.as_deref(), Some("New stage needs a skill"));
         // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
         let picker = &details.skill.as_ref().unwrap().picker;
         assert!(picker.items.iter().any(|i| i.id == "validate"));
@@ -918,34 +706,34 @@ mod tests {
                 .all(|i| i.hint.as_deref().is_some_and(|h| h.starts_with(&otaqs)))
         );
 
-        // A name typed by hand: nothing is imported or copied; nobody has it, so it warns, and Apply still works.
+        // A name typed by hand: nothing is imported or copied; nobody has it, so it warns, and Save still works.
         request(
             &h.app,
             "flow_editor.edit",
-            json!({ "project": "SHOP", "edit": { "edit": "skill", "stage": "plan", "skill": "plan-steps" } }),
+            json!({ "project": "SHOP", "edit": { "edit": "skill", "stage": "new-stage", "skill": "plan-steps" } }),
         )
         .await
         .unwrap();
-        let v = load(&h, Some("plan")).await;
+        let v = load(&h, Some("new-stage")).await;
         assert_eq!(
-            v.flow.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            v.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
             Some(&vm::SkillState::Set {
                 skill: "plan-steps".into(),
                 warning: Some("You don't have the skill `plan-steps`".into()),
             })
         );
-        assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
+        assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();
     }
 
     /// A flow file naming a skill the user doesn't have still applies: Security carries no problem, shows "You don't
-    /// have the skill `team-security-review`" on its step and in its Skill field, and Apply stays on; the file's agent
+    /// have the skill `team-security-review`" on its column and in its Skill field, and Save stays on; the file's agent
     /// `skills:` is ignored.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_skill_the_user_doesnt_have_still_applies() {
@@ -971,44 +759,41 @@ mod tests {
         )
         .await
         .unwrap();
-        let view_with = |choices: Value| {
-            let app = &h.app;
-            async move {
-                let v = request(
-                    app,
-                    "flow_editor.view",
-                    // Security takes the place (and the id) of Validate, whose name the file drops.
-                    json!({ "project": "SHOP", "from": "project", "selected": "validate", "choices": choices }),
-                )
-                .await
-                .unwrap();
-                serde_json::from_value::<Value>(v).unwrap()
-            }
-        };
-        let v = view_with(json!({})).await;
-        assert_eq!(v["flow"]["steps"][2]["name"], "Security");
-        assert_eq!(v["flow"]["steps"][2]["problem"], Value::Null);
-        assert_eq!(v["flow"]["steps"][2]["warning"], "You don't have the skill `team-security-review`");
+        // Security takes the place (and the id) of Validate, whose name the file drops.
+        let v = load(&h, Some("validate")).await;
+        let security = &v.columns[2];
+        assert_eq!(security.name, "Security");
+        assert_eq!(security.problem, None);
         assert_eq!(
-            v["flow"]["details"]["skill"]["state"]["warning"],
-            "You don't have the skill `team-security-review`"
+            security.warning.as_deref(),
+            Some("You don't have the skill `team-security-review`")
         );
-        assert_eq!(v["footer"]["apply_enabled"], true, "{}", v["footer"]);
+        assert_eq!(
+            v.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            Some(&vm::SkillState::Set {
+                skill: "team-security-review".into(),
+                warning: Some("You don't have the skill `team-security-review`".into()),
+            })
+        );
+        assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "project", "proposal": v["proposal"], "choices": v["choices"] }),
+            json!({ "project": "SHOP", "proposal": v.proposal, "choices": v.choices }),
         )
         .await
         .unwrap();
-        let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
+        let agents = super::super::settings::agent_list(&h.app)
+            .await
+            .unwrap()
+            .agents;
         assert!(agents.iter().any(|a| a.name == "Security reviewer"));
     }
 
     /// A flow file naming a tool's built-in command as a stage's skill opens with the problem on that stage (not a
-    /// warning), and Apply stays off.
+    /// warning), and Save stays off.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_built_in_command_is_a_problem_on_its_step() {
+    async fn a_built_in_command_is_a_problem_on_its_stage() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1030,24 +815,18 @@ mod tests {
         )
         .await
         .unwrap();
-        let v = request(
-            &h.app,
-            "flow_editor.view",
-            json!({ "project": "SHOP", "from": "project", "selected": "validate", "choices": {} }),
-        )
-        .await
-        .unwrap();
-        let v = serde_json::from_value::<Value>(v).unwrap();
+        let v = load(&h, Some("validate")).await;
         let said = "Security: `/security-review` is Claude Code's built-in command, not a skill. Write a small \
                     skill that runs it, and name that skill here";
-        assert_eq!(v["flow"]["steps"][2]["name"], "Security");
-        assert_eq!(v["flow"]["steps"][2]["problem"], said);
-        assert_eq!(v["flow"]["steps"][2]["warning"], Value::Null);
-        assert_eq!(v["footer"]["apply_enabled"], false, "{}", v["footer"]);
+        let security = &v.columns[2];
+        assert_eq!(security.name, "Security");
+        assert_eq!(security.problem.as_deref(), Some(said));
+        assert_eq!(security.warning, None);
+        assert!(!v.bar.save_enabled);
     }
 
-    /// Q441: Ask the agent to write it sends nothing by itself. On a running agent it only types into the input line
-    /// (refused with none running); the user's send from the box is what starts one, and an empty send starts none.
+    /// Q441: Ask the agent to write it sends nothing by itself: the user's send is what starts an agent, and an empty
+    /// send starts none.
     #[tokio::test(flavor = "multi_thread")]
     async fn writing_a_skill_waits_for_the_users_send() {
         let h = Harness::new(None);
@@ -1056,82 +835,16 @@ mod tests {
         shop_web(&h, &repos).await;
         let refused = request(
             &h.app,
-            "flow_editor.prefill",
-            json!({ "project": "SHOP", "stage": "dev", "agent": "nobody" }),
-        )
-        .await;
-        assert!(refused.is_err());
-        let refused = request(
-            &h.app,
             "flow_editor.write_skill",
             json!({ "project": "SHOP", "stage": "dev", "text": "  " }),
         )
         .await;
         assert!(refused.is_err());
-        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP")
+            .await
+            .unwrap();
         assert!(agents.open.is_empty(), "nothing started");
         let v = load(&h, None).await;
         assert_eq!(v.proposal, 0, "the field isn't marked as being written");
-    }
-
-    /// Q441, SDD §2 (d0048): the prefill types into an empty input line, and over the user's unsent text it types
-    /// nothing and says so in a toast.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn the_prefill_never_types_over_unsent_text() {
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        shop_web(&h, &repos).await;
-        let Reply::ProjectTerminal(terminal) = h
-            .app
-            .service
-            .send(Request::ProjectTerminalOpen(
-                otaq_core::protocol::ProjectTerminalParams {
-                    project: "SHOP".into(),
-                    new: true,
-                },
-            ))
-            .await
-            .unwrap()
-        else {
-            panic!("no terminal")
-        };
-        let session = terminal.session.id;
-        let unsent = || h.service.sessions().has_unsent_input(&session).unwrap();
-        type_if_empty(&h.app, session.clone(), "Write a skill for the Plan stage: ")
-            .await
-            .unwrap();
-        assert!(unsent(), "typed, not sent");
-        let refused = type_if_empty(&h.app, session.clone(), "again").await.unwrap_err();
-        assert_eq!(
-            refused.message,
-            "Its input line has unsent text: send or clear it in its terminal."
-        );
-        assert!(
-            h.app
-                .notices
-                .view()
-                .toasts
-                .iter()
-                .any(|t| t.title == "Not typed" && t.text.as_deref() == Some(refused.message.as_str())),
-            "a toast says so"
-        );
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn sending_needs_words() {
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        shop_web(&h, &repos).await;
-        let refused = request(
-            &h.app,
-            "flow_editor.send",
-            json!({ "project": "SHOP", "text": "  " }),
-        )
-        .await;
-        assert!(refused.is_err());
-        let agents = super::super::agent_panel::agents(&h.app, "SHOP").await.unwrap();
-        assert!(agents.open.is_empty());
     }
 }

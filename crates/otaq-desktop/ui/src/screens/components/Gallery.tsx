@@ -8,7 +8,6 @@ import {
   type ReactNode,
   useCallback,
   useEffect,
-  useMemo,
   useRef,
   useState,
 } from "react";
@@ -70,7 +69,6 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import type { DecisionGallery } from "../../generated/DecisionGallery";
 import type { EnvVarsGallery } from "../../generated/EnvVarsGallery";
 import type { AgentToolsGallery } from "../../generated/AgentToolsGallery";
-import type { FlowEditorGallery } from "../../generated/FlowEditorGallery";
 import type { ProjectMenuGallery } from "../../generated/ProjectMenuGallery";
 import type { OnboardingToolsGallery } from "../../generated/OnboardingToolsGallery";
 import type { WarmSwitchGallery } from "../../generated/WarmSwitchGallery";
@@ -107,6 +105,7 @@ import { Icon } from "../../theme/Icon";
 import { THEME_KEYS, type ThemeKey } from "../../theme/generated/tokens";
 import { TokenSwatches } from "../../theme/Swatches";
 import { Column, type ColumnProps } from "../board/Column";
+import { FirstTicketCard } from "../board/FirstRun";
 import { Toolbar } from "../board/Toolbar";
 import { AnswerBox as SheetAnswerBox } from "../overview/NeedsYou";
 import { NewWorkBody } from "../new_work/NewWork";
@@ -142,7 +141,6 @@ import { ActivityGallery } from "../shell/ActivityGallery";
 import { SwitcherBox } from "../shell/Header";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
-import { FlowEditorBody, recordingActions } from "../flow_editor/FlowEditor";
 import { ToolsList } from "../onboarding/Tools";
 import "../onboarding/onboarding.css";
 import "./gallery.css";
@@ -1372,7 +1370,6 @@ function CleanupWarmGallery() {
 const loadTrust = () => request("gallery.trust") as Promise<TrustGallery>;
 const loadAgentTools = () => request("gallery.agent_tools") as Promise<AgentToolsGallery>;
 const loadOnboardingTools = () => request("gallery.onboarding_tools") as Promise<OnboardingToolsGallery>;
-const loadFlowEditor = () => request("gallery.flow_editor") as Promise<FlowEditorGallery>;
 const loadProjectMenu = () => request("gallery.project_menu") as Promise<ProjectMenuGallery>;
 
 const THEMES = ["otaq-light", "otaq-dark"] as const;
@@ -1477,9 +1474,7 @@ function OnboardingToolsGallerySection() {
                   <ToolsList
                     tools={cell.tools}
                     checking={false}
-                    warning={cell.tools.warning !== null}
-                    onDismiss={record("close the warning")}
-                    onRecheck={record("Re-check")}
+                    onRecheck={record("Check again")}
                     onContinue={record("Continue")}
                     onAgentAction={(tool, action) => {
                       setPicked(`${tool} · ${action.kind === "menu" ? action.action : action.kind}`);
@@ -1491,36 +1486,6 @@ function OnboardingToolsGallerySection() {
           </div>
         ))}
       </div>
-    </Section>
-  );
-}
-
-/** *27 → The flow editor* `s27-03`/`s27-05`/`s27-06` (T-0471, T-0472, FED-01…FED-07): the editor in the project
- * (shop-web's flow) and in onboarding (Otaq default, two tools), then a new stage with Plan picked (its templates, the
- * empty skill), its skill being written and written, from `gallery.flow_editor`, in Otaq Light and Dark at the frames'
- * 1376 × 808. Clicks are only recorded. */
-function FlowEditorGallerySection() {
-  const { view, error } = useServiceView(loadFlowEditor, []);
-  const [picked, setPicked] = useState<string | null>(null);
-  const actions = useMemo(() => recordingActions(setPicked), []);
-  if (error) return <p role="alert">{error.message}</p>;
-  if (!view) return null;
-  return (
-    <Section title="27 · The flow editor (T-0471, T-0472)">
-      <Caption>Last call: {picked ?? "—"}</Caption>
-      {THEMES.map((theme) => (
-        <div key={theme} data-theme={theme} className="gallery-stack" style={themed}>
-          <Caption>{theme.toUpperCase()}</Caption>
-          {view.cells.map(([name, cell]) => (
-            <div key={name} className="gallery-stack-tight">
-              <Caption>{name.toUpperCase()}</Caption>
-              <div className="fe-dialog" style={{ width: 1376, height: 808, flex: "none" }}>
-                <FlowEditorBody view={cell} actions={actions} />
-              </div>
-            </div>
-          ))}
-        </div>
-      ))}
     </Section>
   );
 }
@@ -1728,11 +1693,8 @@ function BoardReviewSection() {
         </tbody>
       </table>
       <div className="gallery-stack-tight" style={{ maxWidth: 520 }}>
-        <Caption>EMPTY BOARD</Caption>
-        <strong>{view.empty.title}</strong>
-        <span>{view.empty.text}</span>
-        <span>{view.empty.buttons.map((b) => b.label).join(" · ")}</span>
-        <Caption>{view.empty.hints.map((h) => `${h.keys ?? ""} ${h.label}`).join(" · ")}</Caption>
+        <Caption>YOUR FIRST TICKET</Caption>
+        <FirstTicketCard view={view.first_ticket} project="SHOP" onAnswered={() => undefined} />
       </div>
       <div className="gallery-stack-tight">
         <Caption>AGENT FILTER CHIP</Caption>
@@ -2352,7 +2314,6 @@ export function Gallery({ close }: OverlayProps<"gallery">) {
         <ShortcutsGallerySection />
         <AgentToolsGallerySection />
         <OnboardingToolsGallerySection />
-        <FlowEditorGallerySection />
         <ProjectMenuGallerySection />
         <BoardReviewSection />
         <Section title="Theme picker · 14 → 2 · Theme (a click applies and saves)">

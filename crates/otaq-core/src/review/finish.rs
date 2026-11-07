@@ -66,6 +66,12 @@ impl Review {
     /// The cleanup after Done (REC-05); also used by Close ticket. A ticket that counts as merged then lands the
     /// tickets merged into it (see the module), even when its own cleanup failed.
     pub async fn finish(&self, ticket: &Ticket) -> Result<Cleanup, BoardError> {
+        if ticket.status == Status::Merged {
+            // The first ticket approved into Done closes a new user's first run: the box for new work shows from now.
+            if let Err(e) = self.inner.board.store().reach_first_approve().await {
+                tracing::warn!(error = %e, "couldn't remember the first approve");
+            }
+        }
         let cleanup = self.cleanup(ticket).await;
         if ticket.status == Status::Merged {
             Box::pin(self.land_merged_in(ticket)).await;

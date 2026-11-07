@@ -174,7 +174,7 @@ describe("the search field", () => {
 
   it("replaces the header's search entry", () => {
     const header = {
-      project: { key: "SHOP", name: "shop-web", base_branch: "main", path: "~/shop-web", flow_setup: null },
+      project: { key: "SHOP", name: "shop-web", base_branch: "main", path: "~/shop-web" },
     };
     const view = {
       ...header,

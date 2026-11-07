@@ -22,7 +22,7 @@ import { toggleOverlay, useOpenOverlays } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { useSelection } from "../../app/selection";
 import { createStore, useStore } from "../../app/store";
-import { Kbd, MetaChip, Popover, StatusPill, Tooltip } from "../../components";
+import { Kbd, MetaChip, Popover, Tooltip } from "../../components";
 import type { ActivityButton } from "../../generated/ActivityButton";
 import type { ActivityWarning } from "../../generated/ActivityWarning";
 import type { HeaderProject } from "../../generated/HeaderProject";
@@ -44,8 +44,6 @@ export const HEADER_EVENTS = [
   "usage_changed",
   "run_changed",
   "settings_changed",
-  // A project's Flow setup: its agents at work and proposals.
-  "flow_setup_changed",
   // The switcher's needs-you dots.
   "needs_you_changed",
 ] as const;
@@ -155,15 +153,7 @@ function ProjectItem({ project }: { project: HeaderProject }) {
           <Icon name="chevron-down" size={12} />
         </button>
       </Tooltip>
-      {project.flow_setup === null ? (
-        <MetaChip icon="git-branch" label={project.base_branch} />
-      ) : (
-        <>
-          <span className="header-flow-setup-dot">·</span>
-          <span className="header-flow-setup">{project.flow_setup.label}</span>
-          {project.flow_setup.status !== null && <StatusPill pill={project.flow_setup.status} />}
-        </>
-      )}
+      <MetaChip icon="git-branch" label={project.base_branch} />
       {open && (
         <Popover label={project.menu.title} anchor={trigger} onClose={close}>
           <SwitcherBox
@@ -279,8 +269,7 @@ export function HeaderBar({
   serviceDown = false,
   anchor,
 }: HeaderBarProps) {
-  // A project in Flow setup has no board, so no search.
-  const searches = view.project !== null && view.project.flow_setup === null;
+  const searches = view.project !== null;
   const { activity } = view;
   return (
     <div className="header">

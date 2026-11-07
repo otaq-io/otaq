@@ -72,6 +72,11 @@ pub const UPDATES_LAST_VERSION: &str = "updates.last_version";
 /// moment until dismissed, then never again for this data folder.
 pub const HINT_SEEN_PREFIX: &str = "hints.seen.";
 
+/// A ticket was approved and reached Done (`true`): the box for new work shows from then on, and the hints that close
+/// a new user's first run follow. Set once, never removed; a data folder that had projects before it existed counts
+/// as past it (migration 0111).
+pub const FIRST_APPROVE: &str = "first_run.first_approve";
+
 /// A one-time hint: one sentence at the moment a concept first matters, with one button that dismisses it for good.
 /// Never behind a setting. The set is closed and named: a part of the app that wants a hint adds its own here (and to
 /// [`Hint::ALL`]), with its wording in the view model that shows it.
@@ -84,17 +89,61 @@ pub enum Hint {
     /// The first time Edit flow turns the board into the editor: the flow is its columns, and nothing changes until
     /// the user saves.
     FlowColumns,
+    /// A new user's first ticket: the prefilled card in Backlog. Seen once the user answered it (Create & start or
+    /// Not now): it never comes back.
+    FirstTicket,
+    /// The first agent question: the card turns turquoise and Needs you lists it.
+    FirstQuestion,
+    /// The first permission prompt: what the tool's permission mode means for agents that work on their own.
+    PermissionPrompt,
+    /// The first time a checker sends a ticket back to its work stage.
+    CheckerSentBack,
+    /// The first ticket waiting for the user's review: what Approve and Send back do.
+    FirstReview,
+    /// After the first approve: the columns the ticket just walked are the project's flow, with Edit flow.
+    ThatWasYourFlow,
+    /// After the first approve, when the box for new work first appears.
+    NewWork,
 }
 
 impl Hint {
     /// Every hint.
-    pub const ALL: &[Hint] = &[Hint::GallerySample, Hint::FlowColumns];
+    pub const ALL: &[Hint] = &[
+        Hint::GallerySample,
+        Hint::FlowColumns,
+        Hint::FirstTicket,
+        Hint::FirstQuestion,
+        Hint::PermissionPrompt,
+        Hint::CheckerSentBack,
+        Hint::FirstReview,
+        Hint::ThatWasYourFlow,
+        Hint::NewWork,
+    ];
+
+    /// A new user's first run: the first ticket and the hints that follow it. A data folder that had projects before
+    /// these existed counts as past them (migration 0111).
+    pub const FIRST_RUN: &[Hint] = &[
+        Hint::FirstTicket,
+        Hint::FirstQuestion,
+        Hint::PermissionPrompt,
+        Hint::CheckerSentBack,
+        Hint::FirstReview,
+        Hint::ThatWasYourFlow,
+        Hint::NewWork,
+    ];
 
     /// The hint's stored and wire name (`"gallery_sample"`).
     pub fn id(self) -> &'static str {
         match self {
             Hint::GallerySample => "gallery_sample",
             Hint::FlowColumns => "flow_columns",
+            Hint::FirstTicket => "first_ticket",
+            Hint::FirstQuestion => "first_question",
+            Hint::PermissionPrompt => "permission_prompt",
+            Hint::CheckerSentBack => "checker_sent_back",
+            Hint::FirstReview => "first_review",
+            Hint::ThatWasYourFlow => "that_was_your_flow",
+            Hint::NewWork => "new_work",
         }
     }
 
@@ -122,6 +171,19 @@ impl Store {
     /// Remembers that the user dismissed `hint`: it never shows again. Dismissing it again changes nothing.
     pub async fn see_hint(&self, hint: Hint) -> Result<(), StoreError> {
         self.set_setting(&hint.seen_key(), "true").await
+    }
+
+    /// Whether a ticket was approved and reached Done ([`FIRST_APPROVE`]).
+    pub async fn first_approve(&self) -> Result<bool, StoreError> {
+        Ok(self
+            .setting(FIRST_APPROVE)
+            .await?
+            .is_some_and(|v| v == "true"))
+    }
+
+    /// Remembers that a ticket was approved and reached Done; only the first time matters.
+    pub async fn reach_first_approve(&self) -> Result<(), StoreError> {
+        self.set_setting(FIRST_APPROVE, "true").await
     }
 
     /// The stored JSON value of a global setting.

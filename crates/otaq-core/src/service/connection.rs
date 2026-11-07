@@ -608,6 +608,7 @@ async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError
         trust_note: setup::note_pending(&shared.store).await?,
         trust_note_tools: setup::note_tools(&shared.store).await?,
         trust_failed,
+        first_approve: shared.store.first_approve().await?,
     })
 }
 

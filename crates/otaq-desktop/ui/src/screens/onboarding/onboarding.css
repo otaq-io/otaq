@@ -133,43 +133,92 @@
   font-size: 14px;
 }
 
-.onboarding-points {
+/* Welcome's picture of the model: the default flow's columns, who acts in each, the sample cards. */
+.onboarding-model {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(120px, 1fr));
+  gap: 8px;
+}
+
+.onboarding-model-column {
   display: flex;
   flex-direction: column;
-  gap: 12px;
-  margin: 0;
-  padding: 0;
-  list-style: none;
-}
-
-.onboarding-point {
-  display: flex;
-  gap: 12px;
-}
-
-.onboarding-point-icon {
-  display: flex;
-  flex: none;
-  align-items: center;
-  justify-content: center;
-  width: 32px;
-  height: 32px;
+  gap: 8px;
+  min-width: 0;
+  padding: 10px;
   border-radius: var(--r-lg);
-  background: var(--accent-soft);
-  color: var(--accent);
+  background: var(--bg-column);
 }
 
-.onboarding-point-text {
+.onboarding-model-title {
+  color: var(--text-primary);
+  font: 600 12px/1.3 var(--font-ui);
+}
+
+.onboarding-model-cards {
+  display: flex;
+  flex-direction: column;
+  min-height: 64px;
+}
+
+.onboarding-model-card {
   display: flex;
   flex-direction: column;
   gap: 2px;
+  padding: 8px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+}
+
+.onboarding-model-card[data-needs-you] {
+  border-color: var(--st-attn);
+  box-shadow: inset 3px 0 0 var(--st-attn);
+}
+
+.onboarding-model-key {
+  color: var(--text-muted);
+  font: 500 10px/1.3 var(--font-mono);
+}
+
+.onboarding-model-card-title {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 500 12px/1.3 var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.onboarding-model-status {
+  color: var(--text-secondary);
+  font: 400 11px/1.3 var(--font-ui);
+}
+
+.onboarding-model-card[data-needs-you] .onboarding-model-status {
+  color: var(--st-attn);
+  font-weight: 600;
+}
+
+.onboarding-model-who {
+  color: var(--text-secondary);
+  font: 400 12px/1.35 var(--font-ui);
+}
+
+.onboarding-model-note {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 0;
   color: var(--text-secondary);
   font: 400 13px/1.45 var(--font-ui);
 }
 
-.onboarding-point-title {
-  color: var(--text-primary);
-  font-weight: 600;
+.onboarding-model-dot {
+  flex: none;
+  width: 8px;
+  height: 8px;
+  border-radius: 50%;
+  background: var(--st-attn);
 }
 
 .onboarding-foot {
@@ -299,41 +348,36 @@
   overflow-wrap: anywhere;
 }
 
-.tool-warning {
-  display: flex;
-  align-items: flex-start;
-  gap: 10px;
-  padding: 12px;
-  border: 1px solid var(--st-paused);
-  border-radius: var(--r-lg);
-  background: var(--st-paused-bg);
-  color: var(--st-paused);
+/* The Add project form. */
+.add-project-detected-note {
+  flex-basis: 100%;
+  padding-left: 23px;
+  color: var(--text-muted);
+  font: 400 12px/1.4 var(--font-ui);
 }
 
-.tool-warning-text {
+/* A later project's Flow choice: Otaq default selected, Same as <project>, Suggest one. */
+.add-project-flow {
   display: flex;
-  flex: 1;
   flex-direction: column;
-  gap: 4px;
-  color: var(--text-secondary);
-  font: 400 12px/1.45 var(--font-ui);
-}
-
-.tool-warning-title {
-  color: var(--text-primary);
-  font-weight: 600;
-}
-
-.tool-warning-link {
+  gap: 8px;
+  margin: 0;
   padding: 0;
   border: none;
-  background: none;
-  color: var(--accent);
-  font: inherit;
-  cursor: pointer;
 }
 
-/* The Add project form. */
+.add-project-flow-option {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+}
+
+.add-project-flow-line {
+  padding-left: 24px;
+  color: var(--text-muted);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
 .add-project-fields {
   display: flex;
   flex-direction: column;
@@ -417,6 +461,7 @@
 
 .add-project-detected-row {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
   gap: 10px;
   color: var(--text-muted);

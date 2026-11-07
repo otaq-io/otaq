@@ -16,7 +16,7 @@ use otaq_core::flow::draft::DraftEdit;
 use otaq_core::flow::propose::AskForChangesParams;
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_view::view_models::flow_board as vm;
-use otaq_view::view_models::flow_editor::{Choices, Opened};
+use otaq_view::view_models::flow_editor::Choices;
 use serde::Deserialize;
 use serde_json::Value;
 use ts_rs::TS;
@@ -149,7 +149,6 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
     let choices = params.choices.unwrap_or_default();
     let facts = gathered.facts(
         &params.project,
-        Opened::Project,
         params.selected.as_deref(),
         params.agent.as_deref(),
         &choices,
@@ -317,7 +316,7 @@ mod tests {
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();
@@ -412,7 +411,7 @@ mod tests {
         request(
             &h.app,
             "flow_editor.apply",
-            json!({ "project": "SHOP", "from": "project", "proposal": v.proposal }),
+            json!({ "project": "SHOP", "proposal": v.proposal }),
         )
         .await
         .unwrap();

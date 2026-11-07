@@ -42,6 +42,7 @@ use otaq_view::view_models::board_page::{
     self, AgentFilter, BoardPage, DragAnswer, DropOutcome, DropStep, DropTargetId, Params, ProjectFacts,
 };
 use otaq_view::view_models::card_menu::{self, Choice};
+use otaq_view::view_models::{empty_board, hint};
 use otaq_view::view_models::delete::{self as delete_text, DeleteText};
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::filter::Scope;
@@ -310,6 +311,7 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
     let flow = flow(app, &params.project).await;
     let view = view_prefs(app, &params.project).await;
     let helpers = helpers(app, &params.project).await;
+    let keys = super::keymap::labels(app).await;
     let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
@@ -329,11 +331,24 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         },
         &params,
         otaq_core::store::now_ms(),
-        &super::keymap::labels(app).await,
+        &keys,
     );
     if let Some(wait) = &changing {
         board_page::mark_changing(&mut page, wait);
     }
+    // A new user's first run: the first ticket on an empty board, and the hint whose moment is here.
+    let seen = super::onboarding::hints_seen(app).await;
+    board_page::first_run(
+        &mut page,
+        &hint::BoardFacts {
+            tickets: &tickets,
+            flow: &flow,
+            seen: &seen,
+            first_approve: super::onboarding::first_approve(app).await,
+            keys: &keys,
+        },
+        empty_board::first_stage_tool(&flow, agent_list.as_ref()),
+    );
     Ok(page)
 }
 

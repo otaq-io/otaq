@@ -620,17 +620,18 @@ pub fn first_hide(os: &str, agents: u32) -> OsNotification {
         )
     } else {
         let place = if os == "macos" { "menu bar" } else { "tray" };
-        let working = match agents {
-            0 => String::new(),
-            1 => "1 agent keeps working. ".to_owned(),
-            n => format!("{n} agents keep working. "),
-        };
-        (
-            format!("{PRODUCT_NAME} is still running in the {place}"),
-            format!(
-                "{working}Click the tent icon to open {PRODUCT_NAME}, or to stop agents and quit."
-            ),
-        )
+        if agents > 0 {
+            // The window closed while agents work: they go on, and Otaq still tells the user when one needs them.
+            (
+                "Agents keep working".to_owned(),
+                format!("{PRODUCT_NAME} is in the {place}; it tells you when one needs you."),
+            )
+        } else {
+            (
+                format!("{PRODUCT_NAME} is still running in the {place}"),
+                format!("Click the tent icon to open {PRODUCT_NAME}, or to stop agents and quit."),
+            )
+        }
     };
     OsNotification {
         title,
@@ -1913,18 +1914,21 @@ mod tests {
     fn the_first_hide_note() {
         let name = PRODUCT_NAME;
         let click = format!("Click the tent icon to open {name}, or to stop agents and quit.");
+        // Closed while agents work: they keep working, and Otaq is in the menu bar.
         let mac = first_hide("macos", 2);
+        assert_eq!(mac.title, "Agents keep working");
         assert_eq!(
-            mac.title,
+            mac.body,
+            format!("{name} is in the menu bar; it tells you when one needs you.")
+        );
+        assert_eq!(mac.target, Target::Board { project: None });
+        assert_eq!(first_hide("macos", 1).title, "Agents keep working");
+        let idle = first_hide("macos", 0);
+        assert_eq!(
+            idle.title,
             format!("{name} is still running in the menu bar")
         );
-        assert_eq!(mac.body, format!("2 agents keep working. {click}"));
-        assert_eq!(mac.target, Target::Board { project: None });
-        assert_eq!(
-            first_hide("macos", 1).body,
-            format!("1 agent keeps working. {click}")
-        );
-        assert_eq!(first_hide("macos", 0).body, click);
+        assert_eq!(idle.body, click);
         assert_eq!(
             first_hide("linux", 0).title,
             format!("{name} is still running in the tray")

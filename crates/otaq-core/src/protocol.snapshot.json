@@ -4283,8 +4283,15 @@
     "Hint": {
       "kind": "enum",
       "variants": {
+        "checker_sent_back": {},
+        "first_question": {},
+        "first_review": {},
+        "first_ticket": {},
         "flow_columns": {},
-        "gallery_sample": {}
+        "gallery_sample": {},
+        "new_work": {},
+        "permission_prompt": {},
+        "that_was_your_flow": {}
       }
     },
     "HintParams": {
@@ -5608,6 +5615,9 @@
     "OnboardingState": {
       "kind": "struct",
       "fields": {
+        "first_approve": {
+          "ty": "bool"
+        },
         "has_projects": {
           "ty": "bool",
           "required": true

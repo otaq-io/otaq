@@ -66,7 +66,6 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 14 · The Tools step with agent tools: the sample, none connected, one connected, hidden and warned (T-0365).
         "gallery.onboarding_tools" => reply(&onboarding_page::tools_gallery()),
         // 27 · The flow editor: shop-web's flow in the project, Otaq default in onboarding with two tools (T-0471).
-        "gallery.flow_editor" => reply(&otaq_view::view_models::flow_editor::gallery()),
         // 26 · The project menu: the flow in use, and a change waiting (T-0473).
         "gallery.project_menu" => reply(&otaq_view::view_models::project_menu::gallery()),
         // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).

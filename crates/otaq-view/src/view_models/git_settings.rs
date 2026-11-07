@@ -70,7 +70,7 @@ pub const INTRO: &str = "Installed once on this machine and used by every projec
 /// The page from the tools check's answer, or why it failed.
 pub fn view(result: Result<ToolsReport, String>) -> View {
     let error = result.as_ref().err().cloned();
-    let mut model = OnboardingModel::new(true);
+    let mut model = OnboardingModel::new();
     model.start_check();
     let report = result.as_ref().ok().cloned();
     model.finish_check(result);

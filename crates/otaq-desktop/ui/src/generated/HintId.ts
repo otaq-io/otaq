@@ -3,4 +3,4 @@
 /**
  * A hint's id as the page names it: the same names as the hints the service stores.
  */
-export type HintId = "gallery_sample" | "flow_columns";
+export type HintId = "gallery_sample" | "flow_columns" | "first_ticket" | "first_question" | "permission_prompt" | "checker_sent_back" | "first_review" | "that_was_your_flow" | "new_work";
