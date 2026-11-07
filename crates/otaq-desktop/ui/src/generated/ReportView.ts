@@ -10,7 +10,8 @@ export type ReportView = {
  */
 handle: string, 
 /**
- * "Report", or "Pasted text" for a paste not posted yet.
+ * The attachment's name ("notes.txt", "Pasted text" for posted pasted text), or "Pasted text" for a paste not
+ * posted yet.
  */
 title: string, 
 /**
