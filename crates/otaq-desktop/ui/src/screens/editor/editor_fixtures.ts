@@ -67,6 +67,7 @@ export const FORM: EditorForm = {
   base_branch: "main",
   external_id: "",
   choices: [],
+  waits_for: [],
 };
 
 export const VIEW: EditorView = {
@@ -93,6 +94,13 @@ export const VIEW: EditorView = {
   source_mode: false,
   choices: null,
   report: null,
+  waits_for: {
+    label: "Waits for",
+    hint: "optional · it starts once they merge",
+    add: "Add",
+    search: "Search by key or title",
+    remove: "Remove",
+  },
 };
 
 export const READ: EditorReadView = {

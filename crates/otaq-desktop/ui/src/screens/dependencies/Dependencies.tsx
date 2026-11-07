@@ -1,9 +1,11 @@
 // The sheet's DEPENDENCIES (DPV-04, d0006, d0049; *24 → Adding and removing* `s24-11`), in Overview under the
-// description: BLOCKED BY ("starts when both merge" while it waits) and BLOCKS, each row with the ticket's key, title
-// and where it is now ("Review · your check"); a row opens that ticket, its ✕ removes the link. Add opens a picker:
-// the direction first (Blocked by · Blocks), then a search by key or title; ↑↓ and ↵ pick, Esc closes. The service
-// checks every link (loops, bases, who may) and a loop is refused with DPV-04's words, shown under the rows where the
-// rule reads. Everything it says is Rust's (`dependencies.view`, `dependencies.search`, `dependencies.link`).
+// description: WAITS FOR ("starts when both merge" while it waits) and WAITING FOR IT, each row with the ticket's key,
+// title and where it is now ("Review · your check"); a row opens that ticket. A link is added only from the waiting
+// ticket: Add opens a search by key or title for a ticket this one will wait for (↑↓ and ↵ pick, Esc closes), and a
+// Waits for row's ✕ removes it; Waiting for it is read-only. The New ticket form's Waits for uses the same search
+// (`WaitsForField` in `screens/editor`). The service checks every link (loops, bases, who may) and a loop is refused
+// with DPV-04's words, shown under the rows where the rule reads. Everything it says is Rust's (`dependencies.view`,
+// `dependencies.search`, `dependencies.link`).
 import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
@@ -11,65 +13,111 @@ import { openTicket } from "../../app/selection";
 import { Popover, PLAIN_TEXT } from "../../components";
 import { paletteInk } from "../../cards/look";
 import type { DependenciesView } from "../../generated/DependenciesView";
-import type { DependencyDirection } from "../../generated/DependencyDirection";
 import type { DependencyGroup } from "../../generated/DependencyGroup";
 import type { DependencyLinked } from "../../generated/DependencyLinked";
 import type { DependencyRow } from "../../generated/DependencyRow";
+import type { DependencySearchFor } from "../../generated/DependencySearchFor";
 import type { DependencySearchRow } from "../../generated/DependencySearchRow";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { DEPENDENCY_EVENTS, highlighted, step } from "./logic";
 
-/** Sends one link's change; answers with the refusal's words, or `null` when it went through. */
+/** Adds or removes "`key` waits for `other`"; answers with the refusal's words, or `null` when it went through. */
 export function sendLink(
   key: string,
   other: string,
-  direction: DependencyDirection,
   add: boolean,
   ask: typeof request = request,
 ): Promise<string | null> {
-  return (ask("dependencies.link", { key, other, direction, add }) as Promise<DependencyLinked>).then(
-    (out) => (out.outcome === "refused" ? out.message : null),
+  return (ask("dependencies.link", { key, other, add }) as Promise<DependencyLinked>).then((out) =>
+    out.outcome === "refused" ? out.message : null,
   );
 }
 
-function Row({
+/** The tickets `waiting` could wait for that match `query`, while the search is open. */
+export function useWaitSearch(
+  open: boolean,
+  waiting: DependencySearchFor,
+  query: string,
+): readonly DependencySearchRow[] {
+  const [rows, setRows] = useState<readonly DependencySearchRow[]>([]);
+  const asked = JSON.stringify(waiting);
+  useEffect(() => {
+    if (!open) return;
+    let live = true;
+    (
+      request("dependencies.search", { waiting: JSON.parse(asked) as DependencySearchFor, query }) as Promise<
+        DependencySearchRow[]
+      >
+    ).then(
+      (r) => {
+        if (live) setRows(r);
+      },
+      () => undefined,
+    );
+    return () => {
+      live = false;
+    };
+  }, [open, asked, query]);
+  return rows;
+}
+
+/**
+ * One linked ticket: in Overview it opens the ticket (`opens`); a ✕ removes it when `onRemove` is given (only what
+ * the ticket waits for: Waiting for it is read-only).
+ */
+export function LinkedRow({
   row,
   remove,
   onRemove,
+  opens = true,
 }: {
-  row: DependencyRow;
+  row: Pick<DependencyRow, "key" | "title"> & Partial<Pick<DependencyRow, "place" | "dot">>;
   remove: string;
-  onRemove: (row: DependencyRow) => void;
+  onRemove?: () => void;
+  opens?: boolean;
 }) {
-  return (
-    <div className="dependency-row">
-      <button
-        type="button"
-        className="dependency-open"
-        onClick={() => {
-          openTicket(row.key);
-        }}
-      >
-        <span className="dependency-key">{row.key}</span>
-        <span className="dependency-title">{row.title}</span>
+  const content = (
+    <>
+      <span className="dependency-key">{row.key}</span>
+      <span className="dependency-title">{row.title}</span>
+      {row.place !== undefined && row.dot !== undefined && (
         <span className="dependency-place">
           <span className="dependency-dot" style={{ background: paletteInk(row.dot) }} />
           <span>{row.place}</span>
         </span>
-      </button>
-      <button
-        type="button"
-        className="dependency-remove"
-        aria-label={`${remove} ${row.key}`}
-        title={remove}
-        onClick={() => {
-          onRemove(row);
-        }}
-      >
-        <Icon name="x" size={13} />
-      </button>
+      )}
+    </>
+  );
+  return (
+    <div className="dependency-row">
+      {opens ? (
+        <button
+          type="button"
+          className="dependency-open"
+          onClick={() => {
+            openTicket(row.key);
+          }}
+        >
+          {content}
+        </button>
+      ) : (
+        <span className="dependency-open" data-still>
+          {content}
+        </span>
+      )}
+      {onRemove && (
+        <button
+          type="button"
+          className="dependency-remove"
+          aria-label={`${remove} ${row.key}`}
+          title={remove}
+          onClick={onRemove}
+        >
+          <Icon name="x" size={13} />
+        </button>
+      )}
     </div>
   );
 }
@@ -90,16 +138,30 @@ function Group({
       {group.rows.length === 0 ? (
         <div className="dependency-empty">{group.empty}</div>
       ) : (
-        group.rows.map((row) => <Row key={row.key} row={row} remove={remove} onRemove={onRemove} />)
+        group.rows.map((row) => (
+          <LinkedRow
+            key={row.key}
+            row={row}
+            remove={remove}
+            {...(group.removable
+              ? {
+                  onRemove: () => {
+                    onRemove(row);
+                  },
+                }
+              : {})}
+          />
+        ))
       )}
     </div>
   );
 }
 
 export interface PickerProps {
-  view: DependenciesView;
-  direction: DependencyDirection;
-  onDirection: (direction: DependencyDirection) => void;
+  /** The search field's placeholder ("Search by key or title"). */
+  search: string;
+  /** The line under the rows (the loop rule), when there is one. */
+  rule: string | null;
   query: string;
   onQuery: (query: string) => void;
   rows: readonly DependencySearchRow[];
@@ -107,17 +169,8 @@ export interface PickerProps {
   onPick: (row: DependencySearchRow) => void;
 }
 
-/** The Add picker's body: the direction, the search and its rows, then the loop rule (or the refusal). */
-export function PickerBody({
-  view,
-  direction,
-  onDirection,
-  query,
-  onQuery,
-  rows,
-  refusal,
-  onPick,
-}: PickerProps) {
+/** The Add picker's body: the search and its rows, then the loop rule (or the refusal). */
+export function PickerBody({ search, rule, query, onQuery, rows, refusal, onPick }: PickerProps) {
   const [hover, setHover] = useState<number | null>(null);
   const lit = highlighted(hover, rows.length);
   const onKey = (e: KeyboardEvent<HTMLInputElement>) => {
@@ -135,23 +188,6 @@ export function PickerBody({
   };
   return (
     <div className="dependency-picker">
-      <div className="board-segments" role="radiogroup" aria-label={view.add}>
-        {view.directions.map((d) => (
-          <button
-            key={d.direction}
-            type="button"
-            role="radio"
-            className="board-segment"
-            aria-checked={d.direction === direction}
-            tabIndex={d.direction === direction ? 0 : -1}
-            onClick={() => {
-              onDirection(d.direction);
-            }}
-          >
-            {d.label}
-          </button>
-        ))}
-      </div>
       <label className="dependency-search">
         <Icon name="search" size={13} />
         <input
@@ -160,8 +196,8 @@ export function PickerBody({
           // eslint-disable-next-line jsx-a11y/no-autofocus -- the Add click asks for the search
           autoFocus
           value={query}
-          placeholder={view.search}
-          aria-label={view.search}
+          placeholder={search}
+          aria-label={search}
           onChange={(e) => {
             onQuery(e.target.value);
             setHover(null);
@@ -170,7 +206,7 @@ export function PickerBody({
         />
       </label>
       {rows.length > 0 && (
-        <div className="dependency-results" role="listbox" aria-label={view.search}>
+        <div className="dependency-results" role="listbox" aria-label={search}>
           {rows.map((row, i) => (
             <div
               key={row.key}
@@ -195,12 +231,12 @@ export function PickerBody({
           ))}
         </div>
       )}
-      {refusal === null ? (
-        <p className="dependency-rule">{view.rule}</p>
-      ) : (
+      {refusal !== null ? (
         <p className="dependency-rule" data-refused role="alert">
           {refusal}
         </p>
+      ) : (
+        rule !== null && <p className="dependency-rule">{rule}</p>
       )}
     </div>
   );
@@ -210,25 +246,9 @@ export function PickerBody({
 export function DependenciesBody({ ticket, view }: { ticket: string; view: DependenciesView }) {
   const add = useRef<HTMLButtonElement>(null);
   const [open, setOpen] = useState(false);
-  const [direction, setDirection] = useState<DependencyDirection>("blocked_by");
   const [query, setQuery] = useState("");
-  const [rows, setRows] = useState<readonly DependencySearchRow[]>([]);
+  const rows = useWaitSearch(open, { mode: "ticket", key: ticket }, query);
   const [refusal, setRefusal] = useState<string | null>(null);
-  useEffect(() => {
-    if (!open) return;
-    let live = true;
-    (
-      request("dependencies.search", { key: ticket, direction, query }) as Promise<DependencySearchRow[]>
-    ).then(
-      (r) => {
-        if (live) setRows(r);
-      },
-      () => undefined,
-    );
-    return () => {
-      live = false;
-    };
-  }, [open, ticket, direction, query]);
   const close = useCallback(() => {
     setOpen(false);
     setQuery("");
@@ -236,7 +256,7 @@ export function DependenciesBody({ ticket, view }: { ticket: string; view: Depen
   }, []);
   const pick = (row: DependencySearchRow) => {
     setRefusal(null);
-    void sendLink(ticket, row.key, direction, true).then((refused) => {
+    void sendLink(ticket, row.key, true).then((refused) => {
       if (refused === null) close();
       else setRefusal(refused);
     });
@@ -244,7 +264,7 @@ export function DependenciesBody({ ticket, view }: { ticket: string; view: Depen
   const [removeError, setRemoveError] = useState<string | null>(null);
   const remove = (row: DependencyRow) => {
     setRemoveError(null);
-    void sendLink(ticket, row.key, row.direction, false).then(setRemoveError);
+    void sendLink(ticket, row.key, false).then(setRemoveError);
   };
   return (
     <section className="dependencies" aria-label={view.title}>
@@ -265,8 +285,8 @@ export function DependenciesBody({ ticket, view }: { ticket: string; view: Depen
           {view.add}
         </button>
       </div>
-      <Group group={view.blocked_by} remove={view.remove} onRemove={remove} />
-      <Group group={view.blocks} remove={view.remove} onRemove={remove} />
+      <Group group={view.waits_for} remove={view.remove} onRemove={remove} />
+      <Group group={view.waiting_for_it} remove={view.remove} onRemove={remove} />
       {removeError !== null && (
         <p className="dependency-rule" data-refused role="alert">
           {removeError}
@@ -275,12 +295,8 @@ export function DependenciesBody({ ticket, view }: { ticket: string; view: Depen
       {open && (
         <Popover label={view.add} anchor={add} align="end" onClose={close}>
           <PickerBody
-            view={view}
-            direction={direction}
-            onDirection={(d) => {
-              setDirection(d);
-              setRefusal(null);
-            }}
+            search={view.search}
+            rule={view.rule}
             query={query}
             onQuery={(q) => {
               setQuery(q);
