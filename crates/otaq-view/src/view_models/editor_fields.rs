@@ -83,6 +83,17 @@ pub fn refusal_title(code: Option<&str>) -> &'static str {
     }
 }
 
+/// Create & start's refusal of the start: the ticket was created and stays in Backlog.
+pub const NOT_STARTED: &str = "Created, but not started";
+
+/// Why a start went nowhere when the service didn't say (a ticket already past Backlog, a flow with no stage).
+pub const CANNOT_START_HERE: &str = "It can\u{2019}t start from where it is now.";
+
+/// Create & start's refused start in words: where the ticket is, then why ("SHOP-13 is in Backlog. <reason>").
+pub fn not_started_message(key: &str, reason: &str) -> String {
+    format!("{key} is in Backlog. {reason}")
+}
+
 /// The refusal's icon: a loop for a cycle (*08 → Cycle error*), otherwise the error circle.
 pub fn refusal_icon(code: Option<&str>) -> IconName {
     match code {

@@ -34,6 +34,20 @@ export function isSaveKey(e: {
   return e.key === "Enter" && (e.metaKey || e.ctrlKey) && !e.isComposing;
 }
 
+/** ⇧⌘↵ (Ctrl+Shift+↵ off the Mac): the new-ticket form's Create & start, beside ⌘↵'s Create. */
+export const START_KEYS = navigator.userAgent.includes("Mac") ? "⇧⌘↵" : "Ctrl+Shift+↵";
+
+/** Whether a save key asks for Create & start: ⌘↵ with Shift. */
+export function isStartKey(e: {
+  key: string;
+  shiftKey: boolean;
+  metaKey: boolean;
+  ctrlKey: boolean;
+  isComposing?: boolean;
+}): boolean {
+  return isSaveKey(e) && e.shiftKey;
+}
+
 /** Save is enabled once there is a title (`EditorModel::can_save`; Rust checks again). */
 export function canSave(form: EditorForm, saving: boolean): boolean {
   return form.title.trim() !== "" && !saving;

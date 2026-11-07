@@ -11,6 +11,9 @@ before Publish (`scripts/README.md`, "Making a release").
   change". It begins by itself when it can, and nothing is spent until then. A ticket waiting for a dependency can be
   started too; it no longer asks you to remove the dependency first. Tickets that were in Ready for Dev wait at the
   top of their first stage.
+- **Create & start.** The New ticket form has **Create & start** next to **Create** (⇧⌘↵, Ctrl+Shift+↵ on Windows
+  and Linux): the ticket is created with what it waits for and its stage choices, then starts at once, so one that
+  waits for SHOP-12 waits at the top of the first stage. If it can't start, it stays in Backlog and the form says why.
 - **Tickets have no External ID.** The field is gone from New ticket, Edit ticket, the ticket's details line, the
   PR dialog, `otaq show` and `prime`; History no longer lists changes to it. Your tickets keep everything else.
 - **Your skills stay where they are.** Otaq no longer copies or imports skills. Each tool loads your skills the

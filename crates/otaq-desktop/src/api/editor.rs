@@ -34,8 +34,10 @@ use otaq_view::view_models::editor::{
     EditorModel, NewReport, REPORT_LINE_REQUIRED, ReportField, TITLE_REQUIRED, report_field,
 };
 use otaq_view::view_models::editor_fields::{
-    BaseField, base_choices, refusal_icon, refusal_title, visibility,
+    BaseField, CANNOT_START_HERE, NOT_STARTED, base_choices, not_started_message, refusal_icon,
+    refusal_title, visibility,
 };
+use otaq_view::view_models::board_page::DropOutcome;
 use otaq_view::view_models::menu::{MenuItem, MenuSearch};
 use otaq_view::view_models::priority::{self, FORM_HINT, PriorityView};
 use otaq_view::view_models::validation_texts;
@@ -50,6 +52,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "editor.open" => reply(&open(app, parse(params)?).await?),
         "editor.save" => reply(&save(app, parse(params)?).await?),
+        "editor.create_and_start" => reply(&create_and_start(app, parse(params)?).await?),
         "editor.branches" => reply(&branches(app, parse(params)?).await?),
         "editor.compare" => reply(&compare_view(app, parse(params)?).await?),
         "editor.source_mode" => {
@@ -184,6 +187,11 @@ pub struct Texts {
     pub edit: &'static str,
     pub back: &'static str,
     pub in_word: &'static str,
+    /// The new-ticket form's second button, "Create & start" (`null` when editing a ticket), its key hint's word
+    /// ("create & start"), and its label once a refusal left the form on the created ticket ("Save & start").
+    pub create_and_start: Option<&'static str>,
+    pub start_word: &'static str,
+    pub save_and_start: &'static str,
     /// Quick-create: "↵ create · ⇧↵ full form".
     pub quick_create: &'static str,
     pub quick_full: &'static str,
@@ -325,6 +333,9 @@ fn texts(create: bool) -> Texts {
         cancel: "Cancel",
         close: "Close",
         primary: if create { "Create ticket" } else { "Save" },
+        create_and_start: create.then_some("Create & start"),
+        start_word: "create & start",
+        save_and_start: "Save & start",
         edit: "Edit",
         back: "Back",
         in_word: "in",
@@ -784,6 +795,51 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             };
             update_ticket(app, key, &before, update).await
         }
+    }
+}
+
+// ---------------------------------------------------------------------------------------------------------------
+// editor.create_and_start
+
+/// Create & start (the full form's second button, and the box for new work's ⌘↵): `editor.save`, then the ticket's
+/// Start (`board.start`). The new ticket's "Waits for" links and stage choices are written before it starts, so one
+/// created waiting for SHOP-12 waits at the top of the first stage instead of beginning. Only the user starts a
+/// ticket: this is the user's request, never Noyan's. A save that is refused (no title, a link refused) starts
+/// nothing. A refused start leaves the created ticket in Backlog and says why, the editor kept open on it
+/// (`created`). The editor's own ticket (`Target::Edit`, after such a refusal) is saved and started the same way.
+pub async fn create_and_start(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestError> {
+    if !matches!(params.target, Target::Create { .. } | Target::Edit { .. }) {
+        return Err(RequestError::plain(
+            "Only a new ticket, or the one the editor created, starts from the editor.",
+        ));
+    }
+    let saved = save(app, params).await?;
+    let SaveOutcome::Saved { key, .. } = saved else {
+        return Ok(saved);
+    };
+    let started = super::board::start(app, super::board::StartParams { key: key.clone() }).await;
+    Ok(started_outcome(key, started))
+}
+
+/// How Create & start went once the ticket `key` was saved, from its start: started (in the first stage, or waiting at
+/// its top with its reason), or refused in words with the ticket left created in Backlog.
+pub fn started_outcome(key: String, started: Result<DropOutcome, RequestError>) -> SaveOutcome {
+    let reason = match started {
+        Ok(DropOutcome::Moved) => return SaveOutcome::Saved { key, note: None },
+        Ok(DropOutcome::NotYet { message }) => message,
+        Ok(DropOutcome::Nothing | DropOutcome::Park { .. } | DropOutcome::DragBack { .. }) => {
+            CANNOT_START_HERE.to_owned()
+        }
+        Err(e) => e.message,
+    };
+    SaveOutcome::Refused {
+        refusal: Refusal {
+            field: RefusalField::Form,
+            title: NOT_STARTED,
+            message: not_started_message(&key, &reason),
+            icon: IconName::CircleX,
+        },
+        created: Some(key),
     }
 }
 
@@ -1425,6 +1481,158 @@ mod tests {
         table(&h.app, "editor.source_mode", json!({ "on": false })).await.unwrap();
         let view = table(&h.app, "editor.open", create).await.unwrap();
         assert_eq!(view["source_mode"], false);
+        h.service.stop_all().await;
+    }
+
+    /// A refused start says why in words and leaves the editor on the created ticket; a start that went is saved.
+    #[test]
+    fn a_refused_start_keeps_the_created_ticket_and_says_why() {
+        assert_eq!(
+            started_outcome("SHOP-13".into(), Ok(DropOutcome::Moved)),
+            SaveOutcome::Saved {
+                key: "SHOP-13".into(),
+                note: None
+            }
+        );
+        let refused = started_outcome(
+            "SHOP-13".into(),
+            Err(RequestError::plain("Dev's agent tool isn't set up.")),
+        );
+        let SaveOutcome::Refused { refusal, created } = refused else {
+            panic!("{refused:?}");
+        };
+        assert_eq!(created.as_deref(), Some("SHOP-13"));
+        assert_eq!(refusal.field, RefusalField::Form);
+        assert_eq!(refusal.title, "Created, but not started");
+        assert_eq!(
+            refusal.message,
+            "SHOP-13 is in Backlog. Dev's agent tool isn't set up."
+        );
+        let SaveOutcome::Refused { refusal, .. } =
+            started_outcome("SHOP-13".into(), Ok(DropOutcome::Nothing))
+        else {
+            panic!("a start that goes nowhere is refused");
+        };
+        assert_eq!(
+            refusal.message,
+            "SHOP-13 is in Backlog. It can\u{2019}t start from where it is now."
+        );
+        assert_eq!(texts(true).create_and_start, Some("Create & start"));
+        assert_eq!(texts(false).create_and_start, None);
+    }
+
+    /// Create & start through a real service: the new ticket's "Waits for" is linked before it starts, so it waits at
+    /// the top of the first stage saying what for; a link refused starts nothing; a start that can't go (the ticket
+    /// already started) leaves it as it is and says why.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn create_and_start_waits_in_the_first_stage_or_says_why_not() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+                flow_setup: false,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p.key,
+            other => panic!("{other:?}"),
+        };
+        let create = json!({ "mode": "create", "project": project });
+        let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
+        assert_eq!(view["texts"]["create_and_start"], "Create & start");
+
+        let missing = table(
+            &h.app,
+            "editor.create_and_start",
+            json!({ "target": create, "form": form("") }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(missing["outcome"], "title_missing");
+
+        // The ticket it will wait for, created and left in Backlog.
+        let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Checkout API") }))
+            .await
+            .unwrap();
+        let parent = saved["key"].as_str().unwrap().to_owned();
+
+        let mut waiting = form("Checkout page");
+        waiting.waits_for = vec![parent.clone()];
+        let started = table(
+            &h.app,
+            "editor.create_and_start",
+            json!({ "target": create, "form": waiting }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(started["outcome"], "saved", "{started}");
+        let child = started["key"].as_str().unwrap().to_owned();
+        let app = &h.app;
+        let get = |key: String| async move { found(app, &key).await.unwrap() };
+        let t = get(child.clone()).await;
+        assert_eq!(t.status, Status::Queued, "it waits at the top of the first stage");
+        assert_eq!(
+            t.depends_on.iter().map(ToString::to_string).collect::<Vec<_>>(),
+            std::slice::from_ref(&parent)
+        );
+        let board = table(
+            &h.app,
+            "board.view",
+            json!({ "project": project, "width": 1376.0, "height": 856.0 }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(board["columns"][1]["id"], "dev");
+        let dev = board["columns"][1].to_string();
+        assert!(dev.contains(&child), "{dev}");
+        assert!(dev.contains(&format!("Waits for {parent} to merge")), "{dev}");
+        assert_eq!(get(parent.clone()).await.status, Status::Backlog);
+
+        // A link the service refuses: created, kept in Backlog, nothing started.
+        let mut unknown = form("Coupon field");
+        unknown.waits_for = vec!["NOPE-99".into()];
+        let refused = table(
+            &h.app,
+            "editor.create_and_start",
+            json!({ "target": create, "form": unknown }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(refused["outcome"], "refused", "{refused}");
+        let created = refused["created"].as_str().unwrap().to_owned();
+        assert_eq!(get(created).await.status, Status::Backlog);
+
+        // A start that can't go (already started) is refused in words; the ticket stays where it is.
+        let edit = json!({ "mode": "edit", "key": child });
+        let again = table(
+            &h.app,
+            "editor.create_and_start",
+            json!({ "target": edit, "form": form("Checkout page") }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(again["outcome"], "refused", "{again}");
+        assert_eq!(again["refusal"]["title"], "Created, but not started");
+        assert_eq!(get(child).await.status, Status::Queued);
+
+        // Overview's in-place description never starts anything.
+        let in_place = json!({ "mode": "description", "key": parent });
+        assert!(
+            table(
+                &h.app,
+                "editor.create_and_start",
+                json!({ "target": in_place, "form": form("x") }),
+            )
+            .await
+            .is_err()
+        );
         h.service.stop_all().await;
     }
 

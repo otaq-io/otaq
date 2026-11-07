@@ -23,12 +23,13 @@ import {
   copyMarkdown,
   formReport,
   isSaveKey,
+  isStartKey,
   quickKey,
   refusalFor,
   shownPriority,
 } from "./logic";
 import { Compare, Description, DescriptionTools, LabelRow } from "./ReadMode";
-import { useFormKeys } from "./Modal";
+import { FullForm, useFormKeys } from "./Modal";
 import { takeEditRequest } from "./EditForm";
 import { useEditor } from "./useEditor";
 import { FORM, READ, REPORT_FIELD, TEXTS, VIEW } from "./editor_fixtures";
@@ -127,6 +128,13 @@ describe("the editor's form state", () => {
     expect(canSave({ ...FORM, title: "  " }, false)).toBe(false);
     expect(canSave({ ...FORM, title: "Checkout" }, true)).toBe(false);
     expect(canSave({ ...FORM, title: "Checkout" }, false)).toBe(true);
+  });
+
+  it("⇧⌘↵ is Create & start; ⌘↵ alone is not", () => {
+    expect(isStartKey({ key: "Enter", shiftKey: true, metaKey: true, ctrlKey: false })).toBe(true);
+    expect(isStartKey({ key: "Enter", shiftKey: true, metaKey: false, ctrlKey: true })).toBe(true);
+    expect(isStartKey({ key: "Enter", shiftKey: false, metaKey: true, ctrlKey: false })).toBe(false);
+    expect(isStartKey({ key: "Enter", shiftKey: true, metaKey: false, ctrlKey: false })).toBe(false);
   });
 
   it("priority shows the picked one, else the view's; a change is a change", () => {
@@ -675,6 +683,99 @@ describe("the editor", () => {
     expect(registered(registerScreens({ editor }))).toMatchObject({
       overlays: ["new_ticket", "edit_ticket", "full_view", "report", "image"],
     });
+  });
+});
+
+describe("Create & start in the new-ticket form", () => {
+  /** Mounts the full form on a new ticket, recording each request; `answer` replies to Create & start. */
+  function openNew(answer: unknown, view: EditorView = VIEW) {
+    const sent: { method: string; params: { target: unknown; form: EditorForm } }[] = [];
+    ipc.reply = (method, params) => {
+      if (method !== "editor.create_and_start" && method !== "editor.save") return [];
+      sent.push({ method, params: params as { target: unknown; form: EditorForm } });
+      return method === "editor.save" ? { outcome: "saved", key: "SHOP-13", note: null } : answer;
+    };
+    const close = vi.fn();
+    const target = { mode: "create" as const, project: "SHOP" };
+    const initial = { ...FORM, title: "Checkout page", waits_for: ["SHOP-12"] };
+    mount(createElement(FullForm, { view, target, initial, close }));
+    const button = (label: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>("button.button")].find((b) => b.textContent === label);
+    const click = async (label: string) => {
+      await act(async () => {
+        button(label)?.click();
+        await Promise.resolve();
+      });
+    };
+    const key = async (shiftKey: boolean) => {
+      const title = document.querySelector<HTMLInputElement>(".editor-title");
+      await act(async () => {
+        title?.dispatchEvent(
+          new KeyboardEvent("keydown", {
+            key: "Enter",
+            metaKey: true,
+            shiftKey,
+            bubbles: true,
+            cancelable: true,
+          }),
+        );
+        await Promise.resolve();
+      });
+    };
+    return { sent, close, button, click, key };
+  }
+
+  it("sits next to Create; one request creates the ticket with its Waits for and starts it, then the form closes", async () => {
+    const form = openNew({ outcome: "saved", key: "SHOP-13", note: null });
+    expect(form.button("Create & start")).toBeDefined();
+    expect(form.button("Create ticket")).toBeDefined();
+    expect(document.body.textContent).toContain("create & start");
+    await form.click("Create & start");
+    expect(form.sent.map((s) => s.method)).toEqual(["editor.create_and_start"]);
+    expect(form.sent[0]?.params.target).toEqual({ mode: "create", project: "SHOP" });
+    expect(form.sent[0]?.params.form.waits_for).toEqual(["SHOP-12"]);
+    expect(form.close).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("⇧⌘↵ creates and starts, ⌘↵ only creates", async () => {
+    const started = openNew({ outcome: "saved", key: "SHOP-13", note: null });
+    await started.key(true);
+    expect(started.sent.map((s) => s.method)).toEqual(["editor.create_and_start"]);
+    unmount();
+    const created = openNew({ outcome: "saved", key: "SHOP-13", note: null });
+    await created.key(false);
+    expect(created.sent.map((s) => s.method)).toEqual(["editor.save"]);
+    unmount();
+  });
+
+  it("a refused start keeps the form open on the created ticket and says why", async () => {
+    const form = openNew({
+      outcome: "refused",
+      refusal: {
+        field: "form",
+        title: "Created, but not started",
+        message: "SHOP-13 is in Backlog. Dev's agent tool isn't set up.",
+        icon: "circle-x",
+      },
+      created: "SHOP-13",
+    });
+    await form.click("Create & start");
+    expect(form.close).not.toHaveBeenCalled();
+    const refusal = document.querySelector(".editor-refusal");
+    expect(refusal?.textContent).toContain("Created, but not started");
+    expect(refusal?.textContent).toContain("SHOP-13 is in Backlog. Dev's agent tool isn't set up.");
+    // Trying again saves and starts the ticket it created, not a second one.
+    await form.click("Save & start");
+    expect(form.sent[1]?.params.target).toEqual({ mode: "edit", key: "SHOP-13" });
+    unmount();
+  });
+
+  it("an existing ticket's form has no Create & start", () => {
+    openNew(null, { ...VIEW, create: false, texts: { ...TEXTS, create_and_start: null } });
+    expect(document.body.textContent).not.toContain("Create & start");
+    expect(document.body.textContent).not.toContain("create & start");
+    unmount();
   });
 });
 

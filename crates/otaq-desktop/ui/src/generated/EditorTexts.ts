@@ -18,6 +18,11 @@ base_search: MenuSearch,
  */
 save_word: string, discard_word: string, close_word: string, cancel: string, close: string, primary: string, edit: string, back: string, in_word: string, 
 /**
+ * The new-ticket form's second button, "Create & start" (`null` when editing a ticket), its key hint's word
+ * ("create & start"), and its label once a refusal left the form on the created ticket ("Save & start").
+ */
+create_and_start: string | null, start_word: string, save_and_start: string, 
+/**
  * Quick-create: "↵ create · ⇧↵ full form".
  */
 quick_create: string, quick_full: string, open_terminal: string, marker: string, compare: string, before: string, after: string, nothing_written: string, 
