@@ -25,23 +25,23 @@ fn the_four_presets_are_listed_as_drawn() {
                 default_name.as_str(),
                 "Today\u{2019}s board",
                 naming::DEFAULT_FLOW_FILE,
-                cols(&["Ready for Dev", "Dev", "Validate", "Review", "Done"]),
+                cols(&["Backlog", "Dev", "Validate", "Review", "Done"]),
                 "Local merge or PR \u{b7} click".to_owned(),
             ),
             (
                 "Solo autopilot",
                 "Solo projects that trust the checks",
                 "solo-autopilot.yaml",
-                cols(&["Ready for Dev", "Dev", "Validate", "Done"]),
+                cols(&["Backlog", "Dev", "Validate", "Done"]),
                 "Local merge \u{b7} automatic".to_owned(),
             ),
             (
                 "Spec first",
                 "Plan on the board, then build",
                 "spec-first.yaml",
-                // The first stage isn't Dev: the waiting column is "Ready" (d0093, Q515).
+                // Backlog and Done are the fixed ends of every flow.
                 cols(&[
-                    "Ready",
+                    "Backlog",
                     "Product spec",
                     "Tech spec",
                     "Milestone plan",
@@ -57,7 +57,7 @@ fn the_four_presets_are_listed_as_drawn() {
                 "Team PR",
                 "Teams that review on GitHub or GitLab: the PR is the review",
                 "team-pr.yaml",
-                cols(&["Ready for Dev", "Dev", "Validate", "Done"]),
+                cols(&["Backlog", "Dev", "Validate", "Done"]),
                 "PR \u{b7} automatic".to_owned(),
             ),
         ]

@@ -3,7 +3,7 @@
 //! once. One marker, one backstop: every session says who asked ([`Start`]), and [`crate::session::Sessions::spawn`]
 //! refuses an automatic one in a paused project. Where each kept start waits:
 //!
-//! - **a ticket's agent** (the scheduler from Ready for Dev and between two Agent stages, a drag, Send back, a
+//! - **a ticket's agent** (the scheduler while waiting to begin and between two Agent stages, a drag, Send back, a
 //!   conflict's `restack`, d0064): Queued, as it was ([`crate::start::StartOutcome::Kept`]); the scheduler holds a
 //!   paused project's tickets and starts them once it wakes;
 //! - **a check's checker** (after a submit or a pass, a drag into a check, d0063): the ticket is interrupted from its

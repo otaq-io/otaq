@@ -1,12 +1,12 @@
-//! The board's columns from the project's flow (STG-08, d0108; d0004, d0066, d0087): Backlog, Ready for Dev, one
-//! column per stage (its id the stage's id, its title the stage's name), and Done. Every stage is its own column:
+//! The board's columns from the project's flow (STG-08, d0108; d0004, d0087): Backlog, one column per stage (its id
+//! the stage's id, its title the stage's name), and Done, the fixed ends of every flow. Every stage is its own column:
 //! the delivery is a setting of the flow, not a stage, and a ticket being delivered (To deliver, PR open) stays in
 //! the last stage's column (Review on the default flow), with no section of its own. On the default flow these are
 //! today's columns with today's ids, so the page and its stored state (folds, scroll places) read as before.
 //!
-//! Where a card shows comes from its place: Backlog, Ready for Dev (waiting before the first Agent stage), Done,
-//! or the column of the stage it is in, or waits before (a card waiting between Product spec and Dev shows in Dev's
-//! column with its waiting status). A card in a stage its flow no longer has (Validation turned off while it
+//! Where a card shows comes from its place: Backlog, Done, or the column of the stage it is in or waits before. A
+//! started ticket that can't begin yet waits at the top of the first stage's column and says why (a dependency, a free
+//! agent, a flow change); a card waiting between Product spec and Dev shows in Dev's column the same way. A card in a stage its flow no longer has (Validation turned off while it
 //! validated) shows where its status's kind does, as the core's drag rules see it.
 
 use otaq_core::board::moves::{DropOn, DropTarget};
@@ -20,7 +20,6 @@ use ts_rs::TS;
 
 /// The ids of the columns every flow has.
 pub const BACKLOG: &str = "backlog";
-pub const READY_FOR_DEV: &str = "ready_for_dev";
 pub const DONE: &str = "done";
 
 /// What a column holds, from the kind of its stage.
@@ -29,8 +28,6 @@ pub const DONE: &str = "done";
 #[ts(rename = "BoardColumnKind")]
 pub enum ColumnKind {
     Backlog,
-    /// Waiting before the first Agent stage (d0066).
-    ReadyForDev,
     /// An Agent stage or an agent check: agents work there (today's Dev).
     Agent,
     /// A human check (today's Review).
@@ -52,9 +49,9 @@ impl ColumnKind {
 pub struct FlowColumn<'f> {
     pub id: String,
     pub kind: ColumnKind,
-    /// "Backlog", "Ready for Dev", the stage's name, "Done".
+    /// "Backlog", the stage's name, "Done".
     pub title: String,
-    /// The stage it shows; `None` for Backlog, Ready for Dev and Done.
+    /// The stage it shows; `None` for Backlog and Done.
     pub stage: Option<&'f Stage>,
 }
 
@@ -73,11 +70,7 @@ impl<'f> Columns<'f> {
             title: title.to_owned(),
             stage: None,
         };
-        let mut columns = vec![
-            fixed(BACKLOG, ColumnKind::Backlog, "Backlog"),
-            // "Ready" when the first Agent stage isn't Dev (d0093, Q515).
-            fixed(READY_FOR_DEV, ColumnKind::ReadyForDev, flow.waiting_name()),
-        ];
+        let mut columns = vec![fixed(BACKLOG, ColumnKind::Backlog, "Backlog")];
         columns.extend(flow.stages.iter().map(|stage| FlowColumn {
             id: stage.id.clone(),
             kind: ColumnKind::of(stage.kind),
@@ -110,12 +103,13 @@ impl<'f> Columns<'f> {
         self.columns.iter().map(|c| c.id.clone()).collect()
     }
 
-    /// The stage a card in `place` with its status shows as: the stage it is in or waits before; for a stage the
-    /// flow doesn't have, the one its status's kind shows in (as the core's drag rules see it), a ticket being
-    /// delivered in the last stage.
+    /// The stage a card in `place` with its status shows as: the stage it is in or waits before (a started ticket
+    /// waiting to begin, the first Agent stage); for a stage the flow doesn't have, the one its status's kind shows in
+    /// (as the core's drag rules see it), a ticket being delivered in the last stage.
     pub fn stage_of(&self, ticket: &Ticket) -> Option<&'f Stage> {
         let id = match &ticket.place {
-            Place::Backlog | Place::Waiting(None) | Place::Done => return None,
+            Place::Backlog | Place::Done => return None,
+            Place::Waiting(None) => return self.flow.first_agent_stage(),
             Place::Waiting(Some(id)) | Place::InStage(id) => id,
         };
         if let Some(stage) = self.flow.stage(id) {
@@ -137,9 +131,8 @@ impl<'f> Columns<'f> {
     pub fn spot(&self, ticket: &Ticket) -> &str {
         match &ticket.place {
             Place::Backlog => BACKLOG,
-            Place::Waiting(None) => READY_FOR_DEV,
             Place::Done => DONE,
-            Place::Waiting(Some(_)) | Place::InStage(_) => self
+            Place::Waiting(_) | Place::InStage(_) => self
                 .stage_of(ticket)
                 .and_then(|stage| self.get(&stage.id))
                 .map_or(BACKLOG, |c| c.id.as_str()),
@@ -155,13 +148,12 @@ impl<'f> Columns<'f> {
             .unwrap_or(&self.columns[0])
     }
 
-    /// The core's drop target a page target stands for (FLW-18): Backlog, Ready for Dev and Done as themselves, a
+    /// The core's drop target a page target stands for (FLW-18): Backlog and Done as themselves, a
     /// stage's column as the board target that means that stage in the flow (the first Agent stage, the last check
     /// by you), else the stage itself. Every stage takes a drop; `None` only for an id the board doesn't have.
     pub fn drop_target(&self, id: &str) -> Option<DropOn> {
         match id {
             BACKLOG => return Some(DropTarget::Backlog.into()),
-            READY_FOR_DEV => return Some(DropTarget::ReadyForDev.into()),
             DONE => return Some(DropTarget::Done.into()),
             _ => {}
         }
@@ -181,8 +173,8 @@ impl<'f> Columns<'f> {
     }
 
     /// The cards of `column` among `cards`, in board order (SDD §7.5): each status set's order from the core, in the
-    /// order an agent column reads (working, then checks, then cards waiting before its stage); a human check's
-    /// column has its tickets being delivered after the ones waiting for you.
+    /// order an agent column reads (cards waiting to begin its stage at the top, then working, then checks); a human
+    /// check's column has its tickets being delivered after the ones waiting for you.
     pub fn order(&self, column: &str, cards: &[&TicketKey], all: &[Ticket]) -> Vec<TicketKey> {
         let members: Vec<&Ticket> = all
             .iter()
@@ -235,16 +227,16 @@ pub fn place_set(ticket: &Ticket) -> StatusSet {
     }
 }
 
-/// The order of status sets inside one column (on the default flow every column holds one, and Review its tickets
-/// being delivered after).
+/// The order of status sets inside one column: a ticket that waits to begin a stage is at the top of its column, then
+/// the column's own sets (Review its tickets being delivered after the ones waiting for you).
 const SET_ORDER: [StatusSet; 7] = [
+    StatusSet::Waiting,
     StatusSet::Backlog,
     StatusSet::AgentStage,
     StatusSet::AgentCheck,
     StatusSet::HumanCheck,
     StatusSet::Delivery,
     StatusSet::Done,
-    StatusSet::Waiting,
 ];
 
 /// The core target that means `stage` in `flow`, if any.
@@ -279,8 +271,8 @@ mod tests {
         columns.iter().map(|c| c.id.clone()).collect()
     }
 
-    /// STG-08, FLW-01: the default flow's six columns with today's ids, Validate's own, and no Approved section: a
-    /// ticket being delivered is in Review's column.
+    /// STG-08, FLW-01: the default flow's five columns, Backlog and Done at the ends, Validate's own, and no Approved
+    /// section: a ticket being delivered is in Review's column. A started ticket waiting to begin is in Dev's.
     #[test]
     fn the_default_flow_gives_todays_columns() {
         let flow = default_flow();
@@ -288,31 +280,17 @@ mod tests {
         // FLW-01: Validate has its own column between Dev and Review.
         assert_eq!(
             ids(&columns),
-            [
-                "backlog",
-                "ready_for_dev",
-                "dev",
-                "validate",
-                "review",
-                "done"
-            ]
+            ["backlog", "dev", "validate", "review", "done"]
         );
         let titles: Vec<&str> = columns.iter().map(|c| c.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            [
-                "Backlog",
-                "Ready for Dev",
-                "Dev",
-                "Validate",
-                "Review",
-                "Done"
-            ]
-        );
+        assert_eq!(titles, ["Backlog", "Dev", "Validate", "Review", "Done"]);
+        for status in [Status::Queued, Status::WaitingForSlot, Status::Held] {
+            let waiting = ticket("SHOP-20", "Checkout page", status);
+            assert_eq!(columns.spot(&waiting), "dev", "{status}");
+        }
         assert_eq!(columns.targets(), ids(&columns), "no section is a target");
         for (id, target) in [
             ("backlog", DropTarget::Backlog),
-            ("ready_for_dev", DropTarget::ReadyForDev),
             ("dev", DropTarget::Dev),
             ("review", DropTarget::ReadyForReview),
             ("done", DropTarget::Done),
@@ -340,12 +318,12 @@ mod tests {
         off.stages.retain(|s| s.id != "validate");
         assert_eq!(
             ids(&Columns::of(&off)),
-            ["backlog", "ready_for_dev", "dev", "review", "done"]
+            ["backlog", "dev", "review", "done"]
         );
     }
 
-    /// STG-08 on the test flow: every stage a column of its own, Validate too; a card waiting between Product spec
-    /// and Dev shows in Dev's column.
+    /// STG-08 on the test flow: every stage a column of its own, Validate too; a started ticket waiting to begin shows
+    /// in Product spec's column, a card waiting between Product spec and Dev in Dev's.
     #[test]
     fn the_test_flow_gives_a_column_per_stage() {
         let flow = every_kind();
@@ -354,7 +332,6 @@ mod tests {
             ids(&columns),
             [
                 "backlog",
-                "ready_for_dev",
                 "product-spec",
                 "dev",
                 "validate",
@@ -369,7 +346,6 @@ mod tests {
             kinds,
             [
                 K::Backlog,
-                K::ReadyForDev,
                 K::Agent,
                 K::Agent,
                 K::Agent,
@@ -383,7 +359,6 @@ mod tests {
             titles,
             [
                 "Backlog",
-                "Ready",
                 "Product spec",
                 "Dev",
                 "Validate",
@@ -403,7 +378,7 @@ mod tests {
         checking.place = Place::stage_of("security");
         assert_eq!(columns.spot(&checking), "security");
         let ready = ticket("NOTE-6", "Ready", Status::Queued);
-        assert_eq!(columns.spot(&ready), "ready_for_dev");
+        assert_eq!(columns.spot(&ready), "product-spec");
         let mut pr = ticket("NOTE-7", "Sync", Status::PrOpen);
         pr.place = Place::stage_of("qa");
         assert_eq!(columns.spot(&pr), "qa");
@@ -421,7 +396,7 @@ mod tests {
         let file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
         let columns = Columns::of(&file.flow);
         assert!(ids(&columns).contains(&"validate".to_owned()));
-        assert_eq!(columns.iter().count(), file.flow.stages.len() + 3);
+        assert_eq!(columns.iter().count(), file.flow.stages.len() + 2);
     }
 
     /// A card in a stage the flow doesn't have shows where its kind does: Validation turned off mid-check.

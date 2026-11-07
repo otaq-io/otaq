@@ -3,4 +3,4 @@
 /**
  * What a column holds, from the kind of its stage.
  */
-export type BoardColumnKind = "backlog" | "ready_for_dev" | "agent" | "human_check" | "done";
+export type BoardColumnKind = "backlog" | "agent" | "human_check" | "done";

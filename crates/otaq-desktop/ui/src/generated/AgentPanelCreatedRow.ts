@@ -7,7 +7,7 @@ import type { IconName } from "./IconName";
  */
 export type AgentPanelCreatedRow = { key: string, title: string, 
 /**
- * "Ready for Dev", "Backlog".
+ * "Dev", "Backlog".
  */
 place: string, 
 /**

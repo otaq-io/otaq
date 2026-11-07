@@ -40,7 +40,7 @@ struct World {
 }
 
 /// A service whose `codex` is `script`, with project SHOP and ticket SHOP-1, whose Developer agent runs on Codex
-/// (the tool default), in Ready for Dev.
+/// (the tool default), waiting to begin.
 async fn world(script: &str) -> World {
     let bin = TempDir::new().unwrap();
     let codex = bin.path().join(Tool::Codex.command_name());

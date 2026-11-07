@@ -81,6 +81,8 @@ pub struct CardExtras {
     pub waits_for_merge: bool,
     /// Every dependency is merged and the scheduler is starting it ("Starting…").
     pub starting: bool,
+    /// Waits for a free agent: its place in the start order among those waiting for one (1 is next).
+    pub in_line: Option<usize>,
     /// The question or prompt of a needs-you ticket.
     pub question: Option<String>,
     /// The prompt comes from a helper agent inside the session.
@@ -164,7 +166,7 @@ pub struct AgentFacts {
     /// The agent of the running developer session and of the running validator.
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
-    /// The roles held before they start (M23): a Developer's while it waits in Ready for Dev, a Validator's in Dev.
+    /// The roles held before they start (M23): a Developer's while it waits to begin, a Validator's in Dev.
     pub holds: Vec<CardHold>,
     /// The tool and model each running session runs on.
     pub developer_on: Option<RunsOnTool>,
@@ -320,6 +322,8 @@ pub struct HoverSection {
 pub enum CardActionKind {
     /// "Deliver now": a message waits to be typed (SES-06).
     DeliverNow,
+    /// A Backlog card's Start (`board.start`): into the first stage, where it waits at the top until it can begin.
+    Start,
     /// A click on an answer option (ATT-12): the sheet opens with it picked (the last number is Other…).
     PickOption(u32),
     /// "Send answer" with the preselected (recommended) option.
@@ -543,7 +547,7 @@ pub struct StatusHover {
 }
 
 /// The card's one status line in words (BRD-03; *24 · The two views*): "Needs you: allow rm -rf .next?", "Working ·
-/// back from Security", "starts next". `CardStatusLine` on the page.
+/// back from Security", "Waits for a free agent · 2nd in line". `CardStatusLine` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardStatusLine")]
 pub struct StatusLine {
@@ -1234,7 +1238,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Part::quiet(validation::MERGED_AUTOMATICALLY.to_owned(), Tone::Muted)
         }
         Status::Parked => Part::quiet(PARKED, Tone::Warning),
-        Status::WaitingForSlot => Part::quiet(WAITING_FOR_SLOT, Tone::Muted),
+        Status::WaitingForSlot => Part::quiet(waits_for_an_agent(x.in_line), Tone::Muted),
         Status::Queued if flags.resuming_conversation => {
             Part::quiet("Resuming conversation\u{2026}", Tone::Muted)
         }
@@ -1243,7 +1247,10 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Part::quiet("Starting\u{2026}", Tone::Muted)
         }
         Status::Queued => Part::quiet(
-            x.waits_for.clone().or_else(|| x.skips.clone())?,
+            x.waits_for
+                .as_deref()
+                .map(capitalized)
+                .or_else(|| x.skips.clone())?,
             Tone::Muted,
         ),
         Status::Backlog if flags.ready_to_start => Part::quiet(READY_TO_START, Tone::Muted),
@@ -1291,8 +1298,44 @@ pub fn pr_not_watched() -> String {
 }
 /// A parked ticket's line (d0052).
 pub const PARKED: &str = "Parked \u{b7} has work \u{b7} branch, files and conversation kept";
-/// *Waiting for a free slot (0016)*.
-pub const WAITING_FOR_SLOT: &str = "waiting for a free slot";
+/// A started ticket that waits for a free agent (the optional agent limit is full, 0016).
+pub const WAITING_FOR_SLOT: &str = "Waits for a free agent";
+
+/// "Waits for a free agent · 2nd in line" ("· next in line" for the first): where it is in the start order among the
+/// tickets waiting for an agent.
+pub fn waits_for_an_agent(in_line: Option<usize>) -> String {
+    match in_line {
+        None => WAITING_FOR_SLOT.to_owned(),
+        Some(1) => format!("{WAITING_FOR_SLOT} \u{b7} next in line"),
+        Some(n) => format!("{WAITING_FOR_SLOT} \u{b7} {} in line", ordinal(n)),
+    }
+}
+
+/// "2nd", "3rd", "11th", "22nd".
+pub fn ordinal(n: usize) -> String {
+    let suffix = match (n % 10, n % 100) {
+        (_, 11..=13) => "th",
+        (1, _) => "st",
+        (2, _) => "nd",
+        (3, _) => "rd",
+        _ => "th",
+    };
+    format!("{n}{suffix}")
+}
+
+/// The Start of a card that hasn't started (Backlog, or Parked with its work kept): into the first stage.
+pub const START: &str = "Start";
+
+/// A Backlog card's one action: Start, whatever it waits for (it then waits at the top of the first stage).
+fn start_action(ticket: &Ticket) -> Option<CardAction> {
+    (ticket.place.is_backlog() && matches!(ticket.status, Status::Backlog | Status::Parked))
+        .then_some(CardAction {
+            kind: CardActionKind::Start,
+            label: START,
+            icon: Some(IconName::Play),
+            primary: false,
+        })
+}
 
 /// "round 1 of 3 · 2 min": which round the validator checks and how long it has run.
 fn validating_text(ticket: &Ticket, now_ms: i64) -> Option<String> {
@@ -1736,14 +1779,15 @@ impl CardViewModel {
         let status = status::shown(ticket);
         let one = &mut self.one_line;
         if let Some(text) = one.blocked.clone() {
-            // A ticket that hasn't started and waits for its parents (DPV-01): amber, the link in place of the dot,
-            // nothing to do but wait (Start is refused, DPV-03).
+            // A ticket that waits for its parents (DPV-01): amber, the link in place of the dot. In Backlog it can
+            // still be started: it then waits at the top of the first stage and begins once they merge.
             one.line = Some(StatusLine {
                 text,
                 dot: Palette::Paused,
                 tone: Tone::Paused,
                 icon: Some(crate::view_models::dependencies::ICON),
             });
+            one.action = start_action(ticket);
             return self;
         }
         if paused {
@@ -1762,6 +1806,7 @@ impl CardViewModel {
                 ..line
             });
             one.time = held_time(ticket);
+            one.action = start_action(ticket);
             return self;
         }
         one.edge = edge(ticket, status, kept, self.outline, self.footer.as_ref());
@@ -1773,7 +1818,8 @@ impl CardViewModel {
             one.edge,
         );
         one.time = self.footer.as_ref().and_then(|f| f.signal.clone());
-        one.action = one_action(ticket, self.footer.as_ref(), one.edge.is_some());
+        one.action = one_action(ticket, self.footer.as_ref(), one.edge.is_some())
+            .or_else(|| start_action(ticket));
         self
     }
 }
@@ -1882,9 +1928,6 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
 /// A check out of rounds: the card's one action opens the ticket, where the choices are (BRD-03).
 pub const DECIDE: &str = "Decide";
 
-/// Ready for Dev's next ticket while nothing starts (paused): the frame's "starts next" (`s24-03`, `s24-07`).
-pub const STARTS_NEXT: &str = "starts next";
-
 /// The one status line (BRD-03): the head flag's words, then the situation's ("Needs you: allow rm -rf .next?" after
 /// a needs-you or stopped flag, "Checking · round 1 of 3" otherwise); the situation alone when it already says what the flag
 /// says ("Security failed 3 times · …" under "Failed ×3"). The priority is the card's chip after its key, not part of
@@ -1906,8 +1949,7 @@ pub fn status_line(
             icon: None,
         });
     }
-    // An unblocked Backlog card says "Ready to start": nothing starts until it is moved, so "starts next" is only
-    // Ready for Dev's (#36).
+    // An unblocked Backlog card says "Ready to start": nothing starts until it is started (#36).
     let words = situation.map(|s| s.text.clone());
     let text = match (flag, words) {
         (None, None) => return None,
@@ -2005,7 +2047,7 @@ fn turn(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<ToolAvatarVie
     }
 }
 
-/// The hold the card shows (M23, SCH-04): the Developer's while the ticket waits in Ready for Dev to start, the
+/// The hold the card shows (M23, SCH-04): the Developer's while the ticket waits to begin its first stage, the
 /// Validator's while it is in Dev (the round didn't start). A needs-you state still wins the head.
 pub fn held<'a>(ticket: &Ticket, status: Status, x: &'a CardExtras) -> Option<&'a CardHold> {
     match status {
@@ -2978,7 +3020,7 @@ mod tests {
             (
                 "Waits for merge (0049)",
                 None,
-                Some("waits for SHOP-18, SHOP-19 to merge"),
+                Some("Waits for SHOP-18, SHOP-19 to merge"),
                 None,
             ),
             (
@@ -2990,7 +3032,7 @@ mod tests {
             (
                 "Waiting for a free slot (0016)",
                 None,
-                Some("waiting for a free slot"),
+                Some("Waits for a free agent"),
                 None,
             ),
             ("Working", Some("Working"), None, Some("182k 40s")),
@@ -3109,7 +3151,7 @@ mod tests {
             (
                 "Waits for a dependency",
                 None,
-                Some("waits for SHOP-42 to merge"),
+                Some("Waits for SHOP-42 to merge"),
                 None,
             ),
             (
@@ -3918,13 +3960,13 @@ mod tests {
                 "waits",
                 Status::Queued,
                 |_, x| x.waits_for = Some("waits for SHOP-18 to merge".into()),
-                "waits for SHOP-18",
+                "Waits for SHOP-18",
             ),
             (
                 "slot",
                 Status::WaitingForSlot,
                 |_, _| {},
-                "waiting for a free slot",
+                "Waits for a free agent",
             ),
             (
                 "held",
@@ -4523,7 +4565,7 @@ mod tests {
         );
     }
 
-    /// *04 → Row · priority & Ready for Dev*: P1, P2 and P4 sit after the key; Normal shows nothing; the priority
+    /// *04 → Row · priority & waiting to begin*: P1, P2 and P4 sit after the key; Normal shows nothing; the priority
     /// never takes the flag.
     #[test]
     fn priority_chip_per_priority() {
@@ -5405,7 +5447,7 @@ mod tests {
         );
     }
 
-    /// A hold shows only where its role waits: the Developer's in Ready for Dev, the Validator's in Dev; a needs-you
+    /// A hold shows only where its role waits: the Developer's waiting to begin, the Validator's in Dev; a needs-you
     /// state still wins the head, and the user's own move says nothing; a move says nothing once it no longer runs.
     #[test]
     fn holds_and_moves_show_where_they_apply() {

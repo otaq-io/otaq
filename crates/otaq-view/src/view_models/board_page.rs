@@ -42,7 +42,7 @@ use crate::view_models::ticket_comments::CommentBoxView;
 use crate::view_models::view_prefs::{self, Change, Prefs, Toolbar, ViewKind};
 use otaq_core::board::settings::ViewPrefs;
 
-/// A page column's id (SHL-06, STG-08): `"backlog"`, `"ready_for_dev"`, the id of a stage with its own column
+/// A page column's id (SHL-06, STG-08): `"backlog"`, the id of a stage with its own column
 /// (the default flow's `"dev"` and `"review"`), `"done"`.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, PartialOrd, Ord, Serialize, Deserialize, TS)]
 #[ts(rename = "BoardColumnId")]
@@ -50,7 +50,6 @@ pub struct ColumnId(#[ts(type = "string")] pub Cow<'static, str>);
 
 impl ColumnId {
     pub const BACKLOG: Self = Self::fixed(flow_columns::BACKLOG);
-    pub const READY_FOR_DEV: Self = Self::fixed(flow_columns::READY_FOR_DEV);
     /// The default flow's Dev and Review columns.
     pub const DEV: Self = Self::fixed(otaq_core::flow::default::DEV);
     pub const REVIEW: Self = Self::fixed(otaq_core::flow::default::REVIEW);
@@ -82,7 +81,6 @@ pub struct DropTargetId(#[ts(type = "string")] pub Cow<'static, str>);
 
 impl DropTargetId {
     pub const BACKLOG: Self = Self::fixed(flow_columns::BACKLOG);
-    pub const READY_FOR_DEV: Self = Self::fixed(flow_columns::READY_FOR_DEV);
     pub const DEV: Self = Self::fixed(otaq_core::flow::default::DEV);
     pub const REVIEW: Self = Self::fixed(otaq_core::flow::default::REVIEW);
     pub const DONE: Self = Self::fixed(flow_columns::DONE);
@@ -195,7 +193,7 @@ pub struct ColumnMenuItem {
 pub enum OpenEditor {
     /// Edit <stage>…: that stage selected, its details open.
     Stage { stage: String },
-    /// Add a stage after <stage>: a new stage right after `after` (`None`: first, after Ready for Dev), selected
+    /// Add a stage after <stage>: a new stage right after `after` (`None`: first, after Backlog), selected
     /// with its details open.
     AddAfter { after: Option<String> },
     /// Change the whole flow…: the editor as it opens from the project menu.
@@ -246,10 +244,8 @@ pub struct ColumnPage {
     /// colour.
     pub quiet_icon: bool,
     pub count: String,
-    /// Who runs it, on hovering the title; `None` for Backlog, Ready for Dev and Done.
+    /// Who runs it, on hovering the title; `None` for Backlog and Done.
     pub tooltip: Option<ColumnTooltip>,
-    /// Under the title: Ready for Dev's "Starts when ready, in priority order".
-    pub hint: Option<String>,
     /// Shown when the column has no card.
     pub empty_hint: String,
     /// Folded (BRD-02): a stage's rail ([`ColumnRail`]); Done's is the board's "Done 4 →" line ([`DoneLine`]).
@@ -455,7 +451,6 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         quiet_icon: view.quiet_icon,
         count: view.count,
         tooltip: view.tooltip.map(ColumnTooltip::from),
-        hint: view.hint.map(str::to_owned),
         empty_hint: view.empty_hint.to_owned(),
         collapsed: view.collapsed,
         rail,
@@ -477,14 +472,12 @@ pub fn rail_tooltip(title: &str, tickets: usize, needs_you: usize) -> String {
     }
 }
 
-/// A column's ⋯ menu (BRD-04, FED-09; `s26-08`), on every column but Backlog: **Edit <stage>…** (a stage's
-/// column), **Add a stage after <stage>**, **Fold this column**, then **Change the whole flow…**. `title` is the
-/// column's, its stage's name.
+/// A column's ⋯ menu (BRD-04, FED-09; `s26-08`): **Edit <stage>…** (a stage's column), **Add a stage after
+/// <stage>** (after Backlog: the first stage, since Backlog and Done are the fixed ends of every flow), **Fold this
+/// column** (not Backlog, which never folds), then **Change the whole flow…**. `title` is the column's, its stage's
+/// name.
 pub fn column_menu(id: &ColumnId, kind: ColumnKind, title: &str) -> Vec<ColumnMenuItem> {
     use crate::view_models::menu::MenuItem;
-    if kind == ColumnKind::Backlog {
-        return Vec::new();
-    }
     let stage = title;
     let opens = |item: MenuItem, editor: OpenEditor| ColumnMenuItem {
         item,
@@ -504,23 +497,25 @@ pub fn column_menu(id: &ColumnId, kind: ColumnKind, title: &str) -> Vec<ColumnMe
     }
     if matches!(
         kind,
-        ColumnKind::ReadyForDev | ColumnKind::Agent | ColumnKind::HumanCheck
+        ColumnKind::Backlog | ColumnKind::Agent | ColumnKind::HumanCheck
     ) {
         menu.push(opens(
             MenuItem::new("add_stage", format!("Add a stage after {stage}")).icon(IconName::Plus),
             OpenEditor::AddAfter {
-                after: (kind != ColumnKind::ReadyForDev).then(|| id.as_str().to_owned()),
+                after: (kind != ColumnKind::Backlog).then(|| id.as_str().to_owned()),
             },
         ));
     }
-    menu.push(ColumnMenuItem {
-        item: MenuItem::new("fold", FOLD_THIS_COLUMN).icon(IconName::FoldHorizontal),
-        change: Some(Change::FoldColumn {
-            column: id.as_str().to_owned(),
-            folded: true,
-        }),
-        editor: None,
-    });
+    if kind != ColumnKind::Backlog {
+        menu.push(ColumnMenuItem {
+            item: MenuItem::new("fold", FOLD_THIS_COLUMN).icon(IconName::FoldHorizontal),
+            change: Some(Change::FoldColumn {
+                column: id.as_str().to_owned(),
+                folded: true,
+            }),
+            editor: None,
+        });
+    }
     menu.push(opens(
         MenuItem {
             separated: true,
@@ -847,12 +842,6 @@ pub enum DropStep {
     /// Cancel leaves the card where it was.
     DragBack,
     NotYet(String),
-    /// A blocked ticket dropped past Ready for Dev, or started (DPV-03): DPV-03's dialog. From Backlog it is queued in
-    /// Ready for Dev first (`queue`), where it waits; there is no way to start it.
-    Blocked {
-        dialog: crate::view_models::dependencies::Dialog,
-        queue: bool,
-    },
 }
 
 /// The core's drop target a page target means on `flow`'s board; `None` for an id the board doesn't have.
@@ -870,7 +859,8 @@ pub fn drop_step(ticket: &Ticket, tickets: &[Ticket], target: DropTargetId) -> D
     )
 }
 
-/// `tickets` are the project's (a blocked ticket's parents). `flow` is the project's.
+/// `tickets` are the project's. `flow` is the project's. A ticket waiting for a dependency starts like any other: it
+/// waits at the top of the first stage and says what it waits for.
 pub fn drop_step_in(
     flow: &Flow,
     ticket: &Ticket,
@@ -880,12 +870,6 @@ pub fn drop_step_in(
     let Some(target) = core_target(flow, target) else {
         return DropStep::Nothing;
     };
-    if otaq_core::board::moves::blocks_start(flow, ticket, tickets, &target) {
-        return DropStep::Blocked {
-            dialog: crate::view_models::dependencies::dialog(&Columns::of(flow), ticket, tickets),
-            queue: ticket.place == otaq_core::domain::Place::Backlog,
-        };
-    }
     match drag::on_drop_in(flow, ticket, tickets, target) {
         DropAction::Nothing => DropStep::Nothing,
         DropAction::Move => DropStep::Move,
@@ -1057,10 +1041,6 @@ pub enum DropOutcome {
     DragBack { dialog: Box<DragBackDialog> },
     /// Allowed by the rules, but not built yet: shown as a toast.
     NotYet { message: String },
-    /// A blocked ticket (DPV-03): the page shows the dialog; it already waits in Ready for Dev.
-    Blocked {
-        dialog: crate::view_models::dependencies::Dialog,
-    },
 }
 
 /// Where a card is, as the board names it: its column ("Dev", "Review").
@@ -1317,7 +1297,6 @@ mod tests {
             targets,
             [
                 "backlog",
-                "ready_for_dev",
                 "product-spec",
                 "dev",
                 "validate",
@@ -1384,10 +1363,6 @@ mod tests {
         };
         assert_eq!(hint("security"), "Returns to Dev, the stage it left");
         assert_eq!(hint("qa"), "Returns to Dev, the stage it left");
-        assert_eq!(
-            hint("ready_for_dev"),
-            "Drop to resume \u{b7} same conversation"
-        );
         assert_eq!(
             hint("product-spec"),
             "Drop to resume \u{b7} same conversation"
@@ -1554,10 +1529,10 @@ mod tests {
         ]
     }
 
-    /// SHL-06, FLW-01: six columns in order (Validate its own); Review holds Ready for Review and Approved as two
-    /// sections.
+    /// SHL-06, FLW-01: five columns in order, Backlog and Done at the ends (Validate its own); a started ticket waiting
+    /// to begin is at the top of Dev; Review holds its cards with no sections.
     #[test]
-    fn six_columns_reach_the_page_worded() {
+    fn five_columns_reach_the_page_worded() {
         let tickets = sample();
         let page = page(
             &tickets,
@@ -1571,7 +1546,6 @@ mod tests {
             ids,
             [
                 ColumnId::BACKLOG,
-                ColumnId::READY_FOR_DEV,
                 ColumnId::DEV,
                 ColumnId::new("validate"),
                 ColumnId::REVIEW,
@@ -1579,42 +1553,32 @@ mod tests {
             ]
         );
         let titles: Vec<&str> = page.columns.iter().map(|c| c.title.as_str()).collect();
-        assert_eq!(
-            titles,
-            [
-                "Backlog",
-                "Ready for Dev",
-                "Dev",
-                "Validate",
-                "Review",
-                "Done"
-            ]
-        );
+        assert_eq!(titles, ["Backlog", "Dev", "Validate", "Review", "Done"]);
         assert_eq!(page.min_column_width, 240.);
         assert_eq!(page.folded_width, 52.);
         assert_eq!(page.empty, None);
         let backlog = &page.columns[0];
         assert_eq!(backlog.add.as_deref(), Some("Add ticket"));
-        assert_eq!(
-            page.columns[1].hint.as_deref(),
-            Some(board::READY_FOR_DEV_HINT)
-        );
-        let dev = page.columns[2].dev.as_ref().unwrap();
+        let dev = page.columns[1].dev.as_ref().unwrap();
         let top: Vec<&str> = dev.top.iter().map(BoardCard::key).collect();
-        assert_eq!(top, ["SHOP-19", "SHOP-22"], "pinned, then needs you");
+        assert_eq!(
+            top,
+            ["SHOP-21", "SHOP-19", "SHOP-22"],
+            "waiting to begin, then pinned, then needs you"
+        );
         assert!(matches!(
-            dev.top[1],
+            dev.top[2],
             BoardCard::Ticket {
                 needs_you: true,
                 ..
             }
         ));
-        let review = &page.columns[4];
+        let review = &page.columns[3];
         assert_eq!(review.count, "2");
         // No sections: the PR open card is in Review with the one waiting for you, after it.
         let cards: Vec<&str> = review.cards.iter().map(BoardCard::key).collect();
         assert_eq!(cards, ["SHOP-18", "SHOP-26"]);
-        let done = &page.columns[5];
+        let done = &page.columns[4];
         assert!(!done.collapsed, "Done opened");
         let labels = |c: &ColumnPage| -> Vec<String> {
             c.menu.iter().map(|m| m.item.label.clone()).collect()
@@ -1625,7 +1589,7 @@ mod tests {
         );
         assert_eq!(page.done, None);
         let json = serde_json::to_value(&page).unwrap();
-        assert_eq!(json["columns"][1]["id"], "ready_for_dev");
+        assert_eq!(json["columns"][1]["id"], "dev");
         assert_eq!(json["columns"][0]["cards"][0]["kind"], "ticket");
         assert_eq!(json["scroll_chip"]["above"], "{n} above");
     }
@@ -1645,7 +1609,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let done = &first.columns[5];
+        let done = &first.columns[4];
         assert!(done.collapsed);
         assert_eq!(done.rail, None, "Done folds to its line, not a rail");
         let line = first.done.as_ref().unwrap();
@@ -1670,18 +1634,24 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let dev = &dev_folded.columns[2];
+        let dev = &dev_folded.columns[1];
         let rail = dev.rail.as_ref().unwrap();
         assert!(rail.dot);
         assert!(rail.tooltip.starts_with("Dev \u{b7} "), "{}", rail.tooltip);
         assert!(rail.tooltip.ends_with("needs you"), "{}", rail.tooltip);
         assert_eq!(rail.hint, "Click to unfold");
-        assert!(dev_folded.columns[0].menu.is_empty(), "Backlog has no ⋯");
+        assert!(
+            dev_folded.columns[0]
+                .menu
+                .iter()
+                .all(|m| m.item.id != "fold"),
+            "Backlog never folds"
+        );
     }
 
     /// BRD-04, FED-09 (`s26-08`): a stage's ⋯ edits it, adds one after it, folds it, or changes the whole flow; each
-    /// flow item says how the editor opens. Ready for Dev adds first; the Delivery has nothing after it; Done only
-    /// folds and changes the flow.
+    /// flow item says how the editor opens. Backlog adds first and doesn't fold; Done only folds and changes the
+    /// flow.
     #[test]
     fn a_columns_menu_opens_the_flow_editor_on_its_stage() {
         let product_spec = column_menu(
@@ -1741,14 +1711,18 @@ mod tests {
             serde_json::json!({ "open": "add_after", "after": "product-spec" })
         );
 
-        let ready = column_menu(
-            &ColumnId::READY_FOR_DEV,
-            ColumnKind::ReadyForDev,
-            "Ready for Dev",
+        let backlog = column_menu(&ColumnId::BACKLOG, ColumnKind::Backlog, "Backlog");
+        assert_eq!(backlog[0].item.label, "Add a stage after Backlog");
+        assert_eq!(
+            backlog[0].editor,
+            Some(OpenEditor::AddAfter { after: None })
         );
-        assert_eq!(ready[0].item.label, "Add a stage after Ready for Dev");
-        assert_eq!(ready[0].editor, Some(OpenEditor::AddAfter { after: None }));
-        assert_eq!(ready.len(), 3, "no Edit: Ready for Dev isn't a stage");
+        let ids: Vec<&str> = backlog.iter().map(|m| m.item.id.as_str()).collect();
+        assert_eq!(
+            ids,
+            ["add_stage", "change_flow"],
+            "no Edit and no Fold: Backlog isn't a stage and never folds"
+        );
 
         let done = column_menu(&ColumnId::DONE, ColumnKind::Done, "Done");
         let ids: Vec<&str> = done.iter().map(|m| m.item.id.as_str()).collect();
@@ -1772,7 +1746,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let dev = folded.columns[2].dev.as_ref().unwrap();
+        let dev = folded.columns[1].dev.as_ref().unwrap();
         assert!(dev.fold.as_deref().unwrap().ends_with("more · working"));
         let open = page(
             &tickets,
@@ -1787,7 +1761,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert_eq!(open.columns[2].dev.as_ref().unwrap().fold, None);
+        assert_eq!(open.columns[1].dev.as_ref().unwrap().fold, None);
     }
 
     /// The header's filter (T-0221): non-matching cards hide, counts read "shown/total", and each column says how
@@ -1808,7 +1782,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let dev = &filtered.columns[2];
+        let dev = &filtered.columns[1];
         let shown: Vec<&str> = dev
             .dev
             .as_ref()
@@ -1818,15 +1792,15 @@ mod tests {
             .map(BoardCard::key)
             .collect();
         assert_eq!(shown, ["SHOP-22"]);
-        assert_eq!(dev.count, "1/3");
-        assert_eq!(dev.hidden.as_deref(), Some("2 hidden by filter"));
+        assert_eq!(dev.count, "1/4");
+        assert_eq!(dev.hidden.as_deref(), Some("3 hidden by filter"));
         assert!(filtered.columns[0].cards.is_empty());
-        assert_eq!(filtered.columns[4].count, "1/2");
+        assert_eq!(filtered.columns[3].count, "1/2");
         assert_eq!(
-            filtered.columns[4].hidden.as_deref(),
+            filtered.columns[3].hidden.as_deref(),
             Some("1 hidden by filter")
         );
-        let review: Vec<&str> = filtered.columns[4]
+        let review: Vec<&str> = filtered.columns[3]
             .cards
             .iter()
             .map(BoardCard::key)
@@ -1839,7 +1813,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert_eq!(unfiltered.columns[2].hidden, None);
+        assert_eq!(unfiltered.columns[1].hidden, None);
     }
 
     #[test]
@@ -1859,8 +1833,8 @@ mod tests {
         );
         let labels: Vec<&str> = empty.buttons.iter().map(|b| b.label).collect();
         assert_eq!(labels, ["New ticket"], "no Noyan or terminal button");
-        assert_eq!(page.columns.len(), 6);
-        let review = &page.columns[4];
+        assert_eq!(page.columns.len(), 5);
+        let review = &page.columns[3];
         assert!(review.cards.is_empty());
         assert_eq!(
             review.empty_hint,
@@ -1872,7 +1846,7 @@ mod tests {
     fn a_drag_answers_every_column_at_once() {
         let backlog = ticket("SHOP-24", "Update footer links", Status::Backlog);
         let answer = drag_answer(&backlog, &[]);
-        assert_eq!(answer.targets.len(), 6);
+        assert_eq!(answer.targets.len(), 5);
         let verdict = |id: DropTargetId| {
             answer
                 .targets
@@ -1884,10 +1858,10 @@ mod tests {
         };
         assert_eq!(verdict(DropTargetId::BACKLOG), Verdict::Home);
         assert_eq!(
-            verdict(DropTargetId::READY_FOR_DEV),
+            verdict(DropTargetId::DEV),
             Verdict::Allowed {
                 icon: IconName::Play,
-                hint: "Drop to queue · starts in priority order".into(),
+                hint: "Drop to start · waits here until it can begin".into(),
                 note: None,
             }
         );
@@ -1895,13 +1869,13 @@ mod tests {
             verdict(DropTargetId::REVIEW),
             Verdict::Forbidden {
                 title: "Only agents move tickets to Ready for Review".into(),
-                detail: Some("Drag to Ready for Dev to queue it.".into())
+                detail: Some("Drag it to the first stage to start it.".into())
             },
             "*Drag · over a forbidden column*"
         );
         let json = serde_json::to_value(drag_answer(&backlog, &[])).unwrap();
         assert_eq!(json["targets"][0]["verdict"]["kind"], "home");
-        assert_eq!(json["targets"][5]["target"], "done");
+        assert_eq!(json["targets"][4]["target"], "done");
     }
 
     /// The verdict of `ticket` over `target`.
@@ -1998,7 +1972,6 @@ mod tests {
             targets,
             [
                 DropTargetId::BACKLOG,
-                DropTargetId::READY_FOR_DEV,
                 DropTargetId::DEV,
                 DropTargetId::new("validate"),
                 DropTargetId::REVIEW,
@@ -2082,7 +2055,7 @@ mod tests {
             })
         );
         assert_eq!(by_agent.columns[0].count, "1/1");
-        assert_eq!(by_agent.columns[4].count, "1/2");
+        assert_eq!(by_agent.columns[3].count, "1/2");
 
         // With a search: both must match.
         let both = filtered(
@@ -2290,33 +2263,19 @@ mod tests {
             .unwrap_or_else(|| panic!("{key} is on the board"))
     }
 
-    /// DPV-03: SHOP-20 (Backlog, waiting for SHOP-18 and SHOP-19) dropped on Dev, or started with ⌘D or Start, opens
-    /// the dialog and queues it in Ready for Dev first; dropped on Ready for Dev it queues as today. Once in Ready, a
-    /// drag on to Dev opens the dialog with nothing to queue.
+    /// A blocked ticket starts like any other: SHOP-20 (Backlog, waiting for SHOP-18 and SHOP-19) dropped on Dev, or
+    /// started with ⌘D or Start, moves into Dev, where it waits at the top saying what it waits for; once there, a drop
+    /// on Dev changes nothing.
     #[test]
-    fn a_blocked_ticket_past_ready_for_dev_opens_the_dialog() {
+    fn a_blocked_ticket_starts_and_waits_at_the_top_of_dev() {
         let flow = &otaq_core::flow::default_file().flow;
         let tickets = storyboard(Status::WaitingForYou, Status::Working, Status::Backlog);
         let t20 = tickets
             .iter()
             .find(|t| t.key.to_string() == "SHOP-20")
             .unwrap();
-        let DropStep::Blocked { dialog, queue } =
-            drop_step_in(flow, t20, &tickets, &DropTargetId::DEV)
-        else {
-            panic!("the dialog");
-        };
-        assert!(queue, "from Backlog it goes to Ready for Dev");
-        assert_eq!(dialog.title, "SHOP-20 is blocked");
-        assert!(
-            dialog
-                .body
-                .starts_with("It waits for SHOP-18 (in Review) and SHOP-19 (in Dev) to merge."),
-            "{}",
-            dialog.body
-        );
         assert_eq!(
-            drop_step_in(flow, t20, &tickets, &DropTargetId::READY_FOR_DEV),
+            drop_step_in(flow, t20, &tickets, &DropTargetId::DEV),
             DropStep::Move
         );
         let queued = storyboard(Status::WaitingForYou, Status::Working, Status::Queued);
@@ -2324,19 +2283,23 @@ mod tests {
             .iter()
             .find(|t| t.key.to_string() == "SHOP-20")
             .unwrap();
-        assert!(matches!(
-            drop_step_in(flow, t20, &queued, &DropTargetId::DEV),
-            DropStep::Blocked { queue: false, .. }
-        ));
-        // A ticket whose parents merged is no longer blocked: Backlog → Dev queues it as before.
-        let free = storyboard(Status::Merged, Status::Merged, Status::Backlog);
-        let t20 = free
-            .iter()
-            .find(|t| t.key.to_string() == "SHOP-20")
-            .unwrap();
         assert_eq!(
-            drop_step_in(flow, t20, &free, &DropTargetId::DEV),
-            DropStep::Move
+            drop_step_in(flow, t20, &queued, &DropTargetId::DEV),
+            DropStep::Nothing
+        );
+        let page = page(
+            &queued,
+            &facts(),
+            &params(1376.),
+            NOW,
+            &KeyLabels::base(Platform::Mac),
+        );
+        let dev = page.columns[1].dev.as_ref().unwrap();
+        assert_eq!(dev.top[0].key(), "SHOP-20", "at the top of Dev");
+        assert!(
+            card_text(&page, "SHOP-20").contains("Waits for SHOP-18 and SHOP-19 to merge"),
+            "{}",
+            card_text(&page, "SHOP-20")
         );
     }
 
@@ -2411,26 +2374,29 @@ mod tests {
                 &KeyLabels::base(Platform::Mac),
             )
         };
-        // 1 · Planning: DPV-01's blocked line, in Backlog too.
+        // 1 · Planning: DPV-01's blocked line in Backlog, with Start all the same.
         let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
         let blocked = "Blocked \u{b7} waits for SHOP-18 and SHOP-19 to merge";
         assert!(card_text(&planning, "SHOP-20").contains(blocked));
-        // 2 · The chain runs, then SHOP-18 in Review: the same line until a parent merges.
+        assert!(card_text(&planning, "SHOP-20").contains("\"start\""));
+        // 2 · The chain runs, then SHOP-18 in Review: started, it waits at the top of Dev with the same parents until
+        // one merges.
+        let waits = "Waits for SHOP-18 and SHOP-19 to merge";
         let runs = at(Status::Working, Status::Working, Status::Queued);
-        assert!(card_text(&runs, "SHOP-20").contains(blocked));
-        assert!(card_text(&runs, "SHOP-21").contains("Blocked \u{b7} waits for SHOP-20 to merge"));
+        assert!(card_text(&runs, "SHOP-20").contains(waits));
+        assert!(card_text(&runs, "SHOP-21").contains("Waits for SHOP-20 to merge"));
         assert!(card_text(&runs, "SHOP-18").contains("Blocks SHOP-20"));
         let review = at(Status::WaitingForYou, Status::Working, Status::Queued);
-        assert!(card_text(&review, "SHOP-20").contains(blocked));
+        assert!(card_text(&review, "SHOP-20").contains(waits));
         // 3 · One parent merged.
         let one = at(Status::Merged, Status::WaitingForYou, Status::Queued);
-        assert!(card_text(&one, "SHOP-20").contains("Blocked \u{b7} waits for SHOP-19 to merge"));
+        assert!(card_text(&one, "SHOP-20").contains("Waits for SHOP-19 to merge"));
         // 4 · All parents merged: SHOP-20 works from the new main; SHOP-21 still waits.
         let all = at(Status::Merged, Status::Merged, Status::Working);
         assert!(
             card_text(&all, "SHOP-20").contains("from main @ 3b7d0e1 · all dependencies merged")
         );
-        assert!(card_text(&all, "SHOP-21").contains("Blocked \u{b7} waits for SHOP-20 to merge"));
+        assert!(card_text(&all, "SHOP-21").contains("Waits for SHOP-20 to merge"));
         // 5 · PR variant.
         let mut tickets = storyboard(Status::PrOpen, Status::Merged, Status::Queued);
         tickets[1].flags.pr_number = Some(482);
@@ -2441,7 +2407,7 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        assert!(card_text(&pr, "SHOP-20").contains("Blocked \u{b7} waits for SHOP-18 to merge"));
+        assert!(card_text(&pr, "SHOP-20").contains("Waits for SHOP-18 to merge"));
         // Mark merged is the sheet's now: a card that doesn't need the user has no button (BRD-03).
         assert!(!card_text(&pr, "SHOP-18").contains("Mark merged"));
         // 6 · Closed parent never counts as merged.
@@ -2642,8 +2608,8 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         c.cards.iter().chain(dev).collect()
     }
 
-    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the seven columns keep their
-    /// 240 px and the board scrolls with "2 more stages", Done is its "Done 4 →" line, Ready says "Starts in priority order", and each card reads as drawn.
+    /// BRD-02, BRD-03 on the example (`s24-03`): at 1440 (the 64 px rail, no agent panel) the six columns keep their
+    /// 240 px and the board scrolls with "1 more stage", Done is its "Done 4 →" line, and each card reads as drawn.
     #[test]
     fn the_example_board_scrolls_at_1440_with_one_line_cards() {
         use crate::view_models::card::Tone;
@@ -2670,7 +2636,6 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             open,
             [
                 "Backlog",
-                "Ready",
                 "Product spec",
                 "Dev",
                 "Validate",
@@ -2680,14 +2645,10 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         );
         assert_eq!(
             page.more_stages.at_start.as_deref(),
-            Some("2 more stages"),
-            "seven columns scroll at 1440"
+            Some("1 more stage"),
+            "six columns scroll at 1440"
         );
         assert_eq!(page.done.as_ref().unwrap().text, "Done 4 \u{2192}");
-        assert_eq!(
-            page.columns[1].hint.as_deref(),
-            Some("Before the first stage")
-        );
         assert_eq!(page.toolbar.views.options[0].label, "Board");
         assert!(page.toolbar.views.options[0].selected);
         assert_eq!(page.list, None);
@@ -2695,8 +2656,8 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         let s = |text: &str| Some(text.to_owned());
         assert_eq!(
             line_of(&page, "SHOP-31"),
-            (None, None, None),
-            "a calm Backlog card"
+            (None, s("Start"), None),
+            "a calm Backlog card, with Start"
         );
         assert_eq!(
             line_of(&page, "SHOP-22"),
@@ -2756,8 +2717,8 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         };
         assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
         let waits = line_of(&page, "SHOP-20").0.unwrap();
-        assert_eq!(waits, "Blocked \u{b7} waits for SHOP-18 to merge");
-        let working = page.columns[3]
+        assert_eq!(waits, "Waits for SHOP-18 to merge");
+        let working = page.columns[2]
             .dev
             .iter()
             .flat_map(|d| &d.working)
@@ -2770,9 +2731,9 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
     }
 
     /// BRD-02 on a 12-stage flow (`s24-04`): every column keeps 240 px, nothing folds by itself, and at 1440 the
-    /// board scrolls with "9 more stages"; Fold empty columns folds the empty ones to rails.
+    /// board scrolls with "8 more stages"; Fold empty columns folds the empty ones to rails.
     #[test]
-    fn a_twelve_stage_flow_scrolls_with_nine_more_stages() {
+    fn a_twelve_stage_flow_scrolls_with_eight_more_stages() {
         let flow = twelve_stages();
         let tickets = shop_web_tickets()
             .into_iter()
@@ -2791,8 +2752,8 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             &KeyLabels::base(Platform::Mac),
         );
         let open = page.columns.iter().filter(|c| !c.collapsed).count();
-        assert_eq!(open, 14, "Backlog, Ready for Dev and twelve stages");
-        assert_eq!(page.more_stages.at_start.as_deref(), Some("9 more stages"));
+        assert_eq!(open, 13, "Backlog and twelve stages");
+        assert_eq!(page.more_stages.at_start.as_deref(), Some("8 more stages"));
         assert_eq!(
             (
                 page.more_stages.one.as_str(),
@@ -2816,12 +2777,13 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             .filter(|c| !c.collapsed)
             .map(|c| c.title.as_str())
             .collect();
-        assert_eq!(open, ["Backlog", "Ready"]);
+        // The started tickets waiting to begin keep the first stage open.
+        assert_eq!(open, ["Backlog", "Product spec"]);
         assert_eq!(folded.more_stages.at_start, None, "the rails fit");
         assert!(folded.toolbar.switch.as_ref().unwrap().selected);
-        let product_spec = folded.columns[2].rail.as_ref().unwrap();
-        assert_eq!(product_spec.tooltip, "Product spec \u{b7} 0 tickets");
-        assert!(!product_spec.dot);
+        let plan = folded.columns[2].rail.as_ref().unwrap();
+        assert_eq!(plan.tooltip, "Plan \u{b7} 0 tickets");
+        assert!(!plan.dot);
     }
 
     /// `s26-10`: Product spec folded from its ⋯ is a rail with SHOP-12's needs-you dot.
@@ -2843,10 +2805,10 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let product_spec = &page.columns[2];
+        let product_spec = &page.columns[1];
         assert!(product_spec.collapsed);
         let rail = product_spec.rail.as_ref().unwrap();
-        assert_eq!(rail.tooltip, "Product spec \u{b7} 1 ticket, 1 needs you");
+        assert_eq!(rail.tooltip, "Product spec \u{b7} 3 tickets, 1 needs you");
         assert!(rail.dot);
         assert_eq!(
             rail.unfold,

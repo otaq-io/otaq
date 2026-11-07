@@ -88,13 +88,12 @@ const LIST: ListView = {
       "Backlog",
       [row("SHOP-41", "Fix README typo", { start: { label: "Start", target: "product-spec" } })],
       {
-        hint: "drag a row to Ready, or Start",
+        hint: "Start, or drag a row into the first stage",
         target: "backlog",
       },
     ),
-    group("ready_for_dev", "Ready", [row("SHOP-35", "Slow checkout query")], {
-      hint: "starts in priority order",
-      target: "ready_for_dev",
+    group("dev", "Dev", [row("SHOP-35", "Slow checkout query")], {
+      target: "dev",
     }),
     group(
       "product-spec",
@@ -164,15 +163,15 @@ describe("the List's rows", () => {
   });
 
   it("takes drops only on the groups with a target, from head to last row", () => {
-    expect(listTargets(LIST)).toEqual(["backlog", "ready_for_dev", "product-spec", "done"]);
+    expect(listTargets(LIST)).toEqual(["backlog", "dev", "product-spec", "done"]);
     expect(dragsRows(LIST)).toBe(true);
     const byStatus: ListView = { ...LIST, groups: LIST.groups.map((g) => ({ ...g, target: null })) };
     expect(dragsRows(byStatus)).toBe(false);
     const el = {
       getBoundingClientRect: () => ({ left: 80, right: 1200, top: 300, bottom: 420 }),
     } as HTMLElement;
-    expect(groupSpans(new Map([["ready_for_dev", el]]))).toEqual([
-      { id: "ready_for_dev", left: 80, right: 1200, top: 300, bottom: 420 },
+    expect(groupSpans(new Map([["dev", el]]))).toEqual([
+      { id: "dev", left: 80, right: 1200, top: 300, bottom: 420 },
     ]);
   });
 });
@@ -195,8 +194,7 @@ describe("the List", () => {
       "WHERE IN THE FLOW",
       "WHAT’S HAPPENING",
       "WHO",
-      "drag a row to Ready, or Start",
-      "starts in priority order",
+      "Start, or drag a row into the first stage",
       "Asks you: follow the system setting?",
       "Spec writer",
       "8m",
@@ -239,9 +237,7 @@ describe("the List", () => {
             selected: null,
             lifted: null,
             verdict: (t) =>
-              t === "ready_for_dev"
-                ? { kind: "allowed", icon: "plus", hint: "Queue", note: null }
-                : undefined,
+              t === "dev" ? { kind: "allowed", icon: "plus", hint: "Start", note: null } : undefined,
             handlers: h,
             group: (id, el) => groups.set(id, el),
             onView,
@@ -270,8 +266,8 @@ describe("the List", () => {
       });
       expect(h.press).toHaveBeenCalledWith("SHOP-35", expect.anything());
       // Group by Stage's targets registered their elements; Validate (no target) didn't.
-      expect([...groups.keys()].sort()).toEqual(["backlog", "done", "product-spec", "ready_for_dev"]);
-      expect(host.querySelector('[aria-label="Ready"]')?.getAttribute("data-verdict")).toBe("allowed");
+      expect([...groups.keys()].sort()).toEqual(["backlog", "dev", "done", "product-spec"]);
+      expect(host.querySelector('[aria-label="Dev"]')?.getAttribute("data-verdict")).toBe("allowed");
     });
   });
 });

@@ -13,7 +13,7 @@
 //! **Lock order**: the ticket's lock first, then the stock's (a std mutex, never held across an `.await`).
 //!
 //! [`TicketEnv::run`] listens to the service's events: a ticket entering [`free::FREED_IN`] is freed; a Run or
-//! Shell closing frees its ticket's build if it was held for it; a ticket entering or leaving Ready for Dev changes
+//! Shell closing frees its ticket's build if it was held for it; a ticket entering or leaving waiting to begin changes
 //! the stock limit; a ticket entering or leaving [`free::FREED_IN`] has its project's schema paths scanned again. A
 //! slow tick (and once at startup) frees what no event announced and scans every project ([`TicketEnv::sweep`]).
 
@@ -334,7 +334,7 @@ impl TicketEnv {
         }
     }
 
-    /// Applies the stock limit of `key`'s repository (a ticket entered or left Ready for Dev).
+    /// Applies the stock limit of `key`'s repository (a ticket entered or left waiting to begin).
     async fn limit_changed(&self, key: &TicketKey) {
         if self.0.warm.mode() != HandoffMode::Move {
             return;
@@ -385,7 +385,7 @@ impl TicketEnv {
         let mut tick = tokio::time::interval(SWEEP_TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         let mut tasks = JoinSet::new();
-        // The tickets last seen in Ready for Dev (those there at startup too): leaving it changes the stock limit.
+        // The tickets last seen waiting to begin (those there at startup too): leaving it changes the stock limit.
         let mut ready = self
             .ids_in(|s| s.set().board_group() == StatusSet::Waiting)
             .await;
@@ -448,7 +448,7 @@ impl TicketEnv {
             }
             if lagged {
                 // What the missed events changed: the sets are read again, and every stock's limit applied (a
-                // ticket that entered or left Ready for Dev unseen changed it).
+                // ticket that entered or left waiting to begin unseen changed it).
                 ready = self
                     .ids_in(|s| s.set().board_group() == StatusSet::Waiting)
                     .await;

@@ -100,7 +100,7 @@ impl Action {
     /// The button's tooltip, where the label alone doesn't say where it goes.
     pub fn tooltip(self) -> Option<&'static str> {
         match self {
-            Self::Start => Some("Moves to Ready for Dev"),
+            Self::Start => Some("Moves it into the first stage"),
             _ => None,
         }
     }

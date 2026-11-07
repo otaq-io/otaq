@@ -430,7 +430,7 @@ async fn a_reorder_waits_for_its_span_only() {
 }
 
 /// FED-08: the same reorder picked from Start from (an imported file) is a swap: it waits for the whole board, SHOP-12
-/// in Product spec included, and nothing starts from Ready for Dev.
+/// in Product spec included, and nothing starts while waiting to begin.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_swap_waits_for_the_whole_board() {
     let (w, key) = world().await;
@@ -472,7 +472,10 @@ async fn a_swap_waits_for_the_whole_board() {
     let waiting = applied.waiting.unwrap();
     assert_eq!(waiting.wait, Wait::WholeBoard);
     assert_eq!(waiting.waiting_for, std::slice::from_ref(&shop12.key));
-    assert!(would_start(&w, &key).await.is_empty(), "Ready for Dev held");
+    assert!(
+        would_start(&w, &key).await.is_empty(),
+        "the wait before the first stage held"
+    );
     w.stop().await;
 }
 

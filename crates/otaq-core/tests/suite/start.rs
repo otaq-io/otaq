@@ -408,7 +408,7 @@ async fn a_diverged_base_holds_the_ticket_without_a_worktree() {
     drop(t);
 }
 
-/// billing-api as a clone whose `origin` can't be reached (d0121), with BILL-1 and BILL-2 in Ready for Dev.
+/// billing-api as a clone whose `origin` can't be reached (d0121), with BILL-1 and BILL-2 waiting to begin.
 async fn unreachable_origin() -> (Fixture, PathBuf) {
     let f = Fixture::new().await;
     let clone = f.repos.clone_with_origin("billing-api", "develop", 1);

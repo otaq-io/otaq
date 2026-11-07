@@ -1,4 +1,4 @@
-//! Pinning and column order (TKT-06, SDD §7.5) with the shop-web sample, and the start order of Ready for Dev
+//! Pinning and column order (TKT-06, SDD §7.5) with the shop-web sample, and the start order of waiting to begin
 //! (SCH-01, TKT-09; d0065, d0066).
 
 use crate::common::{Fixture, me};
@@ -66,7 +66,7 @@ fn ready_at(mut ticket: Ticket, at: i64) -> Ticket {
     ticket
 }
 
-/// The Dev and Ready for Dev columns of the sample board.
+/// The Dev and waiting to begin columns of the sample board.
 fn sample() -> Vec<Ticket> {
     vec![
         t("SHOP-17", Status::Merged, 1),
@@ -101,7 +101,7 @@ fn dev_order() {
     );
 }
 
-/// Ready for Dev: Start interrupted and Parent closed first, then the start order; tickets still waiting for a
+/// waiting to begin: Start interrupted and Parent closed first, then the start order; tickets still waiting for a
 /// parent come after the ready ones (they have no ready time yet).
 #[test]
 fn ready_for_dev_order() {
@@ -183,7 +183,7 @@ fn pins_in_every_column_most_recent_first() {
     assert_eq!(
         keys(&sort_column(StatusSet::Waiting, &tickets).cards),
         ["SHOP-33", "SHOP-34"],
-        "pins are first in Ready for Dev too"
+        "pins are first among the waiting tickets too"
     );
 }
 

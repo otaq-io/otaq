@@ -6,11 +6,11 @@ import type { ListEntry } from "./ListEntry";
 import type { ViewChange } from "./ViewChange";
 
 /**
- * One group of rows: its head ("Backlog 3 · drag a row to Ready, or Start") and its rows. `ListGroup` on the page.
+ * One group of rows: its head ("Backlog 3 · Start, or drag a row into the first stage") and its rows. `ListGroup` on the page.
  */
 export type ListGroup = { 
 /**
- * "backlog", "ready_for_dev", a stage's id, "done"; "needs_you"…; "agent:Rust developer".
+ * "backlog", a stage's id, "done"; "needs_you"…; "agent:Rust developer".
  */
 id: string, title: string, icon: IconName, 
 /**

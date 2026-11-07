@@ -1246,7 +1246,12 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::FixedCreatedTicket => fix_line(p),
         EventKind::Moved => {
             let to = text(p, "to").and_then(|s| s.parse::<Status>().ok());
+            let from = text(p, "from").and_then(|s| s.parse::<Status>().ok());
             let title = match to {
+                // Out of Backlog: started, into the first stage (it waits there until it can begin).
+                Some(Status::Queued) if matches!(from, Some(Status::Backlog | Status::Parked)) => {
+                    "Started".to_owned()
+                }
                 Some(s) => s.label().to_owned(),
                 None => "moved".to_owned(),
             };
@@ -2972,7 +2977,7 @@ mod tests {
                 "Agent session ended",
                 "Agent session started",
                 "Start failed",
-                "Ready for Dev",
+                "Started",
                 "You created the ticket"
             ]
         );

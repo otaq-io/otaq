@@ -549,7 +549,7 @@ fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     assert_eq!(file, spec_first);
     let review = file.flow.stage("spec-review").unwrap();
     assert_eq!(review.fail_to.as_deref(), Some("product-spec"));
-    assert!(flow.contains("Backlog \u{2192} Ready \u{2192}\nProduct spec"));
+    assert!(flow.contains("Backlog \u{2192}\nProduct spec"));
 }
 
 /// T-0415 (FLW-21, FLW-15; d0108 rule 8, d0050): `open-pr` describes both modes: click (the user confirms in the

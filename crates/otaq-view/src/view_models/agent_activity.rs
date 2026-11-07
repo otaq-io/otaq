@@ -53,7 +53,7 @@ pub struct Created {
     /// Who created it, as the toast names it: "DEMO-7" (a ticket's agent).
     pub by: String,
     pub key: TicketKey,
-    /// Where it landed: Backlog, or Ready for Dev.
+    /// Where it landed: Backlog, or waiting to start.
     pub status: Status,
 }
 
@@ -274,7 +274,7 @@ mod tests {
                 ),
                 (
                     "Ticket created by agent",
-                    Some("DEMO-8 created DEMO-45 \u{2192} Ready for Dev")
+                    Some("DEMO-8 created DEMO-45 \u{2192} Waiting to start")
                 ),
             ]
         );

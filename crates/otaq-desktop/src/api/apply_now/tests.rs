@@ -35,7 +35,7 @@ use crate::service::testing::{app_on, connected};
 /// Keeps running, printing its arguments.
 const KEEPS_RUNNING: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 30";
 
-/// pocket-notes' flow: Backlog → Ready for Dev → Product spec → Dev → Security (agent check) → Review → Done · PR.
+/// pocket-notes' flow: Backlog → waiting to begin → Product spec → Dev → Security (agent check) → Review → Done · PR.
 const POCKET_NOTES: &str = "\
 agents:
   - name: Spec writer

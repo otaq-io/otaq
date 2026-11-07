@@ -16,7 +16,7 @@ key: string,
  */
 name: string, badge: FlowEditorBadge | null, 
 /**
- * Its steps, Ready for Dev counted.
+ * Its steps, Backlog counted.
  */
 count: number, line: string, 
 /**

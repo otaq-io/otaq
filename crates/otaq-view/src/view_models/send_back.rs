@@ -235,11 +235,11 @@ mod tests {
             [
                 (
                     shop20.key.clone(),
-                    "Checkout page \u{b7} Ready for Dev".to_owned()
+                    "Checkout page \u{b7} Waiting to start".to_owned()
                 ),
                 (
                     shop21.key.clone(),
-                    "Order confirmation email \u{b7} Ready for Dev".to_owned()
+                    "Order confirmation email \u{b7} Waiting to start".to_owned()
                 ),
             ]
         );

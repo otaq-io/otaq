@@ -62,7 +62,7 @@ pub fn open_folder_label(os: Os) -> &'static str {
     }
 }
 
-/// Change flow…'s second line: the flow in use and its steps (Ready for Dev and the delivery counted, as the editor
+/// Change flow…'s second line: the flow in use and its steps (the first step and the delivery counted, as the editor
 /// counts them), or where a waiting change goes ("→ Spec first · waiting" for a preset, else "· a change waiting").
 pub fn flow_line(
     name: &str,
@@ -184,7 +184,7 @@ pub mod fixtures {
             changes: vec!["Spec first".into()],
             since: 0,
             wait: Wait::WholeBoard,
-            hold: Hold::READY_FOR_DEV,
+            hold: Hold::BEFORE_FIRST_STAGE,
             waiting_for: Vec::new(),
         }
     }

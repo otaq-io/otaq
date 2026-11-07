@@ -59,7 +59,7 @@ fn allowed_drags() {
     use DropTarget as T;
     let rows = [
         (Status::Backlog, T::ReadyForDev, allowed(MoveAction::Start)),
-        // On Dev it lands in Ready for Dev until it can start (d0066).
+        // On Dev it lands waiting to begin until it can start (d0066).
         (Status::Backlog, T::Dev, allowed(MoveAction::Start)),
         (Status::Parked, T::ReadyForDev, allowed(MoveAction::Start)),
         (Status::Parked, T::Dev, allowed(MoveAction::Start)),
@@ -139,11 +139,8 @@ fn refused_drags_carry_a_reason() {
             "Merged tickets are locked"
         );
     }
-    assert_eq!(
-        reason(&check_move(&t(Status::Queued), T::Dev)),
-        "It starts by itself when it can, in priority order",
-        "not into Dev by hand"
-    );
+    // A started ticket waiting to begin already is at the top of Dev's column: dropped there, nothing changes.
+    assert_eq!(check_move(&t(Status::Queued), T::Dev), MoveCheck::Unchanged);
     assert_eq!(
         reason(&check_move(&t(Status::Working), T::ReadyForDev)),
         "Drag it to Backlog to park it"
@@ -299,7 +296,7 @@ async fn reopen_of_a_never_started_closed_ticket_is_bookkeeping() {
     assert!(row.reopened);
 }
 
-/// Ready for Dev → Backlog (d0066): out of the queue; a ticket that never worked is "never started" again, so it
+/// waiting to begin → Backlog (d0066): out of the queue; a ticket that never worked is "never started" again, so it
 /// can still be deleted (d0060).
 #[tokio::test]
 async fn unqueue_takes_it_out_of_the_queue() {

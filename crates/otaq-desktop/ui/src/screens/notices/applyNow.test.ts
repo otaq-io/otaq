@@ -36,7 +36,7 @@ const item = (id: string, label: string, checked = false): MenuItem => ({
 
 const PLACES: [string, string][] = [
   ["backlog", "Backlog"],
-  ["ready_for_dev", "Ready for Dev"],
+  ["ready_for_dev", "Start again in Dev"],
   ["stage:dev", "Dev"],
   ["stage:validate", "Validate"],
   ["stage:review", "Review"],

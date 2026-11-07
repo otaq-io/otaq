@@ -4,7 +4,6 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
-import type { BlockedDialog } from "../../generated/BlockedDialog";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
@@ -82,8 +81,6 @@ export interface OverlayParams {
   change_agent: { ticket: string; stage?: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
-  /** A blocked ticket dragged past Ready for Dev or started (DPV-03, T-0463): why it waits; Keep it waiting only. */
-  blocked: BlockedDialog;
   /** Send back with PR comments and an optional note (FLW-16, T-0424). */
   send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back. */
@@ -114,7 +111,7 @@ export interface OverlayParams {
   apply_now: { project: string };
   /** The flow editor over the window (T-0471, FED-01, FED-09): the project's flow, from the project menu, a column's
    * ⋯ or Settings → Flow; a stage to select (Edit <stage>…) or to add a new one after (Add a stage after <stage>;
-   * `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page embed its body. `focus_skill`:
+   * `null`: first, after Backlog). Onboarding's Flow step and the Flow setup page embed its body. `focus_skill`:
    * the selected stage's Skill field gets the keyboard (use your own Open PR skill → the Delivery stage's). */
   flow_editor: {
     project: string;
@@ -157,7 +154,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   send_back: true,
   change_agent: true,
   drag_back: true,
-  blocked: true,
   send_back_pr: true,
   change_decision: true,
   local_merge: true,

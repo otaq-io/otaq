@@ -8,7 +8,7 @@ import type { SheetAnswerRow } from "../../generated/SheetAnswerRow";
 /** Where a button goes: the service (`sheet.action`), a tab, or a dialog. */
 export type ActionRoute =
   | { kind: "service" }
-  // Start (DPV-03): `board.start`, whose answer may be the blocked ticket's dialog.
+  // Start: `board.start`, into the first stage (where it waits at the top until it can begin).
   | { kind: "start" }
   | { kind: "terminal" }
   // Send again (d0118): `sheet.send_again`, whose answer may be the unsent-text question.
@@ -129,6 +129,8 @@ export function menuRoute(item: string): MenuRoute {
  */
 export type CardRoute =
   | { kind: "service" }
+  // A Backlog card's Start: `board.start`, as the sheet's Start.
+  | { kind: "start" }
   | { kind: "pick"; number: number }
   | { kind: "send_answer" }
   | {
@@ -145,6 +147,8 @@ export type CardRoute =
 export function cardRoute(kind: CardActionKind): CardRoute {
   if (typeof kind === "object") return { kind: "pick", number: kind.pick_option };
   switch (kind) {
+    case "start":
+      return { kind: "start" };
     case "deliver_now":
     case "resume":
     case "retry_resume":

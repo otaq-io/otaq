@@ -217,17 +217,7 @@ fn the_default_flow_names_its_kinds_and_has_no_approved_section() {
         .iter()
         .map(|c| c["kind"].as_str().unwrap())
         .collect();
-    assert_eq!(
-        kinds,
-        [
-            "backlog",
-            "ready_for_dev",
-            "agent",
-            "agent",
-            "human_check",
-            "done"
-        ]
-    );
+    assert_eq!(kinds, ["backlog", "agent", "agent", "human_check", "done"]);
     assert!(
         page["columns"]
             .as_array()

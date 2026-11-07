@@ -71,7 +71,7 @@ describe("the chain highlight", () => {
   it("joins cards side to side, and around the left edge in one column", () => {
     const review = { left: 809, top: 44, right: 1053, bottom: 179 };
     const ready = { left: 280, top: 329, right: 524, bottom: 458 };
-    // SHOP-18 (Review) → SHOP-20 (Ready for Dev): from SHOP-18's left side to SHOP-20's right side.
+    // SHOP-18 (Review) → SHOP-20 (waiting at the top of Dev): from SHOP-18's left side to SHOP-20's right side.
     const back = arrow(review, ready);
     expect(back.line.startsWith("M809 111.5 C")).toBe(true);
     expect(back.head.startsWith("M524 393.5 L")).toBe(true);
@@ -98,7 +98,7 @@ const card = (key: string): BoardCard => {
     edge: null,
     action: null,
     origin: null,
-    hover: { status: "Ready for Dev", details: [] },
+    hover: { status: "Waiting to start", details: [] },
     faded: null,
     fresh: false,
     open_sheet: "Open panel",
@@ -112,14 +112,13 @@ const card = (key: string): BoardCard => {
 };
 
 const column = (over: Partial<BoardColumn>): BoardColumn => ({
-  id: "ready_for_dev",
-  kind: "ready_for_dev",
-  title: "Ready for Dev",
+  id: "backlog",
+  kind: "backlog",
+  title: "Backlog",
   icon: "play",
   count: "2",
   quiet_icon: false,
   tooltip: null,
-  hint: null,
   empty_hint: "",
   collapsed: false,
   rail: null,

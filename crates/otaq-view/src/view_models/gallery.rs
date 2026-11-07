@@ -147,7 +147,7 @@ fn priority_tier() -> LegendPriority {
                sheet and forms. P3 Normal is hidden on cards."
             .into(),
         chips: Priority::ALL.into_iter().map(priority::view).collect(),
-        order: "Start order in Ready for Dev: pinned → P1 … P4 → ready the longest".into(),
+        order: "Start order of the tickets waiting to begin: pinned → P1 … P4 → ready the longest".into(),
     }
 }
 

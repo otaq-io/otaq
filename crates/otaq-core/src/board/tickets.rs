@@ -82,7 +82,7 @@ pub struct Ticket {
     /// When the ticket entered its current status (the age of a needs-you item).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub status_since: Option<i64>,
-    /// When the user's drag last put the ticket in Ready for Dev (Queued).
+    /// When the user's drag last put the ticket waiting to begin (Queued).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub queued_at: Option<i64>,
     /// When the queued ticket became ready to start: the start order's last key, "ready the longest" (SCH-01).
@@ -239,7 +239,7 @@ pub fn been_to_dev(ticket: &Ticket) -> bool {
     }
 }
 
-/// A never-started ticket: in Backlog or Ready for Dev, and it has never been to Dev ([`been_to_dev`]).
+/// A never-started ticket: in Backlog or waiting to begin, and it has never been to Dev ([`been_to_dev`]).
 pub fn is_never_started(ticket: &Ticket) -> bool {
     (ticket.place.is_backlog() || ticket.place.is_waiting()) && !been_to_dev(ticket)
 }

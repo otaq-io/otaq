@@ -134,8 +134,9 @@ this project:
 ## The file
 
 Three parts: `agents:` (who runs the stages), `flow:` (the stages between Backlog and Done) and `delivery:` (how the
-work leaves the flow after the last stage: a setting of the flow, not a stage). Backlog, Ready for Dev (named Ready
-when the first Agent stage isn't Dev) and Done are always there, so never write them. Every stage is its own column.
+work leaves the flow after the last stage: a setting of the flow, not a stage). Backlog and Done are the fixed ends
+of every flow, so never write them. Every stage is its own column. Starting a ticket puts it into the first stage; one
+that can't begin yet (a dependency, no free agent) waits at the top of that column.
 
 ### Agents
 
@@ -206,7 +207,7 @@ delivery:
 A ticket being delivered stays in the last stage's column (To deliver, PR open). Otaq doesn't watch PRs: the user marks
 an open PR merged or closed. A conflict or a failed merge check goes back to the last Agent stage on its own.
 
-A whole example, the stages and agents of the Spec first preset (`otaq flow presets` lists it): Backlog → Ready →
+A whole example, the stages and agents of the Spec first preset (`otaq flow presets` lists it): Backlog →
 Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review, delivered on Code review's
 Approve. Spec writer, Architect
 and Milestone planner settle the work first, and Spec review is the user's check of what they wrote. The shipped

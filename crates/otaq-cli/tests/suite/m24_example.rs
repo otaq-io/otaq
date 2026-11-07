@@ -308,7 +308,7 @@ async fn the_files_view_reads_the_example() {
     )
     .unwrap();
     world.w.force_status(&login, Status::NeedsYou).await;
-    // SHOP-29: dragged onto Ready for Dev, its stand-in Dev agent works on lines 41–52, uncommitted.
+    // SHOP-29: started, its stand-in Dev agent works on lines 41–52, uncommitted.
     world.skip_to("SHOP", 29).await;
     let tier = world.w.create("SHOP", "Tier discount").await;
     assert_eq!(tier.key.to_string(), "SHOP-29");

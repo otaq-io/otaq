@@ -13,13 +13,13 @@
 //! whole board, as before: only its edits apply now ([`super::proposal::edits_only`]).
 //!
 //! **The wait** ([`still_working`], [`Wait`]): it applies once no ticket inside what it waits for is at work. A
-//! ticket is quiet in Backlog, Ready for Dev or Done, waiting in a human check the new flow still has, waiting in the
+//! ticket is quiet in Backlog, waiting to begin or Done, waiting in a human check the new flow still has, waiting in the
 //! Delivery stage with no Delivery session at work (To deliver, PR open). Cards in an Agent stage, an agent check, a running Delivery session or a stage the change
 //! removes hold it. For a span only the cards inside it count (Security moved before Validate: Dev to Review); tickets
 //! before it move on freely and those past it are untouched. **Meanwhile no ticket enters it** ([`Hold`]): a ticket
 //! that would waits at its edge, before its first stage, "Waiting for the flow change": the scheduler doesn't start it
 //! ([`Board::settle_flow_changes`]; other projects and the rest of the board keep starting), and a drag past the edge
-//! stops there ([`Board::span_edge`]). For the whole board no ticket starts from Ready for Dev. When it is quiet the
+//! stops there ([`Board::span_edge`]). For the whole board no ticket starts while waiting to begin. When it is quiet the
 //! new flow is stored and starts resume. **A change while another waits** was compared
 //! with the waiting flow, so it shows only the new part; Apply merges it into the waiting change, even its parts that
 //! would otherwise apply at once; **Cancel change** drops both, and nothing else. **Apply now** forces it, with a stage
@@ -46,7 +46,7 @@ use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Place, StatusSet, TicketKey};
 use crate::store::{Store, now_ms};
 
-/// Why a ticket in Ready for Dev doesn't start while its project's flow change waits (the card's footer, FLW-06).
+/// Why a ticket waiting to begin doesn't start while its project's flow change waits (the card's footer, FLW-06).
 pub const WAITING_FOR_THE_FLOW_CHANGE: &str = "Waiting for the flow change";
 
 /// The **affected span** of a removal or reorder (FED-08): the stages from the first to the last one it touches, in
@@ -109,7 +109,7 @@ impl Wait {
     /// The starts it holds back in `flow` (the flow in use).
     pub fn hold(&self, flow: &Flow) -> Hold {
         match self {
-            Self::WholeBoard => Hold::READY_FOR_DEV,
+            Self::WholeBoard => Hold::BEFORE_FIRST_STAGE,
             Self::Span(span) => Hold {
                 ready_for_dev: flow
                     .first_agent_stage()
@@ -124,7 +124,7 @@ impl Wait {
     }
 }
 
-/// The starts a waiting change holds back in its project ("Waiting for the flow change"): from Ready for Dev (the
+/// The starts a waiting change holds back in its project ("Waiting for the flow change"): while waiting to begin (the
 /// whole board, or a span that holds the first Agent stage), and of the tickets waiting at the span's edge.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
 pub struct Hold {
@@ -135,8 +135,8 @@ pub struct Hold {
 }
 
 impl Hold {
-    /// No ticket starts from Ready for Dev (the whole board's wait).
-    pub const READY_FOR_DEV: Self = Self {
+    /// No ticket starts while waiting to begin (the whole board's wait).
+    pub const BEFORE_FIRST_STAGE: Self = Self {
         ready_for_dev: true,
         before: None,
     };
@@ -316,7 +316,7 @@ pub enum FlowEvent {
     Cancelled,
 }
 
-/// Whether `ticket` lets a change to `new` apply (FLW-06): in Backlog, Ready for Dev or Done; waiting in
+/// Whether `ticket` lets a change to `new` apply (FLW-06): in Backlog, waiting to begin or Done; waiting in
 /// a human check `new` still has; waiting in the Delivery stage (To deliver, PR open) with no Delivery session at
 /// work, since a Delivery is never removed (Q-new-1, d0108: "Cards in an Agent stage or an agent check, and cards in
 /// a stage the change removes, block it"). `delivering`: the ids of
@@ -807,13 +807,13 @@ impl Board {
                     let hold = match self.waiting_change(&key).await {
                         Ok(Some(waiting)) => waiting.hold,
                         Ok(None) => continue,
-                        Err(_) => Hold::READY_FOR_DEV,
+                        Err(_) => Hold::BEFORE_FIRST_STAGE,
                     };
                     settled.held.insert(key, hold);
                 }
                 Err(e) => {
                     tracing::warn!(project = %key, error = %e, "can't apply the waiting flow change");
-                    settled.held.insert(key, Hold::READY_FOR_DEV);
+                    settled.held.insert(key, Hold::BEFORE_FIRST_STAGE);
                 }
             }
         }

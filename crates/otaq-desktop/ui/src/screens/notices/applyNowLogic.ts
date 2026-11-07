@@ -8,7 +8,7 @@ import { request } from "../../tauri";
 
 export type Ask = typeof request;
 
-/** A ticket's key → the id of its picked entry (`backlog`, `ready_for_dev`, `stage:<id>`). */
+/** A ticket's key → the id of its picked entry (`backlog`, `ready_for_dev` for Start again, `stage:<id>`). */
 export type Picks = Readonly<Record<string, string>>;
 
 /** What the window refetches on: the waiting change, and the tickets and sessions its plan stands on. */

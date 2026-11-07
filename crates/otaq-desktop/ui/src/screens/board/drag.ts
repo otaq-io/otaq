@@ -12,10 +12,9 @@ import type { BoardTicketParams } from "../../generated/BoardTicketParams";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DragVerdict } from "../../generated/DragVerdict";
 
-/** The two columns every flow has before its stages, by their fixed ids (STG-08, d0108): Backlog, and Ready for Dev,
- * the wait before the first Agent stage. */
+/** The column every flow has before its stages, by its fixed id (STG-08, d0108): Backlog. A started ticket that can't
+ * begin yet waits at the top of the first stage's column. */
 export const BACKLOG: BoardColumnId = "backlog";
-export const READY_FOR_DEV: BoardColumnId = "ready_for_dev";
 
 /** The door's request call, or a fake one in the tests. */
 export type Ask = (method: string, params?: unknown) => Promise<unknown>;

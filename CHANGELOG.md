@@ -5,6 +5,12 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Starting a ticket puts it into the first stage.** The Ready for Dev column is gone. Every Backlog card has
+  **Start** (a drag into the first stage and ⌘D do the same). A ticket that can't begin yet waits at the top of that
+  column and says why: "Waits for SHOP-12 to merge", "Waits for a free agent · 2nd in line", "Waiting for the flow
+  change". It begins by itself when it can, and nothing is spent until then. A ticket waiting for a dependency can be
+  started too; it no longer asks you to remove the dependency first. Tickets that were in Ready for Dev wait at the
+  top of their first stage.
 - **Tickets have no External ID.** The field is gone from New ticket, Edit ticket, the ticket's details line, the
   PR dialog, `otaq show` and `prime`; History no longer lists changes to it. Your tickets keep everything else.
 - **Your skills stay where they are.** Otaq no longer copies or imports skills. Each tool loads your skills the

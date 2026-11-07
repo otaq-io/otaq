@@ -110,7 +110,7 @@ async fn running(w: &TestService, key: &str, kind: SessionKind) -> usize {
         .count()
 }
 
-/// Queued in Ready for Dev, and a scheduler pass asked for (the board's own move publishes nothing; the request's
+/// Queued waiting to begin, and a scheduler pass asked for (the board's own move publishes nothing; the request's
 /// handler does).
 async fn queue(w: &TestService, key: &str) {
     w.board

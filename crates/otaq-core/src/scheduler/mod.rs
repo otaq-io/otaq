@@ -2,7 +2,7 @@
 //! starts the tickets **waiting before an Agent stage** (Queued) once every dependency is merged (beads-style
 //! readiness, [`crate::board::readiness`]), in the **start order**: pinned → priority 1→4 → ready the longest
 //! ([`crate::board::order::start_order`]). It keeps each queued ticket's `ready_since` up to date. The wait is the
-//! same before every Agent stage (d0108): Ready for Dev before the first, and between two Agent stages before the
+//! same before every Agent stage (d0108): waiting to begin, before the first, and between two Agent stages before the
 //! next (a ticket that finished Product spec waits before Dev, keeping its worktree); the start enters the stage it
 //! waited before ([`crate::start::sequence`]).
 //!
@@ -30,10 +30,10 @@
 //!
 //! **A waiting flow change** (FLW-06, FED-08; d0108, d0115): each pass first applies the waiting changes nothing holds
 //! any more ([`crate::board::Board::settle_flow_changes`]); until one applies or is cancelled, no ticket of its
-//! project enters what it waits for ([`plan_holding`]): a swap starts nothing from Ready for Dev, a removal or reorder
+//! project enters what it waits for ([`plan_holding`]): a swap starts nothing while waiting to begin, a removal or reorder
 //! starts nothing into its span.
 //!
-//! **A paused project** (PAU-04, d0112) starts nothing at all: neither from Ready for Dev nor between two Agent stages
+//! **A paused project** (PAU-04, d0112) starts nothing at all: neither while waiting to begin nor between two Agent stages
 //! ([`plan_holding`]'s `paused`). Its queued tickets wait as they are, and the project's Resume wakes the scheduler.
 
 use std::collections::{HashMap, HashSet};
@@ -156,7 +156,7 @@ impl Gate {
 }
 
 /// How many builds a repository's stock keeps where builds are renamed, not cloned (M19-a, plan §4.2): the tickets
-/// of `repo_tickets` in Ready for Dev whose dependencies are done and that wait only for a slot
+/// of `repo_tickets` waiting to begin whose dependencies are done and that wait only for a slot
 /// ([`Status::WaitingForSlot`]) or their tool's limit ([`held_by_tool_limit`]); at least 1. `all_tickets` holds their
 /// projects' tickets, for readiness. A ticket waiting for a dependency, a closed parent or a diverged base isn't
 /// counted: it can't start soon, and neither is one waiting before a later Agent stage: it keeps its worktree.
@@ -166,7 +166,7 @@ pub fn stock_limit<'a>(
 ) -> usize {
     repo_tickets
         .into_iter()
-        .filter(|t| t.place.is_ready_for_dev())
+        .filter(|t| t.place.waits_to_begin())
         .filter(|t| t.status == Status::WaitingForSlot || held_by_tool_limit(t))
         .filter(|t| readiness(t, all_tickets).is_ready())
         .count()
@@ -206,7 +206,7 @@ pub fn plan(tickets: &[Ticket], starting: &HashSet<String>, gate: &Gate) -> Plan
 }
 
 /// [`plan`], with the projects whose flow change waits, by key, and the starts each holds back (FLW-06, FED-08):
-/// their tickets in Ready for Dev (the whole board's wait, or a span holding the first Agent stage) and those waiting
+/// their tickets waiting to begin (the whole board's wait, or a span holding the first Agent stage) and those waiting
 /// at the span's edge don't start ("Waiting for the flow change"); other tickets, and other projects, start as usual.
 /// The `paused` projects' tickets don't start anywhere (PAU-04): they wait as they are.
 pub fn plan_holding(

@@ -47,7 +47,7 @@ const LIMITS: SettingsSection<"agent_limits"> = {
     {
       field: "agent_limits.max_concurrency",
       label: "Max agents running at once",
-      description: "Suggested 5. Tickets in Ready for Dev wait for a free slot.",
+      description: "Suggested 5. Started tickets wait for a free agent.",
       control: { kind: "stepper", value: 5, min: 1, max: 50, suffix: "", disabled: true, empty: null },
       dimmed: true,
       reset: null,

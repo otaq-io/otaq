@@ -222,7 +222,7 @@ describe("where the editor opens (FED-09, BRD-04)", () => {
       from: "project",
       add_after: "product-spec",
     });
-    // Ready for Dev's: first, right after it.
+    // Backlog's: first, right after it.
     expect(columnEditorOpen("SHOP", { open: "add_after", after: null })).toEqual({
       project: "SHOP",
       from: "project",

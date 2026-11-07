@@ -3,9 +3,9 @@
 //! `s24-11`). A ticket that hasn't started and waits for a parent says so on its card and row, in amber with a link
 //! icon ("Blocked · waits for SHOP-18 and SHOP-29 to merge"); a ticket others wait for says what it blocks, muted
 //! ("Blocks SHOP-20" on the card, "blocks 1" on the row). Hovering a linked card explains it in a tooltip ("SHOP-20 is
-//! blocked" · "by SHOP-18 (Review) and SHOP-29 (Dev)"); Always keeps every link drawn ([`links`]). Starting a blocked
-//! ticket opens [`Dialog`], whose only button keeps it waiting (the core refuses the start,
-//! `otaq_core::board::moves::blocks_start`). In the sheet's Overview, under the description, [`Section`] lists
+//! blocked" · "by SHOP-18 (Review) and SHOP-29 (Dev)"); Always keeps every link drawn ([`links`]). A blocked ticket
+//! can be started: it goes into the first stage, waits at its top saying "Waits for SHOP-18 to merge", and begins
+//! once its parents are merged. In the sheet's Overview, under the description, [`Section`] lists
 //! Waits for and Waiting for it with where each ticket is now. A link is added only from the waiting ticket: Add
 //! searches for what it waits for ([`search`]), and the New ticket form takes the same search; Waiting for it is
 //! read-only. A loop is refused with [`loop_refused`]. Who may edit them is the core's, unchanged (DEP-01…DEP-04).
@@ -23,7 +23,7 @@ use crate::theme::Palette;
 use crate::view_models::card::{CardExtras, CardViewModel, lowered};
 use crate::view_models::chain;
 use crate::view_models::flow_columns::Columns;
-use crate::view_models::list_view::{DONE, READY};
+use crate::view_models::list_view::DONE;
 use crate::view_models::status::{self, PillView};
 
 /// The section's heading (*s24-11*: DEPENDENCIES).
@@ -45,10 +45,6 @@ pub fn loop_refused() -> String {
         otaq_core::naming::PRODUCT_NAME
     )
 }
-/// DPV-03's only button, focused, and what Esc does.
-pub const KEEP_IT_WAITING: &str = "Keep it waiting";
-/// Under DPV-03's message (*s24-11*).
-pub const REMOVE_FIRST: &str = "To start it, remove the dependency in the ticket first.";
 
 /// "SHOP-18", "SHOP-18 and SHOP-29", "SHOP-17, SHOP-18 and SHOP-29".
 pub fn and_list(items: &[String]) -> String {
@@ -68,7 +64,8 @@ pub fn waiting_for(ticket: &Ticket, all: &[Ticket]) -> Vec<WaitingParent> {
     }
 }
 
-/// Whether the ticket hasn't started yet: it is in Backlog or waits in Ready for Dev (a parked ticket has started).
+/// Whether the ticket hasn't begun yet: it is in Backlog, or started and waiting to begin the first stage (a parked
+/// ticket has begun).
 fn not_started(ticket: &Ticket) -> bool {
     ticket.status != Status::Parked && matches!(ticket.place, Place::Backlog | Place::Waiting(None))
 }
@@ -77,8 +74,9 @@ fn parent_name(p: &WaitingParent) -> String {
     p.key.to_string()
 }
 
-/// DPV-01's line on a card and a row: "Blocked · waits for SHOP-18 and SHOP-29 to merge", for a ticket that hasn't
-/// started while a parent isn't merged. Replaces the old "after SHOP-18" and the Queued "waits for…" text.
+/// DPV-01's line on a card and a row, for a ticket that hasn't begun while a parent isn't merged: "Blocked · waits
+/// for SHOP-18 and SHOP-29 to merge" in Backlog; once started, waiting at the top of the first stage, "Waits for
+/// SHOP-18 and SHOP-29 to merge". Replaces the old "after SHOP-18" and the Queued "waits for…" text.
 pub fn blocked_line(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     if !not_started(ticket) {
         return None;
@@ -86,7 +84,11 @@ pub fn blocked_line(ticket: &Ticket, all: &[Ticket]) -> Option<String> {
     let parents = waiting_for(ticket, all);
     (!parents.is_empty()).then(|| {
         let names: Vec<String> = parents.iter().map(parent_name).collect();
-        format!("Blocked \u{b7} waits for {} to merge", and_list(&names))
+        let parents = and_list(&names);
+        match ticket.place {
+            Place::Backlog => format!("Blocked \u{b7} waits for {parents} to merge"),
+            _ => format!("Waits for {parents} to merge"),
+        }
     })
 }
 
@@ -145,14 +147,13 @@ pub fn blocks(ticket: &Ticket, all: &[Ticket]) -> Option<Blocks> {
     })
 }
 
-/// Where a ticket is now, by the board's words: "Backlog", "Ready", the stage's name ("Review", "Validate"),
-/// "Done".
+/// Where a ticket is now, by the board's words: "Backlog", the stage's name ("Dev" for a started ticket waiting to
+/// begin it, "Review", "Validate"), "Done".
 pub fn place_name(columns: &Columns, ticket: &Ticket) -> String {
     match &ticket.place {
         Place::Backlog => "Backlog".to_owned(),
-        Place::Waiting(None) => READY.to_owned(),
         Place::Done => DONE.to_owned(),
-        Place::Waiting(Some(_)) | Place::InStage(_) => columns.stage_of(ticket).map_or_else(
+        Place::Waiting(_) | Place::InStage(_) => columns.stage_of(ticket).map_or_else(
             || columns.column_of(ticket).title.clone(),
             |s| s.name.clone(),
         ),
@@ -185,7 +186,7 @@ fn placed(columns: &Columns, keys: &[&Ticket], in_: bool) -> String {
 pub struct Tip {
     /// "SHOP-20 is blocked", "SHOP-18 blocks".
     pub title: String,
-    /// "by SHOP-18 (Review) and SHOP-29 (Dev)", "SHOP-20 (Ready)".
+    /// "by SHOP-18 (Review) and SHOP-29 (Dev)", "SHOP-20 (Dev)".
     pub detail: String,
 }
 
@@ -229,45 +230,6 @@ pub fn links(all: &[Ticket]) -> Vec<chain::Edge> {
             child: child.to_string(),
         })
         .collect()
-}
-
-/// DPV-03's dialog: a blocked ticket dragged into a stage past Ready for Dev, or started. It goes to (or stays in)
-/// Ready for Dev; Keep it waiting (focused, Esc) only closes it. `BlockedDialog` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "BlockedDialog")]
-pub struct Dialog {
-    pub key: String,
-    /// "SHOP-20 is blocked".
-    pub title: String,
-    /// "It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge. Started now, its agent works without their
-    /// changes and may have to redo work when they land."
-    pub body: String,
-    /// "To start it, remove the dependency in the ticket first."
-    pub hint: String,
-    pub keep: String,
-}
-
-pub fn dialog(columns: &Columns, ticket: &Ticket, all: &[Ticket]) -> Dialog {
-    let parents: Vec<&Ticket> = waiting_for(ticket, all)
-        .iter()
-        .filter_map(|p| find(all, &p.key))
-        .collect();
-    let (them, their) = if parents.len() == 1 {
-        ("it lands", "its")
-    } else {
-        ("they land", "their")
-    };
-    Dialog {
-        key: ticket.key.to_string(),
-        title: otaq_core::board::moves::blocked_text(&ticket.key),
-        body: format!(
-            "It waits for {} to merge. Started now, its agent works without {their} changes and may have to redo \
-             work when {them}.",
-            placed(columns, &parents, true)
-        ),
-        hint: REMOVE_FIRST.to_owned(),
-        keep: KEEP_IT_WAITING.to_owned(),
-    }
 }
 
 /// One linked ticket in the section: its key, title, where it is now ("Review · your check") and its ✕.
@@ -398,7 +360,7 @@ pub fn section(columns: &Columns, ticket: &Ticket, all: &[Ticket], now_ms: i64) 
     })
 }
 
-/// One ticket the picker offers: key, title and where it is ("Ready", "Dev"). `DependencySearchRow` on the page.
+/// One ticket the picker offers: key, title and where it is ("Backlog", "Dev"). `DependencySearchRow` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "DependencySearchRow")]
 pub struct SearchRow {
@@ -476,8 +438,8 @@ pub fn refusal_text(code: Option<&str>, message: &str) -> String {
 /// The icon of DPV-01's line and of the List's blocked row.
 pub const ICON: IconName = IconName::Link;
 
-/// The gallery's dependencies (`s24-09`…`s24-11`): SHOP-20 blocked by SHOP-18 and SHOP-29, SHOP-29's "Blocks", the
-/// sheet's section with the picker's rows for "SHOP-3", and DPV-03's dialog. `DependenciesGallery` on the page.
+/// The gallery's dependencies (`s24-09`…`s24-11`): SHOP-20 blocked by SHOP-18 and SHOP-29, SHOP-29's "Blocks", and the
+/// sheet's section with the picker's rows for "SHOP-3". `DependenciesGallery` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "DependenciesGallery")]
 pub struct Gallery {
@@ -485,7 +447,6 @@ pub struct Gallery {
     pub blocker: crate::view_models::card_page::TicketCardView,
     pub section: Section,
     pub search: Vec<SearchRow>,
-    pub dialog: Dialog,
 }
 
 /// The example's shop-web with SHOP-20 waiting for SHOP-18 and SHOP-29.
@@ -525,7 +486,6 @@ pub fn gallery() -> Gallery {
         blocker: card("SHOP-29"),
         section: section(&columns, t20, &all, NOW).expect("a ticket"),
         search: search(&columns, &all, &taken(t20), "SHOP-3", 3),
-        dialog: dialog(&columns, t20, &all),
     }
 }
 
@@ -539,25 +499,37 @@ mod tests {
         let g = gallery();
         assert_eq!(
             g.blocked.status.as_ref().map(|s| s.text.as_str()),
-            Some("Blocked \u{b7} waits for SHOP-18 and SHOP-29 to merge")
+            Some("Waits for SHOP-18 and SHOP-29 to merge")
         );
         assert_eq!(
             g.blocker.blocks.as_ref().map(|b| b.line.as_str()),
             Some("Blocks SHOP-20")
         );
         assert_eq!(g.search.len(), 3);
-        assert_eq!(g.dialog.title, "SHOP-20 is blocked");
     }
 
     fn get<'a>(all: &'a [Ticket], key: &str) -> &'a Ticket {
         all.iter().find(|t| t.key.to_string() == key).unwrap()
     }
 
+    /// Started (waiting to begin) it "Waits for…"; still in Backlog it is "Blocked · waits for…".
     #[test]
     fn the_blocked_line_names_every_parent_still_to_merge() {
         let all = example();
         assert_eq!(
             blocked_line(get(&all, "SHOP-20"), &all).as_deref(),
+            Some("Waits for SHOP-18 and SHOP-29 to merge")
+        );
+        let mut in_backlog = all.clone();
+        for t in in_backlog
+            .iter_mut()
+            .filter(|t| t.key.to_string() == "SHOP-20")
+        {
+            t.status = Status::Backlog;
+            t.place = Place::Backlog;
+        }
+        assert_eq!(
+            blocked_line(get(&in_backlog, "SHOP-20"), &in_backlog).as_deref(),
             Some("Blocked \u{b7} waits for SHOP-18 and SHOP-29 to merge")
         );
         // A working ticket isn't blocked, whatever it links to; a merged parent no longer counts.
@@ -569,7 +541,7 @@ mod tests {
         }
         assert_eq!(
             blocked_line(get(&merged, "SHOP-20"), &merged).as_deref(),
-            Some("Blocked \u{b7} waits for SHOP-29 to merge")
+            Some("Waits for SHOP-29 to merge")
         );
         assert_eq!(
             and_list(&["A".into(), "B".into(), "C".into()]),
@@ -604,7 +576,7 @@ mod tests {
             tip(&columns, get(&all, "SHOP-18"), &all),
             Some(Tip {
                 title: "SHOP-18 blocks".into(),
-                detail: "SHOP-20 (Ready)".into(),
+                detail: "SHOP-20 (Product spec)".into(),
             })
         );
         assert_eq!(tip(&columns, get(&all, "SHOP-33"), &all), None);
@@ -636,25 +608,6 @@ mod tests {
                 ("SHOP-29".to_owned(), "SHOP-20".to_owned()),
             ]
         );
-    }
-
-    #[test]
-    fn the_dialog_says_what_it_waits_for_with_one_button() {
-        let flow = shop_web();
-        let columns = Columns::of(&flow);
-        let all = example();
-        let d = dialog(&columns, get(&all, "SHOP-20"), &all);
-        assert_eq!(d.title, "SHOP-20 is blocked");
-        assert_eq!(
-            d.body,
-            "It waits for SHOP-18 (in Review) and SHOP-29 (in Dev) to merge. Started now, its agent works without \
-             their changes and may have to redo work when they land."
-        );
-        assert_eq!(
-            d.hint,
-            "To start it, remove the dependency in the ticket first."
-        );
-        assert_eq!(d.keep, "Keep it waiting");
     }
 
     #[test]
@@ -721,7 +674,7 @@ mod tests {
         let found = search(&columns, &all, &t20, "slow", 10);
         assert_eq!(
             (found[0].key.as_str(), found[0].place.as_str()),
-            ("SHOP-35", "Ready")
+            ("SHOP-35", "Product spec")
         );
         assert!(
             keys(search(&columns, &all, &t20, "", 99))

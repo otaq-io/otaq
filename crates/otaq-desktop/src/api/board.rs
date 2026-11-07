@@ -392,26 +392,8 @@ async fn choices_of(app: &App, key: &str) -> Vec<StageOptions> {
 pub async fn drop(app: &App, params: DropParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let flow = flow(app, &ticket.key.project.to_string()).await;
-    // A linked ticket's drop depends on its parents (DPV-03).
-    let tickets: Vec<Ticket> = if !ticket.depends_on.is_empty() {
-        let board = snapshot(app, &ticket.key.project.to_string()).await?;
-        board.tickets().cloned().collect()
-    } else {
-        Vec::new()
-    };
-    let step = board_page::drop_step_in(&flow, &ticket, &tickets, &params.target);
-    match step {
-        // A blocked ticket goes to (or stays in) Ready for Dev, then the dialog says why it can't start (DPV-03).
-        DropStep::Blocked { dialog, queue } => {
-            if queue {
-                let ready = DropTargetId::new(otaq_view::view_models::flow_columns::READY_FOR_DEV);
-                let step = board_page::drop_step_in(&flow, &ticket, &tickets, &ready);
-                carry_out(app, &params.key, &ticket, &flow, ready, step).await?;
-            }
-            Ok(DropOutcome::Blocked { dialog })
-        }
-        step => carry_out(app, &params.key, &ticket, &flow, params.target, step).await,
-    }
+    let step = board_page::drop_step_in(&flow, &ticket, &[], &params.target);
+    carry_out(app, &params.key, &ticket, &flow, params.target, step).await
 }
 
 /// What `board.start` takes: the ticket the sheet shows.
@@ -421,8 +403,8 @@ pub struct StartParams {
     pub key: String,
 }
 
-/// The sheet's Start: a drop on the first agent column, as ⌘D (DPV-03: a blocked ticket waits in Ready for Dev and
-/// the page shows why).
+/// Start (the sheet's, the Backlog card's): a drop on the first agent column, as ⌘D. The ticket goes into the first
+/// stage; one that can't begin yet (a dependency, no free agent, a flow change waiting) waits at its top and says why.
 pub async fn start(app: &App, params: StartParams) -> Result<DropOutcome, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let flow = flow(app, &ticket.key.project.to_string()).await;
@@ -454,7 +436,6 @@ async fn carry_out(
     Ok(match step {
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
-        DropStep::Blocked { dialog, .. } => DropOutcome::Blocked { dialog },
         DropStep::Park => DropOutcome::Park {
             dialog: board_page::park_dialog(ticket),
         },
@@ -676,11 +657,11 @@ mod tests {
         };
         let params = json!({ "project": project.key, "width": 1376.0, "height": 856.0 });
 
-        // No tickets yet: the empty board over the six columns.
+        // No tickets yet: the empty board over the five columns.
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["empty"]["title"], "shop-web is ready");
-        // Validate has its own column (FLW-01): Backlog · Ready for Dev · Dev · Validate · Review · Done.
-        assert_eq!(view["columns"].as_array().map(Vec::len), Some(6));
+        // Validate has its own column (FLW-01): Backlog · Dev · Validate · Review · Done.
+        assert_eq!(view["columns"].as_array().map(Vec::len), Some(5));
         // The view preferences are the service's (SHB-05): Done folded at first, a fold from Dev's ⋯ comes back.
         assert_eq!(view["prefs"]["folded_columns"], json!(["done"]));
         assert_eq!(view["done"]["text"], "Done 0 \u{2192}");
@@ -689,7 +670,7 @@ mod tests {
         let list = json!({ "project": project.key, "change": { "kind": "view", "view": "list" } });
         request(&h.app, "board.set_view", list).await.unwrap();
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
-        assert_eq!(view["columns"][2]["collapsed"], true);
+        assert_eq!(view["columns"][1]["collapsed"], true);
         assert_eq!(view["prefs"]["view"], "list");
         assert_eq!(view["toolbar"]["views"]["options"][1]["selected"], true);
         let back = json!({ "project": project.key, "change": { "kind": "view", "view": "board" } });
@@ -720,8 +701,8 @@ mod tests {
         assert_eq!(view["columns"][0]["count"], "2");
         assert_eq!(view["columns"][0]["cards"][0]["kind"], "ticket");
         // Review is one column, with no Approved section.
-        assert!(view["columns"][4]["sections"].is_null());
-        assert_eq!(view["columns"][4]["id"], "review");
+        assert!(view["columns"][3]["sections"].is_null());
+        assert_eq!(view["columns"][3]["id"], "review");
         assert_eq!(view["min_column_width"], 240.0);
 
         // An agent filter for an agent the service doesn't know filters nothing and shows no chip.
@@ -737,14 +718,14 @@ mod tests {
             .unwrap();
         assert_eq!(drag["targets"][0]["verdict"]["kind"], "home");
         assert_eq!(drag["targets"][1]["verdict"]["kind"], "allowed");
-        assert_eq!(drag["targets"][3]["target"], "validate");
+        assert_eq!(drag["targets"][2]["target"], "validate");
         assert_eq!(
-            drag["targets"][4]["verdict"]["title"],
+            drag["targets"][3]["verdict"]["title"],
             "Only agents move tickets to Ready for Review"
         );
-        // No Approved target: after Review comes Done.
-        assert_eq!(drag["targets"][5]["target"], "done");
-        assert_eq!(drag["targets"].as_array().unwrap().len(), 6);
+        // No Ready for Dev and no Approved target: Backlog, the stages, Done.
+        assert_eq!(drag["targets"][4]["target"], "done");
+        assert_eq!(drag["targets"].as_array().unwrap().len(), 5);
 
         // A refused drop does nothing.
         let outcome = request(

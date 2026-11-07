@@ -106,7 +106,7 @@ async fn tree_and_cycles() {
         "{tree}"
     );
     assert!(
-        tree.lines().next().unwrap().contains("Ready for Dev"),
+        tree.lines().next().unwrap().contains("Waiting to start"),
         "{tree}"
     );
     assert!(
