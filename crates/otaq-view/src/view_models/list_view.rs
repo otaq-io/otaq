@@ -16,7 +16,7 @@ use std::cmp::Reverse;
 use otaq_core::board::order::{blocked_counts, start_order};
 use otaq_core::board::settings::ViewPrefs;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Place, StatusSet, TicketKey};
+use otaq_core::domain::{StatusSet, TicketKey};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -460,7 +460,7 @@ mod tests {
     use super::*;
     use crate::view_models::card::{CardActionKind, Tone};
     use crate::view_models::card_fixtures::ticket;
-    use otaq_core::domain::Status;
+    use otaq_core::domain::{Place, Status};
 
     /// Each group's title, count, whether it is folded, then its rows' keys.
     fn outline(list: &ListView) -> Vec<(String, String, bool, Vec<String>)> {
