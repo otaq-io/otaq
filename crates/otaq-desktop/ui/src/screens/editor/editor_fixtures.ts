@@ -81,7 +81,6 @@ export const ATTACHMENTS_FIELD: EditorAttachmentsField = {
     footer: "",
     footer_icon: "message-square",
     pasted: "Pasted text",
-    file_line: null,
     remove_file: "Remove the file",
     open: "Open",
     remove: "Remove the pasted text",

@@ -107,7 +107,6 @@ const BOX: CommentBoxView = {
   footer: "Posted as a comment for Dev · every later stage reads it",
   footer_icon: "arrow-right",
   pasted: "Pasted text",
-  file_line: null,
   remove_file: "Remove the file",
   open: "Open",
   remove: "Remove the pasted text",
@@ -143,8 +142,6 @@ describe("the paste rule", () => {
       { kind: "pasted", text: "x".repeat(3000) },
       { kind: "pasted", text: "é".repeat(2500) },
     ]);
-    // A box of one report (the New ticket form's) keeps the last.
-    expect(withPasted(once, "y", true).attachments).toHaveLength(1);
   });
 });
 
@@ -174,7 +171,6 @@ describe("the box's state", () => {
       count: 2140,
       over: true,
       counter: "2,140 / 2,000",
-      fileLine: false,
       canSubmit: false,
     });
     expect(boxState({ text: "x".repeat(2000), attachments: [] }, LIMITS).canSubmit).toBe(true);
@@ -286,11 +282,9 @@ describe("CommentBox", () => {
     expect(host.querySelector(".comment-chip-label")?.textContent).toBe("Pasted text");
     expect(host.querySelector(".comment-chip-size")?.textContent).toBe("· 48 KB");
     expect(ipc.calls).toContain("ticket_comments.pasted_size");
-    expect(host.querySelector(".comment-box-hint")).toBeNull();
     expect(button(host).disabled).toBe(false);
 
     await type(host, "Look at limit_rows first.");
-    expect(host.querySelector(".comment-box-hint")).toBeNull();
     expect(button(host).disabled).toBe(false);
     await act(async () => {
       button(host).click();
@@ -315,7 +309,6 @@ describe("CommentBox", () => {
     expect(button(host).disabled).toBe(true);
     await paste(host, "", [fileOf("image.png", "image/png", 48_000)]);
     expect(chipLabels(host)).toEqual(["Pasted image.png"]);
-    expect(host.querySelector(".comment-box-hint")).toBeNull();
     expect(button(host).disabled).toBe(false);
     await act(async () => {
       button(host).click();
@@ -384,7 +377,6 @@ describe("CommentBox", () => {
     await settle();
     expect(chipLabels(host)).toEqual(["before.png", "test-run.txt"]);
     expect(host.querySelector(".comment-chip-thumb")?.getAttribute("src")).toMatch(/^data:image\/png/);
-    expect(host.querySelector(".comment-box-hint")).toBeNull();
     const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the file before.png"]');
     await act(async () => {
       remove?.click();

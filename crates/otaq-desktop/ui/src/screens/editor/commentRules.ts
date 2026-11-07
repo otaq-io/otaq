@@ -1,14 +1,12 @@
 // The comment box's rules while typing (CMT-11, d0109; *05 → Row · Writing, editing and deleting*): a paste over the
 // limit becomes a "Pasted text" chip, never text; typing past it shows "2,140 / 2,000" and turns the button off. A
-// comment needs text, or at least one attachment, or both (tuq 007): a pasted screenshot is sent on its own. The New
-// ticket form's box alone still asks its report for a line (`CommentBoxView.file_line`, RPT-03). The limit comes with
-// the view (`CommentLimits`, from core's
-// constant); the service checks it again. Typed text is never turned into a report.
+// comment needs text, or at least one attachment, or both (tuq 007): a pasted screenshot is sent on its own. The limit
+// comes with the view (`CommentLimits`, from core's constant); the service checks it again. Typed text is never turned
+// into a report.
 //
 // The box holds a list of attachments (tuq 001, 003), each its own chip with ✕, sent together in the box's order
 // (`sentAttachments`): pasted text, and files picked with Attach, dropped, or pasted (a screenshot, files copied in
-// Finder), each sent by its path. A box that holds one report (the New ticket form's, RPT-03: `CommentBoxView.attach`
-// is null) keeps only the last one added (`withAdded`).
+// Finder), each sent by its path.
 //
 // Editing a posted comment uses the same box (tuq 008): it starts with the comment's text and its attachments as
 // `posted` chips (`editBox`); ✕ removes one, paste, drop and Attach add new ones, and Save sends the text with the
@@ -148,16 +146,15 @@ function named(attachments: readonly BoxAttachment[]): BoxAttachment[] {
   });
 }
 
-/** The box with `added` after what it holds; a box of one report (`one`) keeps only the last of them. */
-export function withAdded(value: BoxValue, added: readonly BoxAttachment[], one = false): BoxValue {
+/** The box with `added` after what it holds. */
+export function withAdded(value: BoxValue, added: readonly BoxAttachment[]): BoxValue {
   if (added.length === 0) return value;
-  const last = added.at(-1);
-  return { ...value, attachments: named(one && last ? [last] : [...value.attachments, ...added]) };
+  return { ...value, attachments: named([...value.attachments, ...added]) };
 }
 
 /** The box after a paste that becomes the "Pasted text" chip. */
-export function withPasted(value: BoxValue, text: string, one = false): BoxValue {
-  return withAdded(value, [pastedAttachment(text)], one);
+export function withPasted(value: BoxValue, text: string): BoxValue {
+  return withAdded(value, [pastedAttachment(text)]);
 }
 
 /** The box without attachment `id` (its ✕). */
@@ -265,8 +262,6 @@ export interface BoxState {
   over: boolean;
   /** "2,140 / 2,000" while over the limit. */
   counter: string | null;
-  /** A file waits in the box: the New ticket form's "A comment always has its own line; the file goes with it." */
-  fileLine: boolean;
   /** The button may send it. */
   canSubmit: boolean;
 }
@@ -282,7 +277,6 @@ export function boxState(value: BoxValue, limits: CommentLimits, optional = fals
     count,
     over,
     counter: over ? `${grouped(count)} / ${grouped(limits.chars)}` : null,
-    fileLine: value.attachments.some((a) => a.kind === "file"),
     canSubmit: !over && (!empty || attached || optional),
   };
 }
