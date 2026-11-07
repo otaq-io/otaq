@@ -5,6 +5,23 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **Edit flow on the board.** **Edit flow** at the end of the board turns the board into the flow's editor in place:
+  each column header is its stage (what happens, its agent and skill, a check's rounds and where its fails go), the
+  cards stay where they are, dimmed, and Backlog and Done are fixed at the ends. Drag a header to reorder it, × to
+  remove it, and **+** between two columns adds a ready stage (Security review, Test in the browser, Update the docs,
+  Design review, Product spec, Tech spec, or a blank one), its description, agent and skill filled in. A click opens
+  the stage: Name, What happens, **What it's for** (which every agent reads), Agent, Skill, Fails go to, Rounds (−/+,
+  1–5) and whether tickets may skip it; clicking Done sets how work leaves the flow. **Watch a ticket** walks a
+  pretend ticket through your draft, passing or failing a check, running nothing; **Start from…** offers **Suggest a
+  flow for <project>** (Noyan's agent drafts one, its changes marked with why, and you save it, ask for changes or
+  discard it), the shipped flows, another project's and Import; ⋯ has Export. Nothing changes until **Save flow**.
+  The flow editor window is gone.
+- **A saved change says where it waits.** Adding or editing a stage applies at once; removing, reordering or
+  changing a stage's kind waits until no ticket is in the stages it touches, which say **changing**, and the bar
+  reads **Saved · waiting** with **Cancel change** and **Apply now…**.
+- **Decide on a check out of rounds.** A card that says "Validate failed 3 times · decide" offers **Allow 1 more
+  round**, **Send it on to <next stage>** or **Stop here** right on the board.
+
 - **One box for new work.** "New ticket, or ask Noyan…" sits at the bottom of the board and the List; ⌘N, a click
   or the toolbar's New ticket opens it. The first line is the title and the rest the description. **↵** creates the
   ticket in Backlog exactly as typed, with no agent and no cost; **⌘↵** creates and starts it; **⇧↵** (Ask Noyan to
