@@ -6,7 +6,8 @@ import type { FilesViewPickerSection } from "./FilesViewPickerSection";
  */
 export type FilesViewPicker = { placeholder: string, 
 /**
- * BASE BRANCH, TICKETS · THEIR WORKTREE and YOUR WORKTREES (each when there are any).
+ * SHOW FILES FROM (the base branch, then each ticket's copy) and YOUR WORKTREES · COMMITTED ONLY (when there
+ * are any).
  */
 sections: Array<FilesViewPickerSection>, 
 /**

@@ -1,7 +1,7 @@
 // The project Files view (FIL-01…FIL-11; T-0478, T-0479; `s28-03`…`s28-10`): the toolbar's third view. On the left
-// the source bar ("main · every ticket’s changes"), which opens the picker (the base branch, every ticket with a
-// worktree), the search box (⌥⌘P, Go to file), All · Changed · Needs you · Same file with their counts,
-// and the base's tree with every ticket's chips; on the right the picked file with Changed by (`FileViewer.tsx`), or
+// the source bar ("main · every ticket’s changes"), which opens the picker (the base branch, every ticket's copy,
+// your folder and your worktrees, all as committed), the search box (⌥⌘P, Go to file), All · Changed · Needs you ·
+// Same file with their counts, and the base's tree with every ticket's chips; on the right the picked file with Changed by (`FileViewer.tsx`), or
 // under Changed with no file every ticket's changes grouped (`AllChangesView.tsx`). Right-click on a file, the viewer's
 // button or ⌘N opens New ticket with its path (FIL-09). A ticket picked in the picker shows its own Files tab,
 // read-only, with the back link and "Open SHOP-29". The base shows at once (`base_only`), the marks follow; the view
