@@ -16,7 +16,7 @@ before Publish (`scripts/README.md`, "Making a release").
   checked-out branch ("Your folder · main"), then your other worktrees. Each shows what is committed there; an edit
   you haven't committed never appears in Files (your editor shows those).
 - **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
-  under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
+  under the field now also shows the matching tickets with their status, Done ones included; ↵ or a
   click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;
   the stage's name or id, any case) and `by:<agent>` the tickets whose current stage that agent works (`by:strong`).
 - **Starting a ticket puts it into the first stage.** The Ready for Dev column is gone. Every Backlog card has
