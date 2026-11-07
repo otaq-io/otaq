@@ -1,6 +1,6 @@
 //! `recovery.*`: Recovery and Cleanup (T-0235, T-0244; REC-02, REC-03, REC-04, REC-06, SES-02; d0018, d0022, d0045; *16 ·
-//! Recovery & cleanup*). `recovery.summary` draws the after-restart sheet from the service's startup report, and
-//! `recovery.resume` / `recovery.retry` are its buttons; `recovery.scratch` words Start from scratch's confirmation
+//! Recovery & cleanup*). `recovery.summary` draws the after-restart dialog from the service's startup report, and
+//! `recovery.resume` / `recovery.retry` are its buttons (Resume never runs anything on a tool that can't run now); `recovery.scratch` words Start from scratch's confirmation
 //! and `recovery.start_from_scratch` is its confirm. The Cleanup overlay keeps its scan and selection here between
 //! requests (`cleanup.rs`'s model): `recovery.cleanup` scans or redraws, the toggles tick, and only
 //! `recovery.cleanup_delete`, the confirmation's button, deletes. The warm builds' section (WRM-07, d0082) comes
@@ -15,9 +15,9 @@ use otaq_core::protocol::{
     SessionListParams, WarmClearParams,
 };
 use otaq_core::session::SessionKind;
-use otaq_core::recovery::StartupReport;
 use otaq_core::warm::store::{ClearOutcome, WarmList};
-use otaq_view::view_models::after_restart::{self, RanOn, Runs, SummaryPage};
+use otaq_core::project_agents::ProjectAgent;
+use otaq_view::view_models::after_restart::{self, RanOn, Runs, SummaryPage, cannot_resume};
 use otaq_view::view_models::cleanup::{self, Page as CleanupPage, TargetPage};
 use otaq_view::view_models::recovery::{self, ScratchConfirm};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
@@ -54,21 +54,23 @@ fn unexpected(what: &str, other: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {what}: {other:?}"))
 }
 
-/// `{"unchecked": ["SHOP-19"], "unfolded": false}`: what the user unticked and whether "+3" was opened.
+/// `{"unchecked": ["SHOP-19", "a1"]}`: the rows the user unticked (tickets by key, conversations by id).
 #[derive(Debug, Clone, Default, Deserialize, TS)]
 #[ts(rename = "AfterRestartParams")]
 pub struct SummaryParams {
     #[serde(default)]
     pub unchecked: Vec<String>,
-    #[serde(default)]
-    pub unfolded: bool,
 }
 
-/// `{"keys": ["SHOP-25", "SHOP-19"]}`: the tickets to resume, in order.
+/// `{"keys": ["SHOP-25", "SHOP-19"], "agents": ["a1"]}`: the tickets to resume, in order, and the conversations with
+/// Noyan.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "RecoveryResumeParams")]
 pub struct ResumeParams {
     pub keys: Vec<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub agents: Option<Vec<String>>,
 }
 
 /// `{"scan": true}` scans again (and lists the warm builds); `{"warm": true}` lists only the warm builds again (on
@@ -119,67 +121,75 @@ async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
     }
 }
 
-/// The after-restart sheet, or `null` when this service start interrupted nothing.
+/// The conversations with Noyan named by `ids`, as they are now, across every project.
+async fn agents_named(app: &App, ids: &[String]) -> Result<Vec<ProjectAgent>, RequestError> {
+    let mut agents = Vec::new();
+    if ids.is_empty() {
+        return Ok(agents);
+    }
+    let projects = match app.service.send(Request::ProjectList).await? {
+        Reply::Projects(list) => list,
+        other => return Err(unexpected("project.list", &other)),
+    };
+    for project in projects {
+        if let Reply::ProjectAgents(list) = app
+            .service
+            .send(Request::ProjectAgentList(ProjectParams {
+                project: project.key,
+            }))
+            .await?
+        {
+            agents.extend(
+                list.open
+                    .into_iter()
+                    .chain(list.recent)
+                    .filter(|a| ids.contains(&a.id)),
+            );
+        }
+    }
+    Ok(agents)
+}
+
+/// The after-restart dialog, or `null` when this service start stopped nothing.
 pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>, RequestError> {
-    // A paused project's tickets wait for its Resume, not this sheet (PAU-07).
+    // A paused project's tickets wait for its Resume, not this dialog (PAU-07).
     let report = match app.service.send(Request::StartupReport).await? {
         Reply::StartupReport(r) => after_restart::outside_pause(&r),
         other => return Err(unexpected("service.startup_report", &other)),
     };
-    let StartupReport {
-        interrupted,
-        session_ended,
-        ..
-    } = &report;
     let mut tickets = Vec::new();
-    for key in interrupted.iter().chain(session_ended) {
+    for key in &report.interrupted {
         if let Some(t) = ticket(app, &key.to_string()).await? {
             tickets.push(t);
         }
     }
-    let projects: BTreeMap<String, String> = match app.service.send(Request::ProjectList).await? {
-        Reply::Projects(list) => list.into_iter().map(|p| (p.key, p.name)).collect(),
-        other => return Err(unexpected("project.list", &other)),
-    };
-    // The Project agents the restart ended, as they are now (T-0244).
-    let mut agents = Vec::new();
-    if !report.project_agents_ended.is_empty() {
-        for project in projects.keys() {
-            if let Reply::ProjectAgents(list) = app
-                .service
-                .send(Request::ProjectAgentList(ProjectParams {
-                    project: project.clone(),
-                }))
-                .await?
-            {
-                agents.extend(
-                    list.open
-                        .into_iter()
-                        .chain(list.recent)
-                        .filter(|a| report.project_agents_ended.contains(&a.id)),
-                );
-            }
-        }
-    }
+    let agents = agents_named(app, &report.project_agents_ended).await?;
     let unchecked: BTreeSet<String> = p.unchecked.into_iter().collect();
-    // What each interrupted ticket ran on, and which tools can resume now (M23, d0086).
+    // What each stopped ticket ran on and the stage it was in, and which tools can run now (d0086).
     let mut runs = Runs {
         tools: super::editor::agent_tools(app).await,
-        tickets: BTreeMap::new(),
+        ..Runs::default()
     };
-    for key in interrupted {
-        if let Some(ran) = ran_on(app, &key.to_string()).await {
-            runs.tickets.insert(key.to_string(), ran);
+    let mut flows: BTreeMap<String, otaq_core::flow::Flow> = BTreeMap::new();
+    for t in &tickets {
+        let key = t.key.to_string();
+        if let Some(ran) = ran_on(app, &key).await {
+            runs.tickets.insert(key.clone(), ran);
+        }
+        let Some(stage) = t.place.stage() else {
+            continue;
+        };
+        let project = t.key.project.to_string();
+        if !flows.contains_key(&project) {
+            let flow = super::board::flow(app, &project).await;
+            flows.insert(project.clone(), flow);
+        }
+        if let Some(s) = flows[&project].stages.iter().find(|s| s.id == stage) {
+            runs.stages.insert(key, s.name.clone());
         }
     }
-    Ok(after_restart::summary_with(
-        &report,
-        &tickets,
-        &agents,
-        &projects,
-        &unchecked,
-        p.unfolded,
-        &runs,
+    Ok(after_restart::summary(
+        &report, &tickets, &agents, &unchecked, &runs,
     ))
 }
 
@@ -211,11 +221,24 @@ async fn ran_on(app: &App, key: &str) -> Option<RanOn> {
         })
 }
 
-/// Resume, and Resume selected: each ticket in turn (`ticket.resume`, the user's click, d0045). One that can't be
-/// resumed any more is skipped with an error toast; the rest still go.
+/// The dialog's Resume: each ticket in turn (`ticket.resume`, the user's click, d0045), then each conversation with
+/// Noyan. One whose tool can't run now is never resumed (no fallback to another tool) and one that can't be resumed
+/// any more is skipped, each with an error toast; the rest still go.
 pub async fn resume(app: &App, p: ResumeParams) -> Result<u32, RequestError> {
+    let tools = super::editor::agent_tools(app).await;
     let mut resumed = 0;
     for key in p.keys {
+        let tool = ran_on(app, &key)
+            .await
+            .map_or(otaq_core::agent_tools::Tool::ALL[0], |r| r.tool);
+        if let Some(why) = cannot_resume(tool, &tools) {
+            app.notices.toast(NewToast::new(
+                ToastLevel::Error,
+                format!("Couldn\u{2019}t resume {key}"),
+                Some(why),
+            ));
+            continue;
+        }
         match app
             .service
             .send(Request::TicketResume(KeyParams { key: key.clone() }))
@@ -229,6 +252,11 @@ pub async fn resume(app: &App, p: ResumeParams) -> Result<u32, RequestError> {
                     Some(e.message),
                 ));
             }
+        }
+    }
+    for id in p.agents.unwrap_or_default() {
+        if resume_agent(app, IdParams { id }).await? {
+            resumed += 1;
         }
     }
     Ok(resumed)
@@ -247,16 +275,28 @@ pub async fn retry(app: &App, p: KeyParams) -> Result<(), RequestError> {
     Ok(())
 }
 
-/// A Project agent's Resume in the sheet: the same conversation, on the user's click (d0068, d0045).
-pub async fn resume_agent(app: &App, p: IdParams) -> Result<(), RequestError> {
+/// A conversation with Noyan's Resume: the same conversation, on the user's click (d0068, d0045); never on a tool
+/// that can't run now. Whether it went.
+pub async fn resume_agent(app: &App, p: IdParams) -> Result<bool, RequestError> {
+    let tools = super::editor::agent_tools(app).await;
+    let agent = agents_named(app, std::slice::from_ref(&p.id)).await?;
+    if let Some(why) = agent.first().and_then(|a| cannot_resume(a.tool, &tools)) {
+        app.notices.toast(NewToast::new(
+            ToastLevel::Error,
+            "Noyan didn\u{2019}t resume",
+            Some(why),
+        ));
+        return Ok(false);
+    }
     if let Err(e) = app.service.send(Request::ProjectAgentResume(p)).await {
         app.notices.toast(NewToast::new(
             ToastLevel::Error,
             "Noyan didn\u{2019}t resume",
             Some(e.message),
         ));
+        return Ok(false);
     }
-    Ok(())
+    Ok(true)
 }
 
 /// Start from scratch's confirmation: what is kept and what is lost.

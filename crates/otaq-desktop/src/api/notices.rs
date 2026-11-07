@@ -197,7 +197,7 @@ fn notification_settings_url() -> String {
 }
 
 /// Restarts the service with this build, or starts it when stopped. Sent only after the user's click (confirmed
-/// first when agents would be interrupted, d0022); the outcome shows as a toast or the summary banner.
+/// first when agents would be interrupted, d0022); the outcome shows as a toast or the after-restart dialog.
 async fn restart(app: &App) -> Result<Value, RequestError> {
     let before = app.notices.begin_restart();
     let outcome = app.service.restart().await;
@@ -264,9 +264,8 @@ async fn refresh_limits(app: &App) {
     }
 }
 
-/// The user confirmed Resume all: every interrupted session continues, and the summary banner goes.
+/// The user confirmed Resume all: every interrupted session continues.
 async fn resume_all(app: &App) -> Result<Value, RequestError> {
-    app.notices.clear(SituationKind::SessionsInterrupted);
     if let Err(e) = app
         .service
         .send(Request::TicketsResumeAll(ResumeAllParams::default()))
