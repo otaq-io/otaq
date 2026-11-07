@@ -438,7 +438,7 @@ mod tests {
         )
         .await
         .unwrap_err();
-        assert_eq!(refused.message, "Write the comment first");
+        assert_eq!(refused.message, "Write the comment or attach a file first");
         h.service.stop_all().await;
     }
 }
