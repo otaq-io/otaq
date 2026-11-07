@@ -1,7 +1,7 @@
 // Menus (*01 · Components → Overlays & feedback → Context menu*) and dropdown lists: the rows come from Rust
 // (`MenuItem`, e.g. `priority.rs`'s `menu_items`), with an icon, a label, a shortcut, a danger tone, a disabled
-// state with a hint, separators and group headers. The menu takes focus when it opens: ↑/↓ move (skipping headers
-// and disabled rows, wrapping), Home/End jump, ↵ or Space chooses, Esc, Tab or a click outside closes. A list with
+// state with a hint, separators and group headers (one with a hint says what the list is about: a stage's picker).
+// The menu takes focus when it opens: ↑/↓ move (skipping headers and disabled rows, wrapping), Home/End jump, ↵ or Space chooses, Esc, Tab or a click outside closes. A list with
 // `search` (the base-branch dropdowns) puts a search field on top that takes focus and filters the rows as you type;
 // ↑/↓ and ↵ still work from the field. With `typed` too, what was typed is a last row of its own (Pick a skill…'s
 // "Use `<typed text>`"), its `…` parts drawn as code.
@@ -152,7 +152,15 @@ export function Menu({
           return (
             <div key={`h-${item.label}`} role="presentation">
               {separator}
-              <div className="menu-header">{item.label}</div>
+              {item.hint === null ? (
+                <div className="menu-header">{item.label}</div>
+              ) : (
+                // A header with a hint says what the list is about: a stage's name and what it is for.
+                <div className="menu-header-described">
+                  <span className="menu-header-title">{item.label}</span>
+                  <span className="menu-header-hint">{item.hint}</span>
+                </div>
+              )}
             </div>
           );
         }

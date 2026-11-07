@@ -6,6 +6,10 @@ import type { StageChoiceRow } from "./StageChoiceRow";
  */
 export type StageChoicesView = { heading: string, 
 /**
+ * The form's words beside the heading: "optional · another agent, or skip where the flow allows".
+ */
+hint: string | null, 
+/**
  * "set by Noyan".
  */
 set_by: string | null, rows: Array<StageChoiceRow>, 

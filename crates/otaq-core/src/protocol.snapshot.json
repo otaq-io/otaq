@@ -3405,6 +3405,10 @@
     "FirstComment": {
       "kind": "struct",
       "fields": {
+        "attachments": {
+          "ty": "Vec<ReportSource>",
+          "omittable": true
+        },
         "body": {
           "ty": "String",
           "required": true
@@ -10168,6 +10172,10 @@
         },
         "choice": {
           "ty": "Option<StageChoice>"
+        },
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
         },
         "held": {
           "ty": "bool",

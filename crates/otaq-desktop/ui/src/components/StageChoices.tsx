@@ -63,7 +63,7 @@ function ChoiceLine({
               value={row.value}
               items={row.items}
               onChange={(choice) => {
-                if (choice !== row.value) onPick(row.stage_id, choice);
+                if (choice !== row.items.find((i) => i.checked)?.id) onPick(row.stage_id, choice);
               }}
             />
           </span>
@@ -86,16 +86,21 @@ export interface StageChoicesProps {
   picks?: Readonly<Record<string, string>>;
   /** A pick: the stage's id and the word it sends. */
   onPick: (stage: string, choice: string) => void;
+  /** The heading is drawn by the caller (the new-ticket form's fold). */
+  headless?: boolean;
 }
 
-/** The ⌘N form's "Stage choices" field, or the sheet's Choices. */
-export function StageChoices({ view, look, picks, onPick }: StageChoicesProps) {
+/** The ticket form's "Stages for this ticket", or the sheet's Choices. */
+export function StageChoices({ view, look, picks, onPick, headless = false }: StageChoicesProps) {
   return (
     <div className="stage-choices" data-look={look}>
-      <div className="stage-choices-head">
-        <span className="stage-choices-heading">{view.heading}</span>
-        {view.set_by !== null && <span className="stage-choices-by">{view.set_by}</span>}
-      </div>
+      {!headless && (
+        <div className="stage-choices-head">
+          <span className="stage-choices-heading">{view.heading}</span>
+          {view.hint !== null && <span className="stage-choices-by">{view.hint}</span>}
+          {view.set_by !== null && <span className="stage-choices-by">{view.set_by}</span>}
+        </div>
+      )}
       <div className="stage-choices-rows">
         {view.rows.map((row) => (
           <ChoiceLine key={row.stage_id} row={shownChoice(row, picks?.[row.stage_id])} onPick={onPick} />

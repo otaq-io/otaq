@@ -31,7 +31,7 @@ use otaq_view::view_models::stage_choices::{self, ChoicesView};
 use otaq_view::view_models::tool_problems::Tools;
 use otaq_view::view_models::agent_edits::{changed, compare, origin_line};
 use otaq_view::view_models::editor::{
-    EditorModel, NewReport, REPORT_LINE_REQUIRED, ReportField, TITLE_REQUIRED, report_field,
+    AttachmentsField, EditorModel, TITLE_REQUIRED, attachments_field,
 };
 use otaq_view::view_models::editor_fields::{
     BaseField, CANNOT_START_HERE, NOT_STARTED, base_choices, not_started_message, refusal_icon,
@@ -123,25 +123,14 @@ pub struct Form {
     /// The stage choices picked in the form (AGM-09): sent with the new ticket, or with the save.
     #[serde(default)]
     pub choices: Vec<FormChoice>,
-    /// Create only: the report the form took (RPT-03), posted with `report_line` as the ticket's first comment.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub report: Option<FormReport>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    #[ts(optional)]
-    pub report_line: Option<String>,
+    /// Create only: the files the form took, by their paths (picked, dropped, or a paste kept in the data folder),
+    /// posted in this order as the ticket's first comment.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    #[ts(as = "Option<Vec<String>>", optional)]
+    pub attachments: Vec<String>,
     /// Create only: the tickets the new one waits for ("SHOP-12"), linked once it is created.
     #[serde(default)]
     pub waits_for: Vec<String>,
-}
-
-/// The New ticket form's report (RPT-03): a file by its path (Add, a drop), or a pasted file's text.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(rename = "EditorReport")]
-pub enum FormReport {
-    File { path: String },
-    Pasted { text: String },
 }
 
 /// One stage choice picked in the form: the stage's id and the word (`Quick developer`, `skip`, `required`).
@@ -309,11 +298,15 @@ pub struct View {
     pub source_mode: bool,
     /// "Stage choices" under Priority (AGM-09, `s08-29`): a picker per stage with options, none on the default flow.
     pub choices: Option<ChoicesView>,
-    /// Create only: the report place under the description (RPT-03).
-    pub report: Option<ReportField>,
+    /// Create only: "Attachments · optional", posted as the first comment.
+    pub attachments: Option<AttachmentsField>,
     /// Create only: "Waits for" and its search.
     pub waits_for: Option<WaitsForField>,
 }
+
+/// The line under a new ticket's description.
+const NEW_BODY_HINT: &str =
+    "Say what should change and how you\u{2019}ll know it works. Agents read this first.";
 
 fn texts(create: bool) -> Texts {
     Texts {
@@ -322,11 +315,11 @@ fn texts(create: bool) -> Texts {
         title_required: TITLE_REQUIRED,
         priority: "Priority",
         priority_hint: FORM_HINT,
-        body: "What and why",
+        body: if create { "Description" } else { "What and why" },
         plan: "Description \u{b7} the plan",
-        body_hint: "Markdown \u{b7} paste keeps formatting",
+        body_hint: if create { NEW_BODY_HINT } else { "Markdown \u{b7} paste keeps formatting" },
         body_placeholder: "Context, constraints, links\u{2026}",
-        base: "Start from and merge into",
+        base: if create { "Base branch" } else { "Start from and merge into" },
         base_hint: "project default \u{b7} local and remote branches \u{b7} locked once the ticket starts",
         base_search: MenuSearch::branches(),
         save_word: if create { "create" } else { "save" },
@@ -334,7 +327,7 @@ fn texts(create: bool) -> Texts {
         close_word: "close",
         cancel: "Cancel",
         close: "Close",
-        primary: if create { "Create ticket" } else { "Save" },
+        primary: if create { "Create" } else { "Save" },
         create_and_start: create.then_some("Create & start"),
         start_word: "create & start",
         save_and_start: "Save & start",
@@ -383,8 +376,7 @@ fn form_of(model: &EditorModel) -> Form {
         priority: model.priority.map(Priority::number),
         base_branch: model.base_branch.clone(),
         choices: Vec::new(),
-        report: None,
-        report_line: None,
+        attachments: Vec::new(),
         waits_for: Vec::new(),
     }
 }
@@ -411,7 +403,7 @@ pub fn create_view(project: &ProjectInfo) -> View {
         read: None,
         source_mode: false,
         choices: None,
-        report: Some(report_field()),
+        attachments: Some(attachments_field()),
         waits_for: Some(dependencies::form_field()),
     }
 }
@@ -465,7 +457,7 @@ pub fn edit_view(
         }),
         source_mode: false,
         choices: None,
-        report: None,
+        attachments: None,
         waits_for: None,
     }
 }
@@ -692,11 +684,7 @@ pub fn model_of(base: EditorModel, form: &Form) -> EditorModel {
         .priority
         .and_then(|n| Priority::from_number(i64::from(n)));
     if model.is_create() {
-        model.report = form.report.clone().map(|r| match r {
-            FormReport::File { path } => NewReport::File(path),
-            FormReport::Pasted { text } => NewReport::Pasted(text),
-        });
-        model.report_line = form.report_line.clone().unwrap_or_default();
+        model.attachments = form.attachments.clone();
     }
     if !model.base_locked {
         model.base_branch = form.base_branch.clone().or(model.base_branch);
@@ -716,16 +704,6 @@ pub async fn save(app: &App, params: SaveParams) -> Result<SaveOutcome, RequestE
             let model = model_of(EditorModel::create(&project, "", &info), &form);
             if model.title_error().is_some() {
                 return Ok(SaveOutcome::TitleMissing);
-            }
-            // A report needs its line (d0109): the box says so, and Create is refused here too.
-            if model.report_error().is_some() {
-                return Ok(SaveOutcome::Refused {
-                    refusal: Refusal::of(
-                        &RequestError::plain(REPORT_LINE_REQUIRED),
-                        RefusalField::Form,
-                    ),
-                    created: None,
-                });
             }
             let Some(input) = model.create_input() else {
                 return Ok(SaveOutcome::TitleMissing);
@@ -1159,8 +1137,7 @@ mod tests {
             priority: None,
             base_branch: None,
             choices: Vec::new(),
-            report: None,
-            report_line: None,
+            attachments: Vec::new(),
             waits_for: Vec::new(),
         }
     }
@@ -1169,8 +1146,8 @@ mod tests {
     fn a_new_ticket_starts_normal_on_the_project_base() {
         let view = create_view(&info());
         assert!(view.create);
-        assert_eq!(view.texts.primary, "Create ticket");
-        assert_eq!(view.texts.body_hint, "Markdown \u{b7} paste keeps formatting");
+        assert_eq!(view.texts.primary, "Create");
+        assert_eq!(view.texts.body_hint, NEW_BODY_HINT);
         assert_eq!(
             view.texts.collapse_word,
             "collapse (after closing a popover)"
@@ -1684,7 +1661,13 @@ mod tests {
             .iter()
             .map(|r| (r["label"].as_str().unwrap(), r["value"].as_str().unwrap()))
             .collect();
-        assert_eq!(rows, [("Dev:", "Developer"), ("Validate:", "Checker")]);
+        assert_eq!(
+            rows,
+            [
+                ("Dev", "Uses the stage\u{2019}s agent \u{b7} Developer"),
+                ("Validate", "Uses the stage\u{2019}s agent \u{b7} Checker")
+            ]
+        );
 
         let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await

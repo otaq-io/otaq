@@ -19,6 +19,7 @@ import {
   askNoyan,
   boxKey,
   boxOnScreen,
+  boxTicketCreated,
   createTicket,
   EMPTY,
   boardAway,
@@ -281,7 +282,15 @@ describe("the slot", () => {
     act(() => {
       box.querySelector<HTMLButtonElement>(".new-work-more")?.click();
     });
-    expect(overlays.store.get()).toEqual([{ id: "new_ticket", params: { title: "Coupon field" } }]);
+    expect(overlays.store.get()).toEqual([
+      { id: "new_ticket", params: { title: "Coupon field", fromBox: true } },
+    ]);
+    // The box keeps what was typed while the form is open: a Cancel there hands it back.
+    expect(box.querySelector(".new-work-closed-text")?.textContent).toBe("Coupon field");
+    // The form created its ticket: the box lets go of it.
+    act(() => {
+      boxTicketCreated();
+    });
     expect(box.querySelector(".new-work-closed-text")?.textContent).toBe("New ticket, or ask Noyan…");
   });
 

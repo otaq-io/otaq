@@ -12,6 +12,7 @@ import { NOTHING_SELECTED, requestTicketEdit, selection, ticketEditRequests } fr
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorView } from "../../generated/EditorView";
+import type { MenuItem } from "../../generated/MenuItem";
 import type { StageChoicesView } from "../../generated/StageChoicesView";
 import { FullViewHost } from "../../markdown";
 import { editor } from ".";
@@ -21,7 +22,6 @@ import {
   changed,
   COPIED_FOR,
   copyMarkdown,
-  formReport,
   isSaveKey,
   isStartKey,
   refusalFor,
@@ -31,9 +31,9 @@ import { Compare, Description, DescriptionTools, LabelRow } from "./ReadMode";
 import { FullForm, useFormKeys } from "./Modal";
 import { takeEditRequest } from "./EditForm";
 import { useEditor } from "./useEditor";
-import { FORM, READ, REPORT_FIELD, TEXTS, VIEW } from "./editor_fixtures";
-import { EMPTY_BOX, fileAttachment, withPasted } from "./commentRules";
-import { NewTicketReport, useReportAttach } from "./NewTicketReport";
+import { ATTACHMENTS_FIELD, FORM, READ, TEXTS, VIEW } from "./editor_fixtures";
+import { EMPTY_BOX, fileAttachment } from "./commentRules";
+import { AttachmentsPlace, attachmentPaths, useFormAttachments } from "./NewTicketForm";
 import { dropTargets } from "../../terminal/drops";
 
 // The service, for the form's save: `ipc.reply` answers each request (an empty list by default, for the branch list).
@@ -158,90 +158,67 @@ describe("the editor's form state", () => {
   });
 });
 
-describe("the New ticket form's report (RPT-03, T-0474)", () => {
-  it("turns the box into the form's fields: a file by its path, pasted text, nothing without a report", () => {
-    const file = fileAttachment({
-      path: "/Users/me/test-run-login.md",
-      name: "test-run-login.md",
-      size: "3 KB",
-      image: false,
-    });
-    expect(formReport({ attachments: [file], text: "The run." })).toEqual({
-      report: { kind: "file", path: "/Users/me/test-run-login.md" },
-      report_line: "The run.",
-    });
-    expect(formReport(withPasted(EMPTY_BOX, "log", true))).toEqual({
-      report: { kind: "pasted", text: "log" },
-      report_line: "",
-    });
-    expect(formReport({ ...EMPTY_BOX, text: "a line alone" })).toEqual({
-      report: undefined,
-      report_line: undefined,
-    });
-  });
-
-  it("a dropped file becomes the chip waiting for its line; the line goes with it; ✕ takes it away", async () => {
-    ipc.reply = (method, params) =>
-      method === "overview.file"
-        ? { path: (params as { path: string }).path, name: "test-run-login.md", size: "3 KB", image: false }
+describe("the new-ticket form's attachments", () => {
+  it("dropped files become chips, several of any type, sent as the form's paths in order; ✕ takes one away", async () => {
+    ipc.reply = (method, params) => {
+      const path = (params as { path: string }).path;
+      return method === "overview.file"
+        ? { path, name: path.split("/").at(-1), size: "3 KB", image: false }
         : [];
-    const seen: Partial<EditorForm>[] = [];
+    };
+    const seen: string[][] = [];
     function Harness() {
       const root = useRef<HTMLDivElement>(null);
-      const attach = useReportAttach(root, true, (fields) => seen.push(fields));
+      const attachments = useFormAttachments(root, true, (paths) => seen.push(paths));
       return createElement(
         "div",
         { ref: root },
-        createElement(NewTicketReport, { field: REPORT_FIELD, project: "SHOP", attach, onSave: noop }),
+        createElement(AttachmentsPlace, { field: ATTACHMENTS_FIELD, attachments }),
       );
     }
     const page = mount(createElement(Harness));
-    expect(page.textContent).toContain("Drop files here or paste");
-    expect(page.querySelector("textarea")).toBeNull();
+    expect(page.textContent).toContain("Drop files or paste screenshots");
     await act(async () => {
-      dropTargets.at(page.firstElementChild)?.takeFiles?.(["/Users/me/test-run-login.md"]);
+      dropTargets
+        .at(page.firstElementChild)
+        ?.takeFiles?.(["/Users/me/test-run-login.md", "/Users/me/spec.pdf"]);
       await new Promise((r) => setTimeout(r, 0));
     });
-    expect(page.querySelector(".comment-chip-label")?.textContent).toBe("test-run-login.md");
-    expect(page.textContent).toContain("A comment always has its own line; the file goes with it.");
-    expect(seen.at(-1)).toEqual({
-      report: { kind: "file", path: "/Users/me/test-run-login.md" },
-      report_line: "",
-    });
-    const line = page.querySelector("textarea");
-    expect(line?.getAttribute("placeholder")).toBe("One line: what the report shows…");
-    act(() => {
-      Reflect.set(HTMLTextAreaElement.prototype, "value", "Fails 2 in 20 on Safari.", line);
-      line?.dispatchEvent(new Event("input", { bubbles: true }));
-    });
-    expect(seen.at(-1)?.report_line).toBe("Fails 2 in 20 on Safari.");
+    expect([...page.querySelectorAll(".comment-chip-label")].map((c) => c.textContent)).toEqual([
+      "test-run-login.md",
+      "spec.pdf",
+    ]);
+    expect(seen.at(-1)).toEqual(["/Users/me/test-run-login.md", "/Users/me/spec.pdf"]);
+    expect(page.textContent).toContain("Posted as your first comment");
     act(() => {
       page.querySelector<HTMLButtonElement>(".comment-chip-remove")?.click();
     });
-    expect(seen.at(-1)).toEqual({ report: undefined, report_line: undefined });
-    expect(page.textContent).toContain("Drop files here or paste");
+    expect(seen.at(-1)).toEqual(["/Users/me/spec.pdf"]);
     unmount();
   });
 
-  it("a file that can't be a report says why", () => {
-    function Harness() {
-      const root = useRef<HTMLDivElement>(null);
-      const attach = useReportAttach(root, true, noop);
-      return createElement(
-        "div",
-        { ref: root },
-        createElement(NewTicketReport, {
-          field: REPORT_FIELD,
-          project: "SHOP",
-          attach: { ...attach, error: "run.log is 212 MB; the limit is 20 MB." },
-          onSave: noop,
-        }),
-      );
-    }
-    const page = mount(createElement(Harness));
+  it("a file that can't be attached says why, by name", () => {
+    const page = mount(
+      createElement(AttachmentsPlace, {
+        field: ATTACHMENTS_FIELD,
+        attachments: {
+          value: EMPTY_BOX,
+          refused: ["run.log is 212 MB; the limit is 20 MB."],
+          addPaths: noop,
+          remove: noop,
+        },
+      }),
+    );
     expect(page.querySelector("[role=alert]")?.textContent).toBe("run.log is 212 MB; the limit is 20 MB.");
-    expect(page.textContent).not.toContain("agents read yours before they start");
     unmount();
+  });
+
+  it("the paths of what the place holds, in order", () => {
+    const file = (path: string) => fileAttachment({ path, name: path, size: "1 KB", image: false });
+    expect(attachmentPaths({ text: "", attachments: [file("/a.png"), file("/b.md")] })).toEqual([
+      "/a.png",
+      "/b.md",
+    ]);
   });
 });
 
@@ -719,7 +696,7 @@ describe("Create & start in the new-ticket form", () => {
   it("sits next to Create; one request creates the ticket with its Waits for and starts it, then the form closes", async () => {
     const form = openNew({ outcome: "saved", key: "SHOP-13", note: null });
     expect(form.button("Create & start")).toBeDefined();
-    expect(form.button("Create ticket")).toBeDefined();
+    expect(form.button("Create")).toBeDefined();
     expect(document.body.textContent).toContain("create & start");
     await form.click("Create & start");
     expect(form.sent.map((s) => s.method)).toEqual(["editor.create_and_start"]);
@@ -786,6 +763,7 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
   /** shop-web's flow (*08 → Row · Stage choices*): Product spec and Review skippable, Dev with Quick developer. */
   const CHOICES: StageChoicesView = {
     heading: "Stage choices",
+    hint: null,
     set_by: null,
     rows: [
       {
@@ -857,5 +835,173 @@ describe("the Stage choices in the form (T-0411, AGM-09)", () => {
     );
     const none = mount(createElement(Form, { view: VIEW }));
     expect(none.querySelector(".stage-choices")).toBeNull();
+  });
+});
+
+describe("the full new-ticket form", () => {
+  const menuItem = (id: string, label: string, more: Partial<MenuItem> = {}): MenuItem => ({
+    id,
+    label,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+    ...more,
+  });
+  /** Spec first's stages as `form_choices` words them: Product spec skippable, Dev not. */
+  const STAGES: StageChoicesView = {
+    heading: "Stages for this ticket",
+    hint: "optional · another agent, or skip where the flow allows",
+    set_by: null,
+    rows: [
+      {
+        stage_id: "product-spec",
+        label: "Product spec",
+        value: "Uses the stage’s agent · Spec writer",
+        items: [
+          menuItem("", "Product spec", { header: true, hint: "Settles what to build and how it behaves." }),
+          menuItem("Spec writer", "Uses the stage’s agent · Spec writer", { checked: true }),
+          menuItem("skip", "Skip this stage", {
+            separated: true,
+            hint: "Offered because this flow lets tickets skip Product spec.",
+          }),
+        ],
+        lock: null,
+        change: null,
+      },
+      {
+        stage_id: "dev",
+        label: "Dev",
+        value: "Uses the stage’s agent · Strong",
+        items: [
+          menuItem("Strong", "Uses the stage’s agent · Strong", { checked: true }),
+          menuItem("Light", "Light"),
+        ],
+        lock: null,
+        change: null,
+      },
+    ],
+    note: "shop-web’s flow lets tickets skip Product spec. Stages that can’t be skipped don’t offer it.",
+  };
+  const NEW: EditorView = {
+    ...VIEW,
+    texts: { ...TEXTS, body: "Description", base: "Base branch" },
+    choices: STAGES,
+  };
+
+  function openNew(view: EditorView = NEW) {
+    const sent: { method: string; params: { form: EditorForm } }[] = [];
+    ipc.reply = (method, params) => {
+      if (method === "overview.file") {
+        const path = (params as { path: string }).path;
+        return { path, name: path.split("/").at(-1), size: "3 KB", image: false };
+      }
+      if (method !== "editor.save" && method !== "editor.create_and_start") return [];
+      sent.push({ method, params: params as { form: EditorForm } });
+      return { outcome: "saved", key: "SHOP-13", note: null };
+    };
+    const close = vi.fn();
+    const onCreated = vi.fn();
+    const target = { mode: "create" as const, project: "SHOP" };
+    const initial = { ...FORM, title: "Coupon field rejects lowercase codes" };
+    const page = mount(createElement(FullForm, { view, target, initial, close, onCreated }));
+    const press = (el: Element | null | undefined) => {
+      act(() => {
+        el?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
+        el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
+      });
+    };
+    const button = (text: string) =>
+      [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent.includes(text));
+    const menu = () => [...document.querySelectorAll('[role="menuitemradio"]')].map((i) => i.textContent);
+    return { page, sent, close, onCreated, press, button, menu };
+  }
+
+  it("has the canvas's fields in order, the stages and the base branch folded, Create then Create & start", () => {
+    const { page, button } = openNew();
+    const text = page.ownerDocument.body.textContent;
+    const order = [
+      "Title",
+      "Description",
+      "Priority",
+      "Waits for",
+      "Attachments",
+      "Stages for this ticket",
+      "Base branch",
+    ];
+    const at = order.map((w) => text.indexOf(w));
+    expect(at.every((i) => i >= 0)).toBe(true);
+    expect([...at].sort((a, b) => a - b)).toEqual(at);
+    expect(text).toContain("P3 · Normal");
+    expect(text).toContain("Drop files or paste screenshots");
+    expect(page.querySelector(".stage-choices")).toBeNull();
+    expect(page.querySelector(".new-ticket-base")).toBeNull();
+    expect(text).not.toContain("External ID");
+    const footer = [
+      ...document.querySelectorAll<HTMLButtonElement>(".dialog-footer button.button, button.button"),
+    ]
+      .map((b) => b.textContent)
+      .filter((t) => ["Cancel", "Create", "Create & start"].includes(t));
+    expect(footer.slice(-3)).toEqual(["Cancel", "Create", "Create & start"]);
+    expect(button("Create & start")?.getAttribute("data-variant")).toBe("primary");
+    unmount();
+  });
+
+  it("a ticket with an attachment, a dependency, another agent for Dev and a skip sends each with Create", async () => {
+    const f = openNew();
+    // Another agent for Dev, and a skip of Product spec, from the opened fold.
+    f.press(f.button("Stages for this ticket"));
+    const selects = () => [...f.page.querySelectorAll(".stage-choice-select button")];
+    f.press(selects()[1]);
+    expect(f.menu()).toEqual(["Uses the stage’s agent · Strong", "Light"]);
+    f.press([...document.querySelectorAll('[role="menuitemradio"]')].find((i) => i.textContent === "Light"));
+    f.press(selects()[0]);
+    expect(f.menu().some((t) => t.includes("Skip this stage"))).toBe(true);
+    expect(document.body.textContent).toContain("Settles what to build and how it behaves.");
+    f.press(
+      [...document.querySelectorAll('[role="menuitemradio"]')].find((i) => i.textContent.includes("Skip")),
+    );
+    // An attachment, dropped on the form.
+    await act(async () => {
+      dropTargets.at(f.page.querySelector(".editor-modal-body"))?.takeFiles?.(["/Users/me/before.png"]);
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(f.page.querySelector(".comment-chip-label")?.textContent).toBe("before.png");
+    await act(async () => {
+      f.button("Create & start")?.click();
+      await Promise.resolve();
+    });
+    const form = f.sent[0]?.params.form;
+    expect(f.sent[0]?.method).toBe("editor.create_and_start");
+    expect(form?.choices).toEqual([
+      { stage_id: "dev", choice: "Light" },
+      { stage_id: "product-spec", choice: "skip" },
+    ]);
+    expect(form?.attachments).toEqual(["/Users/me/before.png"]);
+    expect(f.onCreated).toHaveBeenCalledTimes(1);
+    unmount();
+  });
+
+  it("Cancel creates nothing and hands the box its text back (nothing taken)", () => {
+    const f = openNew();
+    act(() => {
+      f.button("Cancel")?.click();
+    });
+    expect(f.close).toHaveBeenCalledTimes(1);
+    expect(f.onCreated).not.toHaveBeenCalled();
+    expect(f.sent).toEqual([]);
+    unmount();
+  });
+
+  it("a stage the flow doesn't let tickets skip offers no skip", () => {
+    const f = openNew();
+    f.press(f.button("Stages for this ticket"));
+    f.press([...f.page.querySelectorAll(".stage-choice-select button")][1]);
+    expect(f.menu().some((t) => t.includes("Skip"))).toBe(false);
+    unmount();
   });
 });

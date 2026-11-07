@@ -249,6 +249,9 @@ pub struct StageOptions {
     /// waiting card's Change agent… changes it.
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub held: bool,
+    /// What the stage is for, as the flow describes it (the form's picker says it above the choices).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
 }
 
 impl StageOptions {
@@ -578,6 +581,12 @@ impl Board {
             choice: None,
             locked: false,
             held: false,
+            description: stage
+                .description
+                .as_deref()
+                .map(str::trim)
+                .filter(|d| !d.is_empty())
+                .map(str::to_owned),
         }
     }
 
@@ -856,6 +865,7 @@ impl Board {
                     choice: None,
                     locked: false,
                     held: false,
+                    description: None,
                 });
             let choice = match choice_of(stage, &offered, &pick.choice) {
                 Ok(choice) => choice,
@@ -1063,6 +1073,7 @@ mod tests {
             choice: None,
             locked: false,
             held: false,
+            description: None,
         }
     }
 

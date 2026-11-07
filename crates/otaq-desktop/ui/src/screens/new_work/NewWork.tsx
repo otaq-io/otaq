@@ -2,8 +2,9 @@
 // centre of the board and the List, "New ticket, or ask Noyan…" with ⌘N. A click, ⌘N or the toolbar's New ticket opens
 // it: it grows upward over a light scrim, the title line on top and "Add details (optional)" under it. ↵ Create, ⌘↵
 // Create & start, ⇧↵ Ask Noyan to shape it, ⌥↵ a new line (from the title line, into the details); More options…
-// opens the full form with what was typed. Esc or a click outside closes it and keeps what was typed. It isn't there
-// in Files or the project's Settings, while Noyan's panel is open, or when `new_work.view` says it isn't shown.
+// opens the full form with what was typed, and the box keeps it until the form creates the ticket (a Cancel hands it
+// back). Esc or a click outside closes it and keeps what was typed. It isn't there in Files or the project's Settings,
+// while Noyan's panel is open, or when `new_work.view` says it isn't shown.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { shellLayout } from "../../app/layout";
@@ -19,6 +20,7 @@ import {
   askNoyan,
   boxKey,
   boxOnScreen,
+  boxTakenByForm,
   createTicket,
   EMPTY,
   boardAway,
@@ -262,6 +264,14 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
     seen.current = asks;
     setOpen(true);
   }, [asks]);
+  // The full form More options… opened created its ticket: what was typed is in it now.
+  const taken = useStore(boxTakenByForm);
+  const seenTaken = useRef(taken);
+  useEffect(() => {
+    if (taken === seenTaken.current) return;
+    seenTaken.current = taken;
+    setTyped(EMPTY);
+  }, [taken]);
   useEffect(() => {
     boxOnScreen.set(true);
     return () => {
@@ -326,11 +336,12 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
       }}
       onMore={() => {
         const form = formOf(typed);
-        setTyped(EMPTY);
+        // The box keeps what was typed until the form creates the ticket: a Cancel there hands it back.
         close();
         openOverlay("new_ticket", {
           ...(form.title !== "" && { title: form.title }),
           ...(form.body !== "" && { body: form.body }),
+          fromBox: true,
         });
       }}
     />

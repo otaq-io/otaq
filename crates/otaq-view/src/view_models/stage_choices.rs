@@ -42,8 +42,15 @@ use crate::view_models::menu::MenuItem;
 use crate::view_models::tool_problems::{self, Callout, Tools, tool_word};
 use otaq_core::board::stage_choices::StageOptions as Offered;
 
-/// The ⌘N form's field label.
-pub const FORM_HEADING: &str = "Stage choices";
+/// The ticket form's folded field: its heading and the words beside it.
+pub const FORM_HEADING: &str = "Stages for this ticket";
+pub const FORM_HINT: &str = "optional \u{b7} another agent, or skip where the flow allows";
+/// A form picker's usual choice, the stage's own agent: "Uses the stage’s agent · Architect".
+pub const USES_STAGE_AGENT: &str = "Uses the stage\u{2019}s agent";
+/// A form picker's usual choice on a stage that runs no agent (a human check).
+pub const YOU_CHECK_IT: &str = "You check it";
+/// A form picker's skip.
+pub const SKIP_THIS_STAGE: &str = "Skip this stage";
 /// The sheet's block.
 pub const SHEET_HEADING: &str = "Choices";
 pub const PATH_HEADING: &str = "Path";
@@ -133,6 +140,8 @@ pub struct ChoiceRow {
 #[ts(rename = "StageChoicesView")]
 pub struct ChoicesView {
     pub heading: &'static str,
+    /// The form's words beside the heading: "optional · another agent, or skip where the flow allows".
+    pub hint: Option<&'static str>,
     /// "set by Noyan".
     pub set_by: Option<String>,
     pub rows: Vec<ChoiceRow>,
@@ -196,7 +205,7 @@ fn set_by_line(stages: &[StageOptions]) -> Option<String> {
     }
 }
 
-fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
+fn rows(stages: &[StageOptions]) -> Vec<ChoiceRow> {
     stages
         .iter()
         .map(|options| {
@@ -209,27 +218,99 @@ fn rows(stages: &[StageOptions], with_changes: bool) -> Vec<ChoiceRow> {
                     false => items(options, &value),
                 },
                 lock: options.locked.then(|| locked(&options.stage)),
-                change: with_changes.then(|| change(options)).flatten(),
+                change: change(options),
                 value,
             }
         })
         .collect()
 }
 
-/// The ⌘N form's "Stage choices" under Priority (`s08-29`): one picker per stage a ticket may choose for, each on
-/// its stage's own agent; `None` when no stage has one. `project` is the project's name.
+/// A form picker's word as it reads: the usual one "Uses the stage’s agent · Architect" (or "You check it" on a stage
+/// that runs no agent), another agent by its name, a skip "Skip this stage".
+fn form_word(options: &StageOptions, word: &str) -> String {
+    if word == options.usual_label() {
+        return match &options.usual {
+            Some(agent) => format!("{USES_STAGE_AGENT} \u{b7} {}", agent.name),
+            None => YOU_CHECK_IT.to_owned(),
+        };
+    }
+    match options.can_skip && word == otaq_core::board::stage_choices::SKIP {
+        true => SKIP_THIS_STAGE.to_owned(),
+        false => word.to_owned(),
+    }
+}
+
+/// A form picker's menu: what the stage is for on top (the flow's description), the stage's own agent, every other
+/// agent it offers, and "Skip this stage" apart, only where the flow lets tickets skip it.
+fn form_items(options: &StageOptions, current: &str) -> Vec<MenuItem> {
+    let header = options
+        .description
+        .as_ref()
+        .map(|d| MenuItem::header(options.stage.clone()).hint(d.clone()));
+    let words = options.words().into_iter().map(|word| {
+        let item = MenuItem::new(word.clone(), form_word(options, &word)).checked(word == current);
+        match options.can_skip && word == otaq_core::board::stage_choices::SKIP {
+            true => item.separated().hint(format!(
+                "Offered because this flow lets tickets skip {}.",
+                options.stage
+            )),
+            false => item,
+        }
+    });
+    header.into_iter().chain(words).collect()
+}
+
+/// The form's rows: each stage by its name, its pick in the form's words; a stage that started keeps its pick, locked.
+fn form_rows(stages: &[StageOptions]) -> Vec<ChoiceRow> {
+    stages
+        .iter()
+        .map(|options| {
+            let current = options.label();
+            ChoiceRow {
+                stage_id: options.stage_id.clone(),
+                label: options.stage.clone(),
+                items: match options.locked {
+                    true => Vec::new(),
+                    false => form_items(options, &current),
+                },
+                lock: options.locked.then(|| locked(&options.stage)),
+                change: None,
+                value: form_word(options, &current),
+            }
+        })
+        .collect()
+}
+
+/// The note under the form's pickers: which stages the flow lets a ticket skip ("shop-web’s flow lets tickets skip
+/// Product spec and Review."), and that the others don't offer it.
+fn form_note(stages: &[StageOptions], project: &str) -> String {
+    let skippable: Vec<String> = stages
+        .iter()
+        .filter(|s| s.can_skip)
+        .map(|s| s.stage.clone())
+        .collect();
+    match skippable.is_empty() {
+        true => format!("{project}\u{2019}s flow doesn\u{2019}t let tickets skip a stage."),
+        false => format!(
+            "{project}\u{2019}s flow lets tickets skip {}. Stages that can\u{2019}t be skipped don\u{2019}t offer it.",
+            crate::view_models::agents::and_list(&skippable)
+        ),
+    }
+}
+
+/// The ticket form's folded "Stages for this ticket": one picker per stage a ticket may choose for, each on "Uses the
+/// stage’s agent" until you pick another agent, or "Skip this stage" where the flow allows it; only you set them,
+/// until that stage starts. `None` when no stage has a choice. `project` is the project's name.
 pub fn form_choices(choices: &TicketChoices, project: &str) -> Option<ChoicesView> {
     if choices.stages.is_empty() {
         return None;
     }
     Some(ChoicesView {
         heading: FORM_HEADING,
+        hint: Some(FORM_HINT),
         set_by: None,
-        rows: rows(&choices.stages, false),
-        note: Some(format!(
-            "Any agent whose tool has the stage\u{2019}s skill, and skip where {project}\u{2019}s flow allows it. You \
-             can change them until that stage starts."
-        )),
+        rows: form_rows(&choices.stages),
+        note: Some(form_note(&choices.stages, project)),
     })
 }
 
@@ -240,8 +321,9 @@ pub fn sheet_choices(t: &TicketAgents) -> Option<ChoicesView> {
     }
     Some(ChoicesView {
         heading: SHEET_HEADING,
+        hint: None,
         set_by: set_by_line(&t.choices),
-        rows: rows(&t.choices, true),
+        rows: rows(&t.choices),
         note: None,
     })
 }
@@ -1366,13 +1448,17 @@ pub mod fixtures {
             choice: None,
             locked: false,
             held: false,
+            description: None,
         };
         vec![
-            options(
-                "product-spec",
-                "Product spec",
-                Some(option("Spec writer", "spec-writer")),
-            ),
+            StageOptions {
+                description: Some("Settles what to build and how it behaves.".into()),
+                ..options(
+                    "product-spec",
+                    "Product spec",
+                    Some(option("Spec writer", "spec-writer")),
+                )
+            },
             StageOptions {
                 agents: vec![option("Quick developer", "quick")],
                 can_skip: false,
@@ -1759,11 +1845,19 @@ mod tests {
         (stage.into(), detail.into(), model.into(), lock)
     }
 
-    /// AGM-09, `s08-29`: the ⌘N form's three pickers on the test flow, each on its stage's own agent.
+    /// The ticket form's "Stages for this ticket" on the test flow: a picker per stage, each on "Uses the stage’s
+    /// agent" until another is picked; "Skip this stage" only on the stages the flow lets tickets skip (Dev, which
+    /// it doesn't, offers no skip), with what the stage is for on top of its menu.
     #[test]
     fn the_form_has_a_picker_per_stage_with_choices() {
         let view = form_choices(&new_ticket(), "shop-web").expect("choices");
-        assert_eq!(view.heading, "Stage choices");
+        assert_eq!(
+            (view.heading, view.hint),
+            (
+                "Stages for this ticket",
+                Some("optional \u{b7} another agent, or skip where the flow allows")
+            )
+        );
         let shown: Vec<_> = view
             .rows
             .iter()
@@ -1772,24 +1866,66 @@ mod tests {
         assert_eq!(
             shown,
             [
-                // A skippable Agent stage shows its agent, a skippable human check "required" (you check it).
-                ("Product spec:", "Spec writer"),
-                ("Dev:", "Rust developer"),
-                ("Review:", "required")
+                // An Agent stage on its own agent; a human check is yours to check.
+                (
+                    "Product spec",
+                    "Uses the stage\u{2019}s agent \u{b7} Spec writer"
+                ),
+                ("Dev", "Uses the stage\u{2019}s agent \u{b7} Rust developer"),
+                ("Review", "You check it")
             ]
         );
-        let words: Vec<Vec<&str>> = view
+        let menus: Vec<Vec<(&str, &str, bool, bool)>> = view
             .rows
             .iter()
-            .map(|r| r.items.iter().map(|i| i.label.as_str()).collect())
+            .map(|r| {
+                r.items
+                    .iter()
+                    .map(|i| (i.id.as_str(), i.label.as_str(), i.header, i.checked))
+                    .collect()
+            })
             .collect();
         assert_eq!(
-            words,
+            menus,
             [
-                vec!["Spec writer", "skip"],
-                vec!["Rust developer", "Quick developer"],
-                vec!["required", "skip"]
+                vec![
+                    ("", "Product spec", true, false),
+                    (
+                        "Spec writer",
+                        "Uses the stage\u{2019}s agent \u{b7} Spec writer",
+                        false,
+                        true
+                    ),
+                    ("skip", "Skip this stage", false, false)
+                ],
+                vec![
+                    (
+                        "Rust developer",
+                        "Uses the stage\u{2019}s agent \u{b7} Rust developer",
+                        false,
+                        true
+                    ),
+                    ("Quick developer", "Quick developer", false, false)
+                ],
+                vec![
+                    ("required", "You check it", false, true),
+                    ("skip", "Skip this stage", false, false)
+                ]
             ]
+        );
+        let product = &view.rows[0].items;
+        assert_eq!(
+            product[0].hint.as_deref(),
+            Some("Settles what to build and how it behaves.")
+        );
+        assert!(product[2].separated);
+        assert_eq!(
+            product[2].hint.as_deref(),
+            Some("Offered because this flow lets tickets skip Product spec.")
+        );
+        assert!(
+            view.rows[1].items.iter().all(|i| i.id != "skip"),
+            "a stage the flow doesn't let tickets skip offers no skip"
         );
         assert!(
             view.rows
@@ -1799,8 +1935,8 @@ mod tests {
         assert_eq!(
             view.note.as_deref(),
             Some(
-                "Any agent whose tool has the stage\u{2019}s skill, and skip where shop-web\u{2019}s flow allows it. \
-                 You can change them until that stage starts."
+                "shop-web\u{2019}s flow lets tickets skip Product spec and Review. Stages that can\u{2019}t be skipped \
+                 don\u{2019}t offer it."
             )
         );
         // Only the picks that aren't the stage's own agent go with the new ticket.
@@ -2139,6 +2275,44 @@ mod tests {
              \u{b7} Delivery \u{b7} Shipper \u{b7} haiku"
         );
         assert!(p.rows.iter().all(|r| r.state != PathState::Running));
+    }
+
+    /// The form on a ticket you set choices for: a skip reads "Skip this stage", another agent its name; a stage that
+    /// started keeps its pick, read-only with its lock. A flow with no skippable stage says so.
+    #[test]
+    fn the_form_shows_your_picks_and_locks_a_started_stage() {
+        let mut choices = new_ticket();
+        choices.stages[0].choice = chose(Choice::Skip, SetBy::User, None);
+        choices.stages[1].choice = chose(
+            Choice::Agent {
+                id: "quick".into(),
+                name: "Quick developer".into(),
+            },
+            SetBy::User,
+            None,
+        );
+        choices.stages[1].locked = true;
+        let view = form_choices(&choices, "shop-web").expect("choices");
+        assert_eq!(view.rows[0].value, "Skip this stage");
+        assert!(
+            view.rows[0]
+                .items
+                .iter()
+                .any(|i| i.id == "skip" && i.checked)
+        );
+        assert_eq!(
+            (
+                view.rows[1].value.as_str(),
+                view.rows[1].items.len(),
+                view.rows[1].lock.as_deref()
+            ),
+            ("Quick developer", 0, Some("Locked: Dev has started"))
+        );
+        choices.stages.retain(|s| !s.can_skip);
+        assert_eq!(
+            form_choices(&choices, "shop-web").and_then(|v| v.note),
+            Some("shop-web\u{2019}s flow doesn\u{2019}t let tickets skip a stage.".to_owned())
+        );
     }
 
     /// AGM-09: on the default flow no stage has options, so the ticket shows only its path.

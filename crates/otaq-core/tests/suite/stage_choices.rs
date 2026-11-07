@@ -896,3 +896,81 @@ async fn an_older_flow_splits_its_check_and_carries_the_tickets_over() {
     );
     w.stop().await;
 }
+
+/// What the full new-ticket form sends, in its order (the ticket with its attachments as its first comment, then its
+/// Waits for, then the stages you set): the ticket shows each. Its choices name every stage's own agent and offer
+/// "skip" only where the flow lets tickets skip it (Product spec, never Dev), with what each stage is for.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ticket_from_the_new_ticket_form_shows_each_of_its_settings() {
+    use otaq_core::board::reports::ReportSource;
+    use otaq_core::board::ticket_comments::FirstComment;
+    use otaq_core::board::tickets::NewTicketInput;
+
+    let w = world().await;
+    let parent = w.create("SHOP", "Wishlist share link").await;
+    let shot = tempfile::NamedTempFile::with_suffix(".png").unwrap();
+    std::fs::write(shot.path(), [0x89, b'P', b'N', b'G']).unwrap();
+    let t = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Coupon field rejects lowercase codes".into(),
+                first_comment: Some(FirstComment {
+                    attachments: vec![ReportSource::Path(shot.path().to_path_buf())],
+                    ..FirstComment::default()
+                }),
+                ..Default::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    let key = t.key.to_string();
+    w.board
+        .add_dependency(&key, &parent.key.to_string(), &me())
+        .await
+        .unwrap();
+    choose(
+        &w,
+        &t,
+        &[
+            pick("Dev", "Quick developer", None),
+            pick("Product spec", "skip", None),
+        ],
+        &Chooser::User,
+        false,
+    )
+    .await
+    .unwrap();
+
+    let first = w.board.ticket_comment(&key, 1).await.unwrap();
+    assert!(first.at_creation);
+    assert_eq!(first.attachments.len(), 1);
+    let tree = w.board.dependency_tree(&key).await.unwrap();
+    assert_eq!(
+        tree.parents
+            .iter()
+            .map(|p| p.key.to_string())
+            .collect::<Vec<_>>(),
+        [parent.key.to_string()]
+    );
+    assert_eq!(choice_of(&w, &t, "Dev").await.0, "Quick developer");
+    assert_eq!(choice_of(&w, &t, "Product spec").await.0, "skip");
+
+    let offered = w.board.new_ticket_choices("SHOP").await.unwrap();
+    let words = |stage: &str| {
+        offered
+            .stages
+            .iter()
+            .find(|s| s.stage == stage)
+            .unwrap()
+            .words()
+    };
+    assert!(words("Product spec").contains(&"skip".to_owned()));
+    assert!(
+        !words("Dev").contains(&"skip".to_owned()),
+        "Dev can't be skipped"
+    );
+    w.stop().await;
+}

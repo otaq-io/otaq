@@ -11,6 +11,12 @@ before Publish (`scripts/README.md`, "Making a release").
   shape it) hands the text to Noyan, which reads the code and writes one or more tickets to Backlog for you to start.
   **⌥↵** (Alt+↵) starts a new line, and **More options…** opens the full form with what you typed. It replaces quick
   create and the Ask bar; ⌘L still opens Noyan's panel, and in Files ⌘N is still New ticket from this file.
+- **The full new-ticket form.** More options… opens it with what you typed: Title, Description, Priority (P3 · Normal
+  until you pick), **Waits for** (search the project's tickets), **Attachments** (several files of any type, dropped,
+  pasted or picked, up to 20 MB each, posted as your first comment), then two folds: **Stages for this ticket**, where
+  each stage "Uses the stage's agent" until you pick another agent, or **Skip this stage** where the flow allows it
+  (each picker says what the stage is for), and **Base branch**. **Create** (⌘↵) or **Create & start** (⇧⌘↵).
+  Cancel gives the box its text back. The form's one report with its required line is gone.
 - **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
   project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
   Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,
