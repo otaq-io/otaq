@@ -15,6 +15,7 @@ import { CommentBox } from "./CommentBox";
 import { CommentThread, EditInPlace } from "./CommentThread";
 import { ImageViewer } from "./ImageViewer";
 import { dropTargets } from "../../terminal/drops";
+import { pastedName } from "./attachmentAdding";
 import {
   type BoxValue,
   boxState,
@@ -24,6 +25,7 @@ import {
   EMPTY_BOX,
   pasteAction,
   sentAttachments,
+  uniqueName,
   withAdded,
   withoutAttachment,
   withPasted,
@@ -133,12 +135,35 @@ describe("the paste rule", () => {
     const twice = withPasted({ ...once, text: "Look at limit_rows" }, "é".repeat(2500));
     expect(twice.text).toBe("Look at limit_rows");
     expect(twice.attachments.map((a) => (a.kind === "pasted" ? a.bytes : 0))).toEqual([3000, 5000]);
+    expect(twice.attachments.map((a) => (a.kind === "pasted" ? a.name : ""))).toEqual([
+      "Pasted text",
+      "Pasted text 2",
+    ]);
     expect(sentAttachments(twice)).toEqual([
       { kind: "pasted", text: "x".repeat(3000) },
       { kind: "pasted", text: "é".repeat(2500) },
     ]);
     // A box of one report (the New ticket form's) keeps the last.
     expect(withPasted(once, "y", true).attachments).toHaveLength(1);
+  });
+});
+
+describe("attachment names (one comment, no two of a name)", () => {
+  it("numbers a taken name before its extension, as core does", () => {
+    expect(uniqueName("shot.png", [])).toBe("shot.png");
+    expect(uniqueName("shot.png", ["shot.png"])).toBe("shot 2.png");
+    expect(uniqueName("shot.png", ["shot.png", "shot 2.png"])).toBe("shot 3.png");
+    expect(uniqueName("Pasted text", ["Pasted text"])).toBe("Pasted text 2");
+    expect(uniqueName(".env", [".env"])).toBe(".env 2");
+  });
+
+  it("calls a screenshot with the browser's generic name, or none, a pasted image", () => {
+    expect(pastedName(fileOf("image.png", "image/png", 1))).toBe("Pasted image.png");
+    expect(pastedName(fileOf("Image.JPG", "image/jpeg", 1))).toBe("Pasted image.jpg");
+    expect(pastedName(fileOf("", "image/png", 1))).toBe("Pasted image.png");
+    expect(pastedName(fileOf("before.png", "image/png", 1))).toBe("before.png");
+    // A file copied in Finder keeps its name, even one called image.txt.
+    expect(pastedName(fileOf("image.txt", "text/plain", 1))).toBe("image.txt");
   });
 });
 
@@ -289,7 +314,7 @@ describe("CommentBox", () => {
     const host = await mount((v) => sent.push(v));
     expect(button(host).disabled).toBe(true);
     await paste(host, "", [fileOf("image.png", "image/png", 48_000)]);
-    expect(chipLabels(host)).toEqual(["image.png"]);
+    expect(chipLabels(host)).toEqual(["Pasted image.png"]);
     expect(host.querySelector(".comment-box-hint")).toBeNull();
     expect(button(host).disabled).toBe(false);
     await act(async () => {
@@ -299,7 +324,7 @@ describe("CommentBox", () => {
     expect(sent).toHaveLength(1);
     expect(sent[0]?.text).toBe("");
     expect(sent[0] && sentAttachments(sent[0])).toEqual([
-      { kind: "file", path: "/data/staged-attachments/1/image.png" },
+      { kind: "file", path: "/data/staged-attachments/1/Pasted image.png" },
     ]);
   });
 
@@ -307,14 +332,14 @@ describe("CommentBox", () => {
     const sent: BoxValue[] = [];
     const host = await mount((v) => sent.push(v));
     expect(await paste(host, "", [fileOf("image.png", "image/png", 48_000)])).toBe(true);
-    expect(chipLabels(host)).toEqual(["image.png"]);
-    expect(ipc.staged).toEqual(["image.png"]);
+    expect(chipLabels(host)).toEqual(["Pasted image.png"]);
+    expect(ipc.staged).toEqual(["Pasted image.png"]);
     expect(ipc.calls).not.toContain("ticket_comments.pasted_size");
     const thumb = host.querySelector<HTMLImageElement>(".comment-chip-thumb");
     expect(thumb?.getAttribute("src")).toMatch(/^data:image\/png;base64,/);
     // Files copied in Finder keep their names; the screenshot stays.
     await paste(host, "notes.md", [fileOf("notes.md", "text/markdown", 2048), fileOf("run.zip", "", 100)]);
-    expect(chipLabels(host)).toEqual(["image.png", "notes.md", "run.zip"]);
+    expect(chipLabels(host)).toEqual(["Pasted image.png", "notes.md", "run.zip"]);
     expect(host.querySelectorAll(".comment-chip-thumb")).toHaveLength(1);
     await type(host, "Before and after.");
     await act(async () => {
@@ -322,10 +347,31 @@ describe("CommentBox", () => {
       await Promise.resolve();
     });
     expect(sent[0] && sentAttachments(sent[0])).toEqual([
-      { kind: "file", path: "/data/staged-attachments/1/image.png" },
+      { kind: "file", path: "/data/staged-attachments/1/Pasted image.png" },
       { kind: "file", path: "/data/staged-attachments/1/notes.md" },
       { kind: "file", path: "/data/staged-attachments/1/run.zip" },
     ]);
+  });
+
+  it("tells two pasted screenshots and two files of one name apart, as core names them", async () => {
+    const host = await mount();
+    await paste(host, "", [fileOf("image.png", "image/png", 48_000)]);
+    await paste(host, "", [fileOf("image.png", "image/png", 50_000)]);
+    expect(chipLabels(host)).toEqual(["Pasted image.png", "Pasted image 2.png"]);
+    const box = host.querySelector(".comment-box");
+    await act(async () => {
+      dropTargets.at(box)?.takeFiles?.(["/Users/me/a/run.txt", "/Users/me/b/run.txt"]);
+      await Promise.resolve();
+    });
+    await settle();
+    expect(chipLabels(host)).toEqual(["Pasted image.png", "Pasted image 2.png", "run.txt", "run 2.txt"]);
+    // ✕ on the first frees its name, as it does for the comment core posts.
+    const remove = host.querySelector<HTMLButtonElement>('[aria-label="Remove the file Pasted image.png"]');
+    await act(async () => {
+      remove?.click();
+      await Promise.resolve();
+    });
+    expect(chipLabels(host)).toEqual(["Pasted image.png", "run.txt", "run 2.txt"]);
   });
 
   it("adds two dropped files as two chips, and ✕ removes one", async () => {
@@ -535,6 +581,26 @@ describe("editing a comment's attachments (tuq 008)", () => {
       attachments: [{ kind: "file", path: "/Users/me/fixed.png" }],
       changed: true,
     });
+    // A new one is named apart from the ones the comment keeps; a removed one's name is free again.
+    const again = (path: string) => ({
+      kind: "file" as const,
+      id: -2,
+      path,
+      name: path.split("/").at(-1) ?? path,
+      size: "2 KB",
+      image: true,
+      thumb: null,
+    });
+    expect(withAdded(value, [again("/Users/me/b/shot.png")]).attachments.map((a) => a.name)).toEqual([
+      "shot.png",
+      "test-run.txt",
+      "shot 2.png",
+    ]);
+    expect(withAdded(next, [again("/Users/me/b/shot.png")]).attachments.map((a) => a.name)).toEqual([
+      "test-run.txt",
+      "fixed.png",
+      "shot.png",
+    ]);
     // Its text may go while an attachment stays; with neither, Save is off.
     expect(boxState({ ...next, text: "" }, LIMITS).canSubmit).toBe(true);
     expect(boxState({ text: " ", attachments: [] }, LIMITS).canSubmit).toBe(false);

@@ -78,7 +78,7 @@ function PastedChip({
         }}
       >
         <Icon name="file-text" size={13} />
-        <span className="comment-chip-label">{view.pasted}</span>
+        <span className="comment-chip-label">{pasted.name ?? view.pasted}</span>
         <span className="comment-chip-size">{size}</span>
       </button>
       <button type="button" className="comment-chip-remove" aria-label={view.remove} onClick={onRemove}>

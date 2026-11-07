@@ -13,6 +13,12 @@
 // Editing a posted comment uses the same box (tuq 008): it starts with the comment's text and its attachments as
 // `posted` chips (`editBox`); ✕ removes one, paste, drop and Attach add new ones, and Save sends the text with the
 // numbers of the posted ones gone and the new ones (`editChanges`), together.
+//
+// One comment never has two attachments of the same name: a new chip whose name another chip of the box already has
+// (a second screenshot, two folders' `run.txt`, a second paste) is shown as "Pasted image 2.png", "run 2.txt",
+// "Pasted text 2" (`uniqueName`). Core names the attachments by the same rule when it copies them (`unique_name` in
+// otaq-core's `board/reports.rs`), in the order the box sends them, after the ones an edited comment keeps, so a
+// chip's name is the attachment's.
 import type { CommentAttachmentParams } from "../../generated/CommentAttachmentParams";
 import type { CommentLimits } from "../../generated/CommentLimits";
 import type { CommentRow } from "../../generated/CommentRow";
@@ -23,6 +29,8 @@ export interface PastedAttachment {
   kind: "pasted";
   /** The chip's own, while the box holds it. */
   id: number;
+  /** "Pasted text", or "Pasted text 2" beside another (`named`); unset until the box names it. */
+  name?: string;
   text: string;
   bytes: number;
 }
@@ -35,7 +43,10 @@ export interface FileAttachment {
   kind: "file";
   id: number;
   path: string;
+  /** The name the box shows and the comment will give it: `base`, or "shot 2.png" beside another `shot.png`. */
   name: string;
+  /** The name it was added under (its file's), once the box has named it (`named`). */
+  base?: string;
   /** "2 KB". */
   size: string;
   /** Shown with a thumbnail (tuq 002). */
@@ -95,11 +106,53 @@ export function pastedAttachment(text: string): PastedAttachment {
   return { kind: "pasted", id: nextId(), text, bytes: new TextEncoder().encode(text).length };
 }
 
+/** What pasted text is called, as core's `PASTED_TEXT`. */
+export const PASTED_TEXT = "Pasted text";
+
+/**
+ * `name` made unique among `taken`: itself when free, else " 2", " 3"… before its extension ("shot 2.png",
+ * "Pasted text 2", ".env 2"). The same rule as core's `unique_name`.
+ */
+export function uniqueName(name: string, taken: readonly string[]): string {
+  if (!taken.includes(name)) return name;
+  const dot = name.lastIndexOf(".");
+  const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
+  for (let k = 2; ; k += 1) {
+    const candidate = `${stem} ${k}${ext}`;
+    if (!taken.includes(candidate)) return candidate;
+  }
+}
+
+/**
+ * The box's new attachments named apart (`uniqueName`): after the names of the posted ones it keeps, each in order
+ * from the name it was added under. Run after every change, so a removed chip's name is free again, as it is for core.
+ */
+function named(attachments: readonly BoxAttachment[]): BoxAttachment[] {
+  const taken = attachments.flatMap((a) => (a.kind === "posted" ? [a.name] : []));
+  return attachments.map((a): BoxAttachment => {
+    switch (a.kind) {
+      case "posted":
+        return a;
+      case "pasted": {
+        const name = uniqueName(PASTED_TEXT, taken);
+        taken.push(name);
+        return a.name === name ? a : { ...a, name };
+      }
+      case "file": {
+        const base = a.base ?? a.name;
+        const name = uniqueName(base, taken);
+        taken.push(name);
+        return a.name === name && a.base === base ? a : { ...a, base, name };
+      }
+    }
+  });
+}
+
 /** The box with `added` after what it holds; a box of one report (`one`) keeps only the last of them. */
 export function withAdded(value: BoxValue, added: readonly BoxAttachment[], one = false): BoxValue {
   if (added.length === 0) return value;
   const last = added.at(-1);
-  return { ...value, attachments: one && last ? [last] : [...value.attachments, ...added] };
+  return { ...value, attachments: named(one && last ? [last] : [...value.attachments, ...added]) };
 }
 
 /** The box after a paste that becomes the "Pasted text" chip. */
@@ -109,7 +162,7 @@ export function withPasted(value: BoxValue, text: string, one = false): BoxValue
 
 /** The box without attachment `id` (its ✕). */
 export function withoutAttachment(value: BoxValue, id: number): BoxValue {
-  return { ...value, attachments: value.attachments.filter((a) => a.id !== id) };
+  return { ...value, attachments: named(value.attachments.filter((a) => a.id !== id)) };
 }
 
 /** The box with attachment `id`'s thumbnail drawn. */

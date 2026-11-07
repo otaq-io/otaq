@@ -702,8 +702,14 @@ impl Board {
                 .fetch_one(self.store.pool())
                 .await?;
         let first = u32::try_from(last.unwrap_or(0) + 1).unwrap_or(u32::MAX);
+        let kept: Vec<String> = current
+            .attachments
+            .iter()
+            .filter(|a| !remove.contains(&a.n))
+            .map(|a| a.name.clone())
+            .collect();
         let added = self
-            .prepare_added_attachments(&ticket.key, &row.id, first, edit.add.clone())
+            .prepare_added_attachments(&ticket.key, &row.id, first, kept, edit.add.clone())
             .await?;
         let removed: Vec<&Attachment> = current
             .attachments
@@ -1101,7 +1107,10 @@ mod tests {
             assert_eq!(refused.to_string(), "Write the comment first");
             let refused = check_comment(body, 0).unwrap_err();
             assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-            assert_eq!(refused.to_string(), "Write the comment or attach a file first");
+            assert_eq!(
+                refused.to_string(),
+                "Write the comment or attach a file first"
+            );
             assert_eq!(check_comment(body, 1).unwrap(), "");
         }
         // Stored trimmed: the newline stdin ends with isn't part of it.

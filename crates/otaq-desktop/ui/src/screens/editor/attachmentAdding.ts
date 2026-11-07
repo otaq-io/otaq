@@ -28,8 +28,19 @@ export async function addPaths(paths: readonly string[]): Promise<Added> {
   return collect(results);
 }
 
-/** What a pasted file is called: its own name, or "Pasted image.png" for a screenshot that has none. */
+/**
+ * A clipboard image's name that only says it is an image: the browser's own for a screenshot ("image.png" in WebKit
+ * and WebView2), not a file's.
+ */
+const GENERIC_IMAGE_NAME = /^image\.([a-z0-9]+)$/i;
+
+/**
+ * What a pasted file is called: its own name, or "Pasted image.png" for a screenshot, which has none or only the
+ * browser's generic "image.png". The box tells two apart ("Pasted image 2.png", `uniqueName`).
+ */
 export function pastedName(file: File): string {
+  const generic = GENERIC_IMAGE_NAME.exec(file.name)?.[1];
+  if (generic !== undefined && file.type.startsWith("image/")) return `Pasted image.${generic.toLowerCase()}`;
   if (file.name !== "") return file.name;
   const ext = /^image\/([a-z0-9.+-]+)$/
     .exec(file.type)?.[1]
