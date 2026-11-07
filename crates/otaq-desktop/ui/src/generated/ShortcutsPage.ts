@@ -2,6 +2,7 @@
 import type { ShortcutsGroup } from "./ShortcutsGroup";
 import type { ShortcutsLetters } from "./ShortcutsLetters";
 import type { ShortcutsResetAll } from "./ShortcutsResetAll";
+import type { ShortcutsShortList } from "./ShortcutsShortList";
 import type { ShortcutsTexts } from "./ShortcutsTexts";
 
 /**
@@ -19,4 +20,8 @@ terminals_note: string | null,
 /**
  * Windows/Linux: the rows have the "Works inside terminals" column (`s15-54`'s widths).
  */
-terminals_column: boolean, groups: Array<ShortcutsGroup>, texts: ShortcutsTexts, };
+terminals_column: boolean, groups: Array<ShortcutsGroup>, 
+/**
+ * What the page opens on: the shortcuts that matter most, with All shortcuts to see every group.
+ */
+short: ShortcutsShortList, texts: ShortcutsTexts, };

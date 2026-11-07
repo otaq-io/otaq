@@ -13,6 +13,7 @@ use otaq_core::protocol::{
     NoyanAgentParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
 };
 use otaq_view::view_models::about;
+use otaq_view::view_models::git_settings;
 use otaq_view::view_models::editor_fields::branch_items;
 use otaq_view::view_models::licenses;
 use otaq_view::view_models::{agent_page, agents};
@@ -42,7 +43,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
             reply(&view(app, p.project.as_deref()).await?)
         }
         "settings.edit" => edit(app, parse(params)?).await,
-        "settings.tools" => reply(&page::tools(match app.service.send(Request::ToolsCheck).await {
+        // Settings → Git & pull requests: git and the PR providers' tools, checked again on each call (Re-check).
+        "settings.git" => reply(&git_settings::view(match app.service.send(Request::ToolsCheck).await {
             Ok(Reply::ToolsCheck(report)) => Ok(report),
             Ok(other) => Err(unexpected("tools.check", &other).message),
             Err(e) => Err(e.message),
@@ -91,6 +93,11 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "settings.agent_add" => {
             let p: AgentAdd = parse(params)?;
             reply(&agent_add(app, p.draft).await?)
+        }
+        // Save on a saved agent's page: its edits are kept only now.
+        "settings.agent_save" => {
+            let p: AgentSave = parse(params)?;
+            reply(&agent_save(app, p.id, p.draft).await?)
         }
         // "Noyan uses <agent>": the one app setting for Noyan's agent; the next conversation starts on it.
         "settings.noyan_agent" => {
@@ -220,6 +227,12 @@ pub struct AgentOpen {
 
 #[derive(Debug, Clone, Deserialize)]
 pub struct AgentAdd {
+    pub draft: agent_page::Draft,
+}
+
+#[derive(Debug, Clone, Deserialize)]
+pub struct AgentSave {
+    pub id: String,
     pub draft: agent_page::Draft,
 }
 
@@ -388,27 +401,27 @@ async fn page_of(
     }))
 }
 
-/// `settings.agent`: a saved agent's change is saved at once (`agents.edit`); a draft's stays in the draft.
+/// `settings.agent`: a change goes into the page's draft, a saved agent's too: its edits are kept only on Save
+/// (`settings.agent_save`).
 async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, RequestError> {
     if let Some(id) = &p.id {
-        let Some(change) = p.change else {
-            return page_of(app, Some(id), None, None).await;
+        let draft = match p.draft {
+            Some(draft) => draft,
+            None => {
+                let list = agent_list(app).await?;
+                let agent = list
+                    .agents
+                    .iter()
+                    .find(|a| a.id == *id)
+                    .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
+                agent_page::Draft::of(agent)
+            }
         };
-        let list = agent_list(app).await?;
-        let agent = list
-            .agents
-            .iter()
-            .find(|a| a.id == *id)
-            .ok_or_else(|| RequestError::plain(format!("no agent {id}")))?;
-        let draft = agent_page::apply(agent_page::Draft::of(agent), change);
-        let request = Request::AgentsEdit(AgentEditParams {
-            id: id.clone(),
-            fields: draft.fields(),
-        });
-        return match app.service.send(request).await {
-            Ok(_) => page_of(app, Some(id), None, None).await,
-            Err(e) => page_of(app, Some(id), Some(draft), Some(refused(e)?)).await,
+        let draft = match p.change {
+            Some(change) => agent_page::apply(draft, change),
+            None => draft,
         };
+        return page_of(app, Some(id), Some(draft), None).await;
     }
     let draft = match (p.draft, p.duplicate) {
         (Some(draft), _) => draft,
@@ -423,6 +436,27 @@ async fn agent_page(app: &App, p: AgentOpen) -> Result<agent_page::Page, Request
         None => draft,
     };
     page_of(app, None, Some(draft), None).await
+}
+
+/// Save on a saved agent's page: its draft becomes the agent (`agents.edit`), or the refusal is written under its
+/// field with the draft kept.
+async fn agent_save(
+    app: &App,
+    id: String,
+    draft: agent_page::Draft,
+) -> Result<AgentAddOutcome, RequestError> {
+    let request = Request::AgentsEdit(AgentEditParams {
+        id: id.clone(),
+        fields: draft.fields(),
+    });
+    match app.service.send(request).await {
+        Ok(_) => Ok(AgentAddOutcome::Added {
+            page: Box::new(page_of(app, Some(&id), None, None).await?),
+        }),
+        Err(e) => Ok(AgentAddOutcome::Refused {
+            page: Box::new(page_of(app, Some(&id), Some(draft), Some(refused(e)?)).await?),
+        }),
+    }
 }
 
 async fn agent_add(app: &App, draft: agent_page::Draft) -> Result<AgentAddOutcome, RequestError> {
@@ -488,18 +522,15 @@ async fn project_settings(
 /// The nav and the page: the global page, or `project`'s page.
 async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestError> {
     let (settings, problems) = global(app).await?;
-    let list = projects(app).await?;
-    // The nav marks the projects with a flagged value.
-    let mut alerts = Vec::new();
+    // The nav lists only the app's topics; a project's page shows when Settings is opened on one.
     let mut open = None;
-    for info in &list {
+    if let Some(info) = projects(app)
+        .await?
+        .into_iter()
+        .find(|p| project == Some(p.key.as_str()))
+    {
         let (p_settings, p_problems) = project_settings(app, &info.key).await?;
-        if !p_problems.is_empty() {
-            alerts.push(info.key.clone());
-        }
-        if project == Some(info.key.as_str()) {
-            open = Some((info.clone(), p_settings, p_problems));
-        }
+        open = Some((info, p_settings, p_problems));
     }
     let shown = match open {
         Some((info, p_settings, p_problems)) => {
@@ -555,7 +586,7 @@ async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestErr
             })
         }
     };
-    Ok(page::view(shown, &list, &alerts))
+    Ok(page::view(shown))
 }
 
 /// Applies one edit and answers with the fresh view. A refused value comes back as the request's error.
@@ -663,6 +694,23 @@ mod tests {
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
 
+    /// Git & pull requests runs the tools check and answers with git, then the PR providers (GitHub, Azure DevOps).
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_git_page_lists_git_then_the_providers() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let view = request(&h.app, "settings.git", Value::Null).await.unwrap();
+        assert_eq!(view["git_title"], "Git");
+        assert_eq!(view["providers_title"], "Pull request providers");
+        if view["error"].is_null() {
+            assert_eq!(view["git"]["name"], "git");
+            let names: Vec<&str> =
+                view["providers"].as_array().unwrap().iter().map(|p| p["name"].as_str().unwrap()).collect();
+            assert_eq!(names, ["GitHub", "Azure DevOps"]);
+        }
+        h.service.stop_all().await;
+    }
+
     #[tokio::test(flavor = "multi_thread")]
     async fn the_global_page_loads_and_an_edit_is_stored() {
         let h = Harness::new(None);
@@ -670,13 +718,14 @@ mod tests {
         let view = request(&h.app, "settings.view", Value::Null).await.unwrap();
         assert_eq!(view["page"]["page"], "global");
         assert_eq!(view["page"]["title"], "General");
-        assert_eq!(view["nav"][0]["label"], "Agent tools");
-        assert_eq!(view["nav"][1]["label"], "Agents");
-        // Agent limits is a row of its own again (T-0410, `s15-58`); the workflow skills moved to the agents.
-        assert_eq!(view["nav"][2]["label"], "Agent limits");
-        // Validation & Auto-merge is gone (FLW-01).
-        assert_eq!(view["nav"][3]["label"], "Usage");
-        let data = &view["page"]["sections"][5];
+        // Eight topics about you and your machine, no projects.
+        let labels: Vec<&str> =
+            view["nav"].as_array().unwrap().iter().map(|n| n["label"].as_str().unwrap()).collect();
+        assert_eq!(
+            labels,
+            ["Agents", "Git & pull requests", "Limits & usage", "Notifications", "Appearance", "Keyboard", "Data", "About"]
+        );
+        let data = &view["page"]["sections"][8];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -784,7 +833,6 @@ mod tests {
             rows[1]["problem"],
             "CI is already set above. Only the first row applies; remove one of them."
         );
-        assert_eq!(view["nav"].as_array().unwrap().last().unwrap()["alert"], true);
         edit("env_vars.1.name", json!("DEBUG")).await.unwrap();
         edit("env_vars.0.value", json!("1")).await.unwrap();
         let (stored, problems) = project_settings(&h.app, &project).await.unwrap();
@@ -915,11 +963,13 @@ mod tests {
         let id = |n: usize| section["rows"][n]["id"].as_str().unwrap().to_owned();
         let (noyan, developer) = (id(0), id(1));
 
-        // One agent's page, and a change saved at once.
+        // One agent's page: a change stays in its draft, and is kept only on Save.
         let page = ask("settings.agent", json!({ "id": developer })).await.unwrap();
         assert_eq!(page["title"], "Developer");
         assert!(page.get("skills").is_none(), "the page has no skills field");
         assert_eq!(page["model"]["tool_value"], "Default model");
+        assert_eq!(page["add"]["add_label"], "Save");
+        assert_eq!(page["add"]["unchanged"], true);
         let page = ask(
             "settings.agent",
             json!({ "id": developer, "change": { "field": "instructions", "value": "Run the tests." } }),
@@ -927,11 +977,21 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(page["instructions"]["value"], "Run the tests.");
-        let page = ask("settings.agent", json!({ "id": developer, "change": { "field": "name", "value": "Noyan" } }))
-            .await
-            .unwrap();
-        assert_eq!(page["name"]["problem"], "Another agent is already called Noyan");
-        assert_eq!(page["draft"]["name"], "Noyan", "the refused name stays typed");
+        assert_eq!(page["add"]["unchanged"], false);
+        // Not saved yet: the agent opens again as it was (Cancel).
+        let again = ask("settings.agent", json!({ "id": developer })).await.unwrap();
+        assert_ne!(again["instructions"]["value"], "Run the tests.");
+        let saved = ask("settings.agent_save", json!({ "id": developer, "draft": page["draft"] })).await.unwrap();
+        assert_eq!(saved["outcome"], "added");
+        let again = ask("settings.agent", json!({ "id": developer })).await.unwrap();
+        assert_eq!(again["instructions"]["value"], "Run the tests.");
+        // A refused Save keeps the draft, the reason under its field.
+        let mut taken = again["draft"].clone();
+        taken["name"] = json!("Noyan");
+        let refused = ask("settings.agent_save", json!({ "id": developer, "draft": taken })).await.unwrap();
+        assert_eq!(refused["outcome"], "refused");
+        assert_eq!(refused["page"]["name"]["problem"], "Another agent is already called Noyan");
+        assert_eq!(refused["page"]["draft"]["name"], "Noyan", "the refused name stays typed");
 
         // No agent's page shows a role, Noyan's own included.
         let page = ask("settings.agent", json!({ "id": noyan })).await.unwrap();

@@ -1,7 +1,7 @@
 // A Settings section and its rows (*15 · Settings*): label and description on the left (320 px), the control on the
 // right, a line under each row. Every text and every control's state comes from the Rust row (`SettingsRow`); the
 // controls keep only what is being typed. Text saves on blur and on ↵ (a multi-line field: blur and ⌘↵ / Ctrl+↵).
-import { type KeyboardEvent, useCallback, useEffect, useRef, useState } from "react";
+import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import {
@@ -27,11 +27,7 @@ import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
 import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
-import type { SettingsTools } from "../../generated/SettingsTools";
-import type { ToolTerminalOpened } from "../../generated/ToolTerminalOpened";
 import { openStageSkill } from "../flow_editor/logic";
-import { RowTerminal, useRowTerminals } from "../onboarding/RowTerminal";
-import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { fieldId, sectionOf, useSettings } from "./context";
@@ -289,103 +285,6 @@ function ProviderRow({ row }: { row: SettingsRow }) {
   );
 }
 
-function Tools({ control }: { control: Of<"tools"> }) {
-  const [tools, setTools] = useState<SettingsTools | null>(null);
-  const [failure, setFailure] = useState<string | null>(null);
-  const [checking, setChecking] = useState(true);
-  const run = useCallback(
-    () =>
-      request("settings.tools").then(
-        (t) => {
-          setTools(t as SettingsTools);
-          setFailure(null);
-          setChecking(false);
-        },
-        (e: unknown) => {
-          setFailure(asRequestError(e).message);
-          setChecking(false);
-        },
-      ),
-    [],
-  );
-  useEffect(() => {
-    void run();
-  }, [run]);
-  const check = useCallback(() => {
-    setChecking(true);
-    return run();
-  }, [run]);
-  const rows = tools?.rows;
-  const terminals = useRowTerminals(
-    (key) => (rows ?? []).some((r) => r.button !== null && `${r.button.tool}:${r.button.action}` === key),
-    check,
-  );
-  const error = failure ?? tools?.error ?? null;
-  return (
-    <div className="settings-tools">
-      {error !== null && <p className="settings-problem">{error}</p>}
-      {tools?.rows.map((row) => {
-        const button = row.button;
-        return (
-          <div key={row.name} className="settings-tool" data-look={row.look}>
-            <Icon name={row.icon} />
-            <span className="settings-tool-name">{row.name}</span>
-            <span className="settings-tool-need">{row.need}</span>
-            <span className="settings-tool-status">{row.status}</span>
-            {row.command !== null && (
-              <span className="settings-tool-command">
-                <code>{row.command}</code>
-                <IconButton
-                  icon="copy"
-                  label={tools.copy}
-                  onClick={() => {
-                    if (row.command !== null)
-                      navigator.clipboard.writeText(row.command).catch(() => undefined);
-                  }}
-                />
-                {button !== null && (
-                  <Button
-                    compact
-                    variant="secondary"
-                    icon={button.action === "login" ? "square-terminal" : "arrow-down-to-line"}
-                    label={button.label}
-                    disabled={terminals.open?.row === row.tool}
-                    onClick={() => {
-                      terminals.start(row.tool, `${button.tool}:${button.action}`, () =>
-                        request("tools.terminal", { tool: button.tool, action: button.action }).then(
-                          (opened) => ({
-                            session: (opened as ToolTerminalOpened).session,
-                            title: button.running,
-                          }),
-                        ),
-                      );
-                    }}
-                  />
-                )}
-              </span>
-            )}
-            {row.note !== null && <span className="settings-tool-note">{row.note}</span>}
-            <span className="settings-tool-terminal">
-              <RowTerminal row={row.tool} texts={tools.terminal} terminals={terminals} />
-            </span>
-          </div>
-        );
-      })}
-      <span className="settings-tools-recheck">
-        <Button
-          variant="secondary"
-          icon="rotate-ccw"
-          label={control.recheck_label}
-          loading={checking}
-          onClick={() => {
-            void check();
-          }}
-        />
-      </span>
-    </div>
-  );
-}
-
 function Control({ row }: { row: SettingsRow }) {
   const { edit, act } = useSettings();
   const c = row.control;
@@ -502,8 +401,6 @@ function Control({ row }: { row: SettingsRow }) {
       return null;
     case "provider":
       return null;
-    case "tools":
-      return <Tools control={c} />;
     case "about":
       return null;
   }
@@ -529,7 +426,6 @@ function Reset({ row }: { row: SettingsRow }) {
 function Row({ row }: { row: SettingsRow }) {
   const { act } = useSettings();
   if (row.control.kind === "provider") return <ProviderRow row={row} />;
-  if (row.control.kind === "tools") return <Control row={row} />;
   if (row.control.kind === "env_vars") return <EnvVarsRow row={row} />;
   if (row.control.kind === "warm_build") return <WarmBuildRow row={row} control={row.control} />;
   if (row.control.kind === "notifications_switch")

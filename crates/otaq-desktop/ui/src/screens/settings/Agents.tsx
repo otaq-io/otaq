@@ -2,9 +2,10 @@
 // (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`, the mark `s15-32`): the default model for new agents,
 // "Noyan uses <agent>" (the one setting for Noyan's agent) and the list (NAME · MODEL · USED IN, each row's ⋯
 // Duplicate / Delete…); and one agent's page in the same place (← name, its Model with the tool's effort, its
-// Instructions in the Markdown editor, Used in). An agent has no role: each stage names its agent. An agent has no
-// skill list (T7). Everything comes from the views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is
-// open, the open menu and dialog, and the text being typed until it is saved.
+// Instructions in the Markdown editor, Used in, then Delete agent, Cancel and Save). An agent has no role: each stage
+// names its agent. An agent has no skill list (T7). An agent's edits are kept only on Save. Everything comes from the
+// views (`settings.agents`, `settings.agent` and the answers of the calls below); this keeps which page is open, the
+// open menu and dialog, and the text being typed until it is saved.
 import { type ReactNode, useCallback, useContext, useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 
@@ -43,9 +44,6 @@ import { AgentReadsBody, AgentReadsHeading } from "./AgentReads";
 import { SettingsContext } from "./context";
 import { proposeFrom } from "./flowActions";
 import { ModelDropdown, type ModelPick, ModelPicker } from "./ModelPicker";
-
-/** How long typed instructions wait before they are saved. */
-export const INSTRUCTIONS_SAVE_MS = 800;
 
 /** The amber line of a mark, the model in mono. */
 export function MarkLine({ mark }: { mark: AgentMarkView }) {
@@ -269,17 +267,18 @@ export function AgentsSectionBody({
   );
 }
 
-/** What one agent's page asks for. */
+/** What one agent's page asks for. `onChange` and `onAdd` carry the name and instructions as typed. */
 export interface PageActions {
-  onChange: (change: AgentChange) => void;
+  onChange: (change: AgentChange, name: string, instructions: string) => void;
+  /** Add agent on a draft, Save on a saved agent. */
   onAdd: (name: string, instructions: string) => void;
   onCancel: () => void;
+  onDelete: () => void;
   onRetry: (tool: string) => void;
 }
 
-/** One agent's page (`s15-58` "One agent"). Name and instructions are typed here and
- * saved when the name field is left, and a moment after the instructions stop changing; everything else is saved at
- * once (a draft keeps them until Add agent). */
+/** One agent's page (`s15-58` "One agent"). Everything is held in the page's draft: a saved agent's edits are kept
+ * only on Save, and Cancel drops them; New agent and Duplicate are kept on Add agent. */
 export function AgentPageBody({ page, actions }: { page: AgentPage; actions: PageActions }) {
   const [name, setName] = useState(page.name.value);
   const [instructions, setInstructions] = useState(page.instructions.value);
@@ -289,15 +288,16 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
     setShownName(page.name.value);
     setName(page.name.value);
   }
-  const pending = useRef<ReturnType<typeof setTimeout> | null>(null);
-  const saved = page.id !== null;
-  useEffect(
-    () => () => {
-      if (pending.current !== null) clearTimeout(pending.current);
-    },
-    [],
-  );
+  const buttons = page.add;
+  const unchanged =
+    buttons !== null &&
+    buttons.unchanged &&
+    name === page.name.value &&
+    instructions === page.instructions.value;
   const model = page.model;
+  const change = (c: AgentChange) => {
+    actions.onChange(c, name, instructions);
+  };
   return (
     <section className="settings-section settings-agent-page" data-section="agent" aria-label={page.title}>
       {page.mark && (
@@ -311,15 +311,7 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
       <label className="settings-agent-label" htmlFor="agent-name">
         {page.name.label}
       </label>
-      <TextInput
-        id="agent-name"
-        value={name}
-        invalid={page.name.problem !== null}
-        onChange={setName}
-        onBlur={() => {
-          if (saved && name !== page.name.value) actions.onChange({ field: "name", value: name });
-        }}
-      />
+      <TextInput id="agent-name" value={name} invalid={page.name.problem !== null} onChange={setName} />
       {page.name.problem !== null && <span className="settings-agent-problem">{page.name.problem}</span>}
 
       <span className="settings-agent-label">{model.label}</span>
@@ -329,7 +321,7 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
           value={model.tool_value}
           items={optionItems(model.tools)}
           onChange={(id) => {
-            actions.onChange({ field: "tool", value: optionValue(id) });
+            change({ field: "tool", value: optionValue(id) });
           }}
         />
         {model.picker && (
@@ -337,7 +329,7 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
             label={model.label}
             picker={model.picker}
             onPick={(picked) => {
-              actions.onChange({ field: "model", value: picked });
+              change({ field: "model", value: picked });
             }}
             onRetry={actions.onRetry}
           />
@@ -353,7 +345,7 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
               value={model.effort.value}
               items={optionItems(model.effort.options)}
               onChange={(id) => {
-                actions.onChange({ field: "effort", value: optionValue(id) });
+                change({ field: "effort", value: optionValue(id) });
               }}
             />
           </span>
@@ -369,19 +361,7 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
       )}
 
       <span className="settings-agent-label">{page.instructions.label}</span>
-      <Instructions
-        field={page.instructions}
-        value={instructions}
-        onChange={(text) => {
-          setInstructions(text);
-          if (!saved) return;
-          if (pending.current !== null) clearTimeout(pending.current);
-          pending.current = setTimeout(() => {
-            pending.current = null;
-            actions.onChange({ field: "instructions", value: text });
-          }, INSTRUCTIONS_SAVE_MS);
-        }}
-      />
+      <Instructions field={page.instructions} value={instructions} onChange={setInstructions} />
 
       {page.used_in && (
         <>
@@ -403,12 +383,18 @@ export function AgentPageBody({ page, actions }: { page: AgentPage; actions: Pag
         </p>
       )}
       {page.problem !== null && <span className="settings-agent-problem">{page.problem}</span>}
-      {page.add && (
+      {buttons && (
         <span className="settings-agent-add">
-          <Button variant="ghost" label={page.add.cancel_label} onClick={actions.onCancel} />
+          {buttons.delete_label !== null && (
+            <button type="button" className="settings-agent-delete" onClick={actions.onDelete}>
+              {buttons.delete_label}
+            </button>
+          )}
+          <Button variant="ghost" label={buttons.cancel_label} onClick={actions.onCancel} />
           <Button
             variant="primary"
-            label={page.add.add_label}
+            label={buttons.add_label}
+            disabled={unchanged}
             onClick={() => {
               actions.onAdd(name, instructions);
             }}
@@ -570,6 +556,13 @@ export function AgentsSection() {
     );
   }, [page, reads, setHeading, back, backToPage]);
   useEffect(() => () => setHeading?.(null), [setHeading]);
+  // One agent's page (or what it reads) is drawn alone, without the tools above the list.
+  const setSolo = settings?.setSolo;
+  const own = page !== null || reads !== null;
+  useEffect(() => {
+    setSolo?.(own ? "agents" : null);
+  }, [own, setSolo]);
+  useEffect(() => () => setSolo?.(null), [setSolo]);
 
   const show = (p: Promise<unknown>) => {
     p.then((fresh) => {
@@ -625,26 +618,38 @@ export function AgentsSection() {
   };
 
   const pageActions = (p: AgentPage): PageActions => ({
-    onChange: (change) => {
+    onChange: (change, name, instructions) => {
       show(
         request("settings.agent", {
           id: p.id,
           duplicate: null,
-          draft: p.id === null ? p.draft : null,
+          draft: { ...p.draft, name, instructions },
           change,
         }),
       );
     },
+    // Add agent on a draft; Save on a saved agent, the only moment its edits are kept.
     onAdd: (name, instructions) => {
-      request("settings.agent_add", { draft: { ...p.draft, name, instructions } }).then((outcome) => {
-        setPage((outcome as AgentAddOutcome).page);
+      const draft = { ...p.draft, name, instructions };
+      const saving =
+        p.id === null
+          ? request("settings.agent_add", { draft })
+          : request("settings.agent_save", { id: p.id, draft });
+      saving.then((o) => {
+        const outcome = o as AgentAddOutcome;
+        // A saved agent's Save goes back to the list, as Cancel does; a new agent opens its page.
+        if (outcome.outcome === "added" && p.id !== null) back();
+        else setPage(outcome.page);
         setError(null);
       }, failed);
     },
     onCancel: back,
+    onDelete: () => {
+      if (p.id !== null) askDelete(p.id);
+    },
     onRetry: (tool) => {
       request("settings.agents_models_retry", { tool }).then(() => {
-        open({ id: p.id, duplicate: null, draft: p.id === null ? p.draft : null, change: null });
+        open({ id: p.id, duplicate: null, draft: p.draft, change: null });
       }, failed);
     },
   });

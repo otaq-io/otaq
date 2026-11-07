@@ -1,7 +1,9 @@
-// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the global topics, then every
-// project) and one page on the right. Each global topic is its own page, titled with its nav label (or the heading the
-// topic puts there: one agent's page), showing only that topic's sections; a project has its own page. The nav, the
-// page and every row come from `settings.view`; an edit answers with the fresh view. Esc or × closes it.
+// Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the app's topics: you and your
+// machine; a line says project settings are in each project's Settings tab) and one page on the right. Each topic is
+// its own page, titled with its nav label (or the heading the topic puts there: one agent's page), showing only that
+// topic's sections. Opened at a topic's id (`{ section: "git" }`) it shows that topic. Opened on a project it still
+// shows that project's page. The nav, the page and every row come from `settings.view`; an edit answers with the
+// fresh view. Esc or × closes it.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -47,6 +49,8 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const [headerSlot, setHeaderSlot] = useState<HTMLElement | null>(null);
   // A topic's own heading in place of its nav label (one agent's page on Agents).
   const [heading, setHeading] = useState<ReactNode | null>(null);
+  // The section showing a page of its own, drawn without the topic's other sections (one agent on Agents).
+  const [solo, setSolo] = useState<string | null>(null);
   const [visit, setVisit] = useState(0);
   // The open global topic, as any of its sections: Settings opened on a section opens the topic that holds it.
   const [topic, setTopic] = useState<string | null>(params?.section ?? null);
@@ -151,15 +155,27 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const context = useMemo<SettingsContextValue | null>(
     () =>
       page
-        ? { page, project, edit, act, headerSlot, setHeading, visit, agent: params?.agent, openProject }
+        ? {
+            page,
+            project,
+            edit,
+            act,
+            headerSlot,
+            setHeading,
+            setSolo,
+            visit,
+            agent: params?.agent,
+            openProject,
+          }
         : null,
     [page, project, edit, act, headerSlot, visit, params?.agent, openProject],
   );
 
   const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
-  const projectRows = view?.nav.filter((r) => r.target.page === "project") ?? [];
   const openRow = topicRow(globalRows, topic);
-  const topicSections: readonly string[] = openRow?.target.page === "global" ? openRow.target.sections : [];
+  // A section showing a page of its own (one agent on Agents) is drawn alone.
+  const topicSections: readonly string[] =
+    solo !== null ? [solo] : openRow?.target.page === "global" ? openRow.target.sections : [];
 
   // The sections this page has that a screen registered, in the page's order; on the global page only the open topic's.
   const sections = !page
@@ -212,6 +228,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
   const go = (row: SettingsNavRow) => {
     scrollPending.current = null;
     setHeading(null);
+    setSolo(null);
     setVisit((v) => v + 1);
     if (row.target.page === "project") setProject(row.target.key);
     else {
@@ -240,7 +257,6 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
       >
         <nav className="settings-nav" aria-label={view?.title}>
           <h2 className="settings-title">{view?.title}</h2>
-          <h3 className="settings-nav-heading">{view?.global_heading}</h3>
           {globalRows.map((row) => (
             <NavItem
               key={row.label}
@@ -251,17 +267,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
               }}
             />
           ))}
-          <h3 className="settings-nav-heading">{view?.projects_heading}</h3>
-          {projectRows.map((row) => (
-            <NavItem
-              key={row.target.page === "project" ? row.target.key : row.label}
-              row={row}
-              on={row.target.page === "project" && row.target.key === project}
-              onClick={() => {
-                go(row);
-              }}
-            />
-          ))}
+          {view && <p className="settings-nav-footnote">{view.footnote}</p>}
         </nav>
         <div className="settings-main">
           <header className="settings-header">

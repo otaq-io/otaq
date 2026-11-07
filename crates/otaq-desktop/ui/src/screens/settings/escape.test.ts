@@ -62,8 +62,7 @@ function envRow(rows: { name: string; value: string }[]): SettingsRow {
 function view(vars: { name: string; value: string }[]): SettingsView {
   return {
     title: "Settings",
-    global_heading: "Global",
-    projects_heading: "Projects",
+    footnote: "Project settings live in each project’s Settings tab.",
     close_label: "Close settings",
     nav: [{ label: "demo", icon: "folder", target: { page: "project", key: "DEMO" }, alert: false }],
     page: {
