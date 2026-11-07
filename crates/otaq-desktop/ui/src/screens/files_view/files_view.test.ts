@@ -177,14 +177,9 @@ const PICKER: FilesViewPicker = {
   placeholder: "Find a ticket",
   sections: [
     {
-      title: "BASE BRANCH",
+      title: "SHOW FILES FROM",
       rows: [
-        { pick: { kind: "base" }, key: null, title: "main · every ticket’s changes", detail: "the default" },
-      ],
-    },
-    {
-      title: "TICKETS · THEIR WORKTREE",
-      rows: [
+        { pick: { kind: "base" }, key: null, title: "main", detail: "Your base branch" },
         {
           pick: { kind: "ticket", key: "SHOP-22" },
           key: "SHOP-22",
@@ -199,16 +194,28 @@ const PICKER: FilesViewPicker = {
         },
       ],
     },
+    {
+      title: "YOUR WORKTREES · COMMITTED ONLY",
+      rows: [
+        {
+          pick: { kind: "worktree", path: "/work/shop-web" },
+          key: null,
+          title: "Your folder · main",
+          detail: "~/code/shop-web, as committed",
+        },
+      ],
+    },
   ],
   no_worktree: "No worktree yet: SHOP-12 (Product spec). A ticket gets its worktree when it reaches Dev.",
 };
 
 describe("the picker (FIL-07, s28-04)", () => {
-  it("lists the base branch and the tickets, then the ones with no worktree", () => {
+  it("lists the base branch, the tickets' copies and your folder as committed, then the ones with no worktree", () => {
     const out = renderToStaticMarkup(
       createElement(PickerBody, { picker: PICKER, query: "", onQuery: ignore, onPick: ignore }),
     );
-    expect(out).toMatch(/BASE BRANCH.*TICKETS · THEIR WORKTREE/);
+    expect(out).toMatch(/SHOW FILES FROM.*Your base branch.*SHOP-22.*YOUR WORKTREES · COMMITTED ONLY.*Your folder · main/);
+    expect(out).toContain("~/code/shop-web, as committed");
     expect(out).toContain("Dev · 3 files");
     expect(out).toContain("No worktree yet: SHOP-12 (Product spec).");
     expect(out).toContain('placeholder="Find a ticket"');
@@ -217,7 +224,7 @@ describe("the picker (FIL-07, s28-04)", () => {
   it("filters by key or title as it is typed, dropping empty sections", () => {
     expect(pickerSections(PICKER, "").length).toBe(2);
     const coupon = pickerSections(PICKER, "coupon");
-    expect(coupon.map((s) => s.title)).toEqual(["TICKETS · THEIR WORKTREE"]);
+    expect(coupon.map((s) => s.title)).toEqual(["SHOW FILES FROM"]);
     expect(coupon[0]?.rows.map((r) => r.key)).toEqual(["SHOP-29"]);
     expect(pickerSections(PICKER, "shop-22")[0]?.rows[0]?.title).toBe("Fix flaky login redirect");
   });
