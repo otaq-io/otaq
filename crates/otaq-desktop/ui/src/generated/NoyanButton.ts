@@ -2,11 +2,11 @@
 import type { IconName } from "./IconName";
 
 /**
- * The rail's Project agent button (SHB-02, `s24-05`): the bot icon, tinted while the panel is open, a dot while a
- * reply waits; "Noyan" with "Open or close · ⌘L" on hover ("Asks you · Open or close · ⌘L" while a conversation
- * asks you, OTQ-9).
+ * The rail's Noyan button (SHB-02, `s24-05`): the bot icon, tinted while the panel is open, a dot while a reply
+ * waits; "Noyan" with "Open or close · ⌘L" on hover ("Asks you · Open or close · ⌘L" while a conversation asks you,
+ * OTQ-9).
  */
-export type AskAgentButton = { icon: IconName, label: string, 
+export type NoyanButton = { icon: IconName, label: string, 
 /**
  * The hover's line under the name: "Open or close · ⌘L" (without a key: "Open or close").
  */

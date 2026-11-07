@@ -90,17 +90,18 @@ removes when you disconnect the tool).
 ## The status icon
 
 While Otaq runs, its icon sits in the menu bar (macOS) or the notification area / tray (Windows, Linux). It shows when
-an agent needs you or every project is paused, and its menu lists each project's needs-you items, checks and running
-tickets: pick one to open Otaq on it.
+an agent needs you or every project is paused. Its menu lists what needs you (pick one to open Otaq on it), how many
+agents run in each project, then your checks and stopped tickets, and **Open Otaq**, **Pause all**, **Restart to
+update** (when an update is ready: only the app restarts, working agents continue) and **Quit Otaq**.
 
 - **Closing the window hides it.** Otaq keeps running in the menu bar / tray and agents keep working; the icon's Open
   Otaq (or running `otaq` again) brings the window back. Only one copy of Otaq runs per data folder.
-- **Stop agents and quit**, in the icon's menu, stops every agent and terminal, stops the background service, pauses
-  all projects so nothing starts on its own, and quits. Next time, Resume continues where each agent was.
-- **⌘Q on macOS** quits only the app; agents keep working in the background service. While agents work it asks first:
-  keep them working and quit, stop agents and quit, or cancel.
+- **Quit Otaq** (the icon's menu, or ⌘Q on macOS) quits only the app; agents keep working in the background
+  service. While agents work it asks first: **Keep them running** (the default), **Quit and stop agents**, which
+  stops every agent and terminal, stops the background service and pauses all projects so nothing starts on its own
+  (next time, Resume continues where each agent was), or Cancel.
 - **Linux without a tray** (stock GNOME without the AppIndicator extension, or without the library): a hidden window
-  couldn't be found again, so closing the window acts as Stop agents and quit, asking first while agents work.
+  couldn't be found again, so closing the window acts as Quit and stop agents, asking first while agents work.
 
 ## Where things live
 

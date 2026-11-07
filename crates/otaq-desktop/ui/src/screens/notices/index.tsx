@@ -53,7 +53,13 @@ export function BannerRows({
     <div className="notices-banners">
       {banners.map((b) => {
         const lines = limitLinesOf(b);
-        if (lines.length > 0) return <LimitLines key={b.kind} lines={lines} {...lineHandlers} />;
+        const dismiss = b.dismissable
+          ? () => {
+              request("notices.dismiss_banner", { kind: b.kind }).catch(warnOnFailure("Dismiss"));
+            }
+          : undefined;
+        if (lines.length > 0)
+          return <LimitLines key={b.kind} lines={lines} {...lineHandlers} onDismiss={dismiss} />;
         return (
           <Banner
             key={b.kind}
@@ -71,13 +77,7 @@ export function BannerRows({
                 pressBanner(b.kind, button.id).catch(warnOnFailure(button.label));
               },
             }))}
-            onDismiss={
-              b.dismissable
-                ? () => {
-                    request("notices.dismiss_banner", { kind: b.kind }).catch(warnOnFailure("Dismiss"));
-                  }
-                : undefined
-            }
+            onDismiss={dismiss}
           />
         );
       })}

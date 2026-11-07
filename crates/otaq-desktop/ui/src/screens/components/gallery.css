@@ -387,25 +387,18 @@
   overflow: hidden;
 }
 
-/* 24 · The Ask bar (T-0458): each state over a board-coloured ground with room above for "ASK ABOUT". */
-.gallery-ask {
+/* The box for new work (UX-22): each state over a board-coloured ground. */
+.gallery-new-work {
   box-sizing: border-box;
-  width: 560px;
-  padding: 180px 24px 24px;
+  width: 760px;
+  padding: 24px;
   border-radius: 10px;
   background: var(--bg-app);
 }
 
-.gallery-ask .ask {
+.gallery-new-work > .new-work-closed,
+.gallery-new-work > .new-work-open {
   align-self: center;
-}
-
-.gallery-ask-rail {
-  display: flex;
-  justify-content: center;
-  width: 64px;
-  padding: 8px 0;
-  background: var(--bg-panel);
 }
 
 /* 05/08 · Agent rows (T-0344): each sample at the sheet's 620 px, the sheet look over the form look. */

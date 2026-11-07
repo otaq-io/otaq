@@ -296,12 +296,31 @@ async fn open_pr_and_push_are_typed_by_name_in_a_live_session() {
         .await;
     let (t, worktree) = in_review(&w, "Login redirect").await;
     let agent = w.agent_shell(&t).await;
+    // The dialog opens on the prepared text; the skill is typed once the user confirms.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    assert_eq!(w.board.pr_flow_view("SHOP-1").await.unwrap().skill, "my-pr");
+    let proposal = w
+        .board
+        .pr_flow(&t.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    let outcome = w
+        .prs
+        .confirm("SHOP-1", &proposal, false, &me())
+        .await
+        .unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     w.wait_for_output(&agent.session, &claude_skill("my-pr"))
         .await;
-    assert_eq!(w.board.pr_flow_view("SHOP-1").await.unwrap().skill, "my-pr");
-    w.prs.cancel("SHOP-1", &me()).await.unwrap();
+    sqlx::query("DELETE FROM pr_flows WHERE ticket_id = ?")
+        .bind(&t.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
 
     sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
         .bind(&t.id)
@@ -332,13 +351,32 @@ async fn open_pr_resumes_with_the_skill_by_name() {
         .await;
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let proposal = w
+        .board
+        .pr_flow(&t.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    // The confirm resumes the conversation with the skill, told the user confirmed.
+    let outcome = w
+        .prs
+        .confirm("SHOP-1", &proposal, false, &me())
+        .await
+        .unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     let session = w
         .sessions
         .running_of(&t.id, SessionKind::Agent)
         .expect("resumed");
     let out = w.wait_for_output(&session.id, "CLAUDE").await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(&claude_skill("my-pr")), "{args}");
+    assert!(args.contains(&claude_skill("my-pr")), "{args}");
+    assert!(
+        args.contains("The user confirmed the pull request"),
+        "{args}"
+    );
     assert!(out.contains("AGENTS ."), "{out}");
     nothing_written(&worktree);
     w.stop().await;

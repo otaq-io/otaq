@@ -32,6 +32,7 @@ import { AttachmentImage, openImage } from "../editor/ImageViewer";
 import { EDITOR_EVENTS } from "../editor/logic";
 import { openReport } from "../editor/reportOpener";
 import { BeforeYou } from "./BeforeYou";
+import { InReview } from "./InReview";
 import { ManualChecks } from "./ManualChecks";
 import { ChoicesAndPath, NeedsYou } from "./NeedsYou";
 import { PlanSection } from "./Plan";
@@ -226,6 +227,8 @@ export function OverviewTab({ ticket }: TicketProps) {
 
   const overviewTabs = sheet?.view.sheet.tabs.find((t) => t.tab === "overview")?.contents ?? [];
   const editing = form === ticket && editor?.key === ticket;
+  // In your check Overview reads as a review: what the agent did, the checker, its decisions, then the ticket.
+  const inReview = overview?.key === ticket ? overview.in_review : null;
   return (
     // The paste of a file outside a text field is Overview's own (RPT-02); every other key stays with the page.
     <div ref={root} className="overview" onPaste={onPaste}>
@@ -260,6 +263,12 @@ export function OverviewTab({ ticket }: TicketProps) {
             />
           </div>
         )}
+        {inReview !== null && (
+          <>
+            <InReview ticket={ticket} view={inReview} />
+            <TicketDecisions ticket={ticket} />
+          </>
+        )}
         {editing ? (
           <div className="overview-form">
             <EditForm
@@ -291,7 +300,7 @@ export function OverviewTab({ ticket }: TicketProps) {
             </>
           )
         )}
-        <TicketDecisions ticket={ticket} />
+        {inReview === null && <TicketDecisions ticket={ticket} />}
         {SHEET_SECTIONS.map((id) => {
           const Section = app.sheetSections.get(id)?.Component;
           return Section ? <Section key={id} ticket={ticket} /> : null;

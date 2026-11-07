@@ -2,8 +2,8 @@
 // bar), the banner area across the window that pushes everything under it down, then **rail | Project agent panel
 // (only while open, 420 px until its edge is dragged, pushing the board; expanded, over the board) | main area**.
 // The main area holds the board (no Board | Files tabs:
-// the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the Ask bar
-// floats at the bottom centre of what the sheet leaves of the board (#21). The overlay and toast hosts go over everything. Each slot is filled by the screen
+// the project Files view is the toolbar's third view, FIL-01); the ticket sheet opens over its right side (SHL-05) and the box for
+// new work docks at the bottom centre of what the sheet leaves of the board (#21). The overlay and toast hosts go over everything. Each slot is filled by the screen
 // registered for it; an empty slot shows its name so the layout can be checked before its screen exists.
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -89,7 +89,7 @@ function SheetLayer({ open, onWidth }: { open: boolean; onWidth: (width: number)
     () => (mounted && layer.current ? playEnterWhenReady(layer.current, "panel") : undefined),
     [mounted],
   );
-  // Its width, so the Ask bar stays on the board beside it (#21); 0 once it is gone.
+  // Its width, so the box for new work stays on the board beside it (#21); 0 once it is gone.
   useLayoutEffect(() => {
     const element = layer.current;
     if (!mounted || element === null || typeof ResizeObserver === "undefined") return undefined;
@@ -190,17 +190,17 @@ export interface FrameBodyProps {
 }
 
 /**
- * Where the Ask bar's layer ends on the right (#21): at the open ticket sheet's left edge, so the bar stays on the
- * board instead of covering the sheet's footer; `null` (hidden) while the sheet fills the main area.
+ * Where the box for new work's layer ends on the right (#21): at the open ticket sheet's left edge, so the box stays on
+ * the board instead of covering the sheet's footer; `null` (hidden) while the sheet fills the main area.
  */
-export function askBarRight(ticketOpen: boolean, expanded: boolean, sheetWidth: number): number | null {
+export function newWorkRight(ticketOpen: boolean, expanded: boolean, sheetWidth: number): number | null {
   if (!ticketOpen) return 0;
   return expanded ? null : sheetWidth;
 }
 
 /**
  * Everything under the hosts: header, banners, rail, the Project agent panel while open, the main area with the
- * ticket sheet and the Ask bar beside it.
+ * ticket sheet and the box for new work beside it.
  */
 export function FrameBody({
   view,
@@ -212,7 +212,7 @@ export function FrameBody({
 }: FrameBodyProps) {
   const expanded = layout.sheetExpanded && ticketOpen;
   const [sheetWidth, setSheetWidth] = useState(0);
-  const askRight = askBarRight(ticketOpen, expanded, sheetWidth);
+  const boxRight = newWorkRight(ticketOpen, expanded, sheetWidth);
   return (
     <>
       {/* The header row is the title bar: pressing its empty parts moves the window (T-0214). */}
@@ -243,14 +243,14 @@ export function FrameBody({
         </div>
         <SheetLayer open={ticketOpen} onWidth={setSheetWidth} />
         {/* Over the board and the List, at the bottom centre of what the ticket sheet leaves of them; it hides
-            itself while the Project agent panel is open. */}
-        {askRight !== null && (
+            itself while Noyan's panel is open and in Files. */}
+        {boxRight !== null && (
           <div
-            className="frame-ask"
-            data-slot="ask_bar"
-            style={askRight > 0 ? { right: askRight } : undefined}
+            className="frame-new-work"
+            data-slot="new_work"
+            style={boxRight > 0 ? { right: boxRight } : undefined}
           >
-            <Slot id="ask_bar" />
+            <Slot id="new_work" />
           </div>
         )}
       </div>

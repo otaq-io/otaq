@@ -983,6 +983,15 @@ pub(super) async fn handle(
             .await
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
+        Request::TicketDeliveryMessage(p) => boxed(move || async move {
+            let ticket = shared
+                .board
+                .store_delivery_message(&p.key, &p.message)
+                .await?;
+            // No ticket field changed: the open confirmation is told so it fills in.
+            publish_ticket_changed(shared, &ticket.key).await;
+            Ok(Reply::Ticket(Box::new(ticket)))
+        }),
         Request::TicketPrOpened(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(shared, &project, shared.prs.opened(&p.key, &p.url, &actor))

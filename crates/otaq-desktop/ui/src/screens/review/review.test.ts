@@ -10,7 +10,7 @@ import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import { passOverlay } from "./CheckDialogs";
 import { ChangeDecisionBody, ResultDialog } from "./Dialogs";
 import { isSubmitKey } from "../../components/logic";
-import { afterApproveAnyway, afterChoice, afterMerge, firstStep } from "./logic";
+import { afterApproveAnyway, afterChoice, afterMerge, firstStep, messageAfter } from "./logic";
 
 const CHANGED: ReviewChanged = {
   title: "SHOP-18 changed since you reviewed it · 1 new commit",
@@ -42,7 +42,10 @@ const VIEW: ApproveView = {
   },
   push_to_pr: false,
   confirm: {
-    title: "Local merge SHOP-18 Checkout API",
+    title: "Merge SHOP-18 into main",
+    lead: "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean.",
+    prepared: null,
+    writing: null,
     into: "Into (SHOP-18’s base branch)",
     target: "main",
     repo: "~/code/shop-web",
@@ -154,6 +157,24 @@ describe("the approve flow", () => {
     expect(firstStep(VIEW, false)).toEqual({ kind: "confirm" });
     expect(firstStep(VIEW, true)).toEqual({ kind: "menu" });
     expect(firstStep({ ...VIEW, push_to_pr: true }, false)).toEqual({ kind: "open_pr" });
+  });
+
+  it("goes straight to the choice the review bar's Approve or its menu names", () => {
+    expect(firstStep(VIEW, false, "local_merge")).toEqual({ kind: "confirm" });
+    expect(firstStep(VIEW, false, "open_pr")).toEqual({ kind: "open_pr" });
+    expect(firstStep(VIEW, false, "done_not_merged")).toEqual({ kind: "done_not_merged" });
+    const first = firstStep({ ...VIEW, changed: CHANGED }, false, "open_pr");
+    if (first.kind !== "changed") throw new Error("not changed");
+    expect(afterApproveAnyway(first, VIEW, false, "open_pr")).toEqual({ kind: "open_pr" });
+  });
+
+  it("fills in the agent's message when it arrives, unless the user typed", () => {
+    const writing = { writing: "Strong is still writing the message.", message: "SHOP-18: Checkout API" };
+    const ready = { writing: null, message: "SHOP-18 Retry once" };
+    expect(messageAfter(writing, ready, false)).toBe("SHOP-18 Retry once");
+    expect(messageAfter(writing, ready, true)).toBeNull();
+    expect(messageAfter(writing, writing, false)).toBeNull();
+    expect(messageAfter(ready, ready, false)).toBeNull();
   });
 
   it("with one way to deliver, goes past the choice to its dialog (dogfood #18)", () => {

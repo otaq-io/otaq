@@ -37,6 +37,7 @@ async fn view_preferences_survive_a_service_restart() {
 
     let view = ViewPrefs {
         view: BoardView::List,
+        list_layout: true,
         group_by: GroupBy::Status,
         fold_empty_columns: true,
         hide_empty_stages: true,

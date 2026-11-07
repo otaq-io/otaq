@@ -114,56 +114,6 @@
   font: 400 12px var(--font-ui);
 }
 
-/* Quick-create: the frame's card at the top of Backlog. */
-.editor-quick-backdrop {
-  position: fixed;
-  inset: 0;
-  z-index: 20;
-}
-
-.editor-quick {
-  position: fixed;
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  min-width: 204px;
-  padding: 8px;
-  box-sizing: border-box;
-  border: 1.5px solid var(--focus);
-  border-radius: var(--r-md);
-  background: var(--bg-card);
-  box-shadow: 0 8px 24px rgb(0 0 0 / 0.14);
-}
-
-.editor-quick-title {
-  padding: 0;
-  border: none;
-  outline: none;
-  background: none;
-  color: var(--text-primary);
-  font: 500 13px var(--font-ui);
-}
-
-.editor-quick-title::placeholder {
-  color: var(--text-muted);
-}
-
-.editor-quick-hints {
-  display: flex;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-  font: 400 10px var(--font-ui);
-}
-
-.editor-quick-priority {
-  padding: 1px 5px;
-  border: 1px solid var(--border);
-  border-radius: var(--r-sm);
-  color: var(--text-muted);
-  font: 600 10.5px var(--font-mono);
-}
-
 /* The Ticket tab. */
 .editor-tab,
 .editor-tab-form {
@@ -388,8 +338,7 @@
 }
 
 .editor-link:focus-visible,
-.editor-tool:focus-visible,
-.editor-quick:focus-within {
+.editor-tool:focus-visible {
   outline: none;
   box-shadow: var(--focus-ring);
 }

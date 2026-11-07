@@ -601,15 +601,33 @@ async fn resume(
             // A local origin has no PR provider: the user's Open PR skill the Delivery stage names runs instead.
             let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
             name_open_pr_skill(&world, &folder).await;
+            // The dialog opens at once; the confirm resumes the conversation with the skill.
             w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
+            let proposal = w
+                .board
+                .pr_flow(&t.id)
+                .await
+                .unwrap()
+                .unwrap()
+                .proposal
+                .unwrap();
+            w.prs
+                .confirm("SHOP-1", &proposal, false, &me())
+                .await
+                .unwrap();
             let s = w
                 .sessions
                 .running_of(&t.id, SessionKind::Agent)
                 .expect("resumed");
-            // Run by its own name; nothing is written into the worktree (T2).
+            // Run by its own name, told the user confirmed; nothing is written into the worktree (T2).
             assert!(!worktree.join(".agents").exists());
             let prompt = w.adapters.get(Tool::Claude).skill_reference("my-pr");
-            (s, format!("--resume {CONVERSATION}{flag} {prompt}"))
+            let confirmed =
+                otaq_core::pr::service::confirmed_instruction(otaq_core::pr::flow::FlowKind::Open);
+            (
+                s,
+                format!("--resume {CONVERSATION}{flag} {prompt} {confirmed}"),
+            )
         }
         Resume::Answer => {
             let w = &world.w;

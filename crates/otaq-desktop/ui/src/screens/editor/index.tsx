@@ -1,5 +1,5 @@
-// Area 08 · Ticket editor (T-0228): quick-create and the full form as overlays (`new_ticket`, opened by ⌘N, the
-// board's +; `edit_ticket`), and the description over the whole window (`full_view`, T-0260), opened from either, and the report view over the sheet
+// Area 08 · Ticket editor (T-0228): the full form as overlays (`new_ticket`, opened by the box for new work's More
+// options… and New ticket from this file; `edit_ticket`), and the description over the whole window (`full_view`, T-0260), opened from either, and the report view over the sheet
 // (`report`, CMT-12) that every report chip's Open shows, and a comment's image full size (`image`, tuq 004).
 // What they say and every rule is Rust's (`src/api/editor.rs`, the `otaq-view` editor view models).
 import type { Screen } from "../../app/registry";

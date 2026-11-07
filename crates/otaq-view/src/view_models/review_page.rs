@@ -33,7 +33,14 @@ fn submit_keys() -> &'static str {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LocalMergeConfirm")]
 pub struct ConfirmView {
+    /// "Merge SHOP-18 into main".
     pub title: String,
+    /// "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean."
+    pub lead: String,
+    /// "Prepared by Strong while SHOP-18 waited in Review. Edit it if you like."
+    pub prepared: Option<String>,
+    /// "Strong is still writing the message. Merge now with this one, …": the message is the plain one meanwhile.
+    pub writing: Option<String>,
     /// "Into (SHOP-18’s base branch)"
     pub into: String,
     pub target: String,
@@ -50,7 +57,7 @@ pub struct ConfirmView {
     pub merge_check: MergeCheckNote,
     /// "2 manual checks not ticked" beside it while some are open (d0125); it never disables Squash & merge.
     pub manual_checks: Option<String>,
-    /// "Squash & merge", or "Squash & merge into release/2.3" on another base.
+    /// "Squash & merge", or "Merge into release/2.3" on another base.
     pub merge: String,
     pub cancel: &'static str,
     /// "cancel · ⌘↵ merge"
@@ -172,6 +179,19 @@ pub struct ApproveFacts<'a> {
     pub merge_check: Option<&'a str>,
     /// The ticket's manual checks not ticked (d0125).
     pub manual_unticked: u32,
+    /// The delivery's agent that wrote `message` while the ticket waited in Review.
+    pub prepared_by: Option<&'a str>,
+    /// The delivery's agent still writing it.
+    pub writing: Option<&'a str>,
+}
+
+/// "Strong is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready unless
+/// you've typed."
+pub fn still_writing(agent: &str) -> String {
+    format!(
+        "{agent} is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready \
+         unless you\u{2019}ve typed."
+    )
 }
 
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
@@ -182,12 +202,23 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
         menu: f.menu,
         push_to_pr: ticket.flags.pr_number.is_some(),
         confirm: ConfirmView {
-            title: ap::confirm_title(ticket),
+            title: format!("Merge {} into {}", ticket.key, f.target),
+            lead: format!(
+                "Squashed into one commit on {t}. Your folder fast-forwards if {t} is checked out and clean.",
+                t = f.target
+            ),
+            prepared: f.prepared_by.map(|agent| {
+                format!(
+                    "Prepared by {agent} while {} waited in Review. Edit it if you like.",
+                    ticket.key
+                )
+            }),
+            writing: f.writing.map(still_writing),
             into: ap::into_label(ticket),
             target: f.target.to_owned(),
             repo: crate::shell::tilde(f.repo),
             locked: other_base,
-            message_label: "Squash commit message",
+            message_label: "Commit message",
             message: f.message.to_owned(),
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
@@ -205,9 +236,9 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             ),
             manual_checks: crate::view_models::manual_checks::not_ticked(f.manual_unticked),
             merge: if other_base {
-                format!("Squash & merge into {}", f.target)
+                format!("Merge into {}", f.target)
             } else {
-                "Squash & merge".to_owned()
+                "Merge".to_owned()
             },
             cancel: "Cancel",
             hint: format!("cancel \u{b7} {} merge", submit_keys()),
@@ -571,6 +602,8 @@ mod tests {
             ),
             merge_check: None,
             manual_unticked: 0,
+            prepared_by: None,
+            writing: None,
         }
     }
 
@@ -580,9 +613,15 @@ mod tests {
         let all = vec![t.clone()];
         let view = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
         let c = &view.confirm;
-        assert_eq!(c.title, "Local merge SHOP-18 Checkout API");
+        assert_eq!(c.title, "Merge SHOP-18 into main");
+        assert_eq!(
+            c.lead,
+            "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean."
+        );
+        assert_eq!(c.message_label, "Commit message");
         assert_eq!(c.into, "Into (SHOP-18\u{2019}s base branch)");
-        assert_eq!((c.merge.as_str(), c.locked), ("Squash & merge", false));
+        assert_eq!((c.merge.as_str(), c.locked), ("Merge", false));
+        assert_eq!((c.prepared.as_ref(), c.writing.as_ref()), (None, None));
         assert_eq!(c.message, "SHOP-18: Checkout API");
         assert!(
             c.note
@@ -658,7 +697,35 @@ mod tests {
             open.confirm.manual_checks.as_deref(),
             Some("2 manual checks not ticked")
         );
-        assert_eq!(open.confirm.merge, "Squash & merge", "never blocked");
+        assert_eq!(open.confirm.merge, "Merge", "never blocked");
+    }
+
+    /// The confirmation opens at once: on the delivery's agent's message once it wrote it, else on the plain one with
+    /// who is still writing.
+    #[test]
+    fn the_confirmation_says_who_prepared_the_message_or_still_writes_it() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let ready = approve_view(ApproveFacts {
+            prepared_by: Some("Strong"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            ready.confirm.prepared.as_deref(),
+            Some("Prepared by Strong while SHOP-18 waited in Review. Edit it if you like.")
+        );
+        let writing = approve_view(ApproveFacts {
+            writing: Some("Strong"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        assert_eq!(
+            writing.confirm.writing.as_deref(),
+            Some(
+                "Strong is still writing the message. Merge now with this one, edit it, or wait: it fills in when \
+                 ready unless you\u{2019}ve typed."
+            )
+        );
+        assert_eq!(writing.confirm.prepared, None);
     }
 
     /// d0120, Q475: a failed check reads as a conflict does (the agent fixes it, no click); a stopped one says nothing
@@ -712,7 +779,7 @@ mod tests {
         t.flags.conflicts_with = Some("release/2.3".into());
         let all = vec![t.clone()];
         let view = approve_view(facts(&t, &all, "release/2.3", &ApproveCheck::Unchanged));
-        assert_eq!(view.confirm.merge, "Squash & merge into release/2.3");
+        assert_eq!(view.confirm.merge, "Merge into release/2.3");
         assert!(view.confirm.locked);
         let conflict = view.confirm.conflict.unwrap();
         assert!(conflict.starts_with("Conflicts with release/2.3. "));

@@ -82,7 +82,7 @@ body {
 
 /*
  * Expanded (T-0502): the column keeps its width, so the board stays put, and the panel lies over the board to the
- * window's right edge, over the ticket sheet and the Ask bar (z-index 8), under the overlays (10).
+ * window's right edge, over the ticket sheet and the box for new work (z-index 8), under the overlays (10).
  */
 .frame-agent[data-expanded] {
   position: relative;
@@ -116,13 +116,13 @@ body {
 }
 
 /*
- * The Ask bar's layer (SHB-03, `s24-03`): the bottom centre of the main area, over the board, the List and the ticket
- * panel (same z-index, later in the page), under the main area's overlays. Only the bar takes clicks.
+ * The box for new work's layer (UX-22): the bottom centre of the main area, over the board, the List and the ticket
+ * panel (same z-index, later in the page), under the main area's overlays. Only the box takes clicks.
  */
-.frame-ask {
+.frame-new-work {
   position: absolute;
   right: 0;
-  bottom: 32px;
+  bottom: 24px;
   left: 0;
   z-index: 8;
   display: flex;
@@ -130,13 +130,13 @@ body {
   pointer-events: none;
 }
 
-.frame-ask > * {
+.frame-new-work > * {
   pointer-events: auto;
 }
 
-/* While a modal is open anywhere (a dialog, Settings, the flow editor), the bar goes under it: a dialog drawn inside
-   the ticket panel shares the panel's z-index, which the bar would otherwise cover. */
-.frame:has([aria-modal="true"]) .frame-ask {
+/* While a modal is open anywhere (a dialog, Settings, the flow editor), the box goes under it: a dialog drawn inside
+   the ticket panel shares the panel's z-index, which the box would otherwise cover. */
+.frame:has([aria-modal="true"]) .frame-new-work {
   z-index: 0;
 }
 

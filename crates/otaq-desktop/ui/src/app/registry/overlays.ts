@@ -4,6 +4,7 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
+import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
@@ -38,9 +39,9 @@ export interface OverlayParams {
   quick_switcher: undefined;
   /** The command palette, ⌘K / ⇧⌘P (T-0393); `terminal`: a terminal had the keyboard when it opened. */
   command_palette: { terminal: boolean } | undefined;
-  /** The ticket editor on a new Backlog ticket (T-0228); `body` starts the description, and the whole form opens
-   * (New ticket from this file, FTB-03); `full` opens the whole form without a body (the board's New ticket button). */
-  new_ticket: { body?: string; full?: boolean } | undefined;
+  /** The ticket editor's whole form on a new Backlog ticket (T-0228); `title` and `body` start it: what was typed in
+   * the box for new work before More options…, or a file's path in the description (New ticket from this file, FTB-03). */
+  new_ticket: { title?: string; body?: string } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
   /** The app's Settings, on a section if given (T-0234); `agent`: Settings → Agents on that agent's page (its id;
@@ -84,8 +85,9 @@ export interface OverlayParams {
   send_back_pr: { ticket: string };
   /** Change… on a recorded decision (T-0288): Send back. */
   change_decision: { id: string };
-  /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵). */
-  local_merge: { ticket: string; menu?: boolean };
+  /** The Local merge confirmation (T-0226); `menu` starts at the Approve ▾ choice (⌘↵); `choice` goes straight to
+   * that choice's dialog (the review bar's Approve, named by its action, and the rows of its menu). */
+  local_merge: { ticket: string; menu?: boolean; choice?: ApproveChoice };
   /** Merge into another ticket…: the picker of tickets whose branch can take this one's (Approve ▾). */
   merge_into: { ticket: string };
   /** "Done, don't merge" (Approve ▾, a branch with commits): the confirmation naming what won't land. */

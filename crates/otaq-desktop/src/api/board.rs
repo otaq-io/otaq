@@ -709,7 +709,10 @@ mod tests {
         let view = request(&h.app, "board.view", params.clone()).await.unwrap();
         assert_eq!(view["columns"][1]["collapsed"], true);
         assert_eq!(view["prefs"]["view"], "list");
-        assert_eq!(view["toolbar"]["views"]["options"][1]["selected"], true);
+        // The List is a layout of the board: Board stays chosen and the layout switch's list icon is.
+        assert_eq!(view["toolbar"]["views"]["options"][0]["selected"], true);
+        assert_eq!(view["toolbar"]["layouts"]["options"][1]["selected"], true);
+        assert!(view["list"]["groups"].is_array());
         let back = json!({ "project": project.key, "change": { "kind": "view", "view": "board" } });
         request(&h.app, "board.set_view", back).await.unwrap();
 

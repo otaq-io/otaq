@@ -196,8 +196,8 @@ split, which the agent in charge adds to the Plan. Helpers never start helpers o
 
 ### Noyan and terminals
 
-**Noyan** waits in the Ask bar at the bottom of the board: type a message and it opens as a panel on the
-left, where a conversation starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
+**Noyan** starts from the box for new work at the bottom of the board: type what you want and press ⇧↵ (Ask Noyan to
+shape it), and it opens as a panel on the left, where a conversation starts on its named agent, investigates the codebase and writes Backlog tickets for you, including importing them from your team's tracker with
 your own skills. It reads code but never edits it. **Terminals** on the left rail (⇧⌘T) opens plain terminals in the
 project.
 

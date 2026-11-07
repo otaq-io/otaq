@@ -2,8 +2,8 @@
 //! order so tiles never jump; the quick switcher (⌘P) sorts projects that need you first, then working ones,
 //! then idle ones, and filters as you type. ⌘1–9 switch to the rail's first nine projects. A project that
 //! newly needs you while another is shown gets a turquoise ring for 10 s, then keeps its badge. The rail is the
-//! 64 px column of tiles at every window width (d0087; Q-H); at its bottom the Project agent button (its look is the
-//! Ask bar's, `ask_bar.rs`), Terminals, Cleanup and Settings (SHB-02, d0113).
+//! 64 px column of tiles at every window width (d0087; Q-H); at its bottom the Noyan button (its look is
+//! `noyan_button.rs`'s), Terminals, Cleanup and Settings (SHB-02, d0113).
 
 use std::time::{Duration, Instant};
 

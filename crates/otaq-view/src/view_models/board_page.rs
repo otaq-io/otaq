@@ -328,8 +328,8 @@ pub struct BoardPage {
     pub toolbar: Toolbar,
     /// The List view (LST-01, T-0461); `null` on the Board.
     pub list: Option<list_view::ListView>,
-    /// "Edit flow", at the end of the Board's columns: the board turns into the flow's editor in place. `null` on
-    /// the other views.
+    /// "Edit flow", at the end of the board in either layout (after the columns, or after the List's rows): the board
+    /// turns into the flow's editor in place, as columns. `null` on Files and Settings.
     pub edit_flow: Option<String>,
 }
 
@@ -647,7 +647,7 @@ pub fn page(
         prefs: Prefs::from(prefs),
         toolbar: view_prefs::toolbar(prefs, keys),
         list,
-        edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
+        edit_flow: matches!(view, ViewKind::Board | ViewKind::List).then(|| EDIT_FLOW.to_owned()),
     }
 }
 
@@ -1324,7 +1324,7 @@ fn gallery_toolbars() -> Vec<GalleryToolbar> {
             toolbar: view_prefs::toolbar(&board, &keys),
         },
         GalleryToolbar {
-            name: "List · by Stage".into(),
+            name: "List".into(),
             toolbar: view_prefs::toolbar(&list, &keys),
         },
     ]

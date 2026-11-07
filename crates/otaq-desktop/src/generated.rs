@@ -134,8 +134,10 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentPanelEnded::export_all(&cfg)?;
     crate::api::AgentPanelProjectParams::export_all(&cfg)?;
     crate::api::AgentPanelResumeParams::export_all(&cfg)?;
-    // The Ask bar and the rail's Project agent button (T-0458): its view, gallery and requests.
-    crate::api::export_ask_bar_types(&cfg)?;
+    // The rail's Noyan button (T-0458): its view and requests.
+    crate::api::export_noyan_button_types(&cfg)?;
+    // The box for new work (UX-22): its view and gallery.
+    crate::api::export_new_work_types(&cfg)?;
     // Pause in the title bar (T-0457, PAU-08).
     crate::api::export_pause_types(&cfg)?;
     // The board (T-0220): its view with the cards, the drag's one answer, the drop's outcome, and the requests'.

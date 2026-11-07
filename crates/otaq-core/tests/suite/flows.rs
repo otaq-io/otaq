@@ -432,8 +432,8 @@ fn the_format_refuses_what_isnt_a_flow() {
              either)",
         ),
         (
-            "{name: Done, kind: delivery, mode: click, delivers: local, agent: Developer}",
-            "Done is a Local merge, which runs no agent: `agent` belongs to a delivery that opens a PR",
+            "{name: Done, kind: delivery, mode: click, delivers: local, skill: open-pr}",
+            "Done is a Local merge, which opens no PR: `skill` belongs to a delivery that opens a PR",
         ),
         (
             "{name: Done, kind: delivery, mode: click, delivers: pr}",

@@ -77,6 +77,38 @@ pub enum StageView {
     },
 }
 
+/// "GitHub isn't set up on this Mac" on top of the PR dialog: what the project needs, and the button that opens app
+/// Settings where the provider is set up. Push & open PR stays off meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PrSetUp")]
+pub struct SetUpView {
+    pub title: String,
+    pub text: String,
+    /// "Set up GitHub…"
+    pub button: String,
+}
+
+/// The machine's name in "isn't set up on this Mac".
+pub fn this_machine() -> &'static str {
+    if cfg!(target_os = "macos") {
+        "this Mac"
+    } else {
+        "this computer"
+    }
+}
+
+/// The set-up callout for `provider` ("GitHub"), on a project named `project`.
+pub fn set_up_view(provider: &str, project: &str) -> SetUpView {
+    SetUpView {
+        title: format!("{provider} isn\u{2019}t set up on {}", this_machine()),
+        text: format!(
+            "{project} delivers pull requests through {provider}. Add the {provider} provider and sign in once; every \
+             project can use it."
+        ),
+        button: format!("Set up {provider}\u{2026}"),
+    }
+}
+
 /// What `pr.view` answers: the dialog for its stage, with every text worded.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "PrDialogView")]
@@ -112,6 +144,16 @@ pub struct DialogView {
     pub cancel: &'static str,
     /// "cancel" after the Esc key.
     pub hint: &'static str,
+    /// "Prepared by Strong while SHOP-18 waited in Review." under the description.
+    pub prepared: Option<String>,
+    /// "Strong is still writing the title and description. …": the fields hold the plain text meanwhile.
+    pub writing: Option<String>,
+    /// The provider isn't set up on this machine.
+    pub set_up: Option<SetUpView>,
+    /// "Or merge into main instead", when the flow delivers either way.
+    pub merge_instead: Option<String>,
+    /// Grows each time the fields were filled for the user: the page takes them again.
+    pub filled: u64,
 }
 
 fn provider_name(d: &PrDialog) -> Option<&str> {
@@ -179,17 +221,23 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
                 .map(|p| format!(" \u{b7} {p}"))
                 .unwrap_or_default()
         ),
-        _ => d.target_line(),
+        _ => match &d.provider {
+            Some(p) => format!("{} \u{b7} on {p}", d.target),
+            None => d.target.clone(),
+        },
     };
     DialogView {
         key: d.key.clone(),
         push,
         heading: d.heading(),
         stage,
-        proposed_by: format!("Proposed by {} \u{b7} edit anything", d.skill),
+        proposed_by: match push {
+            true => format!("Proposed by {} \u{b7} edit anything", d.skill),
+            false => String::new(),
+        },
         provider: d.provider.clone(),
         login: d.login.clone(),
-        branch_label: "Branch name",
+        branch_label: "Branch",
         branch: d.branch.clone(),
         branch_locked: d.branch_locked,
         branch_hint: HintView { text: hint, error },
@@ -208,7 +256,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
                 message: c.message.clone(),
             })
             .collect(),
-        title_label: "PR title",
+        title_label: "Title",
         title: d.title.clone(),
         description_label: "Description",
         description: d.description.clone(),
@@ -217,6 +265,28 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
         can_confirm: d.can_confirm(),
         cancel: "Cancel",
         hint: "cancel",
+        prepared: d
+            .prepared_by
+            .as_deref()
+            .filter(|_| d.writing.is_none())
+            .map(|agent| format!("Prepared by {agent} while {} waited in Review.", d.key)),
+        writing: d.writing.as_deref().map(|agent| {
+            format!(
+                "{agent} is still writing the title and description. Push now with these, edit them, or wait: they \
+                 fill in when ready unless you\u{2019}ve typed."
+            )
+        }),
+        set_up: d
+            .not_set_up
+            .as_deref()
+            .filter(|_| !push)
+            .map(|provider| set_up_view(provider, &d.project)),
+        merge_instead: d
+            .merge_instead
+            .as_deref()
+            .filter(|_| !push)
+            .map(|target| format!("Or merge into {target} instead")),
+        filled: d.filled,
     }
 }
 
@@ -318,6 +388,12 @@ pub struct OpenBox {
     /// "feature/SHOP-26-add-sitemap → main"
     pub branch: String,
     pub note: String,
+    /// The two marks, the user's: Otaq never watches the PR.
+    pub mark_merged: &'static str,
+    pub mark_closed: &'static str,
+    /// Mark closed asks first: "Mark PR #481 as closed?" and what it does.
+    pub close_title: String,
+    pub close_body: &'static str,
 }
 
 /// The box while the ticket's PR is open (REV-13): Otaq doesn't watch it; Mark merged or Mark closed.
@@ -340,6 +416,10 @@ pub fn open_box(ticket: &Ticket, now_ms: i64) -> Option<OpenBox> {
             .map(|since| format!("opened {} ago", age_label(now_ms - since))),
         branch: format!("{branch} \u{2192} {target}"),
         note: pd::pr_open_note(pr_provider_label(ticket).as_deref(), &target),
+        mark_merged: "Mark merged",
+        mark_closed: "Mark closed",
+        close_title: pd::mark_closed_confirm(n).0,
+        close_body: pd::mark_closed_confirm(n).1,
     })
 }
 
@@ -426,6 +506,7 @@ mod tests {
             pr_number: pr,
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
             skill: "open-pr".to_owned(),
+            message: None,
         }
     }
 
@@ -448,9 +529,14 @@ mod tests {
             skill: "my-pr".into(),
             ..flow(FlowState::Proposed, None)
         });
+        // The user's own skill decides about the login: no set-up callout.
         assert_eq!(
-            dialog_view(&d).proposed_by,
-            "Proposed by my-pr \u{b7} edit anything"
+            {
+                d.project = "shop-web".into();
+                dialog_view(&d)
+            }
+            .set_up,
+            None
         );
     }
 
@@ -459,7 +545,7 @@ mod tests {
         let skill = "open-pr".to_owned();
         let mut d = PrDialog::opening(&shop18(), &skill, Some(&github(true)));
         let v = dialog_view(&d);
-        assert_eq!(v.heading, "Open PR for SHOP-18 Checkout API");
+        assert_eq!(v.heading, "Open a pull request for SHOP-18");
         assert_eq!(
             v.stage,
             StageView::Preparing {
@@ -474,18 +560,12 @@ mod tests {
         d.update(&flow(FlowState::Proposed, None));
         let v = dialog_view(&d);
         assert_eq!(v.stage, StageView::Proposed);
-        assert_eq!(
-            v.proposed_by,
-            format!("Proposed by {skill} \u{b7} edit anything")
-        );
+        assert_eq!(v.proposed_by, "", "the delivery's agent wrote it, no skill");
         assert_eq!(v.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));
         assert_eq!(v.login.as_deref(), Some("gh: signed in"));
         assert_eq!(v.branch, "feature/SHOP-18-checkout-api");
         assert_eq!(v.commits_label, "Commit messages (2 commits)");
-        assert_eq!(
-            v.target_line,
-            "Into main \u{b7} SHOP-18\u{2019}s base branch"
-        );
+        assert_eq!(v.target_line, "main \u{b7} on GitHub \u{b7} acme/shop-web");
         assert_eq!(v.branch_hint.text, "Checking\u{2026}");
         let generation = d.edit_branch("feature/checkout");
         assert_eq!(dialog_view(&d).check, generation);
@@ -507,15 +587,30 @@ mod tests {
         );
         assert_eq!(steps[3].text, "Opening the PR on GitHub");
 
-        let d = PrDialog::opening(&shop18(), &skill, Some(&github(false)));
-        let StageView::NotLoggedIn { title, login, .. } = dialog_view(&d).stage else {
-            panic!("logged in?");
+        // Signed out: the dialog says the provider isn't set up, with Set up GitHub…, and keeps the push off.
+        let mut d = PrDialog::opening(&shop18(), &skill, Some(&github(false)));
+        d.merge_instead = Some("main".into());
+        d.update(&flow(FlowState::Proposed, None));
+        let v = {
+            d.project = "shop-web".into();
+            dialog_view(&d)
         };
+        let set_up = v.set_up.unwrap();
         assert_eq!(
-            title,
-            "Can\u{2019}t open the PR \u{2014} gh is not signed in"
+            set_up.title,
+            format!("GitHub isn\u{2019}t set up on {}", this_machine())
         );
-        assert_eq!(login, "$ gh auth login");
+        assert_eq!(set_up.button, "Set up GitHub\u{2026}");
+        assert!(
+            set_up
+                .text
+                .starts_with("shop-web delivers pull requests through GitHub.")
+        );
+        assert_eq!(
+            v.merge_instead.as_deref(),
+            Some("Or merge into main instead")
+        );
+        assert!(!v.can_confirm);
     }
 
     #[test]
@@ -556,6 +651,11 @@ mod tests {
         });
         let b = open_box(&t, 2 * 3600 * 1000).unwrap();
         assert_eq!(b.label, "acme/shop-web #481");
+        assert_eq!(
+            (b.mark_closed, b.mark_merged),
+            ("Mark closed", "Mark merged")
+        );
+        assert_eq!(b.close_title, "Mark PR #481 as closed?");
         assert_eq!(b.branch, "feature/SHOP-26-add-sitemap \u{2192} main");
         assert!(b.opened.unwrap().starts_with("opened "));
         assert!(

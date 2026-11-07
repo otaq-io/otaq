@@ -678,13 +678,17 @@ impl ProjectSettings {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(default)]
 pub struct ViewPrefs {
-    /// Board, List or Files (BRD-01, FIL-01).
+    /// The board as columns (Board) or as a list (List), or Files (BRD-01, FIL-01).
     pub view: BoardView,
-    /// The List's grouping (LST-01): Stage by default.
+    /// The board was last shown as a list: Board in the toolbar goes back to it from Files.
+    pub list_layout: bool,
+    /// The List's old grouping. Nothing reads it any more (the List is always grouped by stage); kept so stored
+    /// settings and older services still read it.
     pub group_by: GroupBy,
-    /// "Fold empty columns" in the Board's toolbar (BRD-02).
+    /// "Fold empty columns" in the board's toolbar (BRD-02), in either layout.
     pub fold_empty_columns: bool,
-    /// "Hide empty stages" in the List's toolbar (LST-01).
+    /// The List's old "Hide empty stages". Nothing reads it any more (the List follows Fold empty columns); kept so
+    /// stored settings and older services still read it.
     pub hide_empty_stages: bool,
     /// Dependencies on the board: On hover or Always (DPV-02).
     pub dependencies: Dependencies,
@@ -704,6 +708,7 @@ impl Default for ViewPrefs {
     fn default() -> Self {
         Self {
             view: BoardView::Board,
+            list_layout: false,
             group_by: GroupBy::Stage,
             fold_empty_columns: false,
             hide_empty_stages: false,
@@ -727,7 +732,7 @@ pub enum BoardView {
     Settings,
 }
 
-/// The List's grouping (LST-01).
+/// The List's old grouping: stored, never read ([`ViewPrefs::group_by`]).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum GroupBy {

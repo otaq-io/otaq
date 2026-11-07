@@ -4,6 +4,7 @@
 pub mod commands;
 pub mod comments;
 pub mod flow;
+pub mod message;
 pub mod proposal;
 pub mod provider;
 pub mod service;

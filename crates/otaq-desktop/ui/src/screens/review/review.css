@@ -42,6 +42,18 @@
   flex: none;
 }
 
+/* The delivery's agent still writing the message: one muted line with a spinner under the message box. */
+.review-writing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.review-writing .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
 .review-link {
   padding: 0;
   border: 0;

@@ -107,6 +107,9 @@ pub struct LimitLine {
     pub tool: Tool,
     pub banner: LimitBanner,
     pub view: LineView,
+    /// What the line stands for, apart from the clock: its tool, its limit and reset, whether the reset passed (or
+    /// why the tool isn't available). A closed limit banner shows again once any line's state differs.
+    pub state: String,
 }
 
 /// The banner's lines at `now` (USG-10), in the service's order, from its [`ToolLines`]. A limit that has reset with
@@ -120,6 +123,7 @@ pub fn lines(tool_lines: &ToolLines, now: i64) -> Vec<LimitLine> {
 }
 
 fn line(l: &ToolLine, several: bool, now: i64) -> Option<LimitLine> {
+    let state;
     let banner = match &l.situation {
         moves::Situation::Limit {
             kind,
@@ -134,15 +138,25 @@ fn line(l: &ToolLine, several: bool, now: i64) -> Option<LimitLine> {
                 resets_at: *resets_at,
                 reset_passed: *reset_seen || resets_at.is_some_and(|at| at <= now),
             };
+            state = format!(
+                "{}:limit:{:?}:{resets_at:?}:{}",
+                l.tool.short_name(),
+                limit.kind,
+                limit.reset_passed
+            );
             limit_line(l, &limit, now, several)?
         }
-        moves::Situation::Unavailable { reason, .. } => unavailable_line(l, reason),
+        moves::Situation::Unavailable { reason, .. } => {
+            state = format!("{}:unavailable:{reason:?}", l.tool.short_name());
+            unavailable_line(l, reason)
+        }
     };
     let view = view(l, &banner, several);
     Some(LimitLine {
         tool: l.tool,
         banner,
         view,
+        state,
     })
 }
 

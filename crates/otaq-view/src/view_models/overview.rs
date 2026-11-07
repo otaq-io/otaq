@@ -303,6 +303,9 @@ pub struct OverviewView {
     pub planning: Option<crate::view_models::planning::Did>,
     /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
     pub manual_checks: Option<ChecklistView>,
+    /// While the ticket waits in your check, Overview reads as a review: what the agent did, the checker, the
+    /// decisions it made, then the ticket (`description` says "The ticket").
+    pub in_review: Option<InReview>,
     /// "Attachments · 3"; "Attachments" with none.
     pub attachments_heading: String,
     pub attachments: Vec<AttachmentRow>,
@@ -358,6 +361,25 @@ pub fn with_planning(
     view
 }
 
+/// The review's headings on Overview (`ticket-01` *The ticket in Review*); what they show is `files.review`'s.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OverviewInReview")]
+pub struct InReview {
+    pub what_did: &'static str,
+    pub checker: &'static str,
+    /// The checker's report in full, on Changes.
+    pub full_report: &'static str,
+}
+
+/// Overview's review headings while `status` waits in your check.
+pub fn in_review(status: Status) -> Option<InReview> {
+    (status.set() == otaq_core::domain::StatusSet::HumanCheck).then_some(InReview {
+        what_did: "What the agent did",
+        checker: "Checker",
+        full_report: "Full report",
+    })
+}
+
 pub fn view(
     key: &str,
     status: Status,
@@ -369,7 +391,11 @@ pub fn view(
     let attachments = attachments(comments, avatars);
     OverviewView {
         key: key.to_owned(),
-        description: DESCRIPTION.to_owned(),
+        description: match in_review(status) {
+            Some(_) => "The ticket".to_owned(),
+            None => DESCRIPTION.to_owned(),
+        },
+        in_review: in_review(status),
         click_to_edit: label_hint(DescriptionState::Reading, platform),
         editing: label_hint(DescriptionState::Editing, platform),
         placeholder: BLOCKS_HINT.to_owned(),

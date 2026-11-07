@@ -243,3 +243,50 @@
   margin-top: 3px;
   color: var(--text-muted);
 }
+
+/* Mark closed / Mark merged: the user's, since Otaq never watches the PR. */
+.pr-open-marks {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+/* "GitHub isn't set up on this Mac" on top of the PR dialog, with Set up GitHub…. */
+.pr-set-up {
+  display: flex;
+  gap: 10px;
+  padding: 12px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+}
+
+.pr-set-up > .icon {
+  flex: none;
+  margin-top: 2px;
+}
+
+.pr-set-up > div {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pr-set-up-title {
+  color: var(--text-primary);
+  font-size: 13px;
+  font-weight: 600;
+}
+
+/* The delivery's agent still writing the title and description. */
+.pr-writing {
+  display: flex;
+  align-items: flex-start;
+  gap: 6px;
+}
+
+.pr-writing > .icon {
+  flex: none;
+  margin-top: 3px;
+}

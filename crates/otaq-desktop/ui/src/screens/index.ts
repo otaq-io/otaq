@@ -2,12 +2,12 @@
 // screen exported here once at start (`registerScreens` in `main.tsx`). See the crate README, "How a screen plugs in";
 // `_sample/` is the template (not listed: the registry tests add it).
 export { activity } from "./activity";
-export { askBar } from "./ask_bar";
 export { board } from "./board";
 export { components } from "./components";
 export { dependencies } from "./dependencies";
 export { editor } from "./editor";
 export { files } from "./files";
+export { newWork } from "./new_work";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";
 export { overview } from "./overview";

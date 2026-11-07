@@ -83,6 +83,14 @@ async fn provider(app: &App, ticket: &Ticket) -> Option<PrProvider> {
     }
 }
 
+/// The project's name ("shop-web"), for the set-up callout.
+async fn project_name(app: &App, project: &str) -> Option<String> {
+    match app.service.send(Request::ProjectList).await {
+        Ok(Reply::Projects(list)) => list.into_iter().find(|p| p.key == project).map(|p| p.name),
+        _ => None,
+    }
+}
+
 async fn flow(app: &App, key: &str) -> Result<PrFlowView, RequestError> {
     match app
         .service
@@ -163,7 +171,19 @@ pub async fn open(app: &App, params: OpenParams) -> Result<Answer, RequestError>
         .as_ref()
         .map(|p| p.open_pr_skill.clone())
         .unwrap_or_default();
-    let model = PrDialog::opening(&ticket, &skill, provider.as_ref());
+    let mut model = PrDialog::opening(&ticket, &skill, provider.as_ref());
+    let project = ticket.key.project.to_string();
+    let (board_flow, name) = tokio::join!(
+        super::board::flow(app, &project),
+        project_name(app, &project),
+    );
+    if let Some(name) = name {
+        model.project = name;
+    }
+    // The flow delivers either way: the dialog offers merging instead (useful while the provider isn't set up).
+    if board_flow.delivery.delivers == otaq_core::flow::Delivers::Either {
+        model.merge_instead = Some(ticket.base.branch().to_owned());
+    }
     let not_logged_in = matches!(model.stage, Stage::NotLoggedIn { .. });
     app.pr_dialogs
         .lock()
@@ -298,6 +318,12 @@ pub async fn view(app: &App, params: Params) -> Result<Answer, RequestError> {
             return Ok(Answer::Closed);
         }
     }
+    // Waiting for the provider to be set up: it is read again.
+    if with(app, &key, |d| d.not_set_up.is_some()) == Some(true) {
+        let t = ticket(app, &key).await?;
+        let read = provider(app, &t).await;
+        with(app, &key, |d| d.provider_read(read.as_ref()));
+    }
     let flow = flow(app, &key).await?;
     with(app, &key, |d| {
         if !flow.skill.is_empty() {
@@ -334,10 +360,12 @@ pub fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
         }
         "title" => {
             d.title = params.value.clone();
+            d.typed = true;
             true
         }
         "description" => {
             d.description = params.value.clone();
+            d.typed = true;
             true
         }
         "commit" => match d.commits.get_mut(params.index as usize) {

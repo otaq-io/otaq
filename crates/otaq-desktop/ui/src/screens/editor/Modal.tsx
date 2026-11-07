@@ -1,13 +1,12 @@
-// The editor as a modal (UI-05, TKT-03; d0019; *08 · Ticket editor → Quick-create in Backlog, Full form · filled,
-// Validation · empty form, Dark · full form*). ⌘N and the Backlog column's + open **quick-create**, a
-// title field at the top of the Backlog column: ↵ creates, ⇧↵ opens the full form with the title kept, Esc
-// cancels. The full form saves with ⌘↵ or its button; a new ticket's Create & start (⇧⌘↵, or the button beside Create)
+// The editor as a modal (UI-05, TKT-03; d0019; *08 · Ticket editor → Full form · filled, Validation · empty form,
+// Dark · full form*). The box for new work's More options… opens the full form with what was typed (`screens/
+// new_work`), and New ticket from this file with the file's path. The full form saves with ⌘↵ or its button; a new ticket's Create & start (⇧⌘↵, or the button beside Create)
 // creates it and starts it, and a refused start keeps the form open on the created ticket, saying why. Esc discards. `edit_ticket` opens the same form on a ticket.
-import { useCallback, useEffect, useEffectEvent, useRef, useState } from "react";
+import { useCallback, useEffect, useEffectEvent, useRef } from "react";
 
 import type { OverlayProps } from "../../app/registry";
 import { useSelection } from "../../app/selection";
-import { Button, Dialog, Kbd, PLAIN_TEXT } from "../../components";
+import { Button, Dialog, Kbd } from "../../components";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorTarget } from "../../generated/EditorTarget";
 import type { EditorView } from "../../generated/EditorView";
@@ -15,7 +14,7 @@ import { inKeyLayer, routeKey } from "../../markdown";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { EditorFields } from "./Fields";
-import { isStartKey, quickKey, SAVE_KEYS, START_KEYS } from "./logic";
+import { isStartKey, SAVE_KEYS, START_KEYS } from "./logic";
 import { NewTicketReport, useReportAttach } from "./NewTicketReport";
 import { useEditor } from "./useEditor";
 
@@ -148,101 +147,24 @@ export function FullForm({
   );
 }
 
-/** Where quick-create sits: over the top of the Backlog column when it is on screen, else near the top. */
-function quickPlace(): React.CSSProperties {
-  const column = document.querySelector<HTMLElement>('[data-column="backlog"]');
-  const r = column?.getBoundingClientRect();
-  if (!r) return { left: "50%", top: 96, transform: "translateX(-50%)" };
-  return { left: r.left + 6, top: r.top + 34, width: r.width - 12 };
-}
-
-function QuickCreate({
-  view,
-  target,
-  onFull,
-  close,
-}: {
-  view: EditorView;
-  target: EditorTarget;
-  onFull: (form: EditorForm) => void;
-  close: () => void;
-}) {
-  const editor = useEditor(view, target);
-  const [place] = useState(quickPlace);
-  const t = view.texts;
-  const priority = view.priorities.find((p) => p.number === view.shown_priority);
-  return (
-    <div
-      className="editor-quick-backdrop"
-      role="presentation"
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <div className="editor-quick" role="dialog" aria-label={view.heading} style={place}>
-        <input
-          {...PLAIN_TEXT}
-          className="editor-quick-title"
-          value={editor.form.title}
-          placeholder={t.title_placeholder}
-          aria-label={t.title}
-          // Quick-create is a title field opened by the user's ⌘N or +: typing goes straight in.
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- opened by the user's own click or key
-          autoFocus
-          onChange={(e) => {
-            editor.setForm({ ...editor.form, title: e.target.value });
-          }}
-          onKeyDown={(e) => {
-            const what = quickKey(e.nativeEvent);
-            if (what === null) return;
-            e.preventDefault();
-            e.stopPropagation();
-            if (what === "cancel") close();
-            else if (what === "full") onFull(editor.form);
-            else editor.save(close);
-          }}
-        />
-        <div className="editor-quick-hints">
-          <Kbd keys="↵" />
-          <span>{t.quick_create}</span>
-          <Kbd keys="⇧↵" />
-          <span>{t.quick_full}</span>
-          <span className="editor-spacer" />
-          {priority && <span className="editor-quick-priority">{priority.view.short}</span>}
-        </div>
-        {editor.titleMissing && editor.form.title.trim() === "" && (
-          <span className="field-note" data-error>
-            {t.title_required}
-          </span>
-        )}
-        {editor.refusal && (
-          <span className="field-note" data-error>
-            {editor.refusal.message}
-          </span>
-        )}
-      </div>
-    </div>
-  );
-}
-
 export function NewTicket({ params, close }: OverlayProps<"new_ticket">) {
   const { project } = useSelection();
+  const title = params?.title;
   const body = params?.body;
   const target: EditorTarget = { mode: "create", project };
-  const load = useCallback(
-    () => request("editor.open", { mode: "create", project, body }) as Promise<EditorView>,
-    [project, body],
-  );
+  const load = useCallback(() => {
+    const open: EditorTarget = {
+      mode: "create",
+      project,
+      ...(title !== undefined && { title }),
+      ...(body !== undefined && { body }),
+    };
+    return request("editor.open", open) as Promise<EditorView>;
+  }, [project, title, body]);
   const { view, error } = useServiceView(load, []);
-  const [full, setFull] = useState<EditorForm | null>(null);
   if (error) return null;
   if (!view) return null;
-  if (full !== null) return <FullForm view={view} target={target} initial={full} close={close} />;
-  // With a description to start from (New ticket from this file), or from the board's New ticket button, the whole
-  // form: quick-create has only a title.
-  if (body !== undefined || params?.full === true)
-    return <FullForm view={view} target={target} close={close} />;
-  return <QuickCreate view={view} target={target} onFull={setFull} close={close} />;
+  return <FullForm view={view} target={target} close={close} />;
 }
 
 export function EditTicket({ params, close }: OverlayProps<"edit_ticket">) {

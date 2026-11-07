@@ -248,10 +248,21 @@ impl Prs {
                 return Ok(PrOutcome::Changed { check });
             }
         }
-        let step = match kind {
-            FlowKind::Open => WorkflowStep::OpenPr,
-            FlowKind::Push => WorkflowStep::Push,
-        };
+        if kind == FlowKind::Open {
+            // Nobody waits for a skill: the dialog opens at once on what the delivery's agent wrote while the ticket
+            // waited in Review, or on the plain text while it still writes. The skill runs after the confirm.
+            // A live session whose tool doesn't have the skill is refused now, before anything is made.
+            self.skill_runs_in(&ticket, self.live_of(&ticket, session).as_ref())
+                .await?;
+            let proposal = self.prepared_proposal(&ticket).await?;
+            board.start_pr_flow(&ticket, kind, false).await?;
+            board.set_pr_proposal(&ticket.id, &proposal).await?;
+            tracing::info!(key = %ticket.key, "PR dialog opened on the prepared message");
+            return Ok(PrOutcome::Started {
+                ticket: Box::new(board.ticket(key).await?),
+            });
+        }
+        let step = WorkflowStep::Push;
         let skill = board.delivery_skill(&project, step).await?;
         let live = self.live_of(&ticket, session);
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
@@ -331,16 +342,27 @@ impl Prs {
         if let Some(outcome) = self.unsent_first(&ticket, live.as_ref(), clear_first)? {
             return Ok(outcome);
         }
+        if flow.kind == FlowKind::Open {
+            self.skill_runs_in(&ticket, live.as_ref()).await?;
+        }
         board
             .apply_confirmed(&ticket, flow.kind, &checked, actor)
             .await?;
-        self.run_in_session(
-            &ticket,
-            live.as_ref(),
-            PrStep::Words(&confirmed_instruction(flow.kind)),
-            Typing::Click { clear_first },
-        )
-        .await?;
+        // An Open PR's skill starts here, told the user confirmed (it proposed nothing: the delivery's agent wrote the
+        // message in Review); a Push's skill proposed, so it is told in words.
+        let confirmed = confirmed_instruction(flow.kind);
+        let step = match flow.kind {
+            FlowKind::Open => PrStep::Skill(WorkflowStep::OpenPr),
+            FlowKind::Push => PrStep::Words(&confirmed),
+        };
+        if let Err(e) = self
+            .run_in_session(&ticket, live.as_ref(), step, Typing::Click { clear_first })
+            .await
+        {
+            // Nothing was pushed: the dialog shows why, with Retry.
+            board.report_pr_problem(&ticket.id, &e.to_string()).await?;
+            return Err(e);
+        }
         Ok(PrOutcome::Started {
             ticket: Box::new(board.ticket(key).await?),
         })
@@ -545,7 +567,11 @@ impl Prs {
             ));
         }
         board.end_pr_flow(&ticket.id).await?;
-        self.end_delivery(&ticket).await?;
+        // A click's Open PR ran nothing before the confirm: a delivery session there is the one writing the
+        // delivery's message, which goes on.
+        if flow.kind == FlowKind::Push || flow.automatic {
+            self.end_delivery(&ticket).await?;
+        }
         let mut tx = board.store().begin_write().await?;
         record_event(
             &mut tx,
@@ -813,15 +839,180 @@ impl Prs {
         })
     }
 
-    /// What follows the PR step's skill: an automatic Delivery's skill is told so (FLW-15).
+    /// What follows the PR step's skill: an automatic Delivery's skill is told so (FLW-15); an Open PR's, started once
+    /// the user confirmed the dialog, is told that.
     async fn told(&self, ticket: &Ticket) -> Result<Option<String>, BoardError> {
-        let automatic = self
+        let flow = self.inner.board.pr_flow(&ticket.id).await?;
+        Ok(match flow {
+            Some(f) if f.automatic => Some(automatic_message()),
+            Some(f) if f.kind == FlowKind::Open && f.state == FlowState::Pushing => {
+                Some(confirmed_instruction(FlowKind::Open))
+            }
+            _ => None,
+        })
+    }
+
+    /// Refused, nothing typed, when the live session's tool doesn't have the flow's Open PR skill.
+    async fn skill_runs_in(
+        &self,
+        ticket: &Ticket,
+        live: Option<&SessionInfo>,
+    ) -> Result<(), BoardError> {
+        let Some(session) = live else {
+            return Ok(());
+        };
+        let name = self
             .inner
             .board
-            .pr_flow(&ticket.id)
+            .delivery_skill(ticket.key.project.as_str(), WorkflowStep::OpenPr)
+            .await?;
+        self.refuse_missing_skill(
+            ticket,
+            session.tool,
+            &FirstPrompt::Skill {
+                name,
+                message: None,
+            },
+        )
+        .await
+    }
+
+    /// What the Open PR dialog opens on: the PR's commits as they are, and the branch, title and description the
+    /// delivery's agent wrote in Review; while it still writes (or with none), the ticket's branch, "SHOP-18 Checkout
+    /// API" and the agent's summary.
+    async fn prepared_proposal(&self, ticket: &Ticket) -> Result<Proposal, BoardError> {
+        let board = &self.inner.board;
+        let commits = board.pr_commits(ticket).await?;
+        if commits.editable().is_empty() {
+            return Err(BoardError::refused(
+                Refusal::BadProposal,
+                format!("{} has no commits to push", ticket.key),
+            ));
+        }
+        let prepared = board
+            .delivery_message(&ticket.id)
             .await?
-            .is_some_and(|f| f.automatic);
-        Ok(automatic.then(automatic_message))
+            .filter(super::message::DeliveryMessage::is_ready);
+        let summary = board.review_summary(&ticket.id).await?;
+        Ok(Proposal {
+            branch: prepared
+                .as_ref()
+                .and_then(|m| m.branch.clone())
+                .unwrap_or_else(|| commits.branch.clone()),
+            commits: commits
+                .editable()
+                .iter()
+                .map(|c| super::proposal::CommitMessage {
+                    sha: c.sha.clone(),
+                    message: c.message.clone(),
+                })
+                .collect(),
+            title: prepared.as_ref().map_or_else(
+                || format!("{} {}", ticket.key, ticket.title),
+                |m| m.title.clone(),
+            ),
+            description: prepared
+                .map(|m| m.description)
+                .or(summary)
+                .unwrap_or_default(),
+        })
+    }
+
+    /// The ticket reached Review on a click-mode flow whose `delivery:` names an agent: that agent writes the
+    /// delivery's message now ([`super::message`]), so Approve's confirmation opens at once on it. Typed into its live
+    /// session once idle, or its conversation resumed with it, or a delivery session started for it. Asked again
+    /// only when the branch has new commits since the last message. Nothing happens for a ticket elsewhere, with a PR
+    /// open or a PR dialog under way, with no commits, while the project is paused, or when the agent can't start now
+    /// (the confirmation then starts from the plain message). Returns whether it asked.
+    pub async fn prepare_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
+            || ticket.flags.pr_number.is_some()
+        {
+            return Ok(false);
+        }
+        let project = ticket.key.project.to_string();
+        let flow = board.effective_flow(&project).await?;
+        let delivery = &flow.delivery;
+        let Some(agent) = delivery.agent.clone() else {
+            return Ok(false);
+        };
+        if delivery.is_automatic() {
+            return Ok(false);
+        }
+        let Some(last) = flow.last_stage() else {
+            return Ok(false);
+        };
+        if !ticket.place.is_in(&last.id) || board.pr_flow(&ticket.id).await?.is_some() {
+            return Ok(false);
+        }
+        if board.commits_beyond_base(&ticket).await? == 0 {
+            return Ok(false);
+        }
+        let head = board.branch_head(&ticket).await;
+        if head.is_some()
+            && board
+                .delivery_message(&ticket.id)
+                .await?
+                .is_some_and(|m| m.head == head)
+        {
+            return Ok(false);
+        }
+        if crate::agents::pause::refuse_while_paused(board.store(), &project)
+            .await
+            .is_err()
+        {
+            return Ok(false);
+        }
+        let target = board.merge_target(&ticket).await?.target;
+        let text = super::message::prompt(
+            &ticket.key.to_string(),
+            &target,
+            delivery.can_open_pr(),
+            delivery.can_merge_locally(),
+        );
+        board
+            .start_delivery_message(&ticket.id, &agent, head.as_deref())
+            .await?;
+        let kind = self.session_kind_for(&ticket).await;
+        let sent = match self.live_of(&ticket, kind) {
+            Some(session) => self
+                .inner
+                .deliveries
+                .queue_delivery(
+                    &session.id,
+                    crate::session::deliveries::DeliveryKind::AgentMessage,
+                    &text,
+                )
+                .await
+                .map_err(other),
+            None if kind == SessionKind::Delivery => self
+                .start_delivery(&ticket, PrStep::Words(&text), Start::Auto)
+                .await
+                .map(|_| ()),
+            None => match self
+                .resume(&ticket, kind, PrStep::Words(&text), Start::Auto)
+                .await
+            {
+                Ok(_) => Ok(()),
+                Err(BoardError::Refused {
+                    code: Refusal::SessionEnded,
+                    ..
+                }) => self
+                    .start_delivery(&ticket, PrStep::Words(&text), Start::Auto)
+                    .await
+                    .map(|_| ()),
+                Err(e) => Err(e),
+            },
+        };
+        if let Err(e) = sent {
+            board.forget_delivery_message(&ticket.id).await?;
+            tracing::info!(key = %ticket.key, error = %e, "the delivery's agent can't write the message now");
+            return Ok(false);
+        }
+        tracing::info!(key = %ticket.key, %agent, "the delivery's agent writes the message");
+        Ok(true)
     }
 
     /// Open PR or Push, by the step's skill or, for Otaq's own words, by the PR flow under way.

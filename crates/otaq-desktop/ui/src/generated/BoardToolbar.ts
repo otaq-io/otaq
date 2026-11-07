@@ -3,13 +3,19 @@ import type { ToolbarGroup } from "./ToolbarGroup";
 import type { ToolbarOption } from "./ToolbarOption";
 
 /**
- * The toolbar at the top of the board, in every view (*24 · The two views*, `s28-03`). `BoardToolbar` on the page.
+ * The toolbar at the top of the board, in every view (`s28-03`). `BoardToolbar` on the page.
  */
 export type BoardToolbar = { 
 /**
- * Board · List · Files · Settings (BRD-01, FIL-01): Settings is the project's settings page, in the main area.
+ * Board · Files · Settings (BRD-01, FIL-01; Settings is the project's settings page, in the main area): Board is
+ * chosen in either layout, and from Files or Settings it goes back to the layout last shown.
  */
 views: ToolbarGroup, 
+/**
+ * The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files and
+ * Settings.
+ */
+layouts: ToolbarGroup | null, 
 /**
  * Files: "What the base branch looks like, and which agents are changing which files", after a divider.
  */
@@ -19,7 +25,7 @@ subtitle: string | null,
  */
 live: string | null, 
 /**
- * Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
+ * Fold empty columns, in either layout (the List folds an empty stage's group): a switch; none on Files.
  */
 switch: ToolbarOption | null, 
 /**

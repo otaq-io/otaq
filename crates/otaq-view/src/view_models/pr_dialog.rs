@@ -90,6 +90,31 @@ pub struct PrDialog {
     pub description: String,
     pub pr_number: Option<u32>,
     pub debounce: Debounce,
+    /// The project's name, for "shop-web delivers pull requests through GitHub".
+    pub project: String,
+    /// The repository's PR provider isn't set up on this machine (its tool missing or signed out, with Otaq's own
+    /// Open PR skill): its name. Push & open PR stays off until it is.
+    pub not_set_up: Option<String>,
+    /// The flow delivers either way: the branch the dialog offers to merge into instead.
+    pub merge_instead: Option<String>,
+    /// The delivery's agent that wrote the title and description while the ticket waited in Review.
+    pub prepared_by: Option<String>,
+    /// The delivery's agent still writing them: the fields hold the plain text until it arrives.
+    pub writing: Option<String>,
+    /// The user typed in the title, description or branch: a message arriving later doesn't replace them.
+    pub typed: bool,
+    /// Counts each time the fields were filled for the user (the proposal, then the agent's message): the page takes
+    /// the fields again when it grows.
+    pub filled: u64,
+}
+
+/// Whose PR provider isn't ready on this machine for Otaq's own Open PR skill: its name ("GitHub"), when its tool
+/// is missing or signed out.
+pub fn provider_not_set_up(provider: Option<&PrProvider>) -> Option<String> {
+    let p = provider?;
+    let detected = p.provider?;
+    (p.built_in_open_pr() && (!p.cli_found || p.logged_in == Some(false)))
+        .then(|| detected.name().to_owned())
 }
 
 impl PrDialog {
@@ -105,23 +130,8 @@ impl PrDialog {
             .as_ref()
             .and_then(|w| w.branch.clone())
             .unwrap_or_default();
-        let stage = match provider.and_then(|p| Some((p.provider?, p))) {
-            Some((detected, p))
-                if p.built_in_open_pr() && p.cli_found && p.logged_in == Some(false) =>
-            {
-                let cli = detected.tool().command().to_owned();
-                let login = if cli == "gh" {
-                    "gh auth login"
-                } else {
-                    "az login"
-                };
-                Stage::NotLoggedIn {
-                    cli,
-                    login: login.to_owned(),
-                }
-            }
-            _ => Stage::Preparing,
-        };
+        // A provider that isn't set up says so on top of the fields (Set up <provider>…), not instead of them.
+        let stage = Stage::Preparing;
         Self {
             kind,
             key: ticket.key.to_string(),
@@ -153,7 +163,19 @@ impl PrDialog {
             description: String::new(),
             pr_number: ticket.flags.pr_number,
             debounce: Debounce::default(),
+            project: ticket.key.project.to_string(),
+            not_set_up: provider_not_set_up(provider),
+            merge_instead: None,
+            prepared_by: None,
+            writing: None,
+            typed: false,
+            filled: 0,
         }
+    }
+
+    /// The provider was read again (the dialog waits for it to be set up).
+    pub fn provider_read(&mut self, provider: Option<&PrProvider>) {
+        self.not_set_up = provider_not_set_up(provider);
     }
 
     /// Takes in the service's view of the flow: the proposal fills the fields once (later edits are the user's).
@@ -182,6 +204,14 @@ impl PrDialog {
                     return;
                 };
                 self.stage = Stage::Proposed;
+                self.filled += 1;
+                match &view.message {
+                    Some(m) if m.is_ready() && m.title == p.title => {
+                        self.prepared_by = Some(m.agent.clone());
+                    }
+                    Some(m) if !m.is_ready() => self.writing = Some(m.agent.clone()),
+                    _ => {}
+                }
                 self.branch_was = view.branch.clone();
                 self.branch = if self.branch_locked {
                     view.branch.clone()
@@ -204,15 +234,40 @@ impl PrDialog {
                     NameCheck::Pending
                 };
             }
-            FlowState::Proposed => {}
+            FlowState::Proposed => self.message_arrived(view),
             FlowState::Pushing => self.stage = Stage::Pushing,
         }
+    }
+
+    /// The delivery's agent sent the message the dialog waited for: it fills the title, description and branch
+    /// unless the user typed; either way the "still writing" line goes.
+    fn message_arrived(&mut self, view: &PrFlowView) {
+        let (Some(_), Some(m)) = (
+            &self.writing,
+            view.message.as_ref().filter(|m| m.is_ready()),
+        ) else {
+            return;
+        };
+        self.writing = None;
+        if self.typed {
+            return;
+        }
+        self.title = m.title.clone();
+        self.description = m.description.clone();
+        if let Some(branch) = m.branch.clone().filter(|_| !self.branch_locked) {
+            self.branch = branch;
+            self.check = NameCheck::Pending;
+            self.debounce.edit();
+        }
+        self.prepared_by = Some(m.agent.clone());
+        self.filled += 1;
     }
 
     /// The branch name was edited: it must be checked again.
     pub fn edit_branch(&mut self, name: &str) -> u64 {
         self.branch = name.to_owned();
         self.check = NameCheck::Pending;
+        self.typed = true;
         self.debounce.edit()
     }
 
@@ -227,13 +282,13 @@ impl PrDialog {
         };
     }
 
-    /// "Open PR for SHOP-18 Checkout API", "Push SHOP-26 Add sitemap to PR #481".
+    /// "Open a pull request for SHOP-18", "Push SHOP-26 Add sitemap to PR #481".
     pub fn heading(&self) -> String {
         match (self.kind, self.pr_number) {
             (FlowKind::Push, Some(n)) => {
                 format!("Push {} {} to PR #{n}", self.key, self.ticket_title)
             }
-            _ => format!("Open PR for {} {}", self.key, self.ticket_title),
+            _ => format!("Open a pull request for {}", self.key),
         }
     }
 
@@ -286,9 +341,10 @@ impl PrDialog {
         )
     }
 
-    /// Push & open PR is enabled only for a complete proposal with a valid, free name.
+    /// Push & open PR is enabled only for a complete proposal with a valid, free name, once the provider is set up.
     pub fn can_confirm(&self) -> bool {
         self.stage == Stage::Proposed
+            && self.not_set_up.is_none()
             && (self.branch_locked || self.check == NameCheck::Ok)
             && !self.commits.is_empty()
             && self.commits.iter().all(|c| !c.message.trim().is_empty())
@@ -422,14 +478,94 @@ mod tests {
             pr_number: branch_locked.then_some(481),
             pr_url: None,
             skill: "open-pr".to_owned(),
+            message: None,
         }
+    }
+
+    fn message(
+        state: otaq_core::pr::message::MessageState,
+    ) -> otaq_core::pr::message::DeliveryMessage {
+        otaq_core::pr::message::DeliveryMessage {
+            state,
+            agent: "Strong".into(),
+            head: None,
+            title: "SHOP-18 Retry the order request once on timeout".into(),
+            description: "Retries POST /orders once.".into(),
+            branch: Some(format!(
+                "{}-checkout-timeout",
+                otaq_core::naming::branch("SHOP-18")
+            )),
+        }
+    }
+
+    /// While the delivery's agent still writes, the dialog holds the plain text and says so; its message fills in
+    /// when it arrives, unless the user typed.
+    #[test]
+    fn the_message_fills_in_when_it_arrives_unless_the_user_typed() {
+        use otaq_core::pr::message::MessageState;
+        let mut writing = view(FlowState::Proposed, false);
+        writing.message = Some(message(MessageState::Writing));
+        let mut ready = writing.clone();
+        ready.message = Some(message(MessageState::Ready));
+
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        d.update(&writing);
+        assert_eq!(d.writing.as_deref(), Some("Strong"));
+        assert_eq!(d.title, "Checkout API (SHOP-18)");
+        assert_eq!(d.filled, 1);
+        d.update(&ready);
+        assert_eq!(d.writing, None);
+        assert_eq!(d.prepared_by.as_deref(), Some("Strong"));
+        assert_eq!(d.title, "SHOP-18 Retry the order request once on timeout");
+        assert_eq!(
+            d.branch,
+            format!("{}-checkout-timeout", otaq_core::naming::branch("SHOP-18"))
+        );
+        assert_eq!(d.filled, 2);
+
+        let mut typed = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        typed.update(&writing);
+        typed.title = "Mine".into();
+        typed.typed = true;
+        typed.update(&ready);
+        assert_eq!(
+            (typed.title.as_str(), typed.writing.as_ref()),
+            ("Mine", None)
+        );
+        assert_eq!(typed.prepared_by, None);
+    }
+
+    /// A provider whose tool is missing or signed out keeps Push & open PR off until it is set up.
+    #[test]
+    fn a_provider_that_isnt_set_up_keeps_the_push_off() {
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(false)));
+        assert_eq!(d.not_set_up.as_deref(), Some("GitHub"));
+        d.update(&view(FlowState::Proposed, false));
+        let n = d.edit_branch("feature/SHOP-18-checkout-api");
+        d.checked(n, &BranchCheck::Ok);
+        assert!(!d.can_confirm());
+        d.provider_read(Some(&github(true)));
+        assert!(d.can_confirm());
+        let mut missing = github(true);
+        missing.cli_found = false;
+        missing.logged_in = None;
+        assert_eq!(
+            provider_not_set_up(Some(&missing)).as_deref(),
+            Some("GitHub")
+        );
+        missing.open_pr_skill = "my-pr".into();
+        assert_eq!(
+            provider_not_set_up(Some(&missing)),
+            None,
+            "the user's own skill decides"
+        );
     }
 
     #[test]
     fn preparing_then_proposed_with_a_live_name_check() {
         let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
         assert_eq!(d.stage, Stage::Preparing);
-        assert_eq!(d.heading(), "Open PR for SHOP-18 Checkout API");
+        assert_eq!(d.heading(), "Open a pull request for SHOP-18");
         assert_eq!(d.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));
         assert_eq!(d.login.as_deref(), Some("gh: signed in"));
         assert!(!d.can_confirm());

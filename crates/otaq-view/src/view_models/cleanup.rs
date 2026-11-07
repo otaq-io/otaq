@@ -483,7 +483,7 @@ impl CleanupModel {
         Page {
             title: "Cleanup",
             count: items_text(self.len()),
-            text: "Leftovers that no ticket owns. Review and select — nothing is deleted automatically.",
+            text: "Copies, branches and processes no ticket uses any more. Nothing is selected until you choose.",
             groups: self
                 .groups()
                 .into_iter()

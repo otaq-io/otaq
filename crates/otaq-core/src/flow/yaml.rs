@@ -456,8 +456,9 @@ pub fn write(file: &FlowFile) -> String {
     out
 }
 
-/// The flow's `delivery:`: what it delivers and when, and for one that can open a PR the agent that opens it (with
-/// an optional skill); a local merge runs no agent.
+/// The flow's `delivery:`: what it delivers and when, and its agent: the one that writes the delivery's message while
+/// a ticket waits in Review (the squash commit's, and a PR's title and description) and opens the PR (with an optional
+/// skill). A delivery that can open a PR names it; a local merge may, and without one its message is Otaq's plain one.
 fn delivery(raw: RawDelivery) -> Result<Delivery, FormatError> {
     checked_delivery("The delivery", raw.mode, raw.delivers, raw.agent, raw.skill)
 }
@@ -501,16 +502,12 @@ fn checked_delivery(
     let agent = agent.map(|a| a.trim().to_owned()).filter(|a| !a.is_empty());
     let skill = skill.map(|s| s.trim().to_owned()).filter(|s| !s.is_empty());
     if delivers == Delivers::Local {
-        let refuse = |field: &str| {
-            Err(FormatError(format!(
-                "{what} is a Local merge, which runs no agent: `{field}` belongs to a delivery that opens a PR"
-            )))
-        };
-        if agent.is_some() {
-            return refuse("agent");
-        }
+        // A local merge may name the agent that writes its squash message while the ticket waits in Review; the
+        // skill is the one a PR is opened with.
         if skill.is_some() {
-            return refuse("skill");
+            return Err(FormatError(format!(
+                "{what} is a Local merge, which opens no PR: `skill` belongs to a delivery that opens a PR"
+            )));
         }
     } else if agent.is_none() {
         return Err(FormatError(format!(

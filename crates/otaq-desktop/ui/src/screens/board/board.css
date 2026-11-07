@@ -213,7 +213,7 @@
   gap: 6px;
   min-height: 0;
   margin: 0 -6px -6px;
-  /* Room under the last card for the Ask bar floating at the bottom centre (d0113). */
+  /* Room under the last card for the box for new work docked at the bottom centre (UX-22). */
   padding: 0 6px 72px;
   overflow-y: auto;
   scrollbar-width: thin;
@@ -509,6 +509,11 @@
   cursor: pointer;
 }
 
+/* The layout switch: icons only, square. */
+.board-layout {
+  padding: 4px 6px;
+}
+
 .board-segment[aria-checked="true"] {
   background: var(--bg-panel);
   box-shadow: 0 1px 2px 0 rgb(0 0 0 / 10%);
@@ -565,8 +570,7 @@
   background: var(--bg-hover);
 }
 
-/* The List view until it arrives (T-0461). */
-/* The List view (LST-01) fills the board edge to edge and scrolls its own rows. */
+/* The List layout fills the board edge to edge and scrolls its own rows. */
 .board[data-view="list"] {
   padding: 0;
 }
