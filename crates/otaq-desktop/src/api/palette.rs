@@ -259,9 +259,13 @@ mod tests {
             request(&h.app, "palette.record", used).await.unwrap();
         }
         let view = request(&h.app, "palette.view", params("")).await.unwrap();
-        assert_eq!(view["section"], "Recent");
+        // Nothing needs the user: the suggestions start with New ticket, and the recent items follow them.
+        assert_eq!(view["section"], "Suggested");
+        let listed = words(&view);
+        assert_eq!(listed[0], "New ticket");
+        let at = listed.iter().position(|w| w == "Recent").unwrap();
         assert_eq!(
-            words(&view),
+            listed[at + 1..],
             ["Switch to pocket-api", "NOTE-2 null", "Park", "API-1 \"· pocket-api\""],
             "next ticket isn't kept"
         );
