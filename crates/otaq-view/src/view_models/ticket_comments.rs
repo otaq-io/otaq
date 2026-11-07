@@ -200,7 +200,7 @@ pub struct CommentBoxView {
     pub footer_icon: IconName,
     /// The pasted chip's label: "Pasted text".
     pub pasted: String,
-    /// The line while a file waits in the box: only the New ticket form's ([`Self::one_report`]), whose report still
+    /// The line while a file waits in the box: only the New ticket form's box of one report, whose report still
     /// needs its own line (RPT-03). Every other box sends attachments with no text (tuq 007).
     pub file_line: Option<String>,
     /// The file chip's ✕, for screen readers.
