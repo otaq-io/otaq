@@ -150,6 +150,7 @@ fn of_row(row: Row) -> Option<HelperQuestion> {
             recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
             notes: crate::board::questions::notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
+            send_back: None,
         },
         helper_id: row.helper_id,
         ticket_id: row.ticket_id,
@@ -236,6 +237,7 @@ impl Helpers {
             recommended,
             notes: crate::board::questions::clean_notes(notes),
             asked_at: now_ms(),
+            send_back: None,
         };
         let mut tx = self.inner.board.store().begin_write().await?;
         // A helper has one open question: a new one replaces its older (d0119).
@@ -535,6 +537,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         }
     }
 

@@ -4370,6 +4370,7 @@ mod tests {
             recommended: Some(1),
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         let vm = card(&t);
         let rows = vm.options.as_ref().unwrap().rows();

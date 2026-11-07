@@ -1177,6 +1177,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         assert_eq!(
             pill(&a),

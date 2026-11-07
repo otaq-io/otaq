@@ -570,7 +570,16 @@ impl NeedsYouQueue {
                 )
                 .await;
         }
-        let session = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        // A checker asks only to send the ticket back; answered here, its answer goes to the checker in the check.
+        let checker = question
+            .as_ref()
+            .filter(|q| q.send_back.is_some())
+            .and_then(|_| {
+                inner
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Validator)
+            });
+        let session = checker.or_else(|| inner.sessions.running_of(&ticket.id, SessionKind::Agent));
         let delivery = match (waiting.how, session) {
             (Waiting::Live, Some(session)) => {
                 let typed = if clear {
@@ -790,6 +799,13 @@ pub fn answer_text(
         }
         (Some(q), Choice::Other(_)) => format_answer(q, choice),
         (None, Choice::Other(text)) => text.trim().to_owned(),
+        // Sending back moves the ticket: the send-back question's own request, never a typed answer.
+        (_, Choice::SendBack) => {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "Only a question asking to send the ticket back can send it back",
+            ));
+        }
     };
     if text.trim().is_empty() || matches!(choice, Choice::Other(t) if t.trim().is_empty()) {
         return Err(BoardError::refused(

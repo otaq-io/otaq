@@ -102,6 +102,24 @@ the worktree: your check runs' output goes there (see "Long output").
    the flow may merge without a PR. Each verdict replaces this check's earlier unticked ones, so list again the ones
    that still apply. Something you could check but didn't is not a manual check: run it.
 
+## A problem that belongs to an earlier stage
+
+Some problems aren't the agent's to fix: they belong to an **earlier stage** of the flow (`prime --validate` lists
+every stage under "## The flow" with what it is for, and marks the skipped ones), skipped or already run. A product
+gap no Product spec settled ("refunds over 30 days aren't specified"), or an approach a Tech spec should have decided,
+is one. Don't fail the ticket for it and never move it back yourself: ask the user, naming that stage, with your reason
+on stdin, instead of giving a verdict, then end your turn:
+
+```sh
+otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Product gap: refunds over 30 days aren't specified, and the change picks one rule without saying why.
+QUESTION
+```
+
+The user either sends the ticket back to that stage (your check stops; it runs again when the ticket comes back) or
+answers here: the answer arrives in this session, and you finish your check with a verdict as usual. Name only an
+earlier stage the ticket has been through. Everything else that is wrong is still a fail or a note, as above.
+
 ## Run the app
 
 When a finding or a criterion shows in what the app does (a page, a response, a screen) and no test reaches it,

@@ -251,6 +251,10 @@ pub enum Command {
         /// The recommended option, 1-based
         #[arg(long, value_name = "N")]
         recommended: Option<u32>,
+        /// Ask the user to send the ticket back to this earlier stage, your reason on stdin: they send it back or
+        /// answer here
+        #[arg(long = "send-back", value_name = "STAGE")]
+        send_back: Option<String>,
     },
     /// Answer a question another ticket's agent asked this one (`answer <ID> --stdin`)
     Answer {

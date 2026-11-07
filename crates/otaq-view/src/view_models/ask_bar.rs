@@ -554,6 +554,7 @@ mod tests {
             recommended: None,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         });
         asks.turn_ended_at = Some(10);
         let mut newer = agent("a2", "Checkout slowness", 2);

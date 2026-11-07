@@ -6,6 +6,9 @@
 //!
 //! Each option's note (ATT-17, d0061), its pros and cons, rides on its row whole ([`OptionRow::note`]): never cut,
 //! shown under the label in Needs you and the sheet, in the light hover card on the card.
+//!
+//! An agent's question asking to send the ticket back to an earlier stage has its two fixed ways out as the rows:
+//! **1 Send back to <stage>** and **2 Answer here…** (the free-text field). Nothing is preselected: the user decides.
 
 use otaq_core::board::questions::{Choice, HumanQuestion};
 use serde::Serialize;
@@ -43,11 +46,24 @@ pub struct AnswerOptions {
     options: Vec<(String, Option<String>)>,
     recommended: Option<u32>,
     pub pick: Option<Pick>,
+    /// A send-back question: option 1 sends the ticket back, Other… answers here.
+    send_back: bool,
 }
+
+/// The free-text row of a send-back question.
+pub const ANSWER_HERE: &str = "Answer here\u{2026} type your answer";
 
 impl AnswerOptions {
     /// The options of a question, the recommended one preselected; `None` for a free-text question.
     pub fn of(question: &HumanQuestion) -> Option<Self> {
+        if let Some(to) = &question.send_back {
+            return Some(Self {
+                options: vec![(format!("Send back to {}", to.stage), None)],
+                recommended: None,
+                pick: None,
+                send_back: true,
+            });
+        }
         if question.options.is_empty() {
             return None;
         }
@@ -60,6 +76,7 @@ impl AnswerOptions {
                 .collect(),
             recommended: question.recommended,
             pick: question.recommended.map(Pick::Option),
+            send_back: false,
         })
     }
 
@@ -105,7 +122,11 @@ impl AnswerOptions {
             .collect();
         rows.push(OptionRow {
             number: self.other_number(),
-            label: "Other… type your own answer".into(),
+            label: if self.send_back {
+                ANSWER_HERE.into()
+            } else {
+                "Other… type your own answer".into()
+            },
             recommended: false,
             picked: self.pick == Some(Pick::Other),
             other: true,
@@ -117,6 +138,7 @@ impl AnswerOptions {
     /// What Enter or Send sends; `None` while nothing is picked, or Other… is picked with an empty field.
     pub fn choice(&self, other_text: &str) -> Option<Choice> {
         match self.pick? {
+            Pick::Option(_) if self.send_back => Some(Choice::SendBack),
             Pick::Option(n) => Some(Choice::Option(n)),
             Pick::Other => {
                 let text = other_text.trim();
@@ -184,7 +206,10 @@ pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
         rows: rows_of(&options),
         recommended_label: RECOMMENDED,
         other_placeholder: "Type your answer",
-        hint: "1\u{2013}4 pick \u{b7} \u{21b5} sends \u{b7} logged in Messages",
+        hint: match question.send_back {
+            Some(_) => "1\u{2013}2 pick \u{b7} \u{21b5} sends",
+            None => "1\u{2013}4 pick \u{b7} \u{21b5} sends \u{b7} logged in Messages",
+        },
         in_terminal: "Answer in terminal",
         send: "Send answer",
     })
@@ -255,6 +280,7 @@ pub fn note_samples() -> [HumanQuestion; 2] {
             ),
         ],
         asked_at: 0,
+        send_back: None,
     };
     let invoice = HumanQuestion {
         id: "q-notes-invoice".into(),
@@ -268,6 +294,7 @@ pub fn note_samples() -> [HumanQuestion; 2] {
             ),
         ],
         asked_at: 0,
+        send_back: None,
     };
     [asks, invoice]
 }
@@ -285,6 +312,7 @@ mod tests {
             recommended,
             notes: Vec::new(),
             asked_at: 0,
+            send_back: None,
         }
     }
 
@@ -324,6 +352,44 @@ mod tests {
         assert_eq!(o.pick, Some(Pick::Other));
         assert!(!o.can_send("  "));
         assert_eq!(o.choice(" Mailgun "), Some(Choice::Other("Mailgun".into())));
+    }
+
+    /// An agent's send-back question offers its two ways out: 1 sends the ticket back, 2 answers here in words.
+    /// Nothing is picked first: the user decides.
+    #[test]
+    fn a_send_back_question_offers_send_back_or_answer_here() {
+        let q = HumanQuestion {
+            send_back: Some(otaq_core::board::questions::SendBackTo {
+                stage_id: "product-spec".into(),
+                stage: "Product spec".into(),
+            }),
+            ..question(&[], None)
+        };
+        let mut o = AnswerOptions::of(&q).expect("a send-back question has its rows");
+        let shown: Vec<(u32, String, bool)> = o
+            .rows()
+            .into_iter()
+            .map(|r| (r.number, r.label, r.other))
+            .collect();
+        assert_eq!(
+            shown,
+            [
+                (1, "Send back to Product spec".to_owned(), false),
+                (2, ANSWER_HERE.to_owned(), true),
+            ]
+        );
+        assert_eq!(o.pick, None);
+        assert!(o.press(1));
+        assert_eq!(o.choice(""), Some(Choice::SendBack));
+        assert!(o.press(2));
+        assert_eq!(o.choice(""), None, "answering here needs words");
+        assert_eq!(
+            o.choice("Refunds over 30 days: store credit"),
+            Some(Choice::Other("Refunds over 30 days: store credit".into()))
+        );
+        let bar = question_bar(&q).unwrap();
+        assert_eq!(bar.rows.len(), 2);
+        assert_eq!(bar.hint, "1\u{2013}2 pick \u{b7} \u{21b5} sends");
     }
 
     #[test]

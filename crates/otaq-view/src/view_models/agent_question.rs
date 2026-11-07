@@ -69,6 +69,7 @@ mod tests {
                 .map(|o| Some(format!("{o}: the note.")))
                 .collect(),
             asked_at: 0,
+            send_back: None,
         }
     }
 

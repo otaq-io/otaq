@@ -8,6 +8,10 @@
 //! service checks them. Each option may carry a note, its pros and cons: `--note "…"` right after its `--option`
 //! (ATT-17), stored whole.
 //!
+//! `ask human --send-back "Product spec" --stdin` asks the user to send the ticket back to an earlier stage of its
+//! flow, the question on stdin being the agent's reason; it takes no options. The user sends it back or answers here:
+//! the agent never moves a ticket back itself.
+//!
 //! # `--json` shapes
 //!
 //! They print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
@@ -52,6 +56,8 @@ pub struct AskArgs {
     /// Each option's note, paired by position ([`crate::cli::option_notes`]), or why the pairing is refused.
     pub notes: Result<Vec<Option<String>>, String>,
     pub recommended: Option<u32>,
+    /// The earlier stage to ask to send the ticket back to (`--send-back`).
+    pub send_back: Option<String>,
 }
 
 pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
@@ -62,9 +68,22 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         options,
         notes,
         recommended,
+        send_back,
     } = args;
     let to_human = target_name.eq_ignore_ascii_case("human");
     let notes = check_notes(to_human, &options, notes)?;
+    if send_back.is_some() {
+        if !to_human || in_project_agent() {
+            return Err(usage(
+                "--send-back is only for a ticket's agent asking the user: `ask human --send-back <STAGE> --stdin`",
+            ));
+        }
+        if !options.is_empty() || recommended.is_some() {
+            return Err(usage(
+                "--send-back takes no --option: its two ways out are Send back and Answer here",
+            ));
+        }
+    }
     if !to_human && (!options.is_empty() || recommended.is_some()) {
         return Err(usage("Options are only for questions to the human"));
     }
@@ -77,6 +96,7 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         options,
         notes,
         recommended,
+        send_back,
     };
     if in_project_agent() {
         return ask_as_project_agent(&target_name, to_human, choices, global, out);
@@ -109,11 +129,19 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
             }
             other => return Err(unexpected(&other)),
         };
+        let send_back = ticket.question.as_ref().and_then(|q| q.send_back.as_ref());
         out.print(
-            &format!(
-                "{} asks you. The question is on the board; end your turn and wait for the answer.",
-                ticket.key
-            ),
+            &match send_back {
+                Some(to) => format!(
+                    "{} asks you to send it back to {}. The question is on the board; end your turn and wait: the \
+                     user sends it back or answers here.",
+                    ticket.key, to.stage
+                ),
+                None => format!(
+                    "{} asks you. The question is on the board; end your turn and wait for the answer.",
+                    ticket.key
+                ),
+            },
             &ticket,
             Some(&ticket.key.to_string()),
         );
@@ -147,11 +175,13 @@ fn check_notes(
     notes.map_err(usage)
 }
 
-/// What the user picks from: the options, each one's note, the recommended one.
+/// What the user picks from: the options, each one's note, the recommended one; or the earlier stage to send the
+/// ticket back to.
 struct Choices {
     options: Vec<String>,
     notes: Vec<Option<String>>,
     recommended: Option<u32>,
+    send_back: Option<String>,
 }
 
 /// Where `ask human` goes: a ticket's agent asks, or a Project agent asks.
@@ -166,6 +196,7 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
         options,
         notes,
         recommended,
+        send_back,
     } = choices;
     match route {
         Route::Ticket(key) => Request::TicketAskHuman(AskHumanParams {
@@ -174,6 +205,7 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
             options,
             notes,
             recommended,
+            send_back,
         }),
         Route::ProjectAgent => Request::AgentAskHuman(otaq_core::protocol::AgentAskHumanParams {
             question: text,
@@ -661,6 +693,7 @@ mod tests {
             options: vec!["Markdown files".into(), "One ZIP".into()],
             notes: notes.clone(),
             recommended: Some(1),
+            send_back: None,
         };
         let Request::TicketAskHuman(p) = human_request(
             Route::Ticket("NOTE-1".into()),
@@ -676,6 +709,25 @@ mod tests {
             panic!("a Project agent asks with agent.ask_human")
         };
         assert_eq!(p.notes, notes);
+    }
+
+    /// A ticket's agent names the earlier stage it asks to send the ticket back to; the service checks it.
+    #[test]
+    fn a_send_back_question_names_its_stage() {
+        let Request::TicketAskHuman(p) = human_request(
+            Route::Ticket("SHOP-1".into()),
+            "Refunds over 30 days aren't specified.".into(),
+            Choices {
+                options: Vec::new(),
+                notes: Vec::new(),
+                recommended: None,
+                send_back: Some("Product spec".into()),
+            },
+        ) else {
+            panic!("a ticket's agent asks with ticket.ask_human")
+        };
+        assert_eq!(p.send_back.as_deref(), Some("Product spec"));
+        assert!(p.options.is_empty());
     }
 
     /// ATT-17: the refusals of `--note`, each naming its rule.

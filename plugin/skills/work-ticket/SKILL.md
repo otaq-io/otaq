@@ -459,6 +459,25 @@ DECISION
 
 The user's Agent instructions may add to this rule (for example "always ask about copy text"); follow them.
 
+## A problem that belongs to an earlier stage: ask to send it back
+
+`prime` lists every stage of the flow under "## The flow", each with what it is for, and marks the ones this ticket
+skipped. When you find a problem that one of the **earlier** stages is for, skipped or already run (a product gap with
+no Product spec behind it, an approach Tech spec should have settled), don't settle it yourself in your stage and never
+move the ticket back: ask the user, naming that stage, with your reason on stdin, then end your turn:
+
+```sh
+otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Product gap: refunds over 30 days aren't specified, and the order rules decide what Dev builds.
+QUESTION
+```
+
+The question offers the user two ways out: **Send back to Product spec** (the ticket goes there, that stage runs again,
+a skip on it is cleared, and your session stops; the ticket comes back to your stage later with the stage's result) or
+**Answer here** (the answer arrives in this session like any other). Name only an earlier stage the ticket has been
+through: a later stage, your own, or one it never reached is refused. A small gap you can decide and record is not a
+reason to send it back (see "Product questions while you work").
+
 ## When you need the user
 
 If you are stuck, or you can't go on without the user's decision, ask, then end your turn:

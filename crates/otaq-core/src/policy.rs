@@ -172,6 +172,9 @@ pub enum Action {
     HandBack(TicketFacts),
     /// `otaq ask human` from a helper: its question goes to this ticket's agent in charge (d0133 audit 3).
     AskInCharge(TicketFacts),
+    /// `otaq ask human --send-back <stage>`: asks the user to send this ticket back to an earlier stage. Any agent
+    /// working the ticket may ask, its work agent or its checker; only the user's answer moves it.
+    AskSendBack(TicketFacts),
     /// Starts, stops or reads this ticket's Run (`otaq run start|stop|log`, agents run the app): its own agent and its check;
     /// never a helper, Noyan, or another ticket's agent.
     Run(TicketFacts),
@@ -239,6 +242,8 @@ pub fn authorize_in_stage(
         return match action {
             Action::Read => Ok(()),
             Action::Verdict(target) if target.id == *ticket_id => Ok(()),
+            // A checker that finds a problem belonging to an earlier stage asks the user to send it back there.
+            Action::AskSendBack(target) if target.id == *ticket_id => Ok(()),
             Action::Verdict(target) => refuse(format!(
                 "{who} can only report on {ticket}, not {}",
                 target.label
@@ -307,6 +312,7 @@ pub fn authorize_in_stage(
         Action::ChangeTicket(target)
         | Action::EditTicket(target)
         | Action::SetChoices(target)
+        | Action::AskSendBack(target)
         | Action::Answer { asked: target, .. }
             if target.id == *ticket_id =>
         {
@@ -319,7 +325,9 @@ pub fn authorize_in_stage(
         Action::EditTicket(target) | Action::SetChoices(target) | Action::DeleteTicket(target) => {
             may_fix(ticket, target).or_else(refuse)
         }
-        Action::ChangeTicket(target) | Action::Answer { asked: target, .. } => {
+        Action::ChangeTicket(target)
+        | Action::AskSendBack(target)
+        | Action::Answer { asked: target, .. } => {
             refuse(format!("{ticket}'s agent can't change {}", target.label))
         }
         // From its own ticket to any; from a ticket it may fix to any, its own included ("SHOP-41 waits for SHOP-40").

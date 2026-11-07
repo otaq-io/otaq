@@ -223,10 +223,19 @@ pub fn render_flow(stages: &[FlowStage], lead: &str) -> String {
 }
 
 /// What a ticket's agent (a work agent or a checker) is told above the flow's stages: a stage with nothing to add
-/// finishes at once, as an ordinary finish; only the user skips a stage.
-pub const FLOW_LEAD: &str = "The stages this ticket walks, in order, and what each is for. When your stage has \
-    nothing to add for this ticket, finish it at once as usual, with a short note saying so (\"Nothing to settle: \
-    README-only change\"). That is an ordinary finish, not a skip: only the user skips a stage.";
+/// finishes at once, as an ordinary finish; only the user skips a stage. A problem that belongs to an earlier stage
+/// goes to the user, who sends the ticket back or answers: an agent never moves a ticket back itself.
+pub fn flow_lead() -> String {
+    let cmd = naming::COMMAND_NAME;
+    format!(
+        "The stages this ticket walks, in order, and what each is for. When your stage has nothing to add for this \
+         ticket, finish it at once as usual, with a short note saying so (\"Nothing to settle: README-only change\"). \
+         That is an ordinary finish, not a skip: only the user skips a stage. When you find a problem that belongs to \
+         an earlier stage, skipped or already run (a product gap found in Dev, say), don't settle it in your stage \
+         and never move the ticket back yourself: ask the user to send it back there, your reason on stdin: `{cmd} \
+         ask human --send-back \"<stage>\" --stdin`, then end your turn. The user sends it back or answers here."
+    )
+}
 
 /// A stage the ticket ran before (AGM-06), as its latest run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -886,7 +895,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     if let Some(stage) = &ctx.stage {
         out.push_str(&render_your_stage(stage));
     }
-    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
+    out.push_str(&render_flow(&ctx.flow, &flow_lead()));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
     out.push_str(&render_manual_checks(&ctx.manual_checks));
@@ -1265,7 +1274,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     if let Some(stage) = &ctx.stage {
         out.push_str(&render_your_stage(stage));
     }
-    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
+    out.push_str(&render_flow(&ctx.flow, &flow_lead()));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&t.key, &ctx.comments));
     out.push_str(&render_manual_checks(&ctx.manual_checks));

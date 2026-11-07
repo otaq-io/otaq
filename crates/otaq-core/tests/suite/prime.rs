@@ -157,7 +157,10 @@ const DEFAULT_FLOW: &str = "## The flow
 
 The stages this ticket walks, in order, and what each is for. When your stage has nothing to add for this ticket, \
 finish it at once as usual, with a short note saying so (\"Nothing to settle: README-only change\"). That is an \
-ordinary finish, not a skip: only the user skips a stage.
+ordinary finish, not a skip: only the user skips a stage. When you find a problem that belongs to an earlier stage, \
+skipped or already run (a product gap found in Dev, say), don't settle it in your stage and never move the ticket back \
+yourself: ask the user to send it back there, your reason on stdin: `otaq ask human --send-back \"<stage>\" --stdin`, \
+then end your turn. The user sends it back or answers here.
 
 - Dev (your stage): Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the \
 code needs it.
