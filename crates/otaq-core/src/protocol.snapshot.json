@@ -5441,6 +5441,9 @@
         "question": {
           "ty": "bool"
         },
+        "ready_for_review": {
+          "ty": "bool"
+        },
         "tool_unavailable": {
           "ty": "bool"
         },
