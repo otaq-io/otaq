@@ -2115,6 +2115,46 @@
         }
       }
     },
+    "DeliveryMessage": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "String",
+          "required": true
+        },
+        "branch": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "description": {
+          "ty": "String"
+        },
+        "head": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "state": {
+          "ty": "MessageState",
+          "required": true
+        },
+        "title": {
+          "ty": "String"
+        }
+      }
+    },
+    "DeliveryMessageParams": {
+      "kind": "struct",
+      "fields": {
+        "key": {
+          "ty": "String",
+          "required": true
+        },
+        "message": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "DepNode": {
       "kind": "struct",
       "fields": {
@@ -4975,9 +5015,17 @@
           "ty": "String",
           "required": true
         },
+        "prepared_by": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "target": {
           "ty": "String",
           "required": true
+        },
+        "writing": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -5043,6 +5091,13 @@
           "required": true
         }
       }
+    },
+    "MessageState": {
+      "kind": "strings",
+      "values": [
+        "ready",
+        "writing"
+      ]
     },
     "MissingSkill": {
       "kind": "struct",
@@ -6136,6 +6191,10 @@
         "key": {
           "ty": "TicketKey",
           "required": true
+        },
+        "message": {
+          "ty": "Option<DeliveryMessage>",
+          "omittable": true
         },
         "pr_number": {
           "ty": "Option<u32>",
@@ -8459,6 +8518,9 @@
         },
         "ticket.delete_preview": {
           "newtype": "KeyParams"
+        },
+        "ticket.delivery_message": {
+          "newtype": "DeliveryMessageParams"
         },
         "ticket.done": {
           "newtype": "KeyParams"

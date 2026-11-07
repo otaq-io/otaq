@@ -252,8 +252,8 @@ pub fn rows(file: &FlowFile, agents: &AgentList, tools: &AgentTools) -> Vec<Stag
         })
         .collect();
     let delivery = &flow.delivery;
-    // A Local merge runs no agent.
-    let opener = delivery.agent.as_deref().filter(|_| delivery.can_open_pr());
+    // The delivery's agent writes its message in Review and opens its PRs; a Local merge may name none.
+    let opener = delivery.agent.as_deref();
     rows.push(StageRow {
         icon: delivery_icon(&flow.delivery),
         name: DELIVERY.to_owned(),

@@ -282,6 +282,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketCreateFromNote(_)
         | Request::TicketPrPropose(_)
         | Request::TicketPrOpened(_)
+        | Request::TicketDeliveryMessage(_)
         | Request::TicketBranchRename(_)
         | Request::TicketAsk(_)
         | Request::MessageAnswer(_)

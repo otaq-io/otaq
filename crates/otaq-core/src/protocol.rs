@@ -418,6 +418,10 @@ pub enum Request {
     /// `otaq pr opened <url>`: the skill reports the PR. Answered with [`Reply::Ticket`].
     #[serde(rename = "ticket.pr_opened")]
     TicketPrOpened(PrOpenedParams),
+    /// `otaq pr message --stdin`: the delivery's agent's message for a ticket waiting in Review (JSON text: title,
+    /// description, branch), which Approve's confirmation shows. Answered with [`Reply::Ticket`].
+    #[serde(rename = "ticket.delivery_message")]
+    TicketDeliveryMessage(DeliveryMessageParams),
     /// `otaq branch rename <name>` (GIT-07): refused once the branch was pushed. Answered with
     /// [`Reply::Ticket`].
     #[serde(rename = "ticket.branch_rename")]
@@ -1625,6 +1629,13 @@ pub struct PrProposeParams {
     pub proposal: String,
 }
 
+/// `{"key": "SHOP-18", "message": "{…}"}`: the delivery's message as its agent wrote it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct DeliveryMessageParams {
+    pub key: String,
+    pub message: String,
+}
+
 /// `{"key": "SHOP-18", "url": "https://github.com/acme/shop-web/pull/481"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct PrOpenedParams {
@@ -2168,6 +2179,7 @@ impl Request {
             Self::TicketValidationAction(_) => "ticket.validation_action",
             Self::TicketPrPropose(_) => "ticket.pr_propose",
             Self::TicketPrOpened(_) => "ticket.pr_opened",
+            Self::TicketDeliveryMessage(_) => "ticket.delivery_message",
             Self::TicketBranchRename(_) => "ticket.branch_rename",
             Self::TicketAsk(_) => "ticket.ask",
             Self::MessageAnswer(_) => "message.answer",

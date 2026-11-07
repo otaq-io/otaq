@@ -1,6 +1,6 @@
 //! The Open PR and Push skills' commands (REV-10, GIT-07; d0050): `otaq pr propose --stdin` (the proposal as
-//! one JSON object on stdin, documented in the open-pr skill), `otaq pr opened <url>` and `otaq branch
-//! rename <name>`. All work on `$OTAQ_TICKET`; the service refuses an agent acting on another ticket.
+//! one JSON object on stdin, documented in the open-pr skill), `otaq pr message --stdin` (the delivery's message its
+//! agent writes while the ticket waits in Review), `otaq pr opened <url>` and `otaq branch rename <name>`. All work on `$OTAQ_TICKET`; the service refuses an agent acting on another ticket.
 //!
 //! # `--json` shapes
 //!
@@ -12,7 +12,8 @@ use std::io::Read;
 use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
 use otaq_core::protocol::{
-    BranchRenameParams, ErrorBody, ErrorKind, PrOpenedParams, PrProposeParams, Reply, Request,
+    BranchRenameParams, DeliveryMessageParams, ErrorBody, ErrorKind, PrOpenedParams,
+    PrProposeParams, Reply, Request,
 };
 
 use crate::cli::{BranchCommand, GlobalArgs, PrCommand};
@@ -56,6 +57,30 @@ pub fn pr(command: PrCommand, global: &GlobalArgs, out: &Output) -> Result<(), E
                     ),
                 },
                 move |key| Request::TicketPrPropose(PrProposeParams { key, proposal }),
+            )
+        }
+        PrCommand::Message { stdin } => {
+            if !stdin {
+                return Err(ErrorBody::new(
+                    ErrorKind::Usage,
+                    format!("give the message on stdin: `{cmd} pr message --stdin`"),
+                ));
+            }
+            let mut message = String::new();
+            std::io::stdin()
+                .read_to_string(&mut message)
+                .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+            if message.trim().is_empty() {
+                return Err(ErrorBody::new(
+                    ErrorKind::Usage,
+                    "the message on stdin is empty",
+                ));
+            }
+            send(
+                global,
+                out,
+                |t| otaq_core::pr::message::stored_text(&t.key.to_string()),
+                move |key| Request::TicketDeliveryMessage(DeliveryMessageParams { key, message }),
             )
         }
         PrCommand::Opened { url } => send(

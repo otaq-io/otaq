@@ -124,6 +124,10 @@ pub struct PrFlowView {
     /// The skill that proposes: the project's Open PR skill, or its Push skill for a ticket with a PR.
     #[serde(default)]
     pub skill: String,
+    /// The delivery's message its agent wrote, or is writing, while the ticket waited in Review: the Open PR dialog
+    /// fills in with it when it arrives, unless the user typed.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<super::message::DeliveryMessage>,
 }
 
 /// The answer to a live branch-name check (REV-10).
@@ -248,6 +252,7 @@ impl Board {
                 .collect(),
             pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
             pr_url: row.pr_url,
+            message: self.delivery_message(&ticket.id).await?,
             key: ticket.key,
         })
     }
@@ -323,6 +328,23 @@ impl Board {
         .bind(now)
         .bind(now)
         .bind(automatic)
+        .execute(self.store().pool())
+        .await?;
+        Ok(())
+    }
+
+    /// The proposal the Open PR dialog opens on, stored by Otaq on the user's click: the flow is "proposed" at once.
+    pub(crate) async fn set_pr_proposal(
+        &self,
+        ticket_id: &str,
+        proposal: &Proposal,
+    ) -> Result<(), BoardError> {
+        sqlx::query(
+            "UPDATE pr_flows SET state = 'proposed', proposal_json = ?, updated_at = ? WHERE ticket_id = ?",
+        )
+        .bind(serde_json::to_string(proposal).expect("proposal serializes"))
+        .bind(now_ms())
+        .bind(ticket_id)
         .execute(self.store().pool())
         .await?;
         Ok(())

@@ -128,6 +128,12 @@ pub struct MergeProposal {
     /// menu leads with "Done, nothing to merge".
     #[serde(default)]
     pub commits: u32,
+    /// The delivery's agent that wrote `message` while the ticket waited in Review ("Prepared by Strong…").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub prepared_by: Option<String>,
+    /// The delivery's agent still writing it: `message` is the plain one until it arrives.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub writing: Option<String>,
 }
 
 impl Board {
@@ -153,17 +159,29 @@ impl Board {
     pub async fn merge_proposal(&self, key: &str) -> Result<MergeProposal, BoardError> {
         let ticket = self.ticket(key).await?;
         let target = self.merge_target(&ticket).await?;
+        let prepared = self.delivery_message(&ticket.id).await?;
         let mut message = format!("{}: {}", ticket.key, ticket.title);
         if let Some(body) = self.review_summary(&ticket.id).await? {
             message.push_str("\n\n");
             message.push_str(body.trim());
         }
+        // The delivery's agent's message once it wrote it, else the plain one while it writes (or with no agent).
+        let (prepared_by, writing) = match prepared {
+            Some(m) if m.is_ready() => {
+                message = m.squash();
+                (Some(m.agent), None)
+            }
+            Some(m) => (None, Some(m.agent)),
+            None => (None, None),
+        };
         let commits = self.commits_beyond_base(&ticket).await?;
         Ok(MergeProposal {
             key: ticket.key,
             target: target.target,
             message,
             commits,
+            prepared_by,
+            writing,
         })
     }
 

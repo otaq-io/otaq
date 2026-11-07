@@ -1,26 +1,27 @@
 ---
 name: open-pr
-description: Otaq's Open PR skill for a ticket's delivery as a pull request - get the context with `otaq prime`, propose the branch name, commit messages, PR title and description with `otaq pr propose --stdin`, and only once Otaq says it is confirmed push the branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`. In click mode the user confirms in a dialog; in automatic mode Otaq confirms at once, with no dialog.
+description: Otaq's Open PR skill for a ticket's delivery as a pull request - push the confirmed branch and open the PR with `gh` or `az`, then report it with `otaq pr opened <url>`. In click mode the user already confirmed the branch, title and description in Otaq's dialog when you start; in automatic mode you first propose them with `otaq pr propose --stdin` and Otaq confirms at once, with no dialog.
 disable-model-invocation: true
 ---
 
 # Open a pull request for your Otaq ticket
 
 Your ticket (its key is in `$OTAQ_TICKET`, for example `SHOP-18`) passed its last stage, and its flow
-delivers it as a pull request. You prepare the pull request, then push it and open it. This happens in two turns:
+delivers it as a pull request. You push it and open the PR. There are two turns, and click mode starts at the second:
 
-- **Turn 1 — propose.** You look at the work and propose a branch name, a message for each commit, a PR title and a
-  description. Then you stop.
-- **Turn 2 — push.** Once the proposal is confirmed, Otaq renames the branch and rewords the commits itself, then
-  types a message telling you to push. Only then do you push and open the PR.
+- **Turn 1 — propose** (automatic mode only). You look at the work and propose a branch name, a message for each
+  commit, a PR title and a description. Then you stop.
+- **Turn 2 — push.** Once the proposal is confirmed, Otaq has renamed the branch and reworded the commits itself, and
+  tells you to push. Only then do you push and open the PR.
 
 ## Click mode or automatic mode
 
 How you were started says which one this is:
 
-- **Click mode:** you were started with this skill alone; the user clicked **Open PR**. Otaq shows your proposal in
-  a dialog, the user can edit every part of it, and **nothing is pushed until they confirm**. The message that starts
-  turn 2 reads "The user confirmed the pull request".
+- **Click mode:** the text after this skill reads "The user confirmed the pull request". The delivery's agent wrote
+  the branch, title and description while the ticket waited in Review (`otaq pr message`), the user clicked
+  **Approve & open PR**, edited what they liked in Otaq's dialog and confirmed it. **Skip turn 1**: go straight to
+  turn 2, step 7.
 - **Automatic mode:** the text after this skill starts with the word `automatic` ("automatic: this project's flow
   opens the PR with no dialog…"), and `prime`'s "Pull request" section has the line
   `- Mode: automatic (no dialog): nobody reviews your proposal; Otaq confirms it at once`. The flow opens the PR with
@@ -29,10 +30,9 @@ How you were started says which one this is:
   dialog. End your turn: you'll be told to push."), and then types the message that starts turn 2: "The pull request
   was confirmed automatically". So propose exactly what you want pushed, following the user's rules to the letter.
 
-The steps are the same in both modes. After a Send back with PR comments, the new commits go to the same PR through
-Otaq's `push` skill, not this one.
+After a Send back with PR comments, the new commits go to the same PR through Otaq's `push` skill, not this one.
 
-## Turn 1: propose
+## Turn 1: propose (automatic mode)
 
 1. **Get the context first.** Run `otaq prime` and read all of it. Its "Pull request" section names the branch
    the PR targets, the remote, the PR provider and every commit that goes into the PR, oldest first, with its current
@@ -74,14 +74,14 @@ Otaq's `push` skill, not this one.
 
    `sha` is the commit's ID as `prime` lists it (short or full). The list must hold every listed commit, in order. If
    the command refuses the proposal, fix what it names and propose again.
-6. **End your turn.** Don't push and don't wait in a loop. In click mode the user reviews the proposal in Otaq; in
-   automatic mode Otaq's confirmation arrives as your next message.
+6. **End your turn.** Don't push and don't wait in a loop: Otaq's confirmation arrives as your next message.
 
 ## Turn 2: push and open the PR
 
-Otaq types a message into this session once the proposal is confirmed: "The user confirmed the pull request" (click
-mode, after the user clicked **Push & open PR**) or "The pull request was confirmed automatically" (automatic mode).
-Either one is your go-ahead. If the user cancels the dialog instead, nothing happens and nothing is pushed.
+"The user confirmed the pull request" (click mode, after the user clicked **Push & open PR**; it follows this skill
+when you start) or "The pull request was confirmed automatically" (automatic mode, typed after your proposal) is your
+go-ahead. Run step 3's provider check first if you haven't (click mode skipped turn 1): for a remote that isn't GitHub
+or Azure DevOps, push nothing and tell the user, as step 3 says.
 
 7. **Read what was confirmed.** Run `otaq prime` again. Its "Pull request" section now shows the **confirmed**
    branch name, title and description. The user may have edited them: use them exactly as shown. Otaq has already
@@ -116,7 +116,7 @@ Either one is your go-ahead. If the user cancels the dialog instead, nothing hap
 
 ## Rules
 
-- **Never push before Otaq tells you the proposal is confirmed.** Turn 1 only proposes, in both modes.
+- **Never push before Otaq tells you the proposal is confirmed.** Turn 1 only proposes.
 - Push only the confirmed branch, to `origin`, and never with `--force`. Never merge the PR yourself.
 - Don't change files or commits in either turn. If something must change, ask the user with
   `otaq ask human --stdin` instead.

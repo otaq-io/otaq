@@ -355,6 +355,7 @@ async fn action_for(
         R::TicketCreateFromNote(_) => Action::UserOnly("create tickets from validation notes"),
         R::TicketPrPropose(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketPrOpened(p) => Action::ChangeTicket(facts(board, &p.key).await?),
+        R::TicketDeliveryMessage(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         R::TicketBranchRename(p) => Action::ChangeTicket(facts(board, &p.key).await?),
         // Asking changes the asker's own ticket; answering, the ticket that was asked (CLI-02).
         R::TicketAsk(p) => Action::ChangeTicket(facts(board, &p.key).await?),
