@@ -1,11 +1,12 @@
 // The project switcher under the project's name in the title bar, and the rail's menu. What they say is Rust's
 // (`shell.header`'s `menu`, `shell.rail`'s `project_menu`; `otaq-view`'s `project_menu.rs`); this file only says where
 // each choice goes. The name only switches projects or adds one: a project row shows that project, Add project… opens
-// the add-project form. The rail's menu (a right-click on a tile, #11) opens the project's Settings: at the top, at its
-// Name field (Rename…) or at Remove project.
+// the add-project form. The rail's menu (a right-click on a tile, #11) opens the project's Settings page: at the top,
+// at its Repository card with the Name field (Rename…) or at Remove project.
 import { openOverlay } from "../../app/overlays";
-import type { OverlayParams } from "../../app/registry/overlays";
 import { selectProject } from "../../app/selection";
+import type { ProjectSectionId } from "../../generated/ProjectSectionId";
+import { openProjectSettings } from "../project_settings/logic";
 
 export interface SwitcherRoutes {
   select: (project: string) => void;
@@ -25,13 +26,16 @@ export function switcherChoice(key: string | null, routes: SwitcherRoutes = SWIT
   else routes.select(key);
 }
 
-/** Where a choice in the rail's menu opens the project's Settings; `null` for an id it doesn't know. */
-export function railMenuTarget(project: string, id: string): OverlayParams["settings"] | null {
+/** Where a choice in the rail's menu opens the project's Settings page; `null` for an id it doesn't know. */
+export function railMenuTarget(
+  project: string,
+  id: string,
+): { project: string; section: ProjectSectionId | null } | null {
   switch (id) {
     case "project_settings":
-      return { project };
+      return { project, section: null };
     case "rename_project":
-      return { project, section: "general" };
+      return { project, section: "repository" };
     case "remove_project":
       return { project, section: "remove_project" };
     default:
@@ -43,8 +47,8 @@ export function railMenuTarget(project: string, id: string): OverlayParams["sett
 export function railMenuChoice(
   project: string,
   id: string,
-  openSettings: (params: OverlayParams["settings"]) => void = (params) => {
-    openOverlay("settings", params);
+  openSettings: (target: { project: string; section: ProjectSectionId | null }) => void = (target) => {
+    openProjectSettings(target.project, target.section);
   },
 ): void {
   const target = railMenuTarget(project, id);

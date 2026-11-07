@@ -97,11 +97,6 @@
   white-space: nowrap;
 }
 
-.settings-nav-alert {
-  display: inline-flex;
-  color: var(--st-error);
-}
-
 /* ---- Page ---- */
 
 .settings-main {
@@ -150,10 +145,6 @@
   padding-bottom: 4px;
   color: var(--text-secondary);
   font: 400 12px var(--font-ui);
-}
-
-.settings-page-intro {
-  padding-top: 16px;
 }
 
 .settings-row {
@@ -2222,30 +2213,42 @@
   padding-bottom: 8px;
 }
 
-/* ---- A project's Flow (T-0422, FLW-07; *15 → Row · The project's Flow section*) ---- */
+/* ---- A project's Flow card (FLW-07): its actions, the strip from Backlog to Done, who changed it ---- */
 
 .settings-flow {
   display: flex;
   flex-direction: column;
-  gap: 8px;
-  padding: 12px 0 16px;
-  border-bottom: 1px solid var(--border);
+  gap: 10px;
+  padding-bottom: 14px;
 }
 
 .settings-flow-title {
   display: flex;
-  align-items: baseline;
+  align-items: flex-start;
   justify-content: space-between;
   gap: 12px;
 }
 
-.settings-flow-changed {
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
+.settings-flow-heading {
+  min-width: 0;
 }
 
-.settings-flow > .settings-row-description {
+.settings-flow-actions {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  padding-top: 12px;
+}
+
+.settings-flow-changed {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: baseline;
+  gap: 4px 12px;
   margin: 0;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
 }
 
 /* The waiting change (FLW-06): amber, as the board's banner. */
@@ -2267,57 +2270,52 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
-.settings-flow-table {
-  margin-top: 4px;
+/* The stages, left to right, with Backlog and Done at the ends. */
+.settings-flow-strip {
+  display: flex;
+  overflow-x: auto;
+  align-items: stretch;
+  gap: 18px;
+  margin: 0;
+  padding: 4px 0;
+  list-style: none;
 }
 
-.settings-flow-row {
-  display: grid;
-  grid-template-columns: minmax(0, 250fr) minmax(0, 290fr) minmax(0, 180fr);
-  align-items: start;
-  column-gap: 12px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
+.settings-flow-step {
+  position: relative;
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  min-width: 110px;
+  padding: 8px 12px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-column);
   font: 400 12px var(--font-ui);
 }
 
-.settings-flow-head {
-  padding-block: 6px;
-  color: var(--text-muted);
-  font: 400 10px var(--font-mono);
-  letter-spacing: 0.8px;
-  text-transform: uppercase;
+.settings-flow-step + .settings-flow-step::before {
+  position: absolute;
+  top: 50%;
+  left: -15px;
+  width: 12px;
+  border-top: 1px solid var(--border-strong);
+  content: "";
 }
 
-.settings-flow-ends {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  padding: 6px 0;
-  border-bottom: 1px solid var(--border);
-  color: var(--text-muted);
-  font: 400 11px var(--font-ui);
-}
-
-.settings-flow-stage {
-  display: flex;
-  gap: 8px;
-}
-
-.settings-flow-icon {
-  display: flex;
-  padding-top: 1px;
-  color: var(--text-secondary);
-}
-
-.settings-flow-cell {
-  display: flex;
-  flex-direction: column;
-  gap: 2px;
+.settings-flow-step[data-end] {
+  justify-content: center;
   min-width: 0;
+  border-style: dashed;
+  background: none;
+  color: var(--text-muted);
 }
 
 .settings-flow-name {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
   font-weight: 600;
 }
 
@@ -2326,21 +2324,9 @@
   font: 400 11px var(--font-ui);
 }
 
-.settings-flow-model {
+.settings-flow-agent {
   color: var(--text-secondary);
-  font: 400 11px var(--font-mono);
-}
-
-.settings-flow-actions {
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 8px;
-  padding-top: 8px;
-}
-
-.settings-flow-copy {
-  display: inline-flex;
+  font: 500 11px var(--font-ui);
 }
 
 /* Use a preset… (*Row · Use a preset*): four cards in two columns. */

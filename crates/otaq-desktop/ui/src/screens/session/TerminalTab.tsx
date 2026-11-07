@@ -8,6 +8,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
+import { openProjectSettings } from "../project_settings/logic";
 import { terminalFocusRequests } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Button, IconButton, Kbd, Tooltip } from "../../components";
@@ -261,10 +262,7 @@ export function TerminalTabBody({
                 type="button"
                 className="terminal-tab-instructions"
                 onClick={() => {
-                  openOverlay("settings", {
-                    project: view.instructions.project,
-                    section: "project_notes",
-                  });
+                  openProjectSettings(view.instructions.project, "project_notes");
                 }}
               >
                 <Icon name="info" size={12} />

@@ -38,7 +38,6 @@ const topic = (label: string, sections: GlobalSectionId[]): SettingsNavRow => ({
   label,
   icon: "bot",
   target: { page: "global", section: sections[sections.length - 1] ?? "about", sections },
-  alert: false,
 });
 
 // The nav `settings_page.rs` sends.
@@ -61,7 +60,7 @@ const VIEW: SettingsView = {
   page: {
     page: "global",
     title: "General",
-    sections: NAV.flatMap((row) => (row.target.page === "global" ? row.target.sections : [])).map((id) => ({
+    sections: NAV.flatMap((row) => row.target.sections).map((id) => ({
       id,
       title: null,
       intro: null,
@@ -77,8 +76,7 @@ const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
     for (const row of NAV)
-      if (row.target.page === "global")
-        for (const id of row.target.sections) a.settings.global.register(id, { Component: marker(id) });
+      for (const id of row.target.sections) a.settings.global.register(id, { Component: marker(id) });
   },
 });
 

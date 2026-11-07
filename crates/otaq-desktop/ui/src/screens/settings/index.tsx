@@ -1,16 +1,15 @@
-// Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the global and project sections it draws, one
-// registered component per section id (T-0240 registered Validation & Auto-merge; T-0365 Agent tools; T-0395 Keyboard
-// shortcuts; T-0410 Agents with one agent's page; T-0422 a project's Flow). App settings has eight topics: Agents,
-// Git & pull requests, Limits & usage, Notifications, Appearance, Keyboard, Data and About.
+// Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the app's sections it draws, one registered component
+// per section id (T-0365 Agent tools; T-0395 Keyboard shortcuts; T-0410 Agents with one agent's page). App settings
+// has eight topics: Agents, Git & pull requests, Limits & usage, Notifications, Appearance, Keyboard, Data and About.
+// A project's settings are its own page (`project_settings/`).
 import type { ComponentType } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
-import type { GlobalSection, ProjectSection } from "../../app/registry";
+import type { GlobalSection } from "../../app/registry";
 import { AboutSection } from "./About";
 import { AgentsSection } from "./Agents";
 import { AgentToolsSection } from "./AgentTools";
-import { FlowSection } from "./Flow";
 import { GitSection } from "./Git";
 import { KeyboardSection } from "./Keyboard";
 import { sectionComponent } from "./Rows";
@@ -31,16 +30,6 @@ export const GLOBAL: readonly GlobalSection[] = [
   "data",
   "about",
 ];
-export const PROJECT: readonly ProjectSection[] = [
-  "general",
-  "flow",
-  "project_notes",
-  "answers",
-  "commands",
-  "ticket_resources",
-  "pr_provider",
-  "remove_project",
-];
 
 /** The sections drawn from their own requests; the rest are rows of the Settings view. */
 const OWN: Partial<Record<GlobalSection, ComponentType>> = {
@@ -56,8 +45,6 @@ export const settings: Screen = (app) => {
   app.overlays.register("settings", { Component: Settings });
   const globalComponent = (id: GlobalSection) => OWN[id] ?? sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
-  for (const id of PROJECT)
-    app.settings.project.register(id, { Component: id === "flow" ? FlowSection : sectionComponent(id) });
   app.shortcuts.on("settings", () => {
     openOverlay("settings");
   });

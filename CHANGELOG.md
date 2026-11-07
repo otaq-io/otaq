@@ -11,6 +11,29 @@ before Publish (`scripts/README.md`, "Making a release").
   shape it) hands the text to Noyan, which reads the code and writes one or more tickets to Backlog for you to start.
   **⌥↵** (Alt+↵) starts a new line, and **More options…** opens the full form with what you typed. It replaces quick
   create and the Ask bar; ⌘L still opens Noyan's panel, and in Files ⌘N is still New ticket from this file.
+- **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
+  project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
+  Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,
+  which pull request provider the repository uses, merge check), **Run**, **Workspace** (setup command, your
+  variables, files to copy, ticket resources, warm build), **Notes for agents** and **Remove project**. Projects are
+  no longer listed in the app's Settings (⌘,), which keeps what's about you and your machine.
+- **Delivery is changed where you see it.** The Repository card's **Delivery** (Merge into main · Pull request ·
+  Either; On Approve · Automatically) is the flow's own setting: changing it there saves a new version of the flow,
+  as Edit flow does. Its line "Pull requests through: GitHub · owner/repo" says which provider the repository uses
+  and, when it isn't ready on this computer, offers **Set up…**.
+- **After a restart, one dialog.** When the background service started again and stopped agents that were working,
+  Otaq opens with "3 agents were stopped by a restart": each stopped ticket and conversation with Noyan, ticked, and
+  **Resume 3**. One whose tool can't run now (signed out, at its limit) says why and stays unticked; it is never
+  resumed on another tool. Each row then says whether it resumed, or offers **Retry** and **Start from scratch**.
+  **Not now** leaves them in Needs you, red with Resume. The "sessions were interrupted" banner is gone.
+- **The paused and limit banners have a ×.** Closing one hides it until something changes: a new pause, a new
+  limit, or the limit resetting. Resume stays in the command palette, and a limit's Resume in the usage chip's
+  popover.
+- **The menu-bar menu reads simpler.** NEEDS YOU first, then how many agents run in which project, then your checks
+  and stopped tickets; **Open Otaq** ⌘O, **Pause all**, **Restart to update** (the app only: working agents
+  continue) and **Quit Otaq** ⌘Q, which asks while agents work: **Keep them running** or **Quit and stop agents**.
+- **Settings → Data's Cleanup row says how much it would free** ("3 leftovers · 412 MB"); **Review…** opens Cleanup
+  over Settings.
 - **The command palette starts with what needs you.** Opened empty (⌘K), its first row is **Next that needs you**
   with the ticket it goes to: the same one ⌘J opens, in the Needs you strip's order. Below it: New ticket, Edit flow,
   Ask Noyan, Pause this project, Settings and Open a terminal, then your recent items.

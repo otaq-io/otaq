@@ -10,6 +10,10 @@
 //! notifications ask › service update ready › reconnecting. The flow change waiting (FLW-06, d0108; *11 → A flow change
 //! waiting*) is the project on screen's: amber, under the other warnings. The paused banner (PAU-08, d0112; `s24-07`)
 //! is the project on screen's too, amber and first of all.
+//!
+//! The paused and the limit banners can be closed: a close hides the banner until its state changes (a new pause, a
+//! new limit or a reset), so each carries what its state is. Resuming stays reachable meanwhile: a pause from the
+//! palette, a limit from the usage chip's popover.
 
 use std::collections::{BTreeMap, BTreeSet};
 
@@ -30,13 +34,11 @@ pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permissio
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BannerKind")]
 pub enum SituationKind {
-    /// Amber, first: the open project is paused (PAU-08, d0112); it can't be closed while paused, and carries
-    /// Resume.
+    /// Amber, first: the open project is paused (PAU-08, d0112), with Resume; closed, it stays hidden until a new
+    /// pause.
     Paused,
     /// Red: the background service has ended (reboot or crash).
     ServiceStopped,
-    /// Red: the service came back and its sessions were interrupted (REC-06).
-    SessionsInterrupted,
     RestartRequired,
     UsageLimit,
     /// Amber: Claude Code's trust couldn't be recorded for some projects (PRJ-08).
@@ -58,10 +60,12 @@ pub enum SituationKind {
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum Situation {
     /// The open project is paused ([`crate::view_models::pause::banner`]): "shop-web is paused." and what that
-    /// left, or "All projects are paused.", "… still paused." after a restart.
+    /// left, or "All projects are paused.", "… still paused." after a restart. `state` names this pause: a close
+    /// hides the banner until it differs.
     Paused {
         title: String,
         text: String,
+        state: String,
     },
     ServiceStopped,
     /// The service couldn't be reached or started at all: the banner says why (Q40), with Start service to try
@@ -69,25 +73,20 @@ pub enum Situation {
     ServiceCouldNotStart {
         reason: String,
     },
-    /// After a reboot, a crash (`unclean`) or a service restart: `count` sessions were interrupted; `at` is when
-    /// the service started again ("02:14"); `agents` Project agents ended with it (d0068, T-0244).
-    SessionsInterrupted {
-        count: u32,
-        unclean: bool,
-        at: String,
-        agents: u32,
-    },
     RestartRequired {
         working: u32,
         waiting: u32,
     },
     /// The usage limits and the tools that aren't available (USG-06, USG-10; [`crate::view_models::limit_banner`]):
     /// the first line's title, text and Resume (what a page that draws one line shows), and every tool's line.
+    /// `state` names the limits as they are (which tools, when each resets, whether it has): a close hides the
+    /// banner until it differs.
     UsageLimit {
         title: String,
         text: String,
         resume: Option<crate::view_models::limit_banner::ResumeButton>,
         lines: Vec<LineView>,
+        state: String,
     },
     /// The projects whose folder trust couldn't be recorded, by key. One banner for all of them (P6).
     TrustFailed {
@@ -123,13 +122,20 @@ pub struct TrustFailure {
 }
 
 impl Situation {
+    /// What a closable banner's state is, for the ones a close hides only until it changes.
+    fn state(&self) -> Option<&str> {
+        match self {
+            Self::Paused { state, .. } | Self::UsageLimit { state, .. } => Some(state),
+            _ => None,
+        }
+    }
+
     pub fn kind(&self) -> SituationKind {
         match self {
             Self::Paused { .. } => SituationKind::Paused,
             Self::ServiceStopped | Self::ServiceCouldNotStart { .. } => {
                 SituationKind::ServiceStopped
             }
-            Self::SessionsInterrupted { .. } => SituationKind::SessionsInterrupted,
             Self::RestartRequired { .. } => SituationKind::RestartRequired,
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
             Self::TrustFailed { .. } => SituationKind::TrustFailed,
@@ -145,16 +151,18 @@ impl Situation {
 }
 
 impl SituationKind {
-    /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required, the usage limit
-    /// and the folder trust warning stay until the situation ends; the notifications ask goes with Allow or Not now.
+    /// Whether the user can close it. Reconnecting goes away by itself; stopped, restart required and the folder
+    /// trust warning stay until the situation ends; the notifications ask goes with Allow or Not now. The paused and
+    /// the limit banners close until their state changes.
     pub fn dismissable(self) -> bool {
         matches!(
             self,
-            Self::PermissionWarning
+            Self::Paused
+                | Self::UsageLimit
+                | Self::PermissionWarning
                 | Self::NotificationsBlocked
                 | Self::TrustNote
                 | Self::ServiceUpdateReady
-                | Self::SessionsInterrupted
         )
     }
 }
@@ -174,7 +182,7 @@ pub struct BannerRow {
     /// The Restart now button (update ready, restart required), Start service (stopped), Resume all or Apply now (a
     /// flow change waiting).
     pub action: Option<String>,
-    /// A second button: "Review & resume" (opens the after-restart summary sheet).
+    /// A second button: the notifications ask's Not now, or Cancel change.
     pub secondary: Option<&'static str>,
     pub dismissable: bool,
     /// The usage limit's Resume: its label, whether it can be pressed, and whether it is highlighted.
@@ -252,7 +260,6 @@ impl BannerRow {
         let (tone, icon) = match self.kind {
             SituationKind::Paused => (BannerTone::Warning, IconName::Pause),
             SituationKind::ServiceStopped => (BannerTone::Error, IconName::ServerOff),
-            SituationKind::SessionsInterrupted => (BannerTone::Error, IconName::ZapOff),
             SituationKind::RestartRequired => (BannerTone::Warning, IconName::ServerCog),
             // Amber like the paused banner, never turquoise (d0077), which means needs you.
             SituationKind::UsageLimit => (BannerTone::Warning, IconName::Gauge),
@@ -276,9 +283,7 @@ impl BannerRow {
             let (label, icon) = match (self.kind, busy && restarts) {
                 (SituationKind::ServiceStopped, true) => ("Starting…", IconName::LoaderCircle),
                 (_, true) => ("Restarting…", IconName::LoaderCircle),
-                (SituationKind::ServiceStopped | SituationKind::SessionsInterrupted, false) => {
-                    (label, IconName::Play)
-                }
+                (SituationKind::ServiceStopped, false) => (label, IconName::Play),
                 (SituationKind::PermissionWarning | SituationKind::NotificationsBlocked, false) => {
                     (label, IconName::ExternalLink)
                 }
@@ -295,11 +300,8 @@ impl BannerRow {
             });
         }
         if let Some(label) = self.secondary {
-            // The ask's Not now closes it, and Cancel change drops the change; Review & resume opens the summary.
-            let icon = match self.kind {
-                SituationKind::NotificationsAsk | SituationKind::FlowWaiting => IconName::X,
-                _ => IconName::ArrowRight,
-            };
+            // The ask's Not now closes it, and Cancel change drops the change.
+            let icon = IconName::X;
             buttons.push(BannerButton {
                 id: BannerButtonId::Secondary,
                 label: label.to_owned(),
@@ -340,6 +342,8 @@ pub const MAX_ROWS: usize = 2;
 pub struct BannerModel {
     active: BTreeMap<SituationKind, Situation>,
     dismissed: BTreeSet<SituationKind>,
+    /// The states the paused and the limit banners were closed in: hidden while their state is one of these.
+    closed_in: BTreeSet<(SituationKind, String)>,
 }
 
 impl BannerModel {
@@ -354,11 +358,28 @@ impl BannerModel {
         self.dismissed.remove(&kind);
     }
 
-    /// The user closed the banner. Ignored for banners that can't be closed.
+    /// The user closed the banner. Ignored for banners that can't be closed. One with a state stays closed only
+    /// while its state is the same.
     pub fn dismiss(&mut self, kind: SituationKind) {
-        if kind.dismissable() {
-            self.dismissed.insert(kind);
+        if !kind.dismissable() {
+            return;
         }
+        match self.active.get(&kind).and_then(Situation::state) {
+            Some(state) => {
+                self.closed_in.insert((kind, state.to_owned()));
+            }
+            None => {
+                self.dismissed.insert(kind);
+            }
+        }
+    }
+
+    fn closed(&self, situation: &Situation) -> bool {
+        let kind = situation.kind();
+        self.dismissed.contains(&kind)
+            || situation
+                .state()
+                .is_some_and(|s| self.closed_in.contains(&(kind, s.to_owned())))
     }
 
     pub fn is_active(&self, kind: SituationKind) -> bool {
@@ -403,11 +424,7 @@ impl BannerModel {
 
     /// The rows to draw, top first.
     pub fn rows(&self) -> Vec<BannerRow> {
-        let shown: Vec<&Situation> = self
-            .active
-            .values()
-            .filter(|s| !self.dismissed.contains(&s.kind()))
-            .collect();
+        let shown: Vec<&Situation> = self.active.values().filter(|s| !self.closed(s)).collect();
         let reconnecting = shown
             .iter()
             .any(|s| s.kind() == SituationKind::Reconnecting);
@@ -439,7 +456,7 @@ fn row(situation: &Situation) -> BannerRow {
     let mut lines = Vec::new();
     let (title, text, action) = match situation {
         // The paused banner carries Resume: Pause leaves the title bar while nothing runs.
-        Situation::Paused { title, text } => {
+        Situation::Paused { title, text, .. } => {
             resume = Some(crate::view_models::limit_banner::ResumeButton {
                 label: crate::view_models::pause::RESUME.to_owned(),
                 enabled: true,
@@ -457,39 +474,6 @@ fn row(situation: &Situation) -> BannerRow {
             reason.clone(),
             Some("Start service"),
         ),
-        // *16 → Opening after a reboot*; *11 → After the service restart*.
-        Situation::SessionsInterrupted {
-            count,
-            unclean,
-            at,
-            agents,
-        } => {
-            let sessions = if *count == 1 { "session was" } else { "sessions were" };
-            // "8 sessions were interrupted · 2 conversations with Noyan ended" (*16 → Opening after a reboot*).
-            let ended: String = crate::view_models::after_restart::ended(*agents as usize)
-                .iter()
-                .map(|e| format!(" \u{b7} {e}"))
-                .collect();
-            if *unclean {
-                secondary = Some("Review & resume");
-                (
-                    format!("{count} {sessions} interrupted{ended}"),
-                    format!(
-                        "The background service started again at {at} after a reboot or crash. Nothing restarts on its own."
-                    ),
-                    Some("Resume all"),
-                )
-            } else {
-                secondary = Some("Review & resume");
-                (
-                    "Service restarted".to_owned(),
-                    format!(
-                        "{count} {sessions} interrupted by the restart{ended} · waiting tickets keep their questions"
-                    ),
-                    Some("Resume all"),
-                )
-            }
-        }
         Situation::RestartRequired { working, waiting } => (
             "Restart required".to_owned(),
             format!(
@@ -503,6 +487,7 @@ fn row(situation: &Situation) -> BannerRow {
             text,
             resume: button,
             lines: drawn,
+            ..
         } => {
             resume = button.clone();
             lines = drawn.clone();
@@ -762,6 +747,7 @@ mod tests {
         });
         m.raise(Situation::PermissionWarning);
         m.raise(Situation::UsageLimit {
+            state: String::new(),
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
             resume: None,
@@ -801,6 +787,7 @@ mod tests {
     fn reconnecting_folds_into_another_banner() {
         let mut m = BannerModel::default();
         m.raise(Situation::UsageLimit {
+            state: String::new(),
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm · 8 agents stopped".into(),
             resume: None,
@@ -857,58 +844,6 @@ mod tests {
     }
 
     #[test]
-    fn interrupted_sessions_after_a_reboot_or_a_restart() {
-        let mut m = BannerModel::default();
-        m.raise(Situation::SessionsInterrupted {
-            count: 4,
-            unclean: true,
-            at: "02:14".into(),
-            agents: 0,
-        });
-        let row = &m.rows()[0];
-        assert_eq!(row.title, "4 sessions were interrupted");
-        m.raise(Situation::SessionsInterrupted {
-            count: 8,
-            unclean: true,
-            at: "02:14".into(),
-            agents: 2,
-        });
-        assert_eq!(
-            m.rows()[0].title,
-            "8 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
-        );
-        m.raise(Situation::SessionsInterrupted {
-            count: 8,
-            unclean: true,
-            at: "02:14".into(),
-            agents: 2,
-        });
-        let row = &m.rows()[0];
-        assert_eq!(
-            row.text,
-            "The background service started again at 02:14 after a reboot or crash. Nothing restarts on its own."
-        );
-        assert_eq!(
-            (row.action.as_deref(), row.secondary, row.dismissable),
-            (Some("Resume all"), Some("Review & resume"), true)
-        );
-        m.raise(Situation::SessionsInterrupted {
-            count: 1,
-            unclean: false,
-            at: "09:00".into(),
-            agents: 0,
-        });
-        let row = &m.rows()[0];
-        assert_eq!(row.title, "Service restarted");
-        assert_eq!(
-            row.text,
-            "1 session was interrupted by the restart · waiting tickets keep their questions"
-        );
-        m.dismiss(SituationKind::SessionsInterrupted);
-        assert!(m.rows().is_empty());
-    }
-
-    #[test]
     fn a_start_error_is_the_stopped_banner_with_its_reason() {
         let mut m = BannerModel::default();
         m.raise(Situation::ServiceStopped);
@@ -959,25 +894,6 @@ mod tests {
         let stopped = row(&Situation::ServiceStopped).view(true);
         assert_eq!(stopped.buttons[0].label, "Starting…");
 
-        let interrupted = row(&Situation::SessionsInterrupted {
-            count: 4,
-            unclean: true,
-            at: "02:14".into(),
-            agents: 0,
-        })
-        .view(false);
-        let labels: Vec<(&str, IconName)> = interrupted
-            .buttons
-            .iter()
-            .map(|b| (b.label.as_str(), b.icon))
-            .collect();
-        assert_eq!(
-            labels,
-            [
-                ("Resume all", IconName::Play),
-                ("Review & resume", IconName::ArrowRight)
-            ]
-        );
         let warning = row(&Situation::PermissionWarning).view(true);
         assert_eq!(
             (
@@ -993,6 +909,7 @@ mod tests {
     #[test]
     fn the_usage_limit_draws_its_resume() {
         let limit = |enabled, primary| Situation::UsageLimit {
+            state: String::new(),
             title: "Usage limit reset".into(),
             text: "Your plan limit reset".into(),
             resume: Some(crate::view_models::limit_banner::ResumeButton {
@@ -1016,7 +933,48 @@ mod tests {
         );
         assert!(!row(&limit(false, false)).view(false).buttons[0].enabled);
         assert!(!row(&limit(true, true)).view(true).buttons[0].enabled);
-        assert!(!view.dismissable);
+        assert!(view.dismissable, "the ×");
+    }
+
+    /// The paused and the limit banners close until their state changes: the same pause or limit raised again stays
+    /// hidden; a new pause, a new limit or a reset shows it again.
+    #[test]
+    fn a_closed_paused_or_limit_banner_comes_back_when_its_state_changes() {
+        let paused = |state: &str| Situation::Paused {
+            title: "shop-web is paused".into(),
+            text: "4 agents stopped where they were.".into(),
+            state: state.into(),
+        };
+        let limit = |state: &str, text: &str| Situation::UsageLimit {
+            title: "Claude Code limit reached".into(),
+            text: text.into(),
+            resume: None,
+            lines: Vec::new(),
+            state: state.into(),
+        };
+        let mut m = BannerModel::default();
+        m.raise(paused("SHOP@1"));
+        m.raise(limit("claude:limit:1", "Resets in 42 min"));
+        m.dismiss(SituationKind::Paused);
+        m.dismiss(SituationKind::UsageLimit);
+        assert!(m.rows().is_empty());
+        // The same pause and limit, worded anew (the clock moved): still closed.
+        m.raise(paused("SHOP@1"));
+        m.raise(limit("claude:limit:1", "Resets in 41 min"));
+        assert!(m.rows().is_empty());
+        // The limit reset: back. Another project's pause on screen: back.
+        m.raise(limit("claude:limit:1:reset", "The limit has reset."));
+        assert_eq!(kinds(&m), [SituationKind::UsageLimit]);
+        m.raise(paused("WEB@2"));
+        assert_eq!(
+            kinds(&m),
+            [SituationKind::Paused, SituationKind::UsageLimit]
+        );
+        // Resumed, then paused again later: a new pause shows.
+        m.dismiss(SituationKind::Paused);
+        m.clear(SituationKind::Paused);
+        m.raise(paused("WEB@3"));
+        assert_eq!(kinds(&m)[0], SituationKind::Paused);
     }
 
     fn failure(project: &str, reason: &str) -> TrustFailure {
@@ -1143,6 +1101,7 @@ mod tests {
     #[test]
     fn the_folder_trust_banners_stack_around_the_permission_warning() {
         let limit = || Situation::UsageLimit {
+            state: String::new(),
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
             resume: None,
@@ -1268,6 +1227,7 @@ mod tests {
     #[test]
     fn the_notification_banners_stack_with_the_others() {
         let limit = || Situation::UsageLimit {
+            state: String::new(),
             title: "Session limit reached".into(),
             text: "Resets at 3:00 pm".into(),
             resume: None,

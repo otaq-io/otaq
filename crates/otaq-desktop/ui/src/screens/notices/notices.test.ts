@@ -81,6 +81,7 @@ const notices = (banners: Banner[], only = false): Notices => ({
   service_down: false,
   input_enabled: !only,
   summary_for: null,
+  limit_lines: [],
 });
 
 describe("the notices", () => {
@@ -125,17 +126,8 @@ describe("banner buttons", () => {
     expect(r.ask).toHaveBeenCalledWith("notices.restart");
   });
 
-  it("Resume all after interrupted sessions opens the confirmation with its ticket list", async () => {
+  it("the limit's Resume and Read the docs are requests", async () => {
     const r = routes();
-    await pressBanner("sessions_interrupted", "action", r.routes);
-    expect(r.stack.store.get().map((o) => o.id)).toEqual(["resume_all"]);
-    expect(r.ask).not.toHaveBeenCalled();
-  });
-
-  it("Review & resume opens the summary sheet; the limit's Resume and Read the docs are requests", async () => {
-    const r = routes();
-    await pressBanner("sessions_interrupted", "secondary", r.routes);
-    expect(r.stack.store.get().map((o) => o.id)).toEqual(["after_restart"]);
     await pressBanner("usage_limit", "resume", r.routes);
     await pressBanner("permission_warning", "action", r.routes);
     await pressBanner("reconnecting", "action", r.routes);

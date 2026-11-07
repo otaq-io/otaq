@@ -1,7 +1,7 @@
-// Settings → Flow, a project's section (T-0422; FLW-06…FLW-11; *15 → Row · The project's Flow section*, *Row · Use a
-// preset*): who changed the flow and when, the waiting change with Cancel change, the read-only stage table, and the
-// actions. Everything it says comes from Rust (`settings.flow`, `settings.flow_presets`, `settings.flow_copy`); what
-// the buttons do is in `flow.ts`.
+// The Flow card of the project's Settings page (FLW-06…FLW-11): Export and Edit flow with the ⋯ menu, the waiting
+// change with Cancel change, the stages as a strip from Backlog to Done (what each does and who works in it), and who
+// changed the flow and when with Go back to the previous flow. Everything it says comes from Rust (`settings.flow`,
+// `settings.flow_presets`, `settings.flow_copy`); what the buttons do is in `flowActions.ts`.
 import { useCallback, useEffect, useRef, useState } from "react";
 
 import { AnchoredMenu, Button, Dialog, IconButton } from "../../components";
@@ -15,29 +15,32 @@ import type { RequestError } from "../../generated/RequestError";
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { changeFlow, menuChoice, proposeFrom } from "./flowActions";
+import { changeFlow, exportFlow, menuChoice, proposeFrom } from "./flowActions";
 
 /** The service events after which the section is fetched again: the flow, its waiting change, the agents. */
 const REFETCH_ON = ["flow_changed", "agents_changed", "projects_changed", "ticket_changed"];
 
-function StageRow({ row }: { row: FlowSettingsStage }) {
+/** One stage of the strip: its name, what it does, and who works in it (the model and the kind on hover). */
+function StageStep({ row }: { row: FlowSettingsStage }) {
+  const title = [row.kind, row.model].filter((t) => t !== null && t !== "").join(" · ");
   return (
-    <div className="settings-flow-row" role="row">
-      <span className="settings-flow-stage" role="cell">
-        <span className="settings-flow-icon">
-          <Icon name={row.icon} size={13} />
-        </span>
-        <span className="settings-flow-cell">
-          <span className="settings-flow-name">{row.name}</span>
-          <span className="settings-flow-kind">{row.kind}</span>
-        </span>
+    <li className="settings-flow-step" title={title}>
+      <span className="settings-flow-name">
+        <Icon name={row.icon} size={12} />
+        {row.name}
       </span>
-      <span className="settings-flow-cell" role="cell">
-        <span>{row.agent}</span>
-        {row.model !== null && <span className="settings-flow-model">{row.model}</span>}
-      </span>
-      <span role="cell">{row.options}</span>
-    </div>
+      <span className="settings-flow-kind">{row.caption}</span>
+      <span className="settings-flow-agent">{row.agent}</span>
+    </li>
+  );
+}
+
+/** Backlog or Done: the strip's fixed ends. */
+function End({ label }: { label: string }) {
+  return (
+    <li className="settings-flow-step" data-end>
+      <span className="settings-flow-name">{label}</span>
+    </li>
   );
 }
 
@@ -123,6 +126,8 @@ export function FlowSectionBody({
   section,
   onCancelChange,
   onChange,
+  onExport,
+  onBack,
   onPreset,
   onCopy,
   onMenu,
@@ -130,21 +135,87 @@ export function FlowSectionBody({
   section: FlowSettings;
   onCancelChange: () => void;
   onChange: () => void;
+  onExport: () => void;
+  onBack: () => void;
   onPreset: () => void;
   onCopy: (project: string) => void;
   onMenu: (id: string) => void;
 }) {
   const more = useRef<HTMLButtonElement>(null);
-  const copyButton = useRef<HTMLButtonElement>(null);
   const [menuOpen, setMenuOpen] = useState(false);
   const [copy, setCopy] = useState<FlowCopyMenu | null>(null);
   return (
     <section className="settings-section settings-flow" data-section="flow" aria-label={section.title}>
       <div className="settings-flow-title">
-        <span className="settings-row-label">{section.title}</span>
-        <span className="settings-flow-changed">{section.changed}</span>
+        <div className="settings-flow-heading">
+          <h3 className="settings-section-title">{section.title}</h3>
+          <p className="settings-intro">{section.intro}</p>
+        </div>
+        <div className="settings-flow-actions">
+          <Button
+            variant="secondary"
+            compact
+            label={section.export.label}
+            icon={section.export.icon ?? undefined}
+            onClick={onExport}
+          />
+          <Button
+            compact
+            label={section.change.label}
+            icon={section.change.icon ?? undefined}
+            disabled={section.change.disabled}
+            onClick={onChange}
+          />
+          <IconButton
+            ref={more}
+            icon="ellipsis"
+            label={section.menu_label}
+            onClick={() => {
+              setMenuOpen((o) => !o);
+            }}
+          />
+          {copy !== null && (
+            <AnchoredMenu
+              anchor={more}
+              align="end"
+              label={copy.title}
+              items={copyItems(copy)}
+              onChoose={(key) => {
+                setCopy(null);
+                onCopy(key);
+              }}
+              onClose={(how) => {
+                setCopy(null);
+                if (how === "key") more.current?.focus();
+              }}
+            />
+          )}
+          {menuOpen && (
+            <AnchoredMenu
+              anchor={more}
+              align="end"
+              label={section.menu_label}
+              items={section.menu}
+              onChoose={(id) => {
+                setMenuOpen(false);
+                if (id === "preset") onPreset();
+                else if (id === "copy")
+                  request("settings.flow_copy", { project: section.project }).then(
+                    (menu) => {
+                      setCopy(menu as FlowCopyMenu);
+                    },
+                    () => undefined,
+                  );
+                else onMenu(id);
+              }}
+              onClose={(how) => {
+                setMenuOpen(false);
+                if (how === "key") more.current?.focus();
+              }}
+            />
+          )}
+        </div>
       </div>
-      <p className="settings-row-description">{section.intro}</p>
       {section.waiting !== null && (
         <div className="settings-flow-waiting" role="status">
           <Icon name="triangle-alert" size={14} />
@@ -157,88 +228,22 @@ export function FlowSectionBody({
           {section.problem}
         </p>
       ) : (
-        <div className="settings-flow-table" role="table" aria-label={section.title}>
-          <div className="settings-flow-row settings-flow-head" role="row">
-            {section.columns.map((column) => (
-              <span key={column} role="columnheader">
-                {column}
-              </span>
-            ))}
-          </div>
-          <div className="settings-flow-ends" role="row">
-            <Icon name="circle-dashed" size={12} />
-            <span role="cell">{section.ends}</span>
-          </div>
+        <ol className="settings-flow-strip" aria-label={section.title}>
+          <End label={section.first} />
           {section.rows.map((row) => (
-            <StageRow key={`${row.name}-${row.kind}`} row={row} />
+            <StageStep key={`${row.name}-${row.kind}`} row={row} />
           ))}
-        </div>
+          <End label={section.last} />
+        </ol>
       )}
-      <div className="settings-flow-actions">
-        <Button
-          label={section.change.label}
-          icon={section.change.icon ?? undefined}
-          disabled={section.change.disabled}
-          onClick={onChange}
-        />
-        <Button variant="secondary" label={section.preset.label} onClick={onPreset} />
-        <span className="settings-flow-copy" title={section.copy.hint ?? undefined}>
-          <Button
-            ref={copyButton}
-            variant="secondary"
-            label={section.copy.label}
-            disabled={section.copy.disabled}
-            onClick={() => {
-              request("settings.flow_copy", { project: section.project }).then(
-                (menu) => {
-                  setCopy(menu as FlowCopyMenu);
-                },
-                () => undefined,
-              );
-            }}
-          />
-        </span>
-        <IconButton
-          ref={more}
-          icon="ellipsis"
-          label={section.menu_label}
-          onClick={() => {
-            setMenuOpen((o) => !o);
-          }}
-        />
-        {copy !== null && (
-          <AnchoredMenu
-            anchor={copyButton}
-            align="start"
-            label={section.copy.label}
-            items={copyItems(copy)}
-            onChoose={(key) => {
-              setCopy(null);
-              onCopy(key);
-            }}
-            onClose={(how) => {
-              setCopy(null);
-              if (how === "key") copyButton.current?.focus();
-            }}
-          />
+      <p className="settings-flow-changed">
+        <span>{section.changed}</span>
+        {section.back !== null && (
+          <button type="button" className="settings-link" onClick={onBack}>
+            {section.back}
+          </button>
         )}
-        {menuOpen && (
-          <AnchoredMenu
-            anchor={more}
-            align="start"
-            label={section.menu_label}
-            items={section.menu}
-            onChoose={(id) => {
-              setMenuOpen(false);
-              onMenu(id);
-            }}
-            onClose={(how) => {
-              setMenuOpen(false);
-              if (how === "key") more.current?.focus();
-            }}
-          />
-        )}
-      </div>
+      </p>
     </section>
   );
 }
@@ -278,6 +283,14 @@ export function FlowSection({ project }: { project: string }) {
         }}
         onChange={() => {
           changeFlow(section);
+        }}
+        onExport={() => {
+          exportFlow(section).then(() => {
+            setError(null);
+          }, failed);
+        }}
+        onBack={() => {
+          proposeFrom(project, { from: "previous" }).catch(failed);
         }}
         onPreset={() => {
           request("settings.flow_presets", { project }).then((d) => {

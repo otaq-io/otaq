@@ -3,7 +3,7 @@
 // it: it grows upward over a light scrim, the title line on top and "Add details (optional)" under it. ↵ Create, ⌘↵
 // Create & start, ⇧↵ Ask Noyan to shape it, ⌥↵ a new line (from the title line, into the details); More options…
 // opens the full form with what was typed. Esc or a click outside closes it and keeps what was typed. It isn't there
-// in Files, while Noyan's panel is open, or when `new_work.view` says it isn't shown.
+// in Files or the project's Settings, while Noyan's panel is open, or when `new_work.view` says it isn't shown.
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { shellLayout } from "../../app/layout";
@@ -21,7 +21,7 @@ import {
   boxOnScreen,
   createTicket,
   EMPTY,
-  filesShown,
+  boardAway,
   formOf,
   hasWords,
   intoTitle,
@@ -341,9 +341,9 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
 export function NewWork() {
   const { project } = useSelection();
   const panelOpen = useStore(shellLayout).agentOpen;
-  const files = useStore(filesShown);
+  const away = useStore(boardAway);
   const load = useCallback(() => request("new_work.view") as Promise<NewWorkView>, []);
   const { view } = useServiceView(load, NEW_WORK_EVENTS);
-  if (project === null || !view?.shown || panelOpen || files) return null;
+  if (project === null || !view?.shown || panelOpen || away) return null;
   return <ProjectNewWork key={project} project={project} view={view} />;
 }

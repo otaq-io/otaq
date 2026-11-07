@@ -2807,7 +2807,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -2856,6 +2855,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -4186,7 +4196,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -4235,6 +4244,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -5576,7 +5596,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -5625,6 +5644,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -6080,7 +6110,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -6129,6 +6158,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -6531,7 +6571,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -6580,6 +6619,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -6993,7 +7043,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -7042,6 +7091,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -8166,7 +8226,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -8215,6 +8274,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -8953,7 +9023,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -9002,6 +9071,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }
@@ -9751,7 +9831,6 @@
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
-          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -9800,6 +9879,17 @@
                 "label": "Files",
                 "selected": false,
                 "tooltip": "Files"
+              },
+              {
+                "change": {
+                  "kind": "view",
+                  "view": "settings"
+                },
+                "icon": "settings",
+                "keys": null,
+                "label": "Settings",
+                "selected": false,
+                "tooltip": "The project’s settings"
               }
             ]
           }

@@ -1,0 +1,167 @@
+/*
+ * The project's Settings page, in the project's main area under the board's toolbar: the section list on the left
+ * (the project's name and folder, the cards, the line about app settings), the cards on the right, one per section,
+ * scrolling. Remove project is a red card. The rows inside are Settings' own (`settings/settings.css`).
+ */
+.project-settings {
+  display: flex;
+  flex: 1;
+  min-height: 0;
+  background: var(--bg-app);
+  color: var(--text-primary);
+  font: var(--text-body);
+}
+
+.project-settings-nav {
+  display: flex;
+  overflow-y: auto;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  box-sizing: border-box;
+  width: 220px;
+  padding: 20px 12px;
+}
+
+.project-settings-head {
+  display: flex;
+  flex-direction: column;
+  gap: 2px;
+  padding: 0 10px 12px;
+}
+
+.project-settings-name {
+  overflow: hidden;
+  font: 600 14px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-settings-path {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.project-settings-nav-item {
+  padding: 6px 10px;
+  border: 0;
+  border-radius: var(--r-md);
+  background: none;
+  color: var(--text-secondary);
+  font: 400 13px var(--font-ui);
+  text-align: left;
+  cursor: pointer;
+}
+
+.project-settings-nav-item:hover {
+  background: var(--bg-hover);
+}
+
+.project-settings-nav-item:focus-visible {
+  outline: 2px solid var(--accent);
+  outline-offset: -2px;
+}
+
+.project-settings-nav-item[aria-current] {
+  background: var(--accent-soft);
+  color: var(--text-primary);
+  font-weight: 600;
+}
+
+.project-settings-nav-item[data-section="remove_project"] {
+  color: var(--st-error);
+}
+
+.project-settings-note {
+  margin: 12px 10px 0;
+  color: var(--text-muted);
+  font: 400 11px/1.4 var(--font-ui);
+}
+
+.project-settings-body {
+  display: flex;
+  overflow-y: auto;
+  flex: 1;
+  flex-direction: column;
+  gap: 16px;
+  min-width: 0;
+  padding: 20px 24px 48px 8px;
+}
+
+.project-settings-body > .settings-error {
+  margin: 0;
+}
+
+.project-settings-card {
+  flex: none;
+  max-width: 920px;
+  padding: 4px 20px 8px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-lg);
+  background: var(--bg-card);
+}
+
+/* A card's title and its line, as the canvas draws them: the title in the UI font, not the global page's caps. */
+.project-settings-card .settings-section-title {
+  padding: 14px 0 2px;
+  color: var(--text-primary);
+  font: 600 15px var(--font-ui);
+  text-transform: none;
+}
+
+.project-settings-card .settings-intro {
+  padding-bottom: 8px;
+  color: var(--text-muted);
+}
+
+.project-settings-card .settings-row:last-child {
+  border-bottom: 0;
+}
+
+.project-settings-card .settings-row-text {
+  width: 250px;
+}
+
+.project-settings-card[data-section="remove_project"] {
+  border-color: var(--st-error);
+}
+
+.project-settings-card[data-section="remove_project"] .settings-section-title {
+  color: var(--st-error);
+}
+
+/* Delivery: the two choices side by side, the line saying it is the flow's under them. */
+.settings-delivery {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+}
+
+.settings-delivery-choices {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 10px;
+}
+
+.settings-delivery-note {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-muted);
+  font: 400 12px var(--font-ui);
+}
+
+/* The PR provider line: the repository in a box, how its tool stands under it. */
+.settings-provider-control {
+  gap: 6px;
+}
+
+.settings-provider-line {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+}

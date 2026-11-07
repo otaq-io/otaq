@@ -1,15 +1,14 @@
 // Settings (⌘,; *15 · Settings*): one modal window, 1040 × 720, a nav on the left (the app's topics: you and your
 // machine; a line says project settings are in each project's Settings tab) and one page on the right. Each topic is
 // its own page, titled with its nav label (or the heading the topic puts there: one agent's page), showing only that
-// topic's sections. Opened at a topic's id (`{ section: "git" }`) it shows that topic. Opened on a project it still
-// shows that project's page. The nav, the page and every row come from `settings.view`; an edit answers with the
-// fresh view. Esc or × closes it.
+// topic's sections. Opened at a topic's id (`{ section: "git" }`) it shows that topic. The nav, the page and every
+// row come from `settings.view`; an edit answers with the fresh view. Esc or × closes it. A project's settings are its
+// own page, in its main area (`project_settings/`).
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { type OverlayProps, useRegistries } from "../../app/registry";
 import { IconButton } from "../../components";
-import type { RemoveProjectDialog } from "../../generated/RemoveProjectDialog";
 import type { SettingsButtonAction } from "../../generated/SettingsButtonAction";
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsValue } from "../../generated/SettingsValue";
@@ -20,28 +19,22 @@ import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { SettingsContext, type SettingsContextValue, topicRow } from "./context";
-import { CreditsDialog, RemoveDialog } from "./Dialogs";
+import { openProjectSettings } from "../project_settings/logic";
+import { CreditsDialog } from "./Dialogs";
 
-type Open =
-  { kind: "remove"; dialog: RemoveProjectDialog } | { kind: "credits"; dialog: ThemeCreditsDialog } | null;
+type Open = { kind: "credits"; dialog: ThemeCreditsDialog } | null;
 
 function NavItem({ row, on, onClick }: { row: SettingsNavRow; on: boolean; onClick: () => void }) {
   return (
     <button type="button" className="settings-nav-item" aria-current={on || undefined} onClick={onClick}>
       <Icon name={row.icon} />
       <span className="settings-nav-label">{row.label}</span>
-      {row.alert && (
-        <span className="settings-nav-alert">
-          <Icon name="circle-alert" size={13} />
-        </span>
-      )}
     </button>
   );
 }
 
 export function Settings({ params, close }: OverlayProps<"settings">) {
   const app = useRegistries();
-  const [project, setProject] = useState<string | null>(params?.project ?? null);
   const [view, setView] = useState<SettingsView | null>(null);
   const [error, setError] = useState<RequestError | null>(null);
   const [dialog, setDialog] = useState<Open>(null);
@@ -61,7 +54,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
 
   // The view, again on every settings or project change (a theme picked elsewhere, a project added), every warm
   // build change (the switch's "Clearing… (waiting for …)" line) and every change of what macOS allows (ATT-14).
-  const load = useCallback(() => request("settings.view", { project }) as Promise<SettingsView>, [project]);
+  const load = useCallback(() => request("settings.view") as Promise<SettingsView>, []);
   useEffect(
     () =>
       watchView(
@@ -75,23 +68,20 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     [load],
   );
 
-  const edit = useCallback(
-    (field: string, value: SettingsValue) => {
-      request("settings.edit", { project, field, value }).then(
-        (fresh) => {
-          setView(fresh as SettingsView);
-          setError(null);
-        },
-        (e: unknown) => {
-          setError(asRequestError(e));
-        },
-      );
-    },
-    [project],
-  );
+  const edit = useCallback((field: string, value: SettingsValue) => {
+    request("settings.edit", { field, value }).then(
+      (fresh) => {
+        setView(fresh as SettingsView);
+        setError(null);
+      },
+      (e: unknown) => {
+        setError(asRequestError(e));
+      },
+    );
+  }, []);
 
   const act = useCallback(
-    (action: SettingsButtonAction, target?: string | null) => {
+    (action: SettingsButtonAction) => {
       switch (action) {
         case "cleanup":
           close();
@@ -113,42 +103,19 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             setError(asRequestError(e));
           });
           return;
-        // "Set by Dev on SHOP-27 · Undo" (agents run the app): the page refetches on the `projects_changed` it sends.
+        // A project's rows: never on the app's page.
         case "undo_run_command":
-          if (project === null) return;
-          request("run.command_undo", { project, app: target ?? null }).catch((e: unknown) => {
-            setError(asRequestError(e));
-          });
-          return;
-        // Add app and Remove app (agents run the app): the row's own field, sent as an edit.
         case "edit_field":
-          if (target) edit(target, "");
-          return;
         case "remove_project":
-          if (project === null) return;
-          void request("settings.remove_preview", { project }).then(
-            (d) => {
-              setDialog({ kind: "remove", dialog: d as RemoveProjectDialog });
-            },
-            (e: unknown) => {
-              setError(asRequestError(e));
-            },
-          );
           return;
       }
     },
-    [close, edit, project],
+    [close],
   );
 
-  // A project's page at one of its sections (What this agent reads' Edit in <project>'s settings →).
-  // Each opening counts, so the same section scrolls again; `scrolledTo` keeps the last one done.
-  const [projectSection, setProjectSection] = useState<{ section: string; n: number } | null>(null);
-  const scrolledTo = useRef(0);
+  // A project's page at one of its sections (What this agent reads' Edit in <project>'s settings →): its own page.
   const openProject = useCallback((key: string, section: string) => {
-    setProjectSection((p) => ({ section, n: (p?.n ?? 0) + 1 }));
-    setHeading(null);
-    setVisit((v) => v + 1);
-    setProject(key);
+    openProjectSettings(key, section === "project_notes" ? "project_notes" : null);
   }, []);
 
   const page = view?.page;
@@ -157,7 +124,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
       page
         ? {
             page,
-            project,
+            project: null,
             edit,
             act,
             headerSlot,
@@ -168,39 +135,32 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             openProject,
           }
         : null,
-    [page, project, edit, act, headerSlot, visit, params?.agent, openProject],
+    [page, edit, act, headerSlot, visit, params?.agent, openProject],
   );
 
-  const globalRows = view?.nav.filter((r) => r.target.page === "global") ?? [];
+  const globalRows = view?.nav ?? [];
   const openRow = topicRow(globalRows, topic);
   // A section showing a page of its own (one agent on Agents) is drawn alone.
-  const topicSections: readonly string[] =
-    solo !== null ? [solo] : openRow?.target.page === "global" ? openRow.target.sections : [];
+  const topicSections: readonly string[] = solo !== null ? [solo] : (openRow?.target.sections ?? []);
 
-  // The sections this page has that a screen registered, in the page's order; on the global page only the open topic's.
-  const sections = !page
-    ? []
-    : page.page === "global"
-      ? page.sections.flatMap((s) => {
+  // The sections this page has that a screen registered, in the page's order; only the open topic's.
+  const sections =
+    page?.page !== "global"
+      ? []
+      : page.sections.flatMap((s) => {
           const entry = app.settings.global.get(s.id);
           return entry && topicSections.includes(s.id) ? [{ id: s.id, Component: entry.Component }] : [];
-        })
-      : page.sections.flatMap((s) => {
-          const entry = app.settings.project.get(s.id);
-          return entry ? [{ id: s.id, Component: entry.Component }] : [];
         });
 
-  // Opened on a section further down its topic's page (or a project's): scroll to it once it's drawn.
+  // Opened on a section further down its topic's page: scroll to it once it's drawn.
   useLayoutEffect(() => {
-    const fresh = projectSection !== null && projectSection.n !== scrolledTo.current ? projectSection : null;
-    const wanted = scrollPending.current ?? fresh?.section ?? null;
+    const wanted = scrollPending.current;
     if (wanted === null || !page) return;
     const i = sections.findIndex((s) => s.id === wanted);
     const element = body.current?.querySelectorAll<HTMLElement>(":scope > .settings-section-slot")[i];
     if (!element || !body.current) return;
     body.current.scrollTop = i === 0 ? 0 : element.offsetTop;
     scrollPending.current = null;
-    if (fresh) scrolledTo.current = fresh.n;
   });
 
   // Esc closes Settings, unless a menu or a dialog inside it takes it (or a field, which stops it first). The box
@@ -230,11 +190,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     setHeading(null);
     setSolo(null);
     setVisit((v) => v + 1);
-    if (row.target.page === "project") setProject(row.target.key);
-    else {
-      setTopic(row.target.section);
-      setProject(null);
-    }
+    setTopic(row.target.section);
     body.current?.scrollTo({ top: 0 });
   };
 
@@ -261,7 +217,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             <NavItem
               key={row.label}
               row={row}
-              on={project === null && row === openRow}
+              on={row === openRow}
               onClick={() => {
                 go(row);
               }}
@@ -271,7 +227,7 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
         </nav>
         <div className="settings-main">
           <header className="settings-header">
-            {heading ?? <h2>{page?.page === "global" ? openRow?.label : page?.title}</h2>}
+            {heading ?? <h2>{openRow?.label}</h2>}
             <div ref={setHeaderSlot} className="settings-header-actions" />
             <IconButton icon="x" label={view?.close_label ?? ""} onClick={close} />
           </header>
@@ -281,38 +237,17 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             </p>
           )}
           <div ref={body} className="settings-body">
-            {page?.page === "project" && <p className="settings-intro settings-page-intro">{page.intro}</p>}
             {context && (
               <SettingsContext value={context}>
                 {sections.map(({ id, Component }) => (
-                  <div key={`${project ?? ""}-${id}`} className="settings-section-slot">
-                    <Component project={project ?? ""} />
+                  <div key={id} className="settings-section-slot">
+                    <Component />
                   </div>
                 ))}
               </SettingsContext>
             )}
           </div>
         </div>
-        {dialog?.kind === "remove" && project !== null && (
-          <RemoveDialog
-            dialog={dialog.dialog}
-            onCancel={() => {
-              setDialog(null);
-            }}
-            onConfirm={() => {
-              setDialog(null);
-              request("settings.remove", { project }).then(
-                (fresh) => {
-                  setProject(null);
-                  setView(fresh as SettingsView);
-                },
-                (e: unknown) => {
-                  setError(asRequestError(e));
-                },
-              );
-            }}
-          />
-        )}
         {dialog?.kind === "credits" && (
           <CreditsDialog
             dialog={dialog.dialog}

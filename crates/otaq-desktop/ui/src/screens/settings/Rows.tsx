@@ -27,7 +27,6 @@ import type { SettingsProvider } from "../../generated/SettingsProvider";
 import type { SettingsRow } from "../../generated/SettingsRow";
 import type { SettingsRowButton } from "../../generated/SettingsRowButton";
 import type { SettingsSection } from "../../generated/SettingsSection";
-import { openStageSkill } from "../flow_editor/logic";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { fieldId, sectionOf, useSettings } from "./context";
@@ -233,13 +232,16 @@ function Themes() {
   );
 }
 
+/** Where a provider is set up on this computer: app Settings → Git & pull requests. */
+export const PROVIDER_SET_UP_SECTION = "git";
+
 /** The PR provider, detected when the page opens (it reads the remote and asks the CLI for its login). */
 function useProvider(project: string | null): SettingsProvider | null {
   const [provider, setProvider] = useState<SettingsProvider | null>(null);
   useEffect(() => {
     if (project === null) return;
     let live = true;
-    void request("settings.provider", { project }).then(
+    void request("project_settings.provider", { project }).then(
       (p) => {
         if (live) setProvider(p as SettingsProvider);
       },
@@ -252,6 +254,8 @@ function useProvider(project: string | null): SettingsProvider | null {
   return provider;
 }
 
+/** "Pull requests through: GitHub · otaq-io/shop-web": the repository's provider, a fact of its remote, and how its
+ * tool stands on this computer, with Set up… (app Settings) when it isn't ready here. */
 function ProviderRow({ row }: { row: SettingsRow }) {
   const { project } = useSettings();
   const provider = useProvider(project);
@@ -259,29 +263,79 @@ function ProviderRow({ row }: { row: SettingsRow }) {
     <div className="settings-row">
       <div className="settings-row-text">
         <span className="settings-row-label">{row.label}</span>
-        {provider && <span className="settings-row-description">{provider.description}</span>}
+        {row.description !== "" && <span className="settings-row-description">{row.description}</span>}
       </div>
-      <div className="settings-row-control">
+      <div className="settings-row-control settings-provider-control">
         {provider && (
-          <span className="settings-provider" data-look={provider.look}>
-            <Icon name={provider.icon} size={13} />
-            <span>{provider.status}</span>
-            {provider.link !== null && (
-              <button
-                type="button"
-                className="settings-link"
-                onClick={() => {
-                  // The user's own Open PR skill goes in the Delivery stage's Skill field of the flow editor.
-                  if (project !== null) openStageSkill(project, provider.stage);
-                }}
-              >
-                {provider.link}
-              </button>
+          <>
+            <span className="settings-value settings-provider-line" data-boxed>
+              <Icon name="git-pull-request" size={12} />
+              <span>{provider.line}</span>
+            </span>
+            {provider.status !== "" && (
+              <span className="settings-provider" data-look={provider.look}>
+                <Icon name={provider.icon} size={13} />
+                <span>{provider.status}</span>
+                {provider.set_up !== null && (
+                  <button
+                    type="button"
+                    className="settings-link"
+                    onClick={() => {
+                      openOverlay("settings", { section: PROVIDER_SET_UP_SECTION });
+                    }}
+                  >
+                    {provider.set_up}
+                  </button>
+                )}
+              </span>
             )}
-          </span>
+          </>
         )}
       </div>
     </div>
+  );
+}
+
+/** Delivery: the flow's own setting (Merge into main · Pull request · Either; On Approve · Automatically), shown as
+ * the flow's; a pick writes a new flow version (`delivery.delivers`, `delivery.mode`). */
+function DeliveryControl({ row, control }: { row: SettingsRow; control: Of<"delivery"> }) {
+  const { edit } = useSettings();
+  return (
+    <span className="settings-delivery">
+      <span className="settings-delivery-choices">
+        <Segmented
+          label={row.label}
+          options={control.delivers.map((choice) => choice.label)}
+          selected={Math.max(
+            0,
+            control.delivers.findIndex((choice) => choice.id === control.delivers_value),
+          )}
+          onSelect={(i) => {
+            const choice = control.delivers[i];
+            if (choice && choice.id !== control.delivers_value) edit(`${row.field}.delivers`, choice.id);
+          }}
+        />
+        {control.modes.length > 0 && (
+          <Segmented
+            label={`${row.label}: when`}
+            options={control.modes.map((choice) => choice.label)}
+            selected={Math.max(
+              0,
+              control.modes.findIndex((choice) => choice.id === control.mode_value),
+            )}
+            onSelect={(i) => {
+              const choice = control.modes[i];
+              if (choice && choice.id !== control.mode_value) edit(`${row.field}.mode`, choice.id);
+            }}
+          />
+        )}
+        {control.either !== null && <span className="settings-note">{control.either}</span>}
+      </span>
+      <span className="settings-delivery-note">
+        <Icon name="workflow" size={13} />
+        <span>{control.note}</span>
+      </span>
+    </span>
   );
 }
 
@@ -401,6 +455,8 @@ function Control({ row }: { row: SettingsRow }) {
       return null;
     case "provider":
       return null;
+    case "delivery":
+      return <DeliveryControl row={row} control={c} />;
     case "about":
       return null;
   }

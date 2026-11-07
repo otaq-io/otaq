@@ -3,7 +3,7 @@ import type { SettingsRow } from "./SettingsRow";
 
 export type SettingsSection<Id> = { id: Id, 
 /**
- * The small title above the rows (the global page); none on a project page.
+ * The small title above the rows (the global page); a project page's card title.
  */
 title: string | null, intro: string | null, rows: Array<SettingsRow>, 
 /**

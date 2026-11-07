@@ -132,8 +132,11 @@ export const openRequests: Store<number> = createStore(0);
 /** Whether the box is on screen to take them: the project's board or List, with Noyan's panel closed. */
 export const boxOnScreen: Store<boolean> = createStore(false);
 
-/** Whether the board slot shows Files now: the box isn't there (in Files ⌘N is New ticket from this file). */
-export const filesShown: Store<boolean> = createStore(false);
+/**
+ * Whether the board slot shows something other than the board or the List (Files, the project's Settings): the box
+ * isn't there. In Files ⌘N is New ticket from this file.
+ */
+export const boardAway: Store<boolean> = createStore(false);
 
 /**
  * ⌘N and the toolbar's New ticket: the box opens with the keyboard in it. Where the box isn't on screen (Noyan's panel

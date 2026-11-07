@@ -618,8 +618,6 @@ fn status_menu_picked(handle: &tauri::AppHandle, id: &str) {
         // Pause all and Resume all work at once, with no question (PAU-06, All projects).
         Some(IconAction::PauseAll) => pause(Request::AgentsPause(PauseScope::All)),
         Some(IconAction::ResumeAll) => pause(Request::AgentsResume(PauseScope::All)),
-        // Stop agents and quit stores the pause, stops every agent and the service, then quits (T-0569).
-        Some(IconAction::StopAgentsAndQuit) => stop_agents_and_quit(handle),
         // The ready update, without a question (page 32 item 3): only the app, or the service too as its label says.
         Some(IconAction::RestartToUpdate) => {
             use tauri::Manager;
@@ -632,15 +630,16 @@ fn status_menu_picked(handle: &tauri::AppHandle, id: &str) {
                 .await;
             });
         }
-        // Not connected: Quit Otaq quits the app at once (audit AS q2).
-        Some(IconAction::Quit) => handle.exit(0),
+        // Quit Otaq asks while agents work (Keep them running first); with none working, or not connected, it quits
+        // at once.
+        Some(IconAction::Quit) => quit_asked(handle),
         None if id == MORE_ID => bring_back(handle, |_, _| {}),
         None => {}
     }
 }
 
-/// The icon's native menu for `summary` (page 31): disabled headings and notes, a dot per line, separators before the
-/// actions and before Stop agents and quit.
+/// The icon's native menu for `summary`: disabled headings and notes, a dot per line, separators before the actions
+/// and before Quit Otaq; ⌘O and ⌘Q shown on theirs.
 fn status_menu(
     handle: &tauri::AppHandle,
     summary: &otaq_view::view_models::status_icon::Summary,
@@ -675,12 +674,13 @@ fn status_menu(
                 action,
                 label,
                 enabled,
+                accelerator,
             } => built.append(&MenuItem::with_id(
                 handle,
                 action.id(),
                 label,
                 enabled,
-                None::<&str>,
+                accelerator,
             )?)?,
             MenuRow::Separator => built.append(&PredefinedMenuItem::separator(handle)?)?,
         }
@@ -1148,10 +1148,10 @@ pub(crate) fn stop_agents_and_quit(handle: &tauri::AppHandle) {
     });
 }
 
-/// ⌘Q (TRY-03): with agents working, the window asks "2 agents are working": Keep them working and quit (the app
-/// only) · Stop agents and quit · Cancel; with none working, or no service to ask, the app quits at once. The Dock's
+/// ⌘Q and the menu bar's Quit Otaq (TRY-03): with agents working, the window asks "Quit Otaq?": Keep them running
+/// (the default: the app only) · Quit and stop agents · Cancel; with none working, or no service to ask, the app
+/// quits at once. The Dock's
 /// Quit and a logout end the app through macOS without asking (Tauri can't hold them), so a logout never waits.
-#[cfg_attr(not(target_os = "macos"), allow(dead_code))]
 fn quit_asked(handle: &tauri::AppHandle) {
     use otaq_view::view_models::quit::quit_question;
     use tauri::Manager;

@@ -21,7 +21,7 @@ import {
   boxOnScreen,
   createTicket,
   EMPTY,
-  filesShown,
+  boardAway,
   formOf,
   intoTitle,
   noyanText,
@@ -98,7 +98,7 @@ afterEach(() => {
   shellLayout.set(INITIAL_LAYOUT);
   overlays.store.set([]);
   boxOnScreen.set(false);
-  filesShown.set(false);
+  boardAway.set(false);
   selection.set({ ...selection.get(), project: null });
 });
 
@@ -309,7 +309,7 @@ describe("the slot", () => {
 
   it("isn't there in Files or while Noyan's panel is open; ⌘N then opens the full form", async () => {
     selection.set({ ...selection.get(), project: "SHOP" });
-    filesShown.set(true);
+    boardAway.set(true);
     await mount();
     expect(box.querySelector(".new-work-closed")).toBeNull();
     expect(boxOnScreen.get()).toBe(false);
@@ -317,7 +317,7 @@ describe("the slot", () => {
     openNewWork(form);
     expect(form).toHaveBeenCalledOnce();
     act(() => {
-      filesShown.set(false);
+      boardAway.set(false);
     });
     expect(box.querySelector(".new-work-closed")).not.toBeNull();
     act(() => {
