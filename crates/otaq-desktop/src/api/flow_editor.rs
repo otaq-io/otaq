@@ -218,7 +218,7 @@ pub struct Started {
     pub agent: String,
 }
 
-async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
+pub(super) async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
     match app
         .service
         .send(Request::FlowDraft(ProjectParams {
@@ -231,7 +231,7 @@ async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
     }
 }
 
-async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<Draft, RequestError> {
+pub(super) async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<Draft, RequestError> {
     let request = Request::FlowDraftUpdate(DraftUpdateParams {
         project: project.to_owned(),
         edit,
@@ -298,51 +298,100 @@ async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
     }
 }
 
-pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
-    let draft = draft(app, &params.project).await?;
+/// Everything the editor reads for a project, owned, so the overlay's and the board's editors build their facts from
+/// one gathering.
+pub(super) struct Gathered {
+    pub draft: Draft,
+    pub file: FlowFile,
+    pub in_use: FlowFile,
+    pub setup: FlowSetup,
+    pub stored: Vec<Agent>,
+    pub tools: otaq_view::view_models::tool_problems::Tools,
+    pub others: Vec<(String, String)>,
+    pub skills: Vec<FoundSkill>,
+    pub open: Vec<otaq_core::project_agents::ProjectAgent>,
+    pub new_agent: Option<Agent>,
+    pub keys: otaq_view::key_labels::KeyLabels,
+}
+
+pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, RequestError> {
+    let draft = draft(app, project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let in_use = in_use(app, &params.project).await;
-    let setup = setup(app, &params.project).await?;
+    let in_use = in_use(app, project).await;
+    let setup = setup(app, project).await?;
     let stored = super::settings::agent_list(app).await?.agents;
     let tools = super::agent_panel::tools(app).await;
     let others: Vec<(String, String)> = projects(app)
         .await?
         .into_iter()
-        .filter(|(key, _)| *key != params.project)
+        .filter(|(key, _)| key != project)
         .collect();
-    let skills = skills(app, &params.project).await;
-    let agents = super::agent_panel::agents(app, &params.project).await?;
-    let agent = params
-        .agent
-        .as_deref()
-        .and_then(|id| agents.open.iter().find(|a| a.id == id));
+    let skills = skills(app, project).await;
+    let open = super::agent_panel::agents(app, project).await?.open;
     let new_agent = super::agent_panel::project_agent(app).await?;
     let keys = super::keymap::labels(app).await;
-    Ok(vm::view(&vm::Facts {
-        project: &params.project,
-        project_name: &setup.project_name,
-        opened: params.from,
-        proposal: &draft.proposal,
-        marks: &draft.marks,
-        can_undo_all: draft.can_undo_all,
-        swap: draft.swap,
-        applies: &draft.applies,
-        file: &file,
-        in_use: &in_use,
-        stored: &stored,
-        tools: &tools,
-        setup: &setup,
-        projects: &others,
-        skills: &skills,
-        writing: &draft.writing,
-        written: &draft.written,
-        selected: params.selected.as_deref(),
-        agent,
-        new_agent: new_agent.as_ref(),
-        keys: &keys,
-        choices: &params.choices.unwrap_or_default(),
-    }))
+    Ok(Gathered {
+        draft,
+        file,
+        in_use,
+        setup,
+        stored,
+        tools,
+        others,
+        skills,
+        open,
+        new_agent,
+        keys,
+    })
+}
+
+impl Gathered {
+    pub(super) fn facts<'a>(
+        &'a self,
+        project: &'a str,
+        opened: Opened,
+        selected: Option<&'a str>,
+        agent: Option<&str>,
+        choices: &'a Choices,
+    ) -> vm::Facts<'a> {
+        vm::Facts {
+            project,
+            project_name: &self.setup.project_name,
+            opened,
+            proposal: &self.draft.proposal,
+            marks: &self.draft.marks,
+            can_undo_all: self.draft.can_undo_all,
+            swap: self.draft.swap,
+            applies: &self.draft.applies,
+            file: &self.file,
+            in_use: &self.in_use,
+            stored: &self.stored,
+            tools: &self.tools,
+            setup: &self.setup,
+            projects: &self.others,
+            skills: &self.skills,
+            writing: &self.draft.writing,
+            written: &self.draft.written,
+            selected,
+            agent: agent.and_then(|id| self.open.iter().find(|a| a.id == id)),
+            new_agent: self.new_agent.as_ref(),
+            keys: &self.keys,
+            choices,
+        }
+    }
+}
+
+pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
+    let gathered = gather(app, &params.project).await?;
+    let choices = params.choices.unwrap_or_default();
+    Ok(vm::view(&gathered.facts(
+        &params.project,
+        params.from,
+        params.selected.as_deref(),
+        params.agent.as_deref(),
+        &choices,
+    )))
 }
 
 /// A step's edit: the draft's document with it, sent whole (`flow.draft_update`, as the CLI sends one).

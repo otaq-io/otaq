@@ -327,6 +327,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::onboarding_page::ToolsGallery::export_all(&cfg)?;
     // The flow editor (T-0471): its view, the requests' params and answers, and its gallery.
     crate::api::export_flow_editor_types(&cfg)?;
+    crate::api::export_flow_board_types(&cfg)?;
     // The Apply now window (T-0439, APN-02): its view, the requests' params and the answer.
     crate::api::export_apply_now_types(&cfg)?;
     // Your check's Pass and Fail, Send back with PR comments (T-0424).

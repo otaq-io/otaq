@@ -62,6 +62,8 @@ pub use files::{
 #[cfg(test)]
 pub use files_view::export_types as export_files_view_types;
 #[cfg(test)]
+pub use flow_board::export_types as export_flow_board_types;
+#[cfg(test)]
 pub use flow_editor::export_types as export_flow_editor_types;
 #[cfg(test)]
 pub use hints::Params as HintParams;
@@ -227,6 +229,7 @@ areas! {
     palette,
     pause,
     flow_editor,
+    flow_board,
     apply_now,
     ticket_comments,
     report,

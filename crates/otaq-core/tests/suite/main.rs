@@ -2,6 +2,7 @@
 //! crate is linked once rather than once per file. Run them with `cargo nextest run -p otaq-core`; one file with
 //! `cargo nextest run -p otaq-core -E 'test(/^<file>::/)'`.
 
+mod added_check_stage;
 mod common;
 
 mod adapter_boundary;

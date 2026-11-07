@@ -141,6 +141,64 @@ struct RawAgentsFile {
     agents: Vec<RawAgent>,
 }
 
+/// The stage templates file (`stage-templates.yaml`): the agents its stages name, then each template.
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTemplatesFile {
+    #[serde(default)]
+    agents: Vec<RawAgent>,
+    templates: Vec<RawTemplate>,
+}
+
+#[derive(Deserialize)]
+#[serde(deny_unknown_fields)]
+struct RawTemplate {
+    title: Option<String>,
+    line: String,
+    stage: RawStage,
+}
+
+/// One stage template as read: the palette's title (the stage's name unless the file gives one), its line, and the
+/// stage it adds.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct StageTemplate {
+    pub title: String,
+    pub line: String,
+    pub stage: Stage,
+}
+
+/// Reads a stage templates file: its agents (as a flow file's) and its templates, each stage read as a flow file's
+/// stage is (an agent check names one agent; a template has no `fail_to`, which names another stage).
+pub fn read_templates(text: &str) -> Result<(Vec<FlowAgent>, Vec<StageTemplate>), FormatError> {
+    let raw: RawTemplatesFile = serde_saphyr::from_str(text).map_err(format_error)?;
+    let agents = raw.agents.into_iter().map(agent).collect();
+    let mut templates = Vec::with_capacity(raw.templates.len());
+    for t in raw.templates {
+        if t.stage.fail_to.is_some() {
+            return Err(FormatError(format!(
+                "{} is a template: `fail_to` names another stage, which a template can't know",
+                t.stage.name
+            )));
+        }
+        let (mut stage, more) = stage(t.stage)?;
+        if !more.is_empty() {
+            return Err(FormatError(format!(
+                "{} is a template: an agent check names one agent",
+                stage.name
+            )));
+        }
+        if stage.id.is_empty() {
+            stage.id = slug(&stage.name);
+        }
+        templates.push(StageTemplate {
+            title: t.title.unwrap_or_else(|| stage.name.clone()),
+            line: t.line,
+            stage,
+        });
+    }
+    Ok((agents, templates))
+}
+
 /// The YAML's own error: its first line ("line 5 column 5: unknown field `colour`, expected one of id, name, …");
 /// the source snippet under it is left out.
 fn format_error(e: impl fmt::Display) -> FormatError {
