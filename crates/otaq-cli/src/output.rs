@@ -51,10 +51,26 @@ impl Output {
 
     pub fn print<T: Serialize>(&self, human: &str, json: &T, id: Option<&str>) {
         if let Some(text) = self.render(human, json, id) {
-            println!("{text}");
+            print_line(&text);
         }
     }
+}
 
+/// Prints one line on stdout. A reader that went away (`otaq prime | head`, a closed pipe on Windows: os error 232) ends
+/// the command quietly instead of panicking as `println!` does; any other write failure is reported on stderr.
+fn print_line(text: &str) {
+    use std::io::Write;
+    let mut stdout = std::io::stdout().lock();
+    if let Err(e) = writeln!(stdout, "{text}").and_then(|()| stdout.flush()) {
+        if e.kind() == std::io::ErrorKind::BrokenPipe {
+            std::process::exit(0);
+        }
+        eprintln!("error: can't print the answer: {e}");
+        std::process::exit(i32::from(EXIT_ERROR));
+    }
+}
+
+impl Output {
     /// The error text for this mode: the JSON object, or `error: <message>`.
     pub fn render_error(&self, error: &ErrorBody) -> String {
         match self.mode {

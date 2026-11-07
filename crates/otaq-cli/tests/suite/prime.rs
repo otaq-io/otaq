@@ -66,3 +66,23 @@ async fn prime_names_developers_imported_commit_skill() {
     assert_eq!(context["commit_skill"], "/otaq-commit");
     w.stop().await;
 }
+
+/// A reader that goes away before the answer is printed (`otaq prime | head`, or a closed pipe on Windows) ends the
+/// command quietly: no panic on stderr, exit 0.
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_into_a_closed_pipe_ends_quietly() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let shop12 = w.board.ticket("SHOP-12").await.unwrap();
+    let agent = w.agent_shell(&shop12).await;
+
+    // `exec 0<&-` closes the reader's end before prime answers, so its write meets a broken pipe.
+    let ran = agent
+        .run(&format!(
+            "( '{CB}' prime; echo \"exit=$?\" >&2 ) | ( exec 0<&- ; sleep 1 )"
+        ))
+        .await;
+    assert!(!ran.stderr.contains("panicked"), "{ran:?}");
+    assert!(ran.stderr.contains("exit=0"), "{ran:?}");
+    w.stop().await;
+}
