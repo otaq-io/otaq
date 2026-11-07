@@ -50,7 +50,6 @@ it("a click on All tickets asks the search field for the keyboard", () => {
         onView: () => undefined,
         onAllTickets: requestSearchFocus,
         onNewTicket: () => undefined,
-        onEditFlow: () => undefined,
       }),
     ),
   );

@@ -7,7 +7,6 @@ export { components } from "./components";
 export { dependencies } from "./dependencies";
 export { editor } from "./editor";
 export { files } from "./files";
-export { flowEditor } from "./flow_editor";
 export { newWork } from "./new_work";
 export { notices } from "./notices";
 export { onboarding } from "./onboarding";

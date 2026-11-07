@@ -14,12 +14,15 @@ use ts_rs::TS;
 pub enum HintId {
     /// The design gallery's sample, the one hint with no moment in the app.
     GallerySample,
+    /// The first time Edit flow turns the board into the editor.
+    FlowColumns,
 }
 
 impl From<HintId> for Hint {
     fn from(id: HintId) -> Self {
         match id {
             HintId::GallerySample => Hint::GallerySample,
+            HintId::FlowColumns => Hint::FlowColumns,
         }
     }
 }
@@ -28,6 +31,7 @@ impl From<Hint> for HintId {
     fn from(hint: Hint) -> Self {
         match hint {
             Hint::GallerySample => HintId::GallerySample,
+            Hint::FlowColumns => HintId::FlowColumns,
         }
     }
 }
@@ -44,12 +48,18 @@ pub struct View {
 /// The button every hint has: it dismisses the hint for good.
 pub const DISMISS: &str = "Got it";
 
+/// The first time Edit flow turns the board into the editor.
+pub const FLOW_COLUMNS: &str = "This is your flow, as columns. Click a stage to see what it\u{2019}s for, + adds one \
+     between two stages, and drag to reorder. Watch a ticket to see what your draft would do. Nothing changes until \
+     you save.";
+
 /// The hint's popover.
 pub fn view(id: HintId) -> View {
     let text = match id {
         HintId::GallerySample => {
             "A hint like this shows once, when something first matters, and never again."
         }
+        HintId::FlowColumns => FLOW_COLUMNS,
     };
     View {
         id,

@@ -173,12 +173,12 @@ pub struct SendParams {
     pub text: String,
 }
 
-/// An Ask under Made for <project>, the chooser's tool, or "Ask Claude Code".
+/// An Ask under Made for <project>, the chooser's tool, or "Ask Claude Code" (onboarding's Flow step and the Flow setup
+/// page).
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowEditorAskParams")]
 pub struct AskParams {
     pub project: String,
-    pub from: Opened,
     #[ts(type = "string")]
     pub tool: Tool,
 }
@@ -218,7 +218,7 @@ pub struct Started {
     pub agent: String,
 }
 
-async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
+pub(super) async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
     match app
         .service
         .send(Request::FlowDraft(ProjectParams {
@@ -231,7 +231,7 @@ async fn draft(app: &App, project: &str) -> Result<Draft, RequestError> {
     }
 }
 
-async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<Draft, RequestError> {
+pub(super) async fn update(app: &App, project: &str, edit: DraftEdit) -> Result<Draft, RequestError> {
     let request = Request::FlowDraftUpdate(DraftUpdateParams {
         project: project.to_owned(),
         edit,
@@ -298,51 +298,100 @@ async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
     }
 }
 
-pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
-    let draft = draft(app, &params.project).await?;
+/// Everything the editor reads for a project, owned, so the overlay's and the board's editors build their facts from
+/// one gathering.
+pub(super) struct Gathered {
+    pub draft: Draft,
+    pub file: FlowFile,
+    pub in_use: FlowFile,
+    pub setup: FlowSetup,
+    pub stored: Vec<Agent>,
+    pub tools: otaq_view::view_models::tool_problems::Tools,
+    pub others: Vec<(String, String)>,
+    pub skills: Vec<FoundSkill>,
+    pub open: Vec<otaq_core::project_agents::ProjectAgent>,
+    pub new_agent: Option<Agent>,
+    pub keys: otaq_view::key_labels::KeyLabels,
+}
+
+pub(super) async fn gather(app: &App, project: &str) -> Result<Gathered, RequestError> {
+    let draft = draft(app, project).await?;
     let file = yaml::read(&draft.proposal.yaml)
         .map_err(|e| RequestError::plain(format!("The draft doesn\u{2019}t read: {e}")))?;
-    let in_use = in_use(app, &params.project).await;
-    let setup = setup(app, &params.project).await?;
+    let in_use = in_use(app, project).await;
+    let setup = setup(app, project).await?;
     let stored = super::settings::agent_list(app).await?.agents;
     let tools = super::agent_panel::tools(app).await;
     let others: Vec<(String, String)> = projects(app)
         .await?
         .into_iter()
-        .filter(|(key, _)| *key != params.project)
+        .filter(|(key, _)| key != project)
         .collect();
-    let skills = skills(app, &params.project).await;
-    let agents = super::agent_panel::agents(app, &params.project).await?;
-    let agent = params
-        .agent
-        .as_deref()
-        .and_then(|id| agents.open.iter().find(|a| a.id == id));
+    let skills = skills(app, project).await;
+    let open = super::agent_panel::agents(app, project).await?.open;
     let new_agent = super::agent_panel::project_agent(app).await?;
     let keys = super::keymap::labels(app).await;
-    Ok(vm::view(&vm::Facts {
-        project: &params.project,
-        project_name: &setup.project_name,
-        opened: params.from,
-        proposal: &draft.proposal,
-        marks: &draft.marks,
-        can_undo_all: draft.can_undo_all,
-        swap: draft.swap,
-        applies: &draft.applies,
-        file: &file,
-        in_use: &in_use,
-        stored: &stored,
-        tools: &tools,
-        setup: &setup,
-        projects: &others,
-        skills: &skills,
-        writing: &draft.writing,
-        written: &draft.written,
-        selected: params.selected.as_deref(),
-        agent,
-        new_agent: new_agent.as_ref(),
-        keys: &keys,
-        choices: &params.choices.unwrap_or_default(),
-    }))
+    Ok(Gathered {
+        draft,
+        file,
+        in_use,
+        setup,
+        stored,
+        tools,
+        others,
+        skills,
+        open,
+        new_agent,
+        keys,
+    })
+}
+
+impl Gathered {
+    pub(super) fn facts<'a>(
+        &'a self,
+        project: &'a str,
+        opened: Opened,
+        selected: Option<&'a str>,
+        agent: Option<&str>,
+        choices: &'a Choices,
+    ) -> vm::Facts<'a> {
+        vm::Facts {
+            project,
+            project_name: &self.setup.project_name,
+            opened,
+            proposal: &self.draft.proposal,
+            marks: &self.draft.marks,
+            can_undo_all: self.draft.can_undo_all,
+            swap: self.draft.swap,
+            applies: &self.draft.applies,
+            file: &self.file,
+            in_use: &self.in_use,
+            stored: &self.stored,
+            tools: &self.tools,
+            setup: &self.setup,
+            projects: &self.others,
+            skills: &self.skills,
+            writing: &self.draft.writing,
+            written: &self.draft.written,
+            selected,
+            agent: agent.and_then(|id| self.open.iter().find(|a| a.id == id)),
+            new_agent: self.new_agent.as_ref(),
+            keys: &self.keys,
+            choices,
+        }
+    }
+}
+
+pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
+    let gathered = gather(app, &params.project).await?;
+    let choices = params.choices.unwrap_or_default();
+    Ok(vm::view(&gathered.facts(
+        &params.project,
+        params.from,
+        params.selected.as_deref(),
+        params.agent.as_deref(),
+        &choices,
+    )))
 }
 
 /// A step's edit: the draft's document with it, sent whole (`flow.draft_update`, as the CLI sends one).
@@ -481,60 +530,22 @@ async fn send(app: &App, params: SendParams) -> Result<Started, RequestError> {
     Ok(Started { agent })
 }
 
-/// What a Made for Ask asks in the project (Q-A): the same look as Flow setup's, landing in the draft.
-pub fn make_one_message(project_name: &str, tool: Tool) -> String {
-    flow_message(&format!(
-        "Make a flow for {project_name}. Look at how I work with {tool}: your own history on this Mac (find it \
-         yourself; read only what I typed, never login or credential data) and this repo. Then propose a whole flow.",
-        tool = tool.display_name(),
-    ))
-}
-
-/// Ask <Tool>: in onboarding the tool's flow agent (`onboarding.ask`, its proposal its own Made for entry); in the
-/// project a Project agent on an agent that runs on that tool (the agent Noyan uses when it does), whose
-/// proposal lands in the draft.
+/// Ask <Tool> (onboarding's Flow step and a later project's Flow setup page): the tool's flow agent
+/// (`onboarding.ask`), its proposal its own Made for entry. A project's own flow is edited on its board, where Suggest a
+/// flow asks Noyan's agent (`flow_board.suggest`).
 async fn ask(app: &App, params: AskParams) -> Result<Started, RequestError> {
-    if params.from == Opened::Onboarding {
-        let request = Request::OnboardingAsk(OnboardingAskParams {
-            project: params.project,
-            tool: params.tool,
-        });
-        return match app.service.send(request).await {
-            Ok(Reply::ProjectAgent(agent)) => Ok(Started { agent: agent.id }),
-            Ok(other) => Err(unexpected("onboarding.ask", &other)),
-            Err(e) => {
-                toast_error(app, "The tool wasn\u{2019}t asked", &e);
-                Err(e)
-            }
-        };
-    }
-    let tools = super::agent_panel::tools(app).await;
-    let default = tools.default_model.as_ref();
-    let runs_on = |a: &Agent| a.model.on(default).is_some_and(|on| on.tool == params.tool);
-    let role = super::agent_panel::project_agent(app).await?;
-    let agents = super::settings::agent_list(app).await?.agents;
-    let on = match role.filter(|a| runs_on(a)) {
-        Some(_) => None,
-        None => Some(agents.iter().find(|a| runs_on(a)).ok_or_else(|| {
-            let e = RequestError::plain(format!(
-                "No agent runs on {}: add one in Settings \u{2192} Agents",
-                params.tool.display_name()
-            ));
+    let request = Request::OnboardingAsk(OnboardingAskParams {
+        project: params.project,
+        tool: params.tool,
+    });
+    match app.service.send(request).await {
+        Ok(Reply::ProjectAgent(agent)) => Ok(Started { agent: agent.id }),
+        Ok(other) => Err(unexpected("onboarding.ask", &other)),
+        Err(e) => {
             toast_error(app, "The tool wasn\u{2019}t asked", &e);
-            e
-        })?),
-    };
-    let name = setup(app, &params.project).await?.project_name;
-    let agent = super::agent_panel::send(
-        app,
-        super::agent_panel::SendParams {
-            project: params.project,
-            message: make_one_message(&name, params.tool),
-            agent: on.map(|a| a.id.clone()),
-        },
-    )
-    .await?;
-    Ok(Started { agent })
+            Err(e)
+        }
+    }
 }
 
 /// The user's send from the box Ask the agent to write it (or the Write the skill chip) prefilled (FED-06, Q441): the
@@ -695,7 +706,7 @@ mod tests {
     fn the_first_message_runs_the_flow_skill() {
         assert_eq!(flow_message("  What\u{2019}s Validate? "), "/flow What\u{2019}s Validate?");
         assert_eq!(
-            otaq_core::project_agents::first_skill(&make_one_message("shop-web", Tool::ALL[0])).0,
+            otaq_core::project_agents::first_skill(&flow_message("Suggest a flow for shop-web.")).0,
             "flow"
         );
     }

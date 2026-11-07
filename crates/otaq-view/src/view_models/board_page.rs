@@ -266,6 +266,25 @@ pub struct ColumnPage {
     pub dev: Option<DevPage>,
     /// Backlog's "Add ticket": the + in its header (and its row); the same as ⌘N.
     pub add: Option<String>,
+    /// "changing": a saved flow change waits for the tickets in this stage ([`mark_changing`]).
+    pub changing: Option<String>,
+}
+
+/// The mark on a column a saved flow change waits for.
+pub const CHANGING: &str = "changing";
+
+/// Marks the columns a waiting flow change waits for "changing": the stages of its span, or every stage when it
+/// replaces the whole flow. Backlog and Done never change.
+pub fn mark_changing(page: &mut BoardPage, wait: &otaq_core::flow::apply::Wait) {
+    use otaq_core::flow::apply::Wait;
+    for column in &mut page.columns {
+        let stage = !matches!(column.kind, ColumnKind::Backlog | ColumnKind::Done);
+        let covered = match wait {
+            Wait::WholeBoard => stage,
+            Wait::Span(span) => span.stages.iter().any(|id| column.id == *id.as_str()),
+        };
+        column.changing = covered.then(|| CHANGING.to_owned());
+    }
 }
 
 /// The chip of a column scrolled down: `"{n} above"`, then `" · {n} need you"` when any of them need the user. The
@@ -309,7 +328,13 @@ pub struct BoardPage {
     pub toolbar: Toolbar,
     /// The List view (LST-01, T-0461); `null` on the Board.
     pub list: Option<list_view::ListView>,
+    /// "Edit flow", at the end of the board in either layout (after the columns, or after the List's rows): the board
+    /// turns into the flow's editor in place, as columns. `null` on Files and Settings.
+    pub edit_flow: Option<String>,
 }
+
+/// Edit flow's button at the end of the columns.
+pub const EDIT_FLOW: &str = "Edit flow";
 
 /// The chip of the agent filter (d0087; Q-G): ✕ or Esc sets `Params::agent` back to `None`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -463,6 +488,7 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         cards: cards(view.cards, tickets),
         dev,
         add: (kind == ColumnKind::Backlog).then(|| "Add ticket".to_owned()),
+        changing: None,
     }
 }
 
@@ -621,6 +647,7 @@ pub fn page(
         prefs: Prefs::from(prefs),
         toolbar: view_prefs::toolbar(prefs, keys),
         list,
+        edit_flow: matches!(view, ViewKind::Board | ViewKind::List).then(|| EDIT_FLOW.to_owned()),
     }
 }
 

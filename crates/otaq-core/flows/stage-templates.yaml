@@ -1,0 +1,76 @@
+# The ready stages Edit flow's + offers between two columns, in the palette's order (Blank stage last). Each is a
+# stage in the flow file's own format, with the one line the palette shows under its name (and its own title when
+# it isn't the stage's name); the agents they name are defined here as a flow file defines them, so a template
+# brings an agent the user doesn't have yet. A skill is named as a flow file names it; none is a tool's built-in
+# command (Claude Code's `/security-review` isn't a skill).
+agents:
+  - name: Developer
+    model: default
+  - name: Checker
+    model: default
+  - name: Spec writer
+    model: default
+  - name: Architect
+    model: default
+templates:
+  - line: "An agent checks for secrets, injection and risky packages"
+    stage:
+      id: security-review
+      name: Security review
+      kind: check
+      by: agent
+      agent: Checker
+      skill: security-check
+      rounds: 2
+      description: "Settles whether the change is safe to ship: no secrets, injection or risky packages. Matters for anything touching payments, accounts or user data."
+  - line: "An agent clicks through the change in the running app"
+    stage:
+      id: test-in-browser
+      name: Test in the browser
+      kind: check
+      by: agent
+      agent: Checker
+      skill: test-in-browser
+      rounds: 2
+      description: "Settles whether the change works for a person using the app: an agent runs it and clicks through what changed. Matters for anything with a screen."
+  - line: "An agent updates the docs for what changed"
+    stage:
+      id: update-docs
+      name: Update the docs
+      kind: agent
+      agent: Developer
+      skill: update-docs
+      options: [skip]
+      description: "Brings the docs in line with what changed: the README, guides and comments people read. Matters when the change alters what users or developers do."
+  - line: "You check how it looks before it's built further"
+    stage:
+      id: design-review
+      name: Design review
+      kind: check
+      by: you
+      description: "The user looks at how the change looks and feels, and passes it or sends it back: their say on the design before the work goes further."
+  - line: "An agent writes what to build, before any code"
+    stage:
+      id: product-spec
+      name: Product spec
+      kind: agent
+      agent: Spec writer
+      skill: product-spec
+      options: [skip]
+      description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does; a bug fix or a purely technical change has nothing to settle here."
+  - line: "An agent plans how to build it"
+    stage:
+      id: tech-spec
+      name: Tech spec
+      kind: agent
+      agent: Architect
+      skill: tech-spec
+      options: [skip]
+      description: "Settles how it's built: needed when the change touches several parts or its approach isn't obvious."
+  - title: Blank stage
+    line: "Name it and choose what happens"
+    stage:
+      id: new-stage
+      name: New stage
+      kind: agent
+      agent: Developer

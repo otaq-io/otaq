@@ -6,7 +6,8 @@
 //! applies when and the wait for a change's span or a quiet board (FLW-05, FLW-06, FED-08), `draft` the flow being
 //! edited before Apply (FED-02), `apply_now` Apply now on a waiting change (APN-02…APN-04),
 //! `presets` the shipped preset files (FLW-08), `propose` `otaq flow show` and `propose` and the answer to a proposal
-//! (FLW-02, FLW-03), `write_skill` a stage's skill the Project agent writes for the draft (FED-06).
+//! (FLW-02, FLW-03), `write_skill` a stage's skill the Project agent writes for the draft (FED-06), `templates` the
+//! ready stages Edit flow's + offers.
 
 pub mod apply;
 pub mod apply_now;
@@ -19,6 +20,7 @@ pub mod presets;
 pub mod proposal;
 pub mod propose;
 pub mod store;
+pub mod templates;
 pub mod write_skill;
 pub mod yaml;
 

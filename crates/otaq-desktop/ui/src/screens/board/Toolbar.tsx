@@ -1,7 +1,8 @@
 // The board's toolbar, in every view (BRD-01, FIL-01; `s28-03`): the views Board · Files · Settings first (Settings is
 // the project's settings page); while the board shows, its
 // layout switch beside them, two icons (columns `g b`, list `g l`: Board and List are layouts of the same board), and
-// on the right Edit flow (the flow editor), its one option Fold empty columns, All tickets and New ticket. On Files:
+// on the right its one option Fold empty columns, All tickets and New ticket (Edit flow sits at the end of the board,
+// `Board.tsx`). On Files:
 // its subtitle after a divider and the Live dot on the right (FIL-10). Every word and every
 // change it sends is Rust's (`BoardToolbar`, `view_prefs.rs`); a click sends the option's change (`board.set_view`)
 // and the board asks for its view again.
@@ -21,8 +22,6 @@ export interface ToolbarProps {
   onView: (change: ViewChange) => void;
   onAllTickets: () => void;
   onNewTicket: () => void;
-  /** Edit flow on the Board: the project's flow editor. */
-  onEditFlow: () => void;
 }
 
 /** ←/→ on a segment: the next one, wrapping, chosen at once (a radio group). */
@@ -163,7 +162,7 @@ function Switch({ option, onView }: { option: ToolbarOption; onView: ToolbarProp
 /** The toolbar's 16 px sides: it is 760 px or less (`s28-08`) in a main area this wide or less. */
 const NARROW_MAIN = 760 + 2 * 16;
 
-export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow }: ToolbarProps) {
+export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket }: ToolbarProps) {
   const main = useStore(mainWidth);
   return (
     <div
@@ -186,12 +185,6 @@ export function Toolbar({ toolbar, onView, onAllTickets, onNewTicket, onEditFlow
           <span className="board-toolbar-live-dot" aria-hidden />
           <span>{toolbar.live}</span>
         </span>
-      )}
-      {toolbar.edit_flow !== null && (
-        <button type="button" className="board-chip-button" onClick={onEditFlow}>
-          <Icon name="pencil" size={12} />
-          <span>{toolbar.edit_flow}</span>
-        </button>
       )}
       {toolbar.switch && <Switch option={toolbar.switch} onView={onView} />}
       {toolbar.all_tickets !== null && (

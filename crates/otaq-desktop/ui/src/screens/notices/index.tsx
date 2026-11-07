@@ -14,7 +14,7 @@ import type { Toast as ToastView } from "../../generated/Toast";
 import type { UpdateBanner } from "../../generated/UpdateBanner";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
-import { openStageSkill } from "../flow_editor/logic";
+import { openStageSkill } from "../flow_board/logic";
 import { updatesClick, updatesStore } from "../settings/updates";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { type LimitLineHandlers, LimitLines } from "./LimitLines";
@@ -187,7 +187,7 @@ function linkOf(toast: ToastView) {
           request("updates.release_notes", { version: link.version }).catch(warnOnFailure(link.label));
         },
       };
-    // Open PR refused on a remote the built-in skill can't use: the Delivery stage's Skill field in the flow editor.
+    // Open PR refused on a remote the built-in skill can't use: the board's flow editor, on that stage.
     case "stage_skill":
       return {
         label: link.label,

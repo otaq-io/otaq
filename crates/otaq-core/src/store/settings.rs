@@ -81,16 +81,20 @@ pub enum Hint {
     /// The design gallery's sample hint: the one hint with no moment in the app, so the popover can be seen and
     /// tried.
     GallerySample,
+    /// The first time Edit flow turns the board into the editor: the flow is its columns, and nothing changes until
+    /// the user saves.
+    FlowColumns,
 }
 
 impl Hint {
     /// Every hint.
-    pub const ALL: &[Hint] = &[Hint::GallerySample];
+    pub const ALL: &[Hint] = &[Hint::GallerySample, Hint::FlowColumns];
 
     /// The hint's stored and wire name (`"gallery_sample"`).
     pub fn id(self) -> &'static str {
         match self {
             Hint::GallerySample => "gallery_sample",
+            Hint::FlowColumns => "flow_columns",
         }
     }
 

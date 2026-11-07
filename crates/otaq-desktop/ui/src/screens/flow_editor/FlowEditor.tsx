@@ -1,6 +1,7 @@
 // The flow editor (T-0471; FED-01, FED-03, FED-04, FED-07; d0115, d0087; *27 → Row · One component* `s27-02`, *Row ·
 // In onboarding* `s27-03`, *Row · The agent changes it* `s27-04`, *Row · In the project* `s27-05`, *Row · Changes that
-// wait* `s27-07`): one component over the window in three parts. **Start from** (left, 230 px): the flow in use, the
+// wait* `s27-07`): onboarding's Flow step and a later project's Flow setup page, in three parts (a project's own flow
+// is edited on its board, `flow_board/`, which reuses the Skill field and a problem's fix line from here). **Start from** (left, 230 px): the flow in use, the
 // presets, Made for <project> with an Ask per connected tool, Import a flow…. **The flow** (middle): the animation of
 // what is in the draft ("Watch it"; it folds while a step's details are open), the steps (drag a grip, or Alt+↑/↓, to
 // reorder; + between them on hover; Add a stage), the selected step's details or the legend, the change line and Cancel
@@ -14,9 +15,10 @@
 // agent check's list its check agents (add, remove) and one Rounds limit (T-0529; d0131, d0130; `s29-04`).
 import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
+import "./flow_editor.css";
+
 import { keymap } from "../../app/keyboard";
 import { bindingFor } from "../../app/keys";
-import type { OverlayProps } from "../../app/registry/overlays";
 import { useStore } from "../../app/store";
 import {
   AnchoredMenu,
@@ -65,7 +67,6 @@ import { CodeText } from "../../components/CodeText";
 import { optionItems } from "../settings/Agents";
 import { ModelPicker } from "../settings/ModelPicker";
 import {
-  addOnOpening,
   applyDraft,
   askEach,
   askToWrite,
@@ -890,15 +891,7 @@ function FailToField({
   );
 }
 
-function DetailsPanel({
-  details,
-  actions,
-  focusSkill,
-}: {
-  details: FlowEditorDetails;
-  actions: EditorActions;
-  focusSkill: string | null;
-}) {
+function DetailsPanel({ details, actions }: { details: FlowEditorDetails; actions: EditorActions }) {
   const stage = details.stage;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
   return (
@@ -993,13 +986,7 @@ function DetailsPanel({
         </div>
       )}
       {details.skill !== null && (
-        <SkillField
-          key={stage}
-          field={details.skill}
-          stage={stage}
-          actions={actions}
-          focus={focusSkill === stage}
-        />
+        <SkillField key={stage} field={details.skill} stage={stage} actions={actions} />
       )}
       {(details.rounds !== null || details.fail_to !== null) && (
         <div className="fe-field-pair">
@@ -1061,13 +1048,11 @@ function FlowColumn({
   titleId,
   busy,
   actions,
-  focusSkill,
 }: {
   view: FlowEditorView;
   titleId: string;
   busy: boolean;
   actions: EditorActions;
-  focusSkill: string | null;
 }) {
   const { flow, footer } = view;
   return (
@@ -1111,7 +1096,7 @@ function FlowColumn({
       <div className="fe-flow-body">
         <StepList flow={flow} actions={actions} />
         {flow.details !== null ? (
-          <DetailsPanel details={flow.details} actions={actions} focusSkill={focusSkill} />
+          <DetailsPanel details={flow.details} actions={actions} />
         ) : (
           <Legend flow={flow} />
         )}
@@ -1359,8 +1344,6 @@ export interface FlowEditorBodyProps {
   titleId?: string;
   /** What Ask the agent to write it put in the idle panel's box. */
   prefill?: Prefill | null;
-  /** The stage whose Skill field gets the keyboard when its details show (opened on it). */
-  focusSkill?: string | null;
 }
 
 /** The editor's three parts for a loaded view (also what the gallery and onboarding's Flow step draw). */
@@ -1372,20 +1355,13 @@ export function FlowEditorBody({
   terminal,
   titleId,
   prefill = null,
-  focusSkill = null,
 }: FlowEditorBodyProps) {
   const fallbackInput = useRef<HTMLInputElement>(null);
   const ownId = useId();
   return (
     <div className="fe">
       <StartFromColumn start={view.start_from} actions={actions} />
-      <FlowColumn
-        view={view}
-        titleId={titleId ?? ownId}
-        busy={busy}
-        actions={actions}
-        focusSkill={focusSkill}
-      />
+      <FlowColumn view={view} titleId={titleId ?? ownId} busy={busy} actions={actions} />
       <AgentColumn
         agent={view.agent}
         actions={actions}
@@ -1397,19 +1373,12 @@ export function FlowEditorBody({
   );
 }
 
-/** Where the editor opens and what ends it: the overlay closes; onboarding's Flow step and the Flow setup page move on. */
+/** Where the editor opens and what ends it: onboarding's Flow step and the Flow setup page move on. */
 interface EditorOpen {
   project: string;
   from: FlowEditorFrom;
-  select_stage?: string;
-  /** Opened on `select_stage`'s Skill field ("use your own Open PR skill" → the Delivery stage's). */
-  focus_skill?: boolean;
-  /** A stage to add a new one after on opening; `null`: first, after Backlog. */
-  add_after?: string | null;
   /** Apply (Use this flow) or Cancel (Skip, use the default) was answered: the agent the panel showed, if any. */
   onDone: (agent: string | null) => void;
-  /** Esc with no step selected: the overlay closes; embedded, nothing. */
-  onEscape?: () => void;
 }
 
 /**
@@ -1417,12 +1386,8 @@ interface EditorOpen {
  * the clicks, ⌘L into the panel and Esc (the details first). The overlay and the embedded page draw it the same way.
  */
 function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null>) {
-  const { project, from, onDone, onEscape } = open;
-  const [selected, setSelected] = useState<string | null>(open.select_stage ?? null);
-  // The Skill field to focus on opening; gone once another step is selected.
-  const [focusSkill, setFocusSkill] = useState<string | null>(
-    open.focus_skill === true ? (open.select_stage ?? null) : null,
-  );
+  const { project, from, onDone } = open;
+  const [selected, setSelected] = useState<string | null>(null);
   const [busy, setBusy] = useState(false);
   // The picks for the draft's problems (Q426), sent with every view and with Apply.
   const [choices, setChoices] = useState<FlowEditorChoices>(NO_CHOICES);
@@ -1431,16 +1396,6 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
   const agent = agents[project] ?? null;
   const input = useRef<HTMLInputElement>(null);
   const terminal = useRef<TerminalHandle>(null);
-  // A stage to add on opening (a column's Add a stage after <stage>): once, whatever React re-runs.
-  const added = useRef(false);
-  const addAfter = open.add_after;
-  useEffect(() => {
-    if (addAfter === undefined || added.current) return;
-    added.current = true;
-    editStage(project, addOnOpening(addAfter)).then((id) => {
-      if (id !== null) setSelected(id);
-    }, ignore);
-  }, [project, addAfter]);
   const load = useCallback(() => {
     const p: FlowEditorParams = {
       project,
@@ -1483,7 +1438,6 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
     };
     return {
       select: (stage) => {
-        setFocusSkill(null);
         setSelected(stage);
       },
       edit: (edit) => {
@@ -1503,13 +1457,13 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
         importChoice(project, id, () => pickFlowFile(view.start_from.import.file_title)).catch(ignore);
       },
       ask: (tool) => {
-        askTool(project, from, tool).catch(ignore);
+        askTool(project, tool).catch(ignore);
       },
       askBoth: (tools) => {
-        askEach(project, from, tools).catch(ignore);
+        askEach(project, tools).catch(ignore);
       },
       chip: (action, openChooser) => {
-        chipPressed(project, from, action, openChooser, write).catch(ignore);
+        chipPressed(project, action, openChooser, write).catch(ignore);
       },
       send: (text, writeFor) => {
         const sent = writeFor === null ? sendFirst(project, text) : writeSkill(project, writeFor, text);
@@ -1527,9 +1481,9 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
         finish(cancelDraft(view));
       },
     };
-  }, [view, project, from, finish]);
+  }, [view, project, finish]);
 
-  // ⌘L (the user's Focus the Project agent key) moves into the panel; Esc closes the details, then the editor.
+  // ⌘L (the user's Focus the Project agent key) moves into the panel; Esc closes the details.
   useEffect(() => {
     const el = box.current;
     if (!el) return;
@@ -1542,75 +1496,18 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
         return;
       }
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (selected === null && onEscape === undefined) return;
+      if (selected === null) return;
       e.preventDefault();
       e.stopPropagation();
-      if (selected !== null) setSelected(null);
-      else onEscape?.();
+      setSelected(null);
     };
     el.addEventListener("keydown", onKey);
     return () => {
       el.removeEventListener("keydown", onKey);
     };
-  }, [box, selected, onEscape]);
+  }, [box, selected]);
 
-  return { state, view, actions, busy, input, terminal, prefill, focusSkill };
-}
-
-/**
- * The `flow_editor` overlay over the whole window: the project's draft with the page's selection and the panel's
- * agent. Esc closes the details first, then the editor (the draft stays for next time; Cancel drops it).
- */
-export function FlowEditorOverlay({ params, close }: OverlayProps<"flow_editor">) {
-  return <Editor key={`${params.project}-${params.from}`} params={params} close={close} />;
-}
-
-function Editor({ params, close }: OverlayProps<"flow_editor">) {
-  const titleId = useId();
-  const dialog = useRef<HTMLElement>(null);
-  const editor = useFlowEditor({ ...params, onDone: close, onEscape: close }, dialog);
-  const { state, view, actions } = editor;
-  useEffect(() => {
-    dialog.current?.focus();
-  }, []);
-
-  return (
-    <div
-      className="fe-scrim"
-      role="presentation"
-      // A press on the dim around it closes the editor, as Esc does (the draft stays in the service).
-      onMouseDown={(e) => {
-        if (e.target === e.currentTarget) close();
-      }}
-    >
-      <section
-        ref={dialog}
-        className="fe-dialog"
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby={titleId}
-        tabIndex={-1}
-      >
-        {state.error !== undefined && view === undefined && (
-          <p className="fe-problem" role="alert">
-            {state.error.message}
-          </p>
-        )}
-        {view !== undefined && actions !== null && (
-          <FlowEditorBody
-            view={view}
-            busy={editor.busy}
-            actions={actions}
-            input={editor.input}
-            terminal={editor.terminal}
-            titleId={titleId}
-            prefill={editor.prefill}
-            focusSkill={editor.focusSkill}
-          />
-        )}
-      </section>
-    </div>
-  );
+  return { state, view, actions, busy, input, terminal, prefill };
 }
 
 export interface FlowEditorPageProps {

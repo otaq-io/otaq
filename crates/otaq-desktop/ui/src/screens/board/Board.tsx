@@ -35,7 +35,8 @@ import {
 
 import { requestCardAction } from "../../app/cardActions";
 import { openOverlay } from "../../app/overlays";
-import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
+import { FlowBoard } from "../flow_board/FlowBoard";
+import { editing, flowEditing, openFlowBoard } from "../flow_board/logic";
 import { useShortcut } from "../../app/registry";
 import { closeTicket, openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
@@ -69,6 +70,8 @@ import { NeedsYouStrip } from "../strip/Strip";
 import { activeChain } from "./chain";
 import { ChainLayer } from "./ChainLayer";
 import { CardMenu, type OpenCardMenu } from "./CardMenu";
+import { decide, decideMenu, DecideMenu } from "./DecideMenu";
+import type { DecideMenu as DecideMenuView } from "../../generated/DecideMenu";
 import { cardsOf, type CardHandlers, Column, columnOfCard, walkOf } from "./Column";
 import {
   BACKLOG,
@@ -390,6 +393,14 @@ export function Board() {
     "show_files",
     useCallback(() => showView("files"), [showView]),
   );
+  // Edit flow (UX: the board is the flow): this project's board is the flow's editor, in place, on the Board view.
+  const flowOpen = useStore(flowEditing);
+  const editingFlow = editing(flowOpen, project);
+  const shownView = view?.prefs.view;
+  useEffect(() => {
+    if (editingFlow && shownView !== undefined && shownView !== "board")
+      changeView({ kind: "view", view: "board" });
+  }, [editingFlow, shownView, changeView]);
   const filesShown = view?.prefs.view === "files";
   // The project's Settings page (the view switch's Settings): the board's place, under the same toolbar.
   const settingsShown = view?.prefs.view === "settings";
@@ -418,6 +429,24 @@ export function Board() {
   // The drag: state for what the columns draw, the pointer only in a ref (the lifted card follows it unrendered).
   const [drag, setDrag] = useState<DragState | null>(null);
   const [cardMenu, setCardMenu] = useState<OpenCardMenu | null>(null);
+  // Decide on a check out of rounds: its three ways on, under the card.
+  const [deciding, setDeciding] = useState<{ menu: DecideMenuView; anchor: HTMLElement } | null>(null);
+  const openDecide = useCallback((key: string, kind: CardActionKind) => {
+    decideMenu(key).then(
+      (menu) => {
+        const card = document.querySelector<HTMLElement>(`[data-card="${CSS.escape(key)}"]`);
+        if (menu !== null && card !== null) {
+          setDeciding({ menu, anchor: card });
+          return;
+        }
+        openTicket(key);
+        requestCardAction(key, kind);
+      },
+      (error: unknown) => {
+        toast(error);
+      },
+    );
+  }, []);
   const ghost = useRef<HTMLDivElement>(null);
   const columns = useRef(new Map<BoardDropTarget, HTMLElement>());
   // The List's groups (and its Done line), its columns' drop targets, measured like the columns when a drag starts.
@@ -600,6 +629,10 @@ export function Board() {
           void startTicket(key);
           return;
         }
+        if (kind === "decide") {
+          openDecide(key, kind);
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },
@@ -608,7 +641,7 @@ export function Board() {
         setHovered((old) => (over ? key : old === key ? null : old));
       },
     }),
-    [controller, release, placeGhost, openMenu],
+    [controller, release, placeGhost, openMenu, openDecide],
   );
 
   // ⌘D: start the selected ticket, as if it was dropped on Dev (the first agent column).
@@ -683,12 +716,16 @@ export function Board() {
           void startTicket(key);
           return;
         }
+        if (kind === "decide") {
+          openDecide(key, kind);
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },
       menu: openMenu,
     }),
-    [controller, release, placeGhost, openMenu],
+    [controller, release, placeGhost, openMenu, openDecide],
   );
 
   const place = scrollPlace(project ?? "");
@@ -805,6 +842,28 @@ export function Board() {
     if (r) ghost.current.style.transform = `translate(${String(r.left + 24)}px, ${String(r.top + 80)}px)`;
   }, [drag]);
 
+  // Edit flow at the end of the board (after the columns, or after the List's rows).
+  const editFlowButton = view?.edit_flow != null && project !== null && (
+    <button
+      type="button"
+      className="board-edit-flow"
+      onClick={() => {
+        openFlowBoard({ project });
+      }}
+    >
+      <Icon name="pencil" size={12} />
+      <span>{view.edit_flow}</span>
+    </button>
+  );
+
+  if (editingFlow && flowOpen !== null) {
+    return (
+      <div className="board-screen">
+        <FlowBoard key={flowOpen.project} open={flowOpen} board={view} />
+      </div>
+    );
+  }
+
   return (
     <div className="board-screen">
       {view && (
@@ -816,9 +875,6 @@ export function Board() {
             openNewWork(() => {
               openOverlay("new_ticket");
             });
-          }}
-          onEditFlow={() => {
-            if (project !== null) openFlowEditor(changeFlowOpen(project));
           }}
         />
       )}
@@ -862,15 +918,18 @@ export function Board() {
           />
         )}
         {list !== null ? (
-          <List
-            list={list}
-            selected={selected}
-            lifted={drag?.key ?? null}
-            verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
-            handlers={listHandlers}
-            group={group$}
-            onView={changeView}
-          />
+          <>
+            <List
+              list={list}
+              selected={selected}
+              lifted={drag?.key ?? null}
+              verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
+              handlers={listHandlers}
+              group={group$}
+              onView={changeView}
+            />
+            {editFlowButton}
+          </>
         ) : (
           <div className="board-columns">
             {view?.columns.map((column) => (
@@ -897,6 +956,7 @@ export function Board() {
                 element={element$}
               />
             ))}
+            {editFlowButton}
             {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
           </div>
         )}
@@ -934,6 +994,22 @@ export function Board() {
             </span>
           )}
         </div>
+        {deciding && (
+          <DecideMenu
+            menu={deciding.menu}
+            anchor={{ current: deciding.anchor }}
+            onChose={(action) => {
+              const key = deciding.menu.key;
+              setDeciding(null);
+              decide(key, action).catch((error: unknown) => {
+                toast(error);
+              });
+            }}
+            onClose={() => {
+              setDeciding(null);
+            }}
+          />
+        )}
         {cardMenu && (
           <CardMenu
             menu={cardMenu}

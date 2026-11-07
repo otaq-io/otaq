@@ -36,7 +36,7 @@ import type { ChainView } from "../../generated/ChainView";
 import type { DragVerdict } from "../../generated/DragVerdict";
 import type { ViewChange } from "../../generated/ViewChange";
 import { Icon } from "../../theme/Icon";
-import { columnEditorOpen, openFlowEditor } from "../flow_editor/logic";
+import { columnOpen, openFlowBoard } from "../flow_board/logic";
 import { shownPiece } from "../session/terminalLogic";
 import { chainStateOf, membersIn } from "./chain";
 import { type AboveChip, aboveChip } from "./drag";
@@ -308,7 +308,7 @@ export function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onV
             setAnchor(null);
             const chosen = column.menu.find((m) => m.item.id === id);
             if (chosen?.change) onView(chosen.change);
-            if (chosen?.editor && project !== null) openFlowEditor(columnEditorOpen(project, chosen.editor));
+            if (chosen?.editor && project !== null) openFlowBoard(columnOpen(project, chosen.editor));
           }}
           onClose={() => {
             setAnchor(null);
@@ -319,7 +319,7 @@ export function ColumnMenu({ column, onView }: Pick<ColumnProps, "column" | "onV
   );
 }
 
-/** The header's icon, title (with who runs it on hover) and count. */
+/** The header's icon, title (with who runs it on hover) and count, and "changing" while a saved flow change waits for it. */
 export function HeaderTitle({ column }: { column: BoardColumn }) {
   const title = <span className="board-column-title">{column.title}</span>;
   return (
@@ -335,6 +335,7 @@ export function HeaderTitle({ column }: { column: BoardColumn }) {
         title
       )}
       <span className="board-column-count">{column.count}</span>
+      {column.changing !== null && <span className="board-column-changing">{column.changing}</span>}
     </>
   );
 }

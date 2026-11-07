@@ -8,7 +8,6 @@ import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
-import type { FlowEditorFrom } from "../../generated/FlowEditorFrom";
 import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
@@ -112,17 +111,6 @@ export interface OverlayParams {
   full_view: { owner: string };
   /** Apply now on a project's waiting flow change (T-0439, APN-02), from the flow change banner. */
   apply_now: { project: string };
-  /** The flow editor over the window (T-0471, FED-01, FED-09): the project's flow, from the project menu, a column's
-   * ⋯ or Settings → Flow; a stage to select (Edit <stage>…) or to add a new one after (Add a stage after <stage>;
-   * `null`: first, after Backlog). Onboarding's Flow step and the Flow setup page embed its body. `focus_skill`:
-   * the selected stage's Skill field gets the keyboard (use your own Open PR skill → the Delivery stage's). */
-  flow_editor: {
-    project: string;
-    from: FlowEditorFrom;
-    select_stage?: string;
-    focus_skill?: boolean;
-    add_after?: string | null;
-  };
   /** A comment's report, or a paste not posted yet, read-only over the sheet (CMT-12, T-0447). */
   report: ReportOpenParams;
   /** A comment's image full size over the sheet (tuq 004): its ticket, its comment's number and its thumbnail. */
@@ -170,7 +158,6 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   gallery: true,
   full_view: true,
   apply_now: true,
-  flow_editor: true,
   report: true,
   image: true,
 };

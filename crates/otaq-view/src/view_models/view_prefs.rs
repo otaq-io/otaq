@@ -196,9 +196,6 @@ pub struct Toolbar {
     /// The board's layout switch beside the views, icons only: columns (Board) or rows (List). `null` on Files and
     /// Settings.
     pub layouts: Option<ToolbarGroup>,
-    /// "Edit flow" on the board, in either layout: the project's flow, changed from the board (it opens the flow
-    /// editor).
-    pub edit_flow: Option<String>,
     /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
     pub subtitle: Option<String>,
     /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
@@ -222,7 +219,6 @@ pub const FOLD_EMPTY_COLUMNS: &str = "Fold empty columns";
 pub const ALL_TICKETS: &str = "All tickets";
 pub const SETTINGS: &str = "Settings";
 pub const SETTINGS_TOOLTIP: &str = "The project\u{2019}s settings";
-pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
 pub const FILES_SUBTITLE: &str =
@@ -309,7 +305,6 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                 ),
             ],
         }),
-        edit_flow: board.then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
         switch: board.then(|| {
@@ -413,12 +408,11 @@ mod tests {
         assert_eq!(
             (
                 settings.layouts.as_ref(),
-                settings.edit_flow.as_ref(),
                 settings.switch.as_ref(),
                 settings.all_tickets.as_ref(),
                 settings.new_ticket.as_ref()
             ),
-            (None, None, None, None, None)
+            (None, None, None, None)
         );
         let layouts = board.layouts.as_ref().unwrap();
         assert_eq!(
@@ -474,7 +468,6 @@ mod tests {
             labels(list.layouts.as_ref().unwrap()),
             [("Columns".to_owned(), false), ("List".to_owned(), true)]
         );
-        assert_eq!(list.edit_flow.as_deref(), Some("Edit flow"));
         let switch = list.switch.as_ref().unwrap();
         assert_eq!(
             (switch.label.as_str(), switch.selected, &switch.change),

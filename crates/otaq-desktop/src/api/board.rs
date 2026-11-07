@@ -72,6 +72,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "board.menu_choose" => reply(&menu_choose(app, parse(params)?).await?),
         "board.delete_dialog" => reply(&delete_dialog(app, parse(params)?).await),
         "board.delete" => reply(&delete(app, parse(params)?).await?),
+        "board.decide" => reply(&decide(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -292,21 +293,24 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         Ok(Reply::Agents(list)) => Some(*list),
         _ => None,
     };
-    // No ticket enters what a waiting flow change waits for (FLW-06, FED-08): the cards it holds say why.
-    let starts_held = match app
+    // No ticket enters what a waiting flow change waits for (FLW-06, FED-08): the cards it holds say why, and the
+    // stages it waits for are marked "changing".
+    let waiting = match app
         .service
         .send(Request::FlowWaiting(ProjectParams {
             project: params.project.clone(),
         }))
         .await
     {
-        Ok(Reply::FlowWaiting(Some(waiting))) => Some(waiting.hold),
+        Ok(Reply::FlowWaiting(Some(waiting))) => Some(*waiting),
         _ => None,
     };
+    let changing = waiting.as_ref().map(|w| w.wait.clone());
+    let starts_held = waiting.map(|w| w.hold);
     let flow = flow(app, &params.project).await;
     let view = view_prefs(app, &params.project).await;
     let helpers = helpers(app, &params.project).await;
-    let page = board_page::page(
+    let mut page = board_page::page(
         &tickets,
         &ProjectFacts {
             flow: &flow,
@@ -327,6 +331,9 @@ pub async fn view(app: &App, params: Params) -> Result<BoardPage, RequestError> 
         otaq_core::store::now_ms(),
         &super::keymap::labels(app).await,
     );
+    if let Some(wait) = &changing {
+        board_page::mark_changing(&mut page, wait);
+    }
     Ok(page)
 }
 
@@ -397,6 +404,17 @@ pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, Request
         &tickets,
         left.as_deref(),
     ))
+}
+
+/// Decide on a card: the three ways on of a check out of rounds, or `null` for any other card (Decide then opens
+/// the ticket).
+pub async fn decide(
+    app: &App,
+    params: TicketParams,
+) -> Result<Option<otaq_view::view_models::decide_menu::Menu>, RequestError> {
+    let ticket = ticket(app, &params.key).await?;
+    let flow = flow(app, &ticket.key.project.to_string()).await;
+    Ok(otaq_view::view_models::decide_menu::menu(&ticket, &flow))
 }
 
 /// The Agent stage a parked ticket left, by name (its Parked event's stage; a check's Agent stage before it).

@@ -511,6 +511,7 @@ describe("the board screen", () => {
     cards: [],
     dev: null,
     add: null,
+    changing: null,
     ...over,
   });
 
@@ -708,6 +709,7 @@ describe("the Review column (T-0328, d0087)", () => {
     cards: [card("NOTE-7"), card("NOTE-8")],
     dev: null,
     add: null,
+    changing: null,
   };
   const props: ColumnProps = {
     column: review,
@@ -842,7 +844,6 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
-        onEditFlow: () => undefined,
       }),
     );
     expect(html).toMatch(
@@ -881,7 +882,6 @@ describe("the toolbar (BRD-01)", () => {
         onView: () => undefined,
         onAllTickets: () => undefined,
         onNewTicket: () => undefined,
-        onEditFlow: () => undefined,
       }),
     );
     expect(html).toContain(
@@ -923,6 +923,7 @@ describe("the sheet over the board (SHL-05)", () => {
       cards: id === "dev" ? [{ ...cardOf("NOTE-6") }] : id === "review" ? [{ ...cardOf("NOTE-7") }] : [],
       dev: null,
       add: null,
+      changing: null,
     }));
     expect(columnOfCard(columns, "NOTE-6")).toBe("dev");
     expect(columnOfCard(columns, "NOTE-7")).toBe("review");

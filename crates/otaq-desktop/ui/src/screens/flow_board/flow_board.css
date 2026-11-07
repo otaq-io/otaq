@@ -1,0 +1,569 @@
+/*
+ * Edit flow on the board: the editor's bar where the toolbar was, then the flow's columns at the board's width (each
+ * at least `--column-width`, 12 px apart with a + between two), their headers as the stages and their cards dimmed;
+ * a stage's details, How work leaves the flow, Watch a ticket or Why these changes on the right. Backlog and Done are
+ * locked (muted, a lock). A stage this draft adds is marked with the accent's dashed outline.
+ */
+.fb-screen {
+  position: relative;
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  box-sizing: border-box;
+  min-width: 0;
+  height: 100%;
+  background: var(--bg-app);
+}
+
+.fb-bar {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  box-sizing: border-box;
+  min-height: 52px;
+  padding: 8px 16px;
+  border-bottom: 1px solid var(--border);
+  background: var(--accent-soft);
+}
+
+.fb-bar-title {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  min-width: 0;
+  color: var(--accent);
+}
+
+.fb-bar-words {
+  display: flex;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.fb-bar-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 600 13px/1.3 var(--font-ui);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fb-bar-line {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+  font: 400 12px/1.35 var(--font-ui);
+}
+
+.fb-bar-count {
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+  font: 500 11px/16px var(--font-ui);
+}
+
+.fb-spacer {
+  flex: 1;
+}
+
+.fb-link {
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 500 12px/1.3 var(--font-ui);
+  cursor: pointer;
+}
+
+.fb-link:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.fb-drafting,
+.fb-applies {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  margin: 0;
+  padding: 6px 16px;
+  border-bottom: 1px solid var(--border);
+  color: var(--text-secondary);
+  font: 400 12px/1.4 var(--font-ui);
+}
+
+.fb-board {
+  display: flex;
+  flex: 1;
+  gap: 12px;
+  min-height: 0;
+  padding: 14px 16px 16px;
+  overflow: hidden;
+}
+
+.fb-columns {
+  display: flex;
+  flex: 1;
+  min-width: 0;
+  overflow-x: auto;
+  overflow-y: hidden;
+}
+
+.fb-slot {
+  display: flex;
+  flex: 1 0 var(--column-width, 240px);
+  min-width: var(--column-width, 240px);
+}
+
+.fb-column {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  box-sizing: border-box;
+  min-width: 0;
+  padding: 6px;
+  overflow: hidden;
+  border-radius: var(--r-lg);
+  background: var(--bg-column);
+}
+
+.fb-column[data-marked] {
+  outline: 1.5px dashed var(--accent);
+  outline-offset: -1.5px;
+}
+
+.fb-column[data-lifted] {
+  opacity: 0.6;
+}
+
+.fb-column[data-over] {
+  box-shadow: inset 0 0 0 2px var(--accent);
+}
+
+.fb-head {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 3px;
+  box-sizing: border-box;
+  padding: 8px 10px;
+  border: 1px solid var(--border-card);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  cursor: grab;
+  user-select: none;
+}
+
+.fb-head[data-fixed] {
+  border-style: dashed;
+  background: transparent;
+  cursor: default;
+}
+
+.fb-column[data-kind="done"] .fb-head {
+  cursor: pointer;
+}
+
+.fb-head[aria-pressed="true"] {
+  border-color: var(--accent);
+  box-shadow: 0 0 0 1px var(--accent);
+}
+
+.fb-head:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+.fb-head-top {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-secondary);
+}
+
+.fb-head-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: var(--text-column-title);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fb-head-what,
+.fb-head-line,
+.fb-head-delivery {
+  color: var(--text-muted);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.fb-head-delivery {
+  color: var(--text-secondary);
+}
+
+.fb-head-who {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font: 500 12px/1.35 var(--font-ui);
+}
+
+.fb-head-skill {
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: 400 11px/1.35 var(--font-mono);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fb-head-problem {
+  color: var(--st-error);
+  font: 500 11.5px/1.35 var(--font-ui);
+}
+
+.fb-head-warning,
+.fb-warn {
+  display: flex;
+  align-items: flex-start;
+  gap: 4px;
+  color: var(--st-attn);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.fb-remove {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  padding: 0;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-muted);
+  cursor: pointer;
+  opacity: 0;
+}
+
+.fb-head:hover .fb-remove,
+.fb-head:focus-within .fb-remove {
+  opacity: 1;
+}
+
+.fb-remove:hover {
+  background: var(--bg-hover);
+  color: var(--text-primary);
+}
+
+.fb-mark {
+  flex: none;
+  padding: 0 6px;
+  border-radius: 8px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 500 10.5px/16px var(--font-ui);
+}
+
+.fb-cards {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 6px;
+  min-height: 0;
+  overflow-y: auto;
+}
+
+.fb-dimmed {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  opacity: 0.4;
+  pointer-events: none;
+}
+
+.fb-pretend {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 2px;
+  padding: 8px 10px;
+  border: 1.5px solid var(--accent);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+  box-shadow: var(--shadow-floating);
+}
+
+.fb-pretend-label {
+  color: var(--accent);
+  font: 600 10px/1.3 var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.fb-pretend-title {
+  color: var(--text-primary);
+  font: 500 12.5px/1.35 var(--font-ui);
+}
+
+.fb-pretend-state {
+  color: var(--text-secondary);
+  font: 400 11.5px/1.35 var(--font-ui);
+}
+
+.fb-gap {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 20px;
+  margin: 26px 2px 0;
+  padding: 0;
+  border: 1px dashed var(--border-strong);
+  border-radius: 10px;
+  background: var(--bg-app);
+  color: var(--text-muted);
+  cursor: pointer;
+}
+
+.fb-gap:hover,
+.fb-gap:focus-visible {
+  border-style: solid;
+  border-color: var(--accent);
+  color: var(--accent);
+}
+
+.fb-slot:last-child {
+  padding-right: 0;
+}
+
+.fb-side {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 12px;
+  box-sizing: border-box;
+  width: 340px;
+  padding: 14px;
+  overflow-y: auto;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+}
+
+.fb-side h4 {
+  margin: 0;
+  color: var(--text-primary);
+  font: 600 13px/1.3 var(--font-ui);
+}
+
+.fb-side-head {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+}
+
+.fb-side-buttons {
+  display: flex;
+  justify-content: flex-end;
+  gap: 8px;
+}
+
+.fb-muted {
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.fb-rounds {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+}
+
+.fb-rounds-value {
+  min-width: 16px;
+  color: var(--text-primary);
+  font: 500 13px/1 var(--font-mono);
+  text-align: center;
+}
+
+.fb-remove-row {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding-top: 4px;
+  border-top: 1px solid var(--border);
+}
+
+.fb-path {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 4px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fb-path li {
+  padding: 2px 8px;
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.fb-path li[data-done] {
+  color: var(--text-secondary);
+}
+
+.fb-path li[data-at] {
+  border-color: var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.fb-step-of {
+  color: var(--text-muted);
+  font: 500 11px/1.3 var(--font-ui);
+}
+
+.fb-step-text {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12.5px/1.45 var(--font-ui);
+}
+
+.fb-whys ol {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+.fb-whys li {
+  display: flex;
+  gap: 8px;
+}
+
+.fb-whys p {
+  margin: 2px 0 0;
+}
+
+.fb-why-number {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 9px;
+  background: var(--accent-soft);
+  color: var(--accent);
+  font: 600 11px/1 var(--font-ui);
+}
+
+.fb-why-title {
+  color: var(--text-primary);
+  font: 500 12.5px/1.35 var(--font-ui);
+}
+
+.fb-palette,
+.fb-start {
+  display: flex;
+  flex-direction: column;
+  width: 340px;
+  max-height: 70vh;
+  padding: 6px;
+  overflow-y: auto;
+}
+
+.fb-pop-head {
+  display: flex;
+  justify-content: space-between;
+  padding: 6px 8px;
+  color: var(--text-primary);
+  font: 600 12.5px/1.3 var(--font-ui);
+}
+
+.fb-pop-section {
+  padding: 10px 8px 4px;
+  color: var(--text-muted);
+  font: 600 10.5px/1.3 var(--font-ui);
+  letter-spacing: 0.04em;
+}
+
+.fb-pop-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 10px;
+  padding: 7px 8px;
+  border: none;
+  border-radius: var(--r-sm);
+  background: none;
+  color: var(--text-secondary);
+  text-align: left;
+  cursor: pointer;
+}
+
+.fb-pop-row:hover:not(:disabled),
+.fb-pop-row:focus-visible {
+  outline: none;
+  background: var(--bg-hover);
+}
+
+.fb-pop-row:disabled {
+  cursor: default;
+  opacity: 0.6;
+}
+
+.fb-suggest {
+  border: 1px solid var(--accent);
+  background: var(--accent-soft);
+  color: var(--accent);
+}
+
+.fb-pop-words {
+  display: flex;
+  flex-direction: column;
+  gap: 1px;
+  min-width: 0;
+}
+
+.fb-pop-name {
+  color: var(--text-primary);
+  font: 500 12.5px/1.35 var(--font-ui);
+}
+
+.fb-pop-foot {
+  margin: 6px 8px 4px;
+  color: var(--text-muted);
+  font: 400 11.5px/1.4 var(--font-ui);
+}
+
+.fb-ask {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  width: 320px;
+  padding: 10px;
+}
+
+.fb-problem {
+  margin: 16px;
+  color: var(--st-error);
+  font: 400 12.5px/1.4 var(--font-ui);
+}
+
+.fb-end {
+  display: flex;
+  flex: none;
+  align-self: flex-start;
+  margin-left: 4px;
+}

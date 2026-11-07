@@ -1058,13 +1058,13 @@ mod tests {
         n.set_project(Some("SHOP".into()));
         let view = n.view();
         assert_eq!(view.banners[0].kind, SituationKind::FlowWaiting);
-        assert_eq!(view.banners[0].title, "Flow change waiting");
+        assert_eq!(view.banners[0].title, "Saved \u{b7} waiting");
         assert!(
             view.banners[0]
                 .text
                 .starts_with("QA after Security \u{b7} 2 tickets still working.")
         );
-        assert_eq!(view.banners[0].buttons[0].label, "Apply now");
+        assert_eq!(view.banners[0].buttons[0].label, "Apply now\u{2026}");
 
         n.on_flow_event("SHOP", &FlowEvent::Applied { version: 3 });
         let view = n.view();

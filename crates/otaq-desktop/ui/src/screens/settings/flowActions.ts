@@ -1,11 +1,11 @@
 // The Flow card's actions (FLW-07…FLW-11, FED-09): what each button asks of Rust, and where the user goes next. Edit
-// flow opens the flow editor on the project's flow (d0115); every other action but Export puts its flow in the
+// flow turns the project's board into the flow's editor, in place; every other action but Export puts its flow in the
 // editor's draft (`settings.flow_propose`) and opens the editor on it. Export and Import go through the system's save
 // and open dialogs. Nothing starts until the user asks the editor's agent.
 import type { FlowSettings } from "../../generated/FlowSettings";
 import type { FlowSource } from "../../generated/FlowSource";
 import { pickFlowFile, request, saveFlowFile } from "../../tauri";
-import { changeFlowOpen, openFlowEditor } from "../flow_editor/logic";
+import { openFlowBoard } from "../flow_board/logic";
 import { AGENT_PANEL_ROUTES, type AgentPanelRoutes } from "../agent_panel/logic";
 import { selectProject } from "../../app/selection";
 
@@ -21,7 +21,7 @@ export interface FlowRoutes {
 export const FLOW_ROUTES: FlowRoutes = {
   ask: request,
   openEditor: (project) => {
-    openFlowEditor(changeFlowOpen(project));
+    openFlowBoard({ project });
   },
   pickFile: (title) => pickFlowFile(title),
   saveFile: (title, fileName) => saveFlowFile(title, fileName),

@@ -167,6 +167,25 @@ pub enum StageEdit {
         #[ts(optional)]
         to: Option<String>,
     },
+    /// What it's for: the stage's description, which every agent reads (empty: none).
+    Description {
+        stage: String,
+        description: String,
+    },
+    /// How work leaves the flow: Deliver as or When, with the same rules as the project's Repository card
+    /// ([`crate::view_models::project_settings::deliver_as`]).
+    Delivery {
+        field: String,
+        value: String,
+    },
+    /// **+** between two columns: one of the shipped ready stages ([`otaq_core::flow::templates`]) after `after`
+    /// (`None`: first, right after Backlog), with its description, agent and skill.
+    AddTemplate {
+        #[serde(default)]
+        #[ts(optional)]
+        after: Option<String>,
+        template: String,
+    },
 }
 
 /// The templates of a new stage's details (FED-05, `s26-09`, `s27-05`). `FlowEditorTemplate` on the page.
@@ -976,7 +995,7 @@ fn steps(file: &FlowFile) -> usize {
     file.flow.stages.len() + 2
 }
 
-fn kind_icon(stage: &Stage) -> IconName {
+pub(crate) fn kind_icon(stage: &Stage) -> IconName {
     match stage.kind {
         StageKind::Agent => IconName::Bot,
         StageKind::Check { by: CheckBy::Agent } => IconName::ShieldCheck,
@@ -992,7 +1011,7 @@ fn delivery_icon(delivery: &Delivery) -> IconName {
     }
 }
 
-fn editor_kind(stage: &Stage) -> Option<EditorKind> {
+pub(crate) fn editor_kind(stage: &Stage) -> Option<EditorKind> {
     match stage.kind {
         StageKind::Agent => Some(EditorKind::Works),
         StageKind::Check { by: CheckBy::Agent } => Some(EditorKind::AgentChecks),
@@ -1063,12 +1082,12 @@ fn caption(file: &FlowFile, stage: &Stage, skills: &[FoundSkill]) -> Option<Stri
 }
 
 /// The agent a stage names, as stored (its tool for the avatar).
-fn stored_agent<'a>(stored: &'a [Agent], name: &str) -> Option<&'a Agent> {
+pub(crate) fn stored_agent<'a>(stored: &'a [Agent], name: &str) -> Option<&'a Agent> {
     stored.iter().find(|a| a.name.eq_ignore_ascii_case(name))
 }
 
 /// The avatar and model of the agent `name`: a stored one's tool and model; one the draft brings has none yet.
-fn agent_on(name: &str, f: &Facts) -> (Option<ToolAvatarView>, Option<String>) {
+pub(crate) fn agent_on(name: &str, f: &Facts) -> (Option<ToolAvatarView>, Option<String>) {
     let Some(agent) = stored_agent(f.stored, name) else {
         return (None, None);
     };
@@ -1091,7 +1110,7 @@ fn mark_label(mark: Mark) -> &'static str {
     }
 }
 
-fn mark_view(mark: &StageMark) -> MarkView {
+pub(crate) fn mark_view(mark: &StageMark) -> MarkView {
     let why = match &mark.why {
         Some(why) => format!("Changed by {}: {why}", mark.by),
         None => format!("Changed by {}", mark.by),
@@ -1103,14 +1122,14 @@ fn mark_view(mark: &StageMark) -> MarkView {
     }
 }
 
-fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
+pub(crate) fn mark_of<'m>(marks: &'m [StageMark], id: &str) -> Option<&'m StageMark> {
     marks
         .iter()
         .find(|m| m.stage_id == id && m.mark != Mark::Removed)
 }
 
 /// The stage's one agent: an Agent stage's or an agent check's (a kind change keeps it).
-fn the_agent(stage: &Stage) -> Option<&String> {
+pub(crate) fn the_agent(stage: &Stage) -> Option<&String> {
     stage.agent.as_ref()
 }
 
@@ -1175,7 +1194,7 @@ fn model_problem(f: &Facts, agent: &str, message: &str) -> String {
 }
 
 /// What a problem says on its step and as Apply's reason: a fix's own words, else the check's message.
-fn problem_text(f: &Facts, problem: &ProposalProblem) -> String {
+pub(crate) fn problem_text(f: &Facts, problem: &ProposalProblem) -> String {
     match &problem.fix {
         Some(Fix::PickModel { agent }) => model_problem(f, agent, &problem.message),
         _ => problem.message.clone(),
@@ -1183,13 +1202,13 @@ fn problem_text(f: &Facts, problem: &ProposalProblem) -> String {
 }
 
 /// The first problem Apply still waits for: none picked for it.
-fn left<'a>(f: &Facts<'a>) -> Option<&'a ProposalProblem> {
+pub(crate) fn left<'a>(f: &Facts<'a>) -> Option<&'a ProposalProblem> {
     f.proposal.problems.iter().find(|p| !f.choices.fix(p))
 }
 
 /// A step's problem (the first one no pick fixed yet), in the error colour; "needs a skill" for an agent stage with
 /// none.
-fn step_problem(f: &Facts, stage: &Stage) -> Option<String> {
+pub(crate) fn step_problem(f: &Facts, stage: &Stage) -> Option<String> {
     if stage.needs_skill() {
         return Some(NEEDS_A_SKILL.to_owned());
     }
@@ -1344,7 +1363,7 @@ fn fix_rows<'a>(
 }
 
 /// A step's fixes: its problems' and those of the agents it runs or offers, then their clashes.
-fn stage_fixes(f: &Facts, stage: &Stage) -> Vec<FixRow> {
+pub(crate) fn stage_fixes(f: &Facts, stage: &Stage) -> Vec<FixRow> {
     fix_rows(
         f,
         f.proposal
@@ -1357,7 +1376,7 @@ fn stage_fixes(f: &Facts, stage: &Stage) -> Vec<FixRow> {
 
 /// The picks as Apply sends them: each clash's pick (Keep mine by default); a folder or a model only where one is
 /// still asked for.
-fn choices_kept(f: &Facts) -> Choices {
+pub(crate) fn choices_kept(f: &Facts) -> Choices {
     let picks = f.choices;
     let mut kept = Choices::default();
     for a in clashes(f) {
@@ -1659,14 +1678,14 @@ fn offers(f: &Facts, stage: &Stage, name: &str) -> bool {
 
 /// "Copilot doesn’t have the skill `/team-validate`" on a stage whose agent's tool doesn't have its skill: only a
 /// warning, the flow still applies.
-fn missing_skill(f: &Facts, stage: &Stage) -> Option<String> {
+pub(crate) fn missing_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let tools = skill_holders(f, stage)?;
     let tool = agent_tool(f, the_agent(stage)?)?;
     let skill = stage.skill.as_deref()?.trim();
     (!tools.contains(&tool)).then(|| missing_skill_text(tool, skill))
 }
 
-fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
+pub(crate) fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
     // An agent check with no agent yet still offers the field, to pick one.
     let name = match the_agent(stage) {
         Some(name) => name.as_str(),
@@ -1730,7 +1749,7 @@ fn can_rows(f: &Facts, stage: &Stage) -> Vec<CanRow> {
 
 /// Where a check's fails go, as the step and its field show it (d0131): the stage its `fail_to` names (even one that
 /// doesn't fit: its problem says why), else the nearest Agent stage before it. `None` for a stage that isn't a check.
-fn fails_to<'a>(flow: &'a Flow, stage: &Stage) -> Option<&'a Stage> {
+pub(crate) fn fails_to<'a>(flow: &'a Flow, stage: &Stage) -> Option<&'a Stage> {
     if !matches!(stage.kind, StageKind::Check { .. }) {
         return None;
     }
@@ -1746,7 +1765,7 @@ pub const FAIL_TO_EXPLANATION: &str = "A fail resumes that stage\u{2019}s sessio
      the card then walks every stage after it again. To send one card somewhere else, drag it back.";
 
 /// A check's Fails go to: the Agent stages before it (d0131); `None` with none before it (the flow check says so).
-fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
+pub(crate) fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
     let flow = &f.file.flow;
     let at = flow.position(&stage.id)?;
     if !matches!(stage.kind, StageKind::Check { .. }) {
@@ -1799,18 +1818,18 @@ fn rounds_field(stage: &Stage) -> Option<RoundsField> {
 pub const NEEDS_A_SKILL: &str = "needs a skill";
 
 /// Whether the Project agent is writing the skill of the stage `id`.
-fn writing(f: &Facts, id: &str) -> bool {
+pub(crate) fn writing(f: &Facts, id: &str) -> bool {
     f.writing.iter().any(|w| w.stage_id == id)
 }
 
 /// The skill the Project agent wrote for `stage`, while the stage still runs it.
-fn written_of<'f>(f: &'f Facts, stage: &Stage) -> Option<&'f WrittenSkill> {
+pub(crate) fn written_of<'f>(f: &'f Facts, stage: &Stage) -> Option<&'f WrittenSkill> {
     f.written
         .iter()
         .find(|w| w.stage_id == stage.id && stage.skill.as_deref() == Some(w.skill.as_str()))
 }
 
-fn written_view(written: &WrittenSkill) -> MarkView {
+pub(crate) fn written_view(written: &WrittenSkill) -> MarkView {
     MarkView {
         label: "New",
         why: format!("Skill written by {}", written.by),
@@ -1890,7 +1909,7 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
 
 /// "You don't have the skill `<name>`" on `stage`: the draft's warning for its skill, which neither Otaq ships nor
 /// the user has. Only a warning: Apply still works.
-fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
+pub(crate) fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let skill = stage.skill.as_deref()?.trim();
     // Otaq's own skills never warn.
     if otaq_core::skills::found::is_shipped(skill) {
@@ -1906,7 +1925,7 @@ fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
 }
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
-fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
+pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
     if the_agent(stage).is_none() && !stage.is_agent_check() {
         return None;
     }
@@ -1996,7 +2015,7 @@ fn templates(f: &Facts, stage: &Stage) -> Option<Templates> {
     })
 }
 
-fn details(f: &Facts, stage: &Stage) -> Details {
+pub(crate) fn details(f: &Facts, stage: &Stage) -> Details {
     let kind = editor_kind(stage);
     let kinds = match kind {
         Some(_) => [
@@ -2061,7 +2080,7 @@ fn source_name(f: &Facts) -> String {
 }
 
 /// The stages the draft changes (each once).
-fn changed_stages(proposal: &Proposal) -> usize {
+pub(crate) fn changed_stages(proposal: &Proposal) -> usize {
     let mut ids: Vec<&str> = proposal
         .diff
         .stages
@@ -2130,7 +2149,7 @@ fn inside_words(inside: &[Inside]) -> String {
 }
 
 /// The change line (FED-08; `s27-07`): which part waits, how many tickets are in it, and that Apply now is there.
-fn change_line(f: &Facts) -> Option<String> {
+pub(crate) fn change_line(f: &Facts) -> Option<String> {
     if f.opened == Opened::Onboarding {
         return None;
     }
@@ -2606,7 +2625,7 @@ fn agent_panel(f: &Facts) -> AgentPanel {
     }
 }
 
-fn footer(f: &Facts) -> Footer {
+pub(crate) fn footer(f: &Facts) -> Footer {
     // "Plan needs a skill · being written" while the agent writes it (`s27-06`).
     let reason = left(f).map(|p| match &p.about {
         About::Stage { id, .. } if writing(f, id) => format!("{} \u{b7} being written", p.message),
@@ -2951,6 +2970,41 @@ pub fn edited(
                 None => None,
             };
             out.flow.stages[i].fail_to = to;
+        }
+        StageEdit::Description { stage, description } => {
+            let i = at(stage)?;
+            let text = description.trim();
+            out.flow.stages[i].description = (!text.is_empty()).then(|| text.to_owned());
+        }
+        StageEdit::Delivery { field, value } => {
+            out.flow.delivery =
+                crate::view_models::project_settings::deliver_as(&out.flow.delivery, field, value)?;
+        }
+        StageEdit::AddTemplate { after, template } => {
+            let index = match after {
+                Some(id) => at(id)? + 1,
+                None => 0,
+            };
+            let ready = otaq_core::flow::templates::template(template)
+                .ok_or_else(|| format!("No ready stage {template}"))?;
+            let mut stage = ready.stage().clone();
+            // Blank stage takes the next free "New stage" name; a ready stage keeps its own, numbered if taken.
+            stage.name = if stage.skill.is_none() && stage.description.is_none() {
+                fresh_name(&out)
+            } else {
+                unique_name(&out, &stage.name, usize::MAX)
+            };
+            stage.id = fresh_id(&out, &stage.name);
+            bring_agents(
+                &mut out,
+                &stage,
+                otaq_core::flow::templates::template_agents(),
+                stored,
+            );
+            select = Some(stage.id.clone());
+            out.flow
+                .stages
+                .insert(index.min(out.flow.stages.len()), stage);
         }
         // PR delivery isn't a stage: it sets the flow's delivery to Team PR's, and the new stage goes.
         StageEdit::Template {
