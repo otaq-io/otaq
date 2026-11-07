@@ -245,8 +245,8 @@ pub fn hint(
 /// runs).
 pub fn validator_label(round: Option<u32>) -> String {
     match round {
-        Some(round) => format!("Validator · round {round}"),
-        None => "Validator".to_owned(),
+        Some(round) => format!("Checker · round {round}"),
+        None => "Checker".to_owned(),
     }
 }
 
@@ -312,22 +312,22 @@ pub fn validator_hint(
     match phase {
         Phase::Live if focused => line(
             IconName::Keyboard,
-            "Typing goes to the validator",
+            "Typing goes to the checker",
             HintTone::Focus,
         ),
         Phase::Live => line(
             IconName::MousePointerClick,
-            "Click the terminal to type to the validator",
+            "Click the terminal to type to the checker",
             HintTone::Muted,
         ),
         Phase::Ended if outcome == Some(ValidationOutcome::Interrupted) => line(
             IconName::Lock,
-            "Read-only · Resume starts a new validator",
+            "Read-only · Resume starts a new checker",
             HintTone::Muted,
         ),
         Phase::Ended => line(
             IconName::Lock,
-            "Read-only · this validator has ended",
+            "Read-only · this checker has ended",
             HintTone::Muted,
         ),
         _ => hint(phase, focused, Status::Checking, false, 0),
@@ -518,7 +518,7 @@ mod tests {
 
     #[test]
     fn the_validator_side_reads_its_round_and_how_it_ended() {
-        assert_eq!(validator_label(Some(2)), "Validator · round 2");
+        assert_eq!(validator_label(Some(2)), "Checker · round 2");
         assert_eq!(
             validator_attach_command(&key(), Some("validate")),
             format!("{} attach SHOP-23 --stage validate", naming::COMMAND_NAME)
@@ -554,23 +554,23 @@ mod tests {
         );
         assert_eq!(
             validator_hint(&Phase::Live, true, None).unwrap().text,
-            "Typing goes to the validator"
+            "Typing goes to the checker"
         );
         assert_eq!(
             validator_hint(&Phase::Live, false, None).unwrap().text,
-            "Click the terminal to type to the validator"
+            "Click the terminal to type to the checker"
         );
         assert_eq!(
             validator_hint(&Phase::Ended, false, Some(ValidationOutcome::Pass))
                 .unwrap()
                 .text,
-            "Read-only · this validator has ended"
+            "Read-only · this checker has ended"
         );
         assert_eq!(
             validator_hint(&Phase::Ended, false, Some(ValidationOutcome::Interrupted))
                 .unwrap()
                 .text,
-            "Read-only · Resume starts a new validator"
+            "Read-only · Resume starts a new checker"
         );
         assert_eq!(validator_hint(&Phase::Attaching, false, None), None);
     }

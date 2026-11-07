@@ -1688,7 +1688,7 @@ mod tests {
   - name: Validate
     kind: check
     by: agent
-    agents: [Validator]
+    agents: [Checker]
     skill: validate
     rounds: 3
   - name: QA

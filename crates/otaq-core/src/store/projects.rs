@@ -57,6 +57,7 @@ impl Store {
             &crate::flow::NewFlowVersion::default_for_new_project(),
         )
         .await?;
+        crate::agents::shipped::add_missing_default_agents_in(&mut tx).await?;
         tx.commit().await?;
         self.project(&id)
             .await?

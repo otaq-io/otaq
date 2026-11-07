@@ -739,7 +739,7 @@ mod tests {
             },
             |_| "08:24".to_owned(),
         );
-        assert_eq!(v.label, "Shell \u{b7} not the agent");
+        assert_eq!(v.label, "Terminal \u{b7} not the agent");
         assert_eq!(v.port.as_deref(), Some("Run port \u{b7} $PORT=4004"));
         assert!(!v.live);
         assert_eq!(

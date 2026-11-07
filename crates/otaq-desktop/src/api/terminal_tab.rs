@@ -975,7 +975,7 @@ mod tests {
         assert_eq!(v.attach_command, format!("{} --stage validate", strip::attach_command(&view_key())));
         assert_eq!(strip(&view, Phase::Live, false).state.label, "Live");
         let live = v.strips.iter().find(|s| s.phase == Phase::Live && s.focused).unwrap();
-        assert_eq!(live.hint.as_ref().unwrap().text, "Typing goes to the validator");
+        assert_eq!(live.hint.as_ref().unwrap().text, "Typing goes to the checker");
 
         // Needs you · validator: its strip says it waits for you.
         let view = view_of(&ticket(Status::CheckerNeedsYou), &sessions, &rounds, "shop-web", None);
@@ -1067,7 +1067,7 @@ mod tests {
         assert_eq!(v.attach_command, strip::attach_command(&view_key()), "only a running one attaches");
         let ended = v.strips.iter().find(|s| s.phase == Phase::Ended && !s.focused).unwrap();
         assert_eq!(ended.state.label, "Ended · failed");
-        assert_eq!(ended.hint.as_ref().unwrap().text, "Read-only · this validator has ended");
+        assert_eq!(ended.hint.as_ref().unwrap().text, "Read-only · this checker has ended");
 
         // The next round started: the new validator shows, live again.
         let mut next = sessions.to_vec();

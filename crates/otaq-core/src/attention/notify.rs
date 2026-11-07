@@ -381,9 +381,9 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
                 Target::Ticket { key: key.clone() },
             ),
         },
-        // "SHOP-33 validator permission" · "Allow Bash(pnpm test)?"; a click opens the validator's terminal.
+        // "SHOP-33 checker permission" · "Allow Bash(pnpm test)?"; a click opens the validator's terminal.
         Status::CheckerNeedsYou => (
-            format!("{key} validator permission"),
+            format!("{key} checker permission"),
             text.unwrap_or_default().to_owned(),
             Target::Validator { key: key.clone() },
         ),
@@ -1427,7 +1427,7 @@ mod tests {
                     "The price table now reads from the API."
                 ),
                 (
-                    "SHOP-33 validator permission",
+                    "SHOP-33 checker permission",
                     "shop-web · Shipping estimate",
                     "Allow Bash(pnpm test)?"
                 ),

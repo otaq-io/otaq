@@ -103,7 +103,7 @@ pub fn view_of(f: &Facts) -> View {
         .map(str::to_owned)
         .or_else(|| tabs.first().map(|t| t.id.clone()));
     View {
-        title: "Terminals",
+        title: "Terminal",
         tabs,
         selected,
         new_label: NEW_TERMINAL,
@@ -323,7 +323,7 @@ mod tests {
         assert!(empty.empty[0].contains("~/code/shop-web"));
         assert_eq!(
             (empty.title, empty.new_label, empty.hide),
-            ("Terminals", "New terminal", "Hide \u{b7} terminals keep running")
+            ("Terminal", "New terminal", "Hide \u{b7} terminals keep running")
         );
         assert_eq!(empty.height, 380.);
     }

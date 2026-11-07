@@ -282,12 +282,12 @@ async fn validate_prime_names_its_stage_and_skill_as_the_readers_tool_does() {
     let own = w.board.validate_prime_for("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nValidate, as Validator, with the skill `/otaq:validate`."
+        "## Your stage\n\nValidate, as Checker, with the skill `/otaq:validate`."
     );
     let own = w.board.validate_prime_for("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&own),
-        "## Your stage\n\nValidate, as Validator, with the skill `$otaq:validate`."
+        "## Your stage\n\nValidate, as Checker, with the skill `$otaq:validate`."
     );
 
     let mut file = yaml::read(otaq_core::naming::DEFAULT_FLOW_YAML).unwrap();
@@ -302,12 +302,12 @@ async fn validate_prime_names_its_stage_and_skill_as_the_readers_tool_does() {
     let users = w.board.validate_prime_for("SHOP-20", claude).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nValidate, as Validator, with the skill `/team-validate`."
+        "## Your stage\n\nValidate, as Checker, with the skill `/team-validate`."
     );
     let users = w.board.validate_prime_for("SHOP-20", codex).await.unwrap();
     assert_eq!(
         stage(&users),
-        "## Your stage\n\nValidate, as Validator, with the skill `$team-validate`."
+        "## Your stage\n\nValidate, as Checker, with the skill `$team-validate`."
     );
     w.stop().await;
 }
@@ -506,7 +506,7 @@ async fn on_the_test_flow_the_project_agent_reads_the_stage_options() {
 async fn validate_prime_plain() {
     let w = sample().await;
     // The check's own agent's instructions (AGM-06), not Developer's.
-    w.edit_agent("Validator", |a| {
+    w.edit_agent("Checker", |a| {
         a.instructions = "Run `pnpm test` before submitting.".into();
     })
     .await;
@@ -517,7 +517,7 @@ async fn validate_prime_plain() {
         "# Validate SHOP-20 · Checkout page\n",
         "a read-only judge of its agent's work (round 1 of 3). Never edit files, never commit and never fix anything.",
         "## What and why\n\nThe checkout page shows the cart",
-        "## Agent instructions (Validator)\n\nRun `pnpm test` before submitting.",
+        "## Agent instructions (Checker)\n\nRun `pnpm test` before submitting.",
         "## Linked tickets",
         "- depends on SHOP-18 · Checkout API (Ready for Review)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
         "- depends on SHOP-19 · Price table (Working)",

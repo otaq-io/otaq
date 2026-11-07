@@ -151,7 +151,7 @@ describe("the sheet", () => {
         tabs: SHEET.tabs.map((t) => (t.tab === "files" ? { ...t, count: "3" } : t)),
       },
     });
-    expect(html).toMatch(/Files<\/span><span class="tab-note">3<\/span>/);
+    expect(html).toMatch(/Changes<\/span><span class="tab-note">3<\/span>/);
   });
 
   it("only the first load of an opening takes the Files count again (Q421)", () => {

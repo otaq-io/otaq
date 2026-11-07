@@ -16,7 +16,7 @@ pub const DRAWER_HEIGHT: f32 = 380.;
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum State {
     Opening,
-    /// The shell runs: "Shell".
+    /// The shell runs: "Terminal".
     Live,
     /// The user exited the shell: "Ended", with Reopen.
     Ended,
@@ -39,7 +39,7 @@ impl State {
     pub fn label(self) -> &'static str {
         match self {
             Self::Opening => "Opening…",
-            Self::Live => "Shell",
+            Self::Live => "Terminal",
             Self::Ended => "Ended",
             Self::StoppedByRestart => "Stopped by restart",
         }
@@ -220,7 +220,7 @@ mod tests {
     fn states() {
         assert_eq!(State::of(None), State::Opening);
         let live = State::of(Some(&session(SessionState::Running, None)));
-        assert_eq!((live, live.label()), (State::Live, "Shell"));
+        assert_eq!((live, live.label()), (State::Live, "Terminal"));
         assert!(!live.offers_reopen());
         let ended = State::of(Some(&session(SessionState::Ended, Some("exit 0"))));
         assert_eq!((ended, ended.label()), (State::Ended, "Ended"));

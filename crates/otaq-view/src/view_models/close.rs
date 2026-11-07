@@ -45,7 +45,7 @@ pub fn submit_item(ticket: &Ticket) -> Option<MenuItem> {
 }
 
 /// While it validates, Close and Park stop both sessions and discard the round (d0063, *Close / Park · while
-/// validating*): "SHOP-29’s agent and validator will be stopped. The validation is discarded (round 1 of 3 not
+/// validating*): "SHOP-29’s agent and checker will be stopped. The validation is discarded (round 1 of 3 not
 /// counted)."
 pub fn validating_stop_line(ticket: &Ticket) -> Option<String> {
     if !matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou) {
@@ -57,7 +57,7 @@ pub fn validating_stop_line(ticket: &Ticket) -> Option<String> {
         .map(|r| format!(" (round {} of {} not counted)", r.round, r.of))
         .unwrap_or_default();
     Some(format!(
-        "{}\u{2019}s agent and validator will be stopped. The validation is discarded{round}.",
+        "{}\u{2019}s agent and checker will be stopped. The validation is discarded{round}.",
         ticket.key
     ))
 }
@@ -303,7 +303,7 @@ mod tests {
     fn close_and_park_while_validating_stop_both() {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(otaq_core::domain::ValidationRound { round: 1, of: 3 });
-        let line = "SHOP-29\u{2019}s agent and validator will be stopped. The validation is discarded (round 1 of 3 \
+        let line = "SHOP-29\u{2019}s agent and checker will be stopped. The validation is discarded (round 1 of 3 \
                     not counted).";
         let text = close_text(&t, &[], true);
         assert_eq!(text.lines, [line.to_owned()]);

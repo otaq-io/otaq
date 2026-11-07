@@ -14,11 +14,11 @@ use super::stored_enum;
 /// "Validating…": the agent submitted and the validator is checking (neutral, d0063).
 pub const VALIDATING: &str = "Validating…";
 /// The validator waits on a permission prompt (turquoise).
-pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · validator";
+pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · checker";
 /// The validator ended its turn without a verdict (turquoise).
 pub const NO_RESULT: &str = "Validation ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
-pub const DISCARDED: &str = "Validation discarded: the validator changed files";
+pub const DISCARDED: &str = "Validation discarded: the checker changed files";
 /// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
 pub const MERGE_CONFLICT_FIXING: &str = "Merge conflict · fixing";
 /// Local merge runs the project's Merge check on the merged result before the target moves (d0120).

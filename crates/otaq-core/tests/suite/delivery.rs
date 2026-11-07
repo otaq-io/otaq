@@ -836,7 +836,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            file.flow.delivery.agent = Some("Validator".into());
+            file.flow.delivery.agent = Some("Checker".into());
         })
         .await;
     let t = working(&w, "Login redirect", "login.ts").await;
@@ -893,7 +893,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
     w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let shipper = |file: &mut otaq_core::flow::FlowFile| {
-        file.flow.delivery.agent = Some("Validator".into());
+        file.flow.delivery.agent = Some("Checker".into());
     };
     w.board
         .edit_flow_for_tests("SHOP", |file| {
@@ -976,7 +976,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            file.flow.delivery.agent = Some("Validator".into());
+            file.flow.delivery.agent = Some("Checker".into());
         })
         .await;
     let ended = |w: &TestService, session: String| {

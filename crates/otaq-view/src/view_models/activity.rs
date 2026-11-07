@@ -232,7 +232,7 @@ pub struct Button {
     /// The usage warning; `None` while every window has more than [`WARN_AT_LEFT`] % left.
     pub warning: Option<Warning>,
     pub hover: Hover,
-    /// "Activity" and the user's key for it (⇧⌘U), which opens the popover as a click does.
+    /// "Running" and the user's key for it (⇧⌘U), which opens the popover as a click does.
     pub label: &'static str,
     pub keys: Option<String>,
 }
@@ -244,7 +244,7 @@ pub fn button(inputs: &Inputs<'_>, keys: &KeyLabels) -> Button {
         processes: processes::count(inputs.runs).map(|n| n.to_string()),
         warning: warning(inputs),
         hover: hover(inputs, running),
-        label: "Activity",
+        label: "Running",
         keys: keys.label(KeyAction::OpenActivity),
     }
 }
@@ -512,7 +512,7 @@ pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
         },
         processes,
         open_terminals: Link {
-            label: "Open Terminals",
+            label: "Open Terminal",
             keys: keys.label(KeyAction::Terminals),
         },
     }
@@ -869,7 +869,7 @@ mod tests {
         assert!(b.agents.active && !b.agents.control);
         assert_eq!(b.processes.as_deref(), Some("2"));
         assert_eq!(b.warning, None);
-        assert_eq!(b.label, "Activity");
+        assert_eq!(b.label, "Running");
         assert_eq!(b.keys.as_deref(), Some("⇧⌘U"));
     }
 
@@ -1070,7 +1070,7 @@ mod tests {
         );
         assert_eq!(processes.list.rows[0].open.as_deref(), Some("Open :4020"));
         assert_eq!(processes.list.stop_all, "Stop all");
-        assert_eq!(p.open_terminals.label, "Open Terminals");
+        assert_eq!(p.open_terminals.label, "Open Terminal");
         assert_eq!(p.open_terminals.keys.as_deref(), Some("⌃`"));
     }
 

@@ -86,8 +86,8 @@ const LETTERS: [(Option<&str>, &[KeyAction]); 11] = [
     (None, &[ExpandSheet]),
     (Some("Go to Board"), &[ShowBoard]),
     (Some("Go to List"), &[ShowList]),
-    (Some("Go to Activity"), &[OpenActivity]),
-    (Some("Go to Terminals"), &[Terminals]),
+    (Some("Go to Running"), &[OpenActivity]),
+    (Some("Go to Terminal"), &[Terminals]),
     (None, &[NewTicket]),
     (None, &[OpenSheet, CloseSheet]),
 ];
@@ -215,8 +215,8 @@ mod tests {
                 ("Full page / back to the sheet", vec!["e"]),
                 ("Go to Board", vec!["g", "b"]),
                 ("Go to List", vec!["g", "l"]),
-                ("Go to Activity", vec!["g", "a"]),
-                ("Go to Terminals", vec!["g", "t"]),
+                ("Go to Running", vec!["g", "a"]),
+                ("Go to Terminal", vec!["g", "t"]),
                 ("New ticket", vec!["c"]),
                 ("Open / close the ticket", vec!["↵ / Esc"]),
             ]
@@ -279,7 +279,7 @@ mod tests {
                     none()
                 ),
                 row(
-                    "Terminals: open, close, leave the terminal",
+                    "Terminal: open, close, leave the terminal",
                     "⌃`",
                     "Ctrl+`",
                     "Ctrl+`"
@@ -298,7 +298,7 @@ mod tests {
                     "Ctrl+Shift+] / Ctrl+Shift+["
                 ),
                 ("Board", one("⇧⌘B"), one("Ctrl+Shift+B"), none()),
-                row("Activity", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
+                row("Running", "⇧⌘U", "Ctrl+Shift+U", "Ctrl+Shift+U"),
                 row("Approve ▾", "⌘↵", "Ctrl+↵", "Ctrl+Shift+↵"),
                 row("Send back\u{2026}", "⌘⌫", "Ctrl+⌫", "Ctrl+Shift+⌫"),
                 row("Start / move to Dev", "⌘D", "Ctrl+D", "Ctrl+Shift+D"),

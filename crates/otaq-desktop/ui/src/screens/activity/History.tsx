@@ -110,7 +110,7 @@ function Filters({
 }) {
   return (
     <div className="activity-filters">
-      <div className="segmented activity-filter" role="radiogroup" aria-label="Activity">
+      <div className="segmented activity-filter" role="radiogroup" aria-label="History">
         {view.filters.map((f) => (
           <button
             key={f.filter}
@@ -161,7 +161,7 @@ export function HistoryBody({
   return (
     <div className="activity-tab">
       <Filters view={view} filter={filter} onFilter={setFilter} />
-      <div className="history" role="list" aria-label="Activity">
+      <div className="history" role="list" aria-label="History">
         {shown.length === 0 && <p className="history-empty">{view.empty}</p>}
         {shown.map((i) => {
           const row = view.rows[i];
