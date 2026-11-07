@@ -1,8 +1,9 @@
 //! Settings as the Tauri page draws it (T-0234; SET-01, PRJ-03, PRJ-04, SCH-03, USG-02, ATT-11, REV-09, REV-11, MSG-05,
-//! UI-11; *15 · Settings*): the nav, the global page and each project page as sections of rows, every row with its
-//! label, description and control already worded, and the rules for applying an edit ([`edit_global`],
-//! [`edit_project`]). The page only lays the rows out and sends back `field` + value; the service still flags invalid
-//! values (a missing env file, a URL that isn't one), shown in red under their field.
+//! UI-11; *15 · Settings*): the nav and the app's page as sections of rows, every row with its label, description and
+//! control already worded, and the rules for applying an edit ([`edit_global`], [`edit_project`]). A project's rows
+//! are built here too, for the project's own Settings page ([`super::project_settings`]). The page only lays the rows
+//! out and sends back `field` + value; the service still flags invalid values (a missing env file, a URL that isn't
+//! one), shown in red under their field.
 //!
 //! Section ids are the page registry's (`ui/src/app/registry/settings.ts`): the Settings screen draws the sections
 //! it has registered, so a later ticket adds a section here and registers its id there. M33 removed Validation &

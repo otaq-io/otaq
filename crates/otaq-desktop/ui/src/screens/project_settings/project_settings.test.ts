@@ -156,7 +156,9 @@ afterEach(() => {
 
 async function draw() {
   act(() => {
-    root.render(createElement(RegistriesContext, { value: app }, createElement(ProjectSettings, { project: "SHOP" })));
+    root.render(
+      createElement(RegistriesContext, { value: app }, createElement(ProjectSettings, { project: "SHOP" })),
+    );
   });
   await act(async () => {
     await Promise.resolve();
@@ -209,7 +211,9 @@ describe("the project's Settings page", () => {
       await Promise.resolve();
     });
     expect(document.body.textContent).toContain("Remove shop-web from Otaq?");
-    const confirm = [...document.querySelectorAll(".dialog button")].find((b) => b.textContent === "Remove project");
+    const confirm = [...document.querySelectorAll(".dialog button")].find(
+      (b) => b.textContent === "Remove project",
+    );
     act(() => {
       (confirm as HTMLButtonElement | undefined)?.click();
     });
