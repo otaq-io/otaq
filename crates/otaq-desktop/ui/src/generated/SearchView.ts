@@ -24,6 +24,10 @@ results: string | null, suggestions_header: string, suggestions: Array<SearchSug
  */
 tickets: Array<SearchTicket>, 
 /**
+ * "Filters: is:needs-you · is:working · in:review · by:Strong" under the tickets, while they are listed.
+ */
+filters_hint: string | null, 
+/**
  * What ↵ adds: the first suggestion while a token is half typed (`is:wor`).
  */
 enter_adds: string | null, 

@@ -12,6 +12,6 @@ export type PaletteView = { placeholder: string, hint_key: string, hint: string,
  */
 actions_only: string | null, 
 /**
- * "Recent" over the recent items of an empty field.
+ * "Suggested" over an empty field's suggestions.
  */
 section: string | null, rows: Array<PaletteRow>, nothing: PaletteNothing | null, footer: PaletteFooter, };

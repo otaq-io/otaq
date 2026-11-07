@@ -17,7 +17,7 @@ use otaq_core::flow::Flow;
 use crate::view_models::chain::chain;
 
 /// A name as a filter word: lower case, its spaces as dashes ("Product spec" is `product-spec`).
-fn word(name: &str) -> String {
+pub(crate) fn word(name: &str) -> String {
     name.split_whitespace()
         .collect::<Vec<_>>()
         .join("-")

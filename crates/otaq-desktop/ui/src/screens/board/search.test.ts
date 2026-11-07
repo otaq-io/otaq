@@ -38,7 +38,7 @@ const flush = () => new Promise((resolve) => setTimeout(resolve, 0));
 
 const VIEW: SearchView = {
   filter: { tokens: ["is:needs-you"], text: "checkout" },
-  placeholder: "Search  ·  is:needs-you",
+  placeholder: "Search tickets",
   keys: null,
   results: "4 results",
   suggestions_header: "FILTERS",
@@ -51,16 +51,15 @@ const VIEW: SearchView = {
     {
       key: "SHOP-18",
       title: "Checkout API",
-      column: "Review",
-      status: { palette: "review", icon: "eye", label: "Ready for review" },
+      status: { palette: "review", icon: "eye", label: "Your review" },
     },
     {
       key: "SHOP-9",
       title: "Checkout copy",
-      column: "Done",
-      status: { palette: "done", icon: "check", label: "Merged" },
+      status: { palette: "approved", icon: "check", label: "Done" },
     },
   ],
+  filters_hint: "Filters: is:needs-you · is:working · in:review · by:strong",
   enter_adds: null,
   enter_opens_cleanup: false,
   enter_opens: "SHOP-18",
@@ -130,15 +129,19 @@ describe("the search field", () => {
     expect(html).not.toContain('placeholder="Search');
   });
 
-  it("lists the matching tickets under the filters, Done included, with their column and status", () => {
+  it("lists the matching tickets under the filters, Done included, each with a dot and its status", () => {
     const html = box({ focused: true, highlighted: 3 });
     expect(html).toContain("FILTERS");
     expect(html).toContain("TICKETS");
     expect(html).toContain("Checkout API");
-    expect(html).toContain("Review");
-    expect(html).toContain("Ready for review");
+    expect(html).toMatch(/board-search-ticket-dot" data-palette="review"><\/span><span[^>]*>Your review</);
     expect(html).toContain("SHOP-9");
-    expect(html).toContain("Merged");
+    expect(html).toMatch(/data-palette="approved"><\/span><span[^>]*>Done</);
+    // The filters, as text under the tickets.
+    expect(html).toMatch(/SHOP-9.*Filters: is:needs-you · is:working · in:review · by:strong/s);
+    // While typing, the field shows esc in place of the count.
+    expect(html).toContain(">esc<");
+    expect(html).not.toContain("4 results");
     // The highlighted row is the second ticket: two suggestions come first.
     expect(html).toMatch(
       /aria-selected="true"[^>]*board-search-ticket[^>]*data-highlighted[^>]*>.{0,200}SHOP-9/s,
@@ -164,7 +167,7 @@ describe("the search field", () => {
       filter: NO_FILTER,
       view: { ...VIEW, filter: NO_FILTER, results: null, keys: "/" },
     });
-    expect(html).toContain('placeholder="Search  ·  is:needs-you"');
+    expect(html).toContain('placeholder="Search tickets"');
     expect(html).toContain(">/<");
     expect(html).not.toContain("results");
   });
