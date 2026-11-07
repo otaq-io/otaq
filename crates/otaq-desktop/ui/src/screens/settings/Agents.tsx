@@ -38,6 +38,7 @@ import {
 import { asRequestError, watchView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
+import { closeOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { AgentReadsBody, AgentReadsHeading } from "./AgentReads";
 import { SettingsContext } from "./context";
@@ -695,7 +696,10 @@ export function AgentsSection() {
           )}
           onChoose={(id) => {
             if (id === "agents_file" && screenProject !== null)
-              proposeFrom(screenProject, { from: "agents_file" }).catch(failed);
+              // The editor opens on the draft; Settings closes so it shows.
+              proposeFrom(screenProject, { from: "agents_file" }).then(() => {
+                closeOverlay("settings");
+              }, failed);
           }}
         />
       </>

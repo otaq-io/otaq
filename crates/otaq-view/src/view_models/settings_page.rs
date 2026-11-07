@@ -17,7 +17,6 @@ use otaq_core::board::settings::{
 };
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::naming::{self, PRODUCT_NAME};
-use otaq_core::pr::provider::PrProvider;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::tools::ToolsReport;
 use otaq_core::warm::clone::CloneSupport;
@@ -66,7 +65,7 @@ use crate::view_models::onboarding_page::{
     ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts, tools_intro,
 };
 use crate::view_models::settings::{
-    GLOBAL_SECTIONS, PROJECT_ICON, ProviderTone, env_file_problem, problem_for, provider_row,
+    GLOBAL_SECTIONS, problem_for,
     remove_text,
 };
 use crate::view_models::theme_credits;
@@ -95,29 +94,27 @@ pub enum GlobalSection {
     About,
 }
 
-/// A section of a project page.
+/// A card of the project's Settings page ([`super::project_settings`]), in the page's order.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "ProjectSectionId")]
 pub enum ProjectSection {
-    /// Name, key, repository, base branch.
-    General,
-    /// The project's flow (FLW-07, T-0422): drawn from `settings.flow` ([`super::flow_settings`]), no rows here.
+    /// The project's flow: drawn from `settings.flow` ([`super::flow_settings`]), no rows here.
     Flow,
+    /// Name, base branch, the flow's delivery, the PR provider, the merge check.
+    Repository,
+    /// The apps: run commands and Open URLs.
+    Run,
+    /// Setup command, the variables the user sets, files to copy, ticket resources, finished tickets, warm build.
+    Workspace,
     /// The notes every agent in the project gets (AGM-02).
     ProjectNotes,
-    /// "Let finished tickets answer questions".
-    Answers,
-    /// Setup and run commands, Open URL, env files.
-    Commands,
-    /// Create, Remove and Template refresh commands, schema paths (M19-d, M19-e; d0087).
-    TicketResources,
-    PrProvider,
     RemoveProject,
 }
 
-/// Where a nav row goes: one topic of the global page, or a project's page. A global topic is its own page: the
-/// window shows only its `sections` (the first is `section`), never the whole global page scrolling.
+/// Where a nav row goes: one topic of the global page. A global topic is its own page: the window shows only its
+/// `sections` (the first is `section`), never the whole global page scrolling. A project's settings are a view of the
+/// project's own ([`super::project_settings`]), not a page here.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[serde(tag = "page", rename_all = "snake_case")]
 #[ts(rename = "SettingsTarget")]
@@ -125,9 +122,6 @@ pub enum Target {
     Global {
         section: GlobalSection,
         sections: Vec<GlobalSection>,
-    },
-    Project {
-        key: String,
     },
 }
 
@@ -137,8 +131,6 @@ pub struct NavRow {
     pub label: String,
     pub icon: IconName,
     pub target: Target,
-    /// A flagged value on that project's page: the red alert icon after the label.
-    pub alert: bool,
 }
 
 /// One choice of a segmented control.
@@ -286,8 +278,20 @@ pub enum Control {
     },
     /// The 15 themes (`theme.picker`, `theme.pick`).
     Themes,
-    /// The PR provider, detected when the page opens (`settings.provider`).
+    /// The PR provider line, detected when the page opens (`settings.provider`).
     Provider,
+    /// How work leaves the flow: the flow's own `delivery:` setting, shown on the project's page and changed through
+    /// the flow (`delivery.delivers`, `delivery.mode`; [`super::project_settings::deliver_as`]). `modes` is empty
+    /// for Either, which is chosen at your click; `either` then says so.
+    Delivery {
+        delivers: Vec<Choice>,
+        delivers_value: String,
+        modes: Vec<Choice>,
+        mode_value: String,
+        either: Option<String>,
+        /// "This is the flow's setting: changing it here changes the flow, and the flow file."
+        note: String,
+    },
     /// The tools checklist (`settings.tools`) and Re-check.
     Tools {
         recheck_label: String,
@@ -449,7 +453,7 @@ pub struct RowButton {
 #[ts(rename = "SettingsSection")]
 pub struct Section<Id> {
     pub id: Id,
-    /// The small title above the rows (the global page); none on a project page.
+    /// The small title above the rows (the global page); a project page's card title.
     pub title: Option<String>,
     pub intro: Option<String>,
     pub rows: Vec<Row>,
@@ -480,7 +484,6 @@ pub enum Page {
 pub struct View {
     pub title: String,
     pub global_heading: String,
-    pub projects_heading: String,
     pub close_label: String,
     pub nav: Vec<NavRow>,
     pub page: Page,
@@ -514,6 +517,8 @@ pub struct ProjectInputs<'a> {
     pub project_agent: &'a str,
     /// An agent tool is connected: Run command's Ask the agent is hidden only without one (RUN-02, d0086).
     pub tool_connected: bool,
+    /// The flow's delivery, which the Repository card shows as the flow's; `None` when the flow doesn't read.
+    pub delivery: Option<&'a otaq_core::flow::model::Delivery>,
 }
 
 /// What the warm build switch is drawn from.
@@ -544,9 +549,9 @@ pub fn topic_of(id: GlobalSection) -> GlobalSection {
     id
 }
 
-/// The nav: one row per global topic the page has, then every project.
-pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[String]) -> Vec<NavRow> {
-    let globals = sections
+/// The nav: one row per global topic the page has. A project's settings are its own page, in its main area.
+pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
+    sections
         .iter()
         .filter(|id| topic_of(**id) == **id)
         .map(|id| {
@@ -562,16 +567,9 @@ pub fn nav(sections: &[GlobalSection], projects: &[ProjectInfo], alerts: &[Strin
                         .filter(|s| topic_of(*s) == *id)
                         .collect(),
                 },
-                alert: false,
             }
-        });
-    let projects = projects.iter().map(|p| NavRow {
-        label: p.name.clone(),
-        icon: PROJECT_ICON,
-        target: Target::Project { key: p.key.clone() },
-        alert: alerts.contains(&p.key),
-    });
-    globals.chain(projects).collect()
+        })
+        .collect()
 }
 
 /// A global section's nav label and icon (*15 → Global · Usage, notifications, data, appearance*).
@@ -592,19 +590,18 @@ fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
 }
 
 /// The view around a page.
-pub fn view(page: Page, projects: &[ProjectInfo], alerts: &[String]) -> View {
+pub fn view(page: Page) -> View {
     let sections: Vec<GlobalSection> = DRAWN.to_vec();
     View {
         title: "Settings".into(),
         global_heading: "Global".into(),
-        projects_heading: "Projects".into(),
         close_label: "Close settings".into(),
-        nav: nav(&sections, projects, alerts),
+        nav: nav(&sections),
         page,
     }
 }
 
-fn row(field: &str, label: &str, description: impl Into<String>, control: Control) -> Row {
+pub(crate) fn row(field: &str, label: &str, description: impl Into<String>, control: Control) -> Row {
     Row {
         field: field.to_owned(),
         label: label.to_owned(),
@@ -622,10 +619,10 @@ pub const MERGE_CHECK_HELP: &str = "Runs on the merged result before Local merge
 
 /// "Merge check" (d0120), next to the setup command and built like it: a text field that saves as you type, empty by
 /// default (never guessed, d0023).
-fn merge_check_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
+pub(crate) fn merge_check_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
     row(
         "merge_check",
-        "Merge check",
+        "Merge check \u{b7} optional",
         MERGE_CHECK_HELP,
         text(
             s.merge_check.as_deref().unwrap_or_default(),
@@ -636,7 +633,7 @@ fn merge_check_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
     )
 }
 
-fn text(value: &str, placeholder: &str, mono: bool, problem: Option<String>) -> Control {
+pub(crate) fn text(value: &str, placeholder: &str, mono: bool, problem: Option<String>) -> Control {
     Control::Text {
         value: value.to_owned(),
         placeholder: placeholder.to_owned(),
@@ -646,7 +643,7 @@ fn text(value: &str, placeholder: &str, mono: bool, problem: Option<String>) -> 
     }
 }
 
-fn multiline(value: &str, placeholder: &str) -> Control {
+pub(crate) fn multiline(value: &str, placeholder: &str) -> Control {
     Control::Text {
         value: value.to_owned(),
         placeholder: placeholder.to_owned(),
@@ -960,172 +957,9 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     }
 }
 
-pub fn project_page(input: &ProjectInputs) -> Page {
-    let (info, s, p) = (input.info, input.settings, input.problems);
-    let key = &info.key;
-    let general = section(
-        ProjectSection::General,
-        None,
-        vec![
-            row(
-                "name",
-                "Name",
-                "",
-                text(&info.name, "Project name", false, None),
-            ),
-            row(
-                "",
-                "Project key",
-                format!(
-                    "Used in ticket IDs like {key}-18. Set when the project was added; it can’t be changed."
-                ),
-                Control::Value {
-                    text: key.clone(),
-                    mono: true,
-                    boxed: true,
-                },
-            ),
-            row(
-                "",
-                "Repository",
-                "",
-                Control::Value {
-                    text: tilde(&info.repo_path),
-                    mono: true,
-                    boxed: false,
-                },
-            ),
-            row(
-                "base_branch",
-                "Base branch",
-                "Prefilled from the remote’s default branch (origin/HEAD); editable. Tickets branch from here, and Local merge squashes into it.",
-                Control::Branch {
-                    value: info.base_branch.clone(),
-                    search: MenuSearch::branches(),
-                },
-            ),
-        ],
-    );
-    let notes = section(
-        ProjectSection::ProjectNotes,
-        None,
-        vec![row(
-            "project_notes",
-            "Notes every agent in this project gets",
-            format!(
-                "Added to every agent\u{2019}s instructions in {}, whatever stage it runs.",
-                info.name
-            ),
-            multiline(
-                &s.project_notes,
-                "Notes for every agent here, e.g. \u{201c}Run the tests with make test.\u{201d}",
-            ),
-        )],
-    );
-    let flow = section(ProjectSection::Flow, None, Vec::new());
-    let answers = section(
-        ProjectSection::Answers,
-        None,
-        vec![row(
-            "let_finished_tickets_answer",
-            "Let finished tickets answer questions",
-            format!(
-                "When a linked agent asks a Done ticket something, {PRODUCT_NAME} resumes that ticket\u{2019}s session answer-only (it changes nothing). Off: those questions go to Needs you."
-            ),
-            Control::Toggle {
-                on: s.let_finished_tickets_answer,
-            },
-        )],
-    );
-    let commands = section(
-        ProjectSection::Commands,
-        None,
-        vec![
-            row(
-                "setup_command",
-                "Setup command",
-                "Runs once in every new worktree, before the agent starts.",
-                text(
-                    &s.setup_command,
-                    "none — e.g. pnpm install",
-                    true,
-                    problem_for(p, "setup_command"),
-                ),
-            ),
-            merge_check_row(s, p),
-        ]
-        .into_iter()
-        .chain(app_rows(s, p, input.tool_connected, input.project_agent))
-        .chain([
-            row(
-                "env_files",
-                "Env files to copy into worktrees",
-                "Copied from the repo root into each new worktree. Never committed.",
-                Control::EnvFiles {
-                    rows: s
-                        .env_files
-                        .iter()
-                        .map(|f| EnvFileRow {
-                            value: f.clone(),
-                            problem: env_file_problem(p, f),
-                        })
-                        .collect(),
-                    add_placeholder: "Add file".into(),
-                    remove_label: "Remove file".into(),
-                },
-            ),
-            env_vars_row(s, p),
-            warm_builds_row(info, s, input.warm),
-        ])
-        .collect(),
-    );
-    let resources = ticket_resources_section(s, p);
-    let provider = section(
-        ProjectSection::PrProvider,
-        None,
-        vec![row("", "PR provider", "", Control::Provider)],
-    );
-    let remove = section(
-        ProjectSection::RemoveProject,
-        None,
-        vec![row(
-            "",
-            "Remove project",
-            format!(
-                "Deletes this project’s tickets and history from {PRODUCT_NAME}. Never touches the repository."
-            ),
-            Control::Button {
-                label: "Remove project…".into(),
-                icon: IconName::Trash2,
-                destructive: true,
-                action: ButtonAction::RemoveProject,
-            },
-        )],
-    );
-    Page::Project {
-        key: key.clone(),
-        title: info.name.clone(),
-        intro: "Zero config works: agents can start with just the repo. Fill these in when you need them."
-            .into(),
-        sections: vec![
-            general,
-            flow,
-            notes,
-            answers,
-            commands,
-            resources,
-            provider,
-            remove,
-        ],
-    }
-}
-
-/// The Ticket resources section (M19-d, M19-e; d0087): the commands that make, remove and refresh a ticket's own
-/// resources, and the schema paths. All empty by default, and then nothing changes.
-pub fn ticket_resources_section(
-    s: &ProjectSettings,
-    p: &[SettingProblem],
-) -> Section<ProjectSection> {
+/// The ticket resources' rows (M19-d, M19-e; d0087), in the project's Workspace: the commands that make, remove and
+/// refresh a ticket's own resources, and the schema paths. All empty by default, and then nothing changes.
+pub fn ticket_resource_rows(s: &ProjectSettings, p: &[SettingProblem]) -> Vec<Row> {
     let (db_name, db_template, resource_dir) = (
         naming::db_name_env_var(),
         naming::db_template_env_var(),
@@ -1136,21 +970,14 @@ pub fn ticket_resources_section(
         .filter(|problem| problem.field == "schema_paths")
         .map(|problem| problem.message.as_str())
         .collect();
-    Section {
-        intro: Some(format!(
-            "For what each ticket needs of its own, like a database. With a Create command, {PRODUCT_NAME} sets \
-             {db_name}, {db_template} and {resource_dir} in the ticket’s commands and sessions."
-        )),
-        ..section(
-            ProjectSection::TicketResources,
-            Some("Ticket resources"),
-            vec![
+    vec![
                 row(
                     "resource_create",
-                    "Create command",
+                    "Per-ticket resources \u{b7} optional",
                     format!(
-                        "Runs in each new worktree after the env files and before setup. Creates the ticket’s \
-                         resources, e.g. a database named ${db_name} from ${db_template}."
+                        "Creates what each ticket needs of its own, like a database named ${db_name} from \
+                         ${db_template}, in each new copy after the files and before setup. {PRODUCT_NAME} then sets \
+                         {db_name}, {db_template} and {resource_dir} in the ticket’s commands and sessions."
                     ),
                     text(
                         &s.resource_create,
@@ -1197,9 +1024,7 @@ pub fn ticket_resources_section(
                         problem: (!schema_problems.is_empty()).then(|| schema_problems.join("; ")),
                     },
                 ),
-            ],
-        )
-    }
+            ]
 }
 
 /// The × of an environment variable row without a name.
@@ -1209,7 +1034,7 @@ const REMOVE_VARIABLE: &str = "Remove variable";
 /// variables as `${…}` (d0087; [`otaq_core::session::env::substitute`]).
 fn env_vars_description() -> String {
     format!(
-        "Set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+        "Only the ones you set here: set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
         naming::db_name_env_var()
     )
 }
@@ -1220,7 +1045,7 @@ fn env_vars_description() -> String {
 /// The run command rows (agents run the app). With one app (or none yet) they look as before apps had names: Run command (with
 /// Ask the agent and "Set by Dev on SHOP-27 · Undo"), Open URL, and Add app once there is a command. With several, each
 /// app has its name, command and Open URL rows and Remove, then Add app.
-fn app_rows(
+pub(crate) fn app_rows(
     s: &ProjectSettings,
     p: &[SettingProblem],
     tool_connected: bool,
@@ -1850,48 +1675,6 @@ fn edit_env_var(
     Some(result)
 }
 
-/// How the PR provider row's status looks.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
-#[serde(rename_all = "snake_case")]
-#[ts(rename = "ProviderLook")]
-pub enum ProviderLook {
-    Ready,
-    Attention,
-    NotDetected,
-}
-
-/// The PR provider row (`settings.provider`): read-only, detected from origin (REV-11).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "SettingsProvider")]
-pub struct ProviderView {
-    pub description: String,
-    pub status: String,
-    pub icon: IconName,
-    pub look: ProviderLook,
-    /// "use your own Open PR skill": opens the flow editor on the Delivery stage's Skill field ([`Self::stage`]).
-    pub link: Option<String>,
-    /// The Delivery stage's id, which the link selects in the flow editor; `None` with no link.
-    pub stage: Option<String>,
-}
-
-/// The PR provider row; `delivery` is the id of the project's Delivery stage, where the user's own Open PR skill goes.
-pub fn provider(detected: Option<&PrProvider>, delivery: Option<&str>) -> ProviderView {
-    let row = provider_row(detected);
-    let (icon, look) = match row.tone {
-        ProviderTone::Ready => (IconName::CircleCheck, ProviderLook::Ready),
-        ProviderTone::Attention => (IconName::TriangleAlert, ProviderLook::Attention),
-        ProviderTone::NotDetected => (IconName::CircleQuestionMark, ProviderLook::NotDetected),
-    };
-    ProviderView {
-        description: row.description,
-        status: row.status,
-        icon,
-        look,
-        stage: row.link.and(delivery).map(str::to_owned),
-        link: row.link.map(str::to_owned),
-    }
-}
-
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "ToolLook")]
@@ -2291,6 +2074,7 @@ pub fn edit_project(
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::view_models::project_settings::page as project_page;
 
     fn info() -> ProjectInfo {
         ProjectInfo {
@@ -2315,6 +2099,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: true,
+            delivery: None,
         }) else {
             panic!()
         };
@@ -2618,16 +2403,13 @@ mod tests {
         let sections = global(&GlobalSettings::default());
         let ids: Vec<GlobalSection> = sections.iter().map(|s| s.id).collect();
         assert_eq!(ids, DRAWN);
-        let nav = view(
-            Page::Global {
-                title: String::new(),
-                sections: Vec::new(),
-            },
-            &[info()],
-            &["BILL".into()],
-        )
+        let nav = view(Page::Global {
+            title: String::new(),
+            sections: Vec::new(),
+        })
         .nav;
-        assert_eq!(nav.len(), 11);
+        // The app's topics only: a project's settings are its own page.
+        assert_eq!(nav.len(), 10);
         // Agent tools first, then Agents (M22, `bVdGw`; M23, `bGHVl`).
         assert_eq!(
             (nav[0].label.as_str(), nav[0].icon),
@@ -2670,8 +2452,6 @@ mod tests {
             (nav[9].label.as_str(), nav[9].icon),
             ("About", IconName::Info)
         );
-        assert_eq!(nav[10].target, Target::Project { key: "BILL".into() });
-        assert!(nav[10].alert);
     }
 
     #[test]
@@ -2735,6 +2515,7 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
+            delivery: None,
         }) else {
             panic!()
         };
@@ -2742,32 +2523,30 @@ mod tests {
         assert_eq!(
             ids,
             [
-                ProjectSection::General,
                 ProjectSection::Flow,
+                ProjectSection::Repository,
+                ProjectSection::Run,
+                ProjectSection::Workspace,
                 ProjectSection::ProjectNotes,
-                ProjectSection::Answers,
-                ProjectSection::Commands,
-                ProjectSection::TicketResources,
-                ProjectSection::PrProvider,
                 ProjectSection::RemoveProject,
             ]
         );
         sections.into_iter().flat_map(|s| s.rows).collect()
     }
 
-    /// Merge check (d0120): right after Setup command, built like it (a mono text field saved as you type), empty by
-    /// default; a blank value is no Merge check.
+    /// Merge check (d0120): the last of the Repository's rows, built like Setup command (a mono text field saved as
+    /// you type), empty by default; a blank value is no Merge check.
     #[test]
-    fn the_merge_check_row_follows_the_setup_command_and_saves_as_typed() {
+    fn the_merge_check_row_ends_the_repository_and_saves_as_typed() {
         let mut s = ProjectSettings::default();
         let rows = project_rows(&s, &GlobalSettings::default());
         let at = rows
             .iter()
-            .position(|r| r.field == "setup_command")
+            .position(|r| r.field == "merge_check")
             .unwrap();
-        let row = &rows[at + 1];
-        assert_eq!(row.field, "merge_check");
-        assert_eq!(row.label, "Merge check");
+        assert_eq!(rows[at + 1].field, "run_command", "the Run card follows");
+        let row = &rows[at];
+        assert_eq!(row.label, "Merge check \u{b7} optional");
         assert_eq!(
             row.description,
             "Runs on the merged result before Local merge moves the branch, when it has new commits. For example \
@@ -2804,10 +2583,9 @@ mod tests {
     #[test]
     fn ticket_resources_section_edits_each_field() {
         let mut s = ProjectSettings::default();
-        let section = ticket_resources_section(&s, &[]);
-        assert_eq!(section.id, ProjectSection::TicketResources);
-        assert_eq!(section.title.as_deref(), Some("Ticket resources"));
-        let intro = section.intro.clone().unwrap();
+        let rows = ticket_resource_rows(&s, &[]);
+        assert_eq!(rows[0].label, "Per-ticket resources \u{b7} optional");
+        let intro = rows[0].description.clone();
         for var in [
             naming::db_name_env_var(),
             naming::db_template_env_var(),
@@ -2815,7 +2593,7 @@ mod tests {
         ] {
             assert!(intro.contains(&var), "{intro}");
         }
-        let fields: Vec<&str> = section.rows.iter().map(|r| r.field.as_str()).collect();
+        let fields: Vec<&str> = rows.iter().map(|r| r.field.as_str()).collect();
         assert_eq!(
             fields,
             [
@@ -2825,7 +2603,7 @@ mod tests {
                 "schema_paths"
             ]
         );
-        for row in &section.rows {
+        for row in &rows {
             let Control::Text {
                 value,
                 placeholder,
@@ -2877,11 +2655,9 @@ mod tests {
                 message: "c".into(),
             },
         ];
-        let section = ticket_resources_section(&s, &problems);
+        let rows = ticket_resource_rows(&s, &problems);
         let control = |field: &str| {
-            section
-                .rows
-                .iter()
+            rows.iter()
                 .find(|r| r.field == field)
                 .unwrap()
                 .control
@@ -3233,6 +3009,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: true,
+            delivery: None,
         });
         let Page::Project {
             title, sections, ..
@@ -3261,6 +3038,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: false,
+            delivery: None,
         });
         let Page::Project { sections, .. } = page else {
             panic!()
@@ -3289,6 +3067,7 @@ mod tests {
             warm: None,
             project_agent: "Strong",
             tool_connected: true,
+            delivery: None,
         });
         let Page::Project { sections, .. } = page else {
             panic!()
@@ -3313,8 +3092,6 @@ mod tests {
         };
         assert_eq!(files[0].problem, None);
         assert!(files[1].problem.is_some());
-        let key = rows.iter().find(|r| r.label == "Project key").unwrap();
-        assert!(key.description.contains("BILL-18"));
 
         assert_eq!(
             edit_project(&mut s, "name", &Value::Text("  ".into())),
@@ -3348,31 +3125,13 @@ mod tests {
         assert!(c.credits[0].themes.starts_with("→ "));
         assert!(is_credit_source(&c.credits[0].source));
         assert!(!is_credit_source("https://example.com"));
-        assert_eq!(provider(None, Some("done")).status, "Checking…");
-        assert_eq!(provider(None, Some("done")).stage, None);
-        // On a GitLab remote the row's link opens the flow editor on the Delivery stage (its Skill field).
-        let gitlab = PrProvider {
-            remote: Some("gitlab.com/acme/shop-web".into()),
-            provider: None,
-            logged_in: None,
-            cli_found: false,
-            open_pr_skill: "open-pr".into(),
-        };
-        let row = provider(Some(&gitlab), Some("done"));
-        assert_eq!(row.link.as_deref(), Some("use your own Open PR skill"));
-        assert_eq!(row.stage.as_deref(), Some("done"));
-        assert!(!row.description.contains("Settings") && !row.description.contains("agent"));
         let t = tools(Err("boom".into()));
         assert_eq!(t.error.as_deref(), Some("boom"));
         assert!(t.rows.is_empty());
-        let json = serde_json::to_value(view(
-            Page::Global {
-                title: "General".into(),
-                sections: global(&GlobalSettings::default()),
-            },
-            &[],
-            &[],
-        ))
+        let json = serde_json::to_value(view(Page::Global {
+            title: "General".into(),
+            sections: global(&GlobalSettings::default()),
+        }))
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
         assert_eq!(json["page"]["sections"][0]["id"], "agent_tools");
@@ -3401,23 +3160,20 @@ mod tests {
             warm: None,
             project_agent: "Claude Code",
             tool_connected: true,
+            delivery: None,
         }) else {
             panic!()
         };
         let rows: Vec<&Row> = sections.iter().flat_map(|s| &s.rows).collect();
         let at = rows.iter().position(|r| r.field == "env_vars").unwrap();
-        assert_eq!(rows[at - 1].field, "env_files", "after Env files");
-        assert_eq!(
-            rows[at + 1].field,
-            "warm_builds",
-            "before the warm build switch"
-        );
+        assert_eq!(rows[at - 1].field, "setup_command", "after the setup command");
+        assert_eq!(rows[at + 1].field, "env_files", "before the files to copy");
         let row = rows[at];
         assert_eq!(row.label, "Environment variables");
         assert_eq!(
             row.description,
             format!(
-                "Set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
+                "Only the ones you set here: set in every agent session, Run and Terminal of this project. You can use ${{{}}} and {PRODUCT_NAME}’s other variables inside a value.",
                 naming::db_name_env_var()
             )
         );
@@ -3680,6 +3436,7 @@ mod tests {
             }),
             project_agent: "Claude Code",
             tool_connected: true,
+            delivery: None,
         }) else {
             panic!()
         };
@@ -3687,13 +3444,13 @@ mod tests {
         let at = rows.iter().position(|r| r.field == "warm_builds").unwrap();
         assert_eq!(
             rows[at - 1].field,
-            "env_vars",
-            "right after Environment variables"
+            "let_finished_tickets_answer",
+            "right after Finished tickets"
         );
         assert_eq!(
             rows[at + 1].field,
-            "resource_create",
-            "the last of Commands, before Ticket resources"
+            "project_notes",
+            "the last of the Workspace, before Notes for agents"
         );
         rows[at].clone()
     }

@@ -12,7 +12,7 @@ import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
 import type { UsageDataDialog } from "../../generated/UsageDataDialog";
-import type { GlobalSection, ProjectSection } from "./settings";
+import type { GlobalSection } from "./settings";
 
 /** A confirmation's texts, from the view models, and what its confirm button does. */
 export interface Confirmation {
@@ -44,9 +44,9 @@ export interface OverlayParams {
   new_ticket: { body?: string; full?: boolean } | undefined;
   /** The ticket editor on a ticket (T-0228). */
   edit_ticket: { ticket: string };
-  /** Settings, on a project's page and on a section if given (T-0234); `agent`: Settings → Agents on that agent's
-   * page (its id; Open agent…, T-0411). */
-  settings: { project?: string; section?: GlobalSection | ProjectSection; agent?: string } | undefined;
+  /** The app's Settings, on a section if given (T-0234); `agent`: Settings → Agents on that agent's page (its id;
+   * Open agent…, T-0411). A project's settings are its own page (`openProjectSettings`). */
+  settings: { section?: GlobalSection; agent?: string } | undefined;
   /** The running processes (T-0232). */
   processes: undefined;
   /** The run-command dialog of a project's first Run (T-0232); `ask`: Settings' Ask the agent was the click. */

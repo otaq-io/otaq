@@ -5,6 +5,16 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **A project's settings are its own page.** The view switch's **Settings** (after Board, List and Files) shows the
+  project's settings in its main area, one page with a section list on the left: **Flow** (its stages from Backlog to
+  Done, who works in each, **Export** and **Edit flow**), **Repository** (name, base branch, how work is delivered,
+  which pull request provider the repository uses, merge check), **Run**, **Workspace** (setup command, your
+  variables, files to copy, ticket resources, warm build), **Notes for agents** and **Remove project**. Projects are
+  no longer listed in the app's Settings (⌘,), which keeps what's about you and your machine.
+- **Delivery is changed where you see it.** The Repository card's **Delivery** (Merge into main · Pull request ·
+  Either; On Approve · Automatically) is the flow's own setting: changing it there saves a new version of the flow,
+  as Edit flow does. Its line "Pull requests through: GitHub · owner/repo" says which provider the repository uses
+  and, when it isn't ready on this computer, offers **Set up…**.
 - **Search lists the tickets it finds.** Typing in the board's search (`/`) still filters the board, and the list
   under the field now also shows the matching tickets with their column and status, Done ones included; ↵ or a
   click opens one. Two new filters: `in:<stage>` keeps one column's tickets (`in:review`, `in:backlog`, `in:done`;

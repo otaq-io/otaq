@@ -119,9 +119,11 @@ pub use sections::{
 };
 #[cfg(test)]
 pub use settings::{
-    AgentsOpen, SettingsEdit, SettingsLink, SettingsOpen, SettingsProject, SettingsRevealParams,
-    export_agent_types, export_flow_types,
+    AgentsOpen, SettingsEdit, SettingsLink, SettingsProject, SettingsRevealParams, export_agent_types,
+    export_flow_types,
 };
+#[cfg(test)]
+pub use project_settings::export_types as export_project_settings_types;
 #[cfg(test)]
 pub use sheet::AnswerAgentParams as SheetAnswerAgentParams;
 #[cfg(test)]
@@ -203,6 +205,7 @@ areas! {
     sheet,
     board,
     settings,
+    project_settings,
     drawer,
     onboarding,
     tools,

@@ -83,9 +83,8 @@ describe("the Settings screen", () => {
       "tools",
       "about",
     ]);
-    expect(app.settings.project.ids()).toContain("remove_project");
-    expect(app.settings.project.ids().slice(0, 3)).toEqual(["general", "flow", "project_notes"]);
-    expect(app.settings.project.ids()).not.toContain("validation");
+    // A project's settings are its own page: the overlay registers none of its cards.
+    expect(app.settings.project.ids()).toEqual([]);
     expect(app.shortcuts.run({ action: "settings" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "settings", params: undefined }]);
   });
@@ -207,13 +206,10 @@ describe("the Settings screen", () => {
     host.remove();
   });
 
-  it("Ticket resources come right after Commands, and schema paths are one multi-line field", () => {
-    const app = registerScreens({ settings });
-    const ids = app.settings.project.ids();
-    expect(ids.indexOf("ticket_resources")).toBe(ids.indexOf("commands") + 1);
-    const section: SettingsSection<"ticket_resources"> = {
-      id: "ticket_resources",
-      title: "Ticket resources",
+  it("schema paths are one multi-line field", () => {
+    const section: SettingsSection<"workspace"> = {
+      id: "workspace",
+      title: "Workspace",
       intro: null,
       rows: [
         {
@@ -237,7 +233,7 @@ describe("the Settings screen", () => {
       note: null,
     };
     const out = html(withPage(createElement(Section, { section })));
-    expect(out).toContain('<h3 class="settings-section-title">Ticket resources</h3>');
+    expect(out).toContain('<h3 class="settings-section-title">Workspace</h3>');
     expect(out).toContain("<textarea");
     expect(out).toContain("db/migrations/**");
     expect(out).toContain('aria-invalid="true"');
@@ -248,7 +244,6 @@ describe("the Settings screen", () => {
       label,
       icon: "bot",
       target: { page: "global", section: sections[0] ?? "about", sections },
-      alert: false,
     });
     const rows = [row("Agent tools", ["agent_tools"]), row("Agents", ["agents", "agent_limits"])];
     expect(topicRow(rows, "agent_limits")?.label).toBe("Agents");

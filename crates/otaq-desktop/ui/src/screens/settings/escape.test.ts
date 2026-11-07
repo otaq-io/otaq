@@ -63,17 +63,20 @@ function view(vars: { name: string; value: string }[]): SettingsView {
   return {
     title: "Settings",
     global_heading: "Global",
-    projects_heading: "Projects",
     close_label: "Close settings",
-    nav: [{ label: "demo", icon: "folder", target: { page: "project", key: "DEMO" }, alert: false }],
+    nav: [
+      {
+        label: "Demo",
+        icon: "folder",
+        target: { page: "global", section: "agents", sections: ["agents", "tools"] },
+      },
+    ],
     page: {
-      page: "project",
-      key: "DEMO",
-      title: "demo",
-      intro: "",
+      page: "global",
+      title: "General",
       sections: [
-        { id: "general", title: null, intro: null, rows: [], note: null },
-        { id: "commands", title: null, intro: null, rows: [envRow(vars)], note: null },
+        { id: "agents", title: null, intro: null, rows: [], note: null },
+        { id: "tools", title: null, intro: null, rows: [envRow(vars)], note: null },
       ],
     },
   };
@@ -106,8 +109,8 @@ function PickerSection() {
 const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
-    a.settings.project.register("general", { Component: PickerSection });
-    a.settings.project.register("commands", { Component: sectionComponent("commands") });
+    a.settings.global.register("agents", { Component: PickerSection });
+    a.settings.global.register("tools", { Component: sectionComponent("tools") });
   },
 });
 
@@ -124,7 +127,7 @@ function mount() {
         RegistriesContext,
         { value: app },
         createElement(Settings, {
-          params: { project: "DEMO" },
+          params: undefined,
           close: () => {
             closed += 1;
           },

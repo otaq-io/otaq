@@ -1,7 +1,8 @@
-//! `settings.*`: Settings, global and per project (T-0234; SET-01, PRJ-03, PRJ-04, d0023). The page asks for the whole
-//! view (`settings.view`), sends one edit at a time (`settings.edit`: a field and its value; the rules are in
+//! `settings.*`: the app's Settings (T-0234; SET-01, d0023). The page asks for the whole view (`settings.view`),
+//! sends one edit at a time (`settings.edit`: a field and its value; the rules are in
 //! `otaq_view::view_models::settings_page`) and gets the fresh view back. The slow parts load on their own: the
-//! tools check, the PR provider, the branches. Everything is stored by the service, never in a repository.
+//! tools check, the branches. Everything is stored by the service, never in a repository. A project's settings are
+//! its own page (`project_settings.*`), which uses the branches and the Flow card's requests from here.
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::{AgentList, InUse, ModelRef};
@@ -9,18 +10,15 @@ use otaq_core::board::Refusal;
 use otaq_core::board::settings::{GlobalSettings, ProjectSettings, SettingProblem};
 use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{
-    AgentEditParams, DefaultModelParams, IdParams, KeyParams, ModelsParams,
-    NoyanAgentParams, ProjectParams, ProjectSettingsParams, ProjectUpdateParams, Reply, Request,
+    AgentEditParams, DefaultModelParams, IdParams, ModelsParams, NoyanAgentParams, ProjectParams,
+    Reply, Request,
 };
 use otaq_view::view_models::about;
 use otaq_view::view_models::editor_fields::branch_items;
 use otaq_view::view_models::licenses;
 use otaq_view::view_models::{agent_page, agents};
 use otaq_view::view_models::settings::data_paths;
-use otaq_view::view_models::settings_page::{
-    self as page, GlobalInputs, Os, ProjectChange, ProjectInputs, Reveal, WarmInputs,
-};
-use otaq_view::view_models::warm_build;
+use otaq_view::view_models::settings_page::{self as page, GlobalInputs, Os, Reveal};
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -37,37 +35,14 @@ pub(super) use flow::import as read_flow_file;
 
 pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, RequestError> {
     match method {
-        "settings.view" => {
-            let p: SettingsOpen = parse(params)?;
-            reply(&view(app, p.project.as_deref()).await?)
-        }
+        "settings.view" => reply(&view(app).await?),
         "settings.edit" => edit(app, parse(params)?).await,
         "settings.tools" => reply(&page::tools(match app.service.send(Request::ToolsCheck).await {
             Ok(Reply::ToolsCheck(report)) => Ok(report),
             Ok(other) => Err(unexpected("tools.check", &other).message),
             Err(e) => Err(e.message),
         })),
-        "settings.provider" => {
-            let p: SettingsProject = parse(params)?;
-            // The delivery is no stage: the provider row links to no stage's Skill field.
-            let delivery: Option<String> = None;
-            let request = Request::ProjectPrProvider(ProjectParams { project: p.project });
-            match app.service.send(request).await? {
-                Reply::PrProvider(provider) => {
-                    reply(&page::provider(Some(&provider), delivery.as_deref()))
-                }
-                other => Err(unexpected("project.pr_provider", &other)),
-            }
-        }
         "settings.branches" => branches(app, parse(params)?).await,
-        "settings.remove_preview" => remove_preview(app, parse(params)?).await,
-        "settings.remove" => {
-            let p: SettingsProject = parse(params)?;
-            app.service
-                .send(Request::ProjectRemove(KeyParams { key: p.project }))
-                .await?;
-            reply(&view(app, None).await?)
-        }
         // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model, the agent Noyan uses;
         // one agent's page, its changes, Delete.
         "settings.agents" => {
@@ -163,18 +138,9 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     }
 }
 
-/// `settings.view`: the global page, or a project's page when `project` names one.
-#[derive(Debug, Clone, Default, Deserialize, TS)]
-pub struct SettingsOpen {
-    #[serde(default)]
-    pub project: Option<String>,
-}
-
-/// One edit: `project` names the project page it was made on (none: the global page).
+/// One edit of an app setting.
 #[derive(Debug, Clone, Deserialize, TS)]
 pub struct SettingsEdit {
-    #[serde(default)]
-    pub project: Option<String>,
     pub field: String,
     pub value: page::Value,
 }
@@ -458,21 +424,21 @@ pub(super) fn unexpected(method: &str, reply: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {method}: {reply:?}"))
 }
 
-async fn global(app: &App) -> Result<(GlobalSettings, Vec<SettingProblem>), RequestError> {
+pub(super) async fn global(app: &App) -> Result<(GlobalSettings, Vec<SettingProblem>), RequestError> {
     match app.service.send(Request::SettingsGet).await? {
         Reply::GlobalSettings(r) => Ok((r.settings, r.problems)),
         other => Err(unexpected("settings.get", &other)),
     }
 }
 
-async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
+pub(super) async fn projects(app: &App) -> Result<Vec<ProjectInfo>, RequestError> {
     match app.service.send(Request::ProjectList).await? {
         Reply::Projects(list) => Ok(list),
         other => Err(unexpected("project.list", &other)),
     }
 }
 
-async fn project_settings(
+pub(super) async fn project_settings(
     app: &App,
     key: &str,
 ) -> Result<(ProjectSettings, Vec<SettingProblem>), RequestError> {
@@ -485,142 +451,45 @@ async fn project_settings(
     }
 }
 
-/// The nav and the page: the global page, or `project`'s page.
-async fn view(app: &App, project: Option<&str>) -> Result<page::View, RequestError> {
+/// The nav and the app's page.
+async fn view(app: &App) -> Result<page::View, RequestError> {
     let (settings, problems) = global(app).await?;
-    let list = projects(app).await?;
-    // The nav marks the projects with a flagged value.
-    let mut alerts = Vec::new();
-    let mut open = None;
-    for info in &list {
-        let (p_settings, p_problems) = project_settings(app, &info.key).await?;
-        if !p_problems.is_empty() {
-            alerts.push(info.key.clone());
-        }
-        if project == Some(info.key.as_str()) {
-            open = Some((info.clone(), p_settings, p_problems));
-        }
-    }
-    let shown = match open {
-        Some((info, p_settings, p_problems)) => {
-            // The warm build switch (T-0301): whether the disk can clone, and the project's warm build.
-            let warm = super::recovery::warm_list(app).await.ok();
-            // Run command's Ask the agent names the project's Project agent (T-0342).
-            let project_agent = otaq_view::view_models::agent_panel::new_agent_name(
-                super::agent_panel::project_agent(app).await?.as_ref(),
-                &super::agent_panel::tools(app).await,
-            );
-            // Ask the agent is hidden only when no agent tool is connected (RUN-02, d0086).
-            let tool_connected = match super::agent_tools::list(app, Request::AgentToolsList).await {
-                Ok(list) => list.tools.iter().any(|t| t.state.is_connected()),
-                Err(_) => true,
-            };
-            page::project_page(&ProjectInputs {
-                info: &info,
-                settings: &p_settings,
-                problems: &p_problems,
-                global: &settings,
-                warm: warm.as_ref().map(|list| WarmInputs {
-                    list,
-                    now: otaq_core::store::now_ms(),
-                }),
-                project_agent: &project_agent,
-                tool_connected,
-            })
-        }
-        None => {
-            let scheduler = match app.service.send(Request::SchedulerStatus).await {
-                Ok(Reply::SchedulerStatus(s)) => Some(s),
-                _ => None,
-            };
-            let cleanup_count = match app.service.send(Request::CleanupScan).await {
-                Ok(Reply::CleanupScan(items)) => items.len(),
-                _ => 0,
-            };
-            // What macOS allows, for the status line under the notifications switch (ATT-14).
-            let notification_permission = match app.service.send(Request::NotificationsState).await {
-                Ok(Reply::NotificationsState(state)) => state.permission,
-                _ => otaq_core::attention::notify::PermissionState::Unknown,
-            };
-            let fonts = app.fonts.get().await;
-            page::global_page(&GlobalInputs {
-                settings: &settings,
-                problems: &problems,
-                scheduler: scheduler.as_ref(),
-                data: app.service.data().map(|d| data_paths(&d)),
-                cleanup_count,
-                os: Os::current(),
-                notification_permission,
-                fonts: &fonts,
-            })
-        }
+    let scheduler = match app.service.send(Request::SchedulerStatus).await {
+        Ok(Reply::SchedulerStatus(s)) => Some(s),
+        _ => None,
     };
-    Ok(page::view(shown, &list, &alerts))
+    let cleanup_count = match app.service.send(Request::CleanupScan).await {
+        Ok(Reply::CleanupScan(items)) => items.len(),
+        _ => 0,
+    };
+    // What macOS allows, for the status line under the notifications switch (ATT-14).
+    let notification_permission = match app.service.send(Request::NotificationsState).await {
+        Ok(Reply::NotificationsState(state)) => state.permission,
+        _ => otaq_core::attention::notify::PermissionState::Unknown,
+    };
+    let fonts = app.fonts.get().await;
+    let shown = page::global_page(&GlobalInputs {
+        settings: &settings,
+        problems: &problems,
+        scheduler: scheduler.as_ref(),
+        data: app.service.data().map(|d| data_paths(&d)),
+        cleanup_count,
+        os: Os::current(),
+        notification_permission,
+        fonts: &fonts,
+    });
+    Ok(page::view(shown))
 }
 
 /// Applies one edit and answers with the fresh view. A refused value comes back as the request's error.
 async fn edit(app: &App, edit: SettingsEdit) -> Result<Value, RequestError> {
-    match &edit.project {
-        None => {
-            let (mut settings, _) = global(app).await?;
-            let fonts = app.fonts.get().await;
-            page::edit_global(&mut settings, &edit.field, &edit.value, &fonts)
-                .map_err(RequestError::plain)?;
-            // The service applies it at once (limits, notifications) and announces `settings_changed`, on which
-            // the theme and the terminals follow.
-            app.service.send(Request::SettingsSet(settings)).await?;
-        }
-        Some(key) => {
-            let (mut settings, _) = project_settings(app, key).await?;
-            // Turning the warm build switch off clears the project's warm build after saving (the service does it;
-            // the page asked first). Its toast comes once it is gone, after any copy it waits for (WRM-06).
-            let clears = if edit.field == "warm_builds" && edit.value == page::Value::Flag(false) {
-                warm_build_of(app, key).await
-            } else {
-                None
-            };
-            match page::edit_project(&mut settings, &edit.field, &edit.value)
-                .map_err(RequestError::plain)?
-            {
-                ProjectChange::Settings => {
-                    let request = Request::ProjectSettingsSet(ProjectSettingsParams {
-                        project: key.clone(),
-                        settings: Box::new(settings),
-                    });
-                    app.service.send(request).await?;
-                    if let Some((repo, name)) = clears {
-                        let toast = warm_build::switched_off_toast(&name);
-                        super::recovery::follow_clear(app, &repo, &name, toast);
-                    }
-                }
-                ProjectChange::Project(update) => {
-                    let request = Request::ProjectUpdate(ProjectUpdateParams {
-                        project: key.clone(),
-                        update,
-                    });
-                    app.service.send(request).await?;
-                }
-                ProjectChange::Nothing => {}
-            }
-        }
-    }
-    reply(&view(app, edit.project.as_deref()).await?)
-}
-
-/// The project's own warm build, by its folder, and the project's name; `None` when it has none.
-async fn warm_build_of(app: &App, key: &str) -> Option<(String, String)> {
-    let list = super::recovery::warm_list(app).await.ok()?;
-    let build = list
-        .builds
-        .into_iter()
-        .find(|b| b.project.as_deref() == Some(key))?;
-    let name = projects(app)
-        .await
-        .ok()?
-        .into_iter()
-        .find(|p| p.key == key)
-        .map_or_else(|| build.repo.clone(), |p| p.name);
-    Some((build.repo, name))
+    let (mut settings, _) = global(app).await?;
+    let fonts = app.fonts.get().await;
+    page::edit_global(&mut settings, &edit.field, &edit.value, &fonts).map_err(RequestError::plain)?;
+    // The service applies it at once (limits, notifications) and announces `settings_changed`, on which the theme
+    // and the terminals follow.
+    app.service.send(Request::SettingsSet(settings)).await?;
+    reply(&view(app).await?)
 }
 
 /// The base branch dropdown: local branches, then remote ones not checked out, the current one checked.
@@ -636,23 +505,6 @@ async fn branches(app: &App, p: SettingsProject) -> Result<Value, RequestError> 
         return Err(RequestError::plain("unexpected answer to project.branches"));
     };
     reply(&branch_items(&branches.local, &branches.remote, &current))
-}
-
-/// The Remove project confirmation, with the project's ticket count.
-async fn remove_preview(app: &App, p: SettingsProject) -> Result<Value, RequestError> {
-    let info = projects(app)
-        .await?
-        .into_iter()
-        .find(|i| i.key == p.project)
-        .ok_or_else(|| RequestError::plain(format!("no project {}", p.project)))?;
-    let request = Request::BoardSnapshot(ProjectParams {
-        project: p.project.clone(),
-    });
-    let tickets = match app.service.send(request).await? {
-        Reply::Board(board) => board.tickets().count(),
-        _ => 0,
-    };
-    reply(&page::remove_dialog(&info, tickets))
 }
 
 #[cfg(test)]
@@ -726,161 +578,6 @@ mod tests {
         assert_eq!(license["title"], "Functional Source License");
         let notices = request(&h.app, "settings.licenses", Value::Null).await.unwrap();
         assert!(notices["rust"].as_array().unwrap().len() > 3);
-        h.service.stop_all().await;
-    }
-
-    #[tokio::test(flavor = "multi_thread")]
-    async fn environment_variables_are_saved_and_a_duplicate_is_marked() {
-        use otaq_core::board::projects::AddProject;
-        use otaq_core::board::settings::EnvVar;
-        use otaq_core::git::testing::TempRepos;
-
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        let path = repos.repo("shop-web", 1);
-        let project = match h
-            .app
-            .service
-            .send(Request::ProjectAdd(AddProject {
-                path: path.display().to_string(),
-                key: None,
-                base_branch: None,
-                flow_setup: false,
-            }))
-            .await
-            .unwrap()
-        {
-            Reply::ProjectAdded { project: p, .. } => p.key,
-            other => panic!("{other:?}"),
-        };
-        let edit = |field: &str, value: Value| {
-            request(
-                &h.app,
-                "settings.edit",
-                json!({ "project": project, "field": field, "value": value }),
-            )
-        };
-        let env_row = |view: &Value| -> Value {
-            view["page"]["sections"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .flat_map(|s| s["rows"].as_array().unwrap())
-                .find(|r| r["field"] == "env_vars")
-                .unwrap()["control"]
-                .clone()
-        };
-        let view = edit("env_vars.add", json!({ "name": "CI", "value": "true" }))
-            .await
-            .unwrap();
-        assert_eq!(env_row(&view)["rows"][0]["name"], "CI");
-        let view = edit("env_vars.add", json!({ "name": "CI", "value": "false" }))
-            .await
-            .unwrap();
-        let rows = env_row(&view)["rows"].clone();
-        assert_eq!(rows[0]["problem"], Value::Null);
-        assert_eq!(
-            rows[1]["problem"],
-            "CI is already set above. Only the first row applies; remove one of them."
-        );
-        assert_eq!(view["nav"].as_array().unwrap().last().unwrap()["alert"], true);
-        edit("env_vars.1.name", json!("DEBUG")).await.unwrap();
-        edit("env_vars.0.value", json!("1")).await.unwrap();
-        let (stored, problems) = project_settings(&h.app, &project).await.unwrap();
-        assert_eq!(stored.env_vars, [EnvVar::new("CI", "1"), EnvVar::new("DEBUG", "false")]);
-        assert!(problems.is_empty(), "{problems:?}");
-        let view = edit("env_vars.remove", json!(0)).await.unwrap();
-        assert_eq!(env_row(&view)["rows"][0]["name"], "DEBUG");
-        h.service.stop_all().await;
-    }
-
-    /// The warm build switch (T-0301; WRM-05): turning it off with a warm build shows the confirmation's texts,
-    /// saves, clears it and toasts; turning it on asks nothing.
-    #[tokio::test(flavor = "multi_thread")]
-    async fn turning_the_warm_build_switch_off_clears_the_warm_build() {
-        use otaq_core::board::projects::AddProject;
-        use otaq_core::git::testing::TempRepos;
-
-        let h = Harness::new(None);
-        h.wait_for("connected", connected).await;
-        let repos = TempRepos::new();
-        let path = repos.repo("shop-web", 1);
-        let project = match h
-            .app
-            .service
-            .send(Request::ProjectAdd(AddProject {
-                path: path.display().to_string(),
-                key: None,
-                base_branch: None,
-                flow_setup: false,
-            }))
-            .await
-            .unwrap()
-        {
-            Reply::ProjectAdded { project: p, .. } => p.key,
-            other => panic!("{other:?}"),
-        };
-        let open = || request(&h.app, "settings.view", json!({ "project": project }));
-        let edit = |value: bool| {
-            request(
-                &h.app,
-                "settings.edit",
-                json!({ "project": project, "field": "warm_builds", "value": value }),
-            )
-        };
-        let switch = |view: &Value| -> Value {
-            view["page"]["sections"]
-                .as_array()
-                .unwrap()
-                .iter()
-                .flat_map(|s| s["rows"].as_array().unwrap())
-                .find(|r| r["field"] == "warm_builds")
-                .unwrap()["control"]
-                .clone()
-        };
-        let view = open().await.unwrap();
-        // No agent tool is connected in the test service: Run command has no Ask the agent (RUN-02, d0086).
-        let run = view["page"]["sections"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .flat_map(|s| s["rows"].as_array().unwrap())
-            .find(|r| r["field"] == "run_command")
-            .unwrap()
-            .clone();
-        assert_eq!(run["button"], Value::Null);
-        let control = switch(&view);
-        assert_eq!(control["kind"], "warm_build");
-        // On every disk (M19-b): where it can't clone, the build is handed over instead.
-        assert_eq!(control["disabled"], false);
-        assert_eq!(control["reason"], Value::Null);
-        assert_eq!(control["on"], true);
-        assert_eq!(control["confirm"], Value::Null, "nothing to delete: no question");
-
-        // A warm build of the project's (its folder is the repo's name).
-        let data = h.app.service.data().unwrap();
-        let folder = data.warm_entry_path("shop-web", 0).unwrap();
-        std::fs::create_dir_all(folder.join("out")).unwrap();
-        std::fs::write(folder.join("out").join("built.bin"), vec![0u8; 4096]).unwrap();
-        let control = switch(&open().await.unwrap());
-        assert_eq!(control["confirm"]["title"], "Clear shop-web’s warm build (up to 4 KB)?");
-        assert_eq!(control["confirm"]["confirm"], "Turn off and clear up to 4 KB");
-
-        let control = switch(&edit(false).await.unwrap());
-        assert_eq!(control["on"], false);
-        let deadline = std::time::Instant::now() + std::time::Duration::from_secs(10);
-        while !h.app.notices.view().toasts.iter().any(|t| t.title == "Cleared shop-web’s warm build") {
-            assert!(std::time::Instant::now() < deadline, "no toast");
-            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
-        }
-        assert!(!folder.exists());
-        let (stored, _) = project_settings(&h.app, &project).await.unwrap();
-        assert!(!stored.warm_builds);
-
-        let control = switch(&edit(true).await.unwrap());
-        assert_eq!(control["on"], true);
-        assert_eq!(control["confirm"], Value::Null);
         h.service.stop_all().await;
     }
 

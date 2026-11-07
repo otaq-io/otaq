@@ -54,4 +54,8 @@ confirm: CleanupWarmConfirm | null, } | { "kind": "branch", value: string,
 /**
  * The dropdown's search field.
  */
-search: MenuSearch, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };
+search: MenuSearch, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "delivery", delivers: Array<SettingsChoice>, delivers_value: string, modes: Array<SettingsChoice>, mode_value: string, either: string | null, 
+/**
+ * "This is the flow's setting: changing it here changes the flow, and the flow file."
+ */
+note: string, } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };

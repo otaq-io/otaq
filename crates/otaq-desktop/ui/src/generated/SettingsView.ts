@@ -5,4 +5,4 @@ import type { SettingsPage } from "./SettingsPage";
 /**
  * The whole Settings view: the nav and the open page.
  */
-export type SettingsView = { title: string, global_heading: string, projects_heading: string, close_label: string, nav: Array<SettingsNavRow>, page: SettingsPage, };
+export type SettingsView = { title: string, global_heading: string, close_label: string, nav: Array<SettingsNavRow>, page: SettingsPage, };

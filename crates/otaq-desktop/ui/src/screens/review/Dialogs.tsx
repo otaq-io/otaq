@@ -9,6 +9,7 @@
 import { type ReactNode, useCallback, useEffect, useRef, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
+import { openProjectSettings } from "../project_settings/logic";
 import type { OverlayProps } from "../../app/registry";
 import { openTicket, selection, showTab } from "../../app/selection";
 import { Button, CodeText, Dialog, Kbd, TextArea, PLAIN_TEXT } from "../../components";
@@ -426,8 +427,8 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
                   className="review-link"
                   onClick={() => {
                     close();
-                    // The Merge check row is in the project's Commands, next to the setup command (d0120).
-                    openOverlay("settings", { project: c.merge_check.project, section: "commands" });
+                    // The Merge check row is on the project's Settings page, in its Repository card.
+                    openProjectSettings(c.merge_check.project, "repository");
                   }}
                 >
                   {c.merge_check.link}

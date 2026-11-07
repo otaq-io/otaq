@@ -14,7 +14,7 @@ use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
 
-/// Board, List or the project Files view (BRD-01, FIL-01). `BoardViewKind` on the page.
+/// Board, List, the project Files view (BRD-01, FIL-01) or the project's Settings page. `BoardViewKind` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "BoardViewKind")]
@@ -22,6 +22,7 @@ pub enum ViewKind {
     Board,
     List,
     Files,
+    Settings,
 }
 
 /// The List's grouping (LST-01). `ListGroupBy` on the page.
@@ -49,6 +50,7 @@ impl From<core::BoardView> for ViewKind {
             core::BoardView::Board => Self::Board,
             core::BoardView::List => Self::List,
             core::BoardView::Files => Self::Files,
+            core::BoardView::Settings => Self::Settings,
         }
     }
 }
@@ -59,6 +61,7 @@ impl From<ViewKind> for core::BoardView {
             ViewKind::Board => Self::Board,
             ViewKind::List => Self::List,
             ViewKind::Files => Self::Files,
+            ViewKind::Settings => Self::Settings,
         }
     }
 }
@@ -220,11 +223,8 @@ pub struct ToolbarGroup {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BoardToolbar")]
 pub struct Toolbar {
-    /// Board · List · Files (BRD-01, FIL-01).
+    /// Board · List · Files · Settings (BRD-01, FIL-01): Settings is the project's settings page, in the main area.
     pub views: ToolbarGroup,
-    /// "Settings", after the views: the project's settings (they open over the board until they are a view of
-    /// their own).
-    pub settings: String,
     /// "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
     pub edit_flow: Option<String>,
     /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
@@ -245,7 +245,6 @@ pub struct Toolbar {
 }
 
 pub const ALL_TICKETS: &str = "All tickets";
-pub const SETTINGS: &str = "Settings";
 pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
@@ -256,6 +255,8 @@ pub const LIVE: &str = "Live";
 /// The toolbar for `prefs`, with the user's keys in the tooltips.
 pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
     let view: ViewKind = prefs.view.into();
+    // The Board and the List show tickets: All tickets and New ticket are theirs.
+    let tickets_shown = matches!(view, ViewKind::Board | ViewKind::List);
     let option =
         |label: &str, icon: Option<IconName>, selected: bool, change: Change| ToolbarOption {
             label: label.to_owned(),
@@ -271,6 +272,11 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
             keys: keys.label(action),
             ..option(label, Some(icon), view == kind, Change::View { view: kind })
         };
+    // A view with no key of its own: the project's Settings.
+    let view_option_plain = |kind: ViewKind, label: &str, icon: IconName, tooltip: &str| ToolbarOption {
+        tooltip: Some(tooltip.to_owned()),
+        ..option(label, Some(icon), view == kind, Change::View { view: kind })
+    };
     let group_by: GroupBy = prefs.group_by.into();
     let dependencies: Dependencies = prefs.dependencies.into();
     Toolbar {
@@ -299,9 +305,14 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                         },
                     )
                 },
+                view_option_plain(
+                    ViewKind::Settings,
+                    "Settings",
+                    IconName::Settings,
+                    "The project\u{2019}s settings",
+                ),
             ],
         },
-        settings: SETTINGS.to_owned(),
         edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
@@ -352,11 +363,11 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                     on: !prefs.hide_empty_stages,
                 },
             )),
-            ViewKind::Files => None,
+            ViewKind::Files | ViewKind::Settings => None,
         },
-        all_tickets: (view != ViewKind::Files).then(|| ALL_TICKETS.to_owned()),
-        new_ticket: (view != ViewKind::Files).then(|| NEW_TICKET.to_owned()),
-        new_ticket_keys: (view != ViewKind::Files)
+        all_tickets: tickets_shown.then(|| ALL_TICKETS.to_owned()),
+        new_ticket: tickets_shown.then(|| NEW_TICKET.to_owned()),
+        new_ticket_keys: tickets_shown
             .then(|| keys.label(KeyAction::NewTicket))
             .flatten(),
     }
@@ -436,10 +447,30 @@ mod tests {
             [
                 ("Board".to_owned(), true),
                 ("List".to_owned(), false),
-                ("Files".to_owned(), false)
+                ("Files".to_owned(), false),
+                ("Settings".to_owned(), false)
             ]
         );
         assert_eq!((board.subtitle.as_ref(), board.live.as_ref()), (None, None));
+        // Settings is the project's settings page, a view of its own: it carries no board tools.
+        let mut on_settings = ViewPrefs::default();
+        apply(
+            &mut on_settings,
+            &Change::View {
+                view: ViewKind::Settings,
+            },
+        );
+        let settings = toolbar(&on_settings, &keys);
+        assert!(settings.views.options[3].selected);
+        assert_eq!(
+            (
+                settings.edit_flow.as_ref(),
+                settings.switch.as_ref(),
+                settings.all_tickets.as_ref(),
+                settings.new_ticket.as_ref()
+            ),
+            (None, None, None, None)
+        );
         assert_eq!(board.views.options[1].tooltip.as_deref(), Some("List view"));
         assert_eq!(board.views.options[1].keys.as_deref(), Some("g l"));
         assert_eq!(board.group_by, None);

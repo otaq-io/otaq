@@ -7,14 +7,9 @@ import type { ToolbarOption } from "./ToolbarOption";
  */
 export type BoardToolbar = { 
 /**
- * Board · List · Files (BRD-01, FIL-01).
+ * Board · List · Files · Settings (BRD-01, FIL-01): Settings is the project's settings page, in the main area.
  */
 views: ToolbarGroup, 
-/**
- * "Settings", after the views: the project's settings (they open over the board until they are a view of
- * their own).
- */
-settings: string, 
 /**
  * "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
  */

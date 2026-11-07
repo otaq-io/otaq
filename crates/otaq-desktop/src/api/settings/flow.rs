@@ -311,10 +311,10 @@ mod tests {
             .iter()
             .map(|r| r["name"].as_str().unwrap())
             .collect();
-        assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
+        assert_eq!(stages, ["Dev", "Validate", "Review"], "the delivery is no stage");
         assert_eq!(section["waiting"], Value::Null);
-        assert_eq!(section["copy"]["disabled"], true, "no other project yet");
-        assert_eq!(section["menu"][2]["disabled"], true, "no previous flow");
+        assert_eq!(section["menu"][1]["disabled"], true, "no other project yet");
+        assert_eq!(section["back"], Value::Null, "no previous flow");
 
         let file = h._tmp.path().join("shop-web-flow.yaml");
         let path = file.display().to_string();

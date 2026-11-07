@@ -165,7 +165,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     // Settings (T-0234); the view also writes its sections, rows, controls and nav.
     otaq_view::view_models::settings_page::View::export_all(&cfg)?;
     otaq_view::view_models::settings_page::ToolsView::export_all(&cfg)?;
-    otaq_view::view_models::settings_page::ProviderView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::RemoveView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::CreditsView::export_all(&cfg)?;
     otaq_view::view_models::settings_page::EnvVarsGallery::export_all(&cfg)?;
@@ -178,11 +177,12 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::about::PathRow::export_all(&cfg)?;
     // Also writes its bundled rows, groups and items.
     otaq_view::view_models::licenses::View::export_all(&cfg)?;
-    crate::api::SettingsOpen::export_all(&cfg)?;
     crate::api::SettingsEdit::export_all(&cfg)?;
     crate::api::SettingsProject::export_all(&cfg)?;
     crate::api::SettingsLink::export_all(&cfg)?;
     crate::api::SettingsRevealParams::export_all(&cfg)?;
+    // The project's Settings page: its view, the PR provider line and its requests.
+    crate::api::export_project_settings_types(&cfg)?;
     // The notification banners and Settings → Notifications for the gallery (T-0372).
     otaq_view::view_models::settings_page::NotificationsGallery::export_all(&cfg)?;
     // Settings → Keyboard shortcuts (T-0395): the page, a recorded key and its answer, the gallery's frames.
