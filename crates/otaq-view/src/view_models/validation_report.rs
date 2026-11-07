@@ -319,11 +319,11 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
         ),
         Some(O::NoResult) => (
             "Validation ended without a result \u{b7} not counted".to_owned(),
-            Some(why("validator ended without pass/fail")),
+            Some(why("checker ended without pass/fail")),
         ),
         Some(O::Discarded) => (
             "Validation discarded \u{b7} not counted".to_owned(),
-            Some(why("validator changed tracked files; result thrown away")),
+            Some(why("checker changed tracked files; result thrown away")),
         ),
         Some(O::Interrupted) => (
             "Validation interrupted \u{b7} not counted".to_owned(),
@@ -508,7 +508,7 @@ pub struct BeforeYouAgent {
 }
 
 /// "Before you" on a human check after a round stored from when a check could have several agents (`s30-05`):
-/// "Before you · Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. A check has one agent
+/// "Before you · Validate, round 1 of 3", "2 checkers · both passed", and a block per agent. A check has one agent
 /// now, so a new round never shows it; an older round still reads as it was. `BeforeYouView` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BeforeYouView")]
@@ -580,7 +580,7 @@ pub fn before_you(
             rounds.max(latest.round)
         ),
         summary: format!(
-            "{} check agents \u{b7} {}",
+            "{} checkers \u{b7} {}",
             agents.len(),
             verdicts_summary(passed, agents.len() - passed)
         ),
@@ -708,7 +708,7 @@ mod tests {
         ];
         let view = before_you("Validate", &records, &sessions, 3, true).expect("two agents");
         assert_eq!(view.heading, "Before you · Validate, round 1 of 3");
-        assert_eq!(view.summary, "2 check agents · both passed");
+        assert_eq!(view.summary, "2 checkers · both passed");
         let blocks: Vec<_> = view
             .agents
             .iter()

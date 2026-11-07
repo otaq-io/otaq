@@ -248,7 +248,7 @@ fn shared_agents_read_the_same_in_every_preset() {
         names,
         [
             "Developer",
-            "Validator",
+            "Checker",
             "Spec writer",
             "Architect",
             "Milestone planner",

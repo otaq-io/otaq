@@ -1448,7 +1448,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         [
             ("Noyan", &CameFrom::AgentsFile, true),
             ("Developer", &CameFrom::DefaultPreset, true),
-            ("Validator", &CameFrom::DefaultPreset, true),
+            ("Checker", &CameFrom::DefaultPreset, true),
         ]
     );
     assert!(agents.iter().all(|a| a.instructions.is_empty()));
@@ -1617,7 +1617,7 @@ async fn a_fresh_install_applies_the_two_files() {
         .collect();
     assert_eq!(
         names,
-        [("Noyan", true), ("Developer", true), ("Validator", true)]
+        [("Noyan", true), ("Developer", true), ("Checker", true)]
     );
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);

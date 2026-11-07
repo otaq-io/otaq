@@ -158,7 +158,7 @@ pub fn recorded(action: KeyAction) -> bool {
 }
 
 /// The action's name in the palette: [`KeyAction::title`], with each half of a pair on its own (Q223), and
-/// "Terminals" as drawn.
+/// "Terminal" as drawn.
 pub fn title(action: KeyAction) -> &'static str {
     match action {
         KeyAction::NextTicket => "Next ticket",
@@ -168,7 +168,7 @@ pub fn title(action: KeyAction) -> &'static str {
         KeyAction::NextTab => "Next panel tab",
         KeyAction::PreviousTab => "Previous panel tab",
         // As `s02-20` draws it.
-        KeyAction::Terminals => "Terminals",
+        KeyAction::Terminals => "Terminal",
         other => other.title(),
     }
 }

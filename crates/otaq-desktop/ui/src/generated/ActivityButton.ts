@@ -20,6 +20,6 @@ processes: string | null,
  */
 warning: ActivityWarning | null, hover: ActivityHover, 
 /**
- * "Activity" and the user's key for it (⇧⌘U), which opens the popover as a click does.
+ * "Running" and the user's key for it (⇧⌘U), which opens the popover as a click does.
  */
 label: string, keys: string | null, };

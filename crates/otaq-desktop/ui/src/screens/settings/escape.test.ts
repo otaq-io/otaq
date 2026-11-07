@@ -39,7 +39,7 @@ function envRow(rows: { name: string; value: string }[]): SettingsRow {
   return {
     field: "env_vars",
     label: "Environment variables",
-    description: "Set in every agent session, Run and Shell of this project.",
+    description: "Set in every agent session, Run and Terminal of this project.",
     control: {
       kind: "env_vars",
       rows: rows.map((r) => ({ ...r, problem: null, remove_label: `Remove ${r.name}` })),

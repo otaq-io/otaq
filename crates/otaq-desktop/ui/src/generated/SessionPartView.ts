@@ -3,7 +3,7 @@ import type { SessionDot } from "./SessionDot";
 import type { SheetContent } from "./SheetContent";
 
 /**
- * One button of the switch: "Agent", "Security reviewer", "Run", "Shell".
+ * One button of the switch: "Agent", "Security reviewer", "Run", "Terminal".
  */
 export type SessionPartView = { content: SheetContent, 
 /**

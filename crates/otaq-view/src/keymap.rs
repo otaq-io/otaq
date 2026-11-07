@@ -197,7 +197,7 @@ impl KeyAction {
             Self::ShowBoard => "Board",
             Self::ShowList => "List",
             Self::Pause => "Pause / Resume agents",
-            Self::OpenActivity => "Activity",
+            Self::OpenActivity => "Running",
             Self::Settings => "Settings",
             Self::FocusAgentPanel => "Open / close Noyan",
             Self::NewProjectAgent => "New conversation with Noyan",
@@ -214,18 +214,18 @@ impl KeyAction {
             Self::OpenPr => "Open PR",
             Self::RerunValidation => "Re-run validation",
             Self::OpenDiff => "Open diff",
-            Self::Terminals => "Terminals: open, close, leave the terminal",
+            Self::Terminals => "Terminal: open, close, leave the terminal",
             Self::FindInTerminal => "Find in terminal scrollback",
             Self::ShowFiles => "Files",
             Self::GoToFile => "Go to file",
         }
     }
 
-    /// The action's name in the `g` hint (design `s02-30`): the view in a word ("Board", "Terminals"), else its title (a
+    /// The action's name in the `g` hint (design `s02-30`): the view in a word ("Board", "Terminal"), else its title (a
     /// custom `g` `p` shows "Park").
     pub fn hint_name(self) -> &'static str {
         match self {
-            Self::Terminals => "Terminals",
+            Self::Terminals => "Terminal",
             _ => self.title(),
         }
     }
@@ -388,7 +388,7 @@ pub struct SequenceHint {
     pub name: &'static str,
 }
 
-/// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Activity · t Terminals", 0097;
+/// The base map's sequences in the order the hint shows them ("g → b Board · l List · a Running · t Terminal", 0097;
 /// Files after List, FIL-11); the user's own sequences for other actions follow, in the map's order.
 const HINT_ORDER: [KeyAction; 5] = [
     KeyAction::ShowBoard,
@@ -2209,7 +2209,7 @@ mod tests {
                         "List",
                         "Files",
                         "Pause / Resume agents",
-                        "Activity",
+                        "Running",
                         "Settings",
                         "Open / close Noyan",
                         "New conversation with Noyan",
@@ -2237,7 +2237,7 @@ mod tests {
                 (
                     "The terminal",
                     vec![
-                        "Terminals: open, close, leave the terminal",
+                        "Terminal: open, close, leave the terminal",
                         "Find in terminal scrollback"
                     ]
                 ),
@@ -2311,7 +2311,7 @@ mod tests {
         };
         assert_eq!(
             texts(&CustomKeys::default()),
-            "b Board · l List · f Files · a Activity · t Terminals"
+            "b Board · l List · f Files · a Running · t Terminal"
         );
         let change = |action, slot, change| CustomKey {
             action,
@@ -2328,7 +2328,7 @@ mod tests {
         );
         assert_eq!(
             texts(&CustomKeys(vec![park.clone()])),
-            "b Board · l List · f Files · a Activity · t Terminals · p Park"
+            "b Board · l List · f Files · a Running · t Terminal · p Park"
         );
         let custom = CustomKeys(vec![
             park,
@@ -2343,7 +2343,7 @@ mod tests {
         ]);
         assert_eq!(
             texts(&custom),
-            "b Board · l List · f Files · n Terminals · p Park"
+            "b Board · l List · f Files · n Terminal · p Park"
         );
         // Windows/Linux: the same letters (they never work in a terminal).
         assert_eq!(

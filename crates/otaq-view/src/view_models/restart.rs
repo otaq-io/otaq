@@ -28,7 +28,7 @@ pub const RESTART_FAILED: &str = "Couldn’t restart the background service";
 
 impl RestartDialog {
     pub const TITLE: &str = "Restart the background service?";
-    pub const DETAIL: &str = "Waiting tickets keep their questions. Review and Approved tickets aren’t touched. Run and Shell processes stop.";
+    pub const DETAIL: &str = "Waiting tickets keep their questions. Review and Approved tickets aren’t touched. Run and Terminal processes stop.";
     pub const CONFIRM: &str = "Restart service";
 
     /// "3 working agents and 2 waiting ones will be interrupted. You can Resume all afterwards."
@@ -105,7 +105,7 @@ mod tests {
         assert_eq!(view.title, "Restart the background service?");
         assert_eq!(
             view.detail,
-            "Waiting tickets keep their questions. Review and Approved tickets aren’t touched. Run and Shell processes stop."
+            "Waiting tickets keep their questions. Review and Approved tickets aren’t touched. Run and Terminal processes stop."
         );
         assert_eq!(view.confirm, "Restart service");
         assert!(

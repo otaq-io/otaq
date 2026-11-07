@@ -1087,7 +1087,7 @@ mod tests {
             KeyEditAnswer::Taken {
                 key: "Ctrl+Shift+U".into(),
                 by: KeyAction::OpenActivity,
-                question: "Ctrl+Shift+U is used by Activity. Use it here instead?".into(),
+                question: "Ctrl+Shift+U is used by Running. Use it here instead?".into(),
             }
         );
         let moved = ok(WIN, &fresh, confirmed(edit));

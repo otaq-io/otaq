@@ -2207,7 +2207,7 @@ mod tests {
         );
         assert_eq!(
             row_change_line(&json!({"role": "validator", "set_by": "user"})).0,
-            "Validator: Let agents pick again (by you)"
+            "Checker: Let agents pick again (by you)"
         );
         assert_eq!(
             row_change_line(&json!({
@@ -2280,7 +2280,7 @@ mod tests {
                 "Dev started \u{b7} Quick developer",
                 "Validate started \u{b7} Validator",
                 "Developer: Quick developer \u{b7} claude-haiku-5-5 \u{b7} 10k",
-                "Validator: Validator \u{b7} claude-opus-5-5 \u{b7} 10k",
+                "Checker: Validator \u{b7} claude-opus-5-5 \u{b7} 10k",
             ]
         );
         let HistoryLine::Session { detail, ended, .. } = &lines[0] else {

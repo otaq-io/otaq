@@ -25,22 +25,22 @@ const SWITCHES: {
 }[] = [
   {
     caption: "SHOP-22 · the agent waits for you, Run up",
-    parts: [part("agent", "Agent", "waiting"), part("run", "Run", "running"), part("shell", "Shell")],
+    parts: [part("agent", "Agent", "waiting"), part("run", "Run", "running"), part("shell", "Terminal")],
     shown: "agent",
     line: "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22",
     right: "Typing goes to Rust developer · SHOP-22",
   },
   {
-    caption: "SHOP-30 · validating: the Validator runs",
+    caption: "SHOP-30 · validating: the Checker runs",
     parts: [
       part("agent", "Agent"),
-      part("check", "Validator", "running"),
+      part("check", "Checker", "running"),
       part("run", "Run"),
-      part("shell", "Shell"),
+      part("shell", "Terminal"),
     ],
     shown: "check",
-    line: "Validator · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-30",
-    right: "Click to type to Validator · SHOP-30",
+    line: "Checker · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-30",
+    right: "Click to type to Checker · SHOP-30",
   },
   {
     caption: "SHOP-19 · in Security: the Security reviewer asks you",
@@ -48,7 +48,7 @@ const SWITCHES: {
       part("agent", "Agent"),
       part("check", "Security reviewer", "waiting"),
       part("run", "Run"),
-      part("shell", "Shell"),
+      part("shell", "Terminal"),
     ],
     shown: "check",
     line: "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19",
@@ -59,7 +59,7 @@ const SWITCHES: {
     parts: [
       part("agent", "Agent", "running"),
       part("run", "Run", "running"),
-      part("shell", "Shell", "running"),
+      part("shell", "Terminal", "running"),
     ],
     shown: "run",
     line: "pnpm dev · in SHOP-22’s worktree · :4022",
@@ -67,7 +67,7 @@ const SWITCHES: {
   },
   {
     caption: "SHOP-22 · Run failed to start",
-    parts: [part("agent", "Agent"), part("run", "Run", "problem"), part("shell", "Shell")],
+    parts: [part("agent", "Agent"), part("run", "Run", "problem"), part("shell", "Terminal")],
     shown: "run",
     line: "pnpm dev · in SHOP-22’s worktree · :4022",
     right: "",
@@ -159,7 +159,7 @@ export function SessionGallery() {
         </figure>
       ))}
       <figure className="gallery-stack-tight">
-        <figcaption className="gallery-caption">Activity · SHOP-22, newest first</figcaption>
+        <figcaption className="gallery-caption">History · SHOP-22, newest first</figcaption>
         <HistoryBody view={ACTIVITY} />
       </figure>
     </div>

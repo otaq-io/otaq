@@ -1168,7 +1168,7 @@ mod tests {
                 agent("a1", "Developer", Some("sonnet")),
                 on(
                     otaq_core::agent_tools::Tool::Codex,
-                    agent("a2", "Validator", Some("gpt-5.5")),
+                    agent("a2", "Checker", Some("gpt-5.5")),
                 ),
             ],
             noyan_agent: None,
@@ -1202,7 +1202,7 @@ mod tests {
         assert_eq!(
             tip(2),
             Some(HeaderTooltip {
-                title: "Validate · Validator · validate".into(),
+                title: "Validate · Checker · validate".into(),
                 detail: vec!["Codex · gpt-5.5 · up to 3 rounds".into()],
             })
         );

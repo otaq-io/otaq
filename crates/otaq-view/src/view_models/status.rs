@@ -141,7 +141,7 @@ mod tests {
             (
                 Core::CheckerNeedsYou,
                 Legend::ValidatorNeedsYou,
-                "Needs you · validator",
+                "Needs you · checker",
                 I::Hand,
             ),
             (

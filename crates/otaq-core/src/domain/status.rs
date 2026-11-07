@@ -420,7 +420,7 @@ mod tests {
                 .collect::<Vec<_>>(),
             [
                 "Validating…",
-                "Needs you · validator",
+                "Needs you · checker",
                 "Validation failed",
                 "Validation ended without a result"
             ]

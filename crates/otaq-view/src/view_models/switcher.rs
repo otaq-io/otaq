@@ -47,7 +47,7 @@ pub fn bottom(keys: &KeyLabels) -> RailBottom {
         keys: keys.label(action),
     };
     RailBottom {
-        terminals: button("Terminals", KeyAction::Terminals),
+        terminals: button("Terminal", KeyAction::Terminals),
         settings: button("Settings", KeyAction::Settings),
     }
 }
@@ -384,7 +384,7 @@ mod tests {
     #[test]
     fn the_rail_ends_with_terminals_and_settings() {
         let mac = bottom(&fixtures::base());
-        assert_eq!(mac.terminals.label, "Terminals");
+        assert_eq!(mac.terminals.label, "Terminal");
         assert_eq!(mac.terminals.keys.as_deref(), Some("⌃`"));
         assert_eq!(mac.settings.label, "Settings");
         assert_eq!(mac.settings.keys.as_deref(), Some("⌘,"));

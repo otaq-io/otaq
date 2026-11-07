@@ -37,7 +37,7 @@ pub enum Dot {
     Problem,
 }
 
-/// One button of the switch: "Agent", "Security reviewer", "Run", "Shell".
+/// One button of the switch: "Agent", "Security reviewer", "Run", "Terminal".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SessionPartView")]
 pub struct PartView {
@@ -267,7 +267,7 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
         },
         PartView {
             content: Content::Shell,
-            label: "Shell".to_owned(),
+            label: "Terminal".to_owned(),
             dot: shell_dot,
             agent: None,
         },
@@ -444,7 +444,7 @@ mod tests {
                 ("Agent", None),
                 ("Validator", Some(Dot::Running)),
                 ("Run", None),
-                ("Shell", None)
+                ("Terminal", None)
             ]
         );
         assert_eq!(parts[1].content, Content::Check);
@@ -523,7 +523,7 @@ mod tests {
                 ("Security reviewer \u{2713}", None),
                 ("Performance reviewer", Some(Dot::Running)),
                 ("Run", None),
-                ("Shell", None)
+                ("Terminal", None)
             ]
         );
         assert_eq!(parts[2].agent.as_deref(), Some("Performance reviewer"));
@@ -563,7 +563,7 @@ mod tests {
         });
         assert_eq!(
             parts.iter().map(|p| p.label.as_str()).collect::<Vec<_>>(),
-            ["Agent", "Security reviewer", "Run", "Shell"]
+            ["Agent", "Security reviewer", "Run", "Terminal"]
         );
     }
 
@@ -612,7 +612,7 @@ mod tests {
             [
                 ("Agent", Some(Dot::Waiting)),
                 ("Run", None),
-                ("Shell", None)
+                ("Terminal", None)
             ]
         );
     }
@@ -688,7 +688,7 @@ mod tests {
             [
                 ("Agent", None),
                 ("Run", Some(Dot::Running)),
-                ("Shell", Some(Dot::Running))
+                ("Terminal", Some(Dot::Running))
             ]
         );
     }

@@ -468,7 +468,7 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
     w.name_stage_skill(WorkflowStep::Validate, Some("team-validate"))
         .await;
     w.set_agent_model(
-        "Validator",
+        "Checker",
         AgentModel::Tool {
             tool: Tool::Codex,
             model: None,
@@ -556,7 +556,7 @@ async fn a_held_round_moved_to_another_agent_is_recorded_under_that_agent() {
     w.name_stage_skill(WorkflowStep::Validate, Some("team-validate"))
         .await;
     w.set_agent_model(
-        "Validator",
+        "Checker",
         AgentModel::Tool {
             tool: Tool::Codex,
             model: None,

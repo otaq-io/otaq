@@ -50,7 +50,7 @@ const HEADER: HeaderView = {
       title: "3 agents running across all projects",
       lines: ["shop-web 2 · billing-api 1 · 3 processes"],
     },
-    label: "Activity",
+    label: "Running",
     keys: "⇧⌘U",
   },
 };
@@ -114,7 +114,7 @@ const RAIL: RailView = {
   width: 64,
   ring_ends_in_ms: 4000,
   switch_keys: "⌘P",
-  bottom: { terminals: { label: "Terminals", keys: "⌃`" }, settings: { label: "Settings", keys: "⌘," } },
+  bottom: { terminals: { label: "Terminal", keys: "⌃`" }, settings: { label: "Settings", keys: "⌘," } },
   project_menu: [
     ["project_settings", "Project settings…"],
     ["rename_project", "Rename…"],
@@ -175,7 +175,7 @@ describe("the rail", () => {
     const order = [
       'aria-label="Noyan, New reply"',
       'class="rail-rule"',
-      'aria-label="Terminals"',
+      'aria-label="Terminal"',
       'aria-label="Cleanup"',
       'aria-label="Settings"',
     ].map((t) => out.indexOf(t));
@@ -214,7 +214,7 @@ describe("the rail", () => {
     const tiles = RailTiles({ view: RAIL, actions: railActions(app) });
     // The bottom buttons sit inside their tooltips: walk to them by their labels.
     const clicks = clicksOf(tiles);
-    for (const name of ["Terminals", "Settings"]) {
+    for (const name of ["Terminal", "Settings"]) {
       const click = clicks.get(name);
       expect(click, name).toBeDefined();
       click?.();
@@ -278,7 +278,7 @@ describe("a project in Flow setup (T-0436, `s14-18`)", () => {
     expect(order).toEqual(order.toSorted((a, b) => a - b));
     expect(out).not.toContain("git-branch");
     expect(out).not.toContain("header-search");
-    expect(out).toContain('aria-label="Activity"');
+    expect(out).toContain('aria-label="Running"');
   });
 
   it("nothing asked yet: Flow setup alone", () => {
@@ -293,7 +293,7 @@ describe("a project in Flow setup (T-0436, `s14-18`)", () => {
 describe("the header", () => {
   it("draws the three items, left to right, and nothing else", () => {
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
-    const order = ["shop-web", "main", "Search  ·  is:needs-you", 'aria-label="Activity"'].map((text) =>
+    const order = ["shop-web", "main", "Search  ·  is:needs-you", 'aria-label="Running"'].map((text) =>
       out.indexOf(text),
     );
     expect(order.every((at) => at >= 0)).toBe(true);
@@ -301,7 +301,7 @@ describe("the header", () => {
     // The path is the name's hover, not a label; New ticket, Terminals and Settings are on the rail or ⌘N.
     expect(out).not.toContain("~/code/shop-web");
     // Needs you is the board's strip (d0114): no Inbox button.
-    for (const gone of ["New ticket", "Terminals", "Settings", "tokens", "Inbox", "header-inbox"])
+    for (const gone of ["New ticket", "Terminal", "Settings", "tokens", "Inbox", "header-inbox"])
       expect(out).not.toContain(gone);
   });
 
@@ -341,7 +341,7 @@ describe("the header", () => {
     const bar = clicksOf(HeaderBar({ view: HEADER, onSearch: () => (searched += 1) }));
     bar.get("header-search")?.();
     expect(searched).toBe(1);
-    clicksOf(ActivityChip({ activity: HEADER.activity })).get("Activity")?.();
+    clicksOf(ActivityChip({ activity: HEADER.activity })).get("Running")?.();
     expect(overlays.store.get().map((o) => o.id)).toEqual(["activity"]);
   });
 
@@ -421,7 +421,7 @@ const POPOVER: ActivityPopover = {
       ],
     },
   },
-  open_terminals: { label: "Open Terminals", keys: "⌃`" },
+  open_terminals: { label: "Open Terminal", keys: "⌃`" },
 };
 
 describe("the Activity popover", () => {
@@ -447,7 +447,7 @@ describe("the Activity popover", () => {
       "PROCESSES",
       "NOTE-5",
       "Stop all",
-      "Open Terminals",
+      "Open Terminal",
       "⌃`",
     ].map((text) => out.indexOf(text));
     expect(order.every((at) => at >= 0)).toBe(true);

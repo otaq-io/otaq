@@ -453,10 +453,10 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         SessionKind::Agent => "Agent session",
         SessionKind::Answer => "Answer session",
         SessionKind::Delivery => "PR session",
-        SessionKind::Shell => "Shell",
+        SessionKind::Shell => "Terminal",
         SessionKind::Project => "Project terminal",
         SessionKind::Run => "Run",
-        SessionKind::Validator => "Validator session",
+        SessionKind::Validator => "Checker session",
         SessionKind::ProjectAgent => "Noyan",
         SessionKind::Helper => "Helper session",
     };
@@ -3055,7 +3055,7 @@ mod tests {
             [
                 ("You created the ticket", Mark::You, None),
                 ("Product spec started \u{b7} Spec writer", Mark::Agent, None),
-                ("Shell", Mark::You, None),
+                ("Terminal", Mark::You, None),
                 (
                     "Product spec finished \u{b7} Spec writer",
                     Mark::Agent,

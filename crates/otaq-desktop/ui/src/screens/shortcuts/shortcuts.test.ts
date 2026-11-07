@@ -38,7 +38,7 @@ const VIEW: ShortcutListView = {
         title: "Views",
         rows: [
           {
-            title: "Activity",
+            title: "Running",
             keys: [{ kbds: ["⌘J"] }, { kbds: ["g", "a"] }],
             changed: true,
             off: false,
@@ -175,7 +175,7 @@ test("the list shows Rust's rows; Esc closes it and runs nothing behind it", asy
   expect(requestMock).toHaveBeenCalledWith("shortcuts.list");
   const box = host?.querySelector('[role="dialog"]');
   expect(box?.textContent).toContain("Keyboard shortcuts");
-  expect(host?.querySelector(".shortcuts-row[data-changed]")?.textContent).toBe("Activity⌘Jorgthenachanged");
+  expect(host?.querySelector(".shortcuts-row[data-changed]")?.textContent).toBe("Running⌘Jorgthenachanged");
   expect(document.activeElement).toBe(box);
   // A letter doesn't act behind it, nor a second ? a moment later (one at once would be a burst, d0126).
   const later = vi.spyOn(Date, "now").mockReturnValue(Date.now() + 1000);

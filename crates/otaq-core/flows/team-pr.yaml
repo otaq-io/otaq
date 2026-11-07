@@ -1,7 +1,7 @@
 agents:
   - name: Developer
     model: default
-  - name: Validator
+  - name: Checker
     model: default
   - name: Shipper
     model: default
@@ -16,7 +16,7 @@ flow:
     name: Validate
     kind: check
     by: agent
-    agent: Validator
+    agent: Checker
     skill: validate
     rounds: 3
     description: "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before the PR opens."

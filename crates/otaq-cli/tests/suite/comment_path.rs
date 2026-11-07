@@ -363,15 +363,9 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         all[1].author
     );
     assert_eq!(agent(&all[2]), (Some("Developer"), Some("dev"), None));
-    assert_eq!(
-        agent(&all[3]),
-        (Some("Validator"), Some("validate"), Some(1))
-    );
+    assert_eq!(agent(&all[3]), (Some("Checker"), Some("validate"), Some(1)));
     assert_eq!(agent(&all[4]), (Some("Developer"), Some("dev"), None));
-    assert_eq!(
-        agent(&all[5]),
-        (Some("Validator"), Some("validate"), Some(2))
-    );
+    assert_eq!(agent(&all[5]), (Some("Checker"), Some("validate"), Some(2)));
     for c in [&all[0], &all[2], &all[3], &all[4], &all[5]] {
         assert!(
             matches!(
@@ -388,7 +382,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
     assert!(
         all[3]
             .heading()
-            .starts_with("Validator \u{b7} Validate \u{b7} round 1 \u{b7} "),
+            .starts_with("Checker \u{b7} Validate \u{b7} round 1 \u{b7} "),
         "{}",
         all[3].heading()
     );

@@ -902,7 +902,7 @@ mod tests {
             .iter()
             .map(|r| r["name"].as_str().unwrap())
             .collect();
-        assert_eq!(rows, ["Noyan", "Developer", "Validator"]);
+        assert_eq!(rows, ["Noyan", "Developer", "Checker"]);
         assert!(section["rows"].as_array().unwrap().iter().all(|r| r.get("role").is_none()), "no row shows a role");
         assert_eq!(section["noyan"]["label"], "Noyan uses");
         assert_eq!(section["noyan"]["value"], "Noyan");
@@ -964,7 +964,7 @@ mod tests {
         let validator = id(2);
         let refused = ask("settings.agent_delete_dialog", json!({ "id": validator })).await.unwrap();
         assert_eq!(refused["kind"], "refused");
-        assert_eq!(refused["title"], "Can\u{2019}t delete Validator");
+        assert_eq!(refused["title"], "Can\u{2019}t delete Checker");
         let confirm = ask("settings.agent_delete_dialog", json!({ "id": quick })).await.unwrap();
         assert_eq!(confirm["kind"], "confirm");
         let deleted = ask("settings.agent_delete", json!({ "id": quick })).await.unwrap();

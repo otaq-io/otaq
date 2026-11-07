@@ -58,7 +58,7 @@ pub struct ResetAll {
     pub enabled: bool,
     /// "Reset all 3 changed shortcuts to their defaults?"
     pub question: String,
-    /// "Activity, New ticket and Next item that needs you go back to their default keys."
+    /// "New ticket, Next item that needs you and Running go back to their default keys."
     pub body: String,
     pub cancel: String,
 }
@@ -945,7 +945,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "Some shortcuts changed",
-            "s15-46 · Activity has ⌘J (Use here took it from Next item that needs you), New ticket c → n",
+            "s15-46 · Running has ⌘J (Use here took it from Next item that needs you), New ticket c → n",
             MAC,
             &changed,
             &[],
@@ -1012,7 +1012,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "A key that's already taken",
-            "s15-50 · Activity is given ⌘J: the question in place",
+            "s15-50 · Running is given ⌘J: the question in place",
             MAC,
             &none,
             &["open_activity", "next_needs_you_item"],
@@ -1029,7 +1029,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "After \u{201c}Use here\u{201d}",
-            "s15-50 · Activity ⌘J, Next item that needs you no key",
+            "s15-50 · Running ⌘J, Next item that needs you no key",
             MAC,
             &activity_j,
             &["open_activity", "next_needs_you_item"],
@@ -1090,7 +1090,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "Letting a Ctrl+letter key through",
-            "s15-54 · Activity re-recorded as Ctrl+R, the warning",
+            "s15-54 · Running re-recorded as Ctrl+R, the warning",
             WIN,
             &win_ctrl_r,
             &["open_activity"],
@@ -1144,7 +1144,7 @@ pub fn gallery() -> Gallery {
         ),
         cell(
             "macOS: a recorded ⌃ key",
-            "0097 changelog · the checkbox only on a ⌃ row (Activity → ⌃R)",
+            "0097 changelog · the checkbox only on a ⌃ row (Running → ⌃R)",
             MAC,
             &done(MAC, &none, record_edit(OpenActivity, 0, "⌃R", false)),
             &["open_activity", "terminals"],
@@ -1274,7 +1274,7 @@ mod tests {
             ("List", vec!["g then l"]),
             ("Files", vec!["⇧⌘O", "g then f"]),
             ("Pause / Resume agents", vec!["⇧⌘."]),
-            ("Activity", vec!["⇧⌘U", "g then a"]),
+            ("Running", vec!["⇧⌘U", "g then a"]),
             ("Settings", vec!["⌘,"]),
             ("Open / close Noyan", vec!["⌘L"]),
             ("New conversation with Noyan", vec!["⇧⌘L"]),
@@ -1296,7 +1296,7 @@ mod tests {
             ("Re-run validation", vec!["no key"]),
             ("Open diff", vec!["no key"]),
             (
-                "Terminals: open, close, leave the terminal",
+                "Terminal: open, close, leave the terminal",
                 vec!["⌃`", "g then t"],
             ),
             ("Find in terminal scrollback", vec!["⌘F"]),
@@ -1359,7 +1359,7 @@ mod tests {
         );
         assert_eq!(
             p.reset_all.body,
-            "Activity, New ticket and Next item that needs you go back to their default keys."
+            "New ticket, Next item that needs you and Running go back to their default keys."
         );
         assert!(!row(&p, "settings").changed);
     }

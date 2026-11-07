@@ -380,8 +380,8 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
         },
         // The M12 items of frame *10 → New item types · group 1 (M12)* (d0063, d0064).
         Status::CheckerNeedsYou => match signal {
-            Some(prompt) => format!("validator permission: {prompt}"),
-            None => "validator permission".into(),
+            Some(prompt) => format!("checker permission: {prompt}"),
+            None => "checker permission".into(),
         },
         Status::CheckFailed => {
             let failed = failed_times(ticket.validation_round.max(1)).to_lowercase();

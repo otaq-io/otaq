@@ -380,9 +380,9 @@ pub struct FixRow {
     pub control: FixControl,
 }
 
-/// The agent's default for each kind (FED-04: "Developer for An agent works, Validator for An agent checks").
+/// The agent's default for each kind (FED-04: "Developer for An agent works, Checker for An agent checks").
 pub const WORKS_AGENT: &str = "Developer";
-pub const CHECKS_AGENT: &str = "Validator";
+pub const CHECKS_AGENT: &str = "Checker";
 /// The skill a stage switched to each kind takes with the kind's agent (its own); a new stage starts with none
 /// (FED-05).
 pub const WORKS_SKILL: &str = "work-ticket";
@@ -3288,7 +3288,7 @@ pub mod fixtures {
   - name: Rust developer
     skills: [work-ticket]
     model: default
-  - name: Validator
+  - name: Checker
     skills: [validate]
     model: default
   - name: Security reviewer
@@ -3312,7 +3312,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agent: Validator
+    agent: Checker
     skill: validate
     rounds: 3
   - id: security
@@ -3364,7 +3364,7 @@ flow:
     pub fn stored() -> Vec<Agent> {
         vec![
             agent("a1", "Developer"),
-            agent("a2", "Validator"),
+            agent("a2", "Checker"),
             agent("a3", "Spec writer"),
             agent("a4", "Rust developer"),
             agent("a5", "Security reviewer"),
@@ -3640,7 +3640,7 @@ mod tests {
             [
                 ("Backlog", "Every flow starts here", "Not started"),
                 ("Dev", "An agent works", "Working \u{b7} Developer"),
-                ("Validate", "An agent checks", "Checking \u{b7} Validator"),
+                ("Validate", "An agent checks", "Checking \u{b7} Checker"),
                 ("Review", "You check", "Your check \u{b7} You"),
                 ("Delivery", "Delivery", "Merged")
             ]
@@ -4176,7 +4176,7 @@ mod tests {
         };
         d.proposal.problems = vec![model("Rust developer"), model("Security reviewer")];
         d.proposal.diff.agents = vec![AgentChange {
-            name: "Validator".into(),
+            name: "Checker".into(),
             change: AgentChangeKind::Changed,
             fields: vec![Field {
                 field: "instructions".into(),
@@ -4185,7 +4185,7 @@ mod tests {
             }],
             used_in: Vec::new(),
             clash: Some(Clash {
-                add_as: Some("Validator (team.yaml)".into()),
+                add_as: Some("Checker (team.yaml)".into()),
             }),
         }];
         let codex = Tool::ALL[1].display_name();
@@ -4261,13 +4261,13 @@ mod tests {
         let [clash] = fixes(&v).try_into().unwrap();
         assert_eq!(
             clash.text,
-            "Validator is in the file and already here, with other instructions."
+            "Checker is in the file and already here, with other instructions."
         );
         assert!(clash.fixed);
         let FixControl::Clash { agent, options } = &clash.control else {
             panic!("the clash's choices: {clash:?}");
         };
-        assert_eq!(agent, "Validator");
+        assert_eq!(agent, "Checker");
         let options: Vec<(&str, &str, bool)> = options
             .iter()
             .map(|o| (o.id.as_str(), o.label.as_str(), o.selected))
@@ -4279,15 +4279,12 @@ mod tests {
                 ("take_theirs", "Take theirs", false),
                 (
                     "add_as",
-                    "Add as \u{201c}Validator (team.yaml)\u{201d}",
+                    "Add as \u{201c}Checker (team.yaml)\u{201d}",
                     false
                 )
             ]
         );
-        assert_eq!(
-            v.choices.clashes.get("Validator"),
-            Some(&ClashPick::KeepMine)
-        );
+        assert_eq!(v.choices.clashes.get("Checker"), Some(&ClashPick::KeepMine));
 
         // A tool picked: that problem is gone from its step.
         e.choices
@@ -4320,15 +4317,13 @@ mod tests {
         e.choices
             .models
             .insert("Security reviewer".into(), DEFAULT.into());
-        e.choices
-            .clashes
-            .insert("Validator".into(), ClashPick::AddAs);
+        e.choices.clashes.insert("Checker".into(), ClashPick::AddAs);
         let v = render(&e, Opened::Project, &d, &file, &file, None, None);
         assert!(v.flow.steps.iter().all(|s| s.problem.is_none()));
         assert!(v.footer.apply_enabled);
         assert_eq!(v.footer.reason, None);
         let sent = v.choices.apply_choices();
-        assert_eq!(sent.clashes.get("Validator"), Some(&ClashChoice::AddAs));
+        assert_eq!(sent.clashes.get("Checker"), Some(&ClashChoice::AddAs));
         assert_eq!(sent.models.len(), 2);
     }
 
@@ -4424,7 +4419,7 @@ mod tests {
         let s = back.flow.stage("validate").unwrap();
         assert_eq!(
             (s.agent.as_deref(), s.skill.as_deref(), s.rounds),
-            (Some("Validator"), Some("validate"), Some(3))
+            (Some("Checker"), Some("validate"), Some(3))
         );
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&back)).is_ok());
         // Rename, agent, an option.
@@ -4954,7 +4949,7 @@ mod tests {
             (
                 "Security check",
                 StageKind::Check { by: CheckBy::Agent },
-                Some("Validator"),
+                Some("Checker"),
                 None,
                 Some(3)
             )
@@ -5023,7 +5018,7 @@ mod tests {
         let s = checks.flow.stage("plan").unwrap();
         assert_eq!(
             (the_agent(s).map(String::as_str), s.skill.as_deref()),
-            (Some("Validator"), None)
+            (Some("Checker"), None)
         );
         // The draft with no skill reads back (the checks say "Plan needs a skill").
         let again = otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&plan)).unwrap();
@@ -5159,7 +5154,7 @@ mod tests {
                     "Validate",
                     "Agent checks",
                     Some("fails go to Dev"),
-                    Some("Validator")
+                    Some("Checker")
                 ),
                 (
                     "Security",
@@ -5341,7 +5336,7 @@ mod tests {
         let on = |tool| AgentModel::Tool { tool, model: None };
         for a in &mut e.stored {
             a.model = match a.name.as_str() {
-                "Validator" | "Rust developer" => on(Tool::Claude),
+                "Checker" | "Rust developer" => on(Tool::Claude),
                 "Security reviewer" => on(Tool::Copilot),
                 _ => on(Tool::Codex),
             };
@@ -5383,7 +5378,7 @@ mod tests {
 
         let team = skill("team-validate");
         let (ids, field, step) = agents(&team);
-        assert_eq!(ids, ["Validator", "Rust developer"]);
+        assert_eq!(ids, ["Checker", "Rust developer"]);
         assert_eq!((field, step), (None, None));
 
         let shipped = skill("validate");
@@ -5392,7 +5387,7 @@ mod tests {
             ids,
             [
                 "Developer",
-                "Validator",
+                "Checker",
                 "Spec writer",
                 "Rust developer",
                 "Security reviewer"
@@ -5410,7 +5405,7 @@ mod tests {
         )
         .unwrap();
         let (ids, field, step) = agents(&copilot);
-        assert_eq!(ids, ["Validator", "Rust developer", "Security reviewer"]);
+        assert_eq!(ids, ["Checker", "Rust developer", "Security reviewer"]);
         let text = "GitHub Copilot doesn\u{2019}t have the skill `/team-validate`";
         assert_eq!(field.as_deref(), Some(text));
         assert_eq!(step.as_deref(), Some(text));
@@ -5443,7 +5438,7 @@ mod tests {
         let agent = one.agent.expect("an agent check's Agent field");
         assert_eq!(
             (agent.label, agent.name.as_str(), agent.note.as_deref()),
-            ("Agent", "Validator", Some("default for An agent checks"))
+            ("Agent", "Checker", Some("default for An agent checks"))
         );
         assert!(agent.items.iter().any(|i| i.id == "Security reviewer"));
         let rounds = one.rounds.expect("Rounds");

@@ -89,7 +89,7 @@ mod tests {
             .flat_map(|g| g["rows"].as_array().unwrap())
             .collect();
         let row = |title: &str| rows.iter().find(|r| r["title"] == title).copied();
-        assert_eq!(row("Activity").unwrap()["mark"], "changed");
+        assert_eq!(row("Running").unwrap()["mark"], "changed");
         assert!(row("Next item that needs you").is_none());
         assert_eq!(row("Filter the board").unwrap()["mark"], "off");
         assert!(after["note"].as_str().unwrap().contains("are off"));
