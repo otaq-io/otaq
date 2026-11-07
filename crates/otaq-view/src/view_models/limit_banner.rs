@@ -1,22 +1,20 @@
 //! The usage-limit banner (USG-06, USG-07, USG-08, USG-10, AGT-08; d0020, d0046, d0086; *11 · Banners → Usage limit ·
 //! just hit, waiting for reset, after reset, weekly, reset time unknown*, *Row · Limit banner per tool (0086)*, *Row ·
-//! Use fallback now (AGM-03, d0108)*, *Row · Not available, safety net, warnings per tool (0086)*).
+//! Not available, safety net, warnings per tool (0086)*).
 //!
 //! One banner for the situation, never one per agent (P6), with **one line per tool** ([`ToolLine`], T-0358): its
-//! limit ("Claude Code limit reached · Resets 3:45 pm · 4 tickets waiting", Resume Claude Code, Use fallback now
-//! (Codex)) or its being unavailable while tickets wait on it or started on its fallback ("Codex isn't available ·
-//! logged out · 5 tickets on Claude Code", Sign in…). Nothing starts on a fallback by itself (AGM-03). Each says when the limit resets (a countdown in the last hour), how many agents it
-//! stopped and what waits. Resume is the user's click and never happens by itself: disabled until a known reset time,
-//! highlighted after the reset, always available when the reset time is unknown (USG-06). With one tool connected the
-//! banner reads as before M23 with its one Resume (no tool name, no Use fallback now, d0086; USG-10: Resume all became
-//! per tool).
+//! limit ("Claude Code limit reached · Resets 3:45 pm · 4 tickets waiting", Resume Claude Code) or its being
+//! unavailable while tickets wait on it ("Codex isn't available · logged out · 5 tickets waiting", Sign in…). Only that
+//! tool's agents wait; the rest keep going, and nothing moves to another tool. Each says when the limit resets (a
+//! countdown in the last hour), how many agents it stopped and what waits. Resume is the user's click and never
+//! happens by itself: disabled until a known reset time, highlighted after the reset, always available when the reset
+//! time is unknown (USG-06). With one tool connected the banner reads as before M23 with its one Resume (no tool name,
+//! d0086; USG-10: Resume all became per tool).
 //!
 //! Limit lines are neutral and a tool that isn't available is amber: never turquoise, which means needs you (d0077;
 //! the frames' turquoise lines predate the rule).
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agent_tools::models::ModelList;
-use otaq_core::agents::ModelRef;
 use otaq_core::agents::limits::{self as moves, ToolLine, ToolLines};
 use otaq_core::local_time::local;
 use otaq_core::usage::limit::LimitKind;
@@ -24,7 +22,6 @@ use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
-use crate::view_models::agents::model_label;
 use crate::view_models::banners::BannerTone;
 use crate::view_models::clock::{WEEKDAYS, clock_12h, in_label, reset_label};
 use crate::view_models::tool_avatar::ToolAvatarView;
@@ -36,9 +33,6 @@ pub const RESUME_FAILED: &str = "Resume failed";
 /// The error toast when Resume all of the interrupted sessions failed (REC-01, not a limit's).
 pub const RESUME_ALL_FAILED: &str = "Resume all failed";
 
-/// The error toast when Use fallback now failed.
-pub const FALLBACK_FAILED: &str = "Use fallback now failed";
-
 /// A month's window: 28 to 31 days.
 const MONTH_MINUTES: std::ops::RangeInclusive<u32> = 28 * 24 * 60..=31 * 24 * 60;
 
@@ -49,35 +43,6 @@ pub fn resumed(agents: usize) -> (String, String) {
         format!("{agents} {noun} told to continue"),
         "Each continues once it is idle and its input line is empty.".to_owned(),
     )
-}
-
-/// The toast after Use fallback now: "4 tickets started on Codex".
-pub fn fallback_toast(tickets: usize, tool: Tool) -> String {
-    format!(
-        "{} started on {}",
-        tickets_n(tickets as u32),
-        tool_word(tool)
-    )
-}
-
-/// The banner's button for a tool at its limit or not available (`s11-15`): the tool's waiting tickets start on its
-/// fallback (Settings → Agents), on this click only (AGM-03). The only button here that moves tickets.
-pub const USE_FALLBACK_NOW: &str = "Use fallback now";
-
-/// The fallback as the button's hover names it: "Codex", "Codex · gpt-5.5".
-fn fallback_word(fallback: &ModelRef, lists: &[(Tool, ModelList)]) -> String {
-    let list = lists
-        .iter()
-        .find(|(t, _)| *t == fallback.tool)
-        .map(|(_, l)| l);
-    match &fallback.model {
-        Some(_) => format!(
-            "{} \u{b7} {}",
-            tool_word(fallback.tool),
-            model_label(fallback.model.as_deref(), list)
-        ),
-        None => tool_word(fallback.tool).to_owned(),
-    }
 }
 
 /// The Resume button: "Resume" with one tool, "Resume Claude Code" with several.
@@ -114,8 +79,6 @@ pub struct LineButton {
     pub action: Action,
     pub enabled: bool,
     pub primary: bool,
-    /// On hover: where Use fallback now starts the tickets ("Starts the waiting tickets on Codex · gpt-5.5").
-    pub tooltip: Option<String>,
 }
 
 /// One tool's line as the page draws it. `LimitLine` on the page.
@@ -131,8 +94,7 @@ pub struct LineView {
     pub icon: IconName,
     pub title: String,
     pub text: String,
-    /// Resume, Sign in… or Show in Agent tools, and Use fallback now (several tools, tickets waiting, a fallback
-    /// that can start now).
+    /// Resume, Sign in… or Show in Agent tools.
     pub buttons: Vec<LineButton>,
 }
 
@@ -144,17 +106,17 @@ pub struct LimitLine {
     pub view: LineView,
 }
 
-/// The banner's lines at `now` (USG-10), in the service's order, from its [`ToolLines`] and the connected tools'
-/// model lists (the fallback's model). A limit that has reset with nothing left to resume has no line.
-pub fn lines(tool_lines: &ToolLines, lists: &[(Tool, ModelList)], now: i64) -> Vec<LimitLine> {
+/// The banner's lines at `now` (USG-10), in the service's order, from its [`ToolLines`]. A limit that has reset with
+/// nothing left to resume has no line.
+pub fn lines(tool_lines: &ToolLines, now: i64) -> Vec<LimitLine> {
     tool_lines
         .lines
         .iter()
-        .filter_map(|l| line(l, tool_lines.several_tools, lists, now))
+        .filter_map(|l| line(l, tool_lines.several_tools, now))
         .collect()
 }
 
-fn line(l: &ToolLine, several: bool, lists: &[(Tool, ModelList)], now: i64) -> Option<LimitLine> {
+fn line(l: &ToolLine, several: bool, now: i64) -> Option<LimitLine> {
     let banner = match &l.situation {
         moves::Situation::Limit {
             kind,
@@ -177,7 +139,7 @@ fn line(l: &ToolLine, several: bool, lists: &[(Tool, ModelList)], now: i64) -> O
         }
         moves::Situation::Unavailable { reason, .. } => unavailable_line(l, reason),
     };
-    let view = view(l, &banner, several, lists);
+    let view = view(l, &banner, several);
     Some(LimitLine {
         tool: l.tool,
         banner,
@@ -318,25 +280,12 @@ fn one_tool_line(stopped: u32, limit: &Limit, now: i64) -> Option<LimitBanner> {
     })
 }
 
-/// What waits on a tool and what started on its fallback: "4 tickets waiting", "5 tickets on Claude Code · 2
-/// waiting".
-fn waiting_parts(waiting: u32, on_fallback: u32, fallback: Option<&ModelRef>) -> Vec<String> {
-    let mut parts: Vec<String> = Vec::new();
-    if on_fallback > 0 {
-        parts.push(format!(
-            "{} on {}",
-            tickets_n(on_fallback),
-            fallback.map_or("the fallback", |f| tool_word(f.tool))
-        ));
+/// What waits on a tool: "4 tickets waiting".
+fn waiting_parts(waiting: u32) -> Vec<String> {
+    match waiting {
+        0 => Vec::new(),
+        n => vec![format!("{} waiting", tickets_n(n))],
     }
-    if waiting > 0 {
-        parts.push(if parts.is_empty() {
-            format!("{} waiting", tickets_n(waiting))
-        } else {
-            format!("{waiting} waiting")
-        });
-    }
-    parts
 }
 
 /// A tool's limit line with several tools connected (USG-10): "Claude Code limit reached · Resets 3:45 pm · 4 tickets
@@ -356,7 +305,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
                 plural(l.stopped, "agent", "agents")
             ));
         }
-        parts.extend(waiting_parts(l.waiting, 0, None));
+        parts.extend(waiting_parts(l.waiting));
         parts.push("nothing resumes until you click".to_owned());
         let label = match l.stopped {
             0 => resume.clone(),
@@ -383,7 +332,7 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
         None => format!("{word} didn\u{2019}t say when it resets"),
     };
     let mut parts = vec![when];
-    parts.extend(waiting_parts(l.waiting, l.on_fallback, l.fallback.as_ref()));
+    parts.extend(waiting_parts(l.waiting));
     if l.stopped > 0 {
         let stopped = format!(
             "{} stopped mid-ticket",
@@ -403,13 +352,13 @@ fn limit_line(l: &ToolLine, limit: &Limit, now: i64) -> Option<LimitBanner> {
     })
 }
 
-/// A tool that isn't available while tickets wait on it or started on its fallback (USG-10): "Codex isn't available" over
+/// A tool that isn't available while tickets wait on it (USG-10): "Codex isn't available" over
 /// "logged out · 5 tickets waiting". It names the tool also with one tool connected: nothing else says which.
 fn unavailable_line(l: &ToolLine, reason: &str) -> LimitBanner {
     let word = tool_word(l.tool);
     let title = format!("{word} isn\u{2019}t available");
     let mut parts = vec![reason.to_owned()];
-    parts.extend(waiting_parts(l.waiting, l.on_fallback, l.fallback.as_ref()));
+    parts.extend(waiting_parts(l.waiting));
     let text = parts.join(" \u{b7} ");
     LimitBanner {
         title,
@@ -419,12 +368,7 @@ fn unavailable_line(l: &ToolLine, reason: &str) -> LimitBanner {
     }
 }
 
-fn view(
-    l: &ToolLine,
-    banner: &LimitBanner,
-    several: bool,
-    lists: &[(Tool, ModelList)],
-) -> LineView {
+fn view(l: &ToolLine, banner: &LimitBanner, several: bool) -> LineView {
     let tool = l.tool.as_str().to_owned();
     let mut buttons = Vec::new();
     let (tone, icon) = match &l.situation {
@@ -438,7 +382,6 @@ fn view(
             action: Action::ResumeTool { tool: tool.clone() },
             enabled: resume.enabled,
             primary: resume.primary,
-            tooltip: None,
         });
     }
     if let moves::Situation::Unavailable {
@@ -453,7 +396,6 @@ fn view(
                 action: Action::SignIn { tool: tool.clone() },
                 enabled: true,
                 primary: false,
-                tooltip: None,
             });
         } else if *hidden {
             buttons.push(LineButton {
@@ -462,27 +404,8 @@ fn view(
                 action: Action::ShowInAgentTools,
                 enabled: true,
                 primary: false,
-                tooltip: None,
             });
         }
-    }
-    // Use fallback now: the waiting tickets start on the tool's fallback, only by this click (AGM-03).
-    if let Some(fallback) = l
-        .fallback
-        .as_ref()
-        .filter(|_| several && l.waiting > 0 && l.fallback_can_start)
-    {
-        buttons.push(LineButton {
-            label: USE_FALLBACK_NOW.to_owned(),
-            icon: IconName::ArrowRightLeft,
-            action: Action::UseFallbackNow { tool: tool.clone() },
-            enabled: true,
-            primary: false,
-            tooltip: Some(format!(
-                "Starts the waiting tickets on {}",
-                fallback_word(fallback, lists)
-            )),
-        });
     }
     LineView {
         tool,
@@ -498,7 +421,6 @@ fn view(
 /// Sample lines for the gallery and the tests: a fixed clock, Claude Code at its limit, Codex logged out.
 pub mod fixtures {
     use otaq_core::agent_tools::Tool;
-    use otaq_core::agents::ModelRef;
     use otaq_core::agents::limits::{Situation, ToolLine, ToolLines};
     use otaq_core::usage::limit::LimitKind;
 
@@ -524,10 +446,7 @@ pub mod fixtures {
             },
             stopped: 0,
             waiting: 4,
-            on_fallback: 0,
             resume_enabled: resets_in.is_none() || reset_seen,
-            fallback: None,
-            fallback_can_start: false,
         }
     }
 
@@ -542,32 +461,13 @@ pub mod fixtures {
             },
             stopped: 0,
             waiting: 5,
-            on_fallback: 0,
             resume_enabled: false,
-            fallback: None,
-            fallback_can_start: false,
         }
     }
 
-    /// `line` with `tool` (and `model`) as its tool's fallback, which can start now.
-    pub fn with_fallback(line: ToolLine, tool: Tool, model: Option<&str>) -> ToolLine {
-        ToolLine {
-            fallback: Some(ModelRef {
-                tool,
-                model: model.map(Into::into),
-            }),
-            fallback_can_start: true,
-            ..line
-        }
-    }
-
-    /// Claude Code's limit, its fallback Codex able to start.
+    /// Claude Code's limit, resetting in 4 hours.
     pub fn claude_at_limit() -> ToolLine {
-        with_fallback(
-            limit(Tool::Claude, LimitKind::Session, Some(4 * HOUR), false),
-            Tool::Codex,
-            None,
-        )
+        limit(Tool::Claude, LimitKind::Session, Some(4 * HOUR), false)
     }
 
     pub fn several(lines: Vec<ToolLine>) -> ToolLines {
@@ -585,7 +485,7 @@ pub mod fixtures {
     }
 }
 
-/// The gallery's banner lines (*11 → Row · Limit banner per tool*, *Move waiting to…*, *Not available*).
+/// The gallery's banner lines (*11 → Row · Limit banner per tool*, *Not available*).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LimitLineGallery")]
 pub struct Gallery {
@@ -613,28 +513,8 @@ pub fn gallery() -> Gallery {
             several(vec![claude_at_limit(), codex_limit]),
         ),
         (
-            "Some on the fallback",
-            several(vec![ToolLine {
-                on_fallback: 1,
-                waiting: 3,
-                ..claude_at_limit()
-            }]),
-        ),
-        (
             "A tool isn't available",
-            several(vec![with_fallback(
-                unavailable(Tool::Codex, "signed out", true, false),
-                Tool::Claude,
-                Some("sonnet"),
-            )]),
-        ),
-        (
-            "A tool isn't available · all on the fallback",
-            several(vec![ToolLine {
-                waiting: 0,
-                on_fallback: 5,
-                ..unavailable(Tool::Codex, "signed out", true, false)
-            }]),
+            several(vec![unavailable(Tool::Codex, "signed out", true, false)]),
         ),
         (
             "Hidden in Settings",
@@ -688,7 +568,7 @@ pub fn gallery() -> Gallery {
             .into_iter()
             .map(|(name, l)| GalleryCell {
                 name: name.to_owned(),
-                lines: lines(&l, &[], NOW).into_iter().map(|l| l.view).collect(),
+                lines: lines(&l, NOW).into_iter().map(|l| l.view).collect(),
             })
             .collect(),
     }
@@ -707,7 +587,7 @@ mod tests {
     }
 
     fn one_line(l: &ToolLines) -> LimitLine {
-        let mut all = lines(l, &[], NOW);
+        let mut all = lines(l, NOW);
         assert_eq!(all.len(), 1, "{all:?}");
         all.remove(0)
     }
@@ -718,7 +598,7 @@ mod tests {
 
     #[test]
     fn no_line_no_banner() {
-        assert!(lines(&ToolLines::default(), &[], NOW).is_empty());
+        assert!(lines(&ToolLines::default(), NOW).is_empty());
     }
 
     #[test]
@@ -745,7 +625,7 @@ mod tests {
                 primary: false
             })
         );
-        // One tool: no avatar, no tool name, no Use fallback now (d0086).
+        // One tool: no avatar, no tool name (d0086).
         assert_eq!(l.view.avatar, None);
         assert!(!l.view.title.contains("Claude"));
         assert_eq!(l.view.buttons.len(), 1);
@@ -837,7 +717,6 @@ mod tests {
         assert!(
             lines(
                 &one(limit(Tool::Claude, LimitKind::Session, Some(-MINUTE), true)),
-                &[],
                 NOW
             )
             .is_empty()
@@ -853,7 +732,7 @@ mod tests {
                 ..limit(Tool::Codex, LimitKind::Session, Some(5 * HOUR), false)
             },
         );
-        let all = lines(&several(vec![claude_at_limit(), codex]), &[], NOW);
+        let all = lines(&several(vec![claude_at_limit(), codex]), NOW);
         assert_eq!(all.len(), 2);
         let (cc, cx) = (&all[0], &all[1]);
         assert_eq!(cc.view.title, "Claude Code limit reached");
@@ -881,8 +760,9 @@ mod tests {
         assert_eq!(cc.view.avatar.as_ref().unwrap().letters, "CC");
         assert_eq!(cc.view.tone, BannerTone::Neutral, "a limit is neutral");
         assert_eq!(cc.view.icon, IconName::Gauge);
-        // Codex has no fallback in this sample: only Resume.
+        // Only Resume: nothing moves to another tool.
         assert_eq!(cx.view.buttons.len(), 1);
+        assert_eq!(cc.view.buttons.len(), 1);
     }
 
     #[test]
@@ -956,10 +836,11 @@ mod tests {
 
     #[test]
     fn the_unavailable_line_offers_sign_in_or_show_in_agent_tools() {
-        let l = one_line(&several(vec![with_fallback(
-            unavailable(Tool::Codex, "signed out", true, false),
-            Tool::Claude,
-            Some("sonnet"),
+        let l = one_line(&several(vec![unavailable(
+            Tool::Codex,
+            "signed out",
+            true,
+            false,
         )]));
         assert_eq!(l.view.title, "Codex isn\u{2019}t available");
         assert_eq!(l.view.text, "signed out · 5 tickets waiting");
@@ -969,20 +850,10 @@ mod tests {
             "amber"
         );
         let labels: Vec<&str> = l.view.buttons.iter().map(|b| b.label.as_str()).collect();
-        assert_eq!(labels, ["Sign in\u{2026}", "Use fallback now"]);
-        assert_eq!(
-            l.view.buttons[1].tooltip.as_deref(),
-            Some("Starts the waiting tickets on Claude Code \u{b7} sonnet")
-        );
+        assert_eq!(labels, ["Sign in\u{2026}"]);
         assert_eq!(
             l.view.buttons[0].action,
             Action::SignIn {
-                tool: "codex".into()
-            }
-        );
-        assert_eq!(
-            l.view.buttons[1].action,
-            Action::UseFallbackNow {
                 tool: "codex".into()
             }
         );
@@ -995,78 +866,15 @@ mod tests {
         )]));
         assert_eq!(hidden.view.buttons[0].label, "Show in Agent tools");
         assert_eq!(hidden.view.buttons[0].action, Action::ShowInAgentTools);
-        // One tool connected: the line still names the tool, but no fallback to start on.
-        let only = one_line(&one(with_fallback(
-            unavailable(Tool::Claude, "signed out", true, false),
-            Tool::Codex,
-            None,
-        )));
+        // One tool connected: the line still names the tool.
+        let only = one_line(&one(unavailable(Tool::Claude, "signed out", true, false)));
         assert_eq!(only.view.title, "Claude Code isn\u{2019}t available");
         assert_eq!(only.view.avatar, None);
         assert_eq!(only.view.buttons.len(), 1);
     }
 
     #[test]
-    fn the_line_counts_the_tickets_on_the_fallback() {
-        let all_on = one_line(&several(vec![ToolLine {
-            waiting: 0,
-            on_fallback: 5,
-            ..with_fallback(
-                unavailable(Tool::Codex, "signed out", true, false),
-                Tool::Claude,
-                None,
-            )
-        }]));
-        assert_eq!(all_on.view.text, "signed out · 5 tickets on Claude Code");
-        assert_eq!(all_on.view.buttons.len(), 1, "nothing left waiting");
-        let some = one_line(&several(vec![ToolLine {
-            waiting: 2,
-            on_fallback: 5,
-            ..with_fallback(
-                unavailable(Tool::Codex, "signed out", true, false),
-                Tool::Claude,
-                None,
-            )
-        }]));
-        assert_eq!(
-            some.view.text,
-            "signed out · 5 tickets on Claude Code · 2 waiting"
-        );
-        let limit = one_line(&several(vec![ToolLine {
-            waiting: 3,
-            on_fallback: 1,
-            ..claude_at_limit()
-        }]));
-        assert_eq!(
-            limit.view.text,
-            format!(
-                "Resets {}. 1 ticket on Codex; 3 waiting.",
-                clock(NOW + 4 * HOUR)
-            )
-        );
-        let labels: Vec<&str> = limit
-            .view
-            .buttons
-            .iter()
-            .map(|b| b.label.as_str())
-            .collect();
-        assert_eq!(labels, ["Resume Claude Code", "Use fallback now"]);
-        // A fallback that can't start now isn't offered; nor with one tool connected.
-        let blocked = one_line(&several(vec![ToolLine {
-            fallback_can_start: false,
-            ..claude_at_limit()
-        }]));
-        assert_eq!(blocked.view.buttons.len(), 1);
-        assert_eq!(one_line(&one(claude_at_limit())).view.buttons.len(), 1);
-    }
-
-    #[test]
     fn the_toasts() {
-        assert_eq!(fallback_toast(4, Tool::Codex), "4 tickets started on Codex");
-        assert_eq!(
-            fallback_toast(1, Tool::Claude),
-            "1 ticket started on Claude Code"
-        );
         assert_eq!(resumed(1).0, "1 agent told to continue");
         assert_eq!(resumed(8).0, "8 agents told to continue");
         assert_eq!(
@@ -1077,7 +885,7 @@ mod tests {
 
     #[test]
     fn the_notification_matches_the_line() {
-        let n = notify::tool_unavailable(Tool::Codex, 5, 0);
+        let n = notify::tool_unavailable(Tool::Codex, 5);
         assert_eq!(n.title, "Codex isn\u{2019}t available");
         assert_eq!(n.body, "5 tickets waiting");
         let l = one_line(&several(vec![unavailable(
@@ -1088,25 +896,15 @@ mod tests {
         )]));
         assert_eq!(l.view.title, n.title);
         assert!(l.view.text.ends_with(&n.body));
-        let both = notify::tool_unavailable(Tool::Codex, 2, 3);
-        assert_eq!(both.body, "2 tickets waiting · 3 tickets on the fallback");
     }
 
-    /// AGM-03, d0108 smaller rule 7 (`s11-15`): Use fallback now is the banner's only button that moves tickets (the
-    /// others resume the tool, sign in or open Settings), offered once tickets wait and the fallback can start.
+    /// No button on the banner moves tickets to another tool: it resumes the tool, signs in or opens Settings.
     #[test]
-    fn use_fallback_now_is_the_only_button_that_moves_tickets() {
-        let mut moving = 0;
+    fn no_button_moves_tickets() {
         for cell in gallery().cells {
             for line in cell.lines {
                 for b in &line.buttons {
                     match &b.action {
-                        Action::UseFallbackNow { tool } => {
-                            moving += 1;
-                            assert_eq!(b.label, "Use fallback now");
-                            assert_eq!(b.icon, IconName::ArrowRightLeft);
-                            assert_eq!(tool, &line.tool);
-                        }
                         Action::ResumeTool { .. }
                         | Action::SignIn { .. }
                         | Action::ShowInAgentTools => {}
@@ -1115,7 +913,6 @@ mod tests {
                 }
             }
         }
-        assert!(moving > 0);
     }
 
     #[test]
@@ -1135,7 +932,7 @@ mod tests {
     #[test]
     fn the_gallery_has_every_cell_and_no_dollar() {
         let g = gallery();
-        assert_eq!(g.cells.len(), 11);
+        assert_eq!(g.cells.len(), 9);
         assert!(g.cells.iter().all(|c| !c.lines.is_empty()), "{g:?}");
         assert!(!serde_json::to_string(&g).unwrap().contains('$'));
     }

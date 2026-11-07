@@ -28,6 +28,7 @@ use otaq_core::naming;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
+use otaq_core::skills::testing::claude_skill;
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
 
@@ -49,12 +50,12 @@ fn me() -> Actor {
 
 /// The stand-in `claude`. Its state is in `state` (Otaq's data folder in `state/data`, so its `otaq` reaches the
 /// test's service); it logs its arguments, then acts by the skill it was started with:
-/// - Product spec (`/otaq-product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
+/// - Product spec (`/otaq:product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
 ///   with comment 1, its turn ends;
-/// - Dev (`/otaq-work-ticket`): waits for `state/go-dev` (the user's comment comes first), `prime`, a commit, `stage
+/// - Dev (`/otaq:work-ticket`): waits for `state/go-dev` (the user's comment comes first), `prime`, a commit, `stage
 ///   next` with comment 3, its turn ends; then records each line typed into it, and on a failed check tries `stage
 ///   next` first (refused), runs `prime`, greps the report through `otaq report --path`, commits and ends again;
-/// - Validate (`/otaq-validate`): `prime --validate`, notes `$OTAQ_RESOURCE_DIR` and its folder; round 1 writes a
+/// - Validate (`/otaq:validate`): `prime --validate`, notes `$OTAQ_RESOURCE_DIR` and its folder; round 1 writes a
 ///   ~48 KB test run into `$OTAQ_RESOURCE_DIR` and fails with it as the report; round 2 passes.
 ///
 /// Nothing typed into it is ever run: lines are only read and matched.
@@ -79,14 +80,14 @@ commit() {{
     git -c user.name=t -c user.email=t@t commit -qm "$OTAQ_TICKET: $1"
 }}
 case "$*" in
-*otaq-product-spec*)
+*otaq:product-spec*)
     otaq prime > "$STATE/product-spec-prime.md"
     otaq update --stdin < "$STATE/agreed.md" > /dev/null
     otaq stage next --stdin < "$STATE/say-product-spec"
     stop
     exec sleep 300
     ;;
-*otaq-validate*)
+*otaq:validate*)
     if [ -e "$STATE/failed" ]; then round=2; else round=1; fi
     otaq prime --validate > "$STATE/check-prime-$round.md"
     printf '%s\n' "${{OTAQ_RESOURCE_DIR-unset}}" > "$STATE/resource-dir"
@@ -108,7 +109,7 @@ case "$*" in
     stop
     exec sleep 300
     ;;
-*otaq-work-ticket*)
+*otaq:work-ticket*)
     while [ ! -e "$STATE/go-dev" ]; do sleep 0.05; done
     otaq prime > "$STATE/dev-prime-1.md"
     commit 'pub fn export_csv() {{}}'
@@ -304,7 +305,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         format!("{DESCRIPTION}{AGREED}").trim_end()
     );
     let dev = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    w.wait_for_output(&dev.id, &format!("/{}", naming::copy_name("work-ticket")))
+    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
         .await;
 
     // The user's comment while Dev runs: posted, never typed into Dev's session.

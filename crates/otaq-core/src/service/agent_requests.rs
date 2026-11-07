@@ -124,11 +124,7 @@ async fn project_prime(
     project: &str,
 ) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
     let mut context = shared.board.project_prime(project).await?;
-    context.choices = crate::prime::reader_choices(
-        &shared.board,
-        crate::prime::ChoicesFor::NewTickets(&context.project),
-        &shared.models,
-    )
-    .await?;
+    context.choices =
+        crate::prime::reader_choices(&shared.board, &context.project, &shared.models).await?;
     Ok(context)
 }

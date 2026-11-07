@@ -16,6 +16,9 @@ export const APP_RUNNER: ToolProblemRunner = {
   newAgentOn: (project, agent) => {
     startNewAgentOn(project, agent);
   },
+  changeAgent: (ticket) => {
+    openOverlay("change_agent", { ticket });
+  },
 };
 
 /** A tool problem's button, done in the app. */

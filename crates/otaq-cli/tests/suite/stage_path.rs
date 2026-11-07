@@ -24,12 +24,12 @@ fn me() -> Actor {
 /// The stand-in `claude`, keeping its state in `state` (and Otaq's data folder in `state/data`, so its `otaq` reaches
 /// the test's service, never the user's): it logs its arguments, then by the skill it was started
 /// with (its last argument names it, or `--resume` resumes the agent's conversation):
-/// - the check (`/otaq-validate`): reads `prime --validate`, fails the first round and passes the others, then ends
+/// - the check (`/otaq:validate`): reads `prime --validate`, fails the first round and passes the others, then ends
 ///   its turn (the Stop hook);
 /// - the agent's first start: reads `prime`, commits, `stage next`; once the check has failed it exits (the ticket is
 ///   Interrupted);
 /// - a resumed agent: the same, then works again on each Send back typed into its terminal (with no line comments
-///   the plain sentence, "Review sent SHOP-1 back to you…", d0131 Q514; else `/otaq-address-review`), saving the
+///   the plain sentence, "Review sent SHOP-1 back to you…", d0131 Q514; else `/otaq:address-review`), saving the
 ///   prime it read each time.
 fn stand_in(state: &Path) -> String {
     let state = state.display();
@@ -51,7 +51,7 @@ stop() {{
     printf '%s' '{{"hook_event_name":"Stop","background_tasks":[],"session_crons":[]}}' | '{CB}' hook --tool claude Stop
 }}
 case "$*" in
-*otaq-validate*)
+*otaq:validate*)
     '{CB}' prime --validate > "$STATE/check-prime.md"
     if [ -e "$STATE/failed" ]; then
         printf 'Checked: notes.txt is fine.\n' | '{CB}' check pass --stdin
@@ -65,11 +65,11 @@ case "$*" in
 *--resume*)
     work fix
     while IFS= read -r line; do
-        case "$line" in *otaq-address-review* | *"back to you"*) work review ;; esac
+        case "$line" in *otaq:address-review* | *"back to you"*) work review ;; esac
     done
     exec sleep 60
     ;;
-*otaq-work-ticket*)
+*otaq:work-ticket*)
     work first
     while [ ! -e "$STATE/failed" ]; do sleep 0.1; done
     sleep 1
@@ -174,7 +174,7 @@ async fn start_check_fail_resume_send_back_and_local_merge() {
     let first = std::fs::read_to_string(state.path().join("prime-first.md")).unwrap();
     assert!(
         first.contains(
-            "\n## Your stage\n\nDev, as Developer, with the skill `/otaq-work-ticket`.\n"
+            "\n## Your stage\n\nDev, as Developer, with the skill `/otaq:work-ticket`.\n"
         ),
         "{first}"
     );

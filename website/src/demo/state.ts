@@ -81,7 +81,6 @@ export interface DemoState {
   dragKey: string | null;
   dropCol: Column | null;
   nextId: number;
-  fellBack: boolean;
 }
 
 export function initialState(): DemoState {
@@ -116,7 +115,6 @@ export function initialState(): DemoState {
     dragKey: null,
     dropCol: null,
     nextId: 45,
-    fellBack: false,
   };
 }
 
@@ -624,14 +622,6 @@ export class DemoStore {
 
   resume(): void {
     this.set({ paused: null });
-  }
-
-  /** Activity's Use fallback now: waiting Claude Code agents move to Codex. */
-  useFallback(): void {
-    this.set({ fellBack: true });
-    this.say(
-      "Waiting Claude Code agents will start on their fallback, Codex. Running conversations never change tools.",
-    );
   }
 
   // --- the flow editor (Change flow…) -------------------------------------------------------------------------

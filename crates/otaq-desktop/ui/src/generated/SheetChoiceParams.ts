@@ -9,6 +9,6 @@ export type SheetChoiceParams = { key: string,
  */
 stage: string, 
 /**
- * An agent's name, `skip` or `required`.
+ * An agent's name, `skip`, or `required` on a check of yours.
  */
 choice: string, };

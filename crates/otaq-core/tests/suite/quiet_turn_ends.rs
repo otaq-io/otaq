@@ -70,7 +70,6 @@ async fn agent_on(
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await

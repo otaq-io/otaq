@@ -42,8 +42,8 @@ impl Default for AgentLimits {
     }
 }
 
-/// A workflow step of M31 whose skill an agent's imported skill can stand for (d0050, d0063; AGM-02). On the wire as
-/// its field name (`open_pr`).
+/// A workflow step of M31 that runs Otaq's own skill for it unless the flow's stage names another (Validate, and Open
+/// PR on the Delivery stage). On the wire as its field name (`open_pr`).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum WorkflowStep {

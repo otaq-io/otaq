@@ -18,7 +18,6 @@ use std::sync::{Arc, Mutex, Weak};
 use std::time::{Duration, Instant};
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agent_tools::models::ModelList;
 use otaq_core::agents::limits::ToolLines;
 use otaq_core::agents::pause::{PauseCounts, PauseScope};
 use otaq_core::attention::notify::{Target, open_env_var};
@@ -26,9 +25,7 @@ use otaq_core::attention::os_permission::NotificationsState;
 use otaq_core::client::{Client, Compatibility};
 use otaq_core::domain::TicketKey;
 use otaq_core::flow::apply::{FlowEvent, WaitingChange};
-use otaq_core::protocol::{
-    Event, ModelsParams, OnboardingState, ProjectParams, Reply, Request, UsageParams,
-};
+use otaq_core::protocol::{Event, OnboardingState, ProjectParams, Reply, Request, UsageParams};
 use otaq_core::store::now_ms;
 use otaq_view::view_models::after_restart::{OnConnect, on_connect};
 use otaq_view::view_models::agent_activity::{Created, CreationBatch};
@@ -765,7 +762,7 @@ impl State {
         let lines = self
             .usage
             .as_ref()
-            .map(|u| limit_banner::lines(&u.lines, &u.lists, now_ms))
+            .map(|u| limit_banner::lines(&u.lines, now_ms))
             .unwrap_or_default();
         if lines == self.limit {
             return;
@@ -807,42 +804,10 @@ impl State {
     }
 }
 
-/// What the usage-limit banner is drawn from: every tool's line and the model lists of its fallbacks' tools (Use
-/// fallback now names the model).
+/// What the usage-limit banner is drawn from: every tool's line.
 #[derive(Debug, Clone, Default)]
 pub struct LimitInputs {
     pub lines: ToolLines,
-    pub lists: Vec<(Tool, ModelList)>,
-}
-
-/// The inputs for `lines`, asking the service (`send`) for the model list of each fallback's tool that names a model.
-/// A list it can't give leaves the model as stored.
-pub async fn limit_inputs<F, Fut>(lines: ToolLines, send: F) -> LimitInputs
-where
-    F: Fn(Request) -> Fut,
-    Fut: std::future::Future<Output = Option<Reply>>,
-{
-    let mut tools: Vec<Tool> = lines
-        .lines
-        .iter()
-        .filter_map(|l| {
-            l.fallback
-                .as_ref()
-                .filter(|f| f.model.is_some())
-                .map(|f| f.tool)
-        })
-        .collect();
-    tools.sort();
-    tools.dedup();
-    let mut lists = Vec::new();
-    for tool in tools {
-        if let Some(Reply::Models(Some(copy))) =
-            send(Request::AgentsModels(ModelsParams { tool })).await
-        {
-            lists.push((tool, copy.list));
-        }
-    }
-    LimitInputs { lines, lists }
 }
 
 impl Notices {
@@ -939,17 +904,9 @@ async fn follow(
                     .await;
                     // Not connected or too slow: the next change or resync asks again.
                     if let Ok(Ok(Reply::Usage(summary))) = summary {
-                        let inputs = limit_inputs(summary.tool_lines, |request| {
-                            let client = client.clone();
-                            async move {
-                                tokio::time::timeout(USAGE_TIMEOUT, client.request(request))
-                                    .await
-                                    .ok()
-                                    .and_then(Result::ok)
-                            }
-                        })
-                        .await;
-                        notices.on_usage(inputs);
+                        notices.on_usage(LimitInputs {
+                            lines: summary.tool_lines,
+                        });
                     }
                 }
                 let client = clients.borrow().clone();
@@ -1030,7 +987,6 @@ async fn fetch_flows(client: &Client) -> Option<Vec<(String, String, Option<Wait
 #[cfg(test)]
 mod tests {
     use otaq_core::agent_tools::Tool;
-    use otaq_core::agents::ModelRef;
     use otaq_core::agents::limits::{self as moves, ToolLine};
     use otaq_core::client::ServiceInfo;
     use otaq_core::protocol::{PROTOCOL_VERSION, ServiceStatus};
@@ -1451,10 +1407,7 @@ mod tests {
             },
             stopped: 8,
             waiting: 2,
-            on_fallback: 0,
             resume_enabled: resets_at.is_none(),
-            fallback: None,
-            fallback_can_start: false,
         }
     }
 
@@ -1464,7 +1417,6 @@ mod tests {
                 lines,
                 several_tools,
             },
-            lists: Vec::new(),
         }
     }
 
@@ -1528,42 +1480,6 @@ mod tests {
         );
         assert_eq!(view.banners[0].title, "Claude Code limit reached");
         assert_eq!(view.banners[0].buttons[0].label, "Resume Claude Code");
-    }
-
-    #[tokio::test]
-    async fn the_inputs_ask_for_the_fallbacks_model_list_once_per_tool() {
-        use std::sync::atomic::{AtomicU32, Ordering};
-        let on = |tool, model: Option<&str>| ToolLine {
-            fallback: Some(ModelRef {
-                tool: Tool::Codex,
-                model: model.map(Into::into),
-            }),
-            fallback_can_start: true,
-            ..limit_line(tool, None)
-        };
-        let lines = vec![
-            on(Tool::Claude, Some("gpt-5.5-pro")),
-            on(Tool::Copilot, Some("gpt-5.5")),
-            on(Tool::OpenCode, None),
-        ];
-        let asked = AtomicU32::new(0);
-        let inputs = limit_inputs(
-            ToolLines {
-                lines,
-                several_tools: true,
-            },
-            |request| {
-                asked.fetch_add(1, Ordering::SeqCst);
-                assert!(matches!(
-                    request,
-                    Request::AgentsModels(ModelsParams { tool: Tool::Codex })
-                ));
-                async { None }
-            },
-        )
-        .await;
-        assert_eq!(asked.load(Ordering::SeqCst), 1);
-        assert!(inputs.lists.is_empty(), "no list: the model as stored");
     }
 
     #[test]

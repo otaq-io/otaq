@@ -87,6 +87,13 @@ async fn shop_web_with(w: &TestService, change: impl FnOnce(&mut ProjectSettings
         .set_project_settings("SHOP", &settings)
         .await
         .unwrap();
+    // [`submit`]'s Skip this check: the flow marks Validate skippable.
+    w.board
+        .edit_flow_for_tests(
+            "SHOP",
+            otaq_core::flow::default::testing::skippable_validate,
+        )
+        .await;
     project
 }
 

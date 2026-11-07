@@ -46,9 +46,6 @@ pub enum Arrival {
     },
     /// An agent check failed at its limit and the user moved it on: "Failed Security 3 times · moved by you".
     FailedMovedOn { stage: String, times: u32 },
-    /// The stage before was a check of yours the ticket skipped on its own, since no Agent stage before it ran (0129
-    /// row 4): "Skipped Spec review · nothing before it runs".
-    SkippedOnItsOwn { stage: String },
     /// It came from a later stage (a drag back, PR rework): "Moved back by you".
     MovedBack,
     /// An Agent stage finished straight into the check: "Finished Dev".
@@ -74,10 +71,6 @@ impl Arrival {
             Self::FailedMovedOn { stage, times } => {
                 format!("Failed {stage} {times} times \u{b7} moved by you")
             }
-            Self::SkippedOnItsOwn { stage } => format!(
-                "Skipped {stage} \u{b7} {}",
-                super::stage_choices::NOTHING_BEFORE_IT_RUNS
-            ),
             Self::MovedBack => "Moved back by you".to_owned(),
             Self::Finished { stage } => format!("Finished {stage}"),
         }
@@ -158,6 +151,60 @@ impl Board {
         self.ticket_by_id(&ticket.id).await
     }
 
+    /// A start from where `ticket` waits that enters a human check (it skips every Agent stage before the check:
+    /// nothing is skipped on its own): the ticket is in the check, waiting for you, with no agent started, and the
+    /// stages walked over get their skipped runs. `None` (nothing written) when the start enters anything else; the
+    /// start sequence starts its agent then.
+    pub(crate) async fn begin_in_check(
+        &self,
+        ticket: &Ticket,
+        actor: &Actor,
+    ) -> Result<Option<Ticket>, BoardError> {
+        if !ticket.place.is_waiting() {
+            return Ok(None);
+        }
+        let Ok(moved) = self.moved(ticket, Status::Queued, Move::Begin).await else {
+            return Ok(None);
+        };
+        if moved.status.set() != StatusSet::HumanCheck {
+            return Ok(None);
+        }
+        let now = now_ms();
+        let mut tx = self.store.begin_write().await?;
+        moved.record(&mut tx, &ticket.id, None).await?;
+        sqlx::query(concat!(
+            "UPDATE tickets SET stage_id = ?, state = ?, started_at = COALESCE(started_at, ?), review_entry = NULL,
+                                review_entered_at = ?, ready_since = NULL,
+                                start_problem_step = NULL, start_problem_message = NULL,
+                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
+                                updated_by = ?, updated_at = ?, ",
+            set_state_since!(),
+            " WHERE id = ?"
+        ))
+        .bind(moved.place.stage_id())
+        .bind(moved.status.as_str())
+        .bind(now)
+        .bind(now)
+        .bind(actor.to_string())
+        .bind(now)
+        .bind(moved.status.as_str())
+        .bind(now)
+        .bind(&ticket.id)
+        .execute(&mut *tx)
+        .await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::Moved,
+            actor,
+            json!({"from": ticket.status, "to": moved.status}),
+        )
+        .await?;
+        tx.commit().await?;
+        tracing::info!(key = %ticket.key, to = ?moved.place.stage_id(), "started in a human check");
+        self.ticket_by_id(&ticket.id).await.map(Some)
+    }
+
     /// A Pass into an agent check, before the check opens its round ([`crate::review::Review::pass`]): the human
     /// check's run ends Passed (the round's own bookkeeping would end it as Done) and the stages walked over get
     /// their skipped runs.
@@ -197,48 +244,11 @@ impl Board {
         .bind(&ticket.id)
         .fetch_all(self.store.pool())
         .await?;
-        let arrival = with_chooser(
+        Ok(Some(with_chooser(
             arrival_from(&flow, here, before),
             &before.stage,
             &skipped_by,
-        );
-        self.on_its_own(&ticket.id, &flow, &before.stage, arrival)
-            .await
-            .map(Some)
-    }
-
-    /// A skip of a check the ticket skipped on its own says so (0129 row 4): "Skipped Spec review · nothing before
-    /// it runs".
-    async fn on_its_own(
-        &self,
-        ticket_id: &str,
-        flow: &Flow,
-        stage: &str,
-        arrival: Arrival,
-    ) -> Result<Arrival, BoardError> {
-        let Arrival::Skipped {
-            stage: name,
-            by: None,
-        } = arrival
-        else {
-            return Ok(arrival);
-        };
-        if flow
-            .stage(stage)
-            .is_some_and(|s| s.is_human_check() && s.can_skip())
-            && self
-                .skip_sets(ticket_id, flow)
-                .await?
-                .1
-                .iter()
-                .any(|s| s == stage)
-        {
-            return Ok(Arrival::SkippedOnItsOwn { stage: name });
-        }
-        Ok(Arrival::Skipped {
-            stage: name,
-            by: None,
-        })
+        )))
     }
 
     /// [`Board::arrival`] for every ticket of a project that waits in a human check or at its Delivery (To deliver),
@@ -313,7 +323,6 @@ impl Board {
                 &before.stage,
                 &skipped_by,
             );
-            let arrival = self.on_its_own(&id, flow, &before.stage, arrival).await?;
             arrivals.insert(id, arrival);
         }
         Ok(arrivals)

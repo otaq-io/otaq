@@ -9,7 +9,7 @@ use otaq_core::protocol::{
 };
 use otaq_view::view_models::banners::{PERMISSION_DOCS_URL, Situation, SituationKind};
 use otaq_view::view_models::limit_banner::{
-    FALLBACK_FAILED, RESUME_ALL_FAILED, RESUME_FAILED, fallback_toast, resumed,
+    RESUME_ALL_FAILED, RESUME_FAILED, resumed,
 };
 use otaq_view::view_models::restart::RestartDialog;
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
@@ -233,49 +233,16 @@ pub(super) async fn resume_tool(app: &App, tool: Tool) -> Result<Value, RequestE
     Ok(Value::Null)
 }
 
-/// Use fallback now (AGM-03): `tool`'s waiting tickets start on its fallback (`limits.use_fallback_now`); a toast
-/// says how many ("4 tickets started on Codex").
-pub(super) async fn use_fallback_now(app: &App, tool: Tool) -> Result<Value, RequestError> {
-    let toast = match app
-        .service
-        .send(Request::LimitsUseFallbackNow(ToolParams { tool }))
-        .await
-    {
-        Ok(Reply::StartedOnFallback(keys)) => {
-            let on = match app.service.send(Request::AgentsList).await {
-                Ok(Reply::Agents(list)) => list
-                    .fallbacks
-                    .iter()
-                    .find(|f| f.tool == tool)
-                    .map(|f| f.fallback.tool),
-                _ => None,
-            };
-            let title = match on {
-                Some(on) => fallback_toast(keys.len(), on),
-                None => format!("{} started on the fallback", keys.len()),
-            };
-            NewToast::new(ToastLevel::Success, title, None)
-        }
-        Ok(_) => return Ok(Value::Null),
-        Err(e) => NewToast::new(ToastLevel::Error, FALLBACK_FAILED, Some(e.message)),
-    };
-    app.notices.toast(toast);
-    refresh_limits(app).await;
-    Ok(Value::Null)
-}
-
-/// Fetches the banner's lines again, after Resume or a move.
+/// Fetches the banner's lines again, after Resume.
 async fn refresh_limits(app: &App) {
     if let Ok(Reply::Usage(summary)) = app
         .service
         .send(Request::UsageSummary(Default::default()))
         .await
     {
-        let inputs = crate::notices::limit_inputs(summary.tool_lines, |request| async move {
-            app.service.send(request).await.ok()
-        })
-        .await;
-        app.notices.on_usage(inputs);
+        app.notices.on_usage(crate::notices::LimitInputs {
+            lines: summary.tool_lines,
+        });
     }
 }
 

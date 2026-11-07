@@ -12,6 +12,7 @@ use otaq_core::naming;
 use otaq_core::project_agents::{NEW_AGENT, NameSource, ONLY_A_PROJECT_AGENT};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService};
+use otaq_core::skills::testing::claude_skill;
 use serde_json::{Value, json};
 
 const CB: &str = env!("CARGO_BIN_EXE_otaq");
@@ -145,7 +146,7 @@ async fn its_hooks_keep_the_first_request_and_name_it_after_the_first_turn() {
             "UserPromptSubmit",
             json!({"prompt": format!(
                 "{} Import the GitHub issues labelled ready",
-                format!("/{}", naming::copy_name("noyan"))
+                claude_skill("noyan")
             )}),
         ),
     )

@@ -35,7 +35,11 @@ fails_to: string | null,
 /**
  * Its problem from the check, in the error colour ("needs a skill").
  */
-problem: string | null, selected: boolean, 
+problem: string | null, 
+/**
+ * "You don't have the skill `team-validate`", amber: only a warning, Apply still works.
+ */
+warning: string | null, selected: boolean, 
 /**
  * Ready for Dev and the Delivery stay where they are.
  */

@@ -3,7 +3,7 @@
 // `screens/session` and Activity `screens/activity` (T-0466), Files `screens/files` (T-0468). What it says is Rust's (`src/api/sheet.rs`'s `sheet`, `view_models/sheet.rs`).
 import type { Screen } from "../../app/registry";
 import "./actions.css";
-import { CloseTicketDialog, SubmitForReviewDialog } from "./Dialogs";
+import { ChangeAgentDialog, CloseTicketDialog, SubmitForReviewDialog } from "./Dialogs";
 import { TicketSheet } from "./Sheet";
 import "./sheet.css";
 
@@ -11,4 +11,5 @@ export const sheet: Screen = (app) => {
   app.slots.register("sheet", { Component: TicketSheet });
   app.overlays.register("close_ticket", { Component: CloseTicketDialog });
   app.overlays.register("submit_for_review", { Component: SubmitForReviewDialog });
+  app.overlays.register("change_agent", { Component: ChangeAgentDialog });
 };

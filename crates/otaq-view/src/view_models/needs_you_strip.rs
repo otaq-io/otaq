@@ -466,6 +466,13 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         }
     } else if item.message.is_some() {
         asks
+    } else if item.missing_skill.is_some() {
+        // A stage held because its tool doesn't have its skill: the chip opens the ticket, where Check again is.
+        (
+            IconName::CircleAlert,
+            Tone::Error,
+            "missing skill".to_owned(),
+        )
     } else if item.group == NeedsYouGroup::Review {
         let reason = match item.waiting_in.as_ref().and_then(|w| w.delivers) {
             Some(Delivers::Pr) => "open the PR",
@@ -690,6 +697,7 @@ pub mod samples {
             waiting_in: None,
             piece: None,
             helpers_to_resume: Vec::new(),
+            missing_skill: None,
         }
     }
 

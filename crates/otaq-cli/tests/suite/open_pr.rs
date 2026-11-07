@@ -4,6 +4,7 @@
 //! edits itself (reword with unchanged trees, rename, lock) before anything is pushed.
 
 use otaq_core::service::testing::said;
+use otaq_core::skills::testing::claude_skill;
 use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
@@ -48,7 +49,7 @@ async fn setup() -> Setup {
         .unwrap();
     // origin is a local folder, not GitHub or Azure DevOps: the project uses its own Open PR skill.
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let ticket = w.create("SHOP", "Login redirect").await;
     let worktree = w.start_worktree(&ticket).await;
     commit(&worktree, "login.ts", "redirect\n");
@@ -109,20 +110,10 @@ async fn open_pr_proposes_confirms_rewords_renames_and_reports() {
     // The click types the Open PR skill into the live session; the ticket stays in Ready for Review.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    // An imported skill: its copy in the worktree, run by its copy's name (AGM-07).
-    w.wait_for_output(
-        &s.agent.session,
-        &format!("/{}", naming::copy_name("my-pr")),
-    )
-    .await;
-    assert!(
-        s.worktree
-            .join(format!(
-                ".agents/skills/{}/SKILL.md",
-                naming::copy_name("my-pr")
-            ))
-            .is_file()
-    );
+    // The Delivery stage's `skill: my-pr`, typed by its own name; nothing is written into the worktree (T2).
+    w.wait_for_output(&s.agent.session, &claude_skill("my-pr"))
+        .await;
+    assert!(!s.worktree.join(".agents").exists());
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Preparing);
@@ -284,7 +275,7 @@ async fn cancel_and_refusals_leave_the_ticket_in_review() {
         "{refused}"
     );
     let folder = skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
 
     // Uncommitted files refuse first (REV-08).
     std::fs::write(s.worktree.join("scratch.txt"), "x").unwrap();
@@ -391,7 +382,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&s.agent.session, &format!("/{}", naming::copy_name("push")))
+    w.wait_for_output(&s.agent.session, &claude_skill("push"))
         .await;
     let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
     assert_eq!(

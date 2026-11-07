@@ -10,7 +10,6 @@ use sqlx::Row;
 const TABLES: &[&str] = &[
     "active_limits",
     "agent_holds",
-    "agent_skills",
     "agents",
     "app_ports",
     "check_counters",
@@ -598,7 +597,7 @@ async fn one_row_round_trips_through_every_table() {
         .unwrap();
     assert_eq!(outcome, "open");
 
-    // An agent with an imported skill (AGM-01): the shipped ones are there already.
+    // An agent of the user's own (AGM-01).
     let light = new_id();
     sqlx::query(
         "INSERT INTO agents (id, name, instructions, tool, model, came_from, created_at, updated_at) \
@@ -610,23 +609,6 @@ async fn one_row_round_trips_through_every_table() {
     .execute(pool)
     .await
     .unwrap();
-    sqlx::query(
-        "INSERT INTO agent_skills (agent_id, position, imported_id, name, original, imported_at, fingerprint) \
-         VALUES (?, 0, 'copy-1', 'my-commit', '/tmp/my-commit', ?, 'f')",
-    )
-    .bind(&light)
-    .bind(at)
-    .execute(pool)
-    .await
-    .unwrap();
-    let name: String = sqlx::query_scalar(
-        "SELECT name FROM agent_skills WHERE agent_id = ? AND imported_id IS NOT NULL",
-    )
-    .bind(&light)
-    .fetch_one(pool)
-    .await
-    .unwrap();
-    assert_eq!(name, "my-commit");
 
     // A held Developer start on that agent (M23, SCH-04): its tool is at its limit.
     sqlx::query(

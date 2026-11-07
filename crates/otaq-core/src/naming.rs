@@ -1,6 +1,6 @@
 //! The product's names, in one place (d0028, d0076).
 //!
-//! The product name spreads into the command, the plugin namespace, skill copies (`otaq-work-ticket`), branch names and
+//! The product name spreads into the command, the plugin namespace (`/otaq:work-ticket`), branch names and
 //! environment variables (`OTAQ_TICKET`). Every crate builds these strings from the constants below, so a
 //! forced rename later means changing only this file. A test (`tests/suite/naming_literals.rs`) fails if another source
 //! file spells one of them out.
@@ -102,27 +102,6 @@ pub fn db_prefix() -> &'static str {
 /// The longest name a skill may have (the skill format's limit).
 pub const SKILL_NAME_MAX: usize = 64;
 
-/// The name of Otaq's copy of a skill (AGM-07, d0098): its folder in `.agents/skills/` and `.claude/skills/` and its
-/// SKILL.md's `name:`, the same for shipped and imported skills on every tool. `otaq-` and the skill's own name,
-/// lower case, every character but `a-z`, `0-9` and `-` made a `-` (no two in a row, none at the end), cut to
-/// [`SKILL_NAME_MAX`] characters: `copy_name("commit-compact")` → `otaq-commit-compact`,
-/// `copy_name("frontend-design:frontend-design")` → `otaq-frontend-design-frontend-design`.
-pub fn copy_name(skill: &str) -> String {
-    let mut name = format!("{COMMAND_NAME}-");
-    for c in skill.to_lowercase().chars() {
-        let c = if c.is_ascii_lowercase() || c.is_ascii_digit() {
-            c
-        } else {
-            '-'
-        };
-        if !(c == '-' && name.ends_with('-')) {
-            name.push(c);
-        }
-    }
-    name.truncate(SKILL_NAME_MAX);
-    name.trim_end_matches('-').to_owned()
-}
-
 /// The prefix of branches Otaq creates: `otaq/`.
 pub fn branch_prefix() -> String {
     format!("{COMMAND_NAME}/")
@@ -187,24 +166,6 @@ mod tests {
     fn ticket_env_var_name() {
         assert_eq!(ticket_env_var(), "OTAQ_TICKET");
         assert_eq!(role_env_var(), "OTAQ_ROLE");
-    }
-
-    #[test]
-    fn copy_names() {
-        assert_eq!(copy_name("commit-compact"), "otaq-commit-compact");
-        assert_eq!(copy_name("work-ticket"), "otaq-work-ticket");
-        assert_eq!(
-            copy_name("frontend-design:frontend-design"),
-            "otaq-frontend-design-frontend-design"
-        );
-        assert_eq!(copy_name("My PR  skill!"), "otaq-my-pr-skill");
-        let long = copy_name(&"a".repeat(70));
-        assert_eq!(long.len(), SKILL_NAME_MAX);
-        assert_eq!(long, format!("otaq-{}", "a".repeat(59)));
-        assert_eq!(
-            copy_name(&format!("{}-b", "a".repeat(58))),
-            format!("otaq-{}", "a".repeat(58))
-        );
     }
 
     #[test]

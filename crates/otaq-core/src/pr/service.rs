@@ -25,7 +25,7 @@ use serde_json::json;
 
 use super::flow::{FlowKind, FlowState};
 use super::proposal::Proposal;
-use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched};
+use crate::agent_tools::{Adapters, FirstPrompt, LaunchRequest, LaunchRole, Launched, Tool};
 use crate::agents::gate::{Held, LaunchGate, check};
 use crate::agents::{RunsOn, resolve};
 use crate::board::review::ApproveCheck;
@@ -105,6 +105,14 @@ impl Typing {
     }
 }
 
+/// Open PR refused because the built-in skill can't open a PR on this remote: the user's own Open PR skill goes in the
+/// Delivery stage's Skill field of the flow editor (the desktop's toast links there), never in an agent's skills.
+pub fn own_open_pr_skill(why: &str) -> String {
+    format!(
+        "{why}: use your own Open PR skill (name it as the Delivery stage\u{2019}s skill in the flow editor)"
+    )
+}
+
 /// What follows the PR skill's name when an automatic Delivery starts it (FLW-15): the skill proposes as usual and
 /// Otaq confirms the proposal itself. It starts with the word `automatic`, which the skill keys on.
 pub fn automatic_message() -> String {
@@ -135,8 +143,8 @@ pub fn automatic_instruction(kind: FlowKind) -> String {
 /// What a PR step types into the ticket's session, or starts or resumes it with.
 #[derive(Clone, Copy)]
 enum PrStep<'a> {
-    /// The Open PR or Push skill, as the Delivery stage's agent runs it, written into the worktree first by one name
-    /// with that agent's skills (AGM-07) and named for the session's tool.
+    /// The Open PR or Push skill, as the Delivery stage's agent runs it, named for the session's tool; nothing is
+    /// written into the worktree.
     Skill(WorkflowStep),
     /// Otaq's own words: the confirmed push ([`confirmed_instruction`]).
     Words(&'a str),
@@ -215,9 +223,7 @@ impl Prs {
             if let Some(why) = provider.open_pr_blocked() {
                 return Err(BoardError::refused(
                     Refusal::NotAllowed,
-                    format!(
-                        "{why}: use your own Open PR skill (add it to the agent's skills in Settings \u{2192} Agents)"
-                    ),
+                    own_open_pr_skill(why),
                 ));
             }
         }
@@ -343,7 +349,7 @@ impl Prs {
     /// **An automatic PR Delivery** (FLW-15): the ticket waits in its Delivery stage; the flow opens (or, with a PR,
     /// pushes to) the PR with no click and no dialog. Refused, nothing started, with uncommitted files, a provider
     /// the built-in skill can't use, or a delivery session that can't start now: the card then waits for the user's
-    /// click. `without_checks` records "Delivered without checks" for when the PR is merged.
+    /// click. `without_checks` records "Delivered without all checks" for when the PR is merged.
     pub async fn open_automatically(
         &self,
         key: &str,
@@ -611,9 +617,8 @@ impl Prs {
     }
 
     /// Starts a short-lived delivery session: a new conversation in the ticket's worktree (a Delivery whose agent isn't
-    /// the Dev stage's, FLW-15), with the skill in force
-    /// (written into it first, named by the adapter) as its first prompt, `OTAQ_TICKET` the ticket. On the Delivery
-    /// stage's agent.
+    /// the Dev stage's, FLW-15), with the skill in force (named by the adapter) as its first prompt, `OTAQ_TICKET` the
+    /// ticket. On the Delivery stage's agent.
     async fn start_delivery(
         &self,
         ticket: &Ticket,
@@ -623,7 +628,10 @@ impl Prs {
         let runs_on = self.delivery_runs_on(ticket).await?;
         self.inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
-        let (first_prompt, copies) = self.copy_skills(ticket, &worktree, step).await?;
+        let first_prompt = self.first_prompt(ticket, step).await?;
+        // The Delivery's own skill (`skill: my-pr`) runs only on a tool that has it.
+        self.refuse_missing_skill(ticket, runs_on.tool, &first_prompt)
+            .await?;
         let launched = self.inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -640,15 +648,39 @@ impl Prs {
                 theme: self.inner.board.theme_in_use().await,
             },
         )?;
-        self.spawn(
-            ticket,
-            SessionKind::Delivery,
-            launched,
-            &runs_on,
-            start,
-            copies,
-        )
-        .await
+        let session = self
+            .spawn(ticket, SessionKind::Delivery, launched, &runs_on, start)
+            .await?;
+        Ok(session)
+    }
+
+    /// A skill runs only on a tool that has it: refused, nothing started or typed, when `tool` doesn't have the skill
+    /// `prompt` names for the ticket ("Codex doesn't have the skill `/my-pr`"). The user's click gets the refusal; an
+    /// automatic Delivery's card waits for the click, as for a tool that can't run.
+    async fn refuse_missing_skill(
+        &self,
+        ticket: &Ticket,
+        tool: Option<Tool>,
+        prompt: &FirstPrompt,
+    ) -> Result<(), BoardError> {
+        let (Some(tool), FirstPrompt::Skill { name, .. }) = (tool, prompt) else {
+            return Ok(());
+        };
+        match self
+            .inner
+            .board
+            .skill_missing_on(ticket, tool, Some(name))
+            .await
+        {
+            Some(skill) => {
+                tracing::info!(key = %ticket.key, %tool, skill, "the delivery's tool doesn't have its skill: nothing typed");
+                Err(BoardError::refused(
+                    Refusal::MoveRefused,
+                    crate::flow::proposal::missing_skill_text(tool, &skill),
+                ))
+            }
+            None => Ok(()),
+        }
     }
 
     /// What a delivery session runs on: the Delivery stage's agent (AGM-05), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
@@ -672,13 +704,7 @@ impl Prs {
                 Ok(runs_on)
             }
             Err(blocked) => {
-                let held = Held {
-                    agent,
-                    on,
-                    blocked,
-                    fallback: None,
-                    fallback_held: false,
-                };
+                let held = Held { agent, on, blocked };
                 tracing::info!(key = %ticket.key, reason = %held.blocked.reason(), "delivery refused before launch");
                 Err(BoardError::refused(Refusal::MoveRefused, held.message()))
             }
@@ -701,7 +727,6 @@ impl Prs {
         launched: Launched,
         runs_on: &RunsOn,
         start: Start,
-        copies: Vec<String>,
     ) -> Result<SessionInfo, BoardError> {
         let project = self
             .inner
@@ -731,15 +756,10 @@ impl Prs {
                 model: launched.model,
                 agent: runs_on.agent.clone(),
                 effort: runs_on.effort.clone(),
-                fallback: runs_on.fallback.clone(),
                 theme: Some(launched.theme),
             })
             .await
             .map_err(other)?;
-        // What its tool read at its start: a later hand-off names any other skill by its file (d0118).
-        if let Err(e) = self.inner.sessions.set_started_skills(&session.id, copies) {
-            tracing::warn!(key = %ticket.key, error = %e, "the session's skills weren't recorded");
-        }
         Ok(session)
     }
 
@@ -773,38 +793,24 @@ impl Prs {
         Ok(None)
     }
 
-    /// Writes the Delivery stage's agent's skills, the skill it runs for a skill `step` and every hand-off skill
-    /// (d0118) into `worktree` (AGM-07), before a session starts or resumes there: the prompt it starts with and the
-    /// copies written.
-    async fn copy_skills(
+    /// The prompt a session starts or resumes with for `step`: a skill step's skill by its name (the flow's Delivery
+    /// `skill:` for Open PR, else Otaq's), or Otaq's own words. Nothing is written into the worktree (T2).
+    async fn first_prompt(
         &self,
         ticket: &Ticket,
-        worktree: &std::path::Path,
         step: PrStep<'_>,
-    ) -> Result<(FirstPrompt, Vec<String>), BoardError> {
-        let board = &self.inner.board;
-        let agent = resolve::delivery_agent(board, ticket.key.project.as_str())
-            .await
-            .ok();
-        let prompt = match step {
+    ) -> Result<FirstPrompt, BoardError> {
+        Ok(match step {
             PrStep::Skill(step) => FirstPrompt::Skill {
-                name: board
+                name: self
+                    .inner
+                    .board
                     .delivery_skill_name(ticket.key.project.as_str(), step)
                     .await?,
                 message: self.told(ticket).await?,
             },
             PrStep::Words(text) => FirstPrompt::Text(text.to_owned()),
-        };
-        let (copied, written) = board
-            .copy_for_ticket_session(
-                worktree,
-                self.inner.adapters.shipped_skills(),
-                agent.as_ref(),
-                Some(prompt.clone()),
-                ticket.key.project.as_str(),
-            )
-            .await;
-        Ok((copied.unwrap_or(prompt), written.names))
+        })
     }
 
     /// What follows the PR step's skill: an automatic Delivery's skill is told so (FLW-15).
@@ -841,7 +847,7 @@ impl Prs {
     }
 
     /// Types `step` into the live session (through the user-click path, or queued for an automatic Delivery), or
-    /// resumes the stored conversation with it as the first prompt. A skill is written into the worktree first.
+    /// resumes the stored conversation with it as the first prompt.
     async fn run_in_session(
         &self,
         ticket: &Ticket,
@@ -853,17 +859,20 @@ impl Prs {
         match live {
             Some(session) => {
                 let text = match step {
-                    // By its name when the session started with it, else copied now and named by its file (d0118).
+                    // Typed by its name: every session has Otaq's skills from its start (T2); a user's skill only
+                    // when the session's tool has it.
                     PrStep::Skill(skill_step) => {
                         let skill = self
                             .inner
                             .board
                             .delivery_skill(ticket.key.project.as_str(), skill_step)
                             .await?;
-                        if !deliveries.started_with(&session.id, &skill) {
-                            self.copy_skills(ticket, &worktree_of(ticket)?, step)
-                                .await?;
-                        }
+                        let named = FirstPrompt::Skill {
+                            name: skill.clone(),
+                            message: None,
+                        };
+                        self.refuse_missing_skill(ticket, session.tool, &named)
+                            .await?;
                         deliveries.skill_text(
                             &session.id,
                             &skill,
@@ -939,7 +948,10 @@ impl Prs {
         let runs_on = RunsOn::resumed(&conversation);
         inner.adapters.unavailable(runs_on.tool)?;
         let worktree = worktree_of(ticket)?;
-        let (first_prompt, copies) = self.copy_skills(ticket, &worktree, step).await?;
+        let first_prompt = self.first_prompt(ticket, step).await?;
+        // Resumed with the Delivery's skill only on a tool that has it.
+        self.refuse_missing_skill(ticket, runs_on.tool, &first_prompt)
+            .await?;
         let port = ticket.work.as_ref().and_then(|w| w.agent_port).unwrap_or(0);
         let role = match kind {
             SessionKind::Delivery => LaunchRole::Delivery,
@@ -961,8 +973,7 @@ impl Prs {
                 theme: self.inner.board.theme_in_use().await,
             },
         )?;
-        self.spawn(ticket, kind, launched, &runs_on, start, copies)
-            .await
+        self.spawn(ticket, kind, launched, &runs_on, start).await
     }
 }
 
@@ -1049,5 +1060,18 @@ mod tests {
             assert!(text.contains(&format!("`{} prime`", naming::COMMAND_NAME)));
             assert!(!text.contains('\n'), "one line, typed with Enter");
         }
+    }
+
+    /// "Use your own Open PR skill" points at the Delivery stage's Skill field, never at the agent's skills.
+    #[test]
+    fn own_open_pr_skill_names_the_delivery_stage() {
+        let text = own_open_pr_skill("PR provider not detected");
+        assert_eq!(
+            text,
+            "PR provider not detected: use your own Open PR skill (name it as the Delivery stage\u{2019}s skill in \
+             the flow editor)"
+        );
+        assert!(!text.contains("Settings"));
+        assert!(!text.contains("agent's skills") && !text.contains("agent\u{2019}s skills"));
     }
 }

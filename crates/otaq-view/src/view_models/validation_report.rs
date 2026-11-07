@@ -286,11 +286,11 @@ pub fn round_row(r: &ValidationRecord, rounds: u32) -> RoundRow {
         ValidationTrigger::User => "you submitted",
     };
     // Why a round that doesn't count ended (the service's words), else the legend's.
-    let why = |fallback: &str| {
+    let why = |otherwise: &str| {
         r.report
             .as_deref()
             .and_then(|t| t.lines().map(str::trim).find(|l| !l.is_empty()))
-            .unwrap_or(fallback)
+            .unwrap_or(otherwise)
             .to_owned()
     };
     let last = r.round >= rounds;
@@ -480,6 +480,15 @@ pub fn review(
     })
 }
 
+/// Its verdict in "Before you": a green check or a red cross. `BeforeYouStep` on the page.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "BeforeYouStep")]
+pub enum Step {
+    Passed,
+    Failed,
+}
+
 /// One check agent's block of "Before you" (`s30-05`): "CC Security reviewer passed · opus", its comment and Open
 /// terminal (its side of Session). `BeforeYouAgent` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -490,7 +499,7 @@ pub struct BeforeYouAgent {
     pub name: String,
     /// "passed", "failed".
     pub verdict: String,
-    pub step: crate::view_models::check_agents::Step,
+    pub step: Step,
     /// "· opus".
     pub model: Option<String>,
     /// Its verdict's comment ("No risky code. The new endpoint checks the session…").
@@ -498,8 +507,9 @@ pub struct BeforeYouAgent {
     pub open_terminal: &'static str,
 }
 
-/// "Before you" on a human check after a Check stage with several check agents (d0130, `s30-05`): "Before you ·
-/// Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. `BeforeYouView` on the page.
+/// "Before you" on a human check after a round stored from when a check could have several agents (`s30-05`):
+/// "Before you · Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. A check has one agent
+/// now, so a new round never shows it; an older round still reads as it was. `BeforeYouView` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "BeforeYouView")]
 pub struct BeforeYou {
@@ -525,8 +535,9 @@ fn verdicts_summary(passed: usize, failed: usize) -> String {
 }
 
 /// "Before you" for a ticket in a human check, from its rounds (newest first) and sessions: the latest round with a
-/// verdict from every check agent, when two or more checked in it (d0130); `check` names the stage ("Validate"),
-/// `rounds` its rounds limit. None with one agent: the review reads as today.
+/// verdict from every check agent, when two or more checked in it (a round stored from when a check could have
+/// several agents); `check` names the stage ("Validate"), `rounds` its rounds limit. None with one agent, as every
+/// new round has: the review reads as for any check.
 pub fn before_you(
     check: &str,
     records: &[ValidationRecord],
@@ -588,11 +599,7 @@ pub fn before_you(
                         .map(|t| crate::view_models::tool_avatar::ToolAvatarView::of(t, model)),
                     name: r.agent.clone().unwrap_or_default(),
                     verdict: if pass { "passed" } else { "failed" }.to_owned(),
-                    step: if pass {
-                        crate::view_models::check_agents::Step::Passed
-                    } else {
-                        crate::view_models::check_agents::Step::Failed
-                    },
+                    step: if pass { Step::Passed } else { Step::Failed },
                     model: model.map(|m| format!("\u{b7} {m}")),
                     comment: r
                         .report
@@ -675,7 +682,6 @@ mod tests {
             model: Some(model.into()),
             agent: None,
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         };

@@ -847,16 +847,11 @@ async fn model_list(app: &App, tool: Tool) -> Option<ModelList> {
 
 /// The agent tools as the rows, the panel, the agent panel and recovery read them (M23): every tool's state
 /// (`agent_tools.list`), every tool's active limit (`usage.activity`), each connected tool's cached model list, and
-/// each tool's fallback and the default model (`agents.list`, AGM-03). When the service can't list the tools, the
+/// the default model (`agents.list`, AGM-03). When the service can't list the tools, the
 /// first tool counts as the one connected, as before M23.
 pub(super) async fn agent_tools(app: &App) -> Tools {
     let mut tools = tool_states(app).await;
     if let Ok(Reply::Agents(list)) = app.service.send(Request::AgentsList).await {
-        tools.fallbacks = list
-            .fallbacks
-            .into_iter()
-            .map(|f| (f.tool, f.fallback))
-            .collect();
         tools.default_model = list.default_model;
     }
     // Every tool's active limit (USG-10), from Activity's per-tool data.
@@ -885,7 +880,7 @@ pub(super) async fn tool_states(app: &App) -> Tools {
 
 /// `ticket.choices` of a ticket, or of a new one in `project`; `None` when the service can't say (the field is then
 /// left out).
-async fn stage_choices_of(
+pub(super) async fn stage_choices_of(
     app: &App,
     key: Option<&str>,
     project: Option<&str>,
@@ -1381,10 +1376,11 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// AGM-09 through a real service, on the default flow: no stage has options, so the form shows no Stage choices
-    /// and the sheet only the ticket's path (no Choices); a stage choice the flow doesn't offer is refused on save.
+    /// AGM-09 through a real service, on the default flow: no stage lists options, yet the form and the sheet show a
+    /// choice for each stage an agent runs (Dev, Validate: its own agent, then the others), with the ticket's path;
+    /// the sheet's pick of another agent is taken, a skip of Dev (not skippable) is refused.
     #[tokio::test]
-    async fn the_default_flow_shows_only_the_path() {
+    async fn the_default_flow_shows_a_choice_per_agent_stage() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1406,16 +1402,22 @@ mod tests {
         };
         let create = json!({ "mode": "create", "project": project });
         let view = table(&h.app, "editor.open", create.clone()).await.unwrap();
-        assert_eq!(view["choices"], Value::Null);
+        let rows: Vec<(&str, &str)> = view["choices"]["rows"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .map(|r| (r["label"].as_str().unwrap(), r["value"].as_str().unwrap()))
+            .collect();
+        assert_eq!(rows, [("Dev:", "Developer"), ("Validate:", "Validator")]);
 
         let saved = table(&h.app, "editor.save", json!({ "target": create, "form": form("Price table") }))
             .await
             .unwrap();
         let key = saved["key"].as_str().unwrap().to_owned();
         let edit = json!({ "mode": "edit", "key": key });
-        assert_eq!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
+        assert_ne!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
         let load = table(&h.app, "sheet.view", json!({ "key": key })).await.unwrap();
-        assert_eq!(load["view"]["choices"], Value::Null);
+        assert_ne!(load["view"]["choices"], Value::Null);
         let summary = load["view"]["path"]["summary"].as_str().unwrap();
         assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
         assert!(summary.ends_with("\u{b7} Review \u{b7} Done"), "{summary}");
@@ -1427,11 +1429,18 @@ mod tests {
             .collect();
         assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
         assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
-        // The sheet's pick on a stage without options is refused, with nothing changed.
+        // The sheet's pick of another agent for Dev is taken; a skip of Dev is refused.
+        table(
+            &h.app,
+            "sheet.set_choice",
+            json!({ "key": key, "stage": "dev", "choice": "Validator" }),
+        )
+        .await
+        .unwrap();
         let refused = table(
             &h.app,
             "sheet.set_choice",
-            json!({ "key": key, "stage": "dev", "choice": "Developer" }),
+            json!({ "key": key, "stage": "dev", "choice": "skip" }),
         )
         .await;
         assert!(refused.is_err());

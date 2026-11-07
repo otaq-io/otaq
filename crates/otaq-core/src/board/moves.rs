@@ -63,8 +63,8 @@ stored_enum! {
         MoveBack = "move_back",
         /// To the very next stage the ticket runs: Move to next stage (from an Agent stage) or Pass (a human check).
         NextStage = "next_stage",
-        /// Forward past one or more stages (or out of an agent check): they are skipped by you, and the Delivery
-        /// waits for a click.
+        /// Forward past one or more stages (or out of an agent check): they are skipped by you; the Delivery does
+        /// what the flow says.
         SkipTo = "skip_to",
     }
 }
@@ -485,7 +485,7 @@ pub(crate) struct DragWrite {
     pub moved: Moved,
     /// Every agent check's counter restarts (a drag back counts as a human Fail, FLW-13).
     pub reset: bool,
-    /// The stages the user moved the card past (a forward drag): its Delivery waits for a click.
+    /// The stages the user moved the card past (a forward drag): its card says so.
     pub marks: Vec<(String, MovedPast)>,
     /// Into an agent check: its round opens on this head.
     pub check_head: Option<String>,

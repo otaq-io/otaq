@@ -47,7 +47,7 @@ const BEATS: readonly Beat[] = [
     lane: 1,
     label: "Started",
     title: "An agent starts, in its own worktree",
-    text: "Otaq makes a worktree for the ticket, runs your setup command, and starts Rust developer in Claude Code with its skill. Other agents never touch this checkout.",
+    text: "Otaq makes a worktree for the ticket, runs your setup command, and starts Rust developer in Claude Code on the Dev stage’s skill. Other agents never touch this checkout.",
     pill: ["p-w", "loader", "Working", "spin"],
     meta: "otaq/SHOP-29 · 1m",
     tool: "CC",

@@ -201,8 +201,42 @@ async fn a_checkers_verdict_waits_for_prime_validate() {
         refused(&answer),
         "Run `otaq prime` first: SHOP-1 has 1 comment you haven't read."
     );
-    // Its plain prime counts as well as `--validate`; here `--validate`, as the validate skill runs it.
+    // `--validate`, as the validate skill runs it; its plain prime counts too (`a_checkers_plain_prime_is_…`).
     ok(&send(&w, &checker, "ticket.prime_validate", json!({"key": key})).await);
+    ok(&send(&w, &checker, "validation.verdict", verdict).await);
+    assert_ne!(w.status(&key).await, Status::Checking);
+    w.stop().await;
+}
+
+/// No-skill-copies F11: the checker's plain `prime` is its validate prime (a user's own validation skill needn't know
+/// `--validate`) and clears the refused verdict as `prime --validate` does. Another ticket's prime stays a working one.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checkers_plain_prime_is_its_validate_prime() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Export orders as CSV").await;
+    let other = w.create("SHOP", "Order list paging").await;
+    let key = t.key.to_string();
+    comment(&w, &key, "Done. Excel not added.").await;
+    let checker = w.shell(&t, SessionKind::Validator).await;
+    w.validating_with(&t, &checker.session).await;
+    let verdict = json!({"key": key, "pass": true, "report": "All good."});
+
+    let answer = send(&w, &checker, "validation.verdict", verdict.clone()).await;
+    assert_eq!(
+        refused(&answer),
+        "Run `otaq prime` first: SHOP-1 has 1 comment you haven't read."
+    );
+    let primed = send(&w, &checker, "ticket.prime", json!({"key": key})).await;
+    assert!(ok(&primed).get("prime_validate").is_some(), "{primed}");
+    let other = send(
+        &w,
+        &checker,
+        "ticket.prime",
+        json!({"key": other.key.to_string()}),
+    )
+    .await;
+    assert!(ok(&other).get("prime").is_some(), "{other}");
     ok(&send(&w, &checker, "validation.verdict", verdict).await);
     assert_ne!(w.status(&key).await, Status::Checking);
     w.stop().await;

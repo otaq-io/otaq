@@ -1,5 +1,6 @@
 // The one-line ticket card (BRD-03; *24 · The two views*): the key and its priority chip (P1, P2, P4), the title on two lines (the full title in a tooltip), one status line in words with a dot in the
-// state's colour (a blocked ticket's in amber after a link, DPV-01), a muted "Blocks SHOP-20" when others wait for
+// state's colour (a blocked ticket's in amber after a link, DPV-01), an amber "You don't have the skill `<name>`"
+// while a stage whose skill Otaq can't find runs (no-skill-copies F1), a muted "Blocks SHOP-20" when others wait for
 // it, the Plan's "Plan · 4 pieces" and a build stage's piece rows (d0133), then who (tool mark and agent name) and when, and the card's one action. A card that needs the user
 // has a coloured edge (turquoise, the review colour for your check, red for a closed parent). The pill, the model,
 // the tokens and the answer options are the ticket's sheet's. Everything it says comes from a `TicketCardView`
@@ -8,14 +9,13 @@
 // actions (open terminal, open sheet) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
-import { Button, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
+import { Button, CodeText, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { CardStatusHover } from "../generated/CardStatusHover";
 import type { CardStatusLine } from "../generated/CardStatusLine";
 import type { TicketCardView } from "../generated/TicketCardView";
 import { Icon } from "../theme/Icon";
-import { CheckRoundRows } from "./CheckRound";
 import { PieceRows } from "./Pieces";
 import { type CardState, edgeColor, paletteInk, RESTING, toneInk } from "./look";
 
@@ -172,8 +172,6 @@ function WhoRow({ card, onAction }: Pick<TicketCardProps, "card" | "onAction">) 
           />
         </span>
       )}
-      {/* The one check agent the action acts on: "for Performance only" (d0130). */}
-      {action && card.action_note !== null && <span className="card-action-note">{card.action_note}</span>}
     </div>
   );
 }
@@ -221,7 +219,18 @@ function Body({
         <div className="card-title">{card.title}</div>
       </Tooltip>
       {card.status && <StatusLine line={card.status} />}
-      {card.check !== null && <CheckRoundRows round={card.check} />}
+      {/* A running stage whose skill Otaq can't find (no-skill-copies F1): amber, one line, the name as code; the
+          whole sentence on hover when the card is too narrow for it. */}
+      {card.skill_warning !== null && (
+        <Tooltip text={card.skill_warning}>
+          <div className="card-skill-warning">
+            <Icon name="triangle-alert" size={11} />
+            <span className="card-skill-warning-text">
+              <CodeText text={card.skill_warning} />
+            </span>
+          </div>
+        </Tooltip>
+      )}
       {card.pieces !== null && <PieceRows pieces={card.pieces} />}
       {card.blocks !== null && (
         <div className="card-blocks">

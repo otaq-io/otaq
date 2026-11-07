@@ -112,7 +112,6 @@ impl World {
                 model: None,
                 agent: None,
                 effort: None,
-                fallback: None,
                 theme: None,
             })
             .await
@@ -378,7 +377,6 @@ async fn a_project_agent_session_is_the_agent_from_its_start() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await
@@ -436,7 +434,6 @@ async fn a_helper_session_is_the_helper_from_its_start() {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             theme: None,
         })
         .await

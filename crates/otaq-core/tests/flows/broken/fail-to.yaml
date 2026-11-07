@@ -15,7 +15,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
     fail_to: Validate
@@ -24,7 +24,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
     fail_to: Review

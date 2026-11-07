@@ -214,6 +214,7 @@ async fn action_for(
         | R::ProjectList
         | R::ProjectProbe(_)
         | R::ProjectBranches(_)
+        | R::SkillsList(_)
         | R::ProjectPrProvider(_)
         | R::TicketPrFlow(_)
         | R::TicketQuestions(_)
@@ -427,6 +428,7 @@ async fn action_for(
         R::TicketAgentEditsSeen(_) => Action::UserOnly("mark agent edits as seen"),
         R::TicketDelete(p) => Action::DeleteTicket(facts(board, &p.key).await?),
         R::TicketRetryStart(_) => Action::UserOnly("retry starts"),
+        R::TicketCheckAgain(_) => Action::UserOnly("check again"),
         R::TicketClose(_) => Action::UserOnly("close tickets"),
         R::TicketReopen(_) => Action::UserOnly("reopen tickets"),
         R::TicketPark(_) => Action::UserOnly("park tickets"),
@@ -464,7 +466,7 @@ async fn action_for(
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
         R::ProjectViewSet(_) => Action::UserOnly("change the board's view"),
-        // Agents, the default model and the fallbacks are the user's (AGM-01, AGM-03, AGM-04).
+        // Agents and the default model are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList
         | R::AgentsAdd(_)
         | R::AgentsEdit(_)
@@ -472,23 +474,17 @@ async fn action_for(
         | R::AgentsDelete(_)
         | R::AgentsInUse(_)
         | R::AgentsMoveRole(_)
-        | R::AgentsDefaultModel(_)
-        | R::AgentsFallback(_)
-        | R::AgentsImportSkill(_)
-        | R::AgentsReimportSkill(_) => Action::UserOnly("change agents"),
+        | R::AgentsDefaultModel(_) => Action::UserOnly("change agents"),
         // What an agent reads is shown on the user's Settings → Agents (AGR-01).
         R::AgentsReads(_) => Action::UserOnly("read what an agent reads"),
-        // Agent tools, limits per tool and fallbacks are the user's (d0086).
+        // Agent tools and limits per tool are the user's (d0086).
         R::AgentToolsList
         | R::AgentToolsRecheck(_)
         | R::AgentToolsSetHidden(_)
         | R::AgentToolsSignIn(_)
         | R::AgentToolsInstall(_)
         | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
-        R::LimitsResumeTool(_) | R::LimitsUseFallbackNow(_) => {
-            Action::UserOnly("resume or use the fallback")
-        }
-        R::TicketUseFallback(_) => Action::UserOnly("use the fallback"),
+        R::LimitsResumeTool(_) => Action::UserOnly("resume a tool's agents"),
         R::RecentItems(_) => Action::UserOnly("use the command palette"),
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)

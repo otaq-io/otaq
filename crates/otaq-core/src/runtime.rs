@@ -24,6 +24,14 @@
 //! - **Codex**: its marketplace is registered machine-wide with a folder path, so it gets one fixed folder,
 //!   `runtime/codex-plugin/`, copied over ([`replace_dir`]) at every service start by its adapter
 //!   ([`crate::agent_tools::refresh_fixed_plugins`]); its config never changes with the build.
+//! - **Otaq's own skills come from its plugin.** They live once, in the plugin folder's `skills/` (the repository's
+//!   `plugin/skills/`, bundled as it is). Each tool's plugin presents them as its own `skills/` folder, filled here
+//!   when the plugin is copied and never kept in git: the copy puts `skills/` into `plugin/claude/` and
+//!   `plugin/copilot/` ([`crate::agent_tools::PLUGINS_WITH_SKILLS`], [`fill_skills`]), and Codex's fixed folder gets
+//!   it beside its manifest ([`replace_dir_with_skills`]). OpenCode needs no copy: its launch config names the
+//!   plugin's `skills/` folder. Plain copies, not links: a symbolic link needs admin rights (or Developer Mode) on
+//!   Windows, and git would check one out there as a text file. A dev build gets the same, as its service copies
+//!   the repository's `plugin/` like any other. The stamp covers the skills, so a changed skill gets a new folder.
 
 use std::fs;
 use std::io;
@@ -40,6 +48,9 @@ const IN_USE_FILE: &str = "service.pid";
 /// The plugin folder inside a runtime folder: `<bin>/plugin`, the first place
 /// [`crate::agent_tools::claude::find_plugin_dir`] looks.
 const PLUGIN_FOLDER: &str = "plugin";
+
+/// The shipped skills inside the plugin folder: `<plugin>/skills/<name>/SKILL.md`, the one place they live.
+pub const SKILLS_FOLDER: &str = "skills";
 
 /// What a temporary folder's name carries before its writer's PID: `.<name>.tmp-<pid>-<n>`.
 const TMP_MARK: &str = ".tmp-";
@@ -158,6 +169,7 @@ pub fn ensure(
         .and_then(|()| fs::copy(&program, tmp.join(program_name())).map(drop))
         .and_then(|()| copy_conpty(bin_dir, &tmp))
         .and_then(|()| copy_dir(plugin_dir, &tmp.join(PLUGIN_FOLDER)))
+        .and_then(|()| fill_skills(&tmp.join(PLUGIN_FOLDER)))
         .and_then(|()| fs::rename(&tmp, &folder.dir));
     match copied {
         Ok(()) => {
@@ -183,6 +195,26 @@ fn copy_conpty(bin_dir: &Path, dest: &Path) -> io::Result<()> {
     for name in [LIBRARY, HOST] {
         if bin_dir.join(name).is_file() {
             fs::copy(bin_dir.join(name), dest.join(name))?;
+        }
+    }
+    Ok(())
+}
+
+/// Copies the shipped skills (`<plugin>/skills`) into each tool's plugin in `plugin`
+/// ([`crate::agent_tools::PLUGINS_WITH_SKILLS`]) as
+/// its own `skills/`, replacing whatever was there. A tool folder that isn't there, or no shipped skills, is
+/// skipped.
+pub fn fill_skills(plugin: &Path) -> io::Result<()> {
+    let skills = plugin.join(SKILLS_FOLDER);
+    if !skills.is_dir() {
+        return Ok(());
+    }
+    for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
+        let dir = plugin.join(tool);
+        if dir.is_dir() {
+            let dest = dir.join(SKILLS_FOLDER);
+            remove_all(&dest)?;
+            copy_dir(&skills, &dest)?;
         }
     }
     Ok(())
@@ -239,6 +271,16 @@ pub fn clean(data: &DataDir, keep: &Path) -> Cleanup {
 /// Copies the folder `source` over `dest` (a fixed folder in the runtime folder, which keeps its path for every
 /// build): written beside it under a temporary name and swapped in, so `dest` is never half-written.
 pub fn replace_dir(source: &Path, dest: &Path) -> io::Result<()> {
+    replace_dir_with_skills(source, None, dest)
+}
+
+/// [`replace_dir`], with the folder `skills` (when given and there) copied in as `dest`'s `skills/`, replacing any
+/// `skills/` of `source`, before the swap: Codex's fixed folder with the shipped skills.
+pub fn replace_dir_with_skills(
+    source: &Path,
+    skills: Option<&Path>,
+    dest: &Path,
+) -> io::Result<()> {
     let parent = dest
         .parent()
         .ok_or_else(|| io::Error::other("a folder without a parent"))?;
@@ -252,6 +294,13 @@ pub fn replace_dir(source: &Path, dest: &Path) -> io::Result<()> {
     remove_all(&tmp)?;
     remove_all(&old)?;
     let swapped = copy_dir(source, &tmp)
+        .and_then(|()| match skills.filter(|s| s.is_dir()) {
+            Some(skills) => {
+                let into = tmp.join(SKILLS_FOLDER);
+                remove_all(&into).and_then(|()| copy_dir(skills, &into))
+            }
+            None => Ok(()),
+        })
         .and_then(|()| match fs::rename(dest, &old) {
             Err(e) if e.kind() != io::ErrorKind::NotFound => Err(e),
             _ => Ok(()),
@@ -745,6 +794,92 @@ mod tests {
         assert!(replace_dir(&empty.path().join("gone"), &dir).is_err());
         assert!(manifest.is_file());
         assert_eq!(names(&data), ["codex-plugin"]);
+    }
+
+    /// Otaq's own skills come from its plugin: once the runtime copy of the repository's plugin is made, Claude
+    /// Code's and Copilot's plugins each hold every shipped skill as `skills/<name>/SKILL.md`, the same file as the
+    /// one in `plugin/skills`.
+    #[test]
+    fn the_copy_gives_claude_and_copilot_every_shipped_skill() {
+        let (_tmp, data) = data();
+        let installed = Installed::new("v1");
+        let repo = crate::agent_tools::claude::find_plugin_dir(Path::new("/nonexistent"))
+            .expect("the repository's plugin");
+        let folder = ensure(&data, "abc.1", &installed.bin(), &repo).unwrap();
+        for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
+            for name in crate::agents::shipped::SKILLS {
+                let copied = folder
+                    .plugin_dir()
+                    .join(tool)
+                    .join(SKILLS_FOLDER)
+                    .join(name)
+                    .join("SKILL.md");
+                assert_eq!(
+                    fs::read(&copied).unwrap_or_default(),
+                    fs::read(repo.join(SKILLS_FOLDER).join(name).join("SKILL.md")).unwrap(),
+                    "{}",
+                    copied.display()
+                );
+            }
+        }
+        // Filled in the copy only: the source plugin has no per-tool skills folder.
+        for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
+            assert!(!repo.join(tool).join(SKILLS_FOLDER).exists(), "{tool}");
+        }
+    }
+
+    /// A tool plugin's own `skills/` is replaced by the shipped skills, and a changed skill makes a new copy.
+    #[test]
+    fn a_tool_plugins_skills_are_the_shipped_ones() {
+        let (_tmp, data) = data();
+        let installed = Installed::new("v1");
+        let skill = installed.plugin().join(SKILLS_FOLDER).join("commit");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "v1").unwrap();
+        let stale = installed
+            .plugin()
+            .join("claude")
+            .join(SKILLS_FOLDER)
+            .join("old");
+        fs::create_dir_all(&stale).unwrap();
+        fs::write(stale.join("SKILL.md"), "old").unwrap();
+
+        let first = installed.ensure(&data, "abc.1");
+        let claude = first.plugin_dir().join("claude").join(SKILLS_FOLDER);
+        assert_eq!(
+            fs::read_to_string(claude.join("commit/SKILL.md")).unwrap(),
+            "v1"
+        );
+        assert!(!claude.join("old").exists());
+        // No Copilot plugin in this install: nothing is made up for it.
+        assert!(!first.plugin_dir().join("copilot").exists());
+
+        fs::write(skill.join("SKILL.md"), "v1, changed").unwrap();
+        let second = installed.ensure(&data, "abc.1");
+        assert_ne!(first, second);
+        assert_eq!(
+            fs::read_to_string(second.plugin_dir().join("claude/skills/commit/SKILL.md")).unwrap(),
+            "v1, changed"
+        );
+    }
+
+    /// Codex's fixed folder gets the shipped skills beside its manifest, replacing the old ones.
+    #[test]
+    fn a_fixed_folder_gets_the_skills() {
+        let (_tmp, data) = data();
+        let installed = Installed::new("v1");
+        let skills = installed.plugin().join(SKILLS_FOLDER);
+        fs::create_dir_all(skills.join("push")).unwrap();
+        fs::write(skills.join("push/SKILL.md"), "push").unwrap();
+        let dir = data.codex_plugin_dir();
+        fs::create_dir_all(dir.join("skills/gone")).unwrap();
+        replace_dir_with_skills(&installed.plugin().join("codex"), Some(&skills), &dir).unwrap();
+        assert_eq!(
+            fs::read_to_string(dir.join("skills/push/SKILL.md")).unwrap(),
+            "push"
+        );
+        assert!(!dir.join("skills/gone").exists());
+        assert!(dir.join(".codex-plugin/plugin.json").is_file());
     }
 
     /// At start: the copy, marked in use, Codex's folder and the cleanup together.

@@ -1,18 +1,15 @@
 //! One agent's page on Settings → Agents (AGM-01, AGM-04; d0108, d0078, d0092; `s15-58` / `s15-59` "One agent",
 //! "Giving a role to another agent", "Deleting an agent that's in use, or holds a role"): its name, its model (the
 //! model picker of `s15-30`, with the tool's effort level where the tool has one), its role, its instructions (the
-//! Markdown editor), its skills (a shipped one by name, or an imported folder with Import skill folder… and Re-import,
-//! WSK-02…WSK-04), where it is used, and its amber mark (AGT-05). A saved agent's edits are saved one change at a time
-//! and apply to the next session that starts; New agent and Duplicate fill a draft that **Add agent** saves.
+//! Markdown editor), where it is used, and its amber mark (AGT-05). An agent has no skill list: a stage's `skill:` is
+//! the only place a skill is picked (T7). A saved agent's edits are saved one change at a time and apply to the next
+//! session that starts; New agent and Duplicate fill a draft that **Add agent** saves.
 //!
 //! The page holds the agent's fields as a [`Draft`]; every change goes through [`apply`], so the rules (a new tool
 //! clears the model and the effort) live here.
 
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{
-    Agent, AgentFields, AgentList, AgentModel, ImportedSkill, InUse, Role, SkillRef, shipped,
-};
-use otaq_core::naming::PRODUCT_NAME;
+use otaq_core::agents::{Agent, AgentFields, AgentList, AgentModel, InUse, Role};
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -23,7 +20,6 @@ use super::agents::{
 use super::menu::MenuItem;
 use super::model_picker::{self, Picker};
 use super::tool_avatar::AvatarTool;
-use crate::shell::tilde;
 
 /// An agent's fields as the page holds them: a saved agent's, or New agent's and Duplicate's draft.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize, TS)]
@@ -31,29 +27,11 @@ use crate::shell::tilde;
 pub struct Draft {
     pub name: String,
     pub instructions: String,
-    /// In order, each as [`skill_key`] writes it: `shipped:work-ticket`, `imported:<id>`.
-    pub skills: Vec<String>,
     /// The tool, as stored (`claude`); `None`: the default model.
     pub tool: Option<String>,
     /// From the tool's list; `None`: the tool's default.
     pub model: Option<String>,
     pub effort: Option<String>,
-}
-
-/// A skill as the page names it.
-pub fn skill_key(skill: &SkillRef) -> String {
-    match skill {
-        SkillRef::Shipped(name) => format!("shipped:{name}"),
-        SkillRef::Imported(id) => format!("imported:{id}"),
-    }
-}
-
-fn skill_ref(key: &str) -> Option<SkillRef> {
-    match key.split_once(':')? {
-        ("shipped", name) => Some(SkillRef::Shipped(name.to_owned())),
-        ("imported", id) => Some(SkillRef::Imported(id.to_owned())),
-        _ => None,
-    }
 }
 
 impl Draft {
@@ -62,7 +40,6 @@ impl Draft {
         Self::from_fields(&AgentFields {
             name: agent.name.clone(),
             instructions: agent.instructions.clone(),
-            skills: agent.skills.clone(),
             model: agent.model.clone(),
             effort: agent.effort.clone(),
         })
@@ -77,7 +54,6 @@ impl Draft {
         Self {
             name: fields.name.clone(),
             instructions: fields.instructions.clone(),
-            skills: fields.skills.iter().map(skill_key).collect(),
             tool,
             model,
             effort: fields.effort.clone(),
@@ -93,7 +69,6 @@ impl Draft {
         AgentFields {
             name: self.name.clone(),
             instructions: self.instructions.clone(),
-            skills: self.skills.iter().filter_map(|k| skill_ref(k)).collect(),
             model: match self.tool() {
                 None => AgentModel::Default,
                 Some(tool) => AgentModel::Tool {
@@ -119,10 +94,6 @@ pub enum Change {
     Model(Option<String>),
     /// One of the tool's levels; `None`: the tool's default.
     Effort(Option<String>),
-    /// A shipped skill's name.
-    AddSkill(String),
-    /// A skill as [`skill_key`] writes it.
-    RemoveSkill(String),
 }
 
 /// `draft` with `change`: another tool starts on its default model with no effort (its list and its levels differ).
@@ -139,13 +110,6 @@ pub fn apply(mut draft: Draft, change: Change) -> Draft {
         }
         Change::Model(model) => draft.model = model,
         Change::Effort(effort) => draft.effort = effort.filter(|e| !e.is_empty()),
-        Change::AddSkill(name) => {
-            let key = skill_key(&SkillRef::Shipped(name));
-            if !draft.skills.contains(&key) {
-                draft.skills.push(key);
-            }
-        }
-        Change::RemoveSkill(key) => draft.skills.retain(|k| *k != key),
     }
     draft
 }
@@ -156,7 +120,6 @@ pub enum Field {
     Name,
     Model,
     Role,
-    Skills,
     Page,
 }
 
@@ -165,9 +128,6 @@ pub fn field_of(refusal: Option<&str>) -> Field {
     match refusal {
         Some("empty_field" | "bad_name" | "name_taken") => Field::Name,
         Some("model_not_listed" | "bad_effort") => Field::Model,
-        Some("bad_skill" | "bad_skill_folder" | "original_not_found" | "not_imported") => {
-            Field::Skills
-        }
         _ => Field::Page,
     }
 }
@@ -254,49 +214,6 @@ pub struct InstructionsField {
     pub markdown_label: String,
 }
 
-/// Re-import's question (WSK-04: it asks first).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentSkillDialog")]
-pub struct SkillDialog {
-    pub title: String,
-    pub text: String,
-    pub confirm: String,
-    pub cancel: String,
-}
-
-/// One of the agent's skills.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentSkillRow")]
-pub struct SkillRow {
-    /// As [`skill_key`] writes it: what Remove sends back.
-    pub key: String,
-    pub name: String,
-    /// An imported folder: "~/team-skills/security-review · imported today, 10:42 am".
-    pub source: Option<String>,
-    /// The import's warnings (WSK-02), amber.
-    pub warnings: Vec<String>,
-    /// The imported skill's id, for Re-import; none for a shipped skill or on a draft.
-    pub reimport_id: Option<String>,
-    pub reimport_label: String,
-    pub reimport: Option<SkillDialog>,
-    pub remove_label: String,
-}
-
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "AgentSkillsField")]
-pub struct SkillsField {
-    pub label: String,
-    pub rows: Vec<SkillRow>,
-    /// "Add skill": the shipped skills the agent doesn't have.
-    pub add_label: String,
-    pub add_options: Vec<String>,
-    /// "Import skill folder…" on a saved agent (the copy belongs to an agent).
-    pub import_label: Option<String>,
-    pub picker_title: String,
-    /// A refused import or Re-import, in red: "Not imported: ~/x has no SKILL.md."
-    pub problem: Option<String>,
-}
-
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentUsedIn")]
 pub struct UsedIn {
@@ -335,7 +252,6 @@ pub struct Page {
     pub model: ModelField,
     pub role: Option<RoleField>,
     pub instructions: InstructionsField,
-    pub skills: SkillsField,
     pub used_in: Option<UsedIn>,
     pub mark: Option<MarkView>,
     /// "Edits apply to the next session that starts." on a saved agent.
@@ -356,8 +272,6 @@ pub struct Inputs<'a> {
     pub refused: Option<&'a Refused>,
     /// The role line after a move ([`moved_line`]).
     pub moved: Option<String>,
-    /// For "imported today, 10:42 am".
-    pub now: i64,
 }
 
 /// The tool's name.
@@ -389,75 +303,6 @@ pub fn sentence(text: String) -> String {
     } else {
         format!("{text}.")
     }
-}
-
-/// "today, 10:42 am" on the day it was imported, else "Oct 12".
-fn imported_when(at: i64, now: i64) -> String {
-    use super::clock::{clock_12h, month_day};
-    use otaq_core::local_time::local;
-    match (local(at), local(now)) {
-        (Some(t), Some(n)) if (t.year, t.month, t.day) == (n.year, n.month, n.day) => {
-            format!("today, {}", clock_12h(t.hour, t.minute))
-        }
-        (Some(t), _) => month_day(&t),
-        (None, _) => "at an unknown time".to_owned(),
-    }
-}
-
-/// A refused import's red line (WSK-02's words): "Not imported: ~/x has no SKILL.md.", else the service's reason.
-pub fn not_imported(message: &str) -> String {
-    format!("Not imported: {}", sentence(message.trim().to_owned()))
-}
-
-/// The record of an imported skill: the agent's own, else any agent's (Duplicate's draft shares the copy).
-fn record<'a>(list: &'a AgentList, id: Option<&str>, skill: &str) -> Option<&'a ImportedSkill> {
-    let own = list
-        .agents
-        .iter()
-        .find(|a| Some(a.id.as_str()) == id)
-        .and_then(|a| a.imported_skill(skill));
-    own.or_else(|| list.agents.iter().find_map(|a| a.imported_skill(skill)))
-}
-
-fn skill_row(input: &Inputs, key: &str) -> SkillRow {
-    let mut row = SkillRow {
-        key: key.to_owned(),
-        name: key.split_once(':').map_or(key, |(_, n)| n).to_owned(),
-        source: None,
-        warnings: Vec::new(),
-        reimport_id: None,
-        reimport_label: "Re-import".to_owned(),
-        reimport: None,
-        remove_label: "Remove".to_owned(),
-    };
-    if let Some(SkillRef::Imported(id)) = skill_ref(key)
-        && let Some(skill) = record(input.list, input.id, &id)
-    {
-        let original = tilde(&skill.original);
-        row.name.clone_from(&skill.name);
-        row.source = Some(format!(
-            "{original} \u{b7} imported {}",
-            imported_when(skill.imported_at, input.now)
-        ));
-        row.warnings = skill
-            .warnings
-            .iter()
-            .map(|w| format!("Imported, but {}.", w.trim_end_matches('.')))
-            .collect();
-        if input.id.is_some() {
-            row.reimport_id = Some(id);
-            row.reimport = Some(SkillDialog {
-                title: format!("Re-import {}?", skill.name),
-                text: format!(
-                    "{PRODUCT_NAME} replaces its copy with the folder at {original}. Sessions already running keep \
-                     the copy they started with; the next launch uses the new one."
-                ),
-                confirm: "Re-import".to_owned(),
-                cancel: "Cancel".to_owned(),
-            });
-        }
-    }
-    row
 }
 
 fn model_field(input: &Inputs, agent: Option<&Agent>, problem: Option<String>) -> ModelField {
@@ -554,11 +399,6 @@ pub fn page(input: &Inputs) -> Page {
         moved: input.moved.clone(),
         problem: problem(Field::Role),
     });
-    let shipped_missing: Vec<String> = shipped::SKILLS
-        .iter()
-        .filter(|name| !draft.skills.contains(&format!("shipped:{name}")))
-        .map(|name| (*name).to_owned())
-        .collect();
     Page {
         id: agent.map(|a| a.id.clone()),
         title: agent.map_or(NEW_AGENT, |a| a.name.as_str()).to_owned(),
@@ -581,15 +421,6 @@ pub fn page(input: &Inputs) -> Page {
             value: draft.instructions.clone(),
             placeholder: "What this agent does and how, in Markdown".to_owned(),
             markdown_label: "Markdown".to_owned(),
-        },
-        skills: SkillsField {
-            label: "Skills".to_owned(),
-            rows: draft.skills.iter().map(|k| skill_row(input, k)).collect(),
-            add_label: "Add skill".to_owned(),
-            add_options: shipped_missing,
-            import_label: saved.then(|| "Import skill folder\u{2026}".to_owned()),
-            picker_title: "Import skill folder".to_owned(),
-            problem: problem(Field::Skills),
         },
         used_in: agent.map(|_| {
             let items = input.uses.map(used_in).unwrap_or_default();
@@ -671,7 +502,6 @@ mod tests {
             uses: uses.iter().find(|u| u.agent == agent.name),
             refused: None,
             moved: None,
-            now: 1,
         })
     }
 
@@ -705,7 +535,6 @@ mod tests {
             stages: vec![StageUse {
                 project: Some("shop-web".into()),
                 stage: "Product spec".into(),
-                option: false,
             }],
         };
         assert_eq!(
@@ -760,9 +589,10 @@ mod tests {
     }
 
     /// One agent's page (`s15-58` "One agent", "Giving a role to another agent"): the fields in order, the role with
-    /// None · Noyan and the line after a move, used in, and the note.
+    /// None · Noyan and the line after a move, used in, and the note. An agent has no skill list (T7): the page has
+    /// no skills field, so its view carries none.
     #[test]
-    fn one_agents_page_with_its_role_skills_and_used_in() {
+    fn one_agents_page_with_its_role_and_used_in() {
         let (list, uses) = example();
         let tools = AgentTools::one(Some(claude_list()));
         let developer = page_of(&list, &tools, "developer", &uses);
@@ -790,17 +620,11 @@ mod tests {
             role.hint,
             "Each role is held by exactly one agent. Giving a role here takes it from the agent that has it."
         );
-        let skills: Vec<&str> = developer
-            .skills
-            .rows
-            .iter()
-            .map(|r| r.name.as_str())
-            .collect();
-        assert_eq!(skills, ["work-ticket", "commit"]);
-        assert!(!developer.skills.add_options.contains(&"commit".to_owned()));
-        assert_eq!(
-            developer.skills.import_label.as_deref(),
-            Some("Import skill folder\u{2026}")
+        let view = serde_json::to_value(&developer).unwrap();
+        assert!(view.get("skills").is_none(), "no skills field");
+        assert!(
+            view["draft"].get("skills").is_none(),
+            "no skills in the draft"
         );
         assert_eq!(
             developer.used_in.as_ref().unwrap().items,
@@ -815,21 +639,6 @@ mod tests {
             developer.note.as_deref(),
             Some("Edits apply to the next session that starts.")
         );
-        // The imported skill: its original and when, and Re-import asks first.
-        let validator = page_of(&list, &tools, "validator", &uses);
-        let row = &validator.skills.rows[0];
-        assert_eq!(row.name, "team-validate");
-        assert!(
-            row.source
-                .as_deref()
-                .unwrap()
-                .starts_with("/team/validate \u{b7} imported ")
-        );
-        assert_eq!(row.reimport_id.as_deref(), Some("team-validate"));
-        assert_eq!(
-            row.reimport.as_ref().unwrap().title,
-            "Re-import team-validate?"
-        );
         // Noyan's page after Strong took its role… is Strong's, with the line.
         let mut moved = list.clone();
         moved.agents[0].role = None;
@@ -842,7 +651,6 @@ mod tests {
             uses: None,
             refused: None,
             moved: Some(moved_line(Role::ProjectAgent, "Strong", Some("Noyan"))),
-            now: 1,
         });
         assert_eq!(strong.role_tag.as_deref(), Some("Noyan"));
         assert_eq!(
@@ -870,7 +678,6 @@ mod tests {
             Change::Model(Some("haiku".into())),
         );
         let draft = apply(draft, Change::Effort(Some("low".into())));
-        let draft = apply(draft, Change::AddSkill("work-ticket".into()));
         let new = page(&Inputs {
             list: &list,
             tools: &tools,
@@ -879,11 +686,9 @@ mod tests {
             uses: None,
             refused: None,
             moved: None,
-            now: 1,
         });
         assert_eq!(new.title, "New agent");
         assert!(new.role.is_none() && new.used_in.is_none() && new.menu.is_empty());
-        assert!(new.skills.import_label.is_none());
         assert_eq!(new.add.as_ref().unwrap().add_label, "Add agent");
         let fields = draft.fields();
         assert_eq!(
@@ -894,16 +699,11 @@ mod tests {
             }
         );
         assert_eq!(fields.effort.as_deref(), Some("low"));
-        assert_eq!(fields.skills, [SkillRef::Shipped("work-ticket".into())]);
         // Back to the default model: no model, no effort.
         let back = apply(draft, Change::Tool(None));
         assert_eq!((back.model, back.effort), (None, None));
         assert_eq!(back.tool, None);
-        // Duplicate's draft keeps the imported copy.
-        let validator = &list.agents[2];
-        let copy = Draft::of(validator);
-        assert_eq!(copy.skills, ["imported:team-validate"]);
-        assert_eq!(copy.fields().skills, validator.skills);
+        let copy = Draft::of(&list.agents[2]);
         // A refused name is written under Name.
         let refused = Refused {
             field: field_of(Some("name_taken")),
@@ -917,16 +717,10 @@ mod tests {
             uses: None,
             refused: Some(&refused),
             moved: None,
-            now: 1,
         });
         assert_eq!(
             page.name.problem.as_deref(),
             Some("Another agent is already called Light")
-        );
-        assert_eq!(field_of(Some("bad_skill_folder")), Field::Skills);
-        assert_eq!(
-            not_imported("The folder has no SKILL.md"),
-            "Not imported: The folder has no SKILL.md."
         );
     }
 }

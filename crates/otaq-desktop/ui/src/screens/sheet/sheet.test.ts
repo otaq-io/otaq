@@ -112,6 +112,18 @@ describe("the sheet", () => {
     expect(html).toContain("width:1040px");
   });
 
+  it("draws a stage gone past without doing it as skipped, with grey lines either side", () => {
+    const html = render(VIEW);
+    const at = html.indexOf('data-state="skipped"');
+    const skipped = html.slice(at, html.indexOf("</li>", at));
+    expect(skipped).toContain('title="Skipped"');
+    expect(skipped).toContain('aria-label="Skipped"');
+    expect(skipped).toContain("Design");
+    expect(skipped).not.toContain("sheet-step-dot");
+    // Done → Skipped → Current: neither line is the done green.
+    expect(html.match(/class="sheet-step-line"[^>]*data-done/g)).toBeNull();
+  });
+
   it("shows the selected tab's body: Session's switch over Run, Activity; Files empty until its screen", () => {
     const session = render(VIEW, { tab: "run" });
     expect(session).toContain('data-tab="session"');
@@ -169,7 +181,7 @@ describe("the sheet", () => {
     const app = registerScreens({ sheet });
     expect(registered(app)).toMatchObject({
       slots: ["sheet"],
-      overlays: ["close_ticket", "submit_for_review"],
+      overlays: ["close_ticket", "submit_for_review", "change_agent"],
       sheetTabs: [],
     });
   });

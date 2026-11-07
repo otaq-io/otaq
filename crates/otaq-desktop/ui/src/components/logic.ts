@@ -88,6 +88,12 @@ export function filterMenu(items: readonly MenuItem[], query: string): readonly 
   return out;
 }
 
+/** A searchable list's rows with the row for what was typed last, unless a row already has its id. */
+export function withTyped(items: readonly MenuItem[], typed: MenuItem | null): readonly MenuItem[] {
+  if (typed === null || items.some((i) => !i.header && i.id === typed.id)) return items;
+  return [...items, typed];
+}
+
 /**
  * What a key does in a searchable list, whose focus is in its search field: as in a menu, except that Space, Home
  * and End stay with the field (typing, moving the caret).

@@ -2,7 +2,7 @@
 //! change waits for a quiet board", second gap review rules 11 and 13; d0115 "When an applied change reaches
 //! tickets").
 //!
-//! **What applies when** ([`Board::apply_proposal`]): agent changes and skill imports apply now (each session's next
+//! **What applies when** ([`Board::apply_proposal`]): agent changes apply now (each session's next
 //! start; running ones keep what they started with, d0088). **Adding a stage or editing one applies at once**: stored
 //! as a new version now, so a ticket that hasn't reached that point follows it (Plan added after Product spec: SHOP-12
 //! in Product spec goes to Plan next) and tickets in or past it finish as they are; a stage's agent, skill, options and
@@ -24,31 +24,26 @@
 //! with the waiting flow, so it shows only the new part; Apply merges it into the waiting change, even its parts that
 //! would otherwise apply at once; **Cancel change** drops both, and nothing else. **Apply now** forces it, with a stage
 //! picked for each ticket in a removed stage: [`super::apply_now`].
-//!
-//! **A removed choice** ([`Board::drop_removed_choice`]): when a stage starts for a ticket whose chosen option it no
-//! longer offers, the stage's own agent runs and History says so ("Quick developer is no longer an option for Dev ·
-//! runs Rust developer").
 
 use std::collections::{HashMap, HashSet};
 
 use serde::{Deserialize, Serialize};
-use serde_json::json;
 
 use super::draft::DraftMemory;
 use super::engine::Target;
-use super::model::{Flow, FlowAgent, FlowFile, Stage, StageOption};
+use super::model::{Flow, FlowAgent, FlowFile, Stage};
 use super::proposal::{
-    AgentChangeKind, ApplyChoices, ClashChoice, Proposal, ProposedBy, SkillSource, Source,
-    applied_now, edits_only, effective_file, flow_agent_of, skill_source,
+    AgentChangeKind, ApplyChoices, ClashChoice, Proposal, ProposedBy, Source, applied_now,
+    edits_only, effective_file, flow_agent_of,
 };
 use super::store::{AppliedBy, FlowVersion, NewFlowVersion};
 use super::yaml;
 use crate::agents::store::NewAgent;
-use crate::agents::{Agent, CameFrom, ModelCatalog, Role, SkillRef, shipped};
+use crate::agents::{CameFrom, ModelCatalog, Role, shipped};
 use crate::board::moves::DropOn;
-use crate::board::tickets::{EventKind, Ticket, record_event};
+use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, Place, StatusSet, TicketKey};
+use crate::domain::{Place, StatusSet, TicketKey};
 use crate::store::{Store, now_ms};
 
 /// Why a ticket in Ready for Dev doesn't start while its project's flow change waits (the card's footer, FLW-06).
@@ -827,8 +822,8 @@ impl Board {
 
     /// The agents of an applied proposal (FLW-04, FLW-10): added ones are created ("Added by <project>'s flow", or
     /// "From Otaq's agents file"); a changed one is updated unless it is an import clash the user kept (Keep mine,
-    /// the default); Add as was added under its new name. Skill folders are imported now (WSK-02). The names added or
-    /// changed.
+    /// the default); Add as was added under its new name. An agent has no skills: a file's `skills:` is ignored (T6).
+    /// The names added or changed.
     async fn apply_agents(
         &self,
         file: &FlowFile,
@@ -861,7 +856,6 @@ impl Board {
                 _ => {}
             }
             let stored = store.agents().await?;
-            let (skills, imported) = self.agent_skills(agent, &stored, choices).await?;
             let model =
                 shipped::model_of(&agent.model).unwrap_or(crate::agents::AgentModel::Default);
             match stored
@@ -873,8 +867,6 @@ impl Board {
                     let fields = NewAgent {
                         name: mine.name.clone(),
                         instructions: agent.instructions.clone(),
-                        skills,
-                        imported,
                         model: model.clone(),
                         effort,
                         role: mine.role,
@@ -894,8 +886,6 @@ impl Board {
                     let new = NewAgent {
                         name: agent.name.trim().to_owned(),
                         instructions: agent.instructions.clone(),
-                        skills,
-                        imported,
                         model,
                         effort: None,
                         role,
@@ -906,131 +896,6 @@ impl Board {
             }
         }
         Ok(done)
-    }
-
-    /// An agent's skills as stored, importing the folders it names (or the user picked for it).
-    async fn agent_skills(
-        &self,
-        agent: &FlowAgent,
-        stored: &[Agent],
-        choices: &ApplyChoices,
-    ) -> Result<(Vec<SkillRef>, Vec<crate::agents::ImportedSkill>), BoardError> {
-        let mut skills = Vec::new();
-        let mut imported = Vec::new();
-        for entry in &agent.skills {
-            let (found, _) = skill_source(entry, stored, &choices.skill_folders);
-            let skill = match found {
-                SkillSource::Shipped(name) => SkillRef::Shipped(name),
-                SkillSource::Imported(record) => {
-                    let id = record.id.clone();
-                    imported.push(record);
-                    SkillRef::Imported(id)
-                }
-                SkillSource::Folder { path, name } => {
-                    let record = match self.own_copy(&path, &name, stored).await {
-                        Some(record) => record,
-                        None => {
-                            crate::agents::skills::import_folder(self, std::path::Path::new(&path))
-                                .await?
-                        }
-                    };
-                    let id = record.id.clone();
-                    imported.push(record);
-                    SkillRef::Imported(id)
-                }
-                // The checks refused the proposal before Apply.
-                SkillSource::Missing => continue,
-            };
-            if !skills.contains(&skill) {
-                skills.push(skill);
-            }
-        }
-        Ok((skills, imported))
-    }
-
-    /// The record of Otaq's own copy at `path` (`skills/<id>/`, a skill the Project agent wrote for the draft,
-    /// FED-06): the agent holding it already, or one no agent holds yet, taken as it is instead of copied again.
-    /// `None` for any other folder, which is imported.
-    async fn own_copy(
-        &self,
-        path: &str,
-        name: &str,
-        stored: &[crate::agents::Agent],
-    ) -> Option<crate::agents::ImportedSkill> {
-        let path = std::path::Path::new(path);
-        if path.parent() != Some(self.data().skills_dir().as_path()) {
-            return None;
-        }
-        let id = path.file_name()?.to_string_lossy().into_owned();
-        if let Some(held) = stored.iter().find_map(|a| a.imported_skill(&id)) {
-            return Some(held.clone());
-        }
-        let folder = path.to_owned();
-        let fingerprint =
-            tokio::task::spawn_blocking(move || crate::skills::folder::fingerprint(&folder))
-                .await
-                .ok()?
-                .ok()?;
-        Some(crate::agents::ImportedSkill {
-            id,
-            name: name.to_owned(),
-            original: path.display().to_string(),
-            imported_at: crate::store::now_ms(),
-            fingerprint,
-            warnings: Vec::new(),
-        })
-    }
-
-    /// FLW-05's fallback, when `stage` starts a session for `ticket`: a choice of an agent the stage no longer offers
-    /// is dropped, and History says so ("Quick developer is no longer an option for Dev · runs Rust developer"). The
-    /// stage's own agent then runs ([`crate::agents::resolve::running_agent`]).
-    pub async fn drop_removed_choice(
-        &self,
-        ticket: &Ticket,
-        stage: &Stage,
-    ) -> Result<(), BoardError> {
-        let chosen: Option<Option<String>> = sqlx::query_scalar(
-            "SELECT agent_id FROM ticket_stage_choices WHERE ticket_id = ? AND stage_id = ? AND choice = 'agent'",
-        )
-        .bind(&ticket.id)
-        .bind(&stage.id)
-        .fetch_optional(self.store().pool())
-        .await?;
-        let Some(chosen) = chosen else {
-            return Ok(());
-        };
-        let agent = match &chosen {
-            Some(id) => self.store().agent(id).await?,
-            None => None,
-        };
-        if let Some(agent) = &agent {
-            for option in &stage.options {
-                if let StageOption::Agent(name) = option
-                    && name.eq_ignore_ascii_case(&agent.name)
-                {
-                    return Ok(());
-                }
-            }
-        }
-        let chose = agent.map_or_else(|| "The agent it chose".to_owned(), |a| a.name);
-        let runs = stage.agents_line();
-        let mut tx = self.store().begin_write().await?;
-        sqlx::query("DELETE FROM ticket_stage_choices WHERE ticket_id = ? AND stage_id = ?")
-            .bind(&ticket.id)
-            .bind(&stage.id)
-            .execute(&mut *tx)
-            .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::ChoiceDropped,
-            &Actor::current_user(),
-            json!({ "stage": stage.name, "stage_id": stage.id, "chose": chose, "runs": runs }),
-        )
-        .await?;
-        tx.commit().await?;
-        tracing::info!(ticket = %ticket.key, stage = %stage.id, %chose, %runs, "a removed choice falls back");
-        Ok(())
     }
 }
 
@@ -1078,7 +943,8 @@ pub fn previous_version(versions: &[FlowVersion], current: u32) -> u32 {
     before
 }
 
-/// "Quick developer is no longer an option for Dev · runs Rust developer" (History, FLW-05).
+/// "Quick developer is no longer an option for Dev · runs Rust developer" (History, FLW-05): the line of a choice
+/// dropped while stages still listed the agents they allowed.
 pub fn dropped_choice_line(chose: &str, stage: &str, runs: &str) -> String {
     format!("{chose} is no longer an option for {stage} \u{b7} runs {runs}")
 }

@@ -1,11 +1,12 @@
-//! Hand-offs reach the agent (T-0487; d0118, d0092, d0098, d0048): a ticket's agent session starts with every
-//! hand-off skill in its worktree (`otaq-address-review`, `otaq-restack`, the Delivery's Open PR and Push skills), so
-//! Send back, a merge conflict and Open PR typed into it run a skill its tool loaded at start. A skill it didn't start
-//! with is named by its file, never typed as a command. A gone session gets the hand-off as its first prompt.
+//! Hand-offs reach the agent (T-0487, T2; d0118, d0048): Otaq writes no skill into a worktree. Every one of Otaq's
+//! own skills reaches every session from its start through Otaq's plugin, so Send back, a merge conflict and Open PR
+//! typed into a live session run a skill its tool has (`/otaq:address-review`). A skill a stage names that isn't
+//! Otaq's is typed by its own name; the tool finds it itself, or says it doesn't know it. A gone session gets the
+//! hand-off as its first prompt.
 //!
-//! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`): it reads its skill folders
-//! only at start and prints `Unknown command` for a skill it didn't load, as the real tools do (the race of finding
-//! 19). Repos, `OTAQ_HOME` and the tools' home are temporary: no test starts a real tool.
+//! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`): Otaq's skills always run
+//! by their namespaced name, a project skill runs when it was in the folder at start, and any other answers `Unknown
+//! command`, as the real tools do. Repos, `OTAQ_HOME` and the tools' home are temporary: no test starts a real tool.
 //!
 //! Unix only: the stand-in agent tools are `sh` scripts started by name, which Windows can't run (Q598).
 #![cfg(unix)]
@@ -26,12 +27,20 @@ use otaq_core::pr::service::PrOutcome;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, said};
-use otaq_core::session::deliveries::handoff_sentence;
 use otaq_core::session::{SessionInfo, SessionKind, Start};
+use otaq_core::skills::testing::claude_skill;
 use tempfile::TempDir;
 
-/// Every hand-off skill and the Developer's own, as the stand-in lists what it loaded.
-const LOADED: &str = "loaded: otaq-address-review otaq-commit otaq-open-pr otaq-push otaq-restack otaq-work-ticket \r";
+/// What the stand-in found in the worktree at start: no skill, since Otaq writes none there.
+const LOADED: &str = "loaded: \r";
+
+/// What the stand-in prints when it runs Otaq's skill `name` as `tool` names it (OpenCode has no namespace).
+fn runs_own(tool: Tool, name: &str) -> String {
+    match tool {
+        Tool::OpenCode => format!("RUNS {name}"),
+        _ => format!("RUNS {}:{name}", otaq_core::naming::PLUGIN_NAMESPACE),
+    }
+}
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -140,8 +149,8 @@ async fn turn_ended(w: &TestService, t: &Ticket, session: &str) {
         .unwrap();
 }
 
-/// Send back on a live session, on each tool: the session started with `otaq-address-review` (with the other
-/// hand-off skills, git sees none of them), so the line typed runs it and the stand-in never says `Unknown command`.
+/// Send back on a live session, on each tool: nothing was written into the worktree, and the line typed runs Otaq's
+/// `address-review` from the plugin; the stand-in never says `Unknown command`.
 #[tokio::test(flavor = "multi_thread")]
 async fn send_back_into_a_live_session_runs_address_review_on_each_tool() {
     let World { w, _dir, .. } = world().await;
@@ -170,16 +179,18 @@ async fn send_back_into_a_live_session_runs_address_review_on_each_tool() {
             .await
             .unwrap();
         let out = w
-            .wait_for_output(&session.id, "RUNS otaq-address-review")
+            .wait_for_output(&session.id, &runs_own(tool, "address-review"))
             .await;
         assert!(!out.contains("Unknown command"), "{tool:?}: {out}");
         assert_eq!(w.status(&key).await, Status::Working, "{tool:?}");
+        assert!(!worktree.join(".agents").exists(), "{tool:?}");
+        assert!(!worktree.join(".claude").exists(), "{tool:?}");
     }
     w.stop().await;
 }
 
-/// A merge conflict at Local merge goes back to the live session with restack, typed once its turn ended: the
-/// session started with `otaq-restack`, so it runs.
+/// A merge conflict at Local merge goes back to the live session with restack, typed once its turn ended: Otaq's
+/// `restack` is in every session, so it runs.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_merge_conflict_runs_restack_in_the_live_session() {
     let World { w, repo, _dir } = world().await;
@@ -194,27 +205,37 @@ async fn a_merge_conflict_runs_restack_in_the_live_session() {
         "{merged:?}"
     );
     assert_eq!(w.status(&key).await, Status::MergeConflictFixing);
-    let out = w.wait_for_output(&session.id, "RUNS otaq-restack").await;
+    let out = w
+        .wait_for_output(&session.id, &runs_own(Tool::Claude, "restack"))
+        .await;
     assert!(!out.contains("Unknown command"), "{out}");
     w.stop().await;
 }
 
 /// Open PR and Push to PR clicked into the live session that delivers (the Developer is the Delivery's agent): the
-/// Delivery's imported Open PR skill (`my-pr`) and Otaq's `push` were copied at its start, so both run.
+/// Delivery stage names the team's `my-pr`, a project skill committed to the repository (so git puts it in the
+/// worktree), and it is typed by its own name; Push to PR types Otaq's `push`. Both run.
 #[tokio::test(flavor = "multi_thread")]
 async fn open_pr_and_push_run_in_the_live_session() {
-    let World { w, _dir, .. } = world().await;
-    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
-    w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+    let World { w, repo, _dir } = world().await;
+    std::fs::create_dir_all(repo.join(".claude/skills/my-pr")).unwrap();
+    commit(
+        &repo,
+        ".claude/skills/my-pr/SKILL.md",
+        "---\nname: my-pr\ndescription: Opens the team's PR.\n---\nOpen the PR.\n",
+    );
+    git(&repo, &["push", "-q", "origin", "main"]);
+    w.name_stage_skill(WorkflowStep::OpenPr, Some("my-pr"))
+        .await;
     let (t, session) = started(&w, Tool::Claude, "Login redirect").await;
     let out = w.wait_for_output(&session.id, "ARGS").await;
-    assert!(out.contains("otaq-my-pr "), "{out}");
+    assert!(out.contains("loaded: my-pr "), "{out}");
     in_review(&w, &t, "login.ts").await;
     let key = t.key.to_string();
 
     let outcome = w.prs.open(&key, false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&session.id, "RUNS otaq-my-pr").await;
+    w.wait_for_output(&session.id, "RUNS my-pr").await;
     w.prs.cancel(&key, &me()).await.unwrap();
 
     sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
@@ -224,54 +245,45 @@ async fn open_pr_and_push_run_in_the_live_session() {
         .unwrap();
     let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    let out = w.wait_for_output(&session.id, "RUNS otaq-push").await;
+    let out = w
+        .wait_for_output(&session.id, &runs_own(Tool::Claude, "push"))
+        .await;
     assert!(!out.contains("Unknown command"), "{out}");
     w.stop().await;
 }
 
-/// A hand-off whose skill the session didn't start with (Open PR's skill imported while the agent ran): it is copied
-/// and named by its file in the folder the tool reads (`.claude/skills/…` for Claude Code, `.agents/skills/…` for the
-/// other three), never typed as a command; the stand-in follows it.
+/// A skill runs only on a tool that has it: Open PR into the live Dev session, with a Delivery naming a skill nobody
+/// has, types nothing. The click is refused with "<tool> doesn't have the skill `/team-pr-0`", no PR flow is under
+/// way, and the session never sees the skill's name, on every tool.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_skill_the_session_didnt_start_with_is_named_by_its_file() {
+async fn a_skill_the_sessions_tool_doesnt_have_is_never_typed() {
     let World { w, _dir, .. } = world().await;
-    for (n, (tool, root)) in [
-        (Tool::Claude, ".claude/skills"),
-        (Tool::Codex, ".agents/skills"),
-        (Tool::Copilot, ".agents/skills"),
-        (Tool::OpenCode, ".agents/skills"),
-    ]
-    .into_iter()
-    .enumerate()
+    for (n, tool) in [Tool::Claude, Tool::Codex, Tool::Copilot, Tool::OpenCode]
+        .into_iter()
+        .enumerate()
     {
         let (t, session) = started(&w, tool, &format!("Login redirect {n}")).await;
         let name = format!("team-pr-{n}");
-        let folder = otaq_core::skills::testing::skill_folder(w.data.root(), &name);
-        w.import_step_skill(WorkflowStep::OpenPr, &folder).await;
+        w.name_stage_skill(WorkflowStep::OpenPr, Some(&name)).await;
         in_review(&w, &t, "login.ts").await;
         let key = t.key.to_string();
-        let outcome = w.prs.open(&key, false, false, &me()).await.unwrap();
-        assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-        let sentence = handoff_sentence(root, &name, None);
+        let refused = w.prs.open(&key, false, false, &me()).await.unwrap_err();
         assert_eq!(
-            sentence,
-            format!("Follow the skill in `{root}/otaq-team-pr-{n}/SKILL.md`.")
+            refused.to_string(),
+            otaq_core::flow::proposal::missing_skill_text(tool, &name),
+            "{tool}"
         );
-        let out = w
-            .wait_for_output(
-                &session.id,
-                &format!("FOLLOWS {root}/otaq-team-pr-{n}/SKILL.md"),
-            )
-            .await;
-        assert!(out.contains(&sentence), "{tool:?}: {out}");
-        assert!(!out.contains("Unknown command"), "{tool:?}: {out}");
-        w.prs.cancel(&key, &me()).await.unwrap();
+        assert!(w.board.pr_flow(&t.id).await.unwrap().is_none(), "{tool}");
+        tokio::time::sleep(Duration::from_millis(200)).await;
+        let typed = w.adapters.get(tool).skill_reference(&name);
+        let screen = w.wait_for_output(&session.id, "ARGS").await;
+        assert!(!screen.contains(&typed), "{tool}: {screen}");
     }
     w.stop().await;
 }
 
 /// Send back to a ticket whose session is gone: the conversation is resumed with the hand-off as its first prompt,
-/// the skill copied before the tool starts, as before d0118.
+/// Otaq's `address-review` by its namespaced name, nothing written into the worktree.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     let World { w, _dir, .. } = world().await;
@@ -287,11 +299,14 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     let resumed = running(&w, &t).await;
     assert_ne!(resumed.id, session.id);
     let out = w
-        .wait_for_output(&resumed.id, "RUNS otaq-address-review")
+        .wait_for_output(&resumed.id, &runs_own(Tool::Claude, "address-review"))
         .await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
     assert!(args.contains("--resume"), "{args}");
-    assert!(args.contains("/otaq-address-review "), "{args}");
+    assert!(
+        args.contains(&format!("{} ", claude_skill("address-review"))),
+        "{args}"
+    );
     assert!(out.contains(LOADED), "{out}");
     assert!(!output(&w, &resumed.id).contains("Unknown command"));
     // A first prompt isn't typed in: nothing waits for the agent to pick it up (d0118).

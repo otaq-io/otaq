@@ -205,9 +205,8 @@ impl PlanLimit {
         Ok(rows.into_iter().map(|(id,)| id).collect())
     }
 
-    /// The tool a ticket waiting for a reset waits on: the limit's mark, else its held check agent's (a round of
-    /// several check agents waits for the one held at its limit, d0130 row 17), else its running agent's (or
-    /// validator's) session, else its latest session's, else the new-session tool.
+    /// The tool a ticket waiting for a reset waits on: the limit's mark, else its checker's held at its limit, else
+    /// its running agent's (or validator's) session, else its latest session's, else the new-session tool.
     async fn tool_of(&self, ticket_id: &str) -> Result<Tool, StoreError> {
         let inner = &self.inner;
         if let Some(&tool) = inner.board.limit_stops().snapshot().marked.get(ticket_id) {

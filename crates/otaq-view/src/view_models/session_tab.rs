@@ -1,9 +1,9 @@
 //! The sheet's Session tab (SHT-04; d0022, d0035, d0048, d0063, d0108, d0130; canvas `s25-06`, `s29-04`): the ticket's
 //! terminals under its header, with the switch **Agent · <check's agent> · Run · Shell**. The check's side shows while a
 //! check stage runs on the ticket or after one ran (the running check, else the last: "Validator", "Security
-//! reviewer"; its terminal attaches with `--stage <id>`); a check of several agents has one side per check agent, each
-//! with its verdict ("Security reviewer ✓", "Performance reviewer") and attaching with `--stage <id> --agent <name>`
-//! (d0130 row 17). The dots say which side waits for you (turquoise) or runs (green). Over the
+//! reviewer"; its terminal attaches with `--stage <id>`). A check has one agent; a round stored from when a check could
+//! have several agents still has one side per check agent, each with its verdict ("Security reviewer ✓", "Performance
+//! reviewer"). The dots say which side waits for you (turquoise) or runs (green). Over the
 //! terminal, the line "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22" and "Typing goes to Rust
 //! developer"; Run's line "pnpm dev · in SHOP-22’s worktree · :4022" with Open URL. Replaces the panel's Terminal, Run
 //! and Shell tabs.
@@ -62,7 +62,7 @@ pub struct CheckSide {
     pub running: bool,
     /// Its verdict once its run ended with one (d0130: "Security reviewer ✓").
     pub verdict: Option<RunResult>,
-    /// One of several check agents of its stage's round: its terminal attaches with `--agent` too.
+    /// One of several check agents of a round stored from when a check could have several: its label says its verdict.
     pub several: bool,
 }
 
@@ -308,19 +308,11 @@ pub fn agent_line(
     .join(" \u{b7} ")
 }
 
-/// The command that attaches to a check's terminal while it runs: `otaq attach SHOP-19 --stage security`, and for one
-/// of several check agents `otaq attach SHOP-33 --stage validate --agent "Security reviewer"` (d0130 row 17); the
-/// ticket's own attach command once it ended.
+/// The command that attaches to a check's terminal while it runs: `otaq attach SHOP-19 --stage security` (a check has
+/// one agent, so the stage names it); the ticket's own attach command once it ended.
 pub fn check_attach_command(key: &TicketKey, side: &CheckSide) -> String {
     let stage = side.stage_id.as_deref().filter(|_| side.running);
-    let base = crate::view_models::terminal_strip::validator_attach_command(key, stage);
-    match stage.filter(|_| side.several) {
-        Some(_) if side.agent.contains(char::is_whitespace) => {
-            format!("{base} --agent \"{}\"", side.agent)
-        }
-        Some(_) => format!("{base} --agent {}", side.agent),
-        None => base,
-    }
+    crate::view_models::terminal_strip::validator_attach_command(key, stage)
 }
 
 /// Who typing reaches, with the ticket's key so a wrong ticket shows (finding 55 of the 2026-10-24 dogfood report). The
@@ -387,7 +379,6 @@ mod tests {
                 name: name.into(),
             }),
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         }
@@ -471,8 +462,9 @@ mod tests {
         assert_eq!(tab_dot(&waiting), Some(Dot::Waiting));
     }
 
-    /// d0130 row 17 (`s29-04`): one side per check agent of the round, each with its verdict, attaching with
-    /// `--stage validate --agent <name>`; an older round's session of the same agent isn't a side.
+    /// A round stored from when a check could have several agents (`s29-04`): one side per check agent of the round,
+    /// each with its verdict, attaching with `--stage validate`; an older round's session of the same agent isn't a
+    /// side.
     #[test]
     fn shop_33_two_check_agents_have_a_side_each() {
         let mut t = ticket("SHOP-33", "Shipping estimate", Status::Checking);
@@ -539,7 +531,7 @@ mod tests {
         let attach = crate::view_models::terminal_strip::attach_command(&key);
         assert_eq!(
             check_attach_command(&key, &sides[1]),
-            format!("{attach} --stage validate --agent \"Performance reviewer\"")
+            format!("{attach} --stage validate")
         );
         assert_eq!(check_attach_command(&key, &sides[0]), attach, "it ended");
         // One check agent: one side, no --agent, its name alone (as today).

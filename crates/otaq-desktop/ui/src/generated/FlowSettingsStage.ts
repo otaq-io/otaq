@@ -15,6 +15,6 @@ agent: string,
  */
 model: string | null, 
 /**
- * "Quick developer", "skip"; "—" with none.
+ * "skip"; "—" with none (a stage lists no agents).
  */
 options: string, };

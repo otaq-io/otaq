@@ -1,18 +1,21 @@
-//! Stage choices (T-0407; AGM-08, AGM-11, AGM-13; d0108, d0087) on the test flow `tests/flows/every-kind.yaml`: Product
-//! spec (skip), Dev (Rust developer, or Quick developer), Validate, Security (no options), QA (a check by you, skip)
-//! and an automatic PR Delivery. Who may set what, the locks, the skipped stages and the click Delivery after a skipped
-//! human check. The default flow has no choices. `claude` is stood in for by an ordinary command.
+//! Stage choices (T-0407; AGM-08, AGM-11, AGM-13; d0087) on the test flow `tests/flows/every-kind.yaml`: Product spec
+//! (skippable), Dev, Validate, Security, QA (a check by you, skippable) and an automatic PR Delivery. A stage lists no
+//! agents: any stage an agent runs may run any agent whose tool has its skill. Who may set what (only the user, or
+//! Noyan passing on the user's words), the locks, the skipped stages and the Delivery after a skipped human check. On
+//! the default flow too the user picks Dev's agent. `claude` is stood in for by an ordinary command.
 
 use std::path::Path;
 use std::time::Duration;
 
 use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::Tool;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agents::AgentModel;
 use otaq_core::agents::resolve;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::stage_choices::{
     ChoicePick, ChoiceWrite, Chooser, NOYAN_USER_CHOICES_ONLY, ONLY_NOYAN_PASSES_ON,
-    ONLY_THE_USER_SKIPS, SetBy, TicketChoices, skipped_mark,
+    ONLY_THE_USER_PICKS, ONLY_THE_USER_SKIPS, SetBy, TicketChoices, skipped_mark,
 };
 use otaq_core::board::tickets::Ticket;
 use otaq_core::board::{BoardError, Refusal};
@@ -115,11 +118,10 @@ async fn at_work_in(w: &TestService, ticket: &Ticket, stage: &str) {
 }
 
 /// AGM-08's rules, sentence by sentence: Noyan sets only the choices the user names (`--by-user`), its own are
-/// refused; a ticket agent may pick an agent or `required` with a reason but only the user skips a stage; the user
-/// changes Dev and wins; a later agent can't override the user's choice, and only Noyan passes on the user's words
-/// (`--by-user`); Spec
-/// writer, at work in Product spec, can't choose for Security (no options) and changes Dev with a reason; an option
-/// not in the stage's list is refused naming them; a choice locks when Dev starts.
+/// refused; a ticket's own agent sets none (only the user picks an agent or skips a stage), and only Noyan passes on
+/// the user's words; the user picks any agent whose tool has the stage's skill for any stage an agent runs, even one
+/// the flow lists nothing for (Security), and an agent whose tool lacks the skill is refused saying so; a skip of a
+/// stage the flow doesn't mark skippable is refused; a choice locks when its stage starts.
 #[tokio::test(flavor = "multi_thread")]
 async fn who_may_set_what() {
     let w = world().await;
@@ -160,241 +162,105 @@ async fn who_may_set_what() {
         choice_of(&w, &typo, "Dev").await,
         ("Quick developer".to_owned(), Some(SetBy::User))
     );
-    // Before the ticket starts, a ticket agent may set any stage's agent or `required`, always with a reason; it never
-    // skips one.
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &typo,
-                &[pick("QA", "required", None)],
-                &architect(),
-                false
-            )
-            .await
-        ),
-        (Refusal::EmptyField, "Say why with --reason".into())
-    );
-    choose(
-        &w,
-        &typo,
-        &[pick("QA", "required", Some("touches payments"))],
-        &architect(),
-        false,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &typo,
-                &[pick("Product spec", "skip", Some("nothing to ask"))],
-                &architect(),
-                false
-            )
-            .await
-        ),
-        (Refusal::NotAllowed, ONLY_THE_USER_SKIPS.into())
-    );
 
-    // The user changes Dev back; their choice wins over any agent's later one.
+    // A ticket's own agent sets no choice, before the ticket starts or after, with a reason or not: picking an agent
+    // for a later stage would move work to a tool the user didn't choose. Nothing is written.
+    at_work_in(&w, &typo, "product-spec").await;
+    for chooser in [architect(), spec_writer()] {
+        for (picked, refused) in [
+            (
+                pick("Validate", "Quick developer", Some("risky change")),
+                ONLY_THE_USER_PICKS,
+            ),
+            (
+                pick("QA", "required", Some("touches payments")),
+                ONLY_THE_USER_PICKS,
+            ),
+            (pick("QA", "skip", Some("docs only")), ONLY_THE_USER_SKIPS),
+        ] {
+            assert_eq!(
+                refusal(choose(&w, &typo, &[picked], &chooser, false).await),
+                (Refusal::NotAllowed, refused.into())
+            );
+        }
+        // Only Noyan passes on the user's choices: a ticket agent's `--by-user` is refused (T9).
+        for words in [None, Some("the user asked")] {
+            assert_eq!(
+                refusal(
+                    choose(
+                        &w,
+                        &typo,
+                        &[pick("Validate", "Quick developer", words)],
+                        &chooser,
+                        true,
+                    )
+                    .await
+                ),
+                (Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON.into())
+            );
+        }
+    }
+    assert_eq!(choice_of(&w, &typo, "Validate").await.1, None);
+    assert_eq!(choice_of(&w, &typo, "QA").await.1, None);
+
+    // The user picks any agent whose tool has the stage's skill, for any stage an agent runs: Validate and Security
+    // list no agents in the flow. History says who chose.
+    let fresh = w.create("SHOP", "Export as CSV").await;
     choose(
         &w,
-        &typo,
-        &[pick("dev", "Rust developer", None)],
+        &fresh,
+        &[
+            pick("Validate", "Security reviewer", None),
+            pick("Security", "Validator", None),
+        ],
         &Chooser::User,
         false,
     )
     .await
     .unwrap();
     assert_eq!(
-        choice_of(&w, &typo, "Dev").await,
-        ("Rust developer".to_owned(), Some(SetBy::User))
+        choice_of(&w, &fresh, "Security").await,
+        ("Validator".to_owned(), Some(SetBy::User))
     );
-    let set_by_you = (
-        Refusal::NotAllowed,
-        "You set Dev for SHOP-1; the agent's choice doesn't replace yours".to_owned(),
-    );
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &typo,
-                &[pick("Dev", "Quick developer", Some("typo fix"))],
-                &architect(),
-                false
-            )
-            .await
-        ),
-        set_by_you
-    );
-    // Spec writer, at work in Product spec, can't override it either.
-    at_work_in(&w, &typo, "product-spec").await;
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &typo,
-                &[pick("Dev", "Quick developer", Some("x"))],
-                &spec_writer(),
-                false
-            )
-            .await
-        ),
-        set_by_you
-    );
-    // Only Noyan passes on the user's choices: Spec writer's `--by-user` is refused, with a reason or not, and
-    // nothing is written (T9).
-    for words in [None, Some("the user asked")] {
-        assert_eq!(
-            refusal(
-                choose(
-                    &w,
-                    &typo,
-                    &[pick("Dev", "Quick developer", words)],
-                    &spec_writer(),
-                    true,
-                )
-                .await
-            ),
-            (Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON.into())
-        );
-    }
-    assert_eq!(
-        choice_of(&w, &typo, "Dev").await,
-        ("Rust developer".to_owned(), Some(SetBy::User))
-    );
-
-    // Another ticket at work in Product spec: Spec writer changes the later Dev with a reason, not Product spec
-    // (started), and Security has no options.
-    let session = w.create("SHOP", "Sessions survive a restart").await;
-    choose(
-        &w,
-        &session,
-        &[pick("Dev", "Quick developer", Some("small change"))],
-        &architect(),
-        false,
-    )
-    .await
-    .unwrap();
-    at_work_in(&w, &session, "product-spec").await;
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &session,
-                &[pick("Security", "Quick developer", Some("x"))],
-                &spec_writer(),
-                false
-            )
-            .await
-        ),
-        (
-            Refusal::NotAnOption,
-            "Security has no options: every ticket runs it as the flow says".into()
-        )
-    );
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &session,
-                &[pick("Product spec", "skip", Some("x"))],
-                &spec_writer(),
-                false
-            )
-            .await
-        )
-        .0,
-        Refusal::ChoiceLocked
-    );
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &session,
-                &[pick("Dev", "Rust developer", None)],
-                &spec_writer(),
-                false
-            )
-            .await
-        ),
-        (Refusal::EmptyField, "Say why with --reason".into())
-    );
-    choose(
-        &w,
-        &session,
-        &[pick(
-            "Dev",
-            "Rust developer",
-            Some("touches session handling"),
-        )],
-        &spec_writer(),
-        false,
-    )
-    .await
-    .unwrap();
-    assert_eq!(
-        choice_of(&w, &session, "Dev").await,
-        (
-            "Rust developer".to_owned(),
-            Some(SetBy::Agent {
-                name: "Spec writer".into(),
-                reason: "touches session handling".into()
-            })
-        )
-    );
-    // History names who chose and why.
-    let history = w.board.history(&session.key.to_string()).await.unwrap();
-    let last = history
+    let history = w.board.history(&fresh.key.to_string()).await.unwrap();
+    let set = history
         .iter()
-        .find(|e| {
-            e.kind == otaq_core::board::tickets::EventKind::StageChoiceSet
-                && e.payload["by"] == "Spec writer"
-        })
+        .find(|e| e.kind == otaq_core::board::tickets::EventKind::StageChoiceSet)
         .unwrap();
-    assert_eq!(last.payload["from"], "Quick developer");
-    assert_eq!(last.payload["by"], "Spec writer");
-    assert_eq!(last.payload["reason"], "touches session handling");
-    // Only the user skips a stage: Spec writer can't skip the later QA, not even in the user's words (only Noyan
-    // passes those on), and nothing is written.
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &session,
-                &[pick("QA", "skip", Some("docs only"))],
-                &spec_writer(),
-                false
-            )
-            .await
-        ),
-        (Refusal::NotAllowed, ONLY_THE_USER_SKIPS.into())
+    assert_eq!(set.payload["by"], "you");
+    // An agent whose tool lacks the stage's skill isn't offered, and picking it is refused saying so: nobody has
+    // `/team-security-review`, and Quick developer now runs on Codex.
+    w.set_agent_model(
+        "Quick developer",
+        AgentModel::Tool {
+            tool: Tool::Codex,
+            model: None,
+        },
+    )
+    .await;
+    let offered = choices(&w, &fresh).await;
+    let security = offered
+        .stages
+        .iter()
+        .find(|s| s.stage == "Security")
+        .unwrap();
+    assert!(
+        !security.agents.iter().any(|a| a.name == "Quick developer"),
+        "{security:?}"
     );
-    assert_eq!(
-        refusal(
-            choose(
-                &w,
-                &session,
-                &[pick("QA", "skip", None)],
-                &spec_writer(),
-                true,
-            )
-            .await
-        ),
-        (Refusal::NotAllowed, ONLY_NOYAN_PASSES_ON.into())
+    let dev = offered.stages.iter().find(|s| s.stage == "Dev").unwrap();
+    assert!(
+        dev.agents
+            .iter()
+            .any(|a| a.name == "Quick developer" && a.tool == Some(Tool::Codex)),
+        "Dev runs one of Otaq's own skills, which every tool has: {dev:?}"
     );
-    assert_eq!(choice_of(&w, &session, "QA").await.1, None);
-
-    // An option not in the stage's list is refused, naming the options; so is an unknown stage.
-    let fresh = w.create("SHOP", "Export as CSV").await;
     assert_eq!(
         refusal(
             choose(
                 &w,
                 &fresh,
-                &[pick("Dev", "Spec writer", None)],
+                &[pick("Security", "Quick developer", None)],
                 &Chooser::User,
                 false
             )
@@ -402,8 +268,28 @@ async fn who_may_set_what() {
         ),
         (
             Refusal::NotAnOption,
-            "Spec writer isn't one of Dev's options: Rust developer, Quick developer".into()
+            "Quick developer runs on Codex, which doesn't have the skill `/team-security-review` for Security".into()
         )
+    );
+    // Not a choice of the stage: refused naming them; a stage that runs no agent offers only its own; Dev isn't
+    // skippable; an unknown stage lists the stages with choices.
+    let dev_refused = refusal(
+        choose(
+            &w,
+            &fresh,
+            &[pick("Dev", "Spec typist", None)],
+            &Chooser::User,
+            false,
+        )
+        .await,
+    );
+    assert_eq!(dev_refused.0, Refusal::NotAnOption);
+    assert!(
+        dev_refused
+            .1
+            .starts_with("Spec typist isn't one of Dev's choices: Rust developer, "),
+        "{}",
+        dev_refused.1
     );
     assert_eq!(
         refusal(
@@ -417,7 +303,23 @@ async fn who_may_set_what() {
             .await
         )
         .1,
-        "Quick developer isn't one of QA's options: required, skip"
+        "QA runs no agent: its choices are required (you check it) and skip"
+    );
+    assert_eq!(
+        refusal(
+            choose(
+                &w,
+                &fresh,
+                &[pick("Dev", "skip", None)],
+                &Chooser::User,
+                false
+            )
+            .await
+        ),
+        (
+            Refusal::NotAnOption,
+            "Dev can't be skipped; add `skip` to its options in the flow to allow it.".into()
+        )
     );
     let unknown = choose(
         &w,
@@ -429,7 +331,7 @@ async fn who_may_set_what() {
     .await;
     assert_eq!(
         unknown.unwrap_err().to_string(),
-        "SHOP's flow has no stage Lint (stages with options: Product spec, Dev, QA)"
+        "SHOP's flow has no stage Lint (stages with choices: Product spec, Dev, Validate, Security, QA)"
     );
 
     // A choice locks when its stage starts: Dev at work.
@@ -450,7 +352,7 @@ async fn who_may_set_what() {
             choose(
                 &w,
                 &fresh,
-                &[pick("Dev", "Quick developer", None)],
+                &[pick("Dev", "Validator", None)],
                 &Chooser::User,
                 false
             )
@@ -458,7 +360,7 @@ async fn who_may_set_what() {
         ),
         (
             Refusal::ChoiceLocked,
-            "Dev has started on SHOP-3: its choice is locked".into()
+            "Dev has started on SHOP-2: its choice is locked".into()
         )
     );
     // The user can still skip the QA ahead.
@@ -477,10 +379,7 @@ async fn who_may_set_what() {
     choose(
         &w,
         &noyan,
-        &[
-            pick("QA", "skip", None),
-            pick("Dev", "Quick developer", None),
-        ],
+        &[pick("QA", "skip", None), pick("Dev", "Validator", None)],
         &planner(),
         true,
     )
@@ -492,13 +391,13 @@ async fn who_may_set_what() {
     );
     assert_eq!(
         choice_of(&w, &noyan, "Dev").await,
-        ("Quick developer".to_owned(), Some(SetBy::User))
+        ("Validator".to_owned(), Some(SetBy::User))
     );
     w.stop().await;
 }
 
-/// AGM-05 and AGM-08: the running agent is the choice, else the stage's agent; a choice for an agent the stage no
-/// longer offers, or for a stage the flow no longer has, is ignored.
+/// AGM-05 and AGM-08: the running agent is the choice, else the stage's agent; a skip of a stage no longer
+/// skippable, or a choice for a stage the flow no longer has, is ignored.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_running_agent_and_choices_the_flow_dropped() {
     let w = world().await;
@@ -537,16 +436,22 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
     let dev = agents.stages.iter().find(|s| s.stage_id == "dev").unwrap();
     assert_eq!(dev.agent.as_ref().unwrap().name, "Quick developer");
 
-    // The flow drops Dev's option and Product spec's skip: the choices are ignored, the usual agents run.
+    // The flow drops Product spec's skip: the skip is ignored; Dev's pick stays (a stage lists no agents).
     let mut file = every_kind_file();
     for stage in &mut file.flow.stages {
         stage.options.clear();
     }
     w.board.use_flow_for_tests("SHOP", &file).await;
-    assert_eq!(running(t.clone(), "dev").await, "Rust developer");
+    assert_eq!(running(t.clone(), "dev").await, "Quick developer");
     let flow = w.board.effective_flow("SHOP").await.unwrap();
     assert!(w.board.ticket_skips(&t, &flow).await.unwrap().is_empty());
-    assert!(choices(&w, &t).await.stages.is_empty());
+    let left = choices(&w, &t).await;
+    let spec = left
+        .stages
+        .iter()
+        .find(|s| s.stage == "Product spec")
+        .unwrap();
+    assert!(!spec.can_skip && spec.choice.is_none(), "{spec:?}");
     // And a flow without Product spec: its choice is ignored too.
     let mut file = every_kind_file();
     file.flow.stages.retain(|s| s.id != "product-spec");
@@ -557,7 +462,7 @@ async fn the_running_agent_and_choices_the_flow_dropped() {
             .iter()
             .map(|s| s.stage.as_str())
             .collect::<Vec<_>>(),
-        ["Dev", "QA"]
+        ["Dev", "Validate", "Security", "QA"]
     );
     assert_eq!(left.stages[0].label(), "Quick developer");
     let flow = w.board.effective_flow("SHOP").await.unwrap();
@@ -656,7 +561,13 @@ async fn a_skipped_product_spec_starts_in_dev_on_the_chosen_agent() {
         .collect();
     assert_eq!(
         locked,
-        [("Product spec", true), ("Dev", true), ("QA", false)]
+        [
+            ("Product spec", true),
+            ("Dev", true),
+            ("Validate", false),
+            ("Security", false),
+            ("QA", false)
+        ]
     );
     assert!(now.stages[0].skipped());
     assert_eq!(
@@ -667,10 +578,10 @@ async fn a_skipped_product_spec_starts_in_dev_on_the_chosen_agent() {
 }
 
 /// QA (a human check) skipped by the ticket's choice: Security's Pass walks past QA (a skipped run) into the
-/// automatic PR Delivery, which then waits for a click (d0108: a ticket that skipped a human check always reaches
-/// Delivery in click mode). Without the skip the same Pass enters QA, and QA's Pass delivers with no click.
+/// automatic PR Delivery, which delivers with no click, as the flow says. Without the skip the same Pass enters QA,
+/// and QA's Pass delivers with no click too.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_skipped_qa_reaches_done_in_click_mode() {
+async fn a_skipped_qa_reaches_done_as_the_flow_says() {
     let w = world().await;
     let t = w.create("SHOP", "Fix README typo").await;
     choose(&w, &t, &[pick("QA", "skip", None)], &Chooser::User, false)
@@ -696,8 +607,8 @@ async fn a_skipped_qa_reaches_done_in_click_mode() {
     .unwrap();
     assert_eq!(
         (pass.place.clone(), pass.status, pass.automatic),
-        (Place::stage_of("ship"), Status::ToDeliver, false),
-        "Done in click mode"
+        (Place::stage_of("ship"), Status::ToDeliver, true),
+        "Done automatic, as the flow says"
     );
     let through: Vec<(&str, RunResult)> = pass
         .passed_through
@@ -719,33 +630,56 @@ async fn a_skipped_qa_reaches_done_in_click_mode() {
     w.stop().await;
 }
 
-/// The default flow has no options: no choices, and a `--stage` is refused.
+/// On the default flow (no stage lists options) the user sets Dev=Strong for one ticket and it runs on Strong; another
+/// ticket keeps Dev's own agent. Dev isn't skippable, so its skip is refused.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_default_flow_has_no_choices() {
-    let w = TestService::start().await;
-    w.add_project("pocket-notes").await;
-    let project = w.board.projects().await.unwrap()[0].key.clone();
+async fn on_the_default_flow_the_user_sets_dev_to_another_agent() {
+    let w = TestService::start_with(launch).await;
+    let project = w.add_project("pocket-notes").await.key;
     let flow = w.board.effective_flow(&project).await.unwrap();
-    assert!(
-        flow.stages
-            .iter()
-            .all(|s| s.options.iter().all(|o| *o != StageOption::Skip) && s.options.is_empty())
-    );
-    let t = w.create(&project, "Sort notes").await;
-    assert!(choices(&w, &t).await.stages.is_empty());
-    assert!(
-        w.board
-            .new_ticket_choices(&project)
-            .await
-            .unwrap()
-            .stages
-            .is_empty()
-    );
+    assert!(flow.stages.iter().all(|s| s.options.is_empty()));
+    w.board
+        .store()
+        .insert_agent(
+            &otaq_core::agents::store::NewAgent {
+                name: "Strong".into(),
+                instructions: String::new(),
+                model: AgentModel::Default,
+                effort: None,
+                role: None,
+            },
+            &otaq_core::agents::CameFrom::You,
+            None,
+        )
+        .await
+        .unwrap();
+    let new = w.board.new_ticket_choices(&project).await.unwrap();
+    let dev = new.stages.iter().find(|s| s.stage_id == "dev").unwrap();
+    assert!(dev.agents.iter().any(|a| a.name == "Strong"), "{dev:?}");
+    let strong = w.create(&project, "Sort notes").await;
+    let plain = w.create(&project, "Tag notes").await;
+    let writes = w
+        .board
+        .check_choices(
+            &project,
+            Some(&strong),
+            "",
+            &[pick("Dev", "Strong", None)],
+            &Chooser::User,
+            false,
+        )
+        .await
+        .unwrap();
+    w.board
+        .write_choices(&strong, &writes, &me())
+        .await
+        .unwrap();
+    assert_eq!(choice_of(&w, &strong, "Dev").await.0, "Strong");
     let refused = w
         .board
         .check_choices(
             &project,
-            Some(&t),
+            Some(&plain),
             "",
             &[pick("Dev", "skip", None)],
             &Chooser::User,
@@ -755,7 +689,211 @@ async fn the_default_flow_has_no_choices() {
         .unwrap_err();
     assert_eq!(
         refused.to_string(),
-        "Dev has no options; add `skip` to its options in the flow to allow it."
+        "Dev can't be skipped; add `skip` to its options in the flow to allow it."
+    );
+    for (t, runs) in [(&strong, "Strong"), (&plain, "Developer")] {
+        let key = t.key.to_string();
+        w.board
+            .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+            .await
+            .unwrap();
+        w.starter
+            .start(&key, &me(), otaq_core::session::Start::Auto)
+            .await
+            .unwrap();
+        until_status(&w, &key, Status::Working).await;
+        let agent: Option<String> = sqlx::query_scalar(
+            "SELECT agent_name FROM sessions WHERE ticket_id = ? AND kind = 'agent' ORDER BY started_at DESC",
+        )
+        .bind(&t.id)
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap();
+        assert_eq!(agent.as_deref(), Some(runs), "{key}");
+    }
+    w.stop().await;
+}
+
+/// An older flow whose check lists several agents (`tests/flows/several-check-agents.yaml`, Security here skippable)
+/// splits when it is read: the project's board runs Security and "Security · Validator" one after the other. The
+/// tickets carry over once: a skip of Security skips both, a move past Security is past both, and Security's fails
+/// in a row and extra rounds start at 0. The stored version is never rewritten; the user's next change saves the
+/// split. Back to the previous flow on the old version gives the same split.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_flow_splits_its_check_and_carries_the_tickets_over() {
+    use otaq_core::domain::validation::MovedPast;
+    use otaq_core::flow::apply::ProposeFrom;
+    use otaq_core::flow::proposal::ApplyChoices;
+    use otaq_core::flow::{Column, Flow};
+
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    // Before the upgrade: Security is one stage, skippable.
+    let mut file = every_kind_file();
+    let skippable = |file: &mut FlowFile| {
+        let security = file
+            .flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == "security")
+            .unwrap();
+        security.options = vec![StageOption::Skip];
+    };
+    skippable(&mut file);
+    w.board.use_flow_for_tests("SHOP", &file).await;
+    let skipped = w.create("SHOP", "Skips Security").await;
+    choose(
+        &w,
+        &skipped,
+        &[pick("Security", "skip", None)],
+        &Chooser::User,
+        false,
+    )
+    .await
+    .unwrap();
+    let moved = w.create("SHOP", "Moved past Security").await;
+    let failing = w.create("SHOP", "Failed Security twice").await;
+    let pool = w.board.store().pool();
+    sqlx::query(
+        "INSERT INTO check_counters (ticket_id, stage_id, fails, moved_past, updated_at) VALUES (?, 'security', 1, 'skipped', 1)",
+    )
+    .bind(&moved.id)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO check_counters (ticket_id, stage_id, fails, extra, updated_at) VALUES (?, 'security', 2, 1, 1)",
+    )
+    .bind(&failing.id)
+    .execute(pool)
+    .await
+    .unwrap();
+    // The flow as an older build stored it: Security lists two agents.
+    let old = std::fs::read_to_string(
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/several-check-agents.yaml"),
+    )
+    .unwrap()
+    .replace(
+        "    agents: [Security reviewer, Validator]\n",
+        "    agents: [Security reviewer, Validator]\n    options: [skip]\n",
+    );
+    let old_version = w.board.current_flow("SHOP").await.unwrap().version;
+    sqlx::query("UPDATE project_flows SET yaml = ? WHERE current")
+        .bind(&old)
+        .execute(pool)
+        .await
+        .unwrap();
+    // The service starts; a second start carries nothing again (the failing ticket's new fail stays).
+    w.board.carry_split_checks().await.unwrap();
+    sqlx::query(
+        "UPDATE check_counters SET fails = 1 WHERE ticket_id = ? AND stage_id = 'security'",
+    )
+    .bind(&failing.id)
+    .execute(pool)
+    .await
+    .unwrap();
+    w.board.carry_split_checks().await.unwrap();
+    let count = w
+        .board
+        .check_counts(&failing.id)
+        .await
+        .unwrap()
+        .of("security");
+    assert_eq!(count.fails, 1);
+    sqlx::query(
+        "UPDATE check_counters SET fails = 0 WHERE ticket_id = ? AND stage_id = 'security'",
+    )
+    .bind(&failing.id)
+    .execute(pool)
+    .await
+    .unwrap();
+
+    let split = yaml::read(&old).unwrap().flow;
+    let flow = w.board.effective_flow("SHOP").await.unwrap();
+    assert_eq!(flow, split);
+    let security = |flow: &Flow| -> Vec<(String, String, Column)> {
+        flow.stages
+            .iter()
+            .filter(|s| s.id.starts_with("security"))
+            .map(|s| (s.id.clone(), s.name.clone(), s.column))
+            .collect()
+    };
+    assert_eq!(
+        security(&flow),
+        [
+            ("security".to_owned(), "Security".to_owned(), Column::Own),
+            (
+                "security-validator".to_owned(),
+                "Security · Validator".to_owned(),
+                Column::WithPrevious
+            ),
+        ]
+    );
+    let skipped = w.board.ticket(&skipped.key.to_string()).await.unwrap();
+    assert_eq!(
+        w.board.ticket_skips(&skipped, &flow).await.unwrap(),
+        ["security", "security-validator"]
+    );
+    let counts = w.board.check_counts(&moved.id).await.unwrap();
+    assert_eq!(
+        counts.of("security-validator").moved_past,
+        Some(MovedPast::Skipped)
+    );
+    assert_eq!(counts.of("security").moved_past, Some(MovedPast::Skipped));
+    let counts = w.board.check_counts(&failing.id).await.unwrap();
+    for stage in ["security", "security-validator"] {
+        let count = counts.of(stage);
+        assert_eq!((count.fails, count.extra), (0, 0), "{stage}");
+    }
+    // Stored versions are never rewritten by reading.
+    assert_eq!(w.board.current_flow("SHOP").await.unwrap().yaml, old);
+
+    // The user's next change saves the split.
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow
+                .stages
+                .iter_mut()
+                .find(|s| s.id == "validate")
+                .unwrap()
+                .rounds = Some(2);
+        })
+        .await;
+    let saved = w.board.current_flow("SHOP").await.unwrap().yaml;
+    assert!(!saved.contains("agents: ["), "{saved}");
+    assert!(saved.contains("id: security-validator"), "{saved}");
+    assert_eq!(
+        security(&w.board.effective_flow("SHOP").await.unwrap()),
+        security(&split)
+    );
+
+    // Back to the previous flow on the old version: the same split.
+    let back = w
+        .board
+        .propose_from(
+            "SHOP",
+            &ProposeFrom::Previous {
+                version: Some(old_version),
+            },
+            &otaq_core::agents::FixedModels::sample(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(yaml::read(&back.yaml).unwrap().flow, split);
+    w.board
+        .apply_proposal(
+            "SHOP",
+            back.id,
+            &ApplyChoices::default(),
+            &otaq_core::agents::FixedModels::sample(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(w.board.effective_flow("SHOP").await.unwrap(), split);
+    let skipped = w.board.ticket(&skipped.key.to_string()).await.unwrap();
+    assert_eq!(
+        w.board.ticket_skips(&skipped, &split).await.unwrap(),
+        ["security", "security-validator"]
     );
     w.stop().await;
 }

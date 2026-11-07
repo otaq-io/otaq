@@ -85,6 +85,15 @@ impl Kind {
             _ => Self::Interrupted,
         }
     }
+
+    /// The kind of a ticket's item: a stage held for its skill is its tool's (it can't run the stage), else by its
+    /// status.
+    pub fn of_item(item: &NeedsYouItem) -> Self {
+        match item.missing_skill {
+            Some(_) => Self::ToolUnavailable,
+            None => Self::of_status(item.status),
+        }
+    }
 }
 
 /// What a click on a notification opens (d0090 "What a click opens"). An item answered before the click opens the
@@ -308,7 +317,7 @@ pub fn plan(
         .iter()
         .filter(|i| should_notify(i))
         .filter(|i| seen.insert(item_id(i)))
-        .filter(|i| choices.allows(Kind::of_status(i.status)))
+        .filter(|i| choices.allows(Kind::of_item(i)))
         .map(|i| Planned {
             notification: one(i, texts.get(&i.id).cloned().unwrap_or_default(), choices),
             item: Held {
@@ -331,6 +340,12 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
     let key = &item.key;
     let decide = format!("Decide in {}.", naming::PRODUCT_NAME);
     let (title, body, target) = match item.status {
+        // "SHOP-19 can't start" · "Codex doesn't have the skill /team-validate".
+        _ if let Some(missing) = &item.missing_skill => (
+            format!("{key} can\u{2019}t start"),
+            missing.text().replace('`', ""),
+            Target::Sheet { key: key.clone() },
+        ),
         Status::AsksYou => (
             format!("{key} asks a question"),
             text.unwrap_or_default().to_owned(),
@@ -341,11 +356,19 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             text.unwrap_or_default().to_owned(),
             Target::Ticket { key: key.clone() },
         ),
-        Status::Idle => (
-            format!("{key} ended its turn"),
-            text.unwrap_or_default().to_owned(),
-            Target::Ticket { key: key.clone() },
-        ),
+        // A failed turn (F10): "SHOP-19 stopped on an error" · the tool's message.
+        Status::Idle => match text.and_then(crate::signals::tool_error) {
+            Some(error) => (
+                format!("{key} stopped on an error"),
+                error.to_owned(),
+                Target::Ticket { key: key.clone() },
+            ),
+            None => (
+                format!("{key} ended its turn"),
+                text.unwrap_or_default().to_owned(),
+                Target::Ticket { key: key.clone() },
+            ),
+        },
         // "SHOP-33 validator permission" · "Allow Bash(pnpm test)?"; a click opens the validator's terminal.
         Status::CheckerNeedsYou => (
             format!("{key} validator permission"),
@@ -388,7 +411,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
         title,
         subtitle: format!("{} \u{b7} {}", item.project_name, item.title),
         body,
-        kind: Some(Kind::of_status(item.status)),
+        kind: Some(Kind::of_item(item)),
         target,
         thread: Some(item.project.clone()),
         sound: choices.sound,
@@ -537,10 +560,9 @@ pub fn summary(held: &[Held], sound: bool) -> OsNotification {
     }
 }
 
-/// The one notification for a tool that isn't available while tickets wait on it or started on its fallback (USG-10,
-/// d0086, AGM-03): "Codex isn't available" / "5 tickets waiting", "3 tickets on the fallback", or both. Posted when it
-/// first happens, not per ticket; a click opens the board.
-pub fn tool_unavailable(tool: Tool, waiting: u32, on_fallback: u32) -> OsNotification {
+/// The one notification for a tool that isn't available while tickets wait on it (USG-10, d0086): "Codex isn't
+/// available" / "5 tickets waiting". Posted when it first happens, not per ticket; a click opens the board.
+pub fn tool_unavailable(tool: Tool, waiting: u32) -> OsNotification {
     let tickets = |n: u32| match n {
         1 => "1 ticket".to_owned(),
         n => format!("{n} tickets"),
@@ -548,9 +570,6 @@ pub fn tool_unavailable(tool: Tool, waiting: u32, on_fallback: u32) -> OsNotific
     let mut parts = Vec::new();
     if waiting > 0 {
         parts.push(format!("{} waiting", tickets(waiting)));
-    }
-    if on_fallback > 0 {
-        parts.push(format!("{} on the fallback", tickets(on_fallback)));
     }
     OsNotification {
         title: format!("{} isn\u{2019}t available", tool.display_name()),
@@ -1059,6 +1078,7 @@ mod tests {
             waiting_in: None,
             piece: None,
             helpers_to_resume: Vec::new(),
+            missing_skill: None,
         }
     }
 
@@ -1080,6 +1100,28 @@ mod tests {
 
     fn notifications(planned: Vec<Planned>) -> Vec<OsNotification> {
         planned.into_iter().map(|p| p.notification).collect()
+    }
+
+    /// F10: an Idle a failed turn left says the agent stopped on an error, with the tool's message.
+    #[test]
+    fn a_failed_turn_says_it_stopped_on_an_error() {
+        let items = [item("SHOP-19", Status::Idle, NeedsYouGroup::Family, 1)];
+        let texts = HashMap::from([(
+            "SHOP-19".to_owned(),
+            ItemText::from(
+                crate::signals::tool_error_text("provider.auth", Some("Invalid API key")).as_str(),
+            ),
+        )]);
+        let out = notifications(plan(&items, &texts, &mut HashSet::new(), &on()));
+        assert_eq!(
+            shown(&out),
+            [(
+                "SHOP-19 stopped on an error",
+                "shop-web \u{b7} Split user full name",
+                "Invalid API key"
+            )]
+        );
+        assert_eq!(out[0].kind, Some(Kind::TurnEnded));
     }
 
     fn agent_wait(agent: &str, status: Status, since: i64) -> crate::project_agents::AgentNeedsYou {
@@ -1519,7 +1561,7 @@ mod tests {
     /// A tool that isn't available opens the board, in no project's thread.
     #[test]
     fn a_tool_that_is_not_available_opens_the_board() {
-        let n = tool_unavailable(Tool::Codex, 5, 0);
+        let n = tool_unavailable(Tool::Codex, 5);
         assert_eq!(n.title, "Codex isn\u{2019}t available");
         assert_eq!(n.body, "5 tickets waiting");
         assert_eq!(n.kind, Some(Kind::ToolUnavailable));
@@ -1636,7 +1678,7 @@ mod tests {
     /// d0090: Linux has no subtitle; it is the body's last line.
     #[test]
     fn linux_appends_the_subtitle_to_the_body() {
-        let mut n = tool_unavailable(Tool::Codex, 1, 0);
+        let mut n = tool_unavailable(Tool::Codex, 1);
         assert_eq!(linux_body(&n), "1 ticket waiting");
         n.subtitle = "shop-web · Fix flaky login redirect".into();
         assert_eq!(

@@ -5,30 +5,23 @@ agents:
       Write what was agreed into the ticket.
 
       Never write code.
-    skills: [product-spec]
     model: default
   - name: Rust developer
     instructions: "Follow our error-handling rules: no unwrap in library code."
-    skills: [work-ticket, commit-compact]
     model: default
   - name: Quick developer
-    skills: [work-ticket, commit-compact]
     model: default
   - name: Validator
-    skills: [validate]
     model: default
   - name: Security reviewer
     instructions: |-
       Never edit files.
       Fail on unescaped SQL.
-    skills: [security-review]
     model: default
   - name: Shipper
-    skills: [open-pr]
     model: default
   - name: Noyan
     role: noyan
-    skills: [noyan, flow]
     model: default
 flow:
   - id: product-spec
@@ -44,13 +37,12 @@ flow:
     column: own
     agent: Rust developer
     skill: work-ticket
-    options: [Quick developer]
   - id: validate
     name: Validate
     kind: check
     by: agent
     column: with-previous
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
   - id: security
@@ -58,8 +50,8 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Security reviewer, Validator]
-    skill: security-review
+    agent: Security reviewer
+    skill: team-security-review
     rounds: 2
   - id: qa
     name: QA

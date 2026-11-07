@@ -520,6 +520,14 @@
   line-height: 1.35;
 }
 
+/* A skill nobody has: only a warning, amber like the editor's other warnings (Apply still works). */
+.fe-step-warning {
+  color: var(--st-paused);
+  font-size: 11px;
+  line-height: 1.35;
+  overflow-wrap: anywhere;
+}
+
 .fe-step-who {
   display: flex;
   align-items: center;
@@ -844,50 +852,9 @@
   gap: 8px;
 }
 
-/* A check's Fails go to and an agent check's Check agents and Rounds (T-0529, `s29-04`). */
+/* A check's Fails go to and an agent check's Rounds (T-0529, `s29-04`). */
 .fe-step-fails {
   color: var(--text-secondary);
-}
-
-.fe-check-agents {
-  display: flex;
-  flex-direction: column;
-  gap: 6px;
-  align-items: flex-start;
-}
-
-.fe-check-agent {
-  display: flex;
-  align-self: stretch;
-  align-items: center;
-  gap: 7px;
-  min-width: 0;
-  padding: 4px 4px 4px 10px;
-  border-radius: 7px;
-  outline: 1px solid var(--border-strong);
-  outline-offset: -1px;
-}
-
-.fe-check-agent-name {
-  overflow: hidden;
-  color: var(--text-primary);
-  font-size: 12.5px;
-  font-weight: 500;
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.fe-add-agent {
-  display: inline-flex;
-  align-items: center;
-  gap: 5px;
-  padding: 2px;
-}
-
-.fe-add-agent:disabled {
-  color: var(--text-muted);
-  cursor: default;
-  text-decoration: none;
 }
 
 .fe-field-pair {
@@ -899,14 +866,6 @@
 .fe-field-pair > .fe-field {
   flex: 1;
   min-width: 0;
-}
-
-/* The check agents' rule under Rounds and Fails go to (not .fe-rule, the 1px divider above). */
-.fe-check-rule {
-  margin: 0;
-  color: var(--text-secondary);
-  font-size: 12px;
-  line-height: 1.45;
 }
 
 .fe-hint {

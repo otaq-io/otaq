@@ -260,24 +260,11 @@ impl Messages {
             .await?;
         // Answer resumes the finished session with its own stored tool, model and named agent (Q-D).
         let runs_on = RunsOn::resumed(&conversation);
-        // Its agent's skills and the answer skill, copied into the worktree by one name first (AGM-07).
-        let agent = match &runs_on.agent {
-            Some(stored) => board.store().agent(&stored.id).await?,
-            None => None,
-        };
-        let first_prompt = board
-            .copy_for_session(
-                &path,
-                inner.adapters.shipped_skills(),
-                agent.as_ref(),
-                Some(FirstPrompt::Skill {
-                    name: ANSWER_SKILL.to_owned(),
-                    message: None,
-                }),
-                crate::skills::Marker::Worktree,
-            )
-            .await
-            .0;
+        // Otaq's answer skill by its name; nothing is written into the worktree (T2).
+        let first_prompt = Some(FirstPrompt::Skill {
+            name: ANSWER_SKILL.to_owned(),
+            message: None,
+        });
         let launched = inner.adapters.launch(
             runs_on.tool,
             &LaunchRequest {
@@ -316,7 +303,6 @@ impl Messages {
                 model: launched.model,
                 agent: runs_on.agent,
                 effort: runs_on.effort,
-                fallback: runs_on.fallback,
                 theme: Some(launched.theme),
             })
             .await

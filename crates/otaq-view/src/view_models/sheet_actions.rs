@@ -230,16 +230,18 @@ pub fn approve_opens_menu(open_decisions: u32) -> bool {
     open_decisions > 0
 }
 
-/// The bar's buttons for a ticket on the default flow, in order, with how each looks. Includes the ones that arrive
-/// later.
+/// The bar's buttons for a ticket on the default flow (its Validate not skippable), in order, with how each looks.
+/// Includes the ones that arrive later.
 pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
-    all_buttons_in(ticket, false)
+    all_buttons_in(ticket, false, false)
 }
 
 /// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): a human
 /// check's Approve is its Pass there (FLW-14), which moves it on; on the default flow it opens the delivery choices.
 /// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR (FLW-16).
-pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
+/// Move on anyway only on a check the flow marks skippable (`skippable`,
+/// [`otaq_core::flow::engine::user_may_move_past`]).
+pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
     let s = ticket.status;
@@ -311,18 +313,24 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool) -> Vec<(Action, Look)> {
         // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
         Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
-        Status::CheckFailed => vec![
+        Status::CheckFailed if skippable => vec![
             (A::MoveOnAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
+        Status::CheckFailed => vec![(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)],
         // No result on the validator's model: Open agent… first, then today's two.
-        Status::CheckNoResult if card::validator_refusal(ticket).is_some() => vec![
-            (A::OpenAgent, Primary),
-            (A::RetryValidation, Secondary),
-            (A::MoveOnAnyway, Secondary),
-        ],
-        Status::CheckNoResult => vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)],
+        Status::CheckNoResult if card::validator_refusal(ticket).is_some() => {
+            let mut bar = vec![(A::OpenAgent, Primary), (A::RetryValidation, Secondary)];
+            if skippable {
+                bar.push((A::MoveOnAnyway, Secondary));
+            }
+            bar
+        }
+        Status::CheckNoResult if skippable => {
+            vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
+        }
+        Status::CheckNoResult => vec![(A::RetryValidation, Primary)],
         Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],
@@ -392,11 +400,17 @@ pub fn validating(ticket: &Ticket) -> bool {
     matches!(ticket.status, Status::Checking | Status::CheckerNeedsYou)
 }
 
-/// The "…" menu: Stop this check and Skip this check while it validates (d0063), Edit ticket… (the fields the
+/// The "…" menu: Stop this check, and Skip this check on a check the flow marks skippable (`skippable`), while it
+/// validates (d0063), Edit ticket… (the fields the
 /// sheet's details line doesn't cover, SHT-01), Pin / Unpin, Copy
 /// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Close ticket…, and Delete… (enabled only for
 /// never-started tickets, d0060).
-pub fn menu(ticket: &Ticket, has_branch: bool, has_session: bool) -> Vec<MenuItem> {
+pub fn menu(
+    ticket: &Ticket,
+    has_branch: bool,
+    has_session: bool,
+    skippable: bool,
+) -> Vec<MenuItem> {
     let mut items = Vec::new();
     if validating(ticket) {
         items.push(
@@ -404,11 +418,13 @@ pub fn menu(ticket: &Ticket, has_branch: bool, has_session: bool) -> Vec<MenuIte
                 .icon(IconName::Square)
                 .hint("round not counted"),
         );
-        items.push(
-            MenuItem::new(SKIP_TO_REVIEW, "Skip this check")
-                .icon(IconName::SkipForward)
-                .hint("never auto-merged"),
-        );
+        if skippable {
+            items.push(
+                MenuItem::new(SKIP_TO_REVIEW, "Skip this check")
+                    .icon(IconName::SkipForward)
+                    .hint("delivered without this check"),
+            );
+        }
     }
     let edit = MenuItem::new(EDIT_TICKET, "Edit ticket\u{2026}").icon(IconName::Pencil);
     items.push(if items.is_empty() {
@@ -457,7 +473,7 @@ mod tests {
             t.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Running);
             assert_eq!(buttons(&t), [(A::StopMergeCheck, Look::Secondary)]);
             assert_eq!(
-                all_buttons_in(&t, true),
+                all_buttons_in(&t, true, false),
                 [(A::StopMergeCheck, Look::Secondary)]
             );
         }
@@ -554,7 +570,7 @@ mod tests {
         use Look::*;
         let review = ticket("SHOP-22", "Offline habits", Status::WaitingForYou);
         assert!(all_buttons(&review).contains(&(A::Run, Secondary)));
-        assert!(all_buttons_in(&review, true).contains(&(A::Run, Secondary)));
+        assert!(all_buttons_in(&review, true, false).contains(&(A::Run, Secondary)));
         assert_eq!(
             all(Status::ToDeliver),
             [(A::Approve, Primary), (A::Run, Secondary)]
@@ -569,7 +585,7 @@ mod tests {
     #[test]
     fn other_flows_approve_send_back_and_send_back_pr_comments() {
         use Look::*;
-        let custom = |t: &Ticket| all_buttons_in(t, true);
+        let custom = |t: &Ticket| all_buttons_in(t, true, false);
         let review = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
         assert_eq!(
             custom(&review),
@@ -654,7 +670,7 @@ mod tests {
     #[test]
     fn menu_delete_only_for_never_started() {
         let fresh = ticket("SHOP-21", "Order confirmation email", Status::Backlog);
-        let items = menu(&fresh, false, false);
+        let items = menu(&fresh, false, false, false);
         let delete = items.last().unwrap();
         assert_eq!(delete.label, "Delete…");
         assert!(!delete.disabled);
@@ -665,7 +681,7 @@ mod tests {
 
         let mut started = ticket("SHOP-19", "Price table", Status::Working);
         started.started_at = Some(1);
-        let items = menu(&started, true, true);
+        let items = menu(&started, true, true, false);
         let delete = items.last().unwrap();
         assert!(delete.disabled);
         assert_eq!(
@@ -701,8 +717,15 @@ mod tests {
             all(Status::CheckerNeedsYou),
             [(A::AnswerValidator, Attention)]
         );
+        // Move on anyway only on a check the flow marks skippable (not the default flow's Validate).
         assert_eq!(
             all(Status::CheckFailed),
+            [(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)]
+        );
+        assert_eq!(all(Status::CheckNoResult), [(A::RetryValidation, Primary)]);
+        let skippable = |status| all_buttons_in(&ticket("SHOP-1", "t", status), false, true);
+        assert_eq!(
+            skippable(Status::CheckFailed),
             [
                 (A::MoveOnAnyway, Primary),
                 (A::AnotherRound, Secondary),
@@ -710,7 +733,7 @@ mod tests {
             ]
         );
         assert_eq!(
-            all(Status::CheckNoResult),
+            skippable(Status::CheckNoResult),
             [(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         );
         assert_eq!(
@@ -729,7 +752,7 @@ mod tests {
     fn the_menu_while_validating() {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.started_at = Some(1);
-        let items = menu(&t, true, false);
+        let items = menu(&t, true, false, true);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -744,11 +767,14 @@ mod tests {
             ]
         );
         assert_eq!(items[0].hint.as_deref(), Some("round not counted"));
-        assert_eq!(items[1].hint.as_deref(), Some("never auto-merged"));
+        assert_eq!(
+            items[1].hint.as_deref(),
+            Some("delivered without this check")
+        );
         assert!(items[2].separated);
         let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
         idle.started_at = Some(1);
-        let items = menu(&idle, false, false);
+        let items = menu(&idle, false, false, false);
         assert_eq!(items[0].label, "Edit ticket\u{2026}");
         assert!(!items[0].separated);
         assert!(
@@ -757,7 +783,25 @@ mod tests {
                 .any(|i| i.label == "Move to next stage…" && !i.disabled)
         );
         t.status = Status::CheckerNeedsYou;
-        assert_eq!(menu(&t, true, false)[0].id, STOP_VALIDATION);
+        assert_eq!(menu(&t, true, false, true)[0].id, STOP_VALIDATION);
+    }
+
+    /// Skip this check only on a check the flow marks skippable: on another (the default flow's Validate) the menu
+    /// keeps Stop this check alone.
+    #[test]
+    fn no_skip_this_check_on_a_check_not_marked_skippable() {
+        let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
+        t.started_at = Some(1);
+        for status in [Status::Checking, Status::CheckerNeedsYou] {
+            t.status = status;
+            let items = menu(&t, true, false, false);
+            assert_eq!(items[0].id, STOP_VALIDATION);
+            assert!(!items.iter().any(|i| i.id == SKIP_TO_REVIEW), "{status}");
+            assert!(
+                items[1].separated,
+                "Edit ticket… right after Stop this check"
+            );
+        }
     }
 
     /// SHOP-48's facts after the refusal: one ended Developer session on Fable test, `fable` → `claude-fable-5-1`.
@@ -794,8 +838,8 @@ mod tests {
     }
 
     /// AGT-05, update Y §3, d0108 second gap review rule 7: Start failed on the model offers Open agent… and Retry
-    /// start; No result on the validator's model Open agent…, Retry validation and Move on anyway; each with its
-    /// callout.
+    /// start; No result on the validator's model Open agent…, Retry validation and (on a check the flow marks
+    /// skippable) Move on anyway; each with its callout.
     #[test]
     fn a_refused_model_opens_the_agent() {
         use crate::view_models::card_fixtures::{MODEL_ISSUE_MESSAGE, agent_variants};
@@ -832,6 +876,13 @@ mod tests {
             [
                 (A::OpenAgent, Look::Primary),
                 (A::RetryValidation, Look::Secondary),
+            ]
+        );
+        assert_eq!(
+            all_buttons_in(&no_result, false, true),
+            [
+                (A::OpenAgent, Look::Primary),
+                (A::RetryValidation, Look::Secondary),
                 (A::MoveOnAnyway, Look::Secondary),
             ]
         );
@@ -844,10 +895,7 @@ mod tests {
         assert_eq!(A::OpenAgent.label(), "Open agent\u{2026}");
         // Other start problems and No results: as before, no callout.
         assert_eq!(shown(Status::StartInterrupted), [A::RetryStart]);
-        assert_eq!(
-            shown(Status::CheckNoResult),
-            [A::RetryValidation, A::MoveOnAnyway]
-        );
+        assert_eq!(shown(Status::CheckNoResult), [A::RetryValidation]);
         assert_eq!(
             refusal(&ticket("SHOP-28", "t", Status::StartInterrupted), None),
             None

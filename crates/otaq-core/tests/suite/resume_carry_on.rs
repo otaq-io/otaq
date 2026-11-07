@@ -214,7 +214,7 @@ async fn resume_and_retry_carry_on_and_start_from_scratch_does_not() {
     let fresh = running(&w, &t).await;
     let a = args(&w, &fresh).await;
     assert!(!a.contains("--resume"), "{a}");
-    assert!(a.contains("/otaq-work-ticket"), "{a}");
+    assert!(a.contains("/otaq:work-ticket"), "{a}");
     assert!(!a.contains("Carry on"), "{a}");
     w.stop().await;
 }

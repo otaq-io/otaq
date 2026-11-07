@@ -171,7 +171,6 @@ async fn the_backstop_refuses_only_an_automatic_start_in_a_paused_project() {
         model: None,
         agent: None,
         effort: None,
-        fallback: None,
         theme: None,
     };
     let shop_id = w.board.project("SHOP").await.unwrap().id;
@@ -462,15 +461,12 @@ async fn the_gates_lift_keeps_a_paused_projects_hold() {
             id: "hold-1".into(),
             ticket_id: Some(t.id.clone()),
             project_id: None,
-            check_agent: None,
             role: SessionRole::Developer,
             reason: HoldReason::ToolLimit,
             tool: Tool::Claude,
             model: None,
             agent_id: Some(developer.id),
-            fallback_tool: None,
-            fallback_held: false,
-            fallback_asked: false,
+            skill: None,
             since: 1,
         })
         .await

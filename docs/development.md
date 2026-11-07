@@ -18,7 +18,7 @@ Otaq app (Tauri + React) ◄── local socket ──► otaq daemon (Rust core
 | [`otaq-view`](../crates/otaq-view) | screen logic as plain, tested Rust view models, no UI framework |
 | [`otaq-desktop`](../crates/otaq-desktop) | the Tauri 2 app with a React + TypeScript page, xterm.js terminals and the Tiptap Markdown editor |
 | [`otaq-cli`](../crates/otaq-cli) | the `otaq` binary: opens the app, `daemon`, `attach`, hooks and the agent commands |
-| [`plugin/`](../plugin) | the skills and hooks that define how agents behave, for every tool |
+| [`plugin/`](../plugin) | Otaq's own skills and hooks that define how agents behave, shipped to each tool as its plugin |
 
 The app, the CLI and the agents all talk to the same background service over a user-only local socket, using
 newline-delimited JSON.

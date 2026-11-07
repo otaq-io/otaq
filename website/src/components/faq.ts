@@ -17,7 +17,7 @@ export const FAQS: readonly Faq[] = [
   },
   {
     q: "Can it merge on its own?",
-    a: "Only if you set a Delivery stage to automatic, and then only after its checks pass. The default flow always waits for your click.",
+    a: "Only if you set a Delivery stage to automatic. It then merges once the ticket is through its checks. A ticket that skips a check your flow lets it skip is delivered without it, and its card says so. The default flow always waits for your click.",
   },
   {
     q: "What does checking cost in tokens?",

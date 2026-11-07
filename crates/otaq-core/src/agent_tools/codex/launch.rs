@@ -2,16 +2,16 @@
 //!
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq-work-ticket"
+//! codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq:work-ticket"
 //! codex --no-daemon -c check_for_update_on_startup=false resume <id> [-m <model>] ["<prompt>"]
 //! ```
 //!
 //! `--no-daemon` keeps the agent's commands under the session's own process (no shared background server, which
 //! could own them, or be left behind); the `-c` override skips the update screen that would block the start. **No
 //! approval, sandbox or bypass flag** (d0011): the user's own Codex settings apply; the `otaq` pre-approval and the
-//! hooks come from the one-time setup (T-0351). The skills are project skills copied into the session's folder
-//! (AGM-07: Codex has no launch option for a skill folder, the typed skill lines report of 2026-10-19), so the first
-//! prompt only names one (`$otaq-work-ticket`).
+//! hooks come from the one-time setup (T-0351). Otaq's own skills come from that same installed plugin and the
+//! user's own are the ones Codex finds itself; Otaq never writes skills into a worktree, so the first prompt only
+//! names one (`$otaq:work-ticket`).
 //!
 //! Codex can't take a chosen id: a new conversation's id is captured after start (its `SessionStart` hook, T-0350)
 //! and the session's id stays empty until then; a resume names the stored id.
@@ -85,7 +85,7 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
     })
 }
 
-/// The first prompt as typed: `$otaq-noyan <message>`, or the text.
+/// The first prompt as typed: `$otaq:noyan <message>`, or the text.
 fn prompt_text(codex: &Codex, prompt: &FirstPrompt) -> String {
     prompt.text(codex)
 }
@@ -297,11 +297,11 @@ mod tests {
         );
     }
 
-    /// SDD ADP-07: `codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq-work-ticket"` in the
+    /// SDD ADP-07: `codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq:work-ticket"` in the
     /// worktree, Otaq's environment, the id captured after start.
     #[test]
     fn a_new_session_with_an_exact_model_and_with_none() {
-        let skill = format!("${}-work-ticket", naming::COMMAND_NAME);
+        let skill = format!("${}:work-ticket", naming::PLUGIN_NAMESPACE);
         let mut with_model = request(LaunchRole::TicketAgent);
         with_model.model = Some("gpt-6-sol".into());
         let plan = codex().launch(&with_model).unwrap();
@@ -358,7 +358,7 @@ mod tests {
                 "gpt-6-sol",
                 "-c",
                 "model_reasoning_effort=\"xhigh\"",
-                &format!("${}-work-ticket", naming::COMMAND_NAME),
+                &format!("${}:work-ticket", naming::PLUGIN_NAMESPACE),
             ])
         );
         assert!(codex().effort_levels().contains(&"minimal"));
@@ -384,7 +384,7 @@ mod tests {
                 "01a147a1-dd63-7c03-b96e-8f7557586707",
                 "-m",
                 "gpt-6-sol",
-                &format!("${}-address-review", naming::COMMAND_NAME),
+                &format!("${}:address-review", naming::PLUGIN_NAMESPACE),
             ])
         );
         assert_eq!(
@@ -447,7 +447,7 @@ mod tests {
         let plan = codex().launch(&first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("${}-noyan Start with the cart", naming::COMMAND_NAME)
+            &format!("${}:noyan Start with the cart", naming::PLUGIN_NAMESPACE)
         );
         let mut no_ticket = request(LaunchRole::TicketAgent);
         no_ticket.ticket = None;
@@ -539,7 +539,7 @@ mod tests {
         assert!(!codex().conversation_not_found(b"Working (12s)"));
     }
 
-    /// A stage's skill as a first prompt (AGM-07): a shipped one and an imported one alike by their copies' names in
+    /// A stage's skill as a first prompt: Otaq's own one and the user's one alike by their own names in
     /// Codex's syntax; the launch is otherwise the same, with no flag of [`FORBIDDEN`] and no added folder (d0011).
     #[test]
     fn a_skill_first_prompt() {
@@ -551,17 +551,14 @@ mod tests {
         let shipped = codex().launch(&req).unwrap();
         assert_eq!(
             shipped.args.last().unwrap(),
-            &format!("${}-validate", naming::COMMAND_NAME)
+            &format!("${}:validate", naming::PLUGIN_NAMESPACE)
         );
         req.first_prompt = Some(FirstPrompt::Skill {
             name: "team-validate".into(),
             message: None,
         });
         let imported = codex().launch(&req).unwrap();
-        assert_eq!(
-            imported.args.last().unwrap(),
-            &format!("${}-team-validate", naming::COMMAND_NAME)
-        );
+        assert_eq!(imported.args.last().unwrap(), &"$team-validate".to_owned());
         only_the_prompt_differs(&shipped, &imported);
         for flag in FORBIDDEN.iter().chain(&["--add-dir"]) {
             assert!(!imported.args.iter().any(|a| a == flag), "{flag}");

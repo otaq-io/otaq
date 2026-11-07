@@ -184,7 +184,7 @@ async fn the_weekly_limit_reads_its_reset_from_the_text_and_an_unreadable_one_is
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn other_failures_leave_the_limit_and_the_status_alone() {
+async fn other_failures_leave_the_limit_alone_and_stop_on_idle() {
     let w = TestService::start().await;
     w.add_project("shop-web").await;
     let shop1 = w.create("SHOP", "Checkout API").await;
@@ -199,8 +199,20 @@ async fn other_failures_leave_the_limit_and_the_status_alone() {
         ("overloaded", "API Error: Overloaded"),
         ("server_error", "API Error: 500"),
     ] {
+        w.force_status(&shop1, Status::Working).await;
         hook(&agent, stop_failure(error, message)).await;
-        assert_eq!(w.status("SHOP-1").await, Status::Working, "{message}");
+        // Not the plan's limit: Idle with Claude Code's message (F10).
+        assert_eq!(w.status("SHOP-1").await, Status::Idle, "{message}");
+        let text = w
+            .board
+            .ticket("SHOP-1")
+            .await
+            .unwrap()
+            .signal
+            .unwrap()
+            .text
+            .unwrap();
+        assert_eq!(otaq_core::signals::tool_error(&text), Some(message));
     }
     tokio::time::sleep(std::time::Duration::from_millis(100)).await;
     assert_eq!(w.plan_limit.state().await.unwrap(), None);

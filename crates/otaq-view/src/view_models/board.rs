@@ -424,6 +424,7 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
             .then(|| t.start_problem.as_ref().map(|p| p.message.clone()))
             .flatten(),
         held_by_limit: otaq_core::scheduler::held_by_tool_limit(t),
+        skippable_check: otaq_core::flow::engine::user_may_move_past(input.flow, &t.place),
         was_validating: input.was_validating.contains(&t.key),
         // Its Delivery (FLW-15): Ready to merge or Ready for PR, and who opens the PR.
         delivers: input
@@ -605,17 +606,8 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
     let mut detail: Vec<String> = Vec::new();
     // A Local merge runs no agent (d0108 second gap review rule 6).
     let runs_agent = stage.delivery.is_none_or(|d| d.delivers != Delivers::Local);
-    // Several check agents (d0130): a line each, "Security reviewer · Claude Code · opus", then the stage's rounds.
-    if runs_agent && stage.check_agents().len() > 1 {
-        for name in stage.check_agents() {
-            let mut line = vec![name.clone()];
-            line.extend(named(name).and_then(|a| runs_on(a, agents?)));
-            detail.push(line.join(" \u{b7} "));
-        }
-    }
     if runs_agent {
         let mut runs: Vec<String> = agent(stage)
-            .filter(|_| stage.check_agents().len() < 2)
             .and_then(|a| runs_on(a, agents?))
             .into_iter()
             .collect();
@@ -629,14 +621,7 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
         }
     }
     if !stage.options.is_empty() {
-        let options: Vec<&str> = stage
-            .options
-            .iter()
-            .map(|o| match o {
-                StageOption::Agent(name) => name.as_str(),
-                StageOption::Skip => "skip",
-            })
-            .collect();
+        let options: Vec<&str> = stage.options.iter().map(StageOption::as_str).collect();
         detail.push(format!("Options: {}", options.join(", ")));
     }
     for part in folded {
@@ -831,6 +816,37 @@ mod tests {
             paused: false,
             helpers: &[],
         }
+    }
+
+    /// A card offers Move on anyway only on a check its flow marks skippable: Security failed its rounds on the test
+    /// flow opens the ticket; once the flow marks Security skippable the card's action is Move on anyway.
+    #[test]
+    fn move_on_anyway_only_on_a_check_the_flow_marks_skippable() {
+        let mut flow = crate::view_models::flow_columns::every_kind();
+        let mut t = ticket("NOTE-3", "Search", Status::CheckFailed);
+        t.place = otaq_core::domain::Place::stage_of("security");
+        let tickets = vec![t];
+        let action = |flow: &otaq_core::flow::Flow| {
+            let input = BoardInput {
+                flow,
+                ..input(&tickets, None)
+            };
+            ticket_card(&input, &tickets[0])
+                .footer
+                .and_then(|f| f.action)
+                .map(|a| a.kind)
+        };
+        assert_eq!(
+            action(&flow),
+            Some(crate::view_models::card::CardActionKind::Open)
+        );
+        for stage in flow.stages.iter_mut().filter(|s| s.id == "security") {
+            stage.options.push(otaq_core::flow::StageOption::Skip);
+        }
+        assert_eq!(
+            action(&flow),
+            Some(crate::view_models::card::CardActionKind::MoveOnAnyway)
+        );
     }
 
     /// STG-08 on the test flow: Product spec, Dev (Validate in it), Security, QA and the Delivery each have their own
@@ -1393,7 +1409,6 @@ mod tests {
                 ),
             ],
             default_model: None,
-            fallbacks: Vec::new(),
         };
         let columns = build(&BoardInput {
             agent_list: Some(&list),
@@ -1471,7 +1486,6 @@ mod tests {
                 agent("p", "Shipper", Some("haiku")),
             ],
             default_model: None,
-            fallbacks: Vec::new(),
         };
         let columns = build(&BoardInput {
             flow: &flow,
@@ -1512,7 +1526,6 @@ mod tests {
                 title: "Dev · Rust developer · work-ticket".into(),
                 detail: vec![
                     "Claude Code · sonnet".into(),
-                    "Options: Quick developer".into(),
                     // Validator isn't in the list: its line names the agent only.
                     "Validate · Validator · shown in Dev".into(),
                 ],
@@ -1523,17 +1536,10 @@ mod tests {
         assert_eq!(tip(2).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
             tip(4).title,
-            "Security · Security reviewer + Validator · security-review"
+            "Security · Security reviewer · team-security-review"
         );
-        // Two check agents (d0130): a line each (Validator isn't in this agent list), then the stage's rounds.
-        assert_eq!(
-            tip(4).detail,
-            [
-                "Security reviewer · Claude Code · opus",
-                "Validator",
-                "up to 2 rounds"
-            ]
-        );
+        // A check's one agent and where it runs, then the stage's rounds.
+        assert_eq!(tip(4).detail, ["Claude Code · opus \u{b7} up to 2 rounds"]);
         assert_eq!(tip(5).title, "QA · your check");
         assert_eq!(tip(5).detail, ["Options: skip"]);
         assert_eq!(tip(6).title, "Done · PR, automatic · Shipper · open-pr");
@@ -1558,8 +1564,8 @@ mod tests {
 flow:
   - {id: product-spec, name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
   - {id: dev, name: Dev, kind: agent, agent: Rust developer, skill: work-ticket}
-  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agents: [Validator], skill: validate, rounds: 3}
-  - {id: security, name: Security, kind: check, by: agent, agents: [Security reviewer], skill: security-review, rounds: 3}
+  - {id: validate, name: Validate, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 3}
+  - {id: security, name: Security, kind: check, by: agent, agent: Security reviewer, skill: security-review, rounds: 3}
   - {id: qa, name: QA, kind: check, by: you}
   - {id: review, name: Review, kind: check, by: you}
   - {id: docs, name: Docs, kind: agent, agent: Doc writer, skill: docs}

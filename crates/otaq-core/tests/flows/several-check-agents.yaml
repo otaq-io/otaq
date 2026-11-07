@@ -1,0 +1,73 @@
+# An older flow file whose check lists several agents (the test flow before a check had one agent): Security
+# runs two check agents side by side. Read today it is split into one check stage per agent, one after the other.
+agents:
+  - name: Spec writer
+    instructions: |
+      Ask one question at a time.
+      Write what was agreed into the ticket.
+
+      Never write code.
+    model: default
+  - name: Rust developer
+    instructions: "Follow our error-handling rules: no unwrap in library code."
+    model: default
+  - name: Quick developer
+    model: default
+  - name: Validator
+    model: default
+  - name: Security reviewer
+    instructions: |-
+      Never edit files.
+      Fail on unescaped SQL.
+    model: default
+  - name: Shipper
+    model: default
+  - name: Noyan
+    role: noyan
+    model: default
+flow:
+  - id: product-spec
+    name: Product spec
+    kind: agent
+    column: own
+    agent: Spec writer
+    skill: product-spec
+    options: [skip]
+  - id: dev
+    name: Dev
+    kind: agent
+    column: own
+    agent: Rust developer
+    skill: work-ticket
+    options: [Quick developer]
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    column: with-previous
+    agents: [Validator]
+    skill: validate
+    rounds: 3
+  - id: security
+    name: Security
+    kind: check
+    by: agent
+    column: own
+    agents: [Security reviewer, Validator]
+    skill: team-security-review
+    rounds: 2
+  - id: qa
+    name: QA
+    kind: check
+    by: you
+    column: own
+    options: [skip]
+    fail_to: Product spec
+  - id: ship
+    name: Done
+    kind: delivery
+    column: own
+    agent: Shipper
+    skill: open-pr
+    mode: automatic
+    delivers: pr

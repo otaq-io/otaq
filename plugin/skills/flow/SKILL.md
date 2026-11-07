@@ -42,7 +42,6 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        instructions: |
          Never edit files.
          Fail on unescaped SQL.
-       skills: [security-review]
        model: claude:opus
        why: The user asked for a security check on opus in this conversation.
    flow:
@@ -53,12 +52,20 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        agent: Developer
        skill: work-ticket
        why: Unchanged from the current flow.
+     - id: security
+       name: Security
+       kind: check
+       by: agent
+       column: own
+       agent: Security reviewer
+       skill: team-security-review
+       why: The user asked for a security check on opus in this conversation.
      …
    FLOW
    ```
 
    (`otaq flow propose -f flow.yaml` reads a file instead.) Otaq checks everything first: the rules of a flow (below),
-   the agents' names and models, the skills. **If it refuses**, it names the stage or agent and the reason (for
+   the agents' names and models. **If it refuses**, it names the stage or agent and the reason (for
    example "Review is a check by you before any Agent stage: a Fail would have nowhere to go"): fix exactly that and
    propose again. Don't tell the user about a refusal you can fix yourself.
 6. **End your turn and wait.** A valid proposal returns at once ("Proposal 3 is waiting for the user") and the flow
@@ -105,21 +112,25 @@ tool's flow, it is "The user chose another flow."; you're done).
 ## Writing a stage's skill
 
 When the user asks you to **write a skill for a stage** ("Write a skill for the Plan stage: …": the editor's **Ask
-the agent to write it** starts the line, the user finishes it), you write it in a folder Otaq gives you,
-never in this repo:
+the agent to write it** starts the line, the user finishes it), you write it in the one folder Otaq gives you, inside
+this project:
 
-1. **Get the folder**: `otaq flow write-skill <stage>` (the stage's id or name, e.g. `otaq flow write-skill plan`). It
-   prints the only folder you may write in; the editor shows the stage's skill as being written.
+1. **Name it and get the folder**: `otaq flow write-skill <stage> --name <name>` (the stage's id or name, and a short
+   name for the skill in lowercase letters, digits and hyphens, e.g. `otaq flow write-skill plan --name plan-ticket`).
+   It prints the only folder you may write in, the skills folder the stage's agent's tool reads; the editor shows the
+   stage's skill as being written. If the name is taken or is one of Otaq's own skills, it refuses: pick another.
 2. **Read first**: `otaq prime --project`, the repo's `AGENTS.md` / `CLAUDE.md`, and the skills the flow's other
    stages run (`otaq flow show` names them), so the new one fits how this project works. Ask the user one question
    at a time with `otaq ask human --stdin` only when the request leaves out something you can't find.
-3. **Write the skill** in that folder: a `SKILL.md` whose front matter has `name:` (a short name for the skill, like
-   `plan-ticket`) and `description:` (one line saying what the stage does; the editor shows it as the stage's
-   caption), then the steps an agent follows in that stage, and any files it mentions. Write nothing anywhere else.
-4. **Hand it in**: `otaq flow write-skill <stage> --done`. Otaq checks the folder, keeps its own copy and puts the
-   skill in the stage's field, where the user can open it or undo it. If it refuses, fix exactly what it names and
-   hand it in again. Don't propose the flow for this; the skill applies with the flow when the user clicks Apply.
-5. Tell the user in a line what the skill does, then **end your turn**.
+3. **Write the skill** in that folder: a `SKILL.md` whose front matter has `name:` (the name you gave) and
+   `description:` (one line saying what the stage does; the editor shows it as the stage's caption), then the steps
+   an agent follows in that stage, and any files it mentions. Write nothing anywhere else.
+4. **Hand it in**: `otaq flow write-skill <stage> --done`. Otaq checks the folder and puts the skill in the stage's
+   field, where the user can open it or undo it. If it refuses, fix exactly what it names and hand it in again. Don't
+   propose the flow for this; the skill applies with the flow when the user clicks Apply. Never commit it: the user
+   commits it, so agents get it in their worktrees.
+5. Tell the user in a line what the skill does, that it is saved in this project and needs committing, then **end
+   your turn**.
 
 ## The file
 
@@ -133,7 +144,6 @@ agents:
   - name: Rust developer           # unique; stages and options name it
     instructions: |                # optional: this agent's own rules, given at every start
       Follow our error-handling rules: no unwrap in library code.
-    skills: [work-ticket, commit]  # the skills it has
     model: default                 # default · claude · claude:opus · codex:<model> · copilot · opencode:<model>
     why: From 41 /commit-compact runs in shop-web (Claude Code).   # optional; see "Why lines"
 ```
@@ -145,9 +155,6 @@ agents:
 - **`role`** (rare): `noyan`. Exactly one agent holds it; leave it out unless the user
   asks to move a role.
 - **`instructions`**: Markdown, optional.
-- **`skills`**: the names of skills Otaq ships (`work-ticket`, `commit`, `validate`, `product-spec`, `open-pr`, `restack`, …)
-  or that an agent already has, or the absolute path of a skill folder (holding a `SKILL.md`) to import on Apply,
-  for example `/Users/me/.claude/skills/security-review`. Every skill is copied into the worktree as `otaq-<name>`.
 - **`why`**: optional, one line on why the agent is there; the flow editor shows it. Otaq doesn't act on it.
 - **`model`**: `default` (the account's default model; prefer it unless the user names one), a tool (`claude`,
   `codex`, `copilot`, `opencode`: that tool's default model) or `tool:model` (`claude:opus`, `claude:haiku`).
@@ -162,7 +169,7 @@ flow:
     column: own                  # own · with-previous
     agent: Spec writer           # who runs it
     skill: product-spec          # the skill it runs first
-    options: [skip]              # optional: other agents a ticket may pick instead, or skip
+    options: [skip]              # optional: a ticket may skip it
     why: The user asked to settle what to build before any code is written.
 ```
 
@@ -173,11 +180,10 @@ flow:
 | `kind` | every stage | `agent`: an agent works on the ticket. `check`: an agent or the user passes or fails it. `delivery`: Local merge or PR, always last. |
 | `by` | check | `agent` (an agent check: read-only, ends with a verdict) or `you` (the user's check: Pass or Fail). |
 | `column` | every stage | `own`: its own column. `with-previous`: its cards show in the column before it. Default `own`. |
-| `agent` | agent, PR delivery | The agent that runs it, by name. A check by you and a Local merge have none. |
-| `agents` | agent check | Its check agents, by name, one or more: `[Validator]`, `[Security reviewer, Performance reviewer]`. They run side by side, each read-only, each running the stage's skill; the stage passes when every one passes. An agent check never takes `agent:`. |
-| `skill` | agent, agent check, PR delivery | The skill it runs first (`work-ticket`, `validate`, `open-pr`…). |
-| `options` | agent, check | Other agents a ticket may use instead (`[Quick developer]`), and `skip` when a ticket may skip the stage. Default: none. |
-| `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user, whichever check agent failed. |
+| `agent` | agent, agent check, PR delivery | The agent that runs it, by name: one. A check has one agent; two checks are two check stages, one after the other. A check by you and a Local merge have none. |
+| `skill` | agent, agent check, PR delivery | The skill it runs first (`work-ticket`, `validate`, `open-pr`…). Never a tool's built-in command such as `/security-review`, `/review` or `/init` (Otaq refuses it): to use one, write a small skill that runs it and name that skill. |
+| `options` | agent, check | `[skip]` when a ticket may skip the stage; nothing else (a stage lists no agents: the user may pick any agent whose tool has the stage's skill for one ticket, and agent names written here are ignored). Default: none. |
+| `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user. |
 | `fail_to` | check | Where a Fail goes back to: an Agent stage before the check, by name (`fail_to: Product spec`). Leave it out for the nearest Agent stage before it (the usual). |
 | `mode` | delivery | `click`: waits for the user's Local merge or Open PR. `automatic`: merges, or pushes and opens the PR, with no click and no dialog. |
 | `why` | every stage | One line on why the stage is there, naming its source (below). The flow editor shows it; Otaq doesn't act on it. |
@@ -191,19 +197,14 @@ preset also gives the three planning stages and Spec review `options: [skip]`, s
 ```yaml
 agents:
   - name: Spec writer
-    skills: [product-spec, commit]
     model: default
   - name: Architect
-    skills: [tech-spec, commit]
     model: default
   - name: Milestone planner
-    skills: [milestone-plan, commit]
     model: default
   - name: Developer
-    skills: [work-ticket, commit]
     model: default
   - name: Validator
-    skills: [validate]
     model: default
 flow:
   - id: product-spec
@@ -241,7 +242,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
     fail_to: Dev
@@ -270,15 +271,20 @@ flow:
 - `with-previous` is refused on the first stage, and into a column that belongs to a check by you (only the Delivery
   may share it, as Done shares Review's on the default flow).
 - `either` only with `mode: click`; a Delivery can't be skipped; `rounds` from 1 to 5.
-- An agent check lists one or more `agents:`, each once.
+- An agent check names one `agent:`. Never list several agents on a check: write one check stage per check.
 - A check's `fail_to` names an Agent stage before it.
-- With every `skip` taken, an Agent stage must still run, and every check by you must still have one before it.
-- Every agent a stage, a check's `agents` or an option names is in `agents:` or already exists.
+- With every `skip` taken, an Agent stage must still run, and every check by you that can't be skipped must still
+  have one before it.
+- Every agent a stage or an option names is in `agents:` or already exists.
 
 ### What you add only when the user asks
 
 - **`skip`** on any stage, and an **automatic Delivery with no check before it**. Otaq allows both; the flow editor warns
   about the second ("Done opens a PR on GitHub without any check before it"). Don't add them on your own.
+- `skip` is the user's choice per ticket, never Otaq's: nothing is skipped on its own, even a check of yours after
+  stages a ticket skipped (a check's other choice, "required", just means it happens). A skipped check, or one the user moved a ticket
+  past, doesn't change the Delivery: an automatic one still delivers on its own ("Delivered without all checks"), so a
+  `skip` on a check before an automatic Delivery lets tickets merge without that check. Say so when you add one.
 - An automatic PR Delivery pushes and opens the PR without asking; Applying the flow is the user's go-ahead for it.
 
 ## Why lines

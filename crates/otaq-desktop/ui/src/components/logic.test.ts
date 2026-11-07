@@ -23,6 +23,7 @@ import {
   searchKey,
   stepMenu,
   trapFocus,
+  withTyped,
 } from "./logic";
 import { arrowIndex } from "./Tabs";
 
@@ -115,6 +116,16 @@ describe("searchable lists", () => {
     ]);
     expect(ids(filterMenu(branches, " origin/ "))).toEqual(["#REMOTE", "origin/release/2.2", "origin/next"]);
     expect(filterMenu(branches, "nothing")).toEqual([]);
+  });
+
+  it("puts the row for what was typed last, unless a row already has its id", () => {
+    const typed = (id: string) => item(id, { label: `Use ${id}` });
+    const found = filterMenu(branches, "next");
+    expect(withTyped(found, null)).toBe(found);
+    expect(ids(withTyped(found, typed("nex")))).toEqual([...ids(found), "nex"]);
+    expect(withTyped(found, typed("origin/next"))).toBe(found);
+    expect(ids(withTyped([], typed("my-skill")))).toEqual(["my-skill"]);
+    expect(firstMatch(withTyped([], typed("my-skill")))).toBe(0);
   });
 
   it("highlights the checked row, else the first match", () => {

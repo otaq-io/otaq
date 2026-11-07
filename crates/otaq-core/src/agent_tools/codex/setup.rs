@@ -5,16 +5,21 @@
 //! (`$CODEX_HOME`, else `~/.codex`), each written carefully and only Otaq's own (d0086):
 //! - **folder trust** ([`record_project`]): `[projects."<repo>"] trust_level = "trusted"` in `config.toml`, edited by
 //!   [`config_toml`] (a worktree inherits its repo's trust). Stays when Codex is disconnected;
-//! - **Otaq's plugin** (its hooks only, AGM-07: Codex finds a plugin's skills in its root `skills/` folder even
-//!   without a `skills` entry, developers.openai.com/codex/plugins/build: "Portable packages discover skills from the
-//!   root `skills/` directory", so the plugin is a folder without one, and the skills reach Codex as project skills
-//!   copied into the session's folder): `plugin/codex/.codex-plugin/plugin.json`, offered by the local marketplace
-//!   `plugin/codex/.agents/plugins/marketplace.json`, installed by Codex itself: `codex plugin marketplace add
-//!   <data folder>/runtime/codex-plugin`, then `codex plugin add otaq@otaq-local` (which also refreshes Codex's cached
-//!   copy). The marketplace is machine-wide, so it points at that one fixed folder, which every service start copies
-//!   `plugin/codex` over (d0140, gap review R4, [`refresh_plugin`]): a new build changes nothing
-//!   in Codex's config. A marketplace added from another folder (another data folder, or an older install) is
-//!   removed first;
+//! - **Otaq's plugin** (its hooks and Otaq's own skills, which come from its plugin: Codex finds a plugin's skills in
+//!   its root `skills/` folder without a `skills` entry, developers.openai.com/codex/plugins/build: "Portable
+//!   packages discover skills from the root `skills/` directory"): `plugin/codex/.codex-plugin/plugin.json`, offered
+//!   by the local marketplace `plugin/codex/.agents/plugins/marketplace.json`, installed by Codex itself: `codex
+//!   plugin marketplace add <data folder>/runtime/codex-plugin`, then `codex plugin add otaq@otaq-local`. The
+//!   marketplace is machine-wide, so it points at that one fixed folder, which every service start copies
+//!   `plugin/codex` over, with the shipped `plugin/skills` as its `skills/` (d0140, gap review R4,
+//!   [`refresh_plugin`]): a new build changes nothing in Codex's config. Codex runs an installed plugin from its
+//!   own copy (the same page: "loads the installed copy from that cache path rather than directly from the
+//!   marketplace entry"), which `codex plugin add` refreshes: `<codex home>/plugins/cache/otaq-local/otaq/<version>/`,
+//!   named for the manifest's `version` (`0.1.0`; Codex 0.166 prints "Installed plugin root: …/otaq/0.1.0"; older
+//!   Codex used `local`). So when any plugin file in that copy (the manifest with its hooks, the skills) differs from
+//!   the fixed folder's (a build with changed hooks or skills), the setup runs again ([`setup_needed`],
+//!   [`stale_cached_plugin`]), and its hook trust is recorded again for the refreshed copy. A marketplace added
+//!   from another folder (another data folder, or an older install) is removed first;
 //! - **hook trust**, before the first launch: any untrusted hook stops Codex at startup ("Hooks need review"). A
 //!   short-lived `codex app-server` lists the hooks (`hooks/list`: each one's `key`, `currentHash`,
 //!   `trustStatus`), and Otaq's five (`otaq@otaq-local:plugin.json#hooks[0]:<event>:0:0`) are recorded as trusted
@@ -211,9 +216,9 @@ fn write_rules(home: &Path) -> Result<(), String> {
     }
 }
 
-/// Copies Otaq's Codex plugin (`<plugin>/codex`) over the data folder's fixed `runtime/codex-plugin` (gap review
-/// R4), as every service start does: Codex's marketplace keeps pointing at the same folder for every build. `None`
-/// when `plugin_dir` has no Codex plugin.
+/// Copies Otaq's Codex plugin (`<plugin>/codex`), with the shipped skills (`<plugin>/skills`) as its `skills/`,
+/// over the data folder's fixed `runtime/codex-plugin` (gap review R4), as every service start does: Codex's
+/// marketplace keeps pointing at the same folder for every build. `None` when `plugin_dir` has no Codex plugin.
 pub(crate) fn refresh_plugin(
     data: &crate::data_dir::DataDir,
     plugin_dir: &Path,
@@ -223,7 +228,8 @@ pub(crate) fn refresh_plugin(
         return Ok(None);
     }
     let dest = data.codex_plugin_dir();
-    crate::runtime::replace_dir(&source, &dest)?;
+    let skills = plugin_dir.join(crate::runtime::SKILLS_FOLDER);
+    crate::runtime::replace_dir_with_skills(&source, Some(&skills), &dest)?;
     Ok(Some(dest))
 }
 
@@ -456,9 +462,114 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
 }
 
 /// Whether the next check should run the setup again: Otaq's folders are known and a launch would be refused
-/// for a missing setup ([`launch_refusal`]).
+/// for a missing setup ([`launch_refusal`]), or Codex's installed copy of the plugin differs from the fixed folder
+/// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it.
 pub(super) fn setup_needed(context: &CodexContext) -> bool {
-    context.tool.launch.is_some() && launch_refusal(context).is_some()
+    context.tool.launch.is_some()
+        && (launch_refusal(context).is_some() || stale_cached_plugin(context))
+}
+
+/// Where Codex keeps its installed copies of Otaq's plugin: `<codex home>/plugins/cache/otaq-local/otaq/`, one
+/// folder per installed version inside it.
+fn cached_plugins(home: &Path) -> PathBuf {
+    home.join("plugins")
+        .join("cache")
+        .join(marketplace())
+        .join(naming::PLUGIN_NAMESPACE)
+}
+
+/// The `version` in the plugin manifest of `folder` (`.codex-plugin/plugin.json`), which Codex names its installed
+/// copy after.
+fn manifest_version(folder: &Path) -> Option<String> {
+    let text = std::fs::read_to_string(folder.join(".codex-plugin").join("plugin.json")).ok()?;
+    let manifest: Value = serde_json::from_str(&text).ok()?;
+    manifest["version"].as_str().map(str::to_owned)
+}
+
+/// The installed copy of Otaq's plugin that Codex runs: the folder under [`cached_plugins`] named for the fixed
+/// folder's manifest `version` (`<codex home>/plugins/cache/otaq-local/otaq/0.1.0`), else the most recently written
+/// version folder there (an older Codex's `local`, or a naming a later Codex uses). Only that one copy counts, not
+/// every folder there: a version folder `codex plugin add` left behind would otherwise keep differing and run the
+/// setup at every check. `None` when there is no installed copy.
+fn cached_plugin(home: &Path, folder: &Path) -> Option<PathBuf> {
+    let root = cached_plugins(home);
+    if let Some(version) = manifest_version(folder) {
+        let named = root.join(version);
+        if named.is_dir() {
+            return Some(named);
+        }
+    }
+    std::fs::read_dir(&root)
+        .ok()?
+        .flatten()
+        .filter(|entry| entry.file_type().is_ok_and(|t| t.is_dir()))
+        .max_by_key(|entry| {
+            entry
+                .metadata()
+                .and_then(|m| m.modified())
+                .unwrap_or(std::time::SystemTime::UNIX_EPOCH)
+        })
+        .map(|entry| entry.path())
+}
+
+/// Whether Codex's installed copy of the plugin ([`cached_plugin`]) is there and any plugin file in it differs from
+/// the fixed folder's: its manifest (with the hooks), its `skills/`, and every other part the fixed folder has (a
+/// file added, removed or changed). So an update that changes only the hooks refreshes the copy too, and its hook
+/// trust is recorded again. The local marketplace (`.agents/`) isn't part of the plugin and doesn't count, nor does
+/// anything Codex keeps of its own beside the plugin's parts in its copy. No installed copy where Codex keeps it says
+/// nothing: the setup isn't run again for it, so a Codex that keeps it elsewhere never runs the setup at every check.
+pub(super) fn stale_cached_plugin(context: &CodexContext) -> bool {
+    let (Some(home), Some(folder)) = (context.codex_home.as_deref(), plugin_folder(context)) else {
+        return false;
+    };
+    let Some(cached) = cached_plugin(home, &folder) else {
+        return false;
+    };
+    plugin_files(&folder, &folder) != plugin_files(&cached, &folder)
+}
+
+/// The plugin's files in `dir` (the fixed folder or Codex's copy of it), by their path inside it, with their bytes:
+/// those under the manifest folder, `skills/` and every other top-level entry of the fixed folder `fixed`, except
+/// the local marketplace's `.agents/`.
+fn plugin_files(dir: &Path, fixed: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    let mut parts: std::collections::BTreeSet<std::ffi::OsString> = std::fs::read_dir(fixed)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|entry| entry.file_name())
+        .collect();
+    parts.insert(".codex-plugin".into());
+    parts.insert(crate::runtime::SKILLS_FOLDER.into());
+    parts.remove(std::ffi::OsStr::new(".agents"));
+    folder_files(dir)
+        .into_iter()
+        .filter(|(rel, _)| {
+            rel.components()
+                .next()
+                .is_some_and(|first| parts.contains(first.as_os_str()))
+        })
+        .collect()
+}
+
+/// Every file under `dir` by its path inside it, with its bytes; empty when `dir` isn't there.
+fn folder_files(dir: &Path) -> std::collections::BTreeMap<PathBuf, Vec<u8>> {
+    fn walk(dir: &Path, rel: &Path, out: &mut std::collections::BTreeMap<PathBuf, Vec<u8>>) {
+        let Ok(entries) = std::fs::read_dir(dir) else {
+            return;
+        };
+        for entry in entries.flatten() {
+            let path = entry.path();
+            let rel = rel.join(entry.file_name());
+            if path.is_dir() {
+                walk(&path, &rel, out);
+            } else if let Ok(bytes) = std::fs::read(&path) {
+                out.insert(rel, bytes);
+            }
+        }
+    }
+    let mut out = std::collections::BTreeMap::new();
+    walk(dir, Path::new(""), &mut out);
+    out
 }
 
 // ---------------------------------------------------------------------------------------------------------------
@@ -659,17 +770,28 @@ mod tests {
             }
         }
 
+        /// Codex's installed copy of Otaq's plugin, as Codex 0.166 names it: `…/otaq-local/otaq/<version>`.
+        fn installed(&self) -> PathBuf {
+            let version = manifest_version(&repo_plugin().join(PLUGIN_FOLDER)).unwrap();
+            cached_plugins(&self.home()).join(version)
+        }
+
         /// A stand-in `codex` that, like Codex, appends its plugin tables on `plugin marketplace add` and `plugin
-        /// add`, and answers `hooks/list` with `hooks` (a saved answer's result).
+        /// add`, copies the fixed folder into its installed copy ([`Home::installed`]) on `plugin add`, and answers
+        /// `hooks/list` with `hooks` (a saved answer's result).
         fn codex(&self, hooks: Value) {
             let (marketplace, id) = (marketplace(), plugin_id());
             let file = config_toml::path(&self.home());
+            let cached = self.installed();
             let plugin = format!(
                 r#"case "$2 $3" in
     "marketplace add") /usr/bin/grep -q '^\[marketplaces.{marketplace}\]' '{f}' || printf '\n[marketplaces.{marketplace}]\nsource_type = "local"\nsource = "%s"\n' "$(printf '%s' "$4" | /usr/bin/sed 's/\\/\\\\/g')" >> '{f}' ;;
-    "add {id}") /usr/bin/grep -q '^\[plugins."{id}"\]' '{f}' || printf '\n[plugins."{id}"]\nenabled = true\n' >> '{f}' ;;
+    "add {id}") /usr/bin/grep -q '^\[plugins."{id}"\]' '{f}' || printf '\n[plugins."{id}"]\nenabled = true\n' >> '{f}'
+      /bin/rm -rf '{c}' && /bin/mkdir -p '{c}' && /bin/cp -R '{src}/.' '{c}/' ;;
   esac"#,
-                f = file.display()
+                f = file.display(),
+                c = cached.display(),
+                src = self.codex_folder().display(),
             );
             stand_in(
                 &self.bin(),
@@ -759,8 +881,9 @@ mod tests {
         );
     }
 
-    /// The manifest beside Claude Code's: no skills (AGM-07), and exactly the five hooks the adapter maps, each with
-    /// its fixed command line; the marketplace offers that folder under the name the setup installs.
+    /// The manifest beside Claude Code's: no `skills` entry and no `skills/` folder in the repository's copy (Codex
+    /// finds the root `skills/` folder the setup adds to the fixed folder), and exactly the five hooks the adapter
+    /// maps, each with its fixed command line; the marketplace offers that folder under the name the setup installs.
     #[test]
     fn the_plugin_manifest_and_its_marketplace() {
         let dir = repo_plugin();
@@ -775,7 +898,10 @@ mod tests {
         assert_eq!(manifest["name"], naming::PLUGIN_NAMESPACE);
         assert_eq!(manifest["version"], claude["version"]);
         assert!(manifest.get("skills").is_none());
-        assert!(!dir.join("codex/skills").exists(), "hooks only");
+        assert!(
+            !dir.join("codex/skills").exists(),
+            "filled in the fixed folder only"
+        );
         let hooks = manifest["hooks"]["hooks"].as_object().unwrap();
         let mut names: Vec<&str> = hooks.keys().map(String::as_str).collect();
         names.sort_unstable();
@@ -990,7 +1116,8 @@ mod tests {
     }
 
     /// A new build (its plugin in another runtime folder) refreshes the fixed folder: Codex's config doesn't change,
-    /// launches aren't refused and no setup runs again (gap review R4).
+    /// launches aren't refused and, with no plugin file changed (only the marketplace folder has a new file), no
+    /// setup runs again (gap review R4).
     #[tokio::test]
     async fn a_new_builds_plugin_keeps_codexs_marketplace() {
         let home = Home::new();
@@ -1020,10 +1147,239 @@ mod tests {
         assert_eq!(home.config(), config);
         assert!(
             home.codex_folder()
-                .join(".codex-plugin")
+                .join(".agents")
                 .join("next-build")
                 .is_file()
         );
+    }
+
+    /// Otaq's own skills come from its plugin: the refreshed fixed folder holds every shipped skill at its root
+    /// `skills/`, and the setup's `codex plugin add` puts them in Codex's installed copy.
+    #[tokio::test]
+    async fn the_plugin_carries_every_shipped_skill() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let context = home.context(&repo_plugin());
+        for name in crate::agents::shipped::SKILLS {
+            let skill = Path::new("skills").join(name).join("SKILL.md");
+            assert_eq!(
+                fs::read(home.codex_folder().join(&skill)).unwrap_or_default(),
+                fs::read(repo_plugin().join(&skill)).unwrap(),
+                "{name}"
+            );
+        }
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        home.apply_batch_write();
+        let cached = home.installed();
+        assert!(
+            cached.ends_with(
+                Path::new(&marketplace())
+                    .join(naming::PLUGIN_NAMESPACE)
+                    .join("0.1.0")
+            ),
+            "{}",
+            cached.display()
+        );
+        assert!(cached.join("skills/work-ticket/SKILL.md").is_file());
+        assert!(!stale_cached_plugin(&context));
+        assert!(!setup_needed(&context));
+    }
+
+    /// A new build with a changed skill: Codex's installed copy has the old skills, so the next check runs the
+    /// setup again, whose `codex plugin add` refreshes that copy; then nothing is needed.
+    #[tokio::test]
+    async fn a_changed_skill_reaches_codexs_installed_copy() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let context = home.context(&repo_plugin());
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        home.apply_batch_write();
+        assert!(!setup_needed(&context));
+
+        let next = tempfile::tempdir().unwrap();
+        let plugin = next_build_plugin(next.path());
+        let skill = plugin.join("skills").join("commit").join("SKILL.md");
+        let changed = format!("{}\nOne more line.\n", fs::read_to_string(&skill).unwrap());
+        fs::write(&skill, &changed).unwrap();
+        refresh_plugin(&context.tool.data, &plugin).unwrap();
+        let mut moved = context.clone();
+        moved.tool.launch.as_mut().unwrap().plugin_dir = plugin;
+        assert_eq!(launch_refusal(&moved), None, "launches go on meanwhile");
+        assert!(stale_cached_plugin(&moved));
+        assert!(setup_needed(&moved));
+
+        assert_eq!(set_up_tool(&moved).await.failed, []);
+        let cached = home.installed().join("skills/commit/SKILL.md");
+        assert_eq!(fs::read_to_string(cached).unwrap(), changed);
+        assert!(!setup_needed(&moved));
+    }
+
+    /// An update that changes only the hooks (in the manifest): Codex's installed copy has the old hooks, so the
+    /// next check runs the setup again, whose `codex plugin add` refreshes the copy and whose hook trust is recorded
+    /// again; a copy identical to the fixed folder needs nothing.
+    #[tokio::test]
+    async fn a_hooks_only_change_reruns_the_setup() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let context = home.context(&repo_plugin());
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        home.apply_batch_write();
+        assert!(!stale_cached_plugin(&context), "an identical copy");
+        assert!(!setup_needed(&context));
+
+        let manifest = Path::new(".codex-plugin").join("plugin.json");
+        let old = fs::read_to_string(home.installed().join(&manifest)).unwrap();
+        let changed = old.replace("\"timeout\": 10", "\"timeout\": 20");
+        assert_ne!(changed, old);
+        fs::write(home.codex_folder().join(&manifest), &changed).unwrap();
+        assert_eq!(launch_refusal(&context), None, "launches go on meanwhile");
+        assert!(stale_cached_plugin(&context));
+        assert!(setup_needed(&context));
+
+        fs::remove_file(home.log()).unwrap();
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        let log = fs::read_to_string(home.log()).unwrap();
+        assert!(
+            log.contains(&format!("plugin add {}", plugin_id())),
+            "{log}"
+        );
+        assert!(
+            log.contains("config/batchWrite"),
+            "the hook trust is recorded again: {log}"
+        );
+        assert_eq!(
+            fs::read_to_string(home.installed().join(&manifest)).unwrap(),
+            changed
+        );
+        assert!(!stale_cached_plugin(&context));
+        assert!(!setup_needed(&context));
+    }
+
+    /// Only the plugin's parts count: a copy without the local marketplace (`.agents/`), or with a file Codex keeps
+    /// of its own beside the plugin's parts, isn't stale; a file added to the copy's manifest folder is.
+    #[test]
+    fn only_the_plugins_parts_count() {
+        let home = Home::new();
+        let context = home.context(&repo_plugin());
+        install_copy(&home, &home.installed(), true);
+        assert!(!stale_cached_plugin(&context));
+        fs::remove_dir_all(home.installed().join(".agents")).unwrap();
+        fs::write(home.installed().join(".codex-own-state"), "x").unwrap();
+        assert!(!stale_cached_plugin(&context));
+        fs::write(home.installed().join(".codex-plugin").join("extra"), "x").unwrap();
+        assert!(stale_cached_plugin(&context));
+    }
+
+    /// No installed copy where Codex keeps it: no setup again for the plugin.
+    #[test]
+    fn no_installed_copy_is_not_stale() {
+        let home = Home::new();
+        let context = home.context(&repo_plugin());
+        assert!(!stale_cached_plugin(&context));
+        fs::create_dir_all(cached_plugins(&home.home())).unwrap();
+        assert!(!stale_cached_plugin(&context));
+    }
+
+    /// The fixed folder copied to `to` as Codex's installed copy, with `skills/` removed when `skills` is false
+    /// (the hooks-only copy an older build installed).
+    fn install_copy(home: &Home, to: &Path, skills: bool) {
+        fn copy(from: &Path, to: &Path) {
+            fs::create_dir_all(to).unwrap();
+            for entry in fs::read_dir(from).unwrap() {
+                let entry = entry.unwrap();
+                if entry.file_type().unwrap().is_dir() {
+                    copy(&entry.path(), &to.join(entry.file_name()));
+                } else {
+                    fs::copy(entry.path(), to.join(entry.file_name())).unwrap();
+                }
+            }
+        }
+        copy(&home.codex_folder(), to);
+        if !skills {
+            fs::remove_dir_all(to.join("skills")).unwrap();
+        }
+    }
+
+    /// The case an update left (the hands-on report): Codex's installed copy under its version folder (`0.1.0`) is
+    /// the old hooks-only one, so the next check runs the setup, whose `codex plugin add` brings the skills and
+    /// whose hook trust is recorded again; then nothing is needed.
+    #[tokio::test]
+    async fn a_stale_copy_under_its_version_folder_runs_the_setup() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let context = home.context(&repo_plugin());
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        home.apply_batch_write();
+        assert!(!setup_needed(&context), "a matching copy needs nothing");
+
+        fs::remove_dir_all(home.installed().join("skills")).unwrap();
+        assert!(stale_cached_plugin(&context));
+        assert!(setup_needed(&context));
+        fs::remove_file(home.log()).unwrap();
+        assert_eq!(set_up_tool(&context).await.failed, []);
+        assert!(
+            home.installed()
+                .join("skills/work-ticket/SKILL.md")
+                .is_file()
+        );
+        let log = fs::read_to_string(home.log()).unwrap();
+        assert!(
+            log.contains(&format!("plugin add {}", plugin_id())),
+            "{log}"
+        );
+        assert!(
+            log.contains("config/batchWrite"),
+            "the hook trust is recorded again: {log}"
+        );
+        assert!(!setup_needed(&context));
+    }
+
+    /// An older Codex's installed copy under `local` still counts when there is no version folder.
+    #[test]
+    fn a_copy_under_local_still_counts() {
+        let home = Home::new();
+        let context = home.context(&repo_plugin());
+        let local = cached_plugins(&home.home()).join("local");
+        install_copy(&home, &local, false);
+        assert!(stale_cached_plugin(&context));
+        fs::remove_dir_all(&local).unwrap();
+        install_copy(&home, &local, true);
+        assert!(!stale_cached_plugin(&context));
+    }
+
+    /// A version folder left behind next to the one named for the manifest's version doesn't count, even when it
+    /// was written later: only the copy Codex runs decides, so an old leftover can't run the setup at every check.
+    #[test]
+    fn a_leftover_version_folder_is_ignored() {
+        let home = Home::new();
+        let context = home.context(&repo_plugin());
+        install_copy(&home, &home.installed(), true);
+        std::thread::sleep(Duration::from_millis(20));
+        install_copy(&home, &cached_plugins(&home.home()).join("local"), false);
+        assert!(!stale_cached_plugin(&context));
+
+        fs::remove_dir_all(home.installed().join("skills")).unwrap();
+        install_copy(&home, &cached_plugins(&home.home()).join("0.0.9"), true);
+        assert!(
+            stale_cached_plugin(&context),
+            "the manifest's version decides"
+        );
+    }
+
+    /// Without the manifest's version folder, the most recently written version folder is the one that counts.
+    #[test]
+    fn without_the_versions_folder_the_newest_counts() {
+        let home = Home::new();
+        let context = home.context(&repo_plugin());
+        let root = cached_plugins(&home.home());
+        install_copy(&home, &root.join("local"), false);
+        std::thread::sleep(Duration::from_millis(20));
+        install_copy(&home, &root.join("0.2.0"), true);
+        assert!(!stale_cached_plugin(&context));
+        std::thread::sleep(Duration::from_millis(20));
+        fs::remove_dir_all(root.join("local")).unwrap();
+        install_copy(&home, &root.join("local"), false);
+        assert!(stale_cached_plugin(&context));
     }
 
     /// The repository's plugin copied under `root`, as another build's runtime folder holds it, with a file only
@@ -1042,14 +1398,7 @@ mod tests {
         }
         let plugin = root.join("plugin");
         copy(&repo_plugin(), &plugin);
-        fs::write(
-            plugin
-                .join("codex")
-                .join(".codex-plugin")
-                .join("next-build"),
-            "",
-        )
-        .unwrap();
+        fs::write(plugin.join("codex").join(".agents").join("next-build"), "").unwrap();
         plugin
     }
 

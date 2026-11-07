@@ -71,8 +71,8 @@ pub fn group_of(status: Status) -> Option<NeedsYouGroup> {
 }
 
 /// Whether a group 3 ticket waits for the user (FLW-15, Q265): anything but an automatic Delivery under way, which
-/// delivers with no click. A card at an automatic Delivery that waits all the same (moved past a check, so click mode;
-/// or left there because it couldn't start) is the user's.
+/// delivers with no click. A card at an automatic Delivery that waits all the same (left there because it couldn't
+/// start) is the user's.
 pub fn waits_for_click(ticket: &Ticket) -> bool {
     ticket.status != Status::ToDeliver || !ticket.flags.delivering_automatically
 }
@@ -171,6 +171,10 @@ pub struct NeedsYouItem {
     /// Interrupted: the helpers Resume brings back with the agent in charge ("40.2", "40.3"; d0133 audit 5).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub helpers_to_resume: Vec<String>,
+    /// A stage held because its tool doesn't have the stage's skill: the item reads "Codex doesn't have the skill
+    /// `/team-validate`", and the ticket offers Check again and Change agent….
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_skill: Option<crate::domain::MissingSkill>,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -212,9 +216,11 @@ pub fn needs_you_items_with(
                     return None;
                 }
                 // A needs-you ticket interrupted by a restart keeps its label (d0045): it stays with the turquoise
-                // items, where answering it resumes and delivers. An interrupted check is Interrupted (d0063).
+                // items, where answering it resumes and delivers. An interrupted check is Interrupted (d0063). A
+                // stage held for its skill waits for the user too: only they can make the skill reach its tool.
                 let group = match ticket.interrupted_from {
                     Some(s) if s.is_needs_you_family() => NeedsYouGroup::Family,
+                    _ if ticket.flags.missing_skill.is_some() => NeedsYouGroup::Family,
                     _ => group_of(ticket.status)?,
                 };
                 let waiting_in = match group {
@@ -243,6 +249,7 @@ pub fn needs_you_items_with(
                     waiting_in,
                     piece: ticket.flags.piece_wait.clone(),
                     helpers_to_resume: ticket.flags.helpers_to_resume.clone(),
+                    missing_skill: ticket.flags.missing_skill.clone(),
                 })
             })
         })
@@ -294,6 +301,10 @@ fn since(ticket: &Ticket) -> i64 {
 
 /// The item's line in Needs you (brief 10); `waiting_in` names a group 3 ticket's human check.
 fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
+    // A stage held for its skill: "Codex doesn't have the skill `/team-validate`".
+    if let Some(missing) = &ticket.flags.missing_skill {
+        return missing.text();
+    }
     // Interrupted with its label kept: the label's own line (Needs you adds "session ended by restart").
     if let Some(label) = kept_label(ticket) {
         let kept = Ticket {
@@ -329,6 +340,10 @@ fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -
             None => "needs you".into(),
         },
         Status::Idle => match signal {
+            // A failed turn (F10): the tool's own message.
+            Some(text) if let Some(error) = crate::signals::tool_error(text) => {
+                format!("idle · stopped on an error: “{error}”")
+            }
             Some(line) => format!("idle · ended its turn: “{line}”"),
             None => "idle · ended its turn without a message".into(),
         },
@@ -549,6 +564,7 @@ impl Board {
                 waiting_in: None,
                 piece: None,
                 helpers_to_resume: Vec::new(),
+                missing_skill: None,
             });
         }
         for item in &mut items {

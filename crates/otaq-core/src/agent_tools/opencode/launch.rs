@@ -2,7 +2,7 @@
 //!
 //! ```text
 //! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],
+//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],"skills":["<otaq plugin>/skills"],
 //!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"}],"model":"<m>"}
 //! OPENCODE_CLI_CONFIG_CONTENT={"theme":{"mode":"light"|"dark"}}
 //! opencode --standalone --session <ses_…> --prompt "<first prompt>"
@@ -10,10 +10,11 @@
 //!
 //! Always `--standalone`: the default mode attaches to the user's shared OpenCode service, which ignores the
 //! launch's environment and config (hands-on check). Everything per launch goes in `OPENCODE_CONFIG_CONTENT`, which
-//! adds to the user's own config: Otaq's plugin folder (its hooks), the one rule pre-approving `otaq` commands, and
-//! the model when one is set. No `skills` entry: the skills reach OpenCode as project skills copied into the session's
-//! folder (AGM-07; OpenCode reads `.claude/skills/<name>/SKILL.md` and `.agents/skills/<name>/SKILL.md`, walking up to
-//! the git worktree, its skills page opencode.ai/docs/skills/). Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
+//! adds to the user's own config: Otaq's plugin folder (its hooks), Otaq's own skills folder (`<otaq plugin>/skills`,
+//! the shipped skills in the one place they live; Otaq's own skills come from its plugin, as for every tool, and the
+//! user's own skills are still found by OpenCode where it always looks), the one rule pre-approving `otaq` commands,
+//! and the model when one is set. The `skills` form is the one Otaq used before its skills were copied into each
+//! session's folder (T-0408), which worked then. Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
 //! never `--auto` (it approves every prompt; d0011). The user's own data folder is used (no `XDG_*` change), so
 //! the session shows in their OpenCode session list. Resume is `--session <id>` with an optional prompt; the
 //! session's stored model wins over the config there.
@@ -43,6 +44,9 @@ const CLI_CONFIG_CONTENT: &str = "OPENCODE_CLI_CONFIG_CONTENT";
 
 /// The folder of Otaq's OpenCode plugin inside Otaq's plugin folder (`package.json` and `index.js`).
 const PLUGIN_FOLDER: &str = "opencode";
+
+/// Otaq's own skills inside its plugin folder (the one place they live).
+const SKILLS_FOLDER: &str = crate::runtime::SKILLS_FOLDER;
 
 pub(super) fn launch(
     adapter: &OpenCode,
@@ -123,13 +127,25 @@ pub(crate) fn resume_hint(tool_id: &str) -> String {
     format!("{COMMAND_NAME} --session {tool_id}")
 }
 
-/// A skill named for the agent: its copy's name, `otaq-work-ticket`. OpenCode lists the skills it found to the model
-/// by name (`<available_skills>`) and its skill tool loads one by name ("`skill({ name: "git-release" })`", its skills
-/// page); it has no syntax of its own for running a skill from typed text (the TUI's `@<skill>` is an attachment
-/// made by its picker, not parsed from text; checked on 2.0.17, and the typed skill lines report of 2026-10-19: the
-/// line goes in as text and the model loads the skill).
+/// A skill named for the agent: its own name, `work-ticket` for Otaq's and `team-validate` for the user's (OpenCode
+/// has no namespace). OpenCode lists the skills it found to the model by name (`<available_skills>`) and its skill
+/// tool loads one by name ("`skill({ name: "git-release" })`", its skills page); it has no syntax of its own for
+/// running a skill from typed text (the TUI's `@<skill>` is an attachment made by its picker, not parsed from text;
+/// checked on 2.0.17). A typed line names the skill inside an instruction ([`skill_prompt`]).
 pub(super) fn skill_reference(skill: &str) -> String {
-    naming::copy_name(skill)
+    skill.to_owned()
+}
+
+/// A skill as typed into an OpenCode session to run it (S3, changed 2026-11-06): OpenCode has no typed command for a
+/// skill, and in the hands-on check (OpenCode 2.2.5, Gemini) its model mostly ignored a bare name at the start of a
+/// message and never said when it named no skill. So the message tells the model to load the skill with its skill
+/// tool ([`skill_reference`]'s name inside it), and to say so and stop when it has none; the usual text follows.
+pub(super) fn skill_prompt(skill: &str) -> String {
+    let name = skill_reference(skill);
+    format!(
+        "Load the skill `{name}` with your skill tool and follow it. If you don't have a skill with that name, say so \
+         and stop."
+    )
 }
 
 /// Why no launch can be built: the plugin folder wasn't found.
@@ -154,7 +170,7 @@ pub(super) fn session_title(request: &LaunchRequest, ticket_title: Option<&str>)
     }
 }
 
-/// The prompt as sent: a skill by its copy's name (with a message after it), or the text.
+/// The prompt as sent: the instruction to load a skill ([`skill_prompt`], with a message after it), or the text.
 fn prompt_text(adapter: &OpenCode, prompt: &FirstPrompt) -> String {
     prompt.text(adapter)
 }
@@ -199,10 +215,11 @@ fn cli_config(theme: ThemeKind) -> Value {
     json!({ "theme": { "mode": mode } })
 }
 
-/// `OPENCODE_CONFIG_CONTENT`: Otaq's plugin, the one `otaq *` shell rule, and `model` when set.
+/// `OPENCODE_CONFIG_CONTENT`: Otaq's plugin, its skills, the one `otaq *` shell rule, and `model` when set.
 fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
         "plugins": [launch.plugin_dir.join(PLUGIN_FOLDER).display().to_string()],
+        "skills": [launch.plugin_dir.join(SKILLS_FOLDER).display().to_string()],
         "permissions": [{
             "action": "shell",
             "resource": format!("{} *", naming::COMMAND_NAME),
@@ -323,7 +340,7 @@ mod tests {
                 "--session",
                 id.as_str(),
                 "--prompt",
-                format!("{}-work-ticket", naming::COMMAND_NAME).as_str()
+                skill_prompt("work-ticket").as_str()
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-50"));
@@ -331,6 +348,7 @@ mod tests {
             config(&plan),
             json!({
                 "plugins": [Path::new("/opt/cb/plugin").join("opencode").display().to_string()],
+                "skills": [Path::new("/opt/cb/plugin").join("skills").display().to_string()],
                 "permissions": [{
                     "action": "shell",
                     "resource": format!("{} *", naming::COMMAND_NAME),
@@ -452,7 +470,7 @@ mod tests {
         let plan = launch(&adapter(), &first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("{}-noyan Start with the cart", naming::COMMAND_NAME)
+            &format!("{} Start with the cart", skill_prompt("noyan"))
         );
     }
 
@@ -510,8 +528,9 @@ mod tests {
         assert_eq!(&a[..10], "ses_eb4534");
     }
 
-    /// A stage's skill as a first prompt (AGM-07): shipped and imported alike by their copies' names; the launch is
-    /// otherwise the same, and the config names no skill folder and no outside folder.
+    /// A stage's skill as a first prompt: Otaq's own and the user's alike by their own names, in the instruction to
+    /// load it ([`skill_prompt`]); the launch is
+    /// otherwise the same, and the config names only Otaq's own skills folder and no outside folder.
     #[test]
     fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator, None);
@@ -520,10 +539,7 @@ mod tests {
             message: None,
         });
         let shipped = launch(&adapter(), &req).unwrap();
-        assert_eq!(
-            shipped.args.last().unwrap(),
-            &format!("{}-validate", naming::COMMAND_NAME)
-        );
+        assert_eq!(shipped.args.last().unwrap(), &skill_prompt("validate"));
         req.first_prompt = Some(FirstPrompt::Skill {
             name: "team-validate".into(),
             message: None,
@@ -531,10 +547,17 @@ mod tests {
         let imported = launch(&adapter(), &req).unwrap();
         assert_eq!(
             imported.args.last().unwrap(),
-            &format!("{}-team-validate", naming::COMMAND_NAME)
+            &skill_prompt("team-validate")
         );
         only_the_prompt_differs(&shipped, &imported);
-        let config = config(&imported).to_string();
-        assert!(!config.contains("external_directory") && !config.contains("skills"));
+        let config = config(&imported);
+        assert!(!config.to_string().contains("external_directory"));
+        assert_eq!(
+            config["skills"],
+            json!([Path::new("/opt/cb/plugin")
+                .join("skills")
+                .display()
+                .to_string()])
+        );
     }
 }

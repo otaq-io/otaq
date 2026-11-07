@@ -8,7 +8,6 @@ const agents = [
     name: "Rust developer",
     tool: "Claude Code · opus",
     ins: "“Follow our error-handling rules. Run cargo clippy before you submit.”",
-    skills: ["/work-ticket", "/tdd"],
     pill: ["p-w", "activity", "Working"],
     on: "SHOP-33",
   },
@@ -17,7 +16,6 @@ const agents = [
     name: "Spec writer",
     tool: "Claude Code · opus",
     ins: "“Ask one question at a time until the spec is clear. Record every decision. Never write code.”",
-    skills: ["/product-spec"],
     pill: ["p-a", "message-q", "Asks you"],
     on: "SHOP-40 · Product spec",
   },
@@ -26,7 +24,6 @@ const agents = [
     name: "Security reviewer",
     tool: "Claude Code · opus · effort high",
     ins: "“Read-only. Flag anything that touches auth, SQL or secrets.”",
-    skills: ["/security-review"],
     pill: ["p-i", "shield-check", "Checking"],
     on: "SHOP-19 · round 1 of 3",
   },
@@ -35,7 +32,6 @@ const agents = [
     name: "Validator",
     tool: "Codex · gpt-sol",
     ins: "“Run the tests and lint. Compare the change with the ticket.”",
-    skills: ["/validate"],
     pill: ["p-i", "shield-check", "Checking"],
     on: "SHOP-30",
   },
@@ -44,7 +40,6 @@ const agents = [
     name: "Docs updater",
     tool: "Claude Code · haiku",
     ins: "“Docs, comments and config only. Never change behaviour.”",
-    skills: ["/work-ticket", "/docs-style"],
     pill: ["p-d", "check", "Idle"],
     on: "",
   },
@@ -53,7 +48,6 @@ const agents = [
     name: "Shipper",
     tool: "OpenCode · default model",
     ins: "“Write the PR description from the ticket and the diff.”",
-    skills: ["/open-pr"],
     pill: ["p-ok", "git-pr", "PR open"],
     on: "SHOP-26",
   },
@@ -67,7 +61,6 @@ const tools = [
     paused: true,
     bar: { width: 18, color: "var(--st-paused)" },
     today: "today 412k tokens",
-    fallback: true,
   },
   {
     av: "CX",
@@ -99,7 +92,7 @@ const tools = [
   <div class="wrap">
     <div class="rv">
       <div class="label">Pick the agent for every stage</div>
-      <h2 class="h2">An agent is a name, a tool, a model, instructions and skills.</h2>
+      <h2 class="h2">An agent is a name, a tool, a model and instructions.</h2>
       <p class="sub">
         Make as many as you like and put one on each stage. Mix vendors: one company’s model can write,
         another’s can check. Names below are examples. Models are each tool’s “always the newest” choices, so
@@ -117,11 +110,6 @@ const tools = [
             </div>
           </div>
           <div class="ins">{a.ins}</div>
-          <div class="sk">
-            {a.skills.map((s) => (
-              <span>{s}</span>
-            ))}
-          </div>
           <div class="st">
             <span class={`pill ${a.pill[0]}`}>
               <Icon icon={a.pill[1]} />
@@ -135,7 +123,7 @@ const tools = [
     <div class="stagepick rv">
       <div class="sp-card">
         <div class="h">
-          <span class="k" style="background: var(--st-working)"></span>Dev · a stage with options
+          <span class="k" style="background: var(--st-working)"></span>Dev · pick for one ticket
         </div>
         <div class="opt on">
           <span class="av av-CC">CC</span>Rust developer · opus<span class="tm">default</span>
@@ -148,7 +136,7 @@ const tools = [
           <span class="tm">docs and config</span>
         </div>
         <div class="h" style="margin-top:8px">
-          <span class="k" style="background: var(--st-investigate)"></span>Validate · a stage with options
+          <span class="k" style="background: var(--st-investigate)"></span>Validate · pick for one ticket
         </div>
         <div class="opt on">
           <span class="av av-CX">CX</span>Validator · gpt-sol<span class="tm">default</span>
@@ -158,9 +146,9 @@ const tools = [
           <span class="tm">prisma/ and payments</span>
         </div>
         <p>
-          Every ticket uses the stage’s own agent unless you pick another, yourself or through Noyan. A
-          ticket’s agent may pick a stronger one when its change turns out risky (“touches payments”), but
-          only you skip a stage. Your choice always wins, and a stage with one agent just uses it.
+          Every ticket uses the stage’s own agent unless you pick another, yourself or through Noyan. The list
+          holds every agent whose tool has the stage’s skill. Only you pick or skip: a ticket’s own agent
+          never does.
         </p>
       </div>
       <div class="sp-card act">
@@ -187,13 +175,11 @@ const tools = [
               )}
               <div class="at">{t.today}</div>
             </div>
-            {t.fallback && <span class="btn btn-s btn-sm">Use fallback now</span>}
           </div>
         ))}
         <p>
           Each tool’s limit windows with reset times, and today’s tokens. When one tool runs out, only its
-          agents wait;
-          <b>Use fallback now</b> moves them to another. Otaq shows no dollar estimates.
+          agents wait, and the rest keep going. Otaq shows no dollar estimates.
         </p>
       </div>
     </div>

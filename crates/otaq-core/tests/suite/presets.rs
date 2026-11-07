@@ -80,19 +80,13 @@ fn every_preset_reads_and_passes_the_checks() {
         assert_eq!(on_disk, p.yaml, "{}", p.file);
         let file = p.read();
         assert_eq!(yaml::write(&file), p.yaml, "{} round-trips", p.file);
+        // An agent has no skills: a shipped file gives none (T6).
+        assert!(!p.yaml.contains("skills:"), "{}", p.file);
         assert_eq!(check(&file.flow), Ok(()), "{}", p.file);
         let known = |name: &str| file.agents.iter().any(|a| a.name == name);
         assert_eq!(check_agents(&file.flow, known), Ok(()), "{}", p.file);
         for agent in &file.agents {
             assert_eq!(agent.model, "default", "{}: {}", p.file, agent.name);
-            for skill in &agent.skills {
-                assert!(
-                    shipped::SKILLS.contains(&skill.as_str()),
-                    "{}: {} names {skill}, which Otaq doesn't ship",
-                    p.file,
-                    agent.name
-                );
-            }
         }
         for stage in &file.flow.stages {
             if let Some(skill) = &stage.skill {

@@ -12,7 +12,7 @@
 // problem that needs a pick shows its fix in the step's details, with FLW-04's controls (Q426); the picks stay here
 // until Apply sends them. A check's details have Fails go to (the Agent stages before it, the nearest by default); an
 // agent check's list its check agents (add, remove) and one Rounds limit (T-0529; d0131, d0130; `s29-04`).
-import { useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
+import { Fragment, useCallback, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import { keymap } from "../../app/keyboard";
 import { bindingFor } from "../../app/keys";
@@ -36,7 +36,6 @@ import {
   Radio,
 } from "../../components";
 import type { FlowEditorAgent } from "../../generated/FlowEditorAgent";
-import type { FlowEditorCheckAgents } from "../../generated/FlowEditorCheckAgents";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
 import type { FlowEditorChoices } from "../../generated/FlowEditorChoices";
 import type { FlowEditorClashPick } from "../../generated/FlowEditorClashPick";
@@ -59,9 +58,10 @@ import type { FlowEditorTile } from "../../generated/FlowEditorTile";
 import type { FlowEditorView } from "../../generated/FlowEditorView";
 import type { IconName } from "../../generated/IconName";
 import { useServiceView } from "../../service";
-import { pickFlowFile, pickFolder, request } from "../../tauri";
+import { pickFlowFile, request } from "../../tauri";
 import { Terminal, type TerminalHandle } from "../../terminal/Terminal";
 import { Icon } from "../../theme/Icon";
+import { CodeText } from "../../components/CodeText";
 import { optionItems } from "../settings/Agents";
 import { ModelPicker } from "../settings/ModelPicker";
 import {
@@ -86,9 +86,9 @@ import {
   type SkillButton,
   skillButton,
   TILE_MS,
+  typedItem,
   undo,
   withClash,
-  withFolder,
   withModel,
   writeSkill,
 } from "./logic";
@@ -433,6 +433,11 @@ function StepItem({
         <span className="fe-step-kind">{step.kind}</span>
         {step.fails_to !== null && <span className="fe-step-kind fe-step-fails">{step.fails_to}</span>}
         {step.problem !== null && <span className="fe-step-problem">{step.problem}</span>}
+        {step.warning !== null && (
+          <span className="fe-step-warning">
+            <CodeText text={step.warning} />
+          </span>
+        )}
       </span>
       {step.mark !== null && (
         <MarkTag
@@ -504,21 +509,33 @@ function StepItem({
 }
 
 /**
- * The Skill field (FED-06): the stage's skill (click it to pick another); empty with Pick a skill… (the user's own,
- * searchable) and Ask the agent to write it; "Being written by Noyan…" with Stop; or the skill the agent
- * wrote, tinted, with Open and Undo.
+ * The Skill field (FED-06): the stage's skill (click it to pick another), with "You don't have the skill `<name>`"
+ * under it in amber when nobody has it; empty with Pick a skill… (the user's own skills, then Otaq's, searchable, and
+ * "Use `<typed text>`" last while searching) and Ask the agent to write it; "Being written by Noyan…" with Stop; or the
+ * skill the agent wrote, tinted, with Open and Undo, and where it was saved under it.
  */
 export function SkillField({
   field,
   stage,
   actions,
+  focus = false,
 }: {
   field: FlowEditorSkillField;
   stage: string;
   actions: EditorActions;
+  /** Opened on this field ("use your own Open PR skill" → the Delivery stage's Skill): its first button gets the
+   * keyboard and the field scrolls into view. */
+  focus?: boolean;
 }) {
   const [picking, setPicking] = useState(false);
   const anchor = useRef<HTMLSpanElement>(null);
+  const box = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (!focus) return;
+    const button = box.current?.querySelector("button");
+    button?.focus();
+    box.current?.scrollIntoView({ block: "nearest" });
+  }, [focus]);
   const state = field.state;
   const pick = () => {
     setPicking(true);
@@ -527,13 +544,26 @@ export function SkillField({
   switch (state.state) {
     case "set":
       body = (
-        <span ref={anchor} className="fe-skill-anchor">
-          <button type="button" className="fe-value fe-skill fe-skill-set" onClick={pick}>
-            <Icon name="scroll-text" size={13} />
-            {state.skill}
-            <Icon name="chevron-down" size={12} />
-          </button>
-        </span>
+        <>
+          <span ref={anchor} className="fe-skill-anchor">
+            <button type="button" className="fe-value fe-skill fe-skill-set" onClick={pick}>
+              <Icon name="scroll-text" size={13} />
+              {state.skill}
+              <Icon name="chevron-down" size={12} />
+            </button>
+          </span>
+          {state.warning !== null && (
+            <div className="fe-fix" data-tone="amber">
+              <Icon name="triangle-alert" size={14} />
+              <span className="fe-fix-text">
+                {/* One span, so the name flows in the sentence (the column would put it on a line of its own). */}
+                <span>
+                  <CodeText text={state.warning} />
+                </span>
+              </span>
+            </div>
+          )}
+        </>
       );
       break;
     case "empty":
@@ -593,15 +623,17 @@ export function SkillField({
             {state.note}
           </span>
           <span className="fe-spacer" />
-          <button
-            type="button"
-            className="fe-link"
-            onClick={() => {
-              actions.skill(stage, "open_skill");
-            }}
-          >
-            {state.open}
-          </button>
+          {state.open !== null && (
+            <button
+              type="button"
+              className="fe-link"
+              onClick={() => {
+                actions.skill(stage, "open_skill");
+              }}
+            >
+              {state.open}
+            </button>
+          )}
           <button
             type="button"
             className="fe-link"
@@ -613,10 +645,24 @@ export function SkillField({
           </button>
         </div>
       );
+      if (state.saved !== null) {
+        body = (
+          <>
+            {body}
+            <span className="fe-hint">
+              <Icon name="info" size={13} />
+              {/* One span, so the sentence flows with its folder inline (the hint's flex row would make columns). */}
+              <span>
+                <CodeText text={state.saved} />
+              </span>
+            </span>
+          </>
+        );
+      }
       break;
   }
   return (
-    <div className="fe-field">
+    <div ref={box} className="fe-field" data-field="skill">
       <span className="fe-label">{field.label}</span>
       {body}
       {picking && (
@@ -627,6 +673,7 @@ export function SkillField({
           items={field.picker.items}
           list
           search={field.picker.search}
+          typed={(text) => typedItem(field.picker.use_typed, text)}
           onChoose={(skill) => {
             setPicking(false);
             if (skill !== "") actions.edit({ edit: "skill", stage, skill });
@@ -711,13 +758,12 @@ function NameField({ details, onRename }: { details: FlowEditorDetails; onRename
 }
 
 /**
- * A problem's fix, or an import clash (Q426; FLW-04's controls): Keep mine · Take theirs · Add as; Import its folder…
- * (the system folder picker); the model menu (the default model or a connected tool, then that tool's models).
+ * A problem's fix, or an import clash (Q426; FLW-04's controls): Keep mine · Take theirs · Add as; the model menu (the
+ * default model or a connected tool, then that tool's models).
  */
 export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorActions }) {
   const name = useId();
   const control = fix.control;
-  let action: React.ReactNode = null;
   let below: React.ReactNode = null;
   let tone: "red" | "amber" | "ok" = fix.fixed ? "ok" : "red";
   let icon: IconName = fix.fixed ? "circle-check" : "circle-x";
@@ -740,22 +786,6 @@ export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorA
           ))}
         </div>
       );
-      break;
-    case "folder":
-      action = (
-        <Button
-          variant="secondary"
-          compact
-          icon="folder-input"
-          label={control.label}
-          onClick={() => {
-            pickFolder(control.picker_title).then((folder) => {
-              if (folder !== null) actions.fix((c) => withFolder(c, control.skill, folder));
-            }, ignore);
-          }}
-        />
-      );
-      if (control.picked !== null) below = <span className="fe-fix-picked">{control.picked}</span>;
       break;
     case "model": {
       const model = control.fix;
@@ -793,7 +823,6 @@ export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorA
       <div className="fe-fix-text">
         <div className="fe-fix-line">
           <span>{fix.text}</span>
-          {action}
         </div>
         {below}
       </div>
@@ -801,73 +830,7 @@ export function FixLine({ fix, actions }: { fix: FlowEditorFix; actions: EditorA
   );
 }
 
-/** An agent check's Check agents (d0130): a row per agent (tool badge, name, model, remove) and Add a check agent. */
-function CheckAgentsField({
-  field,
-  stage,
-  actions,
-}: {
-  field: FlowEditorCheckAgents;
-  stage: string;
-  actions: EditorActions;
-}) {
-  const [adding, setAdding] = useState(false);
-  const anchor = useRef<HTMLSpanElement>(null);
-  return (
-    <div className="fe-field">
-      <span className="fe-label">{field.label}</span>
-      <div className="fe-check-agents">
-        {field.rows.map((row) => (
-          <div key={row.name} className="fe-check-agent">
-            {row.avatar !== null && <ToolAvatar avatar={row.avatar} />}
-            <span className="fe-check-agent-name">{row.name}</span>
-            {row.model !== null && <span className="fe-muted">{row.model}</span>}
-            <span className="fe-spacer" />
-            <IconButton
-              icon="x"
-              label={row.remove}
-              onClick={() => {
-                actions.edit({ edit: "remove_check_agent", stage, agent: row.name });
-              }}
-            />
-          </div>
-        ))}
-        <span ref={anchor} className="fe-skill-anchor">
-          <button
-            type="button"
-            className="fe-link fe-add-agent"
-            disabled={field.add_items.length === 0}
-            onClick={() => {
-              setAdding(true);
-            }}
-          >
-            <Icon name="plus" size={12} />
-            {field.add}
-          </button>
-        </span>
-      </div>
-      <span className="fe-hint">{field.note}</span>
-      {adding && (
-        <AnchoredMenu
-          anchor={anchor}
-          align="start"
-          label={field.add}
-          items={field.add_items}
-          list
-          onChoose={(agent) => {
-            setAdding(false);
-            if (agent !== "") actions.edit({ edit: "add_check_agent", stage, agent });
-          }}
-          onClose={() => {
-            setAdding(false);
-          }}
-        />
-      )}
-    </div>
-  );
-}
-
-/** An agent check's Rounds: one limit for the stage, whichever check agent fails (d0130). */
+/** An agent check's Rounds: one limit for the stage. */
 function RoundsField({
   field,
   stage,
@@ -927,7 +890,15 @@ function FailToField({
   );
 }
 
-function DetailsPanel({ details, actions }: { details: FlowEditorDetails; actions: EditorActions }) {
+function DetailsPanel({
+  details,
+  actions,
+  focusSkill,
+}: {
+  details: FlowEditorDetails;
+  actions: EditorActions;
+  focusSkill: string | null;
+}) {
   const stage = details.stage;
   const kindIndex = details.kinds.findIndex((k) => k.kind === details.kind);
   return (
@@ -1005,17 +976,30 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
             />
             {details.agent.note !== null && <span className="fe-muted">{details.agent.note}</span>}
           </div>
+          {details.agent.warning !== null && (
+            <div className="fe-fix" data-tone="amber">
+              <Icon name="triangle-alert" size={14} />
+              <span className="fe-fix-text">
+                <span>
+                  <CodeText text={details.agent.warning} />
+                </span>
+              </span>
+            </div>
+          )}
           <span className="fe-hint">
             <Icon name="info" size={13} />
             {details.agent.hint}
           </span>
         </div>
       )}
-      {details.check_agents !== null && (
-        <CheckAgentsField field={details.check_agents} stage={stage} actions={actions} />
-      )}
       {details.skill !== null && (
-        <SkillField key={stage} field={details.skill} stage={stage} actions={actions} />
+        <SkillField
+          key={stage}
+          field={details.skill}
+          stage={stage}
+          actions={actions}
+          focus={focusSkill === stage}
+        />
       )}
       {(details.rounds !== null || details.fail_to !== null) && (
         <div className="fe-field-pair">
@@ -1026,20 +1010,21 @@ function DetailsPanel({ details, actions }: { details: FlowEditorDetails; action
         </div>
       )}
       {details.fail_to !== null && <span className="fe-hint">{details.fail_to.explanation}</span>}
-      {details.rule !== null && <p className="fe-check-rule">{details.rule}</p>}
       {details.can.length > 0 && (
         <div className="fe-field">
           <span className="fe-label">{details.can_label}</span>
           {details.can.map((row) => (
-            <Checkbox
-              key={row.option}
-              checked={row.on}
-              disabled={!row.enabled}
-              label={row.label}
-              onChange={(on) => {
-                actions.edit({ edit: "option", stage, option: row.option, on });
-              }}
-            />
+            <Fragment key={row.option}>
+              <Checkbox
+                checked={row.on}
+                disabled={!row.enabled}
+                label={row.label}
+                onChange={(on) => {
+                  actions.edit({ edit: "option", stage, option: row.option, on });
+                }}
+              />
+              {row.note !== null && <span className="fe-hint">{row.note}</span>}
+            </Fragment>
           ))}
         </div>
       )}
@@ -1076,11 +1061,13 @@ function FlowColumn({
   titleId,
   busy,
   actions,
+  focusSkill,
 }: {
   view: FlowEditorView;
   titleId: string;
   busy: boolean;
   actions: EditorActions;
+  focusSkill: string | null;
 }) {
   const { flow, footer } = view;
   return (
@@ -1124,7 +1111,7 @@ function FlowColumn({
       <div className="fe-flow-body">
         <StepList flow={flow} actions={actions} />
         {flow.details !== null ? (
-          <DetailsPanel details={flow.details} actions={actions} />
+          <DetailsPanel details={flow.details} actions={actions} focusSkill={focusSkill} />
         ) : (
           <Legend flow={flow} />
         )}
@@ -1372,6 +1359,8 @@ export interface FlowEditorBodyProps {
   titleId?: string;
   /** What Ask the agent to write it put in the idle panel's box. */
   prefill?: Prefill | null;
+  /** The stage whose Skill field gets the keyboard when its details show (opened on it). */
+  focusSkill?: string | null;
 }
 
 /** The editor's three parts for a loaded view (also what the gallery and onboarding's Flow step draw). */
@@ -1383,13 +1372,20 @@ export function FlowEditorBody({
   terminal,
   titleId,
   prefill = null,
+  focusSkill = null,
 }: FlowEditorBodyProps) {
   const fallbackInput = useRef<HTMLInputElement>(null);
   const ownId = useId();
   return (
     <div className="fe">
       <StartFromColumn start={view.start_from} actions={actions} />
-      <FlowColumn view={view} titleId={titleId ?? ownId} busy={busy} actions={actions} />
+      <FlowColumn
+        view={view}
+        titleId={titleId ?? ownId}
+        busy={busy}
+        actions={actions}
+        focusSkill={focusSkill}
+      />
       <AgentColumn
         agent={view.agent}
         actions={actions}
@@ -1406,6 +1402,8 @@ interface EditorOpen {
   project: string;
   from: FlowEditorFrom;
   select_stage?: string;
+  /** Opened on `select_stage`'s Skill field ("use your own Open PR skill" → the Delivery stage's). */
+  focus_skill?: boolean;
   /** A stage to add a new one after on opening; `null`: first, after Ready for Dev. */
   add_after?: string | null;
   /** Apply (Use this flow) or Cancel (Skip, use the default) was answered: the agent the panel showed, if any. */
@@ -1421,6 +1419,10 @@ interface EditorOpen {
 function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null>) {
   const { project, from, onDone, onEscape } = open;
   const [selected, setSelected] = useState<string | null>(open.select_stage ?? null);
+  // The Skill field to focus on opening; gone once another step is selected.
+  const [focusSkill, setFocusSkill] = useState<string | null>(
+    open.focus_skill === true ? (open.select_stage ?? null) : null,
+  );
   const [busy, setBusy] = useState(false);
   // The picks for the draft's problems (Q426), sent with every view and with Apply.
   const [choices, setChoices] = useState<FlowEditorChoices>(NO_CHOICES);
@@ -1480,7 +1482,10 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
       }, ignore);
     };
     return {
-      select: setSelected,
+      select: (stage) => {
+        setFocusSkill(null);
+        setSelected(stage);
+      },
       edit: (edit) => {
         editStage(project, edit).then((id) => {
           if (id !== null) setSelected(id);
@@ -1549,7 +1554,7 @@ function useFlowEditor(open: EditorOpen, box: React.RefObject<HTMLElement | null
     };
   }, [box, selected, onEscape]);
 
-  return { state, view, actions, busy, input, terminal, prefill };
+  return { state, view, actions, busy, input, terminal, prefill, focusSkill };
 }
 
 /**
@@ -1600,6 +1605,7 @@ function Editor({ params, close }: OverlayProps<"flow_editor">) {
             terminal={editor.terminal}
             titleId={titleId}
             prefill={editor.prefill}
+            focusSkill={editor.focusSkill}
           />
         )}
       </section>

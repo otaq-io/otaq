@@ -2,9 +2,10 @@
 // Settings → Agents (T-0410; AGM-02…AGM-04): the page asks for Otaq's copy of the model lists and then reads them again
 // once; ⋯ → Delete… opens the refused dialog (OK only) or the plain question; a
 // row opens its agent's page, whose Role moves the role, whose Name is saved when left, and whose Effort shows only
-// when the view has one; New agent's draft is saved by Add agent with what was typed; the model dropdowns pick a tool
-// and a model, or None, never a heading. What this agent reads (T-0440, AGR-01) opens on the project on screen, picks
-// another, and its links go back to the page, to the project's notes and to a skill's folder.
+// when the view has one; neither the list nor the page names a skill (an agent has no skill list, T7); New agent's
+// draft is saved by Add agent with what was typed; the model dropdowns pick a tool and a model, or None, never a
+// heading. What this agent reads (T-0440, AGR-01) opens on the project on screen, picks another, and its links go
+// back to the page, to the project's notes and to a skill's folder.
 import { act, createElement, type ReactElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
@@ -55,7 +56,6 @@ const row = (id: string, name: string, over: Partial<AgentListRow> = {}): AgentL
   role: null,
   came_from: "Added by you",
   model: "Claude Code · opus",
-  skills: ["work-ticket", "commit"],
   used_in: "—",
   mark: null,
   mark_link: null,
@@ -86,7 +86,7 @@ const CHOICES: AgentsModelChoice[] = [
 // The shapes `agents.rs` sends: the example (its view-model test).
 const SECTION: AgentsSectionView = {
   title: "Agents",
-  intro: "What each agent does: its instructions, its skills and its own model.",
+  intro: "What each agent does: its instructions and its own model.",
   new_agent_label: "New agent",
   more_label: "More agent actions",
   more: [item("agents_file", "Apply the shipped agents file again")],
@@ -95,8 +95,7 @@ const SECTION: AgentsSectionView = {
     description: "A new agent, or one a preset adds, starts with it.",
     dropdown: { value: "Claude Code · haiku", choices: CHOICES, read_only: false },
   },
-  fallbacks: null,
-  columns: ["Name", "Model", "Skills", "Used in"],
+  columns: ["Name", "Model", "Used in"],
   rows: [
     row("noyan", "Noyan", {
       role: "Noyan",
@@ -137,7 +136,6 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
     draft: {
       name: "Strong",
       instructions: "",
-      skills: ["shipped:work-ticket"],
       tool: "claude",
       model: "opus",
       effort: null,
@@ -189,26 +187,6 @@ function agentPage(over: Partial<AgentPage> = {}): AgentPage {
       value: "",
       placeholder: "What this agent does and how, in Markdown",
       markdown_label: "Markdown",
-    },
-    skills: {
-      label: "Skills",
-      rows: [
-        {
-          key: "shipped:work-ticket",
-          name: "work-ticket",
-          source: null,
-          warnings: [],
-          reimport_id: null,
-          reimport_label: "Re-import",
-          reimport: null,
-          remove_label: "Remove",
-        },
-      ],
-      add_label: "Add skill",
-      add_options: ["commit"],
-      import_label: "Import skill folder…",
-      picker_title: "Import skill folder",
-      problem: null,
     },
     used_in: { label: "Used in", items: [], empty: "—" },
     mark: null,
@@ -309,9 +287,10 @@ describe("the Agents page", () => {
     expect([...document.querySelectorAll('[role="columnheader"]')].map((c) => c.textContent)).toEqual([
       "Name",
       "Model",
-      "Skills",
       "Used in",
     ]);
+    // No row names a skill.
+    expect(document.querySelector(".settings-agents-table")?.textContent).not.toMatch(/skill/i);
     expect(document.querySelectorAll(".settings-agents-row:not(.settings-agents-head)")).toHaveLength(3);
     expect(document.querySelector(".settings-agents-role")?.textContent).toBe("Noyan");
     expect(document.body.textContent).toContain("From Otaq’s agents file");
@@ -414,6 +393,20 @@ describe("one agent's page", () => {
     expect(document.querySelector(".settings-agent-moved")?.textContent).toBe(
       "Strong is now Noyan · the agent Noyan has no role",
     );
+  });
+
+  it("has no skills: no Skills field, no Import skill folder…, no Add skill (T7)", async () => {
+    await openAgent(agentPage());
+    const page = document.querySelector(".settings-agent-page");
+    expect(page?.textContent).toContain("Instructions");
+    expect(page?.textContent).not.toMatch(/skill/i);
+    expect([...document.querySelectorAll(".settings-agent-label")].map((l) => l.textContent)).toEqual([
+      "Name",
+      "Model",
+      "Role",
+      "Instructions",
+      "Used in",
+    ]);
   });
 
   it("saves the name when its field is left, and shows Effort only when the view has it", async () => {

@@ -80,7 +80,7 @@ pub struct DraftMemory {
     /// The stages whose skill the Project agent is writing (FED-06).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub writing: Vec<SkillWriting>,
-    /// The skills the Project agent wrote for stages, Otaq's copies (FED-06).
+    /// The skills the Project agent wrote for stages, saved in the project (FED-06).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub written: Vec<WrittenSkill>,
 }
@@ -93,18 +93,35 @@ pub struct SkillWriting {
     /// The Project agent asked (its id), when known: Stop interrupts it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
+    /// The folder it writes in, relative to the project's checkout (`.claude/skills/plan-ticket`), once the agent has
+    /// named the skill ([`super::write_skill`]). Otaq made it, so Stop may delete it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub folder: Option<String>,
+    /// The folders above `folder` that weren't there before Otaq made it (`.claude`, `.claude/skills`), relative to
+    /// the checkout: Stop and Undo remove those that are empty after the skill's folder goes, and no others.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub made: Vec<String>,
 }
 
-/// A skill the Project agent wrote for a stage (FED-06, `s27-06`: tinted, "Written by the agent", Open, Undo):
-/// imported as Otaq's own copy (`$OTAQ_HOME/skills/<copy>/`, d0092), never into the repo (d0023). The draft names it
-/// as the stage's skill, and the stage's agent brings the copy's folder, which Apply gives it ([`super::apply`]).
+/// A skill the Project agent wrote for a stage (FED-06, `s27-06`: tinted, "Written by the agent", Open, Undo), saved in
+/// the project's checkout and not committed ([`super::write_skill`]): the field says
+/// [`super::write_skill::saved_text`] of its `folder`. The draft names it as the stage's skill.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WrittenSkill {
     pub stage_id: String,
     /// Its own name (its SKILL.md's `name:`): `plan-ticket`.
     pub skill: String,
-    /// Otaq's id for the copy: `skills/<copy>/`.
-    pub copy: String,
+    /// Its folder, relative to the project's checkout (`.claude/skills/plan-ticket`); empty for one an older Otaq
+    /// wrote, which Undo never deletes.
+    #[serde(default)]
+    pub folder: String,
+    /// The folder's fingerprint when handed in ([`crate::skills::folder::fingerprint`]): Undo deletes the folder only
+    /// while it still matches.
+    #[serde(default)]
+    pub fingerprint: String,
+    /// The folders above `folder` that this write made ([`SkillWriting::made`]): Undo removes those left empty.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub made: Vec<String>,
     /// The Project agent's name.
     pub by: String,
     /// The stage's skill before (Undo puts it back): none for a new stage.
@@ -184,9 +201,11 @@ pub enum DraftEdit {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         agent: Option<String>,
     },
-    /// **Stop** on a skill being written: the field is empty again and the folder the agent writes in goes.
+    /// **Stop** on a skill being written: the field is empty again, and the folder the agent writes in goes while
+    /// git says it is untracked.
     StopWriting { stage: String },
-    /// **Undo** on a skill the agent wrote: the stage's skill as it was, and Otaq's copy deleted.
+    /// **Undo** on a skill the agent wrote: the stage's skill as it was, and its folder deleted while git says it is
+    /// untracked and it holds only what was written.
     UndoSkill { stage: String },
 }
 
@@ -404,18 +423,36 @@ impl Board {
                 let id = super::write_skill::stage_of(&read(&row.yaml)?, stage)?
                     .id
                     .clone();
+                let (folder, made) = row
+                    .draft
+                    .writing
+                    .iter()
+                    .find(|w| w.stage_id == id)
+                    .map(|w| (w.folder.clone(), w.made.clone()))
+                    .unwrap_or_default();
                 row.draft.writing.retain(|w| w.stage_id != id);
                 row.draft.writing.push(SkillWriting {
                     stage_id: id,
                     agent: agent.clone(),
+                    folder,
+                    made,
                 });
             }
             DraftEdit::StopWriting { stage } => {
                 let id = super::write_skill::stage_of(&read(&row.yaml)?, stage)?
                     .id
                     .clone();
+                let folders: Vec<(String, Vec<String>)> = row
+                    .draft
+                    .writing
+                    .iter()
+                    .filter(|w| w.stage_id == id)
+                    .filter_map(|w| Some((w.folder.clone()?, w.made.clone())))
+                    .collect();
                 row.draft.writing.retain(|w| w.stage_id != id);
-                self.drop_skill_folder(&key, &id).await;
+                for (folder, made) in folders {
+                    self.remove_written_folder(&key, &folder, None, &made).await;
+                }
             }
             DraftEdit::UndoSkill { stage } => {
                 let file = read(&row.yaml)?;
@@ -427,11 +464,17 @@ impl Board {
                     ));
                 };
                 let written = row.draft.written.remove(at);
-                row.yaml = yaml::write(&self.without_written(file, &written)?);
-                self.drop_copy(&written.copy).await;
+                row.yaml = yaml::write(&Self::without_written(file, &written));
+                self.remove_written_folder(
+                    &key,
+                    &written.folder,
+                    Some(&written.fingerprint),
+                    &written.made,
+                )
+                .await;
             }
         }
-        self.keep_skills(&mut row, &stored_agents).await?;
+        Self::keep_skills(&mut row)?;
         if row.draft.marks.is_empty() {
             row.draft.before = None;
         }
@@ -474,7 +517,7 @@ impl Board {
         }
         row.yaml = yaml::write(&file);
         row.source = source.clone();
-        self.keep_skills(&mut row, &stored_agents).await?;
+        Self::keep_skills(&mut row)?;
         if row.draft.marks.is_empty() {
             row.draft.before = None;
         }

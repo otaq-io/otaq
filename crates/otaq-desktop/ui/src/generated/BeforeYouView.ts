@@ -2,7 +2,8 @@
 import type { BeforeYouAgent } from "./BeforeYouAgent";
 
 /**
- * "Before you" on a human check after a Check stage with several check agents (d0130, `s30-05`): "Before you ·
- * Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. `BeforeYouView` on the page.
+ * "Before you" on a human check after a round stored from when a check could have several agents (`s30-05`):
+ * "Before you · Validate, round 1 of 3", "2 check agents · both passed", and a block per agent. A check has one agent
+ * now, so a new round never shows it; an older round still reads as it was. `BeforeYouView` on the page.
  */
 export type BeforeYouView = { heading: string, summary: string, agents: Array<BeforeYouAgent>, };

@@ -72,15 +72,54 @@ pub struct OpenCodeContext {
 
 impl OpenCodeContext {
     pub fn new(tool: ToolContext) -> Self {
-        let config_dir = tool.home.as_ref().map(|home| {
-            std::env::var_os("XDG_CONFIG_HOME")
-                .filter(|dir| !dir.is_empty())
-                .map_or_else(|| home.join(".config"), PathBuf::from)
-                .join(COMMAND_NAME)
-        });
+        let config_dir = tool
+            .home
+            .as_deref()
+            .map(|home| config_dir(home, &super::process_var));
         Self { tool, config_dir }
     }
 }
+
+/// OpenCode's config folder under `home`: `opencode` in `$XDG_CONFIG_HOME` (read with `var`; empty is unset, as
+/// OpenCode's `xdg-basedir` reads it), else in `~/.config`.
+pub fn config_dir(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    var("XDG_CONFIG_HOME")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| home.join(".config"), PathBuf::from)
+        .join(COMMAND_NAME)
+}
+
+/// OpenCode's personal skills folder: `skills` in its config folder ([`config_dir`]).
+pub fn skills_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    config_dir(home, var).join("skills")
+}
+
+/// The personal skills folders OpenCode reads (S6): its config folder's ([`skills_folder`]), `~/.claude/skills`
+/// (OpenCode reads that one, never `$CLAUDE_CONFIG_DIR`) and the shared `~/.agents/skills`.
+pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBuf> {
+    vec![
+        skills_folder(home, var),
+        home.join(".claude").join("skills"),
+        home.join(".agents").join("skills"),
+    ]
+}
+
+/// Whether OpenCode loads a `SKILL.md` that starts with a UTF-8 byte order mark: it does (seen with OpenCode 2.2.5).
+pub const READS_SKILL_WITH_BOM: bool = true;
+
+/// OpenCode's built-in commands that do work a stage could want, so a flow could take them for skills: `/init`, from
+/// its TUI page (opencode.ai/docs/tui). A stage can't name one as its skill (it isn't a skill file the tool loads).
+/// This is what OpenCode had when the list was written (2026-11); its other commands (model, clear, …) do no work a
+/// stage would want.
+pub const BUILT_IN_COMMANDS: &[&str] = &["init"];
+
+/// The project's skills folders OpenCode reads in its worktree: `.opencode/skills`, `.claude/skills`,
+/// `.agents/skills`.
+pub const PROJECT_SKILL_FOLDERS: &[&[&str]] = &[
+    &[".opencode", "skills"],
+    &[".claude", "skills"],
+    &[".agents", "skills"],
+];
 
 /// What a running OpenCode session sets on the commands it runs (2.0.17), dropped by the service at start
 /// ([`crate::agent_tools::parent_session_vars`]): its terminal marker and the handoff it passes while its own
@@ -260,6 +299,11 @@ impl AgentTool for OpenCode {
 
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
+    }
+
+    /// "Load the skill `work-ticket` with your skill tool and follow it. …" ([`launch::skill_prompt`]).
+    fn skill_prompt(&self, skill: &str) -> String {
+        launch::skill_prompt(skill)
     }
 
     fn family_source(&self) -> Option<FamilySource> {

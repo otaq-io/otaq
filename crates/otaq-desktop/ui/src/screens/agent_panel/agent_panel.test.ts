@@ -432,7 +432,7 @@ describe("a running agent", () => {
   });
 });
 
-/** *18 `VDJkG`*: the agent on Standard · Codex, Codex logged out; Sonnet is Standard's fallback. */
+/** *18 `VDJkG`*: the agent on Standard · Codex, Codex logged out; New agent on Sonnet starts a new conversation. */
 const CODEX_OUT: NonNullable<AgentPanelView["running"]>["notice"] = {
   role: null,
   tone: "amber",

@@ -530,8 +530,8 @@ gets it until the maintainer checks the draft and clicks **Publish**: installed 
    - writes `latest.json` with every platform's file, signature and `"protocol_version"`, and `SHA256SUMS`
      (`scripts/release/latest-json.mjs`), and makes the draft release with every file and generated notes.
 4. **Check the draft** against the hand checklist below, on the setup files from the draft itself.
-5. **Publish** it on GitHub (edit the draft, Publish release). From then on installed copies find it at their next
-   daily check. To withdraw a bad draft, delete it and its tag; once published, fix forward with a new version.
+5. **Publish** it on GitHub (edit the draft, put `CHANGELOG.md`'s section for this version at the top of its notes,
+   Publish release). From then on installed copies find it at their next daily check. To withdraw a bad draft, delete it and its tag; once published, fix forward with a new version.
 6. **The first release only:** when publishing v0.1.0, drop "until then, build it from source (below)" from
    `README.md`'s Status line.
 

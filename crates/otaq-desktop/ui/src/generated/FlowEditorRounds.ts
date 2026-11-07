@@ -2,7 +2,7 @@
 import type { MenuItem } from "./MenuItem";
 
 /**
- * An agent check's Rounds: one limit for the stage, whichever agent fails (d0130). `FlowEditorRounds` on the page.
+ * An agent check's Rounds: one limit for the stage. `FlowEditorRounds` on the page.
  */
 export type FlowEditorRounds = { label: string, value: string, 
 /**

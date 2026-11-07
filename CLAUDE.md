@@ -22,3 +22,9 @@ on it in its own worktree, then moves it to Ready for Review. See `DESIGN.md` fo
 ## Working style
 
 - Discuss and decide **one topic at a time**. Don't bundle several open decisions into one message.
+
+## Plans (tuq)
+
+Milestone plans and orchestrator prompts live in `tuq/plans/` and `tuq/prompts/`, explained in `tuq/README.md`.
+Product decisions for tuq skills go in `tuq/decisions/`, indexed in `tuq/README.md`; read the index before changing a
+feature's behaviour. (The current round's decisions are still in `ideas/`.)

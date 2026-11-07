@@ -1,33 +1,57 @@
 //! A stage's skill the Project agent writes (FED-06; d0115 "Stage templates fill the shape, the user supplies the
-//! skill", d0092, d0023; `s27-06`): the user's **Ask the agent to write it** sends the Project agent "Write a skill
-//! for the Plan stage: …", and the field says "Being written by Noyan…" ([`super::draft::SkillWriting`]).
+//! skill"; `s27-06`): the user's **Ask the agent to write it** sends the Project agent "Write a skill for the Plan
+//! stage: …", and the field says "Being written by Noyan…" ([`super::draft::SkillWriting`]).
 //!
-//! The agent writes **only in a folder Otaq gives it** (`otaq flow write-skill <stage>`, `flow.write_skill`):
-//! `$OTAQ_HOME/skill-writes/<KEY>/<stage id>/`, never the project's checkout or a worktree. When it is done
-//! (`otaq flow write-skill <stage> --done`) Otaq checks the folder as any import (a SKILL.md whose front matter
-//! reads), keeps **its own copy** under `$OTAQ_HOME/skills/<id>/` ([`crate::agents::skills::import_folder`], d0092)
-//! and deletes the folder. The draft then names the skill as the stage's, and the stage's agent brings the copy's
-//! folder, which Apply gives it without copying again ([`super::apply`]); the field shows it tinted, "Written by the
-//! agent", with Open and Undo ([`super::draft::WrittenSkill`]). Like proposing, only the user or a Project agent of
-//! the project may (`policy::Action::ProposeFlow`).
+//! "Ask the agent to write it" saves into the project (T6). The agent names the skill first and gets its folder
+//! (`otaq flow write-skill <stage> --name <name>`, `flow.write_skill`): inside the project's checkout, in the skills
+//! folder the stage's agent's tool reads, `.agents/skills/<name>/` when that tool is Codex and `.claude/skills/<name>/`
+//! otherwise (Claude Code, Copilot and OpenCode all read it). Otaq makes the folder empty and refuses one that is
+//! already there. When the agent is done (`otaq flow write-skill <stage> --done`) Otaq checks that a SKILL.md whose
+//! front matter reads is there and names it as the stage's skill (its `name:`, else the folder's name); the field
+//! shows it tinted, "Written by the agent", with Open and Undo ([`super::draft::WrittenSkill`]), and says
+//! [`saved_text`]. Otaq doesn't commit it, and copies or imports nothing: a ticket's worktree gets the skill once the
+//! user commits it.
+//!
+//! **Undo** and **Stop** delete the folder only while git says it is untracked and it holds only what was written;
+//! otherwise they just clear the field ([`Board::remove_written_folder`]). The folders above it that the write made
+//! (`.claude/` and `.claude/skills/` in a checkout that had neither) go with it when nothing else is left in them; a
+//! folder that was there before the write is never removed. Like proposing, only the user or a
+//! Project agent of the project may (`policy::Action::ProposeFlow`).
+
+use std::path::{Path, PathBuf};
 
 use serde::{Deserialize, Serialize};
 
 use super::draft::{SkillWriting, WrittenSkill, read};
-use super::model::{FlowAgent, FlowFile, Stage};
-use super::proposal::{Row, flow_agent_of};
+use super::model::{FlowFile, Stage};
+use super::proposal::Row;
 use super::yaml;
-use crate::agents::Agent;
+use crate::agent_tools::Tool;
+use crate::agents::AgentModel;
 use crate::board::{Board, BoardError, Refusal};
 use crate::naming;
 use crate::skills::folder::{self, SKILL_FILE};
 
-/// `flow.write_skill`'s parameters: the stage (its id or name) whose skill the caller writes; `done` hands the
-/// folder in.
+/// The skills folder Codex reads in a project: a written skill goes in `.agents/skills/<name>/` when the stage's agent
+/// runs on Codex.
+pub const AGENTS_SKILLS: &str = ".agents/skills";
+/// The skills folder Claude Code, Copilot and OpenCode all read in a project.
+pub const CLAUDE_SKILLS: &str = ".claude/skills";
+
+/// What the skill field says once the skill is written: "Saved in `<folder>` in this project. Commit it so agents
+/// get it in their worktrees." `folder` is relative to the checkout (`.claude/skills/plan-ticket`).
+pub fn saved_text(folder: &str) -> String {
+    format!("Saved in `{folder}` in this project. Commit it so agents get it in their worktrees.")
+}
+
+/// `flow.write_skill`'s parameters: the stage (its id or name) whose skill the caller writes; `name` the skill's name,
+/// which names its folder (needed the first time); `done` hands the folder in.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WriteSkillParams {
     pub project: String,
     pub stage: String,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub done: bool,
 }
@@ -37,7 +61,7 @@ pub struct WriteSkillParams {
 pub struct SkillWrite {
     /// The stage's name.
     pub stage: String,
-    /// The folder the agent writes in (gone once handed in).
+    /// The folder the agent writes in (absolute).
     pub folder: String,
     /// The skill's own name, once handed in.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -64,54 +88,6 @@ pub(crate) fn stage_of<'a>(file: &'a FlowFile, stage: &str) -> Result<&'a Stage,
         })
 }
 
-/// Takes the skill folder `path` out of every agent of the document.
-fn detach(file: &mut FlowFile, path: &str) {
-    for agent in &mut file.agents {
-        agent.skills.retain(|s| s != path);
-    }
-}
-
-/// Gives the skill folder `path` to the agents of the stage `stage_id` in the document (only to them; an agent check's
-/// check agents each, since each runs the stage's skill): each joins the document's agents, as stored, when it isn't
-/// there.
-fn attach(file: &mut FlowFile, stage_id: &str, path: &str, stored: &[Agent]) {
-    detach(file, path);
-    let names: Vec<String> = file
-        .flow
-        .stage(stage_id)
-        .map(|s| s.named_agents().cloned().collect())
-        .unwrap_or_default();
-    for name in names {
-        attach_to(file, &name, path, stored);
-    }
-}
-
-fn attach_to(file: &mut FlowFile, name: &str, path: &str, stored: &[Agent]) {
-    let at = match file
-        .agents
-        .iter()
-        .position(|a| a.name.eq_ignore_ascii_case(name))
-    {
-        Some(at) => at,
-        None => {
-            let agent = stored
-                .iter()
-                .find(|a| a.name.eq_ignore_ascii_case(name))
-                .map_or_else(
-                    || FlowAgent {
-                        name: name.to_owned(),
-                        model: "default".to_owned(),
-                        ..FlowAgent::default()
-                    },
-                    flow_agent_of,
-                );
-            file.agents.push(agent);
-            file.agents.len() - 1
-        }
-    };
-    file.agents[at].skills.push(path.to_owned());
-}
-
 /// A stage an agent runs (only those have a skill).
 fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
     if stage.has_agent() {
@@ -123,37 +99,186 @@ fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
     ))
 }
 
+/// A skill name as a folder takes it: lowercase letters, digits and single hyphens inside, at most 64 characters,
+/// and not one of Otaq's own skills (a name that matches one always means Otaq's).
+fn checked_name(name: &str) -> Result<String, BoardError> {
+    let name = name.trim();
+    let refused = |why: String| Err(BoardError::refused(Refusal::BadSkillFolder, why));
+    let fits = !name.is_empty()
+        && name.len() <= naming::SKILL_NAME_MAX
+        && name
+            .chars()
+            .all(|c| c.is_ascii_lowercase() || c.is_ascii_digit() || c == '-')
+        && !name.starts_with('-')
+        && !name.ends_with('-')
+        && !name.contains("--");
+    if !fits {
+        return refused(format!(
+            "`{name}` can't name a skill: use lowercase letters, digits and hyphens, like plan-ticket"
+        ));
+    }
+    if crate::agent_tools::is_own_skill(name) {
+        return refused(format!(
+            "`{name}` is one of {}'s own skills: pick another name",
+            naming::PRODUCT_NAME
+        ));
+    }
+    Ok(name.to_owned())
+}
+
+/// The folder (relative to the checkout, `/`-separated) a skill `name` is written in for an agent on `tool`.
+pub fn folder_for(tool: Option<Tool>, name: &str) -> String {
+    let base = match tool {
+        Some(Tool::Codex) => AGENTS_SKILLS,
+        _ => CLAUDE_SKILLS,
+    };
+    format!("{base}/{name}")
+}
+
+/// `rel` (`/`-separated) inside `checkout`.
+fn inside(checkout: &Path, rel: &str) -> PathBuf {
+    rel.split('/')
+        .fold(checkout.to_owned(), |p, part| p.join(part))
+}
+
+/// The folders above `rel`'s last part (`.claude`, `.claude/skills` for `.claude/skills/plan-ticket`) that aren't in
+/// `checkout` yet, outermost first: the ones making `rel` would make.
+fn missing_parents(checkout: &Path, rel: &str) -> Vec<String> {
+    let parts: Vec<&str> = rel.split('/').collect();
+    (1..parts.len())
+        .map(|n| parts[..n].join("/"))
+        .filter(|parent| std::fs::symlink_metadata(inside(checkout, parent)).is_err())
+        .collect()
+}
+
+/// Removes the folders `made` (relative to `checkout`) that are empty, innermost first; one that holds anything, or
+/// isn't a real folder, stays.
+fn remove_empty(checkout: &Path, made: &[String]) {
+    let mut made: Vec<&String> = made.iter().collect();
+    made.sort_by_key(|rel| std::cmp::Reverse(rel.matches('/').count()));
+    for rel in made {
+        let path = inside(checkout, rel);
+        let is_folder = std::fs::symlink_metadata(&path).is_ok_and(|m| m.is_dir());
+        // `remove_dir` removes only an empty folder.
+        if is_folder && std::fs::remove_dir(&path).is_ok() {
+            tracing::info!(folder = %rel, "an empty folder a skill write made removed");
+        }
+    }
+}
+
+/// The written skill's name: its SKILL.md's `name:`, else the folder's name. Refused when there is no SKILL.md or
+/// its front matter doesn't read.
+fn written_name(dir: &Path) -> Result<String, String> {
+    let file = dir.join(SKILL_FILE);
+    if !file.is_file() {
+        return Err(format!("The folder has no {SKILL_FILE}"));
+    }
+    let text =
+        std::fs::read_to_string(&file).map_err(|e| format!("{SKILL_FILE} can't be read: {e}"))?;
+    let front = crate::skills::found::front_matter(&text)?;
+    Ok(front.name.unwrap_or_else(|| {
+        dir.file_name()
+            .map(|n| n.to_string_lossy().into_owned())
+            .unwrap_or_default()
+    }))
+}
+
 impl Board {
-    /// The folder of Otaq's copy `copy`, as the draft names it.
-    fn copy_path(&self, copy: &str) -> Result<String, BoardError> {
-        let path = self
-            .data()
-            .skill_path(copy)
-            .map_err(|e| BoardError::refused(Refusal::BadSkillFolder, e.to_string()))?;
-        Ok(path.display().to_string())
+    /// The project's checkout (where a written skill is saved).
+    async fn checkout(&self, project: &str) -> Result<PathBuf, BoardError> {
+        Ok(PathBuf::from(self.project(project).await?.repo_path))
     }
 
-    /// Deletes Otaq's copy `copy` (Undo, or replaced by another).
-    pub(super) async fn drop_copy(&self, copy: &str) {
-        if let Ok(path) = self.data().skill_path(copy) {
-            let _ = tokio::task::spawn_blocking(move || folder::remove(&path)).await;
-        }
+    /// The tool of the agent that runs `stage` (its first named agent: the document's own when it defines it, else
+    /// the stored one; `default` is the account's default model's tool). `None` when it can't be told.
+    async fn stage_tool(&self, file: &FlowFile, stage: &Stage) -> Result<Option<Tool>, BoardError> {
+        let Some(name) = stage.named_agents().next() else {
+            return Ok(None);
+        };
+        let documented = file
+            .agents
+            .iter()
+            .find(|a| a.name.eq_ignore_ascii_case(name))
+            .and_then(|a| crate::agents::shipped::model_of(&a.model).ok());
+        let model = match documented {
+            Some(model) => Some(model),
+            None => self
+                .store()
+                .agents()
+                .await?
+                .into_iter()
+                .find(|a| a.name.eq_ignore_ascii_case(name))
+                .map(|a| a.model),
+        };
+        Ok(match model {
+            Some(AgentModel::Tool { tool, .. }) => Some(tool),
+            Some(AgentModel::Default) => self.store().default_model().await?.map(|m| m.tool),
+            None => None,
+        })
     }
 
-    /// Deletes the folder the agent writes `stage`'s skill in (Stop).
-    pub(super) async fn drop_skill_folder(&self, project: &str, stage: &str) {
-        if let Ok(path) = self.data().skill_writing_path(project, stage) {
-            let _ = tokio::task::spawn_blocking(move || folder::remove(&path)).await;
-        }
-    }
-
-    /// `file` without the skill `written`: its stage's skill as it was before, and no agent bringing the copy.
-    pub(super) fn without_written(
+    /// Deletes the written folder `rel` of `project`'s checkout, but only while git says nothing in it is tracked and
+    /// it holds only what was written (its fingerprint is still `fingerprint`, when given); otherwise it stays, and
+    /// only the field is cleared. Then the folders above it that the write made (`made`) go too, those left empty.
+    /// Whether `rel` was deleted.
+    pub(super) async fn remove_written_folder(
         &self,
-        mut file: FlowFile,
-        written: &WrittenSkill,
-    ) -> Result<FlowFile, BoardError> {
-        detach(&mut file, &self.copy_path(&written.copy)?);
+        project: &str,
+        rel: &str,
+        fingerprint: Option<&str>,
+        made: &[String],
+    ) -> bool {
+        let gone = self.remove_written(project, rel, fingerprint).await;
+        if !made.is_empty()
+            && let Ok(checkout) = self.checkout(project).await
+        {
+            let made = made.to_vec();
+            let _ = tokio::task::spawn_blocking(move || remove_empty(&checkout, &made)).await;
+        }
+        gone
+    }
+
+    /// [`Self::remove_written_folder`]'s `rel` alone.
+    async fn remove_written(&self, project: &str, rel: &str, fingerprint: Option<&str>) -> bool {
+        if rel.is_empty() {
+            return false;
+        }
+        let Ok(checkout) = self.checkout(project).await else {
+            return false;
+        };
+        let path = inside(&checkout, rel);
+        if !path.is_dir() {
+            return false;
+        }
+        let Ok(git) = self.git() else {
+            return false;
+        };
+        // An error (not a repository, git missing) keeps the folder: only what is surely untracked is deleted.
+        let untracked = git
+            .run(&checkout, &["ls-files", "--", rel])
+            .await
+            .is_ok_and(|tracked| tracked.trim().is_empty());
+        if !untracked {
+            return false;
+        }
+        if let Some(fingerprint) = fingerprint {
+            let at = path.clone();
+            let now = tokio::task::spawn_blocking(move || folder::fingerprint(&at))
+                .await
+                .ok()
+                .and_then(Result::ok);
+            if now.as_deref() != Some(fingerprint) {
+                return false;
+            }
+        }
+        let gone = path.clone();
+        let _ = tokio::task::spawn_blocking(move || folder::remove(&gone)).await;
+        tracing::info!(project, folder = rel, "a written skill's folder removed");
+        !path.exists()
+    }
+
+    /// `file` without the skill `written`: its stage's skill as it was before.
+    pub(super) fn without_written(mut file: FlowFile, written: &WrittenSkill) -> FlowFile {
         if let Some(stage) = file
             .flow
             .stages
@@ -162,53 +287,36 @@ impl Board {
         {
             stage.skill.clone_from(&written.was);
         }
-        Ok(file)
+        file
     }
 
-    /// After a change to the draft `row`: the skills being written for stages it no longer has are forgotten; a written
-    /// one its stage still names stays given to that stage's agent (an agent's proposal or a new agent doesn't lose it),
-    /// one it no longer names goes, with Otaq's copy.
-    pub(super) async fn keep_skills(
-        &self,
-        row: &mut Row,
-        stored: &[Agent],
-    ) -> Result<(), BoardError> {
+    /// After a change to the draft `row`: the skills being written for stages it no longer has are forgotten, and so
+    /// are written ones their stage no longer names. Their folders stay in the checkout: only Undo and Stop delete one.
+    pub(super) fn keep_skills(row: &mut Row) -> Result<(), BoardError> {
         if row.draft.writing.is_empty() && row.draft.written.is_empty() {
             return Ok(());
         }
-        let mut file = read(&row.yaml)?;
+        let file = read(&row.yaml)?;
         row.draft
             .writing
             .retain(|w| file.flow.stage(&w.stage_id).is_some());
-        let (kept, gone): (Vec<WrittenSkill>, Vec<WrittenSkill>) =
-            row.draft.written.drain(..).partition(|w| {
-                file.flow
-                    .stage(&w.stage_id)
-                    .is_some_and(|s| s.skill.as_deref() == Some(w.skill.as_str()))
-            });
-        for written in &gone {
-            detach(&mut file, &self.copy_path(&written.copy)?);
-            self.drop_copy(&written.copy).await;
-        }
-        for written in &kept {
-            attach(
-                &mut file,
-                &written.stage_id,
-                &self.copy_path(&written.copy)?,
-                stored,
-            );
-        }
-        row.draft.written = kept;
-        row.yaml = yaml::write(&file);
+        row.draft.written.retain(|w| {
+            file.flow
+                .stage(&w.stage_id)
+                .is_some_and(|s| s.skill.as_deref() == Some(w.skill.as_str()))
+        });
         Ok(())
     }
 
-    /// `otaq flow write-skill <stage>`: the folder to write `stage`'s skill in (made empty the first time, kept as it
-    /// is after), and the field says it is being written, by `agent` when a Project agent asks.
+    /// `otaq flow write-skill <stage> --name <name>`: the folder to write `stage`'s skill in, inside the project's
+    /// checkout ([`folder_for`]), made empty the first time and kept as it is after; the field says it is being
+    /// written, by `agent` when a Project agent asks. `name` may be left out once the stage has its folder. Refused for
+    /// a folder that is already there and wasn't made by this write.
     pub async fn skill_folder(
         &self,
         project: &str,
         stage: &str,
+        name: Option<&str>,
         agent: Option<&str>,
     ) -> Result<SkillWrite, BoardError> {
         let key = self.project(project).await?.key;
@@ -220,12 +328,56 @@ impl Board {
         let file = read(&row.yaml)?;
         let target = stage_of(&file, stage)?.clone();
         runs_agent(&target)?;
-        let path = self
-            .data()
-            .skill_writing_path(&key, &target.id)
-            .map_err(|e| BoardError::refused(Refusal::BadSkillFolder, e.to_string()))?;
-        let made = path.clone();
-        tokio::task::spawn_blocking(move || std::fs::create_dir_all(&made))
+        let checkout = self.checkout(&key).await?;
+        let (had, had_made) = row
+            .draft
+            .writing
+            .iter()
+            .find(|w| w.stage_id == target.id)
+            .map(|w| (w.folder.clone(), w.made.clone()))
+            .unwrap_or_default();
+        let rel = match (name, &had) {
+            (Some(name), _) => {
+                let tool = self.stage_tool(&file, &target).await?;
+                folder_for(tool, &checked_name(name)?)
+            }
+            (None, Some(had)) => had.clone(),
+            (None, None) => {
+                return Err(BoardError::refused(
+                    Refusal::BadSkillFolder,
+                    format!(
+                        "Name the skill first: `{cmd} flow write-skill {id} --name <name>` (a short name, like \
+                         plan-ticket)",
+                        cmd = naming::COMMAND_NAME,
+                        id = target.id,
+                    ),
+                ));
+            }
+        };
+        let path = inside(&checkout, &rel);
+        if had.as_deref() != Some(rel.as_str()) {
+            if std::fs::symlink_metadata(&path).is_ok() {
+                return Err(BoardError::refused(
+                    Refusal::BadSkillFolder,
+                    format!(
+                        "`{rel}` is already in this project, and {} won't write over it: pick another name",
+                        naming::PRODUCT_NAME
+                    ),
+                ));
+            }
+            // A folder this write made under another name goes, while nothing in it is tracked.
+            if let Some(had) = &had {
+                self.remove_written_folder(&key, had, None, &had_made).await;
+            }
+        }
+        // The folders above it this write makes, kept so Stop and Undo can take them away again once empty.
+        let made = if had.as_deref() == Some(rel.as_str()) {
+            had_made
+        } else {
+            missing_parents(&checkout, &rel)
+        };
+        let making = path.clone();
+        tokio::task::spawn_blocking(move || std::fs::create_dir_all(&making))
             .await
             .expect("folder work panicked")
             .map_err(|e| {
@@ -234,18 +386,27 @@ impl Board {
                     format!("Can't make the folder {}: {e}", path.display()),
                 )
             })?;
-        if !row.draft.writing.iter().any(|w| w.stage_id == target.id) {
-            row.draft.writing.push(SkillWriting {
-                stage_id: target.id.clone(),
-                agent: agent.map(str::to_owned),
-            });
-            self.write_draft(&key, existing.map(|e| e.id), &row).await?;
-        }
+        let agent = row
+            .draft
+            .writing
+            .iter()
+            .find(|w| w.stage_id == target.id)
+            .and_then(|w| w.agent.clone())
+            .or_else(|| agent.map(str::to_owned));
+        row.draft.writing.retain(|w| w.stage_id != target.id);
+        row.draft.writing.push(SkillWriting {
+            stage_id: target.id.clone(),
+            agent,
+            folder: Some(rel.clone()),
+            made,
+        });
+        self.write_draft(&key, existing.map(|e| e.id), &row).await?;
+        let skill = rel.rsplit('/').next().unwrap_or_default().to_owned();
         let folder = path.display().to_string();
         let text = format!(
-            "Write {name}'s skill in {folder}, and nowhere else: a {SKILL_FILE} whose front matter has `name:` (a short \
-             name for the skill, like plan-ticket) and `description:` (one line; the editor shows it as {name}'s \
-             caption), and any files it mentions. Then run `{cmd} flow write-skill {id} --done`.",
+            "Write {name}'s skill in {folder}, and nowhere else: a {SKILL_FILE} whose front matter has `name: \
+             {skill}` and `description:` (one line; the editor shows it as {name}'s caption), and any files it \
+             mentions. Then run `{cmd} flow write-skill {id} --done`.",
             name = target.name,
             id = target.id,
             cmd = naming::COMMAND_NAME,
@@ -258,9 +419,10 @@ impl Board {
         })
     }
 
-    /// `otaq flow write-skill <stage> --done`: the folder the agent wrote is imported as Otaq's own copy (d0092) and
-    /// deleted; the draft names the skill as `stage`'s, given to its agent, tinted as written by `by`. A skill it
-    /// wrote for the stage before goes. Refused, with the folder kept, when it doesn't read as a skill.
+    /// `otaq flow write-skill <stage> --done`: the folder the agent wrote must hold a SKILL.md whose front matter
+    /// reads; the draft then names the skill (its `name:`, else the folder's name) as `stage`'s, tinted as written by
+    /// `by`. Nothing is copied or imported: the skill stays where it was written. Refused, with the folder kept, when
+    /// it doesn't read as a skill.
     pub async fn skill_written(
         &self,
         project: &str,
@@ -276,26 +438,39 @@ impl Board {
         let mut file = read(&row.yaml)?;
         let target = stage_of(&file, stage)?.clone();
         runs_agent(&target)?;
-        let path = self
-            .data()
-            .skill_writing_path(&key, &target.id)
-            .map_err(|e| BoardError::refused(Refusal::BadSkillFolder, e.to_string()))?;
-        if !path.is_dir() {
-            return Err(BoardError::refused(
+        let checkout = self.checkout(&key).await?;
+        let nothing = || {
+            BoardError::refused(
                 Refusal::BadSkillFolder,
                 format!(
-                    "Nothing to hand in for {}: run `{} flow write-skill {}` first, and write the skill in the folder \
-                     it gives",
+                    "Nothing to hand in for {}: run `{} flow write-skill {} --name <name>` first, and write the \
+                     skill in the folder it gives",
                     target.name,
                     naming::COMMAND_NAME,
                     target.id
                 ),
-            ));
+            )
+        };
+        let (rel, made) = row
+            .draft
+            .writing
+            .iter()
+            .find(|w| w.stage_id == target.id)
+            .and_then(|w| Some((w.folder.clone()?, w.made.clone())))
+            .ok_or_else(nothing)?;
+        let path = inside(&checkout, &rel);
+        if !path.is_dir() {
+            return Err(nothing());
         }
-        let record = crate::agents::skills::import_folder(self, &path).await?;
-        let written_in = path.clone();
-        let _ = tokio::task::spawn_blocking(move || folder::remove(&written_in)).await;
-        let stored = self.store().agents().await?;
+        let at = path.clone();
+        let (name, fingerprint) = tokio::task::spawn_blocking(move || {
+            let name = written_name(&at)?;
+            let fingerprint = folder::fingerprint(&at).map_err(|e| e.to_string())?;
+            Ok::<_, String>((name, fingerprint))
+        })
+        .await
+        .expect("folder work panicked")
+        .map_err(|why| BoardError::refused(Refusal::BadSkillFolder, why))?;
         let mut was = target.skill.clone();
         if let Some(at) = row
             .draft
@@ -304,36 +479,37 @@ impl Board {
             .position(|w| w.stage_id == target.id)
         {
             let old = row.draft.written.remove(at);
-            detach(&mut file, &self.copy_path(&old.copy)?);
-            self.drop_copy(&old.copy).await;
+            if old.folder != rel {
+                self.remove_written_folder(&key, &old.folder, Some(&old.fingerprint), &old.made)
+                    .await;
+            }
             was = old.was;
         }
         if let Some(stage) = file.flow.stages.iter_mut().find(|s| s.id == target.id) {
-            stage.skill = Some(record.name.clone());
+            stage.skill = Some(name.clone());
         }
-        attach(&mut file, &target.id, &self.copy_path(&record.id)?, &stored);
         row.yaml = yaml::write(&file);
         row.draft.writing.retain(|w| w.stage_id != target.id);
         row.draft.written.push(WrittenSkill {
             stage_id: target.id.clone(),
-            skill: record.name.clone(),
-            copy: record.id.clone(),
+            skill: name.clone(),
+            folder: rel.clone(),
+            fingerprint,
+            made,
             by: by.to_owned(),
             was,
         });
         self.write_draft(&key, existing.map(|e| e.id), &row).await?;
-        tracing::info!(project = %key, stage = %target.id, skill = %record.name, copy = %record.id, "a written skill is in the draft");
+        tracing::info!(project = %key, stage = %target.id, skill = %name, folder = %rel, "a written skill is in the draft");
         let text = format!(
-            "{skill} is in {name}'s skill field, as {product}'s own copy. Nothing changes on the board until the user \
-             applies the flow.",
-            skill = record.name,
-            name = target.name,
-            product = naming::PRODUCT_NAME,
+            "{name} is in {stage}'s skill field. {saved} Nothing changes on the board until the user applies the flow.",
+            stage = target.name,
+            saved = saved_text(&rel),
         );
         Ok(SkillWrite {
             stage: target.name,
             folder: path.display().to_string(),
-            skill: Some(record.name),
+            skill: Some(name),
             text,
         })
     }

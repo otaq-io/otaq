@@ -213,7 +213,6 @@ impl Helpers {
                 .agent
                 .clone()
                 .or_else(|| Some(agent.session_agent())),
-            fallback: in_charge.fallback.clone(),
         };
         let tool = runs_on
             .tool
@@ -266,8 +265,8 @@ impl Helpers {
                 {
                     Ok(first) => {
                         self.launch(
-                            ticket, &project, &path, piece, title, &runs_on, &agent, session_id,
-                            None, first,
+                            ticket, &project, &path, piece, title, &runs_on, session_id, None,
+                            first,
                         )
                         .await
                     }
@@ -386,7 +385,7 @@ impl Helpers {
         Ok(())
     }
 
-    /// The helper's port, skills and session `session_id` (its row names it already) in its worktree: a fresh
+    /// The helper's port and session `session_id` (its row names it already) in its worktree: a fresh
     /// conversation told its piece, or (`resume`, the tool's conversation id) its own conversation continued (d0133
     /// audit 5), `first` its first prompt.
     #[allow(clippy::too_many_arguments)]
@@ -398,7 +397,6 @@ impl Helpers {
         piece: u32,
         title: &str,
         runs_on: &RunsOn,
-        agent: &crate::agents::Agent,
         session_id: String,
         resume: Option<String>,
         first: FirstPrompt,
@@ -409,18 +407,6 @@ impl Helpers {
             .allocate_helper(&ticket.id, piece)
             .await
             .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.to_string()))?;
-        // Its own worktree gets its own copies (d0118), so a tool starting beside it never lists a copy being
-        // replaced: every skill is in place before the tool starts.
-        let (first_prompt, written) = inner
-            .board
-            .copy_for_ticket_session(
-                worktree,
-                inner.adapters.shipped_skills(),
-                Some(agent),
-                Some(first),
-                &project.key,
-            )
-            .await;
         let mut launched = inner
             .adapters
             .launch(
@@ -431,7 +417,7 @@ impl Helpers {
                     project: project.key.clone(),
                     ticket: Some(ticket.key.clone()),
                     port,
-                    first_prompt,
+                    first_prompt: Some(first),
                     resume,
                     model: runs_on.model.clone(),
                     effort: runs_on.effort.clone(),
@@ -468,17 +454,10 @@ impl Helpers {
                 model: launched.model,
                 agent: runs_on.agent.clone(),
                 effort: runs_on.effort.clone(),
-                fallback: runs_on.fallback.clone(),
                 theme: Some(launched.theme),
             })
             .await
             .map_err(|e| BoardError::refused(Refusal::NotAvailableYet, e.to_string()))?;
-        if let Err(e) = inner
-            .sessions
-            .set_started_skills(&session.id, written.names)
-        {
-            tracing::warn!(helper = %session.id, error = %e, "the helper's skills weren't recorded");
-        }
         Ok(session)
     }
 }

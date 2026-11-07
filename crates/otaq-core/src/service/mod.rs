@@ -586,6 +586,15 @@ impl Service {
             );
         }
         let board = Board::with_path_git(store.clone(), data.clone());
+        let tool_context = ToolContext {
+            launch: config.launch.clone(),
+            path: config.tools.path.clone(),
+            home: config.tool_home.clone(),
+            data: config.data.clone(),
+        };
+        // The skills the user already has are read from the same home as the adapters' (T3), each tool's variables
+        // from the environment its sessions get.
+        board.set_skill_home(tool_context.home.clone());
         let adapters = Adapters::new(
             ClaudeCode::new(ClaudeContext {
                 launch: config.launch.clone(),
@@ -593,24 +602,26 @@ impl Service {
                 data: config.data.clone(),
                 trust: config.claude.clone(),
             }),
-            ToolContext {
-                launch: config.launch.clone(),
-                path: config.tools.path.clone(),
-                home: config.tool_home.clone(),
-                data: config.data.clone(),
-            },
+            tool_context,
         );
         // The tools' states start unchecked, with the user's Hidden tools (d0086); checked once the service is built.
         let connected = ConnectedTools::load(&store)
             .await
             .map_err(ServiceError::Store)?;
         board.trust().set_adapters(adapters.clone());
-        // Copies of imported skills that no agent holds (d0092, AGM-01).
-        match crate::agents::skills::remove_unreferenced(&board).await {
-            Ok(0) => {}
-            Ok(removed) => tracing::info!(removed, "unused skill copies removed"),
-            Err(e) => tracing::warn!(error = %e, "can't check the skill copies"),
-        }
+        // Otaq keeps no skills (T6): the folders an older Otaq kept them in go, with no notice. Once gone, a later
+        // start finds nothing to delete.
+        let old_skills = data.old_skill_dirs();
+        tokio::task::spawn_blocking(move || {
+            for dir in old_skills.iter().filter(|d| d.exists()) {
+                match std::fs::remove_dir_all(dir) {
+                    Ok(()) => tracing::info!(dir = %dir.display(), "an old skill folder removed"),
+                    Err(e) => tracing::warn!(dir = %dir.display(), error = %e, "can't remove an old skill folder"),
+                }
+            }
+        })
+        .await
+        .expect("skill folder removal panicked");
         // Starts cut short by the previous service stopping are shown, never re-run silently (SES-02).
         match Starter::interrupt_cut_short(&board).await {
             Ok(0) => {}
@@ -814,6 +825,11 @@ impl Service {
             ports.clone(),
             ticket_env.clone(),
         );
+        // A flow stored before a check had one agent reads with its checks split: their tickets' skips and moves
+        // past carry over to the copies once.
+        if let Err(e) = board.carry_split_checks().await {
+            tracing::error!(error = %e, "can't carry tickets over to split checks");
+        }
         // Startup reconcile (REC-01): tickets whose agent was at work are Interrupted; nothing resumes.
         let recovery = Recovery::new(
             board.clone(),
@@ -1045,6 +1061,8 @@ impl Service {
             Ok(agents) => recovery.record_project_agents(&agents),
             Err(e) => tracing::warn!(error = %e, "can't reconcile the Project agents"),
         }
+        // The skill copies an older Otaq left go from every worktree and every project's checkout (T5).
+        crate::skills::copy::remove_everywhere(&board).await;
         let pause = crate::agents::pause::Pause::new(crate::agents::pause::PauseParts {
             board: board.clone(),
             sessions: sessions.clone(),

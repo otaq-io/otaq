@@ -20,6 +20,7 @@ pub mod manual_checks;
 pub mod merge;
 pub mod merge_check;
 pub mod merge_into;
+pub mod missing_skill;
 pub mod moves;
 pub mod needs_you;
 pub mod order;
@@ -33,6 +34,7 @@ pub mod reports;
 pub mod review;
 pub mod send_back;
 pub mod settings;
+pub mod skill_tools;
 pub mod snapshot;
 pub mod stack;
 pub mod stage_choices;
@@ -77,15 +79,14 @@ pub struct Board {
     trust: Trust,
     /// Runs an automatic Delivery when a move put a ticket into one (FLW-15); the service sets it.
     delivery: merge::DeliveryLink,
-    /// The data folder: where Otaq's copies of imported workflow skills live (`skills/<id>`, WSK-03).
+    /// The data folder.
     data: DataDir,
-    /// Held while a workflow skill setting changes (an import, Re-import, a reset, a settings save), so two
-    /// changes never interleave and leave a copy no setting holds.
-    skill_changes: std::sync::Arc<tokio::sync::Mutex<()>>,
     /// The stored flow documents read so far, by their text: a version is read from its YAML once
     /// ([`Self::effective_flow`]).
     pub(crate) flows:
         std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, crate::flow::FlowFile>>>,
+    /// The tools' home folder for the skill finder ([`Self::set_skill_home`]); unset reads no personal folder.
+    skill_home: std::sync::Arc<std::sync::OnceLock<Option<std::path::PathBuf>>>,
 }
 
 impl Board {
@@ -103,8 +104,8 @@ impl Board {
             trust: Trust::default(),
             delivery: merge::DeliveryLink::default(),
             data,
-            skill_changes: Default::default(),
             flows: Default::default(),
+            skill_home: Default::default(),
         }
     }
 
@@ -118,9 +119,10 @@ impl Board {
         &self.data
     }
 
-    /// The lock every workflow skill setting change holds ([`Self::skill_changes`]).
-    pub(crate) async fn lock_skill_changes(&self) -> tokio::sync::MutexGuard<'_, ()> {
-        self.skill_changes.lock().await
+    /// The tools' home folder, under which [`Self::found_skills`] reads the personal skills folders. Set once, at
+    /// service start; a second call changes nothing.
+    pub fn set_skill_home(&self, home: Option<std::path::PathBuf>) {
+        let _ = self.skill_home.set(home);
     }
 
     pub fn store(&self) -> &Store {
@@ -243,21 +245,13 @@ stored_enum! {
         ModelNotListed = "model_not_listed",
         /// The effort level isn't one of the tool's, or the tool has none (AGM-01).
         BadEffort = "bad_effort",
-        /// A shipped skill Otaq doesn't ship, or an imported skill that isn't there (AGM-01).
-        BadSkill = "bad_skill",
         /// The agent holds a role, or a stage names it (AGM-01): the message says which.
         AgentInUse = "agent_in_use",
         /// A stage names an agent that isn't one of the agents (AGM-01).
         UnknownAgent = "unknown_agent",
-        /// A tool's fallback is on the same tool: "A fallback must be on another tool" (AGM-03).
-        BadFallback = "bad_fallback",
-        /// A workflow skill folder can't be imported (WSK-02): no SKILL.md, front matter that doesn't read, or a
-        /// copy that failed. Nothing changed.
+        /// A stage's skill folder the Project agent writes can't be used (`otaq flow write-skill`): no name yet, a
+        /// folder already there, no SKILL.md, or front matter that doesn't read.
         BadSkillFolder = "bad_skill_folder",
-        /// Re-import's remembered original folder is gone (WSK-04); Otaq's copy stays.
-        OriginalNotFound = "original_not_found",
-        /// The agent has no such imported skill to re-import.
-        NotImported = "not_imported",
         /// A stage choice that isn't one of the stage's options, or a stage without options (AGM-08).
         NotAnOption = "not_an_option",
         /// The stage has started: its choice is locked (AGM-08).

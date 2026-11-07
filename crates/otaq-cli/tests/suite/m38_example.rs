@@ -51,7 +51,7 @@ const PLAN_WHY: &str = "Big tickets in shop-web get a plan first";
 /// test's service). Every start is logged to `state/starts` (`<ticket> <arguments>`). Then:
 /// - a ticket's agent with `state/ask-<KEY>` asks that question once (`otaq ask human`);
 /// - a ticket's agent then waits for `state/go-<KEY>` (taken when seen), commits if it is a Dev
-///   (`/otaq-work-ticket`), reads `otaq prime` and ends its stage (`otaq stage next`); it waits again, for the next `go`, whatever comes
+///   (`/otaq:work-ticket`), reads `otaq prime` and ends its stage (`otaq stage next`); it waits again, for the next `go`, whatever comes
 ///   after;
 /// - a Project agent asked to add a stage after Product spec proposes `state/plan.yaml` (`otaq flow propose --stdin`).
 ///
@@ -86,7 +86,7 @@ while :; do
     while [ ! -e "$STATE/go-$KEY" ]; do sleep 0.05; done
     rm "$STATE/go-$KEY"
     case "$*" in
-    *otaq-work-ticket*)
+    *otaq:work-ticket*)
         echo "$KEY" >> work.txt
         git add -A
         git -c user.name=t -c user.email=t@t commit -qm "$KEY: work"
@@ -678,7 +678,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         world
             .starts_of("SHOP-12")
             .iter()
-            .filter(|l| l.contains("otaq-work-ticket"))
+            .filter(|l| l.contains("otaq:work-ticket"))
             .count()
     };
     assert_eq!(dev(&world), 0, "no Dev agent");

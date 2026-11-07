@@ -204,15 +204,9 @@ impl Review {
                 else {
                     return;
                 };
-                let worktree = ticket
-                    .work
-                    .as_ref()
-                    .and_then(|w| w.worktree.as_deref())
-                    .map(std::path::Path::new);
                 let text = inner
                     .deliveries
-                    .skill_line(board, &session.id, worktree, ADDRESS_REVIEW_SKILL, None)
-                    .await;
+                    .skill_text(&session.id, ADDRESS_REVIEW_SKILL, None);
                 match inner
                     .deliveries
                     .hand_off(

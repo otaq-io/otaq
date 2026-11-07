@@ -10,7 +10,7 @@
 //! - Validate's fails set to Product spec: its Fail stops Dev's live session and resumes Product spec's conversation
 //!   with "Validate failed round 1. Run `otaq prime`."; History's event names the check and the stage.
 //! - A Send back into the live Dev session (QA's fails set to Dev) types the plain sentence with only a comment, and
-//!   `/otaq-address-review` with a line comment.
+//!   `/otaq:address-review` with a line comment.
 //!
 //! Every tool is the stand-in of `tests/fixtures/stand-in` (`crate::common::stand_in`): it prints its arguments at
 //! start, runs a skill it loaded and ignores other text. Repos, `OTAQ_HOME` and the tools' home are temporary.
@@ -181,14 +181,14 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     let product_spec = start(&w, &t, None).await;
     let first = args(&w, &product_spec).await;
     assert!(
-        first.contains("/otaq-product-spec") && !first.contains("--resume"),
+        first.contains("/otaq:product-spec") && !first.contains("--resume"),
         "{first}"
     );
     finished(&w, &t).await;
     let dev = start(&w, &t, Some(&product_spec.id)).await;
     let first = args(&w, &dev).await;
     assert!(
-        first.contains("/otaq-work-ticket") && !first.contains("--resume"),
+        first.contains("/otaq:work-ticket") && !first.contains("--resume"),
         "the first entry into Dev is fresh: {first}"
     );
     let t = w.board.ticket(&key).await.unwrap();
@@ -235,7 +235,7 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
         "{rewalk}"
     );
     assert!(
-        !rewalk.contains("/otaq-"),
+        !rewalk.contains("/otaq:"),
         "never a slash command: {rewalk}"
     );
     until_in(&w, &key, "dev", Status::Working).await;
@@ -275,7 +275,7 @@ async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
     );
     assert!(
         resumed.contains(
-            "/otaq-address-review SHOP-1 was sent back to Product spec with 1 line comment."
+            "/otaq:address-review SHOP-1 was sent back to Product spec with 1 line comment."
         ),
         "{resumed}"
     );
@@ -283,7 +283,7 @@ async fn a_send_back_with_line_comments_runs_address_review_in_any_stage() {
 }
 
 /// QA's fails set to Dev: a Send back into the live Dev session types the plain sentence with only a comment, and
-/// `/otaq-address-review` (which its tool loaded at start) with a line comment.
+/// `/otaq:address-review` (which its tool loaded at start) with a line comment.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comments() {
     let dir = TempDir::new().unwrap();
@@ -313,7 +313,7 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
             "QA sent SHOP-1 back to you with a comment. Run `otaq prime`.",
         )
         .await;
-    assert!(!out.contains("RUNS otaq-address-review"), "{out}");
+    assert!(!out.contains("RUNS otaq:address-review"), "{out}");
     assert_eq!(
         w.sessions
             .running_of(&t.id, SessionKind::Agent)
@@ -328,21 +328,19 @@ async fn a_send_back_into_the_live_session_types_the_skill_only_for_line_comment
         .fail(&key, "", Vec::new(), false, &me())
         .await
         .unwrap();
-    let out = w.wait_for_output(&dev.id, "RUNS otaq-address-review").await;
+    let out = w.wait_for_output(&dev.id, "RUNS otaq:address-review").await;
     assert!(!out.contains("Unknown command"), "{out}");
     w.stop().await;
 }
 
-/// Validate with two check agents, its fails set to Product spec (not the nearest, Dev): one fails and the other
-/// passes; the combined Fail stops Dev's live session and resumes Product spec's conversation, told both verdicts; the
-/// round's event names the check and where it went.
+/// Validate, its fails set to Product spec (not the nearest, Dev): its checker's Fail stops Dev's live session and
+/// resumes Product spec's conversation, told the check failed; the round's event names the check and where it went.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_agent_checks_fail_resumes_its_stage() {
     let dir = TempDir::new().unwrap();
     let mut flow = every_kind();
     let validate = flow.flow.position("validate").unwrap();
     flow.flow.stages[validate].fail_to = Some("product-spec".into());
-    flow.flow.stages[validate].agents = vec!["Security reviewer".into(), "Validator".into()];
     let w = world(&dir, &flow).await;
     let t = w.create("SHOP", "Price table").await;
     let key = t.key.to_string();
@@ -355,33 +353,28 @@ async fn an_agent_checks_fail_resumes_its_stage() {
     let dev = start(&w, &t, Some(&product_spec.id)).await;
     finished(&w, &t).await;
     until_in(&w, &key, "validate", Status::Checking).await;
-    let checkers = tokio::time::timeout(Duration::from_secs(20), async {
+    let checker = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let running = w.sessions.running_all_of(&t.id, SessionKind::Validator);
-            if running.len() == 2 {
-                return running;
+            if let [one] = running.as_slice() {
+                return one.clone();
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
         }
     })
     .await
-    .expect("both check agents run");
-    for (checker, pass, text) in [
-        (&checkers[0], false, "- prices.ts:3 rounds wrong"),
-        (&checkers[1], true, "Prices match."),
-    ] {
-        let author = w.board.session_author(&checker.id).await.unwrap();
-        let now = w.board.ticket(&key).await.unwrap();
-        let hand_over = w
-            .board
-            .stage_end_hand_over(&now, author, text, Vec::new(), &[])
-            .await
-            .unwrap();
-        w.validation
-            .verdict(&key, pass, hand_over.as_ref(), &checker.id)
-            .await
-            .unwrap();
-    }
+    .expect("the check's agent runs");
+    let author = w.board.session_author(&checker.id).await.unwrap();
+    let now = w.board.ticket(&key).await.unwrap();
+    let hand_over = w
+        .board
+        .stage_end_hand_over(&now, author, "- prices.ts:3 rounds wrong", Vec::new(), &[])
+        .await
+        .unwrap();
+    w.validation
+        .verdict(&key, false, hand_over.as_ref(), &checker.id)
+        .await
+        .unwrap();
 
     let back = running(&w, &t, Some(&dev.id)).await;
     let resumed = args(&w, &back).await;
@@ -393,9 +386,7 @@ async fn an_agent_checks_fail_resumes_its_stage() {
         "{resumed}"
     );
     assert!(
-        resumed.contains(
-            "Validate failed round 1: Security reviewer failed, Validator passed. Run `otaq prime`."
-        ),
+        resumed.contains("Validate failed round 1. Run `otaq prime`."),
         "{resumed}"
     );
     assert!(

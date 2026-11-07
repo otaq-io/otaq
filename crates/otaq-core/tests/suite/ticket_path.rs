@@ -1,7 +1,7 @@
 //! The facts behind a ticket's choices, its path and its card (T-0411; AGM-09, AGM-03; d0108) on the test flow
 //! `tests/flows/every-kind.yaml`: `ticket.agents` carries every stage with the agent it runs for the ticket, its runs
-//! and its choices (with what a changed choice read before); `board.agents` says where a waiting ticket starts. The
-//! default flow has the path and no choices.
+//! and its choices (with what a changed choice read before); `board.agents` says where a waiting ticket starts. On the
+//! default flow every stage an agent runs has a choice too.
 
 use std::path::Path;
 
@@ -47,14 +47,11 @@ async fn the_panel_facts_carry_the_path_and_the_choices() {
     w.add_project("shop-web").await;
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     w.create("SHOP", "Fix README typo").await;
-    let architect = Chooser::TicketAgent {
-        name: "Architect".into(),
-    };
     choose(
         &w,
         "SHOP-1",
-        &[pick("Dev", "Quick developer", Some("typo fix"))],
-        &architect,
+        &[pick("Dev", "Quick developer", None)],
+        &Chooser::User,
     )
     .await;
     choose(
@@ -164,17 +161,18 @@ async fn a_waiting_card_says_where_it_starts() {
     w.stop().await;
 }
 
-/// AGM-09: on the default flow no stage has options: the ticket has its path (Dev · Validate · Review · Done) and no
-/// choices.
+/// AGM-09: on the default flow no stage lists options: the ticket has its path (Dev · Validate · Review · Done) and a
+/// choice for each stage an agent runs (Dev, Validate), none for Review (a check by you that isn't skippable) or Done.
 #[tokio::test(flavor = "multi_thread")]
-async fn the_default_flow_has_a_path_and_no_choices() {
+async fn the_default_flow_has_a_path_and_a_choice_per_agent_stage() {
     let w = TestService::start().await;
     let notes = w.add_project("pocket-notes").await;
     let note = w.create(&notes.key, "Offline mode").await;
     let t = ticket_agents(&w.board, &note.key.to_string())
         .await
         .unwrap();
-    assert!(t.choices.is_empty());
+    let choices: Vec<&str> = t.choices.iter().map(|c| c.stage.as_str()).collect();
+    assert_eq!(choices, ["Dev", "Validate"]);
     let stages: Vec<&str> = t.path.iter().map(|s| s.stage.as_str()).collect();
     assert_eq!(stages, ["Dev", "Validate", "Review", "Done"]);
     assert_eq!(t.path[0].agent.as_ref().unwrap().name, "Developer");

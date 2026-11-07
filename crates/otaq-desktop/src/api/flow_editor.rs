@@ -9,27 +9,28 @@
 //! **nothing starts before the user's words, a chip or an Ask** (d0087); the first message starts the project's
 //! Project agent on the `flow` skill (`/flow …`, through `agent_panel.send`).
 //!
-//! The Skill field (T-0472; FED-05, FED-06): a template and Pick a skill… are edits (`flow_editor.edit`). Ask the
+//! The Skill field (T-0472; FED-05, FED-06): a template and Pick a skill… are edits (`flow_editor.edit`); the picker
+//! lists what `skills.list` finds for the project (the user's own skills, then Otaq's), and takes a typed name. Ask the
 //! agent to write it (and the Write the skill chip) **sends nothing** (Q441): the page puts "Write a skill for the
 //! Plan stage: " in the idle panel's box, or `flow_editor.prefill` types it into the running agent's input line
 //! without Return; `flow_editor.write_skill` is the user's send from the box (the Project agent starts with their
 //! words, and only then the field says it is being written; a running agent's field says so once it asks for its
 //! folder). `flow_editor.stop_writing` is Stop (it interrupts the agent's turn), `flow_editor.undo_skill` the written
-//! skill's Undo (Otaq's copy goes) and `flow_editor.open_skill` its Open (Otaq's copy in the file manager).
+//! skill's Undo (its folder goes only while it is uncommitted and unchanged, else the field just clears) and
+//! `flow_editor.open_skill` its Open (its folder in the project's checkout, in the file manager).
 //!
 //! Problems that need a pick (Q426): `flow_editor.view` takes the page's picks (`choices`) and `flow_editor.apply`
 //! sends them with the draft (`flow.apply`'s `ApplyChoices`, as FLW-04's preview did).
 
-use std::collections::BTreeMap;
-
 use otaq_core::agent_tools::Tool;
-use otaq_core::agents::{Agent, SkillRef};
+use otaq_core::agents::Agent;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
 use otaq_core::flow::yaml;
 use otaq_core::project_agents::first_flow::FlowSetup;
 use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
+use otaq_core::skills::found::{self, FoundSkill, Homes};
 use otaq_core::protocol::{
     InputParams, OnboardingAskParams, ProjectParams, Reply, Request,
     encode_bytes,
@@ -281,59 +282,20 @@ async fn projects(app: &App) -> Result<Vec<(String, String)>, RequestError> {
     }
 }
 
-/// A SKILL.md's `description:` (its front matter's, folded onto one line), if it has one.
-fn description(text: &str) -> Option<String> {
-    let mut lines = text.trim_start_matches('\u{feff}').lines();
-    if lines.next().map(str::trim_end) != Some("---") {
-        return None;
+/// The skills the user already has for `project` and Otaq's own (`skills.list`): Pick a skill… and the captions
+/// (d0115). Only read, never copied. When the service can't answer, Otaq's own still show, so the picker is never
+/// empty.
+async fn skills(app: &App, project: &str) -> Vec<FoundSkill> {
+    let listed = app
+        .service
+        .send(Request::SkillsList(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await;
+    match listed {
+        Ok(Reply::Skills(skills)) => skills,
+        _ => found::list(&Homes::default(), None),
     }
-    let mut found: Option<String> = None;
-    for line in lines {
-        if line.trim_end() == "---" {
-            break;
-        }
-        match (&mut found, line.starts_with([' ', '\t'])) {
-            (Some(text), true) => {
-                text.push(' ');
-                text.push_str(line.trim());
-            }
-            (Some(_), false) => break,
-            (None, _) => {
-                if let Some(value) = line.strip_prefix("description:") {
-                    found = Some(value.trim().trim_matches(['"', '\'']).to_owned());
-                }
-            }
-        }
-    }
-    found.filter(|d| !d.is_empty() && d != ">" && d != "|")
-}
-
-/// The captions of the user's imported skills (d0115): each one's SKILL.md description, by the skill's name, read
-/// from Otaq's own copy.
-async fn captions(app: &App, agents: &[Agent]) -> BTreeMap<String, String> {
-    let Some(data) = app.service.data() else {
-        return BTreeMap::new();
-    };
-    let mut out = BTreeMap::new();
-    for agent in agents {
-        for skill in &agent.skills {
-            let SkillRef::Imported(id) = skill else {
-                continue;
-            };
-            let Some(record) = agent.imported_skill(id) else {
-                continue;
-            };
-            let Ok(folder) = data.skill_path(id) else {
-                continue;
-            };
-            if let Ok(text) = tokio::fs::read_to_string(folder.join("SKILL.md")).await
-                && let Some(text) = description(&text)
-            {
-                out.insert(record.name.clone(), text);
-            }
-        }
-    }
-    out
 }
 
 pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
@@ -349,7 +311,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
         .into_iter()
         .filter(|(key, _)| *key != params.project)
         .collect();
-    let captions = captions(app, &stored).await;
+    let skills = skills(app, &params.project).await;
     let agents = super::agent_panel::agents(app, &params.project).await?;
     let agent = params
         .agent
@@ -372,7 +334,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
         tools: &tools,
         setup: &setup,
         projects: &others,
-        captions: &captions,
+        skills: &skills,
         writing: &draft.writing,
         written: &draft.written,
         selected: params.selected.as_deref(),
@@ -677,7 +639,8 @@ async fn stop_writing(app: &App, params: SkillParams) -> Result<(), RequestError
     Ok(())
 }
 
-/// Undo on the skill the agent wrote: the stage's skill as before, and Otaq's copy deleted.
+/// Undo on the skill the agent wrote: the stage's skill as before; its folder is deleted only while it is uncommitted
+/// and holds only what was written.
 async fn undo_skill(app: &App, params: SkillParams) -> Result<Edited, RequestError> {
     update(
         app,
@@ -690,7 +653,8 @@ async fn undo_skill(app: &App, params: SkillParams) -> Result<Edited, RequestErr
     Ok(Edited { selected: None })
 }
 
-/// Open on the skill the agent wrote: Otaq's copy in the file manager (only a copy the draft names).
+/// Open on the skill the agent wrote: its folder in the project's checkout, in the file manager (only one the draft
+/// names).
 async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> {
     let draft = draft(app, &params.project).await?;
     let file = yaml::read(&draft.proposal.yaml)
@@ -704,13 +668,15 @@ async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> 
         .iter()
         .find(|w| w.stage_id == stage.id)
         .ok_or_else(|| RequestError::plain(format!("The agent wrote no skill for {}", stage.name)))?;
-    let data = app
-        .service
-        .data()
-        .ok_or_else(|| RequestError::plain("no data folder"))?;
-    let folder = data
-        .skill_path(&written.copy)
-        .map_err(|e| RequestError::plain(e.to_string()))?;
+    let checkout = match app.service.send(Request::ProjectList).await? {
+        Reply::Projects(list) => list
+            .into_iter()
+            .find(|p| p.key == draft.proposal.project)
+            .map(|p| std::path::PathBuf::from(p.repo_path))
+            .ok_or_else(|| RequestError::plain(format!("No project {}", draft.proposal.project)))?,
+        _ => return Err(RequestError::plain("project.list answered something else")),
+    };
+    let folder = written.folder.split('/').fold(checkout, |p, part| p.join(part));
     open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))?;
     Ok(())
 }
@@ -724,17 +690,6 @@ mod tests {
     use super::*;
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
-
-    #[test]
-    fn a_skills_description_is_its_front_matter_line() {
-        let text = "---\nname: security-review\ndescription: A security agent reviews the change\n  for risky code.\n---\n# Body";
-        assert_eq!(
-            description(text).as_deref(),
-            Some("A security agent reviews the change for risky code.")
-        );
-        assert_eq!(description("---\nname: x\n---\n"), None);
-        assert_eq!(description("no front matter"), None);
-    }
 
     #[test]
     fn the_first_message_runs_the_flow_skill() {
@@ -860,10 +815,10 @@ mod tests {
         assert_eq!(v.flow.summary, "9 steps \u{b7} in use");
     }
 
-    /// T-0529 (d0130, d0131): a second check agent on Validate and Code review's fails sent to Product spec go through
-    /// the draft (the change line names the agents), apply, and read back from the flow in use.
+    /// T-0529 (d0131): another agent for Validate (a check has one) and Code review's fails sent to Product spec go
+    /// through the draft, apply, and read back from the flow in use.
     #[tokio::test(flavor = "multi_thread")]
-    async fn check_agents_and_fails_go_to_apply() {
+    async fn a_check_agent_and_fails_go_to_apply() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -885,7 +840,7 @@ mod tests {
         apply(load(&h, None).await.proposal).await.unwrap();
 
         for edit in [
-            json!({ "edit": "add_check_agent", "stage": "validate", "agent": "Developer" }),
+            json!({ "edit": "agent", "stage": "validate", "agent": "Developer" }),
             json!({ "edit": "fail_to", "stage": "code-review", "to": "product-spec" }),
         ] {
             request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
@@ -893,32 +848,21 @@ mod tests {
                 .unwrap();
         }
         let v = load(&h, Some("validate")).await;
-        let line = v.flow.change_line.as_deref().unwrap_or_default();
-        assert!(
-            line.starts_with(
-                "Validate now runs Validator and Developer side by side. It applies at once: the next round of a \
-                 ticket at Validate runs both."
-            ),
-            "{line}"
-        );
         assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
         apply(v.proposal).await.unwrap();
 
         let v = load(&h, Some("validate")).await;
         assert_eq!(v.proposal, 0, "applied");
         let step = |name: &str| v.flow.steps.iter().find(|s| s.name == name).unwrap();
-        assert_eq!(step("Validate").who.as_deref(), Some("2 check agents"));
+        assert_eq!(step("Validate").who.as_deref(), Some("Developer"));
         assert_eq!(step("Validate").fails_to.as_deref(), Some("fails go to Dev"));
         assert_eq!(step("Code review").fails_to.as_deref(), Some("fails go to Product spec"));
-        let agents = v.flow.details.unwrap().check_agents.unwrap();
-        assert_eq!(
-            agents.rows.iter().map(|r| r.name.as_str()).collect::<Vec<_>>(),
-            ["Validator", "Developer"]
-        );
+        let agent = v.flow.details.unwrap().agent.unwrap();
+        assert_eq!(agent.name, "Developer");
     }
 
-    /// FED-05, FED-06: Plan picked in a new stage keeps Apply off ("Plan needs a skill"); one of the user's imported
-    /// skills picked for it turns Apply on, and applying gives it to the stage's agent.
+    /// FED-05, FED-06: Plan picked in a new stage keeps Apply off ("Plan needs a skill"); a skill picked or typed for
+    /// it turns Apply on, and it applies.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_new_stage_waits_for_a_skill_and_takes_a_picked_one() {
         let h = Harness::new(None);
@@ -952,32 +896,18 @@ mod tests {
         ));
         assert!(!v.footer.apply_enabled);
         assert_eq!(v.footer.reason.as_deref(), Some("Plan needs a skill"));
+        // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
+        let picker = &details.skill.as_ref().unwrap().picker;
+        assert!(picker.items.iter().any(|i| i.id == "validate"));
+        let otaqs = format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME);
+        assert!(
+            picker
+                .items
+                .iter()
+                .all(|i| i.hint.as_deref().is_some_and(|h| h.starts_with(&otaqs)))
+        );
 
-        // The user's own skill, imported on the Validator.
-        let folder = tempfile::tempdir().unwrap();
-        std::fs::write(
-            folder.path().join("SKILL.md"),
-            "---\nname: plan-steps\ndescription: Lists the steps first.\n---\n# Plan\n",
-        )
-        .unwrap();
-        let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
-        let validator = agents.iter().find(|a| a.name == "Validator").unwrap();
-        h.app
-            .service
-            .send(Request::AgentsImportSkill(
-                otaq_core::protocol::ImportSkillParams {
-                    id: validator.id.clone(),
-                    folder: folder.path().to_owned(),
-                },
-            ))
-            .await
-            .unwrap();
-        let v = load(&h, Some("plan")).await;
-        let picker = &v.flow.details.as_ref().unwrap().skill.as_ref().unwrap().picker;
-        let names: Vec<&str> = picker.items.iter().map(|i| i.id.as_str()).collect();
-        assert_eq!(names, ["plan-steps"]);
-        assert_eq!(picker.items[0].hint.as_deref(), Some("Lists the steps first."));
-
+        // A name typed by hand: nothing is imported or copied; nobody has it, so it warns, and Apply still works.
         request(
             &h.app,
             "flow_editor.edit",
@@ -989,7 +919,8 @@ mod tests {
         assert_eq!(
             v.flow.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
             Some(&vm::SkillState::Set {
-                skill: "plan-steps".into()
+                skill: "plan-steps".into(),
+                warning: Some("You don't have the skill `plan-steps`".into()),
             })
         );
         assert!(v.footer.apply_enabled, "{:?}", v.footer.reason);
@@ -1000,19 +931,13 @@ mod tests {
         )
         .await
         .unwrap();
-        let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
-        let developer = agents.iter().find(|a| a.name == "Developer").unwrap();
-        assert!(
-            developer.imported.iter().any(|s| s.name == "plan-steps"),
-            "the stage's agent runs it: {developer:?}"
-        );
     }
 
-    /// Q426 (the ticket's hand check, automated): a flow file naming a skill that isn't on this machine marks Security
-    /// with "Import its folder…" and keeps Apply off; the folder picked (the page's choices) clears it, and Apply
-    /// imports it onto the file's agent.
+    /// A flow file naming a skill the user doesn't have still applies: Security carries no problem, shows "You don't
+    /// have the skill `team-security-review`" on its step and in its Skill field, and Apply stays on; the file's agent
+    /// `skills:` is ignored.
     #[tokio::test(flavor = "multi_thread")]
-    async fn a_missing_skills_folder_picked_in_the_step_then_applied() {
+    async fn a_skill_the_user_doesnt_have_still_applies() {
         let h = Harness::new(None);
         h.wait_for("connected", connected).await;
         let repos = TempRepos::new();
@@ -1021,9 +946,9 @@ mod tests {
         let file = dir.path().join("team.yaml");
         std::fs::write(
             &file,
-            "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: default\nflow:\n  - \
+            "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: default\nflow:\n  - \
              name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: Security\n    \
-             kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: security-review\n    rounds: 2\n  \
+             kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: team-security-review\n    rounds: 2\n  \
              - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
              with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n",
         )
@@ -1051,20 +976,12 @@ mod tests {
         };
         let v = view_with(json!({})).await;
         assert_eq!(v["flow"]["steps"][2]["name"], "Security");
-        assert_eq!(
-            v["flow"]["steps"][2]["problem"],
-            "security-review isn\u{2019}t on this machine"
-        );
-        let fix = &v["flow"]["details"]["fixes"][0];
-        assert_eq!(fix["control"]["kind"], "folder");
-        assert_eq!(fix["control"]["label"], "Import its folder\u{2026}");
-        assert_eq!(v["footer"]["apply_enabled"], false);
-
-        let folder = otaq_core::skills::testing::skill_folder(dir.path(), "security-review");
-        let picks = json!({ "skill_folders": { "security-review": folder.display().to_string() } });
-        let v = view_with(picks.clone()).await;
         assert_eq!(v["flow"]["steps"][2]["problem"], Value::Null);
-        assert_eq!(v["flow"]["details"]["fixes"][0]["fixed"], true);
+        assert_eq!(v["flow"]["steps"][2]["warning"], "You don't have the skill `team-security-review`");
+        assert_eq!(
+            v["flow"]["details"]["skill"]["state"]["warning"],
+            "You don't have the skill `team-security-review`"
+        );
         assert_eq!(v["footer"]["apply_enabled"], true, "{}", v["footer"]);
         request(
             &h.app,
@@ -1074,11 +991,48 @@ mod tests {
         .await
         .unwrap();
         let agents = super::super::settings::agent_list(&h.app).await.unwrap().agents;
-        let reviewer = agents.iter().find(|a| a.name == "Security reviewer").unwrap();
-        assert!(
-            reviewer.imported.iter().any(|s| s.name == "security-review"),
-            "{reviewer:?}"
-        );
+        assert!(agents.iter().any(|a| a.name == "Security reviewer"));
+    }
+
+    /// A flow file naming a tool's built-in command as a stage's skill opens with the problem on that stage (not a
+    /// warning), and Apply stays off.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_built_in_command_is_a_problem_on_its_step() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let dir = tempfile::tempdir().unwrap();
+        let file = dir.path().join("team.yaml");
+        std::fs::write(
+            &file,
+            "flow:\n  - name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: \
+             Security\n    kind: check\n    by: agent\n    agent: Developer\n    skill: security-review\n    \
+             rounds: 2\n  - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    \
+             column: with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n",
+        )
+        .unwrap();
+        request(
+            &h.app,
+            "flow_editor.import",
+            json!({ "project": "SHOP", "path": file.display().to_string() }),
+        )
+        .await
+        .unwrap();
+        let v = request(
+            &h.app,
+            "flow_editor.view",
+            json!({ "project": "SHOP", "from": "project", "selected": "validate", "choices": {} }),
+        )
+        .await
+        .unwrap();
+        let v = serde_json::from_value::<Value>(v).unwrap();
+        let said = "Security: `/security-review` is Claude Code's built-in command, not a skill. Write a small \
+                    skill that runs it, and name that skill here";
+        assert_eq!(v["flow"]["steps"][2]["name"], "Security");
+        assert_eq!(v["flow"]["steps"][2]["problem"], said);
+        assert_eq!(v["flow"]["steps"][2]["warning"], Value::Null);
+        assert_eq!(v["footer"]["apply_enabled"], false, "{}", v["footer"]);
     }
 
     /// Q441: Ask the agent to write it sends nothing by itself. On a running agent it only types into the input line

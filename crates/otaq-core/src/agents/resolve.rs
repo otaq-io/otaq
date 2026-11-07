@@ -28,11 +28,10 @@ fn unknown(stage: &Stage, name: &str) -> BoardError {
     )
 }
 
-/// The stage's agent (AGM-05): the agent `stage` names, an agent check's first check agent (its round starts every
-/// one, [`crate::validation`]). Refused for a stage that runs no agent, or names one that isn't there.
+/// The stage's agent (AGM-05): the agent `stage` names (an Agent stage's, an agent check's, a Delivery's). Refused
+/// for a stage that runs no agent, or names one that isn't there.
 pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardError> {
-    // An agent check's round starts each check agent by its own name (d0130, `validation`); here its first stands for it.
-    let Some(name) = stage.agent.as_ref().or(stage.check_agents().first()) else {
+    let Some(name) = stage.agent.as_ref() else {
         return Err(BoardError::refused(
             Refusal::UnknownAgent,
             format!("{} runs no agent", stage.name),
@@ -43,7 +42,7 @@ pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardErr
         .ok_or_else(|| unknown(stage, name))
 }
 
-/// Whether `stage` itself names `agent` (its agent, or one of an agent check's check agents), by name ignoring case
+/// Whether `stage` itself names `agent` (its agent), by name ignoring case
 /// as [`named`] looks it up.
 pub fn stage_names(stage: &Stage, agent: &Agent) -> bool {
     stage
@@ -114,8 +113,7 @@ pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> 
 }
 
 /// The agent a ticket's new session of `role` runs (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
-/// ([`check_stage_of`]), or the role's agent for the Project agent. A chosen option the stage no
-/// longer offers is dropped here, with its History note ([`Board::drop_removed_choice`]).
+/// ([`check_stage_of`]), or the role's agent for the Project agent.
 pub async fn session_agent(
     board: &Board,
     ticket: &Ticket,
@@ -137,8 +135,6 @@ pub async fn session_agent(
             role.label()
         ))
     })?;
-    // A choice the flow no longer offers falls back to the stage's agent, with a History note (FLW-05).
-    board.drop_removed_choice(ticket, stage).await?;
     running_agent(board, ticket, &stage.id.clone()).await
 }
 

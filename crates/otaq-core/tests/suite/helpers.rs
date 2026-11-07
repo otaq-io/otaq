@@ -636,12 +636,12 @@ async fn a_worktree_left_behind_shows_in_cleanup_and_done_removes_it() {
     world.w.stop().await;
 }
 
-/// Two helpers starting side by side, several times: each worktree gets its own skill copies before its tool starts,
-/// so neither tool ever lists a copy the other's start is replacing (M44's lesson, T-0527).
+/// Two helpers starting side by side, several times: each runs Otaq's `work-ticket` from the plugin, with nothing
+/// written into its worktree, so neither start can disturb the other's (M44's lesson, T-0527; T2).
 // Unix only: it runs the `sh` stand-in agent tool (`common::stand_in`).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn two_helpers_starting_together_each_load_their_skills() {
+async fn two_helpers_starting_together_each_run_their_skill() {
     let world = stand_in_world().await;
     let w = &world.w;
     for round in 0..3 {
@@ -651,25 +651,16 @@ async fn two_helpers_starting_together_each_load_their_skills() {
             w.helpers.start(&caller, &key, 1, "Wishlist API", None),
             w.helpers.start(&caller, &key, 2, "Wishlist page", None),
         );
-        let mut loaded = Vec::new();
         for helper in [a.unwrap().helper, b.unwrap().helper] {
+            // The stage's skill: the helper runs it, with OTAQ_PIECE set (T-0539).
             let out = w
-                .wait_for_output(
-                    helper.session.as_deref().unwrap(),
-                    "STAND-IN claude loaded:",
-                )
+                .wait_for_output(helper.session.as_deref().unwrap(), "RUNS otaq:work-ticket")
                 .await;
-            let line = out
-                .lines()
-                .find(|l| l.starts_with("STAND-IN claude loaded:"))
-                .unwrap()
-                .to_owned();
-            assert!(line.contains(" otaq-restack "), "round {round}: {line}");
-            // The stage's skill too: the helper runs it, with OTAQ_PIECE set (T-0539).
-            assert!(line.contains(" otaq-work-ticket "), "round {round}: {line}");
-            loaded.push(line);
+            assert!(!out.contains("Unknown command"), "round {round}: {out}");
+            let worktree = Path::new(&helper.worktree);
+            assert!(!worktree.join(".agents").exists(), "round {round}");
+            assert!(!worktree.join(".claude").exists(), "round {round}");
         }
-        assert_eq!(loaded[0], loaded[1], "round {round}");
         w.helpers.stop_all(&t.id).await.unwrap();
         w.sessions.stop(&agent.session).await.unwrap();
         tokio::time::sleep(Duration::from_millis(10)).await;

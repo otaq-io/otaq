@@ -597,7 +597,6 @@ impl ConnectedTools {
                 model: None,
                 agent: None,
                 effort: None,
-                fallback: None,
                 theme: None,
             })
             .await

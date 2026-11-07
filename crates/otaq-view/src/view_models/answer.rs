@@ -135,6 +135,7 @@ mod tests {
             waiting_in: None,
             piece: None,
             helpers_to_resume: Vec::new(),
+            missing_skill: None,
         }
     }
 

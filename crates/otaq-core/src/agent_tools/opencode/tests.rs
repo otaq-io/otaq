@@ -48,18 +48,39 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
-/// AGM-07: a skill by its copy's name (OpenCode loads a skill by its name with its skill tool), the same for a shipped and an imported one; no plugin namespace.
+/// Otaq's own skill by its plugin's namespace, the user's by its own name (OpenCode loads a skill by its name and has no namespace) (T2).
 #[test]
-fn skills_by_their_copys_name() {
+fn otaqs_skills_namespaced_the_users_by_their_own_name() {
+    let bin = tempfile::tempdir().unwrap();
+    let adapter = opencode(bin.path(), None);
+    assert_eq!(adapter.skill_reference("commit"), "commit");
+    assert_eq!(adapter.skill_reference("team-validate"), "team-validate");
+}
+
+/// S3 (2026-11-06): OpenCode has no typed command for a skill, so a typed skill is an instruction to load it with the
+/// skill tool, word for word, Otaq's own by its bare name; a first prompt's message follows it on the same line.
+#[test]
+fn a_typed_skill_is_an_instruction_to_load_it() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
     assert_eq!(
-        adapter.skill_reference("commit"),
-        format!("{}-commit", crate::naming::COMMAND_NAME)
+        adapter.skill_prompt("work-ticket"),
+        "Load the skill `work-ticket` with your skill tool and follow it. If you don't have a skill with that name, \
+         say so and stop."
     );
     assert_eq!(
-        adapter.skill_reference("team-validate"),
-        format!("{}-team-validate", crate::naming::COMMAND_NAME)
+        adapter.skill_prompt("team-validate"),
+        "Load the skill `team-validate` with your skill tool and follow it. If you don't have a skill with that \
+         name, say so and stop."
+    );
+    let first = crate::agent_tools::FirstPrompt::Skill {
+        name: "address-review".into(),
+        message: Some("SHOP-18 was sent back.".into()),
+    };
+    assert_eq!(
+        first.text(&adapter),
+        "Load the skill `address-review` with your skill tool and follow it. If you don't have a skill with that \
+         name, say so and stop. SHOP-18 was sent back."
     );
 }
 

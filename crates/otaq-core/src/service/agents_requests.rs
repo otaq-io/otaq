@@ -1,5 +1,5 @@
 //! Agent requests (AGM-01…AGM-04; d0108, d0088): Settings → Agents (list, add, edit, duplicate, delete, in use, a
-//! role moved, the default model, the fallbacks, imported skills), all the user's ([`super::permissions`] refuses
+//! role moved, the default model; agents have no skills), all the user's ([`super::permissions`] refuses
 //! agents). Every change publishes `agents_changed`, which also has the holds checked again.
 
 use super::Shared;
@@ -41,18 +41,6 @@ pub(super) async fn handle(request: Request, shared: &Shared) -> Result<Reply, E
             Ok(_) => list().await.map(changed),
             Err(e) => Err(e),
         },
-        Request::AgentsFallback(p) => {
-            match agents.set_fallback(p.tool, p.fallback.as_ref()).await {
-                Ok(_) => list().await.map(changed),
-                Err(e) => Err(e),
-            }
-        }
-        Request::AgentsImportSkill(p) => crate::agents::skills::import(board, &p.id, &p.folder)
-            .await
-            .map(|a| changed(Reply::Agent(Box::new(a)))),
-        Request::AgentsReimportSkill(p) => crate::agents::skills::reimport(board, &p.id, &p.skill)
-            .await
-            .map(|a| changed(Reply::Agent(Box::new(a)))),
         Request::AgentsReads(p) => board
             .agent_reads(&p.agent, &p.project, shared.adapters.shipped_skills())
             .await

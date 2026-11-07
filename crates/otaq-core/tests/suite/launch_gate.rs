@@ -1,14 +1,13 @@
-//! The check before every launch and the fallback (T-0357, T-0405; SCH-04 `[M23]`, AGM-03, AGM-05, USG-10; d0108,
-//! d0086, d0088, d0018): a tool that isn't available or is at its limit holds only the agents that would use it, a
-//! model no longer listed holds with "Model unavailable", the tool's fallback is offered and used **only on the user's
-//! click** (Use fallback, Use fallback now), a fallback that can't run leaves the ticket waiting, resumes are never
-//! checked, and a hold lifts once when its cause goes, never on a timer.
+//! The check before every launch (T-0357, T-0405; SCH-04 `[M23]`, AGM-05, USG-10; d0108, d0086, d0088, d0018): a
+//! tool that isn't available or is at its limit holds only the agents that would use it, a model no longer listed
+//! holds with "Model unavailable", **a held agent waits for its own tool** (nothing ever moves to another tool),
+//! resumes are never checked, and a hold lifts once when its cause goes, never on a timer.
 //!
-//! The decision is tested as a table (each session role × each reason × asked or not × the fallback none, free or
-//! blocked); the service's side with stand-in tool states (the tools' "programs" are scripts printing a version: no
-//! tool runs) and lists recorded by hand. `claude` stands in as `sh` printing its arguments; a Codex launch runs a
-//! script that exits at once. SHOP runs the default flow (Developer, on the default model: Claude Code); BILL runs
-//! it with its Agent stage on "Codex developer" (Codex), so each tool has tickets of its own.
+//! The decision is tested as a table (each reason × another tool free or blocked); the service's side with stand-in
+//! tool states (the tools' "programs" are scripts printing a version: no tool runs) and lists recorded by hand.
+//! `claude` stands in as `sh` printing its arguments; a Codex launch runs a script that exits at once. SHOP runs the
+//! default flow (Developer, on the default model: Claude Code); BILL runs it with its Agent stage on "Codex
+//! developer" (Codex), so each tool has tickets of its own.
 
 use otaq_core::service::testing::said;
 use std::collections::HashMap;
@@ -20,12 +19,11 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::agent_tools::models::{ModelCopy, ModelEntry, ModelKind, ModelList};
 use otaq_core::agent_tools::{LaunchContext, Tool};
-use otaq_core::agents::gate::{Blocked, Decision, Facts, check, decide, takes_fallback};
+use otaq_core::agents::gate::{Blocked, Decision, Facts, check, decide};
 use otaq_core::agents::{
-    Agent, AgentFields, AgentHold, AgentModel, Agents, CameFrom, FallbackFrom, Fallbacks,
-    FixedModels, HoldReason, ModelRef, SessionRole, ToolModel,
+    Agent, AgentFields, AgentHold, AgentModel, Agents, CameFrom, FixedModels, HoldReason, ModelRef,
+    SessionRole, ToolModel,
 };
-use otaq_core::board::Refusal;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::domain::{Actor, StartStep, Status};
@@ -47,8 +45,6 @@ fn agent(id: &str, model: AgentModel) -> Agent {
         id: id.into(),
         name: id.into(),
         instructions: String::new(),
-        skills: Vec::new(),
-        imported: Vec::new(),
         model,
         effort: None,
         role: None,
@@ -94,15 +90,8 @@ enum Reason {
     Model,
 }
 
-#[derive(Debug, Clone, Copy, PartialEq)]
-enum Fallback {
-    None,
-    Free,
-    Blocked,
-}
-
-/// What blocks A's model `m1` for `reason`, and A's fallback (B's default model) when `fallback` is blocked.
-fn facts(reason: Reason, fallback: Fallback) -> Facts {
+/// What blocks A's model `m1` for `reason`, with the other tool (B) blocked too or free.
+fn facts(reason: Reason, other_blocked: bool) -> Facts {
     let mut facts = Facts::default();
     match reason {
         Reason::Unavailable => {
@@ -115,84 +104,39 @@ fn facts(reason: Reason, fallback: Fallback) -> Facts {
             facts.lists.insert(A, copy(A, &["m2"]));
         }
     }
-    if fallback == Fallback::Blocked {
+    if other_blocked {
         facts.at_limit.insert(B);
     }
     facts
 }
 
-/// AGM-03: nothing goes to the fallback without the user's click (`asked`); asked, a free fallback takes it (any
-/// reason, a model no longer listed too), a blocked one leaves it held; a Project agent's first message never takes
-/// one (Q-B).
+/// A held agent waits for its own tool, whatever the reason and whether another tool could run it.
 #[test]
-fn every_role_every_reason_asked_or_not_with_and_without_the_fallback() {
+fn every_reason_holds_on_its_own_tool_whatever_other_tools_can_do() {
     let model = AgentModel::Tool {
         tool: A,
         model: Some("m1".into()),
     };
     let developer = agent("developer", model);
-    for &role in SessionRole::ALL {
-        for reason in [Reason::Unavailable, Reason::Limit, Reason::Model] {
-            for asked in [false, true] {
-                for fallback in [Fallback::None, Fallback::Free, Fallback::Blocked] {
-                    let fallbacks: Fallbacks = match fallback {
-                        Fallback::None => Fallbacks::new(),
-                        _ => [(A, on(B, None))].into(),
-                    };
-                    let decision = decide(
-                        &developer,
-                        &on(A, Some("m1")),
-                        &fallbacks,
-                        &facts(reason, fallback),
-                        asked,
-                        takes_fallback(role),
-                    );
-                    let case = format!("{role} {reason:?} asked={asked} fallback={fallback:?}");
-                    let offered = role != SessionRole::ProjectAgent;
-                    let expect_reason = match reason {
-                        Reason::Unavailable => HoldReason::ToolUnavailable,
-                        Reason::Limit => HoldReason::ToolLimit,
-                        Reason::Model => HoldReason::ModelUnavailable,
-                    };
-                    match (offered, fallback, asked) {
-                        (true, Fallback::Free, true) => {
-                            let Decision::Launch {
-                                on: there,
-                                model,
-                                fallback,
-                            } = decision
-                            else {
-                                panic!("{case}: {decision:?}")
-                            };
-                            assert_eq!(there, on(B, None), "{case}");
-                            assert_eq!(model, None, "{case}");
-                            assert_eq!(
-                                fallback,
-                                Some(FallbackFrom {
-                                    tool: A,
-                                    reason: expect_reason
-                                }),
-                                "{case}"
-                            );
-                        }
-                        _ => {
-                            let Decision::Hold(held) = decision else {
-                                panic!("{case}: {decision:?}")
-                            };
-                            assert_eq!(held.blocked.reason(), expect_reason, "{case}");
-                            assert_eq!(held.agent.id, "developer", "{case}");
-                            assert_eq!(held.on, on(A, Some("m1")), "{case}");
-                            let (want_fallback, want_held) = match (offered, fallback) {
-                                (true, Fallback::Free) => (Some(on(B, None)), false),
-                                (true, Fallback::Blocked) => (None, true),
-                                _ => (None, false),
-                            };
-                            assert_eq!(held.fallback, want_fallback, "{case}");
-                            assert_eq!(held.fallback_held, want_held, "{case}");
-                        }
-                    }
-                }
-            }
+    for reason in [Reason::Unavailable, Reason::Limit, Reason::Model] {
+        for other_blocked in [false, true] {
+            let decision = decide(
+                &developer,
+                &on(A, Some("m1")),
+                &facts(reason, other_blocked),
+            );
+            let case = format!("{reason:?} other_blocked={other_blocked}");
+            let expect_reason = match reason {
+                Reason::Unavailable => HoldReason::ToolUnavailable,
+                Reason::Limit => HoldReason::ToolLimit,
+                Reason::Model => HoldReason::ModelUnavailable,
+            };
+            let Decision::Hold(held) = decision else {
+                panic!("{case}: {decision:?}")
+            };
+            assert_eq!(held.blocked.reason(), expect_reason, "{case}");
+            assert_eq!(held.agent.id, "developer", "{case}");
+            assert_eq!(held.on, on(A, Some("m1")), "{case}");
         }
     }
 }
@@ -200,7 +144,7 @@ fn every_role_every_reason_asked_or_not_with_and_without_the_fallback() {
 #[test]
 fn the_checks_run_in_order_and_pass_on_an_empty_model_or_a_list_never_read() {
     let strong = on(A, Some("m1"));
-    let mut all = facts(Reason::Model, Fallback::None);
+    let mut all = facts(Reason::Model, false);
     all.at_limit.insert(A);
     all.unavailable.insert(A, "not installed".into());
     assert_eq!(
@@ -216,17 +160,11 @@ fn the_checks_run_in_order_and_pass_on_an_empty_model_or_a_list_never_read() {
     // A listed model passes as it is; an empty one passes no model; a list never read never blocks.
     all.lists.insert(A, copy(A, &["m1"]));
     assert_eq!(check(&strong, &all), Ok(Some("m1".into())));
-    assert_eq!(
-        check(&on(A, None), &facts(Reason::Model, Fallback::None)),
-        Ok(None)
-    );
+    assert_eq!(check(&on(A, None), &facts(Reason::Model, false)), Ok(None));
     assert_eq!(check(&strong, &Facts::default()), Ok(Some("m1".into())));
     // Another tool's problem changes nothing.
     assert_eq!(
-        check(
-            &on(B, Some("gpt-5.5")),
-            &facts(Reason::Unavailable, Fallback::None)
-        ),
+        check(&on(B, Some("gpt-5.5")), &facts(Reason::Unavailable, false)),
         Ok(Some("gpt-5.5".into()))
     );
 }
@@ -345,7 +283,7 @@ impl World {
 const ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
 
 /// Claude Code and Codex found and connected (stand-ins printing a version), so the default model is Claude Code's
-/// own; Codex's fallback is Claude Code · sonnet. Project SHOP (`shop-web`, the default flow) and BILL
+/// own. Project SHOP (`shop-web`, the default flow) and BILL
 /// (`billing-api`, its Agent stage on "Codex developer", Codex's default model).
 async fn world() -> World {
     let tools = TempDir::new().unwrap();
@@ -400,7 +338,6 @@ async fn world() -> World {
         name: "Codex developer".into(),
         role: None,
         instructions: String::new(),
-        skills: vec!["work-ticket".into(), "commit".into()],
         model: "codex".into(),
         why: None,
     }];
@@ -415,10 +352,6 @@ async fn world() -> World {
             ToolModel::Exact("gpt-5.5".into()),
         ])),
     );
-    rules
-        .set_fallback(B, Some(&on(A, Some("sonnet"))))
-        .await
-        .unwrap();
     World {
         w,
         rules,
@@ -541,18 +474,12 @@ async fn a_tool_that_isnt_available_holds_only_its_tickets_until_it_is_back() {
         (SessionRole::Developer, HoldReason::ToolUnavailable, B)
     );
     assert_eq!(hold.agent_id.as_deref(), Some(codex_developer.id.as_str()));
-    assert_eq!(
-        (hold.fallback_tool, hold.fallback_held, hold.fallback_asked),
-        (Some(B), false, false),
-        "Codex's fallback is offered"
-    );
     assert!(
         !w.board.store().developer_started(&held.id).await.unwrap(),
         "nothing locks"
     );
 
-    // Nothing retries on a timer, and nothing goes to the fallback on its own: many scheduler passes later it is
-    // held once.
+    // Nothing retries on a timer, and nothing moves to another tool: many scheduler passes later it is held once.
     tokio::time::sleep(Duration::from_millis(400)).await;
     assert_eq!(w.status(&bill).await, Status::Held);
     assert_eq!(count(w, &bill, EventKind::Held).await, 1);
@@ -583,11 +510,10 @@ async fn a_tool_at_its_limit_holds_its_agents_while_other_tools_keep_starting() 
         (problem.step, problem.message.as_str()),
         (StartStep::ToolLimit, "Claude Code limit reached")
     );
-    // Claude Code has no fallback: none is offered.
     let [hold] = &holds(w, "SHOP-1").await[..] else {
         panic!("one hold")
     };
-    assert_eq!((hold.fallback_tool, hold.fallback_held), (None, false));
+    assert_eq!((hold.reason, hold.tool), (HoldReason::ToolLimit, A));
     // The Codex ticket started meanwhile.
     until_started(w, &bill).await;
     assert!(holds(w, &bill).await.is_empty());
@@ -630,7 +556,6 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
         panic!("one hold")
     };
     assert_eq!(hold.reason, HoldReason::ModelUnavailable);
-    assert_eq!(hold.fallback_tool, Some(B), "Use fallback is offered too");
     let codex_developer = world.agent("Codex developer").await;
     let mark = codex_developer.mark.clone().expect("marked");
     assert_eq!(mark.text, "Codex no longer lists gpt-5.4");
@@ -688,110 +613,42 @@ async fn a_model_no_longer_listed_holds_marks_and_lifts_on_the_list_or_an_edit()
     world.w.stop().await;
 }
 
-/// Use fallback now (the banner's click) starts every ticket waiting on the tool on its fallback, saved on the
-/// session ("on Claude Code · Codex not available"); nothing moves back when the tool is back, and a Resume reopens
-/// the session's own tool and model.
+/// A ticket held for Claude Code's limit waits, with Codex free, and starts on Claude Code once the limit resets:
+/// nothing moves it to another tool, before or after.
 #[tokio::test(flavor = "multi_thread")]
-async fn use_fallback_now_starts_the_waiting_tickets_on_the_fallback() {
+async fn a_ticket_held_for_a_limit_waits_and_starts_on_its_own_tool_after_the_reset() {
     let world = world().await;
     let w = &world.w;
-    let (first, second) = (world.bill(1), world.bill(2));
-    w.create(&world.bill, "Add coupon codes").await;
-    w.create(&world.bill, "Coupon field").await;
-    world.hide(B, true).await;
-    queue(w, &first).await;
-    queue(w, &second).await;
-    until_status(w, &first, Status::Held).await;
-    until_status(w, &second, Status::Held).await;
-    // Nothing moves without a request.
-    tokio::time::sleep(Duration::from_millis(300)).await;
-    assert_eq!(w.status(&first).await, Status::Held);
-
-    let started = w.gate.use_fallback_now(B).await.unwrap();
-    assert_eq!(
-        started.iter().map(ToString::to_string).collect::<Vec<_>>(),
-        [first.clone(), second.clone()]
-    );
-    until_status(w, &first, Status::Working).await;
-    until_status(w, &second, Status::Working).await;
-    let t = ticket(w, &first).await;
-    let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    let stored = w.sessions.stored(&session.id).await.unwrap();
-    assert_eq!(
-        (stored.tool, stored.model.as_deref()),
-        (Some(A), Some("sonnet"))
-    );
-    assert_eq!(
-        stored.fallback,
-        Some(FallbackFrom {
-            tool: B,
-            reason: HoldReason::ToolUnavailable
-        })
-    );
-    assert_eq!(
-        stored.agent.as_ref().map(|a| a.name.as_str()),
-        Some("Codex developer"),
-        "the agent stays the stage's"
-    );
-    assert_eq!(count(w, &first, EventKind::FallbackUsed).await, 1);
-    assert!(holds(w, &first).await.is_empty());
-
-    // Codex is back: nothing moves back; a Resume reopens Claude Code · sonnet.
-    world.hide(B, false).await;
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    w.review.park(&first, true, &me()).await.unwrap();
-    queue(w, &first).await;
-    until_status(w, &first, Status::Working).await;
-    let resumed = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    let out = w.wait_for_output(&resumed.id, "ARGS").await;
-    let conversation = session.tool_session_id.clone().unwrap();
-    assert!(
-        out.contains(&format!("--resume {conversation} --model sonnet")),
-        "{out}"
-    );
-    world.w.stop().await;
-}
-
-#[tokio::test(flavor = "multi_thread")]
-async fn use_fallback_starts_one_and_a_fallback_that_cant_run_leaves_it_waiting() {
-    let world = world().await;
-    let w = &world.w;
-    let (first, second) = (world.bill(1), world.bill(2));
-    w.create(&world.bill, "Add coupon codes").await;
-    w.create(&world.bill, "Checkout flow").await;
-    world.hide(B, true).await;
-    queue(w, &first).await;
-    until_status(w, &first, Status::Held).await;
-    w.gate.use_fallback(&first, None).await.unwrap();
-    until_status(w, &first, Status::Working).await;
-    let t = ticket(w, &first).await;
-    let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    assert_eq!(session.tool, Some(A));
-
-    // Claude Code at its limit too: both held, nothing to offer, and the clicks are refused.
-    world.limit(A).await;
-    queue(w, &second).await;
-    until_status(w, &second, Status::Held).await;
-    let [hold] = &holds(w, &second).await[..] else {
+    w.create("SHOP", "Checkout flow").await;
+    let hit = LimitHit {
+        kind: LimitKind::Session,
+        text: "You've hit your session limit".into(),
+    };
+    let now = now_ms();
+    let resets_at = now + 60_000;
+    w.plan_limit
+        .record_hit_reset(A, &hit, Some(resets_at), now)
+        .await
+        .unwrap();
+    queue(w, "SHOP-1").await;
+    until_status(w, "SHOP-1", Status::Held).await;
+    // Codex can run, yet it waits: many scheduler passes later it is still held, with no session.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert_eq!(w.status("SHOP-1").await, Status::Held);
+    assert_eq!(sessions(w, "SHOP-1").await, 0);
+    let [hold] = &holds(w, "SHOP-1").await[..] else {
         panic!("one hold")
     };
-    assert_eq!((hold.fallback_tool, hold.fallback_held), (None, true));
-    let refusal = "Codex's fallback can't start either: Claude Code limit reached";
-    let e = w.gate.use_fallback(&second, None).await.unwrap_err();
-    assert_eq!(e.refusal(), Some(Refusal::MoveRefused));
-    assert_eq!(e.to_string(), refusal);
-    let e = w.gate.use_fallback_now(B).await.unwrap_err();
-    assert_eq!(e.to_string(), refusal);
-    tokio::time::sleep(Duration::from_millis(200)).await;
-    assert_eq!(w.status(&second).await, Status::Held, "still waiting");
-    // A ticket that isn't held has nothing to start; a tool without a fallback offers none.
-    let e = w.gate.use_fallback(&first, None).await.unwrap_err();
-    assert_eq!(e.to_string(), format!("{first} isn't waiting"));
-    let e = w.gate.use_fallback_now(A).await.unwrap_err();
-    assert_eq!(
-        e.to_string(),
-        "Claude Code has no fallback: set one in Settings \u{2192} Agents"
-    );
+    assert_eq!((hold.reason, hold.tool), (HoldReason::ToolLimit, A));
+
+    // The limit resets: the held start runs, on Claude Code.
+    assert!(w.plan_limit.check_reset(resets_at + 1).await.unwrap());
+    until_status(w, "SHOP-1", Status::Working).await;
+    assert!(holds(w, "SHOP-1").await.is_empty());
+    let t = ticket(w, "SHOP-1").await;
+    let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    assert_eq!(session.tool, Some(A));
+    assert_eq!(sessions(w, "SHOP-1").await, 1);
     world.w.stop().await;
 }
 
@@ -891,10 +748,10 @@ async fn a_held_validator_waits_in_dev_and_starts_once_its_tool_is_back() {
 }
 
 #[tokio::test(flavor = "multi_thread")]
-async fn a_project_agent_is_held_too_and_never_falls_back() {
+async fn a_project_agent_is_held_too() {
     let world = world().await;
     let w = &world.w;
-    // The Project agent role's agent on Codex (whose fallback, Claude Code, is free): no fallback is ever offered.
+    // The Project agent role's agent on Codex, with Claude Code free: it is held all the same.
     world.hide(B, true).await;
     world
         .set_model(
@@ -918,10 +775,7 @@ async fn a_project_agent_is_held_too_and_never_falls_back() {
     let [hold] = &w.board.store().project_holds(&project.id).await.unwrap()[..] else {
         panic!("one hold")
     };
-    assert_eq!(
-        (hold.role, hold.fallback_tool, hold.fallback_held),
-        (SessionRole::ProjectAgent, None, false)
-    );
+    assert_eq!((hold.role, hold.tool), (SessionRole::ProjectAgent, B));
 
     // Back: the Project agent's message waits for a send.
     world.hide(B, false).await;
@@ -967,7 +821,6 @@ async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
             .add(&AgentFields {
                 name: name.clone(),
                 instructions: String::new(),
-                skills: Vec::new(),
                 model: AgentModel::Tool { tool, model: None },
                 effort: None,
             })
@@ -1007,5 +860,67 @@ async fn the_swap_mark_is_only_for_an_exact_model_on_a_swapping_tool() {
             None
         ]
     );
+    world.w.stop().await;
+}
+
+/// Change agent… on a card held for its tool's limit: the held Dev hasn't started, so its choice isn't locked and the
+/// user's pick of an agent on a tool that can run (`ticket.set_choice`) starts it on that agent at once; the agents
+/// offered are those whose tool has Dev's skill. The ticket's own agent can't make that pick.
+#[tokio::test(flavor = "multi_thread")]
+async fn change_agent_on_a_card_held_for_a_limit_starts_it_on_the_chosen_agent() {
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{Reply, Request, SetChoiceParams};
+    let world = world().await;
+    let w = &world.w;
+    w.create("SHOP", "Checkout flow").await;
+    world.limit(A).await;
+    queue(w, "SHOP-1").await;
+    until_status(w, "SHOP-1", Status::Held).await;
+    let held = w.board.ticket_choices("SHOP-1").await.unwrap();
+    let dev = held.stages.iter().find(|s| s.stage_id == "dev").unwrap();
+    assert!(dev.held && !dev.locked, "{dev:?}");
+    let codex = dev
+        .agents
+        .iter()
+        .find(|a| a.name == "Codex developer")
+        .expect("an agent on Codex is offered: Dev runs one of Otaq's own skills");
+    assert_eq!(codex.tool, Some(B));
+
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let reply = client
+        .request(Request::TicketSetChoice(SetChoiceParams {
+            key: "SHOP-1".into(),
+            stage: "Dev".into(),
+            choice: "Codex developer".into(),
+        }))
+        .await
+        .unwrap();
+    let Reply::TicketChoices(after) = reply else {
+        panic!("{reply:?}")
+    };
+    let dev = after.stages.iter().find(|s| s.stage_id == "dev").unwrap();
+    assert_eq!(dev.label(), "Codex developer");
+    // It starts on Codex (whose stand-in exits at once, so the card then stops as an interrupted start).
+    until_started(w, "SHOP-1").await;
+    assert!(holds(w, "SHOP-1").await.is_empty());
+    let t = ticket(w, "SHOP-1").await;
+    let started: Vec<(Option<String>, Option<String>)> = sqlx::query_as(
+        "SELECT agent_name, tool FROM sessions WHERE ticket_id = ? AND kind = 'agent'",
+    )
+    .bind(&t.id)
+    .fetch_all(w.board.store().pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        started,
+        [(
+            Some("Codex developer".to_owned()),
+            Some(B.as_str().to_owned())
+        )]
+    );
+    // Started now: the choice is locked.
+    let locked = w.board.ticket_choices("SHOP-1").await.unwrap();
+    let dev = locked.stages.iter().find(|s| s.stage_id == "dev").unwrap();
+    assert!(dev.locked && !dev.held, "{dev:?}");
     world.w.stop().await;
 }

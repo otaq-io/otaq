@@ -211,7 +211,6 @@ mod tests {
             model: None,
             agent: None,
             effort: None,
-            fallback: None,
             model_ran: None,
             size: None,
         }

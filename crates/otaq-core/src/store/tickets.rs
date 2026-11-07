@@ -76,7 +76,7 @@ pub struct TicketRow {
     /// T-0411 (migration 0049): the branch had nothing to merge when the ticket finished; the reason of an agent's
     /// `stage done` (Done · nothing to merge; Closed · nothing to merge on tickets closed that way before).
     pub nothing_to_merge: Option<String>,
-    /// T-0419 (migration 0053): an automatic Delivery delivered it with no check passed before it.
+    /// T-0419 (migration 0053): an automatic Delivery delivered it with a check before it not passed.
     pub delivered_without_checks: bool,
     /// T-0304 (migration 0041): where the build output is (`present` / `freed` / `fetching`, d0085, d0086), and
     /// why the last Free failed.

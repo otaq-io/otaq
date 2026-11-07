@@ -14,6 +14,7 @@ use otaq_core::naming;
 use otaq_core::process::testing::sh_one_line;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
+use otaq_core::skills::testing::claude_skill;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -126,7 +127,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     // with the skill, so the skill is named by its file (d0118).
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let typed = &pending.last().unwrap().text;
-    assert!(typed.contains(&naming::copy_name("restack")), "{typed}");
+    assert!(typed.contains(&claude_skill("restack")), "{typed}");
     assert!(
         typed.ends_with(&format!(
             "SHOP-2's merge check failed on the result rebased onto `main`; the comment has its output. Run `{} \

@@ -19,10 +19,6 @@ came_from: string,
  */
 model: string, 
 /**
- * Its skills by name, in order: a shipped one by its name, an imported one by its `name:`.
- */
-skills: Array<string>, 
-/**
  * "pocket-api · Dev, pocket-api · Done", "—".
  */
 used_in: string, mark: AgentMarkView | null, 

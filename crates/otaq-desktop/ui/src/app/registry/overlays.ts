@@ -77,6 +77,9 @@ export interface OverlayParams {
   start_from_scratch: { ticket: string };
   /** Send back with a note (T-0226), from every human check (d0093). */
   send_back: { ticket: string };
+  /** Change agent… on a stage that waits for its tool: another agent for it whose tool has its skill and can run
+   * now; `stage` (its id) for another stage that hasn't started. */
+  change_agent: { ticket: string; stage?: string };
   /** A card dragged back to an earlier Agent stage or agent check: its instructions or note (T-0421, FLW-18). */
   drag_back: DragBackDialog;
   /** A blocked ticket dragged past Ready for Dev or started (DPV-03, T-0463): why it waits; Keep it waiting only. */
@@ -111,8 +114,15 @@ export interface OverlayParams {
   apply_now: { project: string };
   /** The flow editor over the window (T-0471, FED-01, FED-09): the project's flow, from the project menu, a column's
    * ⋯ or Settings → Flow; a stage to select (Edit <stage>…) or to add a new one after (Add a stage after <stage>;
-   * `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page embed its body. */
-  flow_editor: { project: string; from: FlowEditorFrom; select_stage?: string; add_after?: string | null };
+   * `null`: first, after Ready for Dev). Onboarding's Flow step and the Flow setup page embed its body. `focus_skill`:
+   * the selected stage's Skill field gets the keyboard (use your own Open PR skill → the Delivery stage's). */
+  flow_editor: {
+    project: string;
+    from: FlowEditorFrom;
+    select_stage?: string;
+    focus_skill?: boolean;
+    add_after?: string | null;
+  };
   /** A comment's report, or a paste not posted yet, read-only over the sheet (CMT-12, T-0447). */
   report: ReportOpenParams;
   /** A comment's image full size over the sheet (tuq 004): its ticket, its comment's number and its thumbnail. */
@@ -145,6 +155,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   submit_for_review: true,
   start_from_scratch: true,
   send_back: true,
+  change_agent: true,
   drag_back: true,
   blocked: true,
   send_back_pr: true,

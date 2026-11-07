@@ -44,7 +44,10 @@ use crate::session::{ModelRan, SessionError, SessionKind, Sessions};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use background::{BackgroundTask, BackgroundWork};
-pub use hooks::{HELPER_PROMPT_PREFIX, Signal, TurnFacts, reports_activity, signal};
+pub use hooks::{
+    HELPER_PROMPT_PREFIX, Signal, TOOL_ERROR_PREFIX, TurnFacts, reports_activity, signal,
+    tool_error, tool_error_text,
+};
 pub use model_refused::Refusals;
 pub use reminder::reminder_text;
 pub use state::{Input, STALE_AFTER_MS, SignalState, is_stale, transition};

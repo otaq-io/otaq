@@ -1381,7 +1381,7 @@
 }
 
 /* ---- Agents (T-0410; AGM-02…AGM-04; *15 → Agents (update AG §8)* `s15-58` / `s15-59`, the model picker `s15-30`,
- * the mark `s15-32`): the notice, the default model and the fallbacks, the list; one agent's page ---- */
+ * the mark `s15-32`): the notice, the default model, the list; one agent's page ---- */
 
 /* Settings → Agents while its view loads: grey bars in the page's shape, pulsing. */
 .settings-skeleton-bar {
@@ -1416,7 +1416,7 @@
 }
 
 .settings-agents-skeleton .settings-agents-row {
-  grid-template-columns: minmax(0, 200fr) minmax(0, 182fr) minmax(0, 192fr) minmax(0, 170fr);
+  grid-template-columns: minmax(0, 200fr) minmax(0, 182fr) minmax(0, 362fr);
   padding: 12px 0;
 }
 
@@ -1438,7 +1438,7 @@
   padding-top: 16px;
 }
 
-/* Default model for new agents, Fallback per tool: the label and its line on the left, the controls on the right. */
+/* Default model for new agents: the label and its line on the left, the controls on the right. */
 .settings-agents-settings {
   display: flex;
   flex-direction: column;
@@ -1469,38 +1469,19 @@
   font: 400 11.5px var(--font-ui);
 }
 
-.settings-agents-fallbacks {
-  display: flex;
-  flex-direction: column;
-  gap: 8px;
-}
-
-.settings-agents-fallback-line {
-  display: grid;
-  grid-template-columns: minmax(0, 1fr) 200px;
-  align-items: center;
-  column-gap: 12px;
-  color: var(--text-secondary);
-  font: 400 12.5px var(--font-ui);
-}
-
 .settings-agents-dropdown {
   width: 240px;
   max-width: 100%;
 }
 
-.settings-agents-fallback-line .settings-agents-dropdown {
-  width: 200px;
-}
-
-/* The list: NAME · MODEL · SKILLS · USED IN, ruled rows, ⋯ on hover or focus. */
+/* The list: NAME · MODEL · USED IN, ruled rows, ⋯ on hover or focus. Used in takes the width Skills had. */
 .settings-agents-table {
   border-top: 1px solid var(--border);
 }
 
 .settings-agents-row {
   display: grid;
-  grid-template-columns: minmax(0, 200fr) minmax(0, 182fr) minmax(0, 192fr) minmax(0, 170fr) 28px;
+  grid-template-columns: minmax(0, 200fr) minmax(0, 182fr) minmax(0, 362fr) 28px;
   align-items: center;
   column-gap: 12px;
   padding: 8px 0;
@@ -1569,14 +1550,6 @@
   color: var(--text-primary);
 }
 
-.settings-agents-skills {
-  display: flex;
-  flex-direction: column;
-  align-items: flex-start;
-  gap: 3px;
-}
-
-.settings-agents-skill,
 .settings-agent-place {
   padding: 0 5px;
   border: 1px solid var(--border);
@@ -1740,76 +1713,6 @@
 
 .settings-agent-instructions {
   min-height: 140px;
-}
-
-.settings-agent-skills {
-  display: flex;
-  flex-direction: column;
-  border-top: 1px solid var(--border);
-}
-
-.settings-agent-skills:empty {
-  display: none;
-}
-
-.settings-agent-skill {
-  display: flex;
-  align-items: center;
-  gap: 8px;
-  padding: 8px 0;
-  border-bottom: 1px solid var(--border);
-}
-
-.settings-agent-skill > .icon {
-  flex: none;
-  color: var(--text-secondary);
-}
-
-.settings-agent-skill-text {
-  display: flex;
-  flex: 1;
-  flex-direction: column;
-  gap: 2px;
-  min-width: 0;
-}
-
-.settings-agent-skill-line {
-  display: flex;
-  align-items: baseline;
-  gap: 8px;
-  min-width: 0;
-}
-
-.settings-agent-skill-name {
-  color: var(--text-primary);
-  font: 500 13px var(--font-mono);
-}
-
-.settings-agent-skill-source {
-  overflow: hidden;
-  color: var(--text-secondary);
-  font: 400 11.5px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
-}
-
-.settings-agent-skill-warning {
-  display: flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--text-primary);
-  font: 400 11.5px var(--font-ui);
-}
-
-.settings-agent-skill-warning > .icon {
-  flex: none;
-  color: var(--st-paused);
-}
-
-.settings-agent-skill-buttons {
-  display: flex;
-  gap: 8px;
-  margin-top: 4px;
 }
 
 .settings-agent-used {

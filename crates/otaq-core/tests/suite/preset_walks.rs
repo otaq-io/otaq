@@ -6,6 +6,7 @@
 //! an `sh` that prints its arguments and then echoes what is typed; `origin` is a local bare repository.
 
 use otaq_core::service::testing::said;
+use otaq_core::skills::testing::claude_skill;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 use std::time::Duration;
@@ -15,13 +16,14 @@ use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::FixedModels;
 use otaq_core::board::moves::DropTarget;
 use otaq_core::board::questions::Choice;
-use otaq_core::board::tickets::{Ticket, TicketUpdate};
+use otaq_core::board::stage_choices::{ChoicePick, Chooser};
+use otaq_core::board::tickets::{EventKind, Ticket, TicketUpdate};
 use otaq_core::caller::Caller;
 use otaq_core::domain::{Actor, Place, Status, ValidationTrigger};
 use otaq_core::flow::apply::ProposeFrom;
 use otaq_core::flow::presets::preset;
 use otaq_core::flow::proposal::{ApplyChoices, Source};
-use otaq_core::flow::{Delivers, engine::RunResult};
+use otaq_core::flow::{Delivers, StageOption, engine::RunResult};
 use otaq_core::git::testing::{commit, git};
 use otaq_core::naming;
 use otaq_core::review::{LocalMergeOutcome, PassOutcome};
@@ -192,7 +194,7 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
     let key = t.key.to_string();
     let t = working_in(w, &key, "dev").await;
     let dev = session(w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&dev.id, &format!("/{}", naming::copy_name("work-ticket")))
+    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
         .await;
     commit(&worktree(&t), file, &format!("{}\n", t.title));
     let checking = stage_next(w, &t, "Done.").await;
@@ -201,7 +203,7 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
         (Status::Checking, &Place::stage_of("validate"))
     );
     let checker = session(w, &t, SessionKind::Validator).await;
-    w.wait_for_output(&checker.id, &format!("/{}", naming::copy_name("validate")))
+    w.wait_for_output(&checker.id, &claude_skill("validate"))
         .await;
     w.validation
         .verdict(
@@ -276,11 +278,8 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
     let key = t.key.to_string();
     let t = working_in(&w, &key, "product-spec").await;
     let spec_writer = session(&w, &t, SessionKind::Agent).await;
-    w.wait_for_output(
-        &spec_writer.id,
-        &format!("/{}", naming::copy_name("product-spec")),
-    )
-    .await;
+    w.wait_for_output(&spec_writer.id, &claude_skill("product-spec"))
+        .await;
 
     // `otaq ask human`: the question waits for the user; the answer is typed into Spec writer's session.
     let question = "Which columns go in the CSV?";
@@ -332,8 +331,7 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
         let planning = session(&w, &at, SessionKind::Agent).await;
         assert_ne!(planning.id, before);
         assert!(!w.sessions.info(&before).unwrap().is_running());
-        w.wait_for_output(&planning.id, &format!("/{}", naming::copy_name(stage)))
-            .await;
+        w.wait_for_output(&planning.id, &claude_skill(stage)).await;
         let after = stage_next(&w, &at, "Written.").await;
         assert_eq!(after.place, next, "{stage}");
         before = planning.id;
@@ -403,6 +401,71 @@ async fn solo_autopilot_to_an_automatic_merge() {
     w.stop().await;
 }
 
+/// Solo autopilot with Validate marked skippable: a ticket that skips Validate by its choice goes from Dev's `stage
+/// next` straight through its automatic Delivery, merged with no click; it says "Delivered without all checks" for Review
+/// and History. A skipped check never turns the Delivery into a click.
+#[tokio::test(flavor = "multi_thread")]
+async fn solo_autopilot_merges_a_ticket_that_skips_validate_automatically() {
+    let (w, repo) = world().await;
+    apply_preset(&w, "solo-autopilot.yaml").await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            let validate = file.flow.stages.iter_mut().find(|s| s.id == "validate");
+            validate.unwrap().options.push(StageOption::Skip);
+        })
+        .await;
+    let t = w.create("SHOP", "Search notes").await;
+    let key = t.key.to_string();
+    let picks = [ChoicePick {
+        stage: "Validate".into(),
+        choice: "skip".into(),
+        reason: None,
+    }];
+    let writes = w
+        .board
+        .check_choices("SHOP", Some(&t), "", &picks, &Chooser::User, true)
+        .await
+        .unwrap();
+    w.board.write_choices(&t, &writes, &me()).await.unwrap();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    let t = working_in(&w, &key, "dev").await;
+    let dev = session(&w, &t, SessionKind::Agent).await;
+    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
+        .await;
+    commit(&worktree(&t), "search.ts", "Search notes\n");
+    stage_next(&w, &t, "Done.").await;
+    let merged = until(&w, &key, "merged", |t| t.status == Status::Merged).await;
+    assert_eq!(merged.place, Place::Done);
+    assert!(merged.flags.merged_automatically, "no click");
+    assert!(merged.flags.delivered_without_checks, "Validate skipped");
+    assert_eq!(
+        runs(&w, &t).await,
+        [
+            run("dev", RunResult::Done),
+            run("validate", RunResult::Skipped),
+            run("deliver", RunResult::Done),
+        ]
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%s", "main"]),
+        format!("{key}: Search notes")
+    );
+    let history = w.board.history(&key).await.unwrap();
+    let event = history
+        .iter()
+        .find(|e| e.kind == EventKind::MergedAutomatically)
+        .expect("History records the automatic merge");
+    assert_eq!(event.payload["without_checks"], true);
+    w.stop().await;
+}
+
 /// Makes `repo`'s `origin` read as GitHub (`git@github.com:acme/shop-web.git`, so the built-in Open PR skill is
 /// offered) while git still reaches the local bare repository it was cloned from: the repository's `ssh` is a stand-in
 /// (written into `tools`) that runs the asked-for git program on that repository.
@@ -452,7 +515,7 @@ async fn team_pr_to_a_pr_opened_with_gh() {
     let shipper = session(&w, &t, SessionKind::Delivery).await;
     w.wait_for_output(
         &shipper.id,
-        &format!("/{} automatic:", naming::copy_name("open-pr")),
+        &format!("{} automatic:", claude_skill("open-pr")),
     )
     .await;
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();

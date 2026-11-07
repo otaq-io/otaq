@@ -289,12 +289,12 @@ async fn a_file_committed_after_the_last_build_is_newer_than_the_output_in_the_n
     }
 }
 
-/// AGM-07, d0082: Otaq's skill copies (marked, gitignored by their own `.gitignore`) and M27's `otaq-custom-*` are
-/// neither kept at Done nor seeded into a later worktree, even from a stock that holds them; the build around them
-/// is.
+/// d0082: skill copies an older Otaq left (marked, gitignored by their own `.gitignore`) and M27's
+/// `otaq-custom-*` are neither kept at Done nor seeded into a later worktree, even from a stock that holds them; the
+/// build around them is.
 #[tokio::test]
 async fn skill_copies_are_neither_kept_nor_seeded() {
-    use otaq_core::skills::copy::{Marker, write_copy};
+    use otaq_core::skills::testing::leftover_copy;
     // With a skill of the project's own committed beside the copies, git lists each copy's files one by one (the
     // copy's own `.gitignore`), not `.claude/` as one folder: they stay all the same.
     for (available, tracked) in BOTH.into_iter().flat_map(|a| [(a, false), (a, true)]) {
@@ -309,9 +309,8 @@ async fn skill_copies_are_neither_kept_nor_seeded() {
                 "mine\n",
             );
         }
-        let source = otaq_core::skills::testing::skill_folder(w.data.root(), "my-commit");
         let copies = |wt: &Path| {
-            write_copy(wt, "otaq-my-commit", &source, Marker::Worktree).unwrap();
+            leftover_copy(wt, "otaq-my-commit");
             let old = wt.join(".claude/skills/otaq-custom-commit");
             std::fs::create_dir_all(&old).unwrap();
             std::fs::write(old.join(".gitignore"), "*\n").unwrap();

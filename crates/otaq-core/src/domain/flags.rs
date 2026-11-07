@@ -66,37 +66,6 @@ pub struct PieceWait {
     pub note: Option<String>,
 }
 
-/// One check agent of the ticket's latest round of a Check stage with several (d0130): "Security passed",
-/// "Performance running".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CheckAgentFlag {
-    /// The check agent's name as the stage lists it ("Security reviewer").
-    pub name: String,
-    /// Its session's tool and model, once it started.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub tool: Option<crate::agent_tools::Tool>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub model: Option<String>,
-    /// Its verdict, or how its row ended without one; `None` while it runs or waits to start.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub outcome: Option<super::ValidationOutcome>,
-}
-
-/// The ticket's latest round of a Check stage with several check agents (d0130), each agent's latest row in the
-/// stage's order. Set only for a round of two or more agents: one agent reads as today. Not a flag of its own.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct CheckRoundFlag {
-    pub round: u32,
-    pub agents: Vec<CheckAgentFlag>,
-    /// A change already cancelled a round with this number (0108 rule 9): "round 1 again · the code changed".
-    #[serde(default, skip_serializing_if = "is_false")]
-    pub again: bool,
-    /// The Agent stage the card is back in after the round failed ("Dev"): "Back in Dev · Validate failed · 2
-    /// reports"; `None` while it is in the check.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub back_in: Option<String>,
-}
-
 /// Every flag of SDD §7.2. Absent flags are `None`, `false` or zero.
 /// One app whose Run is up (agents run the app): its name, its port and the stage of the agent that started it ("Dev"; `None`
 /// when you did).
@@ -195,8 +164,8 @@ pub struct Flags {
     /// that counted last, the one that sent it back (FLW-13, each check counts its own). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub check: Option<String>,
-    /// Why its Delivery waits for a click: the checks the user moved it past in this walk ("Failed Security 3 times ·
-    /// moved by you", "Skipped Security · by you"; d0108 "Move on anyway", FLW-13). Not a flag of its own.
+    /// The checks the user moved it past in this walk ("Failed Security 3 times · moved by you", "Skipped Security ·
+    /// by you"; FLW-13), said on its card at a click Delivery. Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub moved_past_check: Option<String>,
     /// How it came to wait in a human check or at its Delivery ("Passed Security · round 2", "Skipped Security · by
@@ -208,10 +177,6 @@ pub struct Flags {
     /// shows with "· see comment" (CMT-10, d0109). Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub verdict: Option<String>,
-    /// The latest round of a Check stage with several check agents, while the card is in it or back from it
-    /// (d0130): each agent's verdict on the card. Not a flag of its own.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub check_round: Option<CheckRoundFlag>,
     /// The files the recorded conflict touches: "Merge conflict · fixing · lib/wishlist.ts" (d0064). Not a flag
     /// of its own.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
@@ -219,8 +184,8 @@ pub struct Flags {
     /// Merged by an automatic local Delivery: "Merged automatically" (d0064, d0108).
     #[serde(default, skip_serializing_if = "is_false")]
     pub merged_automatically: bool,
-    /// Done through an automatic Delivery with no check passed before it: "Delivered without checks" (amber, d0108
-    /// rule 8).
+    /// Done through an automatic Delivery with a check before it that didn't pass (skipped, moved past) or no check
+    /// at all: "Delivered without all checks" (amber).
     #[serde(default, skip_serializing_if = "is_false")]
     pub delivered_without_checks: bool,
     /// An automatic Delivery is under way (FLW-15): its agent opens or pushes the PR with no dialog. The card waits
@@ -269,6 +234,25 @@ pub struct Flags {
     /// the ticket is [`super::Status::MergedInto`]. Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_into: Option<TicketKey>,
+    /// A stage held because its tool doesn't have the skill it names (a stage runs only on a tool that has its
+    /// skill): the ticket waits in Needs you, "Codex doesn't have the skill `/team-validate`". Set while the held
+    /// stage still waits; not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_skill: Option<MissingSkill>,
+}
+
+/// The tool a held stage would have run on and the skill that tool doesn't have.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct MissingSkill {
+    pub tool: crate::agent_tools::Tool,
+    pub skill: String,
+}
+
+impl MissingSkill {
+    /// "Codex doesn't have the skill `/team-validate`".
+    pub fn text(&self) -> String {
+        crate::flow::proposal::missing_skill_text(self.tool, &self.skill)
+    }
 }
 
 fn is_false(b: &bool) -> bool {
@@ -391,17 +375,6 @@ mod tests {
                 round: Some(2),
             }),
             verdict: Some("Fail: the total ignores the coupon".into()),
-            check_round: Some(CheckRoundFlag {
-                round: 1,
-                agents: vec![CheckAgentFlag {
-                    name: "Security reviewer".into(),
-                    tool: Some(crate::agent_tools::Tool::Claude),
-                    model: Some("opus".into()),
-                    outcome: Some(super::super::ValidationOutcome::Fail),
-                }],
-                again: true,
-                back_in: Some("Dev".into()),
-            }),
             conflict_files: vec!["lib/wishlist.ts".into()],
             merged_automatically: true,
             delivered_without_checks: true,
@@ -423,6 +396,10 @@ mod tests {
             }),
             helpers_to_resume: vec!["40.2".into()],
             merged_into: Some("SHOP-18".parse().unwrap()),
+            missing_skill: Some(MissingSkill {
+                tool: crate::agent_tools::Tool::Codex,
+                skill: "team-validate".into(),
+            }),
         }
     }
 

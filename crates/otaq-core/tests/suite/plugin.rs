@@ -13,9 +13,9 @@ use otaq_core::board::settings::WorkflowStep;
 use otaq_core::naming;
 use serde_json::Value;
 
-/// How the skills name the commit skill: the one `prime` names, by its copy's name `otaq-commit`, never one tool's
-/// syntax (ADP-05, AGM-07).
-const COMMIT_STEP: &str = "with the commit skill `prime` names (`otaq-commit`";
+/// How the skills name the commit skill: as Otaq's `commit`, which every session has from Otaq's plugin, never in one
+/// tool's syntax and never by a copy's name (ADP-05, T4).
+const COMMIT_STEP: &str = "with Otaq's `commit` skill";
 
 fn plugin() -> PathBuf {
     find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder")
@@ -68,8 +68,8 @@ fn skill_names() -> Vec<String> {
     names
 }
 
-/// AGM-07: Claude Code's plugin folder holds the hooks only, so no skill appears twice (Claude Code always loads a
-/// plugin's `skills/`); the shipped skills sit beside it, in `plugin/skills/`.
+/// Claude Code's plugin folder holds its manifest and hooks in git; the shipped skills live once, beside it in
+/// `plugin/skills/`, and the runtime copy fills the plugin's own `skills/` from there (`crate::runtime`).
 #[test]
 fn the_manifest_names_the_plugin_namespace() {
     let claude = plugin().join("claude");
@@ -127,7 +127,6 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
 fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
     let (name, body) = skill(WORK_TICKET_SKILL);
     assert_eq!(name, WORK_TICKET_SKILL);
-    assert_eq!(naming::copy_name(&name), "otaq-work-ticket");
     let cmd = naming::COMMAND_NAME;
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
     let commit = body.find(COMMIT_STEP).expect("the Commit skill");
@@ -166,6 +165,28 @@ fn the_commit_skill_commits_everything_and_never_pushes() {
     ] {
         assert!(body.contains(needle), "commit must say {needle:?}");
     }
+}
+
+/// The Commit skill follows the Agent instructions on how commits are written, as `push` does, and reads them from
+/// `prime` itself when nothing ran it in this session; they never decide whether everything is committed or pushed.
+#[test]
+fn the_commit_skill_follows_the_agent_instructions_on_how_commits_are_written() {
+    let (_, body) = skill("commit");
+    let text = flat(&body);
+    let cmd = naming::COMMAND_NAME;
+    for needle in [
+        format!("**Follow the Agent instructions** that `{cmd} prime` prints"),
+        format!("If you haven't read `{cmd} prime` in this session, run it now"),
+        "the message format (for example Conventional Commits) and how the work is split into commits".to_owned(),
+        "They never decide whether to commit everything".to_owned(),
+        "never make you push".to_owned(),
+        "Unless the instructions say otherwise".to_owned(),
+    ] {
+        assert!(text.contains(&needle), "commit must say {needle:?}");
+    }
+    let follow = body.find("**Follow the Agent instructions**").unwrap();
+    let add = body.find("git add -A").unwrap();
+    assert!(follow < add, "the instructions are read before committing");
 }
 
 /// A skill's body with each command continued on the next line (a `\` line end) joined into one line.
@@ -1100,11 +1121,12 @@ fn work_ticket_runs_helpers_as_the_agent_in_charge() {
         "apart from those you\n   dropped".to_owned(),
         format!("{cmd} stage next"),
         format!("{cmd} helper start 5 --title \"Fixing the Validate failure\""),
-        "you may pick another agent for a later stage".to_owned(),
-        "\"Only the user skips a stage: pick another agent for it, or leave it\"".to_owned(),
+        "**You never set a stage choice: only the user picks a stage's agent or skips a stage.**".to_owned(),
+        "\"Only the user picks a stage's agent: leave the stage's own agent, or ask the user to change it\""
+            .to_owned(),
         "## As a helper".to_owned(),
         "**Build only your piece**".to_owned(),
-        "otaq-commit".to_owned(),
+        "Otaq's `commit` skill".to_owned(),
         format!("{cmd} ask human --stdin"),
         format!("{cmd} helper done --stdin"),
         "**Sent back?**".to_owned(),
@@ -1142,7 +1164,7 @@ fn flat(body: &str) -> String {
 
 /// T-0339 (PAG-03; d0087): the noyan skill proposes two or more tickets with a table (# · Title · Description ·
 /// Choices; the short table above about 10), creates one explicit ticket at once, and leaves the Choices column out
-/// when no stage has options (the default flow). The real flags only. T-0534 (d0133): no epic. T2: Noyan sets no
+/// when the user named no choice. The real flags only. T-0534 (d0133): no epic. T2: Noyan sets no
 /// stage choices of its own: the Choices column shows only the user's, each passed with `--by-user`, and a refusal
 /// means the choice wasn't the user's.
 #[test]
@@ -1179,7 +1201,7 @@ fn project_agent_proposes_with_a_table_and_passes_on_the_users_choices() {
         "If the CLI refuses a choice with \"Noyan sets only the stage choices the user names: add --by-user, or leave the stage's own agent\", the choice wasn't the user's: leave it out",
         "a choice the user set is never changed back by an agent",
         "**Never set a stage choice the user didn't name.**",
-        "When `prime --project` lists no **Stage choices** (the default flow has none), there is nothing to pick: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
+        "When the user named no stage choice for any of the tickets, there is nothing to pass on: **leave the Choices column out** (**# · Title · Description**), and pass no `--stage` flags",
         "Otaq shows no dialog for it",
     ] {
         assert!(text.contains(needle), "noyan must say {needle:?}");

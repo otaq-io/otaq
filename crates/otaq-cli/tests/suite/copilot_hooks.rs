@@ -87,12 +87,26 @@ async fn every_copilot_hook() {
     assert_eq!(w.status("SHOP-1").await, Status::Idle);
     hook(&agent, "UserPromptSubmit", "UserPromptSubmit.json").await;
 
-    // A retry's error with no `session.error` written → nothing; one that isn't recoverable → failed (logged,
-    // the status stays).
+    // A retry's error with no `session.error` written → nothing; one that isn't recoverable → failed: Idle with
+    // Copilot's message (F10).
     hook(&agent, "errorOccurred", "errorOccurred-rate_limit.json").await;
     assert_eq!(w.status("SHOP-1").await, Status::Working);
     hook(&agent, "errorOccurred", "errorOccurred-unrecoverable.json").await;
-    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    let text = w
+        .board
+        .ticket("SHOP-1")
+        .await
+        .unwrap()
+        .signal
+        .unwrap()
+        .text
+        .unwrap();
+    assert_eq!(
+        otaq_core::signals::tool_error(&text),
+        Some("The session ended unexpectedly.")
+    );
+    hook(&agent, "UserPromptSubmit", "UserPromptSubmit.json").await;
 
     // The last retry's error, with the `session.error` of type `rate_limit` in the session's events file →
     // Waiting for limit reset.

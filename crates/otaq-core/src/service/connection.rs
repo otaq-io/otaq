@@ -560,9 +560,6 @@ async fn respond(
         | Request::AgentsInUse(_)
         | Request::AgentsMoveRole(_)
         | Request::AgentsDefaultModel(_)
-        | Request::AgentsFallback(_)
-        | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_)
         | Request::AgentsReads(_)) => match agents_requests::handle(request, shared).await {
             Ok(reply) => (reply, Then::Continue),
             Err(error) => return (Message::error(id, error), Then::Continue),

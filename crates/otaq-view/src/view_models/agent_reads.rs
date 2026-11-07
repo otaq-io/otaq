@@ -174,10 +174,10 @@ pub fn view(
                     },
                 }),
                 text: skill.text.clone(),
-                empty: skill
-                    .text
-                    .is_none()
-                    .then(|| format!("{}\u{2019}s SKILL.md couldn\u{2019}t be read", skill.skill)),
+                empty: skill.text.is_none().then(|| match skill.missing_in {
+                    Some(tool) => otaq_core::flow::proposal::missing_skill_text(tool, &skill.skill),
+                    None => format!("{}\u{2019}s SKILL.md couldn\u{2019}t be read", skill.skill),
+                }),
                 mono: true,
             });
         }
@@ -265,6 +265,7 @@ mod tests {
             runs,
             text: Some(text.into()),
             folder: Some(PathBuf::from(format!("/plugin/skills/{skill}"))),
+            missing_in: None,
         }
     }
 
@@ -582,6 +583,28 @@ mod tests {
         assert_eq!(
             v.parts[2].empty.as_deref(),
             Some("work-ticket\u{2019}s SKILL.md couldn\u{2019}t be read")
+        );
+    }
+
+    /// A user's stage skill its agent's tool doesn't have: the part names the tool and shows no copy or folder.
+    #[test]
+    fn a_skill_the_agents_tool_does_not_have() {
+        let mut r = reads(
+            ("SHOP", "shop-web"),
+            "",
+            vec![part("team-validate", RunsAs::Stage("Validate".into()), "")],
+            Vec::new(),
+        );
+        r.skills[0].text = None;
+        r.skills[0].folder = None;
+        r.skills[0].missing_in = Some(otaq_core::agent_tools::Tool::Codex);
+        let v = view("rust", "Rust developer", projects(), Some(&r));
+        assert_eq!(v.parts[2].heading, "Skill: team-validate \u{b7} Validate");
+        assert_eq!(v.parts[2].link, None);
+        assert_eq!(v.parts[2].text, None);
+        assert_eq!(
+            v.parts[2].empty.as_deref(),
+            Some("Codex doesn\u{2019}t have the skill `/team-validate`")
         );
     }
 }

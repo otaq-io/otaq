@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 3;
+pub const PROTOCOL_VERSION: u32 = 9;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -315,7 +315,13 @@ pub enum Request {
     /// sequence then runs again.
     #[serde(rename = "ticket.retry_start")]
     TicketRetryStart(KeyParams),
-    /// The context an agent reads first (`otaq prime`, PLG-02). Answered with [`Reply::Prime`].
+    /// **Check again** on a ticket whose stage is held (its tool doesn't have the stage's skill, or can't run now):
+    /// the check before the launch runs once more for the ticket, Otaq's finder asked again, and the stage starts if
+    /// it can now. Answered with the ticket ([`Reply::Ticket`]).
+    #[serde(rename = "ticket.check_again")]
+    TicketCheckAgain(KeyParams),
+    /// The context an agent reads first (`otaq prime`, PLG-02). Answered with [`Reply::Prime`]; the ticket's own
+    /// validator gets [`Reply::PrimeValidate`], as [`Request::TicketPrimeValidate`] answers (no-skill-copies F11).
     #[serde(rename = "ticket.prime")]
     TicketPrime(KeyParams),
     /// `otaq ask human`: the ticket shows Asks you with the question (ATT-01). Answered with
@@ -541,6 +547,13 @@ pub enum Request {
     /// Never turns the switch off. Answered with [`Reply::WarmClear`].
     #[serde(rename = "warm.clear")]
     WarmClear(WarmClearParams),
+
+    // The skills the user already has (T3).
+    /// `{"project": "SHOP"}`: every skill in the folders the agent tools load skills from (the user's personal ones
+    /// and the project's checkout), read only, plus Otaq's own, marked as Otaq's; once per name, with every place.
+    /// Answered with [`Reply::Skills`].
+    #[serde(rename = "skills.list")]
+    SkillsList(ProjectParams),
 
     // Review (REV-01…REV-03).
     /// The ticket's changed files since its `base_sha`. Answered with
@@ -820,8 +833,8 @@ pub enum Request {
     #[serde(rename = "flow.draft_update")]
     FlowDraftUpdate(crate::flow::draft::DraftUpdateParams),
     /// `otaq flow write-skill <stage> [--done]` (FED-06): `{"project", "stage"}` gives the folder the Project agent
-    /// writes the stage's skill in (the field: "Being written by Noyan…"); with `"done": true` the folder
-    /// is imported as Otaq's own copy and lands in the draft as the stage's skill. Answered with
+    /// writes the stage's skill in (the field: "Being written by Noyan…"); with `"done": true` the skill, left
+    /// where it was written in the project, lands in the draft as the stage's skill. Answered with
     /// [`Reply::SkillWrite`].
     #[serde(rename = "flow.write_skill")]
     FlowWriteSkill(crate::flow::write_skill::WriteSkillParams),
@@ -993,12 +1006,12 @@ pub enum Request {
     TicketTerminal(TerminalParams),
 
     // Agents (AGM-01…AGM-05; d0108, d0088). The user's requests (Settings → Agents); agents never change agents.
-    /// Every agent (with its mark), the default model, each tool's fallback and the move-over's notice. Answered
+    /// Every agent (with its mark) and the default model. Answered
     /// with [`Reply::Agents`].
     #[serde(rename = "agents.list")]
     AgentsList,
-    /// `{"name": "Rust developer", "instructions": "…", "skills": [{"shipped": "work-ticket"}], "model": {"kind":
-    /// "tool", "tool": "claude", "model": "opus"}, "effort": "high"}`: New agent ("Added by you"); the name new
+    /// `{"name": "Rust developer", "instructions": "…", "model": {"kind": "tool", "tool": "claude", "model":
+    /// "opus"}, "effort": "high"}`: New agent ("Added by you"); the name new
     /// ignoring case (not `skip` or `_…`), the model from the tool's list, the effort one of the tool's. Answered with
     /// [`Reply::Agent`].
     #[serde(rename = "agents.add")]
@@ -1026,18 +1039,6 @@ pub enum Request {
     /// [`Reply::Agents`].
     #[serde(rename = "agents.default_model")]
     AgentsDefaultModel(DefaultModelParams),
-    /// `{"tool": "claude", "fallback": {"tool": "codex", "model": "newest:gpt-sol"}}`, or without `fallback` for
-    /// none: one line of Fallback per tool (AGM-03). Answered with [`Reply::Agents`].
-    #[serde(rename = "agents.fallback")]
-    AgentsFallback(FallbackParams),
-    /// `{"id": "0199…", "folder": "/abs/my-commit"}`: Import skill folder… onto the agent (WSK-02, WSK-03). Answered
-    /// with [`Reply::Agent`], or refused (`bad_skill_folder`) with nothing changed.
-    #[serde(rename = "agents.import_skill")]
-    AgentsImportSkill(ImportSkillParams),
-    /// `{"id": "0199…", "skill": "<imported id>"}`: Re-import from the remembered original (WSK-04);
-    /// `original_not_found` when it is gone. Answered with [`Reply::Agent`].
-    #[serde(rename = "agents.reimport_skill")]
-    AgentsReimportSkill(ReimportSkillParams),
     /// `{"agent": "0199…", "project": "SHOP"}`: "What this agent reads" (AGR-01…AGR-03), read-only: its
     /// instructions, the project's notes, a skill part per stage it runs and one for its role, its other skills.
     /// Answered with [`Reply::AgentReads`].
@@ -1104,14 +1105,6 @@ pub enum Request {
     /// the tool's limit cleared, its holds lifted. Replies with [`Reply::Resumed`].
     #[serde(rename = "limits.resume_tool")]
     LimitsResumeTool(ToolParams),
-    /// `{"tool": "claude"}`: **Use fallback now** (AGM-03): every ticket waiting on the tool starts on its fallback;
-    /// refused when it has none or it can't start either. Replies with [`Reply::StartedOnFallback`].
-    #[serde(rename = "limits.use_fallback_now")]
-    LimitsUseFallbackNow(ToolParams),
-    /// `{"key": "SHOP-31"}`: **Use fallback** for a ticket waiting on its tool or its model (AGM-03);
-    /// `{"key": "SHOP-33", "agent": "Performance reviewer"}` for that held check agent only (d0130 row 17).
-    #[serde(rename = "ticket.use_fallback")]
-    TicketUseFallback(UseFallbackParams),
     /// `{}` or `{"record": {"kind": "ticket", "key": "NOTE-2"}}`: the command palette's recent items (KEY-06, d0097),
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
@@ -1158,28 +1151,6 @@ pub struct DefaultModelParams {
     pub model: crate::agents::ModelRef,
 }
 
-/// `agents.fallback`: `fallback` `None` = none.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct FallbackParams {
-    pub tool: Tool,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fallback: Option<crate::agents::ModelRef>,
-}
-
-/// `agents.import_skill`: the agent and the picked folder (absolute).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ImportSkillParams {
-    pub id: String,
-    pub folder: std::path::PathBuf,
-}
-
-/// `agents.reimport_skill`: the agent and its imported skill's id.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct ReimportSkillParams {
-    pub id: String,
-    pub skill: String,
-}
-
 /// `recent.items`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecentItemsParams {
@@ -1213,7 +1184,7 @@ pub struct TicketChoicesParams {
     pub project: Option<String>,
 }
 
-/// `ticket.set_choice`: a stage by name or id, and an agent's name, `skip` or `required`.
+/// `ticket.set_choice`: a stage by name or id, and an agent's name, `skip`, or `required` on a check of yours.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SetChoiceParams {
     pub key: String,
@@ -1816,28 +1787,14 @@ pub struct TicketDeleteParams {
     pub reason: Option<String>,
 }
 
-/// `{"key": "SHOP-31"}` or `{"key": "SHOP-33", "agent": "Performance reviewer"}`: **Use fallback** (AGM-03).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct UseFallbackParams {
-    pub key: String,
-    /// The held check agent of the ticket's agent check, as its stage lists it (any case); `None`: the ticket's held
-    /// session, refused while several check agents are held (d0130 row 17).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
-}
-
 /// `{"key": "SHOP-22"}`: the ticket's agent session; `{"key": "SHOP-29", "stage": "security"}`: the session of the
-/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20);
-/// `{"key": "SHOP-33", "stage": "validate", "agent": "Security reviewer"}`: one check agent's of a stage that has
-/// several (d0130 row 17).
+/// agent running that stage (its id or name, any case), refused unless the ticket is in it (FLW-20). A check has one
+/// agent, so there is nothing more to pick.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TerminalParams {
     pub key: String,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
-    /// With `stage`: the check agent, as the stage lists it (any case); needed when the stage has several.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
 }
 
 /// The answer to `ticket.terminal`: the screen and the lines above it as plain text
@@ -1965,10 +1922,6 @@ pub struct SessionTarget {
     /// refused unless the ticket is in it (FLW-20); `kind` is then not given.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<String>,
-    /// With `stage`: the check agent of an agent check, as the stage lists it (any case), its running checker, else
-    /// its last one; needed when the stage has several ("Validate has 2 check agents; add --agent", d0130 row 17).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
     /// A project's key, for its Project terminal.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub project: Option<String>,
@@ -2115,6 +2068,7 @@ impl Request {
             Self::TicketDeletePreview(_) => "ticket.delete_preview",
             Self::TicketDelete(_) => "ticket.delete",
             Self::TicketRetryStart(_) => "ticket.retry_start",
+            Self::TicketCheckAgain(_) => "ticket.check_again",
             Self::TicketHistory(_) => "ticket.history",
             Self::TicketClose(_) => "ticket.close",
             Self::TicketReopen(_) => "ticket.reopen",
@@ -2133,6 +2087,7 @@ impl Request {
             Self::UninstallRemove(_) => "uninstall.remove",
             Self::WarmList => "warm.list",
             Self::WarmClear(_) => "warm.clear",
+            Self::SkillsList(_) => "skills.list",
             Self::DiffFiles(_) => "diff.files",
             Self::DiffFile(_) => "diff.file",
             Self::FilesTree(_) => "files.tree",
@@ -2296,9 +2251,6 @@ impl Request {
             Self::AgentsInUse(_) => "agents.in_use",
             Self::AgentsMoveRole(_) => "agents.move_role",
             Self::AgentsDefaultModel(_) => "agents.default_model",
-            Self::AgentsFallback(_) => "agents.fallback",
-            Self::AgentsImportSkill(_) => "agents.import_skill",
-            Self::AgentsReimportSkill(_) => "agents.reimport_skill",
             Self::AgentsReads(_) => "agents.reads",
             Self::AgentsPause(_) => "agents.pause",
             Self::AgentsResume(_) => "agents.resume",
@@ -2315,8 +2267,6 @@ impl Request {
             Self::AgentToolsInstall(_) => "agent_tools.install",
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
-            Self::LimitsUseFallbackNow(_) => "limits.use_fallback_now",
-            Self::TicketUseFallback(_) => "ticket.use_fallback",
             Self::RecentItems(_) => "recent.items",
         }
     }
@@ -2429,8 +2379,6 @@ pub enum Reply {
     Resumed(Vec<TicketKey>),
     /// The tickets "This is the usage limit" folded into the banner.
     LimitMarked(Vec<TicketKey>),
-    /// The tickets Use fallback now started on the tool's fallback, in key order.
-    StartedOnFallback(Vec<TicketKey>),
     BeforeRestart(Box<crate::recovery::BeforeRestart>),
     NeedsYou(Box<crate::attention::needs_you::NeedsYouList>),
     NeedsYouCounts(crate::attention::needs_you::NeedsYouCounts),
@@ -2440,6 +2388,8 @@ pub enum Reply {
     UninstallOutcome(Box<crate::uninstall::UninstallOutcome>),
     WarmList(Box<crate::warm::store::WarmList>),
     WarmClear(crate::warm::store::ClearOutcome),
+    /// `skills.list`: the skills found, by name.
+    Skills(Vec<crate::skills::found::FoundSkill>),
     Run(Box<crate::terminals::run::RunInfo>),
     RunLog(Box<crate::terminals::run::RunLog>),
     Runs(Vec<crate::terminals::run::RunInfo>),
@@ -3124,7 +3074,7 @@ mod tests {
 
     #[test]
     fn version_independent_messages_read_across_versions() {
-        let request = br#"{"protocol_version":9,"id":1,"request":{"method":"service.status"}}"#;
+        let request = br#"{"protocol_version":99,"id":1,"request":{"method":"service.status"}}"#;
         let DecodeError::IncompatibleVersion(foreign) = decode(request).unwrap_err() else {
             panic!()
         };
@@ -3137,7 +3087,7 @@ mod tests {
         // A newer service's status reply, with a field this build doesn't know.
         let mut reply =
             serde_json::to_value(Message::reply(1, Reply::ServiceStatus(status()))).unwrap();
-        reply["protocol_version"] = json!(9);
+        reply["protocol_version"] = json!(99);
         reply["reply"]["service_status"]["new_field"] = json!(true);
         let DecodeError::IncompatibleVersion(foreign) =
             decode(&serde_json::to_vec(&reply).unwrap()).unwrap_err()

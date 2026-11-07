@@ -1171,18 +1171,7 @@ async fn every_state_moves_to_its_place_and_stage() {
     // The board reads each place.
     let data = otaq_core::data_dir::DataDir::new(path.parent().unwrap().join("home"));
     let board = otaq_core::board::Board::new(store.clone(), None, data);
-    // 0050 stored the default flow with `agent:` on Validate, which d0130 no longer reads (no conversion, T-0525): an
-    // error naming why, never a panic. The board reads the places once the flow is today's.
-    let refused = board.tickets("NOTE").await.unwrap_err().to_string();
-    assert!(
-        refused.contains("an agent check lists its agents: `agents: [Validator]`"),
-        "{refused}"
-    );
-    sqlx::query("UPDATE project_flows SET yaml = ?")
-        .bind(naming::DEFAULT_FLOW_YAML)
-        .execute(store.pool())
-        .await
-        .unwrap();
+    // 0050 stored the default flow with `agent:` on Validate: a check names its one agent so, and it reads.
     let tickets = board.tickets("NOTE").await.unwrap();
     let place = |state: &str, n: usize| {
         let t = tickets
@@ -1402,13 +1391,11 @@ async fn has_table(pool: &SqlitePool, name: &str) -> bool {
     .unwrap()
 }
 
-/// Every agent and skill row, as text: what a second start must leave as it is.
+/// Every agent row, as text: what a second start must leave as it is.
 async fn agent_rows(store: &Store) -> Vec<String> {
     let mut rows = Vec::new();
     for sql in [
         "SELECT id || '|' || name || '|' || came_from || '|' || updated_at FROM agents ORDER BY id",
-        "SELECT agent_id || '|' || position || '|' || COALESCE(shipped, imported_id) FROM agent_skills
-         ORDER BY agent_id, position",
     ] {
         let found: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
             .fetch_all(store.pool())
@@ -1462,11 +1449,7 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
             ("Validator", &CameFrom::DefaultPreset, true),
         ]
     );
-    assert!(
-        agents
-            .iter()
-            .all(|a| a.instructions.is_empty() && a.imported.is_empty())
-    );
+    assert!(agents.iter().all(|a| a.instructions.is_empty()));
     assert_eq!(store.default_model().await.unwrap(), None);
     assert!(!has_table(store.pool(), "named_agents").await);
     assert!(!has_table(store.pool(), "ticket_agent_rows").await);
@@ -1494,10 +1477,19 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
 }
 
 /// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
-/// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill), and before d0130's
-/// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525).
+/// (Q254), which changes nothing (the PR path runs `open-pr` when the Delivery names no skill), before d0130's
+/// `agents:` on an agent check (no conversion: such a stored flow no longer reads, T-0525), and with its agents' skill
+/// lists, which a stored flow keeps and Otaq now reads and ignores (T6).
 fn default_as_0050_stored() -> String {
     let stored = naming::DEFAULT_FLOW_YAML
+        .replace(
+            "  - name: Developer\n    model: default",
+            "  - name: Developer\n    skills: [work-ticket, commit]\n    model: default",
+        )
+        .replace(
+            "  - name: Validator\n    model: default",
+            "  - name: Validator\n    skills: [validate]\n    model: default",
+        )
         .replace("    skill: open-pr\n    mode: click", "    mode: click")
         .replace("    agents: [Validator]\n", "    agent: Validator\n");
     assert_ne!(stored, naming::DEFAULT_FLOW_YAML);
@@ -1560,9 +1552,9 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
         project_json(&store, "NOTE").await,
         json!({"project_notes": "pnpm"})
     );
-    assert!(!has_column(store.pool(), "agent_skills", "stands_for").await);
-    let validator = store.agent("v").await.unwrap().expect("kept");
-    assert_eq!(validator.imported[0].name, "team-validate");
+    // Migration 0078: the agents' skills are gone (an agent has none); the agent stays.
+    assert!(!has_table(store.pool(), "agent_skills").await);
+    store.agent("v").await.unwrap().expect("kept");
     let versions = store.flow_versions("NOTE").await.unwrap();
     assert_eq!(versions.len(), 1);
     assert_eq!(versions[0].yaml, default_as_0050_stored());
@@ -1823,19 +1815,8 @@ async fn the_project_agent_role_is_stored_as_noyan() {
             ("el".into(), "Epic lead".into(), None, String::new()),
         ]
     );
-    let skills: Vec<(String, String)> =
-        sqlx::query_as("SELECT agent_id, shipped FROM agent_skills ORDER BY agent_id, position")
-            .fetch_all(store.pool())
-            .await
-            .unwrap();
-    assert_eq!(
-        skills,
-        [
-            ("ag".into(), "noyan".into()),
-            ("ag".into(), "flow".into()),
-            ("dev".into(), "work-ticket".into()),
-        ]
-    );
+    // Migration 0078: the agents' skill lists are gone with their table.
+    assert!(!has_table(store.pool(), "agent_skills").await);
     let choice: String =
         sqlx::query_scalar("SELECT agent_id FROM ticket_stage_choices WHERE ticket_id = 't40'")
             .fetch_one(store.pool())
@@ -2068,11 +2049,12 @@ async fn migration_0072_clears_the_choices_agents_may_no_longer_set() {
                 ('strong', 'Strong validator', '', 'agents_file', 1, 1)",
     )
     .await;
-    // SHOP-2 has started: Product spec ran, so did Dev.
+    // SHOP-2 has started: Product spec ran, so did Dev, and QA (so the later clearing of agents' picks keeps its pick).
     exec(
         &pool,
         "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at)
-         VALUES ('r1', 't2', 'spec', 'agent', 'done', 1), ('r2', 't2', 'dev', 'agent', NULL, 2)",
+         VALUES ('r1', 't2', 'spec', 'agent', 'done', 1), ('r2', 't2', 'dev', 'agent', NULL, 2),
+                ('r3', 't2', 'qa', 'agent', NULL, 3)",
     )
     .await;
     exec(
@@ -2445,4 +2427,312 @@ async fn migration_0076_moves_each_report_into_the_comments_attachments() {
     // Deleting the ticket removes the old report too (d0060).
     board.delete_ticket("SHOP-18").await.unwrap();
     assert!(!old.exists());
+}
+
+/// Agents have no skills (T6): migration 0078 drops `agent_skills`, shipped and imported rows alike, with no carry-over
+/// to a stage's `skill:`. Every agent keeps everything else: its name, instructions, model, effort, role, where it came
+/// from and its mark.
+#[tokio::test]
+async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 77).await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, tool, model, effort, role, came_from, mark_text, marked_at,
+                             created_at, updated_at)
+         VALUES ('ag', 'Noyan', 'Split small.', 'claude', 'opus', 'high', 'noyan', 'agents_file', NULL, NULL, 1, 2),
+                ('val', 'Validator', 'Run the tests.', 'codex', NULL, NULL, NULL, 'default_preset',
+                 'Model refused', 5, 1, 3)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agent_skills (agent_id, position, shipped, imported_id, name, original, imported_at, fingerprint)
+         VALUES ('ag', 0, 'noyan', NULL, NULL, NULL, NULL, NULL),
+                ('ag', 1, 'flow', NULL, NULL, NULL, NULL, NULL),
+                ('val', 0, NULL, 'c1', 'team-validate', '/team/validate', 4, 'f')",
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    assert!(!has_table(store.pool(), "agent_skills").await);
+    type AgentRow = (
+        String,
+        String,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        Option<String>,
+        String,
+        Option<String>,
+        i64,
+    );
+    let agents: Vec<AgentRow> = sqlx::query_as(
+        "SELECT name, instructions, tool, model, effort, role, came_from, mark_text, updated_at FROM agents
+         ORDER BY id",
+    )
+    .fetch_all(store.pool())
+    .await
+    .unwrap();
+    assert_eq!(
+        agents,
+        [
+            (
+                "Noyan".into(),
+                "Split small.".into(),
+                Some("claude".into()),
+                Some("opus".into()),
+                Some("high".into()),
+                Some("noyan".into()),
+                "agents_file".into(),
+                None,
+                2
+            ),
+            (
+                "Validator".into(),
+                "Run the tests.".into(),
+                Some("codex".into()),
+                None,
+                None,
+                None,
+                "default_preset".into(),
+                Some("Model refused".into()),
+                3
+            ),
+        ]
+    );
+    let read = store.agents().await.unwrap();
+    assert_eq!(read.len(), 2, "both agents still read");
+}
+
+/// Otaq has no other tool to move work to: migration 0080 drops the stored setting per tool and the holds' and
+/// sessions' columns about it, with no notice. A hold the user had sent elsewhere stays and waits for its own tool; a
+/// session that ran elsewhere keeps its tool and model; History keeps its old lines.
+#[tokio::test]
+async fn migration_0080_drops_the_other_tool_settings_and_keeps_holds_sessions_and_history() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 79).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 40, 'Wishlist', 'held', 'me', 0, 0),
+                ('t2', 'p', 39, 'Footer', 'working', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO settings (key, value_json, updated_at)
+           VALUES ('agents.fallback', '{"claude": {"tool": "codex"}}', 0),
+                  ('agents.default_model', '{"tool": "claude"}', 0)"#,
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, agent_id, fallback_tool,
+                                  fallback_held, fallback_asked, since, check_agent)
+         VALUES ('h1', 't1', NULL, 'developer', 'tool_limit', 'claude', 'opus', NULL, 'claude', FALSE, TRUE, 7, '')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at, tool, model, fallback_from,
+                               fallback_reason)
+         VALUES ('s1', 'p', 't2', 'agent', 'running', 5, 'codex', 'gpt-5.5', 'claude', 'tool_limit')",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't2', 'fallback_used', 'user',
+                   '{"role": "developer", "tool": "codex", "model": "gpt-5.5", "from_tool": "claude", "reason": "tool_limit"}', 5)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let keys: Vec<String> =
+        sqlx::query_scalar("SELECT key FROM settings WHERE key LIKE 'agents.%' ORDER BY key")
+            .fetch_all(pool)
+            .await
+            .unwrap();
+    assert_eq!(keys, ["agents.default_model"]);
+    for (table, column) in [
+        ("agent_holds", "fallback_tool"),
+        ("agent_holds", "fallback_held"),
+        ("agent_holds", "fallback_asked"),
+        ("sessions", "fallback_from"),
+        ("sessions", "fallback_reason"),
+    ] {
+        assert!(!has_column(pool, table, column).await, "{table}.{column}");
+    }
+    let holds = store.ticket_holds("t1").await.unwrap();
+    assert_eq!(
+        holds
+            .iter()
+            .map(|h| (h.reason.as_str(), h.tool.as_str(), h.since))
+            .collect::<Vec<_>>(),
+        [("tool_limit", "claude", 7)],
+        "it waits for its own tool"
+    );
+    let session: (String, String) =
+        sqlx::query_as("SELECT tool, model FROM sessions WHERE id = 's1'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(session, ("codex".into(), "gpt-5.5".into()));
+    let kinds: Vec<String> = sqlx::query_scalar("SELECT kind FROM events WHERE ticket_id = 't2'")
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    assert_eq!(kinds, ["fallback_used"], "History keeps its old line");
+}
+
+/// Only the user picks a stage's agent: migration 0082 clears, on stages the ticket hasn't started, every agent pick a
+/// ticket's own agent set, each with a History event by Otaq. The user's picks, a ticket agent's required choice, and
+/// a pick on a stage that has a run stay.
+#[tokio::test]
+async fn migration_0082_clears_the_agent_picks_of_ticket_agents() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 81).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Price table', 'working', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, came_from, created_at, updated_at)
+         VALUES ('strong', 'Strong', '', 'agents_file', 1, 1), ('light', 'Light', '', 'agents_file', 1, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO stage_runs (id, ticket_id, stage_id, kind, result, started_at)
+         VALUES ('r1', 't1', 'dev', 'agent', NULL, 1)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at)
+         VALUES ('t1', 'dev', 'agent', 'light', 'agent', 'Spec writer', 'small fix', 1),
+                ('t1', 'validate', 'agent', 'strong', 'agent', 'Developer', 'risky change', 2),
+                ('t1', 'review', 'usual', NULL, 'agent', 'Developer', 'needs a look', 2),
+                ('t1', 'security', 'agent', 'strong', 'user', NULL, NULL, 3)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't1', 'stage_choice_set', 'agent:SHOP-1',
+                   '{"stage":"Validate","stage_id":"validate","choice":"Strong","from":null,"set_by":"agent","by":"Developer","reason":"risky change"}', 2)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let kept: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT stage_id, choice, set_by FROM ticket_stage_choices ORDER BY stage_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let row = |s: &str, c: &str, by: &str| (s.into(), c.into(), by.into());
+    assert_eq!(
+        kept,
+        [
+            row("dev", "agent", "agent"),
+            row("review", "usual", "agent"),
+            row("security", "agent", "user"),
+        ]
+    );
+    let cleared: Vec<(String, String)> = sqlx::query_as(
+        "SELECT actor, payload_json FROM events WHERE kind = 'stage_choice_cleared'",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let cleared: Vec<(String, serde_json::Value)> = cleared
+        .into_iter()
+        .map(|(a, p)| (a, serde_json::from_str(&p).unwrap()))
+        .collect();
+    assert_eq!(
+        cleared,
+        [(
+            "otaq".into(),
+            json!({"stage": "Validate", "stage_id": "validate", "choice": "Strong", "set_by": "agent",
+                   "by": "Developer"})
+        )]
+    );
+}
+
+/// A human check's choice that it happens reads "required" again: migration 0084 turns History's `choice` and `from`
+/// of "you" into "required"; the `by` ("you", the user) and other events stay.
+#[tokio::test]
+async fn migration_0084_turns_a_stored_you_choice_into_required() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 83).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Price table', 'working', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+           VALUES ('e1', 't1', 'stage_choice_set', 'user:me',
+                   '{"stage":"Spec review","stage_id":"spec-review","choice":"skip","from":"you","set_by":"user","by":"you","reason":null}', 1),
+                  ('e2', 't1', 'stage_choice_set', 'user:me',
+                   '{"stage":"Spec review","stage_id":"spec-review","choice":"you","from":"skip","set_by":"user","by":"you","reason":null}', 2),
+                  ('e3', 't1', 'comment_added', 'user:me', '{"choice":"you"}', 3)"#,
+    )
+    .await;
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let rows: Vec<(String,)> = sqlx::query_as("SELECT payload_json FROM events ORDER BY at")
+        .fetch_all(store.pool())
+        .await
+        .unwrap();
+    let payloads: Vec<serde_json::Value> = rows
+        .into_iter()
+        .map(|(p,)| serde_json::from_str(&p).unwrap())
+        .collect();
+    let read = |p: &serde_json::Value, k: &str| p[k].as_str().map(str::to_owned);
+    assert_eq!(
+        (read(&payloads[0], "choice"), read(&payloads[0], "from")),
+        (Some("skip".into()), Some("required".into()))
+    );
+    assert_eq!(
+        (read(&payloads[1], "choice"), read(&payloads[1], "from")),
+        (Some("required".into()), Some("skip".into()))
+    );
+    assert_eq!(read(&payloads[1], "by"), Some("you".into()));
+    assert_eq!(payloads[2], json!({"choice": "you"}));
 }

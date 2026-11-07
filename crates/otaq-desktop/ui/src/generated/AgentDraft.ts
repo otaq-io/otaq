@@ -5,10 +5,6 @@
  */
 export type AgentDraft = { name: string, instructions: string, 
 /**
- * In order, each as [`skill_key`] writes it: `shipped:work-ticket`, `imported:<id>`.
- */
-skills: Array<string>, 
-/**
  * The tool, as stored (`claude`); `None`: the default model.
  */
 tool: string | null, 

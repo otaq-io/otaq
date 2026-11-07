@@ -8,8 +8,11 @@
 //!   sessions of the same server), marked as a helper's.
 //! - The agent's own session only: `session.execution.succeeded` / `.interrupted` → *turn ended*; `.failed` →
 //!   *failed* with the error's `type` and `message` (OpenCode runs another model instead of refusing one, so no
-//!   *model refused*); `session.retry.scheduled` on `provider.rate-limit` → *limit reached*, reset at the retry
-//!   (OpenCode keeps retrying by itself); `session.inbox.enqueued` / `session.execution.started` → *new turn*;
+//!   *model refused*), except a usage limit's error type ([`LIMIT_ERRORS`]) → *limit reached* (F10), reset at the
+//!   event's time plus the error's `retryAfterMs`, else plus the `retryDelay` in the provider's response body (a
+//!   Gemini quota), else from the message ("Please retry in 8h25m", [`super::usage::limit_reset_from_text`]);
+//!   `session.retry.scheduled` on `provider.rate-limit` → *limit reached*, reset at the retry (OpenCode keeps
+//!   retrying by itself); `session.inbox.enqueued` / `session.execution.started` → *new turn*;
 //!   `session.usage.updated` → *tokens* (running totals; the cost is ignored, d0086); `session.step.started` →
 //!   *model known* (`provider/id`, the model that runs each step).
 //! - Any other type gives nothing: OpenCode sends many.
@@ -47,6 +50,20 @@ pub(super) const MAPPED: &[&str] = &[
 
 /// The error type of a provider's rate limit.
 const RATE_LIMIT: &str = "provider.rate-limit";
+
+/// The error types of a failed execution that are a usage limit (F10), as OpenCode 2.2.5 names its provider errors
+/// (`Session.StructuredError` `type`, read from its binary): a rate limit it stopped retrying, a provider's quota
+/// (`QuotaExceeded`: Gemini's daily free-tier limit), ChatGPT's subscription limit, and OpenCode's own Free, Go and
+/// workspace limits. A model's spend limit (`provider.model-budget-limit`, "Switch models to keep going") and every
+/// other error are a failed turn.
+pub(super) const LIMIT_ERRORS: &[&str] = &[
+    RATE_LIMIT,
+    "provider.quota",
+    "provider.chatgpt-limit",
+    "provider.free-limit",
+    "provider.go-limit",
+    "provider.budget-limit",
+];
 
 /// The event ids already handled, per OpenCode session.
 #[derive(Debug, Default)]
@@ -101,10 +118,25 @@ pub(super) fn map_hook(
             background: Default::default(),
             last_message: None,
         },
-        "session.execution.failed" => ToolEvent::Failed {
-            error: text(&data["error"]["type"]).unwrap_or_else(|| "unknown".to_owned()),
-            message: text(&data["error"]["message"]),
-        },
+        "session.execution.failed" => {
+            let error = &data["error"];
+            let kind = text(&error["type"]).unwrap_or_else(|| "unknown".to_owned());
+            let message = text(&error["message"]).filter(|m| !m.trim().is_empty());
+            if LIMIT_ERRORS.contains(&kind.as_str()) {
+                ToolEvent::LimitReached {
+                    resets_at: retry_at(payload["created"].as_i64(), error),
+                    hit: LimitHit {
+                        kind: LimitKind::Other,
+                        text: message.unwrap_or(kind),
+                    },
+                }
+            } else {
+                ToolEvent::Failed {
+                    error: kind,
+                    message,
+                }
+            }
+        }
         "session.retry.scheduled" if data["error"]["type"] == RATE_LIMIT => {
             ToolEvent::LimitReached {
                 hit: LimitHit {
@@ -137,6 +169,33 @@ pub(super) fn watched_file(_tool_id: &str, _cwd: &Path) -> Option<PathBuf> {
 
 pub(super) fn map_watched_lines(_lines: &str, _context: SignalContext<'_>) -> Vec<ToolEvent> {
     Vec::new()
+}
+
+/// When a limit's failed execution may be retried: the event's time (`created`, Unix milliseconds) plus the error's
+/// `retryAfterMs` (a `Retry-After` OpenCode read), else plus the `retryDelay` ("30285s", Google's `RetryInfo`) in the
+/// provider's response body.
+fn retry_at(created: Option<i64>, error: &Value) -> Option<i64> {
+    let created = created?;
+    let after = error["retryAfterMs"].as_i64().or_else(|| {
+        let body: Value = serde_json::from_str(error["response"]["body"].as_str()?).ok()?;
+        retry_delay_ms(&body)
+    })?;
+    (after > 0).then_some(created + after)
+}
+
+/// The first `retryDelay` ("30285s", "41.7s") anywhere in a response body, in milliseconds.
+fn retry_delay_ms(body: &Value) -> Option<i64> {
+    match body {
+        Value::Object(map) => map
+            .get("retryDelay")
+            .and_then(Value::as_str)
+            .and_then(|d| d.trim().strip_suffix('s')?.parse::<f64>().ok())
+            .filter(|secs| secs.is_finite() && *secs > 0.0)
+            .map(|secs| (secs * 1000.0).round() as i64)
+            .or_else(|| map.values().find_map(retry_delay_ms)),
+        Value::Array(items) => items.iter().find_map(retry_delay_ms),
+        _ => None,
+    }
 }
 
 /// "shell: git status --short": the action and what it acts on.
@@ -284,6 +343,30 @@ mod tests {
                     text: "Rate limit exceeded".into()
                 },
                 resets_at: Some(1_792_270_980_000 + 10_000 + 882_000)
+            }]
+        );
+        // A failed execution on a limit (F10): the quota's reset from the body's `retryDelay`, the rate limit's
+        // from `retryAfterMs`, each after the event's time.
+        let events = map(&seen, "session.execution.failed-quota");
+        let [ToolEvent::LimitReached { hit, resets_at }] = events.as_slice() else {
+            panic!("not a limit: {events:?}")
+        };
+        assert_eq!(hit.kind, LimitKind::Other);
+        assert!(
+            hit.text.starts_with("You exceeded your current quota")
+                && hit.text.ends_with("Please retry in 30285.312s."),
+            "{}",
+            hit.text
+        );
+        assert_eq!(*resets_at, Some(1_792_270_992_000 + 30_285_000));
+        assert_eq!(
+            map(&seen, "session.execution.failed-rate_limit"),
+            [ToolEvent::LimitReached {
+                hit: LimitHit {
+                    kind: LimitKind::Other,
+                    text: "Rate limit exceeded".into()
+                },
+                resets_at: Some(1_792_270_994_000 + 120_000)
             }]
         );
         assert_eq!(map(&seen, "session.retry.scheduled-transport"), []);

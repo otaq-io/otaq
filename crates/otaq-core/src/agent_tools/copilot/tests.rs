@@ -44,19 +44,16 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
-/// AGM-07: a skill by its copy's name (Copilot runs a project skill by `/<name>`), the same for a shipped and an imported one; no plugin namespace.
+/// Otaq's own skill by its plugin's namespace, the user's by its own name (Copilot runs a skill with `/`) (T2).
 #[test]
-fn skills_by_their_copys_name() {
+fn otaqs_skills_namespaced_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = copilot(bin.path(), None);
     assert_eq!(
         adapter.skill_reference("commit"),
-        format!("/{}-commit", crate::naming::COMMAND_NAME)
+        format!("/{}:commit", crate::naming::PLUGIN_NAMESPACE)
     );
-    assert_eq!(
-        adapter.skill_reference("team-validate"),
-        format!("/{}-team-validate", crate::naming::COMMAND_NAME)
-    );
+    assert_eq!(adapter.skill_reference("team-validate"), "/team-validate");
 }
 
 /// Detect runs the program on the context's PATH (here a stand-in that prints what `copilot --version` prints).

@@ -1,13 +1,13 @@
-//! Planning skips on a flow shaped like the Spec first preset (T-0547; 0129 row 4, 0108 second-gap rule 2, 0131):
-//! Product spec, Tech spec and Milestone plan (each `skip`) → Spec review (a skippable check by you, its fails to
-//! Product spec) → Dev → Validate → Code review → Done. Only the user skips a stage: Noyan passes on the user's skips
-//! with `--by-user` and its own are refused (T1). A ticket that skips every planning stage skips Spec review on its
-//! own; one planning stage left on runs it; a set of choices that leaves a check that must run with nothing before it
-//! is refused; a Send back goes to the nearest planning stage the ticket runs.
+//! Planning skips on a flow shaped like the Spec first preset (T-0547): Product spec, Tech spec and Milestone plan
+//! (each `skip`) → Spec review (a skippable check by you, its fails to Product spec) → Dev → Validate → Code review →
+//! Done. Only the user skips a stage: Noyan passes on the user's skips with `--by-user` and its own are refused (T1).
+//! Nothing is skipped on its own: a ticket that skips every planning stage reaches Spec review and waits there (the
+//! user skips it too if they want; its choice "required" means it happens as the flow says); a set of choices that
+//! leaves a check the flow doesn't mark skippable with nothing before it is refused; a Send back goes to the nearest
+//! planning stage the ticket runs.
 
 use otaq_core::board::BoardError;
 use otaq_core::board::Refusal;
-use otaq_core::board::human_check::Arrival;
 use otaq_core::board::stage_choices::{ChoicePick, ChoiceWrite, Chooser, NOYAN_USER_CHOICES_ONLY};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Place, Status};
@@ -74,7 +74,7 @@ flow:
     kind: check
     by: agent
     column: own
-    agents: [Validator]
+    agent: Validator
     skill: validate
     rounds: 3
     fail_to: Dev
@@ -195,8 +195,8 @@ async fn ran(w: &TestService, t: &Ticket, stage: &str, result: Option<RunResult>
     .unwrap();
 }
 
-/// 0129 row 4 refines 0108's second-gap rule 2: Spec first validates (its Spec review is skippable); the same check
-/// made required after only skippable stages is still refused.
+/// Spec first validates (its Spec review is skippable); the same check made unskippable after only skippable stages
+/// is refused.
 #[test]
 fn spec_first_validates_and_a_required_check_after_skippable_stages_does_not() {
     let file = spec_first();
@@ -219,12 +219,12 @@ fn spec_first_validates_and_a_required_check_after_skippable_stages_does_not() {
     );
 }
 
-/// Only the user skips a stage: Noyan's own skips of the planning stages are refused and change nothing (T1). The
-/// user's skips of the three, passed on by Noyan, make Spec review skip on its own. The walk from Ready goes
-/// straight to Dev past all four, the choices say "Spec review: skipped · nothing before it runs", and a card that
-/// waits in a check right after it reads "Skipped Spec review · nothing before it runs".
+/// Only the user skips a stage: Noyan's own skips of the planning stages are refused and change nothing (T1). With
+/// the user's skips of the three, passed on by Noyan, nothing else is skipped: Spec review's choice still reads "required"
+/// with its picker, the walk from Ready goes past the three into Spec review and waits there for the user, who can
+/// Pass it or skip it too.
 #[tokio::test(flavor = "multi_thread")]
-async fn skipping_every_planning_stage_skips_spec_review() {
+async fn skipping_every_planning_stage_waits_in_spec_review() {
     let w = world(&spec_first()).await;
     let t = w.create("SHOP", "Fix cart total rounding").await;
     let own: Vec<ChoicePick> = PLANNING
@@ -241,30 +241,25 @@ async fn skipping_every_planning_stage_skips_spec_review() {
 
     assert_eq!(
         skips(&w, &t).await,
-        ["product-spec", "tech-spec", "milestone-plan", "spec-review"]
-    );
-    let flow = w.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(
-        w.board.skipped_on_its_own(&t, &flow).await.unwrap(),
-        ["spec-review"]
+        ["product-spec", "tech-spec", "milestone-plan"]
     );
     let choices = w.board.ticket_choices("SHOP-1").await.unwrap();
-    let on_its_own: Vec<(&str, bool)> = choices
+    let review = choices
         .stages
         .iter()
-        .map(|s| (s.stage.as_str(), s.on_its_own))
-        .collect();
+        .find(|s| s.stage_id == "spec-review")
+        .unwrap();
     assert_eq!(
-        on_its_own,
-        [
-            ("Product spec", false),
-            ("Tech spec", false),
-            ("Milestone plan", false),
-            ("Spec review", true)
-        ]
+        (review.label(), review.words(), review.choice.is_none()),
+        (
+            "required".to_owned(),
+            vec!["required".to_owned(), "skip".to_owned()],
+            true
+        )
     );
 
-    // Ready → Dev, the four walked over with skipped runs.
+    // Ready → Spec review, the three walked over with skipped runs; the ticket waits there for you.
+    let flow = w.board.effective_flow("SHOP").await.unwrap();
     let skipping = skips(&w, &t).await;
     let ready = Place::Waiting(None);
     let begin = engine::step(
@@ -275,7 +270,10 @@ async fn skipping_every_planning_stage_skips_spec_review() {
         Move::Begin,
     )
     .unwrap();
-    assert_eq!(begin.place, Place::stage_of("dev"));
+    assert_eq!(
+        (begin.place.clone(), begin.status),
+        (Place::stage_of("spec-review"), Status::WaitingForYou)
+    );
     let through: Vec<(&str, RunResult)> = begin
         .passed_through
         .iter()
@@ -287,47 +285,115 @@ async fn skipping_every_planning_stage_skips_spec_review() {
             ("product-spec", RunResult::Skipped),
             ("tech-spec", RunResult::Skipped),
             ("milestone-plan", RunResult::Skipped),
-            ("spec-review", RunResult::Skipped),
         ]
     );
+    // Its Pass goes on to wait before Dev.
+    let in_review = Place::stage_of("spec-review");
+    let pass = engine::step(
+        At {
+            skips: &skipping,
+            ..At::new(&flow, &in_review, Status::WaitingForYou)
+        },
+        Move::HumanPass,
+    )
+    .unwrap();
+    assert_eq!(pass.place, Place::Waiting(Some("dev".into())));
 
-    // The arrival line, on a flow with a second skippable check right after Spec review (a card dragged into it).
-    let mut file = spec_first();
-    let mut look = file.flow.stage("spec-review").unwrap().clone();
-    look.id = "final-look".into();
-    look.name = "Final look".into();
-    let at = file.flow.position("dev").unwrap();
-    file.flow.stages.insert(at, look);
-    assert_eq!(check(&file.flow), Ok(()));
-    w.board.use_flow_for_tests("SHOP", &file).await;
-    for stage in ["product-spec", "tech-spec", "milestone-plan", "spec-review"] {
-        ran(&w, &t, stage, Some(RunResult::Skipped)).await;
-    }
-    // The move opens Final look's run (the `stage_runs_follow_tickets` trigger), after the skipped ones.
-    sqlx::query("UPDATE tickets SET stage_id = 'final-look', state = ? WHERE id = ?")
-        .bind(Status::WaitingForYou.as_str())
-        .bind(&t.id)
-        .execute(w.board.store().pool())
+    // The user skips Spec review too: allowed, and the walk goes straight to Dev.
+    choose(&w, &t, &[pick("Spec review", "skip", None)], &Chooser::User)
         .await
         .unwrap();
-    let arrival = w.board.arrival("SHOP-1").await.unwrap().unwrap();
+    let skipping = skips(&w, &t).await;
     assert_eq!(
-        arrival,
-        Arrival::SkippedOnItsOwn {
-            stage: "Spec review".into()
-        }
+        skipping,
+        ["product-spec", "tech-spec", "milestone-plan", "spec-review"]
     );
+    let begin = engine::step(
+        At {
+            skips: &skipping,
+            ..At::new(&flow, &ready, Status::Queued)
+        },
+        Move::Begin,
+    )
+    .unwrap();
+    assert_eq!(begin.place, Place::stage_of("dev"));
+    // And back: "required" sets it to run again.
+    choose(
+        &w,
+        &t,
+        &[pick("Spec review", "required", None)],
+        &Chooser::User,
+    )
+    .await
+    .unwrap();
     assert_eq!(
-        arrival.label(),
-        "Skipped Spec review \u{b7} nothing before it runs"
+        skips(&w, &t).await,
+        ["product-spec", "tech-spec", "milestone-plan"]
     );
-    let listed = w.board.tickets("SHOP").await.unwrap();
-    assert_eq!(listed[0].flags.arrival.as_ref(), Some(&arrival));
     w.stop().await;
 }
 
-/// One planning stage left on, Spec review runs; a drag back into a skipped planning stage runs it once, and Spec
-/// review then runs too.
+/// "required" is a human check's choice: `Spec review=required` with every planning stage skipped is taken and
+/// skips nothing more (the check happens, as the flow says); "you" is no choice and is refused, nothing written; on an
+/// Agent stage "required" is refused too (its usual choice is its agent). A `usual` row on the check (a "required"
+/// stored) changes nothing, and the check can still be skipped.
+#[tokio::test(flavor = "multi_thread")]
+async fn required_keeps_the_check_and_you_is_not_a_choice() {
+    let w = world(&spec_first()).await;
+    let t = w.create("SHOP", "Fix cart total rounding").await;
+    let mut picks = skip_planning();
+    picks.push(pick("Spec review", "you", None));
+    let refused = choose(&w, &t, &picks, &Chooser::User).await.unwrap_err();
+    assert_eq!(refused.refusal(), Some(Refusal::NotAnOption));
+    assert_eq!(
+        refused.to_string(),
+        "Spec review runs no agent: its choices are required (you check it) and skip"
+    );
+    assert!(skips(&w, &t).await.is_empty());
+    let refused = choose(
+        &w,
+        &t,
+        &[pick("Product spec", "required", None)],
+        &Chooser::User,
+    )
+    .await
+    .unwrap_err();
+    assert_eq!(refused.refusal(), Some(Refusal::NotAnOption));
+    let mut picks = skip_planning();
+    picks.push(pick("Spec review", "required", None));
+    choose(&w, &t, &picks, &Chooser::User).await.unwrap();
+    assert_eq!(
+        skips(&w, &t).await,
+        ["product-spec", "tech-spec", "milestone-plan"]
+    );
+
+    let t = w.create("SHOP", "Saved carts").await;
+    // A "required" stored (a `usual` row).
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
+         VALUES (?, 'spec-review', 'usual', 'user', 0)",
+    )
+    .bind(&t.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    passed_on(&w, &t, &skip_planning()).await.unwrap();
+    assert_eq!(
+        skips(&w, &t).await,
+        ["product-spec", "tech-spec", "milestone-plan"]
+    );
+    choose(&w, &t, &[pick("Spec review", "skip", None)], &Chooser::User)
+        .await
+        .unwrap();
+    assert_eq!(
+        skips(&w, &t).await,
+        ["product-spec", "tech-spec", "milestone-plan", "spec-review"]
+    );
+    w.stop().await;
+}
+
+/// One planning stage left on, Spec review runs; with every planning stage skipped it runs too, before and after a
+/// drag back into one of them.
 #[tokio::test(flavor = "multi_thread")]
 async fn one_planning_stage_left_on_runs_spec_review() {
     let w = world(&spec_first()).await;
@@ -354,28 +420,24 @@ async fn one_planning_stage_left_on_runs_spec_review() {
         (Place::stage_of("spec-review"), Status::WaitingForYou)
     );
 
-    // Every planning stage skipped, then Product spec run by a drag back: Spec review runs.
     let other = w.create("SHOP", "Saved carts").await;
     passed_on(&w, &other, &skip_planning()).await.unwrap();
-    assert!(skips(&w, &other).await.contains(&"spec-review".to_owned()));
+    let planning = ["product-spec", "tech-spec", "milestone-plan"];
+    assert_eq!(skips(&w, &other).await, planning);
     ran(&w, &other, "product-spec", None).await;
-    assert_eq!(
-        skips(&w, &other).await,
-        ["product-spec", "tech-spec", "milestone-plan"]
-    );
+    assert_eq!(skips(&w, &other).await, planning);
     w.stop().await;
 }
 
-/// A set of choices that leaves a check that must run with nothing before it is refused, naming the stages: Spec
-/// review chosen to run ("required") with every planning stage skipped, in one request (the ⌘N form's batch, a new
-/// ticket) or one picker at a time (the sheet); and a check required by the flow. Nothing is written.
+/// A set of choices that leaves a check the flow doesn't mark skippable with nothing before it is refused, naming the
+/// stages, in one request (the ⌘N form's batch, a new ticket) or one picker at a time (the sheet). Nothing is written.
+/// A skippable check isn't stranded: skipping every planning stage with Spec review left to run is accepted.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_set_of_skips_that_strands_a_check_is_refused() {
     let w = world(&spec_first()).await;
     let mut picks = skip_planning();
     picks.push(pick("Spec review", "required", None));
-    // The ⌘N form: a ticket about to be created.
-    let refused = w
+    let accepted = w
         .board
         .check_choices(
             "SHOP",
@@ -386,20 +448,39 @@ async fn a_set_of_skips_that_strands_a_check_is_refused() {
             false,
         )
         .await
+        .unwrap();
+    assert_eq!(accepted.len(), 4);
+
+    // A check the flow requires (Spec review without `skip`; the flow check refuses this flow, so only a stored
+    // flow from before gets here).
+    let mut file = spec_first();
+    for stage in file
+        .flow
+        .stages
+        .iter_mut()
+        .filter(|s| s.id == "spec-review")
+    {
+        stage.options.clear();
+    }
+    w.board.use_flow_for_tests("SHOP", &file).await;
+    // The ⌘N form: a ticket about to be created.
+    let refused = w
+        .board
+        .check_choices(
+            "SHOP",
+            None,
+            "the new ticket",
+            &skip_planning(),
+            &Chooser::User,
+            false,
+        )
+        .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::StrandsCheck));
     assert_eq!(refused.to_string(), REFUSED);
 
-    // The sheet's pickers, one at a time: Spec review set to run, then the planning stages skipped.
+    // The sheet's pickers, one at a time: the third skip is refused.
     let t = w.create("SHOP", "Fix cart total rounding").await;
-    choose(
-        &w,
-        &t,
-        &[pick("Spec review", "required", None)],
-        &Chooser::User,
-    )
-    .await
-    .unwrap();
     choose(
         &w,
         &t,
@@ -422,31 +503,6 @@ async fn a_set_of_skips_that_strands_a_check_is_refused() {
     assert_eq!(refused.to_string(), REFUSED);
     assert_eq!(skips(&w, &t).await, ["product-spec", "tech-spec"]);
 
-    // While Spec review skips on its own, it can't be set to run.
-    let u = w.create("SHOP", "Saved carts").await;
-    passed_on(&w, &u, &skip_planning()).await.unwrap();
-    let refused = choose(
-        &w,
-        &u,
-        &[pick("Spec review", "required", None)],
-        &Chooser::User,
-    )
-    .await
-    .unwrap_err();
-    assert_eq!(refused.to_string(), REFUSED);
-
-    // A check the flow requires (Spec review without `skip`; the flow check refuses this flow, so only a stored
-    // flow from before gets here).
-    let mut file = spec_first();
-    for stage in file
-        .flow
-        .stages
-        .iter_mut()
-        .filter(|s| s.id == "spec-review")
-    {
-        stage.options.clear();
-    }
-    w.board.use_flow_for_tests("SHOP", &file).await;
     let v = w.create("SHOP", "Gift cards").await;
     let refused = passed_on(&w, &v, &skip_planning()).await.unwrap_err();
     assert_eq!(refused.to_string(), REFUSED);

@@ -431,10 +431,11 @@ stored_enum! {
         /// `set_by` (`user` / `agent` with `picked_by` and `reason`). History reads "Developer: Strong (set by
         /// you)".
         AgentRowSet = "agent_row_set",
-        /// A held session started on its tool's fallback, by the user's click (AGM-03): payload `role` (the session
-        /// role), `tool` and `model` (the fallback it runs on), `from_tool` and `reason` (`tool_limit`,
-        /// `tool_unavailable`, `model_unavailable`). History reads "Started on Codex · Claude Code limit".
-        FallbackUsed = "fallback_used",
+        /// Old only (Otaq no longer moves work to another tool; History keeps these lines): a held session started
+        /// on another tool by the user's click: payload `role` (the session role), `tool` and `model` (where it ran),
+        /// `from_tool` and `reason` (`tool_limit`, `tool_unavailable`, `model_unavailable`). History reads "Started
+        /// on Codex · Claude Code limit".
+        StartedOnAnotherTool = "fallback_used",
         /// A ticket's stage choice changed (AGM-08): payload `stage` (its name), `stage_id`, `choice` ("Quick
         /// developer", "skip", "required"), `from` (before; null = nobody had chosen), `set_by` (`user`,
         /// `project_agent`, `agent`), `by` ("you", "Noyan", "Spec writer") and `reason` (an agent's). History reads
@@ -1088,8 +1089,6 @@ impl Board {
         let check_counts = super::validation::project_check_counts(pool, project_id).await?;
         // How cards came to wait in a human check or at their Delivery (FLW-14).
         let mut arrivals = self.project_arrivals(project_id, &flow).await?;
-        // Each ticket's latest round of a Check stage with several check agents (d0130).
-        let check_rounds = project_check_rounds(pool, project_id).await?;
         // Each ticket's app ports (agents run the app).
         let mut app_ports = project_app_ports(pool, project_id).await?;
         // The host each ticket merged into another ticket's branch waits for: "Merged into SHOP-18".
@@ -1099,6 +1098,9 @@ impl Board {
                 .into_iter()
                 .map(|m| (m.ticket_id, m.into))
                 .collect();
+        // A stage held because its tool doesn't have its skill: the ticket waits in Needs you.
+        let mut missing_skills =
+            super::missing_skill::project_missing_skills(pool, project_id).await?;
 
         records
             .into_iter()
@@ -1215,34 +1217,8 @@ impl Board {
                         .unwrap_or(0),
                     ..Flags::default()
                 };
-                // While the card is in the check, or back from it, each check agent's verdict (d0130).
-                flags.check_round = check_rounds
-                    .get(&row.id)
-                    .filter(|_| {
-                        flags.validation_round.is_some()
-                            || matches!(
-                                status,
-                                Status::Checking
-                                    | Status::CheckerNeedsYou
-                                    | Status::CheckNoResult
-                                    | Status::CheckFailed
-                                    | Status::WaitingForLimitReset
-                            )
-                    })
-                    .cloned()
-                    .map(|mut round| {
-                        round.back_in = flags
-                            .validation_round
-                            .and(place.stage())
-                            .and_then(|id| flow.stage(id))
-                            .filter(|s| s.is_agent_stage())
-                            .map(|s| s.name.clone());
-                        round
-                    });
-                // One verdict is one checker's: a round of several says each agent's on the card instead.
-                if (flags.validation_round.is_some() || status == Status::CheckFailed)
-                    && flags.check_round.is_none()
-                {
+                // The checker's verdict, while the agent fixes it or after the last round failed.
+                if flags.validation_round.is_some() || status == Status::CheckFailed {
                     flags.verdict = verdicts
                         .get(&row.id)
                         .and_then(|body| first_line(body.as_deref()?));
@@ -1266,6 +1242,7 @@ impl Board {
                     .get(&row.id)
                     .filter(|_| status == Status::MergedInto)
                     .cloned();
+                flags.missing_skill = missing_skills.remove(&row.id);
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,
@@ -1455,9 +1432,6 @@ fn validating_round(
     })
 }
 
-/// Each ticket's latest validation round of the project when two or more check agents check in it (d0130): every
-/// agent's latest row in the stage's order, with its session's tool and model, and whether a change already cancelled
-/// a round with that number.
 /// The project's tickets' app ports (agents run the app), by ticket id, lowest port first.
 async fn project_app_ports(
     pool: &sqlx::SqlitePool,
@@ -1477,71 +1451,6 @@ async fn project_app_ports(
         }
     }
     Ok(all)
-}
-
-async fn project_check_rounds(
-    pool: &sqlx::SqlitePool,
-    project_id: &str,
-) -> Result<std::collections::HashMap<String, crate::domain::CheckRoundFlag>, BoardError> {
-    type Row = (
-        String,
-        String,
-        i64,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-        Option<String>,
-    );
-    let rows: Vec<Row> = sqlx::query_as(
-        "SELECT v.ticket_id, COALESCE(v.round_id, v.id), v.round, v.agent, v.outcome, s.tool,
-                COALESCE(s.model_ran, s.model)
-         FROM validations v JOIN tickets t ON t.id = v.ticket_id
-         LEFT JOIN sessions s ON s.id = v.session_id
-         WHERE t.project_id = ? ORDER BY v.started_at, v.rowid",
-    )
-    .bind(project_id)
-    .fetch_all(pool)
-    .await?;
-    let mut by_ticket: std::collections::HashMap<String, Vec<Row>> =
-        std::collections::HashMap::new();
-    for row in rows {
-        by_ticket.entry(row.0.clone()).or_default().push(row);
-    }
-    Ok(by_ticket
-        .into_iter()
-        .filter_map(|(ticket, rows)| {
-            let (_, latest, round, ..) = rows.last()?.clone();
-            let mut agents: Vec<crate::domain::CheckAgentFlag> = Vec::new();
-            for (_, _, _, agent, outcome, tool, model) in rows.iter().filter(|r| r.1 == latest) {
-                let flag = crate::domain::CheckAgentFlag {
-                    name: agent.clone()?,
-                    tool: tool.as_deref().and_then(|t| t.parse().ok()),
-                    model: model.clone(),
-                    outcome: outcome.as_deref().and_then(|o| o.parse().ok()),
-                };
-                // A re-run adds a row for its agent: the latest counts.
-                match agents.iter_mut().find(|a| a.name == flag.name) {
-                    Some(slot) => *slot = flag,
-                    None => agents.push(flag),
-                }
-            }
-            let cancelled = crate::domain::ValidationOutcome::Cancelled.as_str();
-            let again = rows
-                .iter()
-                .any(|r| r.1 != latest && r.2 == round && r.4.as_deref() == Some(cancelled));
-            (agents.len() > 1).then(|| {
-                (
-                    ticket,
-                    crate::domain::CheckRoundFlag {
-                        round: u32::try_from(round).unwrap_or(0),
-                        agents,
-                        again,
-                        back_in: None,
-                    },
-                )
-            })
-        })
-        .collect())
 }
 
 /// A comment's first line with text, trimmed: what a card shows of a verdict.

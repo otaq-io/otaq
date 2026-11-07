@@ -128,8 +128,6 @@ impl TestService {
         let mut page = crate::agents::store::NewAgent {
             name: agent.name.clone(),
             instructions: agent.instructions.clone(),
-            skills: agent.skills.clone(),
-            imported: agent.imported.clone(),
             model: agent.model.clone(),
             effort: agent.effort.clone(),
             role: agent.role,
@@ -147,36 +145,54 @@ impl TestService {
             .expect("the agent")
     }
 
-    /// Imports the skill `folder` onto the agent that runs `step` on the default flow (Developer; Validator for
-    /// Validate) in place of the step's shipped skill, and for Validate and Open PR names it on that stage of every
-    /// project's flow (Q296: a flow names the stage's skill). A Commit or Push skill runs when it is named as the
-    /// step's skill (`commit`, `push`: [`crate::skills::Sources::runs`]).
-    pub async fn import_step_skill(
+    /// The user's skill in `folder` (its SKILL.md's `name:`) for `step`: for Validate and Open PR named on that stage
+    /// of every project's flow (Q296: a flow names the stage's skill). Nothing is copied or imported: the folder stays
+    /// where it is, as the user's own skills do. The agent that runs `step` on the default flow (Developer; Validator
+    /// for Validate).
+    pub async fn use_step_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
         folder: &std::path::Path,
     ) -> crate::agents::Agent {
         use crate::board::settings::WorkflowStep;
-        let agent = self.step_agent(step).await;
-        let imported = crate::agents::skills::import(&self.board, &agent.id, folder)
-            .await
-            .expect("skill imported");
-        let name = imported.imported.last().expect("the import").name.clone();
-        let agent = self
-            .edit_agent(&agent.name, |page| {
-                let own = crate::agents::SkillRef::Shipped(step.own_skill().to_owned());
-                page.skills.retain(|s| *s != own);
-            })
-            .await;
+        let text = std::fs::read_to_string(folder.join(crate::skills::folder::SKILL_FILE))
+            .expect("the skill's SKILL.md");
+        let name = crate::skills::folder::skill_name(&text).expect("the skill's name");
         if matches!(step, WorkflowStep::Validate | WorkflowStep::OpenPr) {
             self.name_stage_skill(step, Some(&name)).await;
         }
-        agent
+        self.claude_has_skill(&name).await;
+        self.step_agent(step).await
+    }
+
+    /// Gives Claude Code the user's skill `name` in every project: a folder in the checkout's `.claude/skills`
+    /// (Claude Code's own fallback; kept out of git, so the checkout stays clean). A stage runs only on a tool that
+    /// has its skill, so a test whose stage names a skill of the user's gives it to the tool first.
+    pub async fn claude_has_skill(&self, name: &str) {
+        for project in self.board.store().projects().await.expect("projects") {
+            let checkout = std::path::Path::new(&project.repo_path);
+            let folder = checkout.join(".claude").join("skills").join(name);
+            std::fs::create_dir_all(&folder).expect("the skill's folder");
+            std::fs::write(
+                folder.join(crate::skills::folder::SKILL_FILE),
+                format!("---\nname: {name}\ndescription: The user's {name}.\n---\n\nDo it.\n"),
+            )
+            .expect("the skill's SKILL.md");
+            let exclude = checkout.join(".git").join("info").join("exclude");
+            let mut text = std::fs::read_to_string(&exclude).unwrap_or_default();
+            if !text.lines().any(|l| l == ".claude/skills/") {
+                text.push_str("\n.claude/skills/\n");
+                if let Some(dir) = exclude.parent() {
+                    std::fs::create_dir_all(dir).expect("git's info folder");
+                }
+                std::fs::write(&exclude, text).expect("git's exclude file");
+            }
+        }
     }
 
     /// Names `skill` on the stage of every project's flow that runs `step` (Validate, or the Delivery for Open PR);
     /// `None` puts the stage back on Otaq's skill.
-    async fn name_stage_skill(
+    pub async fn name_stage_skill(
         &self,
         step: crate::board::settings::WorkflowStep,
         skill: Option<&str>,
@@ -204,18 +220,8 @@ impl TestService {
         }
     }
 
-    /// Puts the agent that runs `step` back on the shipped skill: its imported ones go, and the stage names Otaq's
-    /// skill again.
+    /// Puts `step` back on the shipped skill: the stage names Otaq's skill again.
     pub async fn drop_step_skill(&self, step: crate::board::settings::WorkflowStep) {
-        let agent = self.step_agent(step).await;
-        self.edit_agent(&agent.name, |page| {
-            let gone: Vec<String> = page.imported.iter().map(|s| s.id.clone()).collect();
-            page.skills.retain(
-                |s| !matches!(s, crate::agents::SkillRef::Imported(id) if gone.contains(id)),
-            );
-            page.imported.clear();
-        })
-        .await;
         self.name_stage_skill(step, None).await;
     }
 
@@ -394,8 +400,8 @@ impl TestService {
         .expect("round opened");
     }
 
-    /// Puts the ticket in Validating with an open round 1 of several check agents (d0130), each `(agent, session)` a
-    /// row of the round judged by that session.
+    /// Puts the ticket in Validating with an open round 1 as stored from when a check could have several agents, each
+    /// `(agent, session)` a row of the round judged by that session.
     pub async fn validating_with_agents(&self, ticket: &Ticket, checkers: &[(&str, &str)]) {
         self.force_status(ticket, Status::Checking).await;
         let round = crate::store::new_id();
@@ -476,7 +482,6 @@ impl TestService {
                 model: None,
                 agent: None,
                 effort: None,
-                fallback: None,
                 theme: None,
             })
             .await

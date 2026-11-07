@@ -82,12 +82,6 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "agents.default_model" {
             params["model"] = json!({"tool": "claude"});
         }
-        if method == "agents.import_skill" {
-            params["folder"] = json!("/nonexistent");
-        }
-        if method == "agents.reimport_skill" {
-            params["skill"] = json!("nope");
-        }
         if method == "agents.reads" {
             params["agent"] = json!("nope");
         }
@@ -97,7 +91,6 @@ fn sample(method: &str, unit: bool) -> Request {
         }
         if method.starts_with("agent_tools.")
             || method.starts_with("limits.")
-            || method == "agents.fallback"
             || method == "onboarding.ask"
         {
             params["tool"] = json!("codex");
@@ -187,6 +180,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectUpdate(_)
         | Request::ProjectRemove(_)
         | Request::ProjectBranches(_)
+        | Request::SkillsList(_)
         | Request::ProjectPrProvider(_)
         | Request::BoardSnapshot(_)
         | Request::TicketGet(_)
@@ -203,6 +197,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketDeletePreview(_)
         | Request::TicketDelete(_)
         | Request::TicketRetryStart(_)
+        | Request::TicketCheckAgain(_)
         | Request::TicketHistory(_)
         | Request::TicketClose(_)
         | Request::TicketReopen(_)
@@ -384,9 +379,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentsInUse(_)
         | Request::AgentsMoveRole(_)
         | Request::AgentsDefaultModel(_)
-        | Request::AgentsFallback(_)
-        | Request::AgentsImportSkill(_)
-        | Request::AgentsReimportSkill(_)
         | Request::AgentsReads(_)
         | Request::AgentsPause(_)
         | Request::AgentsResume(_)
@@ -403,8 +395,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsInstall(_)
         | Request::AgentToolsDisconnect(_)
         | Request::LimitsResumeTool(_)
-        | Request::LimitsUseFallbackNow(_)
-        | Request::TicketUseFallback(_)
         | Request::RecentItems(_) => false,
     }
 }

@@ -1,8 +1,8 @@
 // The pickers of Settings → Agents (T-0410, from T-0343 / T-0366; AGT-02, AGM-03, d0086): one agent's Model field (*15 →
 // Add agent · model picker open* `s15-30`), a list under the field with only what the tool's own list has, nothing
 // typed, or while that list isn't there its loading or couldn't-load line with Retry (`GTuGI`), and "no longer listed"
-// on the field (`OCna6`); and the Agents page's dropdowns of a tool and a model (the default model, each tool's
-// fallback: every connected tool under its name, then its models). Every row comes from the Rust views
+// on the field (`OCna6`); and the Agents page's dropdown of a tool and a model (the default model: every connected
+// tool under its name, then its models). Every row comes from the Rust views
 // (`model_picker.rs`, `agents.rs`); this keeps only whether the list is open and which row is highlighted. The keys are
 // the menus' (`menuKey`): ↑/↓ move, Home/End, ↵ or Space picks, Esc or Tab closes.
 import {
@@ -447,7 +447,7 @@ export function Dropdown({
   );
 }
 
-/** A tool and a model, as the page sends it back; `null`: the fallback's "None". */
+/** A tool and a model, as the page sends it back; `null`: a line without a tool. */
 export type ModelPick = { tool: string; model: string | null } | null;
 
 /** The dropdown's lines: each tool's name as a heading, its models, and a note while its list isn't there. */
@@ -471,7 +471,7 @@ export function pickOf(choices: readonly AgentsModelChoice[], id: string): Model
   return c.tool === null ? null : { tool: c.tool, model: c.model };
 }
 
-/** The default model and a fallback (AGM-03): "Claude Code · sonnet ▾" over every connected tool's list. */
+/** The default model (AGM-03): "Claude Code · sonnet ▾" over every connected tool's list. */
 export function ModelDropdown({
   label,
   dropdown,

@@ -16,6 +16,7 @@ use otaq_core::messages::{MessageState, Route};
 use otaq_core::naming;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::skills::testing::claude_skill;
 use tempfile::TempDir;
 
 const CONVERSATION: &str = "0199aaaa-bbbb-7ccc-8ddd-eeeeffff0000";
@@ -127,7 +128,7 @@ async fn a_merged_parent_is_resumed_answer_only_and_cleaned_up() {
         "{printed}"
     );
     assert!(
-        printed.contains(&format!("/{}", naming::copy_name("answer-question"))),
+        printed.contains(&claude_skill("answer-question")),
         "{printed}"
     );
     assert!(worktree.is_dir(), "recreated at the same path");

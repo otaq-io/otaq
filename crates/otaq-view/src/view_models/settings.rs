@@ -222,7 +222,8 @@ pub struct ProviderRow {
     pub description: String,
     /// "GitHub (detected from origin) · gh: logged in"; for a remote that isn't detected, the lead "Not detected:".
     pub status: String,
-    /// "use your own Open PR skill" (a link to the Open PR field) when nothing was detected.
+    /// "use your own Open PR skill" (a link to the Delivery stage's Skill field in the flow editor) when nothing was
+    /// detected.
     pub link: Option<&'static str>,
     pub tone: ProviderTone,
 }

@@ -9,9 +9,9 @@
 //! (d0034, d0108 rule 6, d0109); it then walks every later stage again. The click is the go-ahead (d0018), so it is
 //! never held, except by the optional agent limit (with no line comments, the plain sentence goes in place of the
 //! skill and what came back, d0131 Q514: "Spec review sent SHOP-40 back to you with a comment. Run `otaq prime`."):
-//! - the stage's own session is **live**: `/otaq-address-review` is typed into it (a copy it started with, d0118; one it didn't
-//!   is named by its file, [`crate::session::deliveries::handoff_sentence`]), with what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment. Run `otaq
-//!   prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
+//! - the stage's own session is **live**: Otaq's `address-review` is typed into it by its name (`/otaq:address-review`
+//!   for Claude Code), with what came back and never its text ("SHOP-18 was sent back to Dev with 2 line comments and a
+//!   comment. Run `otaq prime`, then `otaq review feedback`.", CMT-05), at once through the user-click path (unsent text in its input
 //!   line answers "needs confirmation" first, d0048) and the ticket is Agent Working;
 //! - the session is **gone**: the same click resumes the stored conversation on its tool, in the
 //!   ticket's worktree with the skill and that text as its first prompt; a live session of a later stage (the
@@ -287,7 +287,7 @@ impl Review {
             if moved.place.is_waiting() {
                 self.inner.scheduler.wake();
             }
-            // Into an automatic Delivery: it delivers now, unless the card was moved past a check (FLW-15).
+            // Into an automatic Delivery: it delivers now, whatever checks it skipped or was moved past (FLW-15).
             board.delivery().arrived(&ticket.id).await;
         }
         Ok(PassOutcome::Moved {
@@ -665,20 +665,12 @@ impl Review {
                 let told = self
                     .record(ticket, action, Status::Working, None, actor)
                     .await?;
-                let worktree = ticket
-                    .work
-                    .as_ref()
-                    .and_then(|w| w.worktree.as_deref())
-                    .map(std::path::Path::new);
                 // The skill, then what came back (never the note's text: the agent reads it in `prime`, CMT-05); no
                 // skill, the sentence alone.
                 let text = match skill {
-                    Some(skill) => {
-                        inner
-                            .deliveries
-                            .skill_line(&inner.board, &session.id, worktree, skill, told.as_deref())
-                            .await
-                    }
+                    Some(skill) => inner
+                        .deliveries
+                        .skill_text(&session.id, skill, told.as_deref()),
                     None => told.unwrap_or_default(),
                 };
                 // Pending for the agent once typed (d0118).
@@ -703,7 +695,10 @@ impl Review {
                 self.record(ticket, action, Status::Queued, skill, actor)
                     .await?;
                 match inner.starter.start(&key, actor, Start::Auto).await? {
-                    StartOutcome::Started(_) | StartOutcome::Skipped | StartOutcome::Kept => {}
+                    StartOutcome::Started(_)
+                    | StartOutcome::Skipped
+                    | StartOutcome::Kept
+                    | StartOutcome::InCheck => {}
                     StartOutcome::Held { message } | StartOutcome::Interrupted { message, .. } => {
                         tracing::warn!(ticket = %ticket.key, %message, "resuming the agent stopped");
                     }

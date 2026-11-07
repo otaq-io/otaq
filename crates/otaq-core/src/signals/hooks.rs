@@ -12,6 +12,34 @@ use crate::agent_tools::ToolEvent;
 /// Starts the stored prompt of a request raised inside a helper agent (the card shows a bot icon for it).
 pub const HELPER_PROMPT_PREFIX: &str = "helper agent asks: ";
 
+/// Starts the stored text of an Idle that a failed turn left (F10): the tool stopped on an error of its own (a
+/// provider's error after the tool gave up, a refused key), and the card shows the tool's message.
+pub const TOOL_ERROR_PREFIX: &str = "tool error: ";
+
+/// The longest tool message an Idle keeps (its first line, cut with "…").
+pub const TOOL_ERROR_MAX_CHARS: usize = 200;
+
+/// The stored text of a failed turn's Idle: [`TOOL_ERROR_PREFIX`] and the tool's message (its first non-empty
+/// line, at most [`TOOL_ERROR_MAX_CHARS`]), else the tool's error kind.
+pub fn tool_error_text(error: &str, message: Option<&str>) -> String {
+    let line = message
+        .into_iter()
+        .flat_map(str::lines)
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .unwrap_or(error);
+    let short = match line.char_indices().nth(TOOL_ERROR_MAX_CHARS) {
+        Some((cut, _)) => format!("{}\u{2026}", line[..cut].trim_end()),
+        None => line.to_owned(),
+    };
+    format!("{TOOL_ERROR_PREFIX}{short}")
+}
+
+/// The tool's message in an Idle's stored text that a failed turn left; `None` for any other text.
+pub fn tool_error(text: &str) -> Option<&str> {
+    text.strip_prefix(TOOL_ERROR_PREFIX)
+}
+
 /// What happened in the session's current turn, as far as the turn-end rule cares.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnFacts {
@@ -48,7 +76,9 @@ pub enum Signal {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         resets_at: Option<i64>,
     },
-    /// The turn failed for another reason: logged; the status stays.
+    /// The turn failed for another reason (a provider's error after the tool gave up, a refused key; F10): logged,
+    /// and the card stops on Idle with the tool's message ([`tool_error_text`]). It doesn't end the turn for the
+    /// delivery queue: a waiting message stays held (Deliver now sends it) until the session continues.
     Failed {
         error: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]

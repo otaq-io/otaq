@@ -35,6 +35,10 @@ pub struct TicketCardView {
     pub title: String,
     /// The one status line; `null` on a calm Backlog card.
     pub status: Option<StatusLine>,
+    /// "Codex doesn't have the skill `/team-validate`": one line under the status line while a stage waits because its
+    /// tool doesn't have the skill it names (the card offers Check again and Change agent…). The skill's name is in
+    /// backticks: the page draws it as code.
+    pub skill_warning: Option<String>,
     /// "Blocks SHOP-20" under the line, muted, with the List's "blocks 1" (DPV-01).
     pub blocks: Option<crate::view_models::dependencies::Blocks>,
     /// The tool mark of whoever has the turn; `null` while only one tool is connected (d0086).
@@ -47,11 +51,6 @@ pub struct TicketCardView {
     pub edge: Option<Tone>,
     /// The card's one action (Answer, Reply, Review, Decide…).
     pub action: Option<CardAction>,
-    /// After the action, the one check agent it acts on: "for Performance only", "re-runs Performance only" (d0130).
-    pub action_note: Option<String>,
-    /// A Check stage with several check agents (d0130, `s29-04`): a row per check agent under the line, which is the
-    /// round's ("Validate · round 1 of 3"), and its note; the rows name the agents, so `avatar` and `who` are empty.
-    pub check: Option<crate::view_models::check_agents::RoundView>,
     /// "Plan · 4 pieces", "Plan · 2 pieces so far": quiet, under the line (d0133, `s30-01`); none without pieces.
     pub plan: Option<String>,
     /// A build stage's pieces, a row each (d0133, `s30-02`): "PIECES · 4", "40.2 · Wishlist button · working".
@@ -75,21 +74,22 @@ impl TicketCardView {
 
     /// From a view model already built (the board's, with its queue facts and signal).
     pub fn from_vm(vm: CardViewModel, ticket: &Ticket) -> Self {
-        let check = vm.one_line.check.map(|c| *c);
-        let several = check.is_some();
         Self {
             key: vm.key.to_string(),
             priority: priority::on_card(ticket.priority).map(priority::view),
             title: vm.title,
             status: vm.one_line.line,
+            skill_warning: ticket
+                .flags
+                .missing_skill
+                .as_ref()
+                .map(otaq_core::domain::MissingSkill::text),
             blocks: vm.one_line.blocks,
-            avatar: vm.avatar.filter(|_| !several),
-            who: vm.one_line.who.filter(|_| !several),
+            avatar: vm.avatar,
+            who: vm.one_line.who,
             time: vm.one_line.time,
             edge: vm.one_line.edge,
             action: vm.one_line.action,
-            action_note: vm.one_line.action_note,
-            check,
             plan: vm.plan,
             pieces: vm.pieces.map(|p| *p),
             origin: vm.origin,
@@ -124,13 +124,11 @@ pub struct CardGallery {
     /// *04 → Variants · one tool (M22)* and the picked-by cards (T-0345): the footer's agent part, Start failed and
     /// No result on a refused model.
     pub agents: Vec<GalleryCell>,
-    /// *04 → Variants · several tools (M23)* and the fallback and limit cards (T-0362): avatars on, Unavailable,
-    /// waiting on a tool, moved by a fallback.
+    /// *04 → Variants · several tools (M23)* and the held and limit cards (T-0362): avatars on, Unavailable, waiting
+    /// on a tool.
     pub tools: Vec<GalleryCell>,
     /// *03 → cards in an agent check, your check, deliveries, conflicts, Done* (`s03-44`…`s03-54`, T-0424).
     pub flows: Vec<GalleryCell>,
-    /// *29 → On the card*, *30 → When a check agent doesn't finish*: a Check stage with two check agents (d0130).
-    pub checks: Vec<GalleryCell>,
     /// *30 → The card in Dev*: a build stage's piece rows (d0133, T-0541).
     pub pieces: Vec<GalleryCell>,
     /// *30 → Planning on the board*: one card per ticket while it plans (d0129, T-0548).
@@ -150,10 +148,6 @@ pub fn gallery() -> CardGallery {
         agents: card_fixtures::agent_variants().iter().map(cell).collect(),
         tools: card_fixtures::tool_variants().iter().map(cell).collect(),
         flows: card_fixtures::flow_variants().iter().map(cell).collect(),
-        checks: card_fixtures::check_agent_variants()
-            .iter()
-            .map(cell)
-            .collect(),
         pieces: card_fixtures::piece_variants().iter().map(cell).collect(),
         planning: card_fixtures::planning_variants()
             .iter()
@@ -180,6 +174,28 @@ mod tests {
     fn line(card: &TicketCardView) -> (&str, Palette, Tone) {
         let line = card.status.as_ref().expect("a status line");
         (line.text.as_str(), line.dot, line.tone)
+    }
+
+    /// A stage held because its tool doesn't have its skill says, word for word, "Codex doesn't have the skill
+    /// `/team-validate`" on a line of its own; any other card says nothing.
+    #[test]
+    fn a_stage_held_for_its_skill_says_which_under_its_line() {
+        use crate::view_models::card_fixtures::{NOW, ticket};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::domain::{MissingSkill, Status};
+        let mut t = ticket("SHOP-41", "Cart totals", Status::Checking);
+        let calm = TicketCardView::of(&t, &CardExtras::default(), NOW);
+        assert_eq!(calm.skill_warning, None);
+
+        t.flags.missing_skill = Some(MissingSkill {
+            tool: Tool::Codex,
+            skill: "team-validate".into(),
+        });
+        let card = TicketCardView::of(&t, &CardExtras::default(), NOW);
+        assert_eq!(
+            card.skill_warning.as_deref(),
+            Some("Codex doesn\u{2019}t have the skill `/team-validate`")
+        );
     }
 
     /// PAU-03, PAU-08 (`s24-07`): a ticket the pause stopped reads "Paused" in amber, with what it was doing, its

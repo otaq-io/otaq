@@ -74,9 +74,9 @@ pub fn cancelled_toast(key: &str, by: CancelledBy) -> (String, String) {
 }
 
 /// The automatic local Delivery's toast (frame *11 → Success toasts*): "SHOP-41 merged automatically into main" ·
-/// "Validated · round 1 · local, not pushed · SHOP-42 can start". `into` is the base branch; `round` is the round that passed, `None` with no check passed before the
-/// Delivery ("Delivered without checks", d0108 rule 8); `started` are the waiting tickets that started after the
-/// merge.
+/// "Validated · round 1 · local, not pushed · SHOP-42 can start". `into` is the base branch; `round` is the round
+/// that passed, `None` with a check before the Delivery not passed ("Delivered without all checks"); `started` are the
+/// waiting tickets that started after the merge.
 pub fn merged_toast(
     key: &str,
     into: &str,
@@ -97,8 +97,9 @@ pub fn merged_toast(
     (format!("{key} merged automatically into {into}"), message)
 }
 
-/// "Delivered without checks": an automatic Delivery with no check passed before it (d0108 rule 8).
-pub const DELIVERED_WITHOUT_CHECKS: &str = "Delivered without checks";
+/// "Delivered without all checks": an automatic Delivery with a check before it that didn't pass (skipped, moved past) or
+/// no check at all.
+pub const DELIVERED_WITHOUT_CHECKS: &str = "Delivered without all checks";
 
 /// "Keeps conflicting with `main`": a Delivery's third conflict in a row (FLW-17, AMG-03).
 pub fn keeps_conflicting(target: &str) -> String {
@@ -191,20 +192,20 @@ impl fmt::Display for ValidationRound {
 }
 
 stored_enum! {
-    /// How the user moved a card past an agent check (`check_counters.moved_past`, FLW-13): either way the card
-    /// reaches its Delivery in click mode (d0108 "Move on anyway"; Q277).
+    /// How the user moved a card past an agent check (`check_counters.moved_past`, FLW-13): its card says so; its
+    /// Delivery still does what the flow says.
     pub enum MovedPast ("moved past") {
         /// Move on anyway after the check's last allowed round failed: "Failed Security 3 times · moved by you".
         Failed = "failed",
-        /// Skip this check (on a running check, or one held for the plan limit with no usable fallback), or Move on
+        /// Skip this check (on a running check, or one held for the plan limit), or Move on
         /// anyway after it ended without a result: "Skipped Security · by you".
         Skipped = "skipped",
     }
 }
 
 impl MovedPast {
-    /// Why the card's Delivery waits for a click: "Failed Security 3 times · moved by you", "Skipped Security · by
-    /// you". `fails` are the check's fails in a row when the card was moved on.
+    /// How its card says it: "Failed Security 3 times · moved by you", "Skipped Security · by you". `fails` are the
+    /// check's fails in a row when the card was moved on.
     pub fn reason(self, check: &str, fails: u32) -> String {
         match self {
             Self::Failed => format!("Failed {check} {} · moved by you", times_word(fails)),
@@ -273,9 +274,9 @@ stored_enum! {
     pub enum ValidationAction ("validation action") {
         /// While validating: the validator stops, the round doesn't count, back to Agent Working.
         Stop = "stop",
-        /// While validating: Ready for Review, "Validation skipped by you", never auto-merged.
+        /// While validating: Ready for Review, "Validation skipped by you"; its Delivery as the flow says.
         Skip = "skip",
-        /// After the last failed round, or no result: Ready for Review without a pass, never auto-merged.
+        /// After the last failed round, or no result: Ready for Review without a pass; its Delivery as the flow says.
         MoveOnAnyway = "move_on_anyway",
         /// After the last failed round: the findings go to the agent, one more round is allowed.
         AnotherRound = "another_round",
@@ -338,7 +339,7 @@ mod tests {
         );
         assert_eq!(
             merged_toast("SHOP-18", "main", None, &[]).1,
-            "Delivered without checks · local, not pushed"
+            "Delivered without all checks · local, not pushed"
         );
         assert_eq!(
             merged_toast(
@@ -367,7 +368,7 @@ mod tests {
         );
     }
 
-    /// T-0417 (FLW-13): why a card moved past a check reaches its Delivery in click mode.
+    /// T-0417 (FLW-13): how a card moved past a check says it.
     #[test]
     fn moved_past_reasons() {
         assert_eq!(

@@ -3,8 +3,12 @@ import type { MenuItem } from "./MenuItem";
 import type { MenuSearch } from "./MenuSearch";
 
 /**
- * Pick a skill…: the user's imported skills (any agent's), searchable, each with its description as a second line;
- * the item's id is the skill's name. With none, one disabled line says so (Q-C: not drawn). `FlowEditorSkillPicker`
- * on the page.
+ * Pick a skill…: the skills the user already has (personal ones, then the project's), then Otaq's own, searchable;
+ * each item's second line says where it lives, which tools have it and what it does ("Personal · Claude Code ·
+ * Lists the steps…", "Otaq’s · …": every tool has Otaq's own), its id is the skill's name. Never empty: Otaq's own are always there. `FlowEditorSkillPicker` on the page.
  */
-export type FlowEditorSkillPicker = { title: string, search: MenuSearch, items: Array<MenuItem>, };
+export type FlowEditorSkillPicker = { title: string, search: MenuSearch, items: Array<MenuItem>, 
+/**
+ * The last item while searching, for a name typed by hand: "Use `{name}`", `{name}` the typed text (its id).
+ */
+use_typed: string, };

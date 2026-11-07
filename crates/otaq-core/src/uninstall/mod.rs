@@ -6,7 +6,8 @@
 //! [`Uninstall::remove`] (UNI-05, all but the data folder) runs only once the user answered both questions: it stops
 //! every session and lets none start again, then, from a scan taken after that, runs each ticket's resource Remove
 //! (Q564) and `git worktree remove --force` on each worktree (when they were confirmed) and on each merge worktree,
-//! and removes Otaq's marked skill copies from the projects' checkouts. Never a branch, never the user's files.
+//! and removes the skill copies an older Otaq left in the projects' checkouts and in the worktrees still there. Never a
+//! branch, never the user's files.
 //!
 //! Which ticket owns a worktree is the Cleanup scan's rule ([`Cleanup::worktree_owners`], REC-04), never a second one.
 
@@ -349,7 +350,7 @@ pub enum StepKind {
     MergeWorktree,
     /// A ticket's resource Remove (d0087, Q564).
     Resources,
-    /// A marked skill copy in a project's checkout (d0098).
+    /// A skill copy an older Otaq left in a project's checkout or a worktree.
     SkillCopy,
 }
 
@@ -478,18 +479,39 @@ impl Uninstall {
             .await;
         }
 
-        // Otaq's marked skill copies in each checkout (d0098), as the service's start removes them.
-        for project in scan.projects.iter().filter(|p| p.repo_exists) {
-            let root = PathBuf::from(&project.repo_path);
+        // The skill copies an older Otaq left, as the service's start removes them: in each checkout, and in each
+        // worktree and merge worktree still there (left for the data folder, not confirmed, or git's removal failed).
+        let checkouts = scan
+            .projects
+            .iter()
+            .filter(|p| p.repo_exists)
+            .map(|p| (PathBuf::from(&p.repo_path), Some(p.key.clone()), None));
+        let worktrees = scan
+            .worktrees
+            .iter()
+            .map(|w| (PathBuf::from(&w.path), w.project.clone(), w.ticket.clone()));
+        let merges = scan
+            .merge_worktrees
+            .iter()
+            .map(|m| (PathBuf::from(&m.path), m.project.clone(), None));
+        for (root, project, ticket) in checkouts.chain(worktrees).chain(merges) {
             let names = tokio::task::spawn_blocking({
                 let root = root.clone();
-                move || crate::skills::copy::remove_marked_copies(&root)
+                move || crate::skills::copy::remove_leftovers(&root)
             })
-            .await
-            .unwrap_or_default();
+            .await;
+            let names = match names {
+                Ok(Ok(names)) => names,
+                Ok(Err(e)) => {
+                    tracing::warn!(folder = %root.display(), error = %e, "uninstall: can't read a folder's skills; its copies are left");
+                    continue;
+                }
+                Err(_) => continue,
+            };
             for name in names {
                 outcome.removed.push(UninstallStep {
-                    project: Some(project.key.clone()),
+                    project: project.clone(),
+                    ticket: ticket.clone(),
                     ..UninstallStep::new(
                         StepKind::SkillCopy,
                         root.join(&name).display().to_string(),

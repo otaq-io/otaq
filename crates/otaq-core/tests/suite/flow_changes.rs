@@ -7,14 +7,10 @@
 
 use std::collections::HashSet;
 use std::path::Path;
-use std::time::Duration;
 
-use otaq_core::agent_tools::LaunchContext;
-use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::agents::FixedModels;
 use otaq_core::board::moves::DropTarget;
-use otaq_core::board::stage_choices::{ChoicePick, Chooser};
-use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::board::tickets::Ticket;
 use otaq_core::board::{BoardError, Refusal};
 use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::apply::{ProposeFrom, Wait};
@@ -24,7 +20,6 @@ use otaq_core::flow::proposal::{
 };
 use otaq_core::flow::{FlowFile, StageOption, check, yaml};
 use otaq_core::scheduler::{Gate, plan_holding};
-use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 
 fn me() -> Actor {
@@ -70,6 +65,58 @@ fn stages_only(file: &FlowFile) -> String {
         .collect::<Vec<_>>()
         .join("\n")
         + "\n"
+}
+
+/// A stage whose agent's tool doesn't have its skill only warns: "Codex doesn’t have the skill `/team-validate`" on the
+/// stage, and the flow applies (the stage is held when due to start on that tool). The same skill on an agent whose
+/// tool has it doesn't warn.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
+    let (w, key) = world().await;
+    // Committed in the project's `.claude/skills`: Claude Code, Copilot and OpenCode read it; Codex doesn't.
+    let repo = std::path::PathBuf::from(w.board.project(&key).await.unwrap().repo_path);
+    std::fs::create_dir_all(repo.join(".claude/skills/team-validate")).unwrap();
+    otaq_core::git::testing::commit(
+        &repo,
+        ".claude/skills/team-validate/SKILL.md",
+        "---\nname: team-validate\ndescription: The team's check.\n---\n\nCheck it.\n",
+    );
+    let doc = |name: &str, model: &str| {
+        format!(
+            "agents:\n  - name: {name}\n    model: {model}\nflow:\n  - name: Dev\n    kind: agent\n    agent: \
+             Developer\n    skill: work-ticket\n  - name: Validate\n    kind: check\n    by: agent\n    agent: \
+             {name}\n    skill: team-validate\n    rounds: 1\n  - name: Review\n    kind: check\n    by: you\n  \
+             - name: Done\n    kind: delivery\n    column: with-previous\n    agent: Developer\n    mode: click\n    \
+             delivers: either\n"
+        )
+    };
+    let warned = |p: &Proposal| -> Vec<(Option<String>, String)> {
+        p.diff
+            .warnings
+            .iter()
+            .map(|w| (w.stage.clone(), w.text.clone()))
+            .collect()
+    };
+    let on_codex = propose_as(&w, &key, &doc("Codex checker", "codex"), planner())
+        .await
+        .unwrap();
+    assert!(on_codex.problems.is_empty(), "{:?}", on_codex.problems);
+    assert_eq!(
+        warned(&on_codex),
+        [(
+            Some("Validate".to_owned()),
+            "Codex doesn\u{2019}t have the skill `/team-validate`".to_owned()
+        )]
+    );
+    w.board
+        .apply_proposal(&key, on_codex.id, &ApplyChoices::default(), &models())
+        .await
+        .expect("only a warning: the flow applies");
+    let on_claude = propose_as(&w, &key, &doc("Claude checker", "claude"), planner())
+        .await
+        .unwrap();
+    assert_eq!(warned(&on_claude), []);
+    w.stop().await;
 }
 
 /// pocket-api on the default flow, its key.
@@ -131,10 +178,10 @@ async fn create(w: &TestService, key: &str, title: &str) -> Ticket {
 }
 
 /// FLW-03: every refusal names its stage or agent: each has its broken file in `tests/flows/broken/` (each STG-02
-/// rule; an unknown agent, a bad agent name, a model that doesn't read or the tool doesn't list, an agent's or a
-/// stage's skill that isn't on this machine, a written `_` id, a document that doesn't read), except two skills with
-/// one copy name, which needs a skill folder's absolute path.
-/// The user's own import opens with them marked instead, with what to do about the fixable ones.
+/// rule; an unknown agent, a bad agent name, a model that doesn't read or the tool doesn't list, a written `_` id, a
+/// document that doesn't read). A skill the user doesn't have is never refused: the stage carries a warning, and the
+/// flow applies (T6). The user's own import opens with the problems marked instead, with what to do about the fixable
+/// ones.
 #[tokio::test(flavor = "multi_thread")]
 async fn each_refusal_names_its_stage_or_agent() {
     let (w, key) = world().await;
@@ -152,7 +199,7 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 25);
+    assert_eq!(broken.len(), 22);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
         let message = refusal(propose_as(&w, &key, &text, planner()).await);
@@ -184,11 +231,12 @@ async fn each_refusal_names_its_stage_or_agent() {
         }
     }
 
-    // A model the tool doesn't list, and a skill that isn't on this machine.
-    let reviewer = "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: claude:gpt-9\n";
+    // A model the tool doesn't list is refused; a skill the user doesn't have only warns, and an old file's agent
+    // `skills:` still reads and is ignored.
+    let reviewer = "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: claude:gpt-9\n";
     let doc = format!(
         "{reviewer}flow:\n  - name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: \
-         Security\n    kind: check\n    by: agent\n    agents: [Security reviewer]\n    skill: security-review\n    \
+         Security\n    kind: check\n    by: agent\n    agent: Security reviewer\n    skill: team-security-review\n    \
          rounds: 2\n  - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
          with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n"
     );
@@ -199,13 +247,8 @@ async fn each_refusal_names_its_stage_or_agent() {
         ),
         "{message}"
     );
-    assert!(
-        message.contains(
-            "Security reviewer names the skill `security-review`, which isn't on this machine"
-        ),
-        "{message}"
-    );
-    // The user's import opens, marked: Apply waits for a local model and the skill's folder.
+    assert!(!message.contains("team-security-review"), "{message}");
+    // The user's import opens, marked: Apply waits for a local model only.
     let imported = w
         .board
         .propose_from(
@@ -223,31 +266,42 @@ async fn each_refusal_names_its_stage_or_agent() {
         .iter()
         .map(|p| (&p.about, p.fix.as_ref()))
         .collect();
-    let reviewer_about = About::Agent {
-        name: "Security reviewer".into(),
-    };
-    assert!(fixes.contains(&(
-        &reviewer_about,
-        Some(&Fix::PickModel {
-            agent: "Security reviewer".into()
-        })
-    )));
-    assert!(fixes.contains(&(
-        &reviewer_about,
-        Some(&Fix::ImportSkillFolder {
-            skill: "security-review".into()
-        })
-    )));
+    assert_eq!(
+        fixes,
+        [(
+            &About::Agent {
+                name: "Security reviewer".into(),
+            },
+            Some(&Fix::PickModel {
+                agent: "Security reviewer".into()
+            })
+        )]
+    );
+    let warned: Vec<(Option<&str>, &str)> = imported
+        .diff
+        .warnings
+        .iter()
+        .map(|w| (w.stage.as_deref(), w.text.as_str()))
+        .collect();
+    assert!(
+        warned.contains(&(
+            Some("Security"),
+            "You don't have the skill `team-security-review`"
+        )),
+        "{warned:?}"
+    );
+    assert!(
+        !warned.iter().any(|(_, text)| text.contains("work-ticket")),
+        "Otaq's own skills never warn: {warned:?}"
+    );
     let refused = w
         .board
         .apply_proposal(&key, imported.id, &ApplyChoices::default(), &models())
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::BadFlow));
-    // With the fixes the user picked, it applies: the folder is imported onto the new agent.
-    let folder = otaq_core::skills::testing::skill_folder(w.home.path(), "security-review");
+    // With the model picked it applies, the unknown skill and all; the stage names it as written.
     let choices = ApplyChoices {
-        skill_folders: [("security-review".to_owned(), folder.display().to_string())].into(),
         models: [("Security reviewer".to_owned(), "claude:opus".to_owned())].into(),
         ..Default::default()
     };
@@ -257,30 +311,55 @@ async fn each_refusal_names_its_stage_or_agent() {
         .await
         .unwrap();
     assert_eq!(applied.agents, ["Security reviewer"]);
-    let added = w
-        .board
-        .store()
-        .agent_named("Security reviewer")
-        .await
-        .unwrap()
-        .unwrap();
-    assert_eq!(added.imported[0].name, "security-review");
+    let flow = w.board.effective_flow(&key).await.unwrap();
+    let security = flow.stages.iter().find(|s| s.name == "Security").unwrap();
+    assert_eq!(security.skill.as_deref(), Some("team-security-review"));
+    // The stored flow never writes an agent's `skills:`.
+    let stored = w.board.store().current_flow(&key).await.unwrap().unwrap();
+    assert!(!stored.yaml.contains("skills:"), "{}", stored.yaml);
 
-    // Two skills that copy under one name (Q297). The folder in single quotes: a Windows path's backslashes would be
-    // escapes in double quotes.
-    let commit = otaq_core::skills::testing::skill_folder(w.home.path(), "commit");
-    let clash = format!(
-        "agents:\n  - name: Developer\n    skills: [work-ticket, commit, '{}']\n    model: default\n{}",
-        commit.display(),
-        &otaq_core::naming::DEFAULT_FLOW_YAML
-            [otaq_core::naming::DEFAULT_FLOW_YAML.find("flow:").unwrap()..]
-    );
+    w.stop().await;
+}
+
+/// A stage's skill can't be a tool's built-in command: `/security-review` on a Claude Code check is refused with what
+/// to do instead, shows as a problem on the stage in the user's own proposal, and is fine once the user has a skill of
+/// that name (it is theirs).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_built_in_command_is_not_a_skill() {
+    let (w, key) = world().await;
+    let doc = "agents:\n  - name: Security reviewer\n    model: claude:opus\nflow:\n  - name: Dev\n    kind: agent\n    \
+               agent: Developer\n    skill: work-ticket\n  - name: Security\n    kind: check\n    by: agent\n    agent: \
+               Security reviewer\n    skill: security-review\n    rounds: 2\n  - name: Done\n    kind: delivery\n    \
+               column: with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n";
+    let said = "Security: `/security-review` is Claude Code's built-in command, not a skill. Write a small skill that \
+                runs it, and name that skill here";
+    let message = refusal(propose_as(&w, &key, doc, planner()).await);
+    assert!(message.contains(said), "{message}");
+
+    let mine = propose_as(&w, &key, doc, ProposedBy::User).await.unwrap();
+    // Security takes the id of the stage at its place in the current flow (Validate's).
+    let problems: Vec<(Option<&str>, &str)> = mine
+        .problems
+        .iter()
+        .map(|p| match &p.about {
+            About::Stage { name, .. } => (Some(name.as_str()), p.message.as_str()),
+            _ => (None, p.message.as_str()),
+        })
+        .collect();
+    assert_eq!(problems, [(Some("Security"), said)]);
     assert!(
-        refusal(propose_as(&w, &key, &clash, planner()).await).contains(&format!(
-            "Developer has two skills that copy as `otaq-commit`: commit and {}",
-            commit.display()
-        ))
+        !mine
+            .diff
+            .warnings
+            .iter()
+            .any(|w| w.text.contains("security-review")),
+        "the problem says it, no warning too: {:?}",
+        mine.diff.warnings
     );
+
+    w.claude_has_skill("security-review").await;
+    let accepted = propose_as(&w, &key, doc, planner()).await.unwrap();
+    assert!(accepted.problems.is_empty(), "{:?}", accepted.problems);
 
     w.stop().await;
 }
@@ -383,7 +462,7 @@ async fn the_diff_says_what_changes_and_when() {
         .iter_mut()
         .find(|s| s.id == "security")
         .unwrap()
-        .agents = vec!["Validator".into()];
+        .agent = Some("Validator".into());
     let proposal = propose_as(&w, &key, &stages_only(&strict), planner())
         .await
         .unwrap();
@@ -397,13 +476,13 @@ async fn the_diff_says_what_changes_and_when() {
     assert_eq!(
         security,
         [
-            "Security \u{b7} agents: Security reviewer, Validator \u{2192} Validator \u{2014} applies when Security next starts"
+            "Security \u{b7} agent: Security reviewer \u{2192} Validator \u{2014} applies when Security next starts"
         ]
     );
     assert!(!proposal.diff.waits);
 
     let shared = format!(
-        "agents:\n  - name: Security reviewer\n    skills: [security-review]\n    model: claude:opus\n{}",
+        "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: claude:opus\n{}",
         stages_only(&every_kind())
     );
     let proposal = propose_as(&w, &key, &shared, planner()).await.unwrap();
@@ -428,44 +507,6 @@ async fn the_diff_says_what_changes_and_when() {
         ["pocket-api \u{b7} Security", "pocket-notes \u{b7} Security"]
     );
 
-    // A removed option: the tickets that chose it.
-    let t = create(&w, &key, "Fix README typo").await;
-    let writes = w
-        .board
-        .check_choices(
-            &key,
-            Some(&t),
-            "",
-            &[ChoicePick {
-                stage: "Dev".into(),
-                choice: "Quick developer".into(),
-                reason: None,
-            }],
-            &Chooser::User,
-            false,
-        )
-        .await
-        .unwrap();
-    w.board.write_choices(&t, &writes, &me()).await.unwrap();
-    let mut without = every_kind();
-    without
-        .flow
-        .stages
-        .iter_mut()
-        .find(|s| s.id == "dev")
-        .unwrap()
-        .options
-        .clear();
-    let proposal = propose_as(&w, &key, &stages_only(&without), planner())
-        .await
-        .unwrap();
-    let removed = &proposal.diff.removed_choices;
-    assert_eq!(removed.len(), 1);
-    assert_eq!(
-        removed[0].text,
-        "1 ticket chose Quick developer for Dev; it will use Rust developer"
-    );
-    assert_eq!(removed[0].tickets, std::slice::from_ref(&t.key));
     w.stop().await;
 }
 
@@ -616,131 +657,6 @@ async fn a_removal_waits_for_its_span() {
     let current = w.board.current_flow(&key).await.unwrap();
     assert_eq!(current.version, 3);
     assert!(current.file().unwrap().flow.stage("review").is_some());
-    w.stop().await;
-}
-
-/// Keeps running, printing its arguments.
-const KEEPS_RUNNING: &str = "printf 'ARGS %s\\n' \"$*\"; exec sleep 30";
-
-fn launch(config: ServiceConfig) -> ServiceConfig {
-    ServiceConfig {
-        launch: Some(LaunchContext {
-            bin_dir: "/nonexistent".into(),
-            plugin_dir: "/nonexistent/plugin".into(),
-            path: std::env::var_os("PATH").unwrap_or_default(),
-            claude: ClaudeLaunch {
-                program: vec!["sh".into(), "-c".into(), KEEPS_RUNNING.into(), "sh".into()],
-                config_dir: None,
-            },
-        }),
-        ..config
-    }
-}
-
-/// FLW-05: a ticket that chose Quick developer for Dev runs Rust developer once the option is removed, and History
-/// says so; its choice is gone.
-#[tokio::test(flavor = "multi_thread")]
-async fn a_removed_choice_falls_back_with_a_history_note() {
-    let w = TestService::start_with(launch).await;
-    let key = w.add_project("pocket-api").await.key;
-    w.board.use_flow_for_tests(&key, &every_kind()).await;
-    let t = create(&w, &key, "Fix README typo").await;
-    let picks = [
-        ChoicePick {
-            stage: "Product spec".into(),
-            choice: "skip".into(),
-            reason: None,
-        },
-        ChoicePick {
-            stage: "Dev".into(),
-            choice: "Quick developer".into(),
-            reason: None,
-        },
-    ];
-    let writes = w
-        .board
-        .check_choices(&key, Some(&t), "", &picks, &Chooser::User, false)
-        .await
-        .unwrap();
-    w.board.write_choices(&t, &writes, &me()).await.unwrap();
-
-    // The user removes Dev's option: not a shape change, so it applies now.
-    let mut without = every_kind();
-    without
-        .flow
-        .stages
-        .iter_mut()
-        .find(|s| s.id == "dev")
-        .unwrap()
-        .options
-        .clear();
-    let proposal = w
-        .board
-        .propose_from(
-            &key,
-            &ProposeFrom::File {
-                name: "fewer-options.yaml".into(),
-                yaml: stages_only(&without),
-            },
-            &models(),
-        )
-        .await
-        .unwrap();
-    assert!(proposal.problems.is_empty(), "{:?}", proposal.problems);
-    assert_eq!(proposal.diff.removed_choices.len(), 1);
-    let applied = w
-        .board
-        .apply_proposal(&key, proposal.id, &ApplyChoices::default(), &models())
-        .await
-        .unwrap();
-    assert!(applied.version.is_some() && applied.waiting.is_none());
-
-    let k = t.key.to_string();
-    w.board
-        .move_ticket(&k, DropTarget::ReadyForDev, true, &me())
-        .await
-        .unwrap();
-    w.starter
-        .start(&k, &me(), otaq_core::session::Start::Auto)
-        .await
-        .unwrap();
-    let reached = tokio::time::timeout(Duration::from_secs(20), async {
-        while w.status(&k).await != Status::Working {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await;
-    assert!(reached.is_ok(), "{k} never started");
-    let agent: Option<String> = sqlx::query_scalar(
-        "SELECT agent_name FROM sessions WHERE ticket_id = ? AND kind = 'agent' ORDER BY started_at DESC",
-    )
-    .bind(&t.id)
-    .fetch_one(w.board.store().pool())
-    .await
-    .unwrap();
-    assert_eq!(agent.as_deref(), Some("Rust developer"));
-    let notes: Vec<serde_json::Value> = w
-        .board
-        .history(&k)
-        .await
-        .unwrap()
-        .into_iter()
-        .filter(|e| e.kind == EventKind::ChoiceDropped)
-        .map(|e| e.payload)
-        .collect();
-    assert_eq!(notes.len(), 1);
-    assert_eq!(
-        (
-            notes[0]["chose"].as_str(),
-            notes[0]["stage"].as_str(),
-            notes[0]["runs"].as_str()
-        ),
-        (Some("Quick developer"), Some("Dev"), Some("Rust developer"))
-    );
-    assert_eq!(
-        otaq_core::flow::apply::dropped_choice_line("Quick developer", "Dev", "Rust developer"),
-        "Quick developer is no longer an option for Dev \u{b7} runs Rust developer"
-    );
     w.stop().await;
 }
 

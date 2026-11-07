@@ -3,12 +3,12 @@
 //! The git work is [`crate::git::merge`]; the click is [`crate::review::Review::local_merge`], the automatic
 //! Delivery [`crate::review::delivery`].
 //!
-//! - **Click or automatic** ([`delivery_is_automatic`]): a Delivery stage with `mode: automatic` delivers with no
-//!   click, but only work that passed its checks (d0108 "Move on anyway"): every check before it must have passed in
-//!   its latest run. A check moved past after it failed or ended without a verdict (Move on anyway), skipped by the
-//!   user (Skip this check, Move to next stage past it) or a human check the ticket skips by its choice makes it click
-//!   mode. An agent check the ticket skips by its own choice doesn't count either way. With no check passed at all,
-//!   the automatic Delivery records "Delivered without checks" (d0108 rule 8).
+//! - **Click or automatic** ([`delivery_is_automatic`]): the Delivery does what the flow says. A stage with
+//!   `mode: automatic` delivers with no click whatever happened to the checks before it: a check the ticket skips by
+//!   its choice (agent or human), or one the user moved it past (Move on anyway, Skip this check, Move to next stage
+//!   or a drag past it), never turns it into a click. When a check before it didn't pass in its latest run (skipped,
+//!   moved past, or none at all), the automatic Delivery records "Delivered without all checks" ([`without_checks`]) for
+//!   the card, Review and History.
 //! - **Conflicts** (FLW-17, d0108 smaller rule 1): the rebase onto the target conflicted, in either mode. The ticket
 //!   goes to its nearest earlier Agent stage, whose session fixes it with `restack` with no click ("Merge conflict ·
 //!   fixing"); the conflicts count in a row and the third stops it there, turquoise ("Keeps conflicting with
@@ -34,35 +34,27 @@ use crate::store::{new_id, now_ms};
 /// Delivery conflicts in a row before the ticket stops for the user (d0108 smaller rule 1, as 0064 did).
 pub const DELIVERY_CONFLICT_LIMIT: u32 = 3;
 
-/// Whether a Delivery delivers with no click: its mode is automatic and every check before it passed in its latest
-/// run (`runs`, oldest first). `skips` are the stages the ticket skips by its choices.
-pub fn delivery_is_automatic(
-    flow: &Flow,
-    delivery: &Stage,
-    skips: &[String],
-    runs: &[StageRun],
-) -> bool {
-    let automatic = delivery
+/// Whether a Delivery delivers with no click: its mode is automatic (and it delivers `local` or `pr`; `either` is
+/// click only). Only the flow decides: skipped checks and checks the user moved the ticket past don't change it.
+pub fn delivery_is_automatic(delivery: &Stage) -> bool {
+    delivery
         .delivery
-        .is_some_and(|d| d.mode == DeliveryMode::Automatic && d.delivers != Delivers::Either);
-    automatic
-        && checks_before(flow, delivery).all(|check| {
-            let skipped = check.can_skip() && skips.contains(&check.id);
-            match latest_run(runs, &check.id) {
-                // A human check skipped by the ticket's choice always leads to a click (d0108).
-                _ if skipped && check.is_human_check() => false,
-                _ if skipped => true,
-                Some(RunResult::Passed) => true,
-                _ => false,
-            }
-        })
+        .is_some_and(|d| d.mode == DeliveryMode::Automatic && d.delivers != Delivers::Either)
 }
 
-/// Whether no check before the Delivery passed in its latest run: an automatic Delivery then says "Delivered
-/// without checks" (d0108 rule 8).
+/// Whether the ticket reaches the Delivery without all its checks: a check before it didn't pass in its latest run
+/// (`runs`, oldest first): the ticket skipped it, the user moved it past it, or the flow has no check at all. An
+/// automatic Delivery then says "Delivered without all checks".
 pub fn without_checks(flow: &Flow, delivery: &Stage, runs: &[StageRun]) -> bool {
-    !checks_before(flow, delivery)
-        .any(|check| latest_run(runs, &check.id) == Some(RunResult::Passed))
+    let mut checks = checks_before(flow, delivery).peekable();
+    checks.peek().is_none() || checks.any(|check| !passed_latest(runs, &check.id))
+}
+
+/// Whether the latest run of the check `stage` (`runs`, oldest first) passed: one the ticket skipped, the user moved
+/// it past (Move on anyway, Skip this check, a drag past it), or that never ran didn't. A check that failed and then
+/// passed did. The ticket sheet's flow path shows a check before where the ticket is as skipped when it didn't.
+pub fn passed_latest(runs: &[StageRun], stage: &str) -> bool {
+    latest_run(runs, stage) == Some(RunResult::Passed)
 }
 
 /// The check stages before `delivery`, in order.
@@ -88,12 +80,9 @@ pub struct DeliveryNow {
     pub stage: Stage,
     /// What it delivers.
     pub delivery: Delivery,
-    /// It delivers with no click: [`delivery_is_automatic`], and the user didn't move it past a check.
+    /// It delivers with no click: [`delivery_is_automatic`], as the flow says.
     pub automatic: bool,
-    /// Why it waits for a click although its mode is automatic: "Failed Security 3 times · moved by you",
-    /// "Skipped Security · by you" ([`Board::forced_click_reason`], T-0417).
-    pub forced: Option<String>,
-    /// No check passed before it ([`without_checks`]).
+    /// A check before it didn't pass ([`without_checks`]).
     pub without_checks: bool,
 }
 
@@ -360,12 +349,9 @@ impl Board {
         else {
             return Ok(None);
         };
-        let skips = self.ticket_skips(ticket, &flow).await?;
         let runs = self.stage_runs(&ticket.key.to_string()).await?;
-        let forced = self.forced_click_reason(ticket).await?;
         Ok(Some(DeliveryNow {
-            automatic: forced.is_none() && delivery_is_automatic(&flow, &stage, &skips, &runs),
-            forced,
+            automatic: delivery_is_automatic(&stage),
             without_checks: without_checks(&flow, &stage, &runs),
             stage,
             delivery,
@@ -407,7 +393,7 @@ impl Board {
     }
 
     /// An automatic Delivery merged the ticket (AMG-02, FLW-15): "Merged automatically" (and "Delivered without
-    /// checks" when no check passed before it), the conflict count back at 0, a History line.
+    /// checks" when a check before it didn't pass), the conflict count back at 0, a History line.
     pub(crate) async fn record_delivered_automatically(
         &self,
         ticket_id: &str,
@@ -668,78 +654,80 @@ mod tests {
         }
     }
 
-    fn is_automatic(flow: &Flow, skips: &[String], runs: &[StageRun]) -> bool {
-        let delivery = flow.stages.iter().find(|s| s.is_delivery()).unwrap();
-        delivery_is_automatic(flow, delivery, skips, runs)
+    fn is_automatic(flow: &Flow) -> bool {
+        delivery_is_automatic(flow.stages.iter().find(|s| s.is_delivery()).unwrap())
     }
 
-    /// FLW-15: only work whose every check passed in its latest run delivers by itself; anything moved past or
-    /// skipped is click mode, as is a click or `either` Delivery.
+    fn is_without_checks(flow: &Flow, runs: &[StageRun]) -> bool {
+        let delivery = flow.stages.iter().find(|s| s.is_delivery()).unwrap();
+        without_checks(flow, delivery, runs)
+    }
+
+    /// FLW-15: the Delivery does what the flow says. Automatic (`local` or `pr`) delivers with no click; click mode
+    /// and `either` wait for the user.
     #[test]
-    fn automatic_only_after_every_check_passed() {
-        let flow = automatic(Delivers::Local);
+    fn only_the_flow_decides_click_or_automatic() {
+        assert!(is_automatic(&automatic(Delivers::Local)));
+        assert!(is_automatic(&automatic(Delivers::Pr)));
+        assert!(!is_automatic(&crate::flow::default_flow()), "click");
+        assert!(!is_automatic(&automatic(Delivers::Either)));
+    }
+
+    /// Every check before the Delivery passed in its latest run: delivered with its checks. A check skipped by the
+    /// ticket's choice (agent or human), moved past after a fail or no verdict (Move on anyway), skipped by the user
+    /// (Skip this check) or never run: "Delivered without all checks", the Delivery still automatic.
+    #[test]
+    fn without_checks_when_a_check_didnt_pass() {
+        let mut flow = automatic(Delivers::Local);
+        for stage in flow.stages.iter_mut().filter(|s| s.id != DELIVER) {
+            stage.options.push(StageOption::Skip);
+        }
         let passed = [
             run(VALIDATE, RunResult::Passed),
             run(REVIEW, RunResult::Passed),
         ];
-        assert!(is_automatic(&flow, &[], &passed));
+        assert!(!is_without_checks(&flow, &passed));
         for (latest, why) in [
             (RunResult::Failed, "Move on anyway"),
             (RunResult::NoResult, "moved on without a verdict"),
-            (RunResult::Skipped, "Skip this check"),
+            (
+                RunResult::Skipped,
+                "Skip this check, or skipped by the ticket's choice",
+            ),
         ] {
             let runs = [
                 run(VALIDATE, RunResult::Passed),
                 run(VALIDATE, latest),
                 run(REVIEW, RunResult::Passed),
             ];
-            assert!(!is_automatic(&flow, &[], &runs), "{why}");
+            assert!(is_without_checks(&flow, &runs), "{why}");
         }
+        let review_skipped = [
+            run(VALIDATE, RunResult::Passed),
+            run(REVIEW, RunResult::Skipped),
+        ];
+        assert!(
+            is_without_checks(&flow, &review_skipped),
+            "a human check skipped"
+        );
         // The latest run counts: a fail fixed and passed since is fine.
         let again = [
             run(VALIDATE, RunResult::Failed),
             run(REVIEW, RunResult::Passed),
             run(VALIDATE, RunResult::Passed),
         ];
-        assert!(is_automatic(&flow, &[], &again));
+        assert!(!is_without_checks(&flow, &again));
         assert!(
-            !is_automatic(&flow, &[], &[run(VALIDATE, RunResult::Passed)]),
+            is_without_checks(&flow, &[run(VALIDATE, RunResult::Passed)]),
             "Review never ran"
         );
-        assert!(
-            !is_automatic(&crate::flow::default_flow(), &[], &passed),
-            "click"
-        );
-        assert!(!is_automatic(&automatic(Delivers::Either), &[], &passed));
-    }
-
-    /// d0108: a human check skipped by the ticket's choice always leads to a click; an agent check it skips doesn't
-    /// count, and with no check passed at all the Delivery is "without checks".
-    #[test]
-    fn skips_by_choice() {
-        let mut flow = automatic(Delivers::Pr);
-        for stage in flow.stages.iter_mut().filter(|s| s.id != DELIVER) {
-            stage.options.push(StageOption::Skip);
-        }
-        let delivery = flow.stages.iter().find(|s| s.is_delivery()).unwrap();
-        let review_skipped = [
-            run(VALIDATE, RunResult::Passed),
-            run(REVIEW, RunResult::Skipped),
-        ];
-        assert!(!is_automatic(&flow, &[REVIEW.into()], &review_skipped));
-        let validate_skipped = [
-            run(VALIDATE, RunResult::Skipped),
-            run(REVIEW, RunResult::Passed),
-        ];
-        assert!(is_automatic(&flow, &[VALIDATE.into()], &validate_skipped));
-        assert!(!without_checks(&flow, delivery, &validate_skipped));
+        assert!(is_automatic(&flow), "whatever the checks did");
 
         let mut no_checks = automatic(Delivers::Local);
         no_checks
             .stages
             .retain(|s| !s.is_agent_check() && !s.is_human_check());
-        assert!(is_automatic(&no_checks, &[], &[]));
-        let delivery = no_checks.stages.iter().find(|s| s.is_delivery()).unwrap();
-        assert!(without_checks(&no_checks, delivery, &[]));
+        assert!(is_automatic(&no_checks));
+        assert!(is_without_checks(&no_checks, &[]));
     }
 }

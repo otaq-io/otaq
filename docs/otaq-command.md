@@ -23,7 +23,7 @@ Open a new terminal afterwards. If the file can't be written, About shows the li
 otaq                         # open the app
 otaq list -P SHOP            # the project's tickets
 otaq create "Fix login" -p 2 --deps SHOP-12
-otaq create "Fix README typo" --developer Light   # pick its named agent
+otaq create "Fix README typo" --stage Dev=Light  # another agent for one stage
 otaq create -f plan.md       # many tickets from one Markdown file
 otaq create "Wishlist" --plan-file wishlist-plan.md   # one ticket with a Plan of pieces
 otaq update SHOP-40 --plan-file wishlist-plan.md      # replace its Plan (or --plan, --plan-stdin)
@@ -67,8 +67,10 @@ Every command takes `--json`. Run `otaq --help` for the full list.
 The agent's workflow lives in [`plugin/`](../plugin) as skills: `work-ticket` (the main loop, for the agent in charge
 and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`, `answer-question`, `restack`, `flow`,
 `product-spec`, `tech-spec`, `milestone-plan` (the Spec first preset's planning stages) and `noyan` (files tickets
-from a request, with notes for the next stage). Otaq gives the same skills to every tool, in the way that tool loads them (a Claude
-Code plugin, an OpenCode plugin in [`plugin/opencode`](../plugin/opencode), and so on). You can replace the commit,
-push, open-PR and validate skills with your own, globally or per project, and the setting applies to every tool. The
-hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are unaffected.
+from a request, with notes for the next stage). They come with Otaq's plugin for each tool, the same one that carries
+its hooks: `--plugin-dir` for Claude Code and Copilot, the `otaq@otaq-local` plugin for Codex, and a `skills` entry in
+OpenCode's config. So every session has all of them from its start. To run a skill of your own instead, name it on the
+flow stage (your own Validate skill on the Validate stage, your own Open PR skill on the Delivery stage); see
+[Skills](how-it-works.md#skills). The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
+unaffected.
 

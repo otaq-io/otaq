@@ -351,7 +351,7 @@ async fn each_tools_prompt_submitted_picks_it_up() {
             .deliveries
             .hand_off(
                 &shell.session,
-                HandOff::new(HandOffKind::OpenPr, "/otaq-open-pr"),
+                HandOff::new(HandOffKind::OpenPr, "/otaq:open-pr"),
                 false,
             )
             .await

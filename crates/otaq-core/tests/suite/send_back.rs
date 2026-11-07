@@ -12,19 +12,18 @@ use otaq_core::board::comments::{NewComment, Side};
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::domain::{Actor, BuildState, SentBack, Status};
-use otaq_core::naming;
 use otaq_core::review::ReturnOutcome;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
-use otaq_core::session::deliveries::handoff_sentence;
+use otaq_core::skills::testing::claude_skill;
 
 fn me() -> Actor {
     Actor::User("me".into())
 }
 
 fn skill() -> String {
-    format!("/{}", naming::copy_name("address-review"))
+    claude_skill("address-review")
 }
 
 async fn in_review_with_comments(world: &TestService, comments: usize) -> Ticket {
@@ -328,14 +327,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         "until it is back in Review"
     );
     let pending = world.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(
-        pending.last().unwrap().text,
-        handoff_sentence(
-            world.adapters.of_session(None).skill_root(),
-            "restack",
-            None
-        )
-    );
+    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
     let prime = otaq_core::prime::render(
         &world
             .board
@@ -541,10 +533,7 @@ async fn a_merge_conflict_brings_the_build_back() {
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(
-        pending.last().unwrap().text,
-        handoff_sentence(w.adapters.of_session(None).skill_root(), "restack", None)
-    );
+    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
     w.stop().await;
 }
 

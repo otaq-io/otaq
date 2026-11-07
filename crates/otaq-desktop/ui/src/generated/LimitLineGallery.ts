@@ -2,6 +2,6 @@
 import type { LimitLineGalleryCell } from "./LimitLineGalleryCell";
 
 /**
- * The gallery's banner lines (*11 → Row · Limit banner per tool*, *Move waiting to…*, *Not available*).
+ * The gallery's banner lines (*11 → Row · Limit banner per tool*, *Not available*).
  */
 export type LimitLineGallery = { cells: Array<LimitLineGalleryCell>, };

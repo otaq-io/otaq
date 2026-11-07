@@ -103,10 +103,9 @@ const card = (key: string): BoardCard => {
     fresh: false,
     open_sheet: "Open panel",
     open_sheet_keys: "↵",
-    action_note: null,
+    skill_warning: null,
     plan: null,
     pieces: null,
-    check: null,
     open_terminal: "Open terminal",
   };
   return { kind: "ticket", card: view, needs_you: false };

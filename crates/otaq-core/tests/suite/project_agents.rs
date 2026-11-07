@@ -19,14 +19,10 @@ use otaq_core::protocol::{Reply, Request};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::skills::testing::claude_skill;
 use otaq_core::store::now_ms;
 use otaq_core::usage::limit::{LimitHit, LimitKind};
 use serde_json::{Value, json};
-
-/// A skill as Claude Code runs it: `/otaq-work-ticket` (AGM-07).
-fn claude_skill(name: &str) -> String {
-    format!("/{}", naming::copy_name(name))
-}
 
 fn fake_launch() -> LaunchContext {
     let script = format!(
@@ -179,9 +175,9 @@ async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_a
             .trim_end();
         assert!(
             args.ends_with(&format!(
-                "--session-id {} /{}-noyan {message}",
+                "--session-id {} {} {message}",
                 agent.tool_session_id.as_deref().unwrap(),
-                naming::COMMAND_NAME
+                claude_skill("noyan")
             )),
             "{out}"
         );
@@ -818,15 +814,12 @@ async fn the_list_carries_a_held_first_message() {
         id: "h1".into(),
         ticket_id: None,
         project_id: Some(project.id.clone()),
-        check_agent: None,
         role: SessionRole::ProjectAgent,
         reason: HoldReason::ModelUnavailable,
         tool: Tool::ALL[1],
         model: Some("gpt-5.4".into()),
         agent_id: None,
-        fallback_tool: None,
-        fallback_held: false,
-        fallback_asked: false,
+        skill: None,
         since: 1,
     };
     w.board.store().set_agent_hold(&hold).await.unwrap();

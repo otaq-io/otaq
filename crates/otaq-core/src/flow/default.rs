@@ -32,12 +32,21 @@ pub fn default_flow() -> Flow {
 /// [`crate::board::Board::edit_flow_for_tests`].
 #[doc(hidden)]
 pub mod testing {
-    use super::super::model::{Delivers, Delivery, DeliveryMode, FlowFile};
+    use super::super::model::{Delivers, Delivery, DeliveryMode, FlowFile, StageOption};
     use super::{DELIVER, REVIEW, VALIDATE};
 
     /// No Validate stage: a submit goes straight to Review.
     pub fn without_validate(file: &mut FlowFile) {
         file.flow.stages.retain(|s| s.id != VALIDATE);
+    }
+
+    /// Validate marked skippable (`options: [skip]`): Skip this check and Move on anyway are offered on it.
+    pub fn skippable_validate(file: &mut FlowFile) {
+        for stage in file.flow.stages.iter_mut().filter(|s| s.id == VALIDATE) {
+            if !stage.options.contains(&StageOption::Skip) {
+                stage.options.push(StageOption::Skip);
+            }
+        }
     }
 
     /// Validate with `rounds` rounds.

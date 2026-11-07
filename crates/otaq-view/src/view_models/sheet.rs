@@ -14,6 +14,7 @@ use otaq_core::agents::{Agent, SessionRole};
 use std::collections::{HashMap, HashSet};
 
 use otaq_core::board::files::{FilesChanges, FilesFrom};
+use otaq_core::board::merge::passed_latest;
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, StatusSet, TicketKey};
@@ -546,7 +547,8 @@ pub enum StepState {
     /// The stage it is in now; `attention` when it needs you there.
     Current,
     ToCome,
-    /// The ticket skips it (its choice, AGM-08).
+    /// The ticket went past it without doing it: it skips it by its choice (AGM-08), or it is a check before where
+    /// the ticket is that didn't pass in its latest run (skipped, moved past, never ran).
     Skipped,
 }
 
@@ -561,7 +563,9 @@ pub struct Step {
 }
 
 /// The flow path as steps: the stages before the one it is in done, that one current, the rest to come; from
-/// Backlog every stage is to come, in Done every one is done. None for an unread flow.
+/// Backlog every stage is to come, in Done every one is done. A stage the ticket went past without doing it is
+/// skipped: one it skips by its choice, and a check before it that didn't pass in its latest run (the same fact that
+/// makes an automatic Delivery say "Delivered without all checks"). None for an unread flow.
 pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
     let Some(agents) = agents else {
         return Vec::new();
@@ -579,9 +583,13 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
         .iter()
         .enumerate()
         .map(|(i, stage)| {
+            let check = matches!(stage.kind, PathKind::AgentCheck | PathKind::HumanCheck);
             let state = match () {
                 _ if stage.skipped => StepState::Skipped,
                 _ if Some(i) == current => StepState::Current,
+                _ if i < done_before && check && !passed_latest(&agents.runs, &stage.stage_id) => {
+                    StepState::Skipped
+                }
                 _ if i < done_before => StepState::Done,
                 _ => StepState::ToCome,
             };
@@ -970,6 +978,51 @@ mod tests {
                 .all(|s| s.state == StepState::ToCome)
         );
         assert!(super::steps(&backlog, None).is_empty());
+    }
+
+    /// A stage the ticket went past without doing it is skipped: Product spec it skips by its choice, Validate it
+    /// was moved past after a fail, Security it skipped while it ran; Review failed then passed, so it is done.
+    #[test]
+    fn stages_gone_past_without_doing_them_are_skipped() {
+        use crate::view_models::stage_choices::fixtures::{round, run};
+        use otaq_core::flow::engine::RunResult;
+        let mut t = ticket("SHOP-30", "Saved carts", Status::Working);
+        t.place = Place::InStage("ship".into());
+        let check = |stage: &str, n: u32, result: RunResult| {
+            round(run(stage, None, None, None, Some(result)), n, None)
+        };
+        let runs = vec![
+            run("dev", None, None, None, Some(RunResult::Done)),
+            check("validate", 1, RunResult::Failed),
+            check("security", 1, RunResult::Skipped),
+            check("review", 1, RunResult::Failed),
+            check("review", 2, RunResult::Passed),
+        ];
+        let mut path = shop_path("rust");
+        path[0].skipped = true;
+        let agents = crate::view_models::stage_choices::fixtures::ticket(
+            "SHOP-30",
+            t.status,
+            t.place.clone(),
+            path,
+            shop_options(),
+            runs,
+            Vec::new(),
+        );
+        let steps = steps(&t, Some(&agents));
+        let shown: Vec<(&str, StepState)> =
+            steps.iter().map(|s| (s.stage.as_str(), s.state)).collect();
+        assert_eq!(
+            shown,
+            [
+                ("Product spec", StepState::Skipped),
+                ("Dev", StepState::Done),
+                ("Validate", StepState::Skipped),
+                ("Security", StepState::Skipped),
+                ("Review", StepState::Done),
+                ("Done", StepState::Current),
+            ]
+        );
     }
 
     #[test]

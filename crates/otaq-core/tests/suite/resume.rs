@@ -13,6 +13,7 @@ use otaq_core::domain::{Actor, Status};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionKind, SessionTicket};
+use otaq_core::skills::testing::claude_skill;
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -261,7 +262,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         .await;
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-    let skill = format!("/{}", otaq_core::naming::copy_name("address-review"));
+    let skill = claude_skill("address-review");
 
     // Send back (a code review: a line comment, d0131 Q514) resumes the ended conversation with the skill; the
     // conversation is gone.

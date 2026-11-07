@@ -6,7 +6,7 @@
 // Nothing here starts an agent without the user's words, a chip or an Ask (d0087); Ask the agent to write it only
 // prefills the agent's box (Q441). The picks a problem needs (Q426) stay here until Apply sends them, as the preview's
 // did.
-import { openOverlay } from "../../app/overlays";
+import { closeOverlay, openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
 import type { BoardColumnEditor } from "../../generated/BoardColumnEditor";
 import type { FlowEditorChipAction } from "../../generated/FlowEditorChipAction";
@@ -18,6 +18,7 @@ import type { FlowEditorPick } from "../../generated/FlowEditorPick";
 import type { FlowEditorStageEdit } from "../../generated/FlowEditorStageEdit";
 import type { FlowEditorStarted } from "../../generated/FlowEditorStarted";
 import type { FlowEditorView } from "../../generated/FlowEditorView";
+import type { MenuItem } from "../../generated/MenuItem";
 import { request } from "../../tauri";
 
 /** The door's request call, or a fake one in the tests. */
@@ -32,6 +33,8 @@ export interface FlowEditorOpen {
   project: string;
   from: FlowEditorFrom;
   select_stage?: string;
+  /** Opened on `select_stage`'s Skill field, which gets the keyboard. */
+  focus_skill?: boolean;
   add_after?: string | null;
 }
 
@@ -56,6 +59,38 @@ export function columnEditorOpen(project: string, editor: BoardColumnEditor): Fl
     case "flow":
       return changeFlowOpen(project);
   }
+}
+
+/**
+ * "Use your own Open PR skill" (the PR provider row's link, the refused Open PR toast's): the editor on the Delivery
+ * stage, its Skill field focused, where the user's own Open PR skill goes.
+ */
+export function stageSkillOpen(project: string, stage: string): FlowEditorOpen {
+  return { project, from: "project", select_stage: stage, focus_skill: true };
+}
+
+/** Where "use your own Open PR skill" goes: Settings closes, so the editor over the board shows. */
+export interface StageSkillRoutes {
+  closeSettings: () => void;
+  open: (open: FlowEditorOpen) => void;
+}
+
+export const STAGE_SKILL_ROUTES: StageSkillRoutes = {
+  closeSettings: () => {
+    closeOverlay("settings");
+  },
+  open: openFlowEditor,
+};
+
+/** "Use your own Open PR skill": the editor on the Delivery stage's Skill field (the whole flow when the Delivery
+ * stage isn't known). */
+export function openStageSkill(
+  project: string,
+  stage: string | null,
+  routes: StageSkillRoutes = STAGE_SKILL_ROUTES,
+): void {
+  routes.closeSettings();
+  routes.open(stage === null ? changeFlowOpen(project) : stageSkillOpen(project, stage));
 }
 
 /** The edit that adds the stage a column's Add a stage after <stage> asked for, on opening. */
@@ -135,7 +170,7 @@ export async function importChoice(
 }
 
 /** No picks yet. */
-export const NO_CHOICES: FlowEditorChoices = { clashes: {}, skill_folders: {}, models: {} };
+export const NO_CHOICES: FlowEditorChoices = { clashes: {}, models: {} };
 
 /** An import clash picked: Keep mine, Take theirs or Add as. */
 export function withClash(
@@ -146,9 +181,25 @@ export function withClash(
   return { ...choices, clashes: { ...choices.clashes, [agent]: pick } };
 }
 
-/** A missing skill's folder picked (Import its folder…). */
-export function withFolder(choices: FlowEditorChoices, skill: string, folder: string): FlowEditorChoices {
-  return { ...choices, skill_folders: { ...choices.skill_folders, [skill]: folder } };
+/**
+ * Pick a skill…'s item for a name typed by hand: "Use `<typed text>`" (`template`'s `{name}` is the text), its id the
+ * text. None for an empty search.
+ */
+export function typedItem(template: string, text: string): MenuItem | null {
+  const name = text.trim();
+  if (name === "") return null;
+  return {
+    id: name,
+    label: template.replace("{name}", name),
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: true,
+    checked: false,
+    header: false,
+  };
 }
 
 /**

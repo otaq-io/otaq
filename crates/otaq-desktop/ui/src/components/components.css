@@ -1516,3 +1516,9 @@
   color: var(--text-muted);
   font: 400 12px/1.4 var(--font-ui);
 }
+
+/* Pick a skill…'s "Use `<typed text>`": the name drawn as code. */
+.menu-item-label code {
+  font-family: var(--font-mono);
+  font-size: 0.95em;
+}

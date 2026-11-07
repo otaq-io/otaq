@@ -2,8 +2,8 @@
 import type { AgentsChoiceKind } from "./AgentsChoiceKind";
 
 /**
- * One choice of a tool-and-model dropdown (the default model, a fallback): a tool's heading, a model, a note in
- * place of a tool's models (loading, couldn't load), or the fallback's "None".
+ * One choice of a tool-and-model dropdown (the default model): a tool's heading, a model, or a note in place of a
+ * tool's models (loading, couldn't load).
  */
 export type AgentsModelChoice = { 
 /**

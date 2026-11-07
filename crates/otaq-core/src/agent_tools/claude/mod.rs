@@ -8,6 +8,7 @@ mod launch;
 pub mod limits;
 pub mod models;
 pub mod oneoff;
+mod plugins;
 pub mod statusline;
 pub mod transcript;
 pub mod trust;
@@ -18,6 +19,7 @@ use std::time::Duration;
 use serde_json::Value;
 
 use self::launch::AgentCommand;
+pub(crate) use self::launch::PLUGIN_FOLDER;
 pub use self::launch::{ClaudeLaunch, find_plugin_dir};
 use self::trust::ClaudeConfig;
 use super::{
@@ -31,11 +33,48 @@ use crate::data_dir::DataDir;
 use crate::naming;
 use crate::tools::{self, CheckEnv, PermissionVerdict};
 use crate::usage::limit::LimitKind;
+pub use plugins::plugin_skills;
 use transcript::{Transcript, find_transcript, read_transcript};
 
 /// What clears Claude Code's input line before Otaq types (SES-07 "Clear it and send"): Ctrl+E (end of line) then
 /// Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the real `claude`.
 const CLEAR_LINE: &[u8] = b"\x05\x15";
+
+/// Claude Code's own folder under `home`: `$CLAUDE_CONFIG_DIR` (read with `var`; empty is unset, as Claude Code
+/// reads it, see [`trust::ClaudeConfig::locate`]), else `~/.claude`.
+pub fn config_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    var("CLAUDE_CONFIG_DIR")
+        .filter(|dir| !dir.is_empty())
+        .map_or_else(|| home.join(".claude"), PathBuf::from)
+}
+
+/// Claude Code's personal skills folder: `skills` in its own folder ([`config_folder`]).
+pub fn skills_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
+    config_folder(home, var).join("skills")
+}
+
+/// The personal skills folders Claude Code reads (S6): only its own ([`skills_folder`]); not `~/.agents/skills`.
+pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBuf> {
+    vec![skills_folder(home, var)]
+}
+
+/// Whether Claude Code loads a `SKILL.md` that starts with a UTF-8 byte order mark. Not checked
+/// yet, so counted as loaded.
+pub const READS_SKILL_WITH_BOM: bool = true;
+
+/// Claude Code's built-in commands that do work a stage could want, so a flow could take them for skills: `/review` (an
+/// alias of its `/code-review`), `/security-review` and `/init`, from its commands page
+/// (code.claude.com/docs/en/commands). A stage can't name one as its skill (it isn't a skill file the tool loads). This
+/// is what Claude Code had when the list was written (2026-11); its other commands (model, clear, …) do no work a stage
+/// would want.
+pub const BUILT_IN_COMMANDS: &[&str] = &["review", "security-review", "init"];
+
+/// The project's skills folders Claude Code reads in its worktree: `.claude/skills`.
+pub const PROJECT_SKILL_FOLDERS: &[&[&str]] = &[&[".claude", "skills"]];
+
+/// The project's skills folders Claude Code also reads in the main checkout from a worktree, committed or not: its
+/// `.claude/skills`, when the worktree has none of that name.
+pub const CHECKOUT_SKILL_FOLDERS: &[&[&str]] = &[&[".claude", "skills"]];
 
 /// Where Claude Code and Otaq's files are on this machine.
 #[derive(Debug, Clone)]
@@ -121,7 +160,7 @@ impl ClaudeCode {
         self.context.check.claude_config_dir.as_deref()
     }
 
-    /// The prompt as typed: `/otaq-noyan <message>`, or the text.
+    /// The prompt as typed: `/otaq:noyan <message>`, or the text.
     fn prompt_text(&self, prompt: &FirstPrompt) -> String {
         prompt.text(self)
     }
@@ -453,15 +492,10 @@ impl AgentTool for ClaudeCode {
         }
     }
 
-    /// `/otaq-commit`: Claude Code runs a project skill of `.claude/skills/` by `/<name>` (its skills page,
-    /// code.claude.com/docs/en/skills: "invoke one directly with `/skill-name`").
+    /// `/otaq:commit` for Otaq's skill (a plugin's skill is `/<plugin>:<skill>`), `/team-validate` for the user's
+    /// (its skills page, code.claude.com/docs/en/skills: "invoke one directly with `/skill-name`").
     fn skill_reference(&self, skill: &str) -> String {
         launch::skill_reference(skill)
-    }
-
-    /// `.claude/skills`: the only one of the two copies Claude Code reads.
-    fn skill_root(&self) -> &'static str {
-        crate::skills::copy::SKILL_ROOTS[1]
     }
 }
 
@@ -574,19 +608,15 @@ mod tests {
         assert!(quirks.multi_line_clearable);
     }
 
-    /// AGM-07: a skill by its copy's name in Claude Code's syntax for a project skill, the same for a shipped and
-    /// an imported one; no plugin namespace.
+    /// Otaq's own skill by its plugin's namespace, the user's by its own name; nothing to add to the launch (T2).
     #[test]
-    fn skills_by_their_copys_name() {
+    fn otaqs_skills_namespaced_the_users_by_their_own_name() {
         let f = fixture();
         assert_eq!(
             f.adapter.skill_reference("commit"),
-            format!("/{}-commit", naming::COMMAND_NAME)
+            format!("/{}:commit", naming::PLUGIN_NAMESPACE)
         );
-        assert_eq!(
-            f.adapter.skill_reference("team-validate"),
-            format!("/{}-team-validate", naming::COMMAND_NAME)
-        );
+        assert_eq!(f.adapter.skill_reference("team-validate"), "/team-validate");
         let mut request = request(LaunchRole::Validator);
         request.first_prompt = Some(FirstPrompt::Skill {
             name: "validate".into(),
@@ -595,7 +625,7 @@ mod tests {
         let plan = f.adapter.launch(&request).unwrap();
         assert_eq!(
             plan.args.last(),
-            Some(&format!("/{}-validate", naming::COMMAND_NAME))
+            Some(&format!("/{}:validate", naming::PLUGIN_NAMESPACE))
         );
         assert!(!plan.args.iter().any(|a| a == "--add-dir"));
     }

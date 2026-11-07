@@ -46,7 +46,7 @@ export function sectionOf(page: SettingsPage, id: string): SettingsSection<strin
   return sections.find((s) => s.id === id);
 }
 
-/** The DOM id of a field's input, so "use your own Open PR skill" can focus the Open PR field. */
+/** The DOM id of a field's input. */
 export function fieldId(field: string): string {
   return `settings-field-${field.replace(/[^a-z0-9_]/gi, "-")}`;
 }

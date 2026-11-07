@@ -7,6 +7,7 @@ import type { AgentReadsPart } from "../../generated/AgentReadsPart";
 import type { AgentReadsTarget } from "../../generated/AgentReadsTarget";
 import type { AgentReadsView } from "../../generated/AgentReadsView";
 import { Icon } from "../../theme/Icon";
+import { flowSoftBreaks } from "./reads";
 
 /** What the view asks for. */
 export interface ReadsActions {
@@ -36,7 +37,8 @@ function Part({ part, onLink }: { part: AgentReadsPart; onLink: (target: AgentRe
         data-mono={part.mono || undefined}
         data-empty={part.text === null || undefined}
       >
-        {part.text ?? part.empty}
+        {/* A SKILL.md's paragraphs flow, so its long lines break once, where the box ends. */}
+        {part.text !== null ? (part.mono ? flowSoftBreaks(part.text) : part.text) : part.empty}
       </div>
     </div>
   );

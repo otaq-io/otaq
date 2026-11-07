@@ -10,23 +10,25 @@
 //!     column: own
 //!     agent: Developer
 //!     skill: work-ticket
-//!     options: [Quick developer]
+//!     options: [skip]
 //!   - id: validate
 //!     name: Validate
 //!     kind: check
 //!     by: agent
 //!     column: own
-//!     agents: [Security reviewer, Performance reviewer]
+//!     agent: Validator
 //!     skill: validate
 //!     rounds: 3
 //!     fail_to: Dev
 //! ```
 //!
-//! Fields come in a fixed order (stages: `id name kind by column agent agents skill options rounds fail_to mode
-//! delivers why`; agents: `name role instructions skills model why`); a field with nothing in it is left out, except
-//! `column`. `agents:` is left out when the file defines none. A check's `fail_to` names a stage by its name, as
-//! `agent:` names agents; Otaq keeps it by the stage's id, so a rename carries it along, and a stage removed leaves
-//! the check on the nearest Agent stage (d0131). Comments are not kept.
+//! Fields come in a fixed order (stages: `id name kind by column agent skill options rounds fail_to mode delivers
+//! why`; agents: `name role instructions model why`); a field with nothing in it is left out, except `column`.
+//! `agents:` is left out when the file defines none. An agent check names its one agent with `agent:`, like an Agent
+//! stage; an older file's `agents: [Validator]` (one name) still reads as `agent: Validator`, and its check with
+//! several agents reads as one check stage per agent ([`Split`]). A check's `fail_to`
+//! names a stage by its name, as `agent:` names agents; Otaq keeps it by the stage's id, so a rename carries it
+//! along, and a stage removed leaves the check on the nearest Agent stage (d0131). Comments are not kept.
 
 use std::fmt;
 
@@ -64,8 +66,9 @@ struct RawAgent {
     role: Option<String>,
     #[serde(default)]
     instructions: String,
-    #[serde(default)]
-    skills: Vec<String>,
+    /// An old file's agent skills: read so the file still opens, then ignored (an agent has no skills).
+    #[serde(default, rename = "skills")]
+    _skills: serde::de::IgnoredAny,
     model: String,
     why: Option<String>,
 }
@@ -118,7 +121,6 @@ fn agent(a: RawAgent) -> FlowAgent {
         name: a.name,
         role: a.role,
         instructions: a.instructions,
-        skills: a.skills,
         model: a.model,
         why: why(a.why),
     }
@@ -130,24 +132,105 @@ pub fn read(text: &str) -> Result<FlowFile, FormatError> {
 }
 
 /// [`read`], also saying which stages had their id written (in stage order): the others got one from their name,
-/// which a proposal matches to the flow it changes instead ([`super::proposal`]).
+/// which a proposal matches to the flow it changes instead ([`super::proposal`]). A copy split off an older check
+/// ([`Split`]) counts as written when its stage's id was.
 pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), FormatError> {
+    read_all(text).map(|(file, written, _)| (file, written))
+}
+
+/// [`read`], also saying which check stages were split because they listed several agents ([`Split`]).
+pub fn read_split(text: &str) -> Result<(FlowFile, Vec<Split>), FormatError> {
+    read_all(text).map(|(file, _, splits)| (file, splits))
+}
+
+/// An older flow's agent check that listed several agents (`agents: [Security reviewer, Validator]`), as read: one
+/// check stage per agent, in the listed order, one after the other. The first keeps the stage's id and name; each
+/// other copy gets the id `<id>-<agent>` (the agent's name as an id: `security-validator`, with `-2` added if that
+/// id is taken) and the name `<stage> · <agent>` ("Security · Validator", with " 2" added if that name is taken), so
+/// every read of the same document gives the same ids. Each copy keeps the stage's kind, skill, rounds, fails go to,
+/// options and why, and shows in the first copy's column (`with-previous`). The split is never stored by reading:
+/// a document written from the flow ([`write`]) holds it, so the user's next change saves it.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Split {
+    /// The stage's id, which its first copy keeps.
+    pub stage: String,
+    /// The other copies' ids, in order.
+    pub copies: Vec<String>,
+}
+
+fn read_all(text: &str) -> Result<(FlowFile, Vec<bool>, Vec<Split>), FormatError> {
     let raw: RawFile = serde_saphyr::from_str(text).map_err(format_error)?;
     let agents = raw.agents.into_iter().map(agent).collect();
     let mut stages = Vec::with_capacity(raw.flow.len());
+    let mut others = Vec::with_capacity(raw.flow.len());
     for raw in raw.flow {
-        stages.push(stage(raw)?);
+        let (stage, more) = stage(raw)?;
+        stages.push(stage);
+        others.push(more);
     }
-    let written = stages.iter().map(|s| !s.id.is_empty()).collect();
+    let mut written: Vec<bool> = stages.iter().map(|s| !s.id.is_empty()).collect();
     give_ids(&mut stages);
     fail_to_ids(&mut stages)?;
+    let splits = split(&mut stages, &mut written, others);
     Ok((
         FlowFile {
             agents,
             flow: Flow { stages },
         },
         written,
+        splits,
     ))
+}
+
+/// Splits each agent check that listed several agents ([`Split`]): `others[i]` are stage `i`'s agents after its
+/// first. Runs once every stage has its id and its fails go to are ids, so a copy keeps them.
+fn split(stages: &mut Vec<Stage>, written: &mut Vec<bool>, others: Vec<Vec<String>>) -> Vec<Split> {
+    let mut splits = Vec::new();
+    let mut at = 0;
+    for more in others {
+        let first = stages[at].clone();
+        let was_written = written[at];
+        at += 1;
+        if more.is_empty() {
+            continue;
+        }
+        let mut copies = Vec::with_capacity(more.len());
+        for agent in more {
+            let id = unique(&format!("{}-{}", first.id, slug(&agent)), "-", |id| {
+                stages.iter().any(|s| s.id == id)
+            });
+            let name = unique(&format!("{} · {agent}", first.name), " ", |name| {
+                stages.iter().any(|s| s.name == name)
+            });
+            let copy = Stage {
+                id: id.clone(),
+                name,
+                column: Column::WithPrevious,
+                agent: Some(agent),
+                ..first.clone()
+            };
+            stages.insert(at, copy);
+            written.insert(at, was_written);
+            at += 1;
+            copies.push(id);
+        }
+        splits.push(Split {
+            stage: first.id,
+            copies,
+        });
+    }
+    splits
+}
+
+/// `base`, else `base` with ` 2`, ` 3`… (`sep` and the number) added, the first that isn't `taken`.
+fn unique(base: &str, sep: &str, taken: impl Fn(&str) -> bool) -> String {
+    let mut out = base.to_owned();
+    let mut n = 2;
+    while taken(&out) {
+        out = format!("{base}{sep}{n}");
+        n += 1;
+    }
+    out
 }
 
 /// Reads an agents file (`otaq-agents.yaml`, AGM-02): its `agents:`, as a flow file's.
@@ -177,7 +260,6 @@ fn write_agents_into(out: &mut String, agents: &[FlowAgent]) {
         if !agent.instructions.is_empty() {
             item.text("instructions", &agent.instructions);
         }
-        item.list("skills", agent.skills.iter().map(String::as_str));
         item.field("model", &agent.model);
         if let Some(why) = &agent.why {
             item.text("why", why);
@@ -201,9 +283,6 @@ pub fn write(file: &FlowFile) -> String {
         item.field("column", stage.column.as_str());
         if let Some(agent) = &stage.agent {
             item.field("agent", agent);
-        }
-        if stage.is_agent_check() {
-            item.list("agents", stage.agents.iter().map(String::as_str));
         }
         if let Some(skill) = &stage.skill {
             item.field("skill", skill);
@@ -231,8 +310,9 @@ pub fn write(file: &FlowFile) -> String {
     out
 }
 
-/// A stage from its raw fields: the kind's own fields must be there, and no other kind's.
-fn stage(raw: RawStage) -> Result<Stage, FormatError> {
+/// A stage from its raw fields: the kind's own fields must be there, and no other kind's. With an older agent
+/// check's agents after its first (`agents: [Security reviewer, Validator]`), which [`split`] makes copies of.
+fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
     let name = raw.name.trim().to_owned();
     if name.is_empty() {
         return Err(FormatError("A stage has no name".to_owned()));
@@ -278,12 +358,30 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
     if !matches!(kind, StageKind::Check { .. }) && raw.fail_to.is_some() {
         return refuse(what, "fail_to", "a check");
     }
-    // An agent check lists its check agents (d0130); `agent:` is never read for one.
-    if let (true, Some(agent)) = (agent_check, &raw.agent) {
-        return Err(FormatError(format!(
-            "{name} is an agent check: an agent check lists its agents: `agents: [{agent}]`"
-        )));
-    }
+    // An agent check has one agent, named with `agent:`; an older file's `agents: [X]` reads as `agent: X`, and its
+    // `agents: [X, Y]` as `agent: X` with a copy of the stage for Y after it ([`split`]).
+    let mut more = Vec::new();
+    let agent = match (raw.agent, raw.agents) {
+        (agent, None) => agent.map(|a| a.trim().to_owned()),
+        (Some(_), Some(_)) => {
+            return Err(FormatError(format!(
+                "{name} is an agent check: name its agent once, with `agent:`"
+            )));
+        }
+        (None, Some(agents)) => {
+            let mut agents = agents
+                .into_iter()
+                .map(|a| a.trim().to_owned())
+                .filter(|a| !a.is_empty());
+            let first = agents.next();
+            for agent in agents {
+                if first.as_ref() != Some(&agent) && !more.contains(&agent) {
+                    more.push(agent);
+                }
+            }
+            first
+        }
+    };
     let delivery = match kind {
         StageKind::Delivery => {
             let (Some(mode), Some(delivers)) = (raw.mode, raw.delivers) else {
@@ -304,9 +402,9 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
     };
     // An Agent stage or an agent check with no `skill:` reads (the editor's draft holds one until its skill is
     // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]). So does an agent
-    // check with no check agents yet (Rule::NoCheckAgent).
+    // check with no agent yet (Rule::NoCheckAgent).
     if runs_agent {
-        if raw.agent.is_none() && !agent_check {
+        if agent.is_none() && !agent_check {
             return Err(FormatError(format!(
                 "{name} is {what}: name the agent that runs it with `agent:`"
             )));
@@ -318,7 +416,7 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         } else {
             what
         };
-        if raw.agent.is_some() {
+        if agent.is_some() {
             return refuse(what, "agent", belongs);
         }
         if raw.skill.is_some() {
@@ -330,34 +428,21 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
             "{name} is an agent check: set its `rounds` (1 to 5)"
         )));
     }
+    // `skip` is the only option: the agent names older files list are read and ignored (a ticket picks any agent
+    // whose tool has the stage's skill).
     let options: Vec<StageOption> = raw
         .options
+        .iter()
+        .any(|o| o.trim() == StageOption::SKIP)
+        .then_some(StageOption::Skip)
         .into_iter()
-        .map(|o| {
-            if o == StageOption::SKIP {
-                StageOption::Skip
-            } else {
-                StageOption::Agent(o)
-            }
-        })
         .collect();
-    if !runs_agent && options.iter().any(|o| matches!(o, StageOption::Agent(_))) {
-        return Err(FormatError(format!(
-            "{name} is {what}: no agent runs it, so its only option can be `skip`"
-        )));
-    }
-    Ok(Stage {
+    let stage = Stage {
         id: raw.id.map(|id| id.trim().to_owned()).unwrap_or_default(),
         name,
         kind,
         column: raw.column.unwrap_or_default(),
-        agent: raw.agent,
-        agents: raw
-            .agents
-            .unwrap_or_default()
-            .into_iter()
-            .map(|a| a.trim().to_owned())
-            .collect(),
+        agent,
         skill: raw.skill,
         options,
         rounds: raw.rounds,
@@ -365,7 +450,8 @@ fn stage(raw: RawStage) -> Result<Stage, FormatError> {
         fail_to: raw.fail_to.map(|n| n.trim().to_owned()),
         delivery,
         why: why(raw.why),
-    })
+    };
+    Ok((stage, more))
 }
 
 /// A `why:` as kept: trimmed, none when empty.

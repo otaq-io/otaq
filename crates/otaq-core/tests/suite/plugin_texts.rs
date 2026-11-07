@@ -172,7 +172,7 @@ fn the_reading_skills_teach_the_stage_terminal() {
 }
 
 /// T-0409 (AGM-12, AGM-07): the skills that end an Agent stage name `stage next`, the check ends with `check pass|fail`,
-/// and a skill another skill names is named by its copy, `otaq-<name>`.
+/// and a skill another skill names is named as Otaq's, "Otaq's `commit` skill" (T4).
 #[test]
 fn skills_end_stages_with_the_stage_commands() {
     let cmd = naming::COMMAND_NAME;
@@ -191,8 +191,8 @@ fn skills_end_stages_with_the_stage_commands() {
     }
     for name in ["work-ticket", "address-review", "restack"] {
         assert!(
-            read(name).contains(&format!("(`{}`", naming::copy_name("commit"))),
-            "{name} must name the commit skill by its copy"
+            read(name).contains("Otaq's `commit` skill"),
+            "{name} must name Otaq's commit skill"
         );
     }
     let validate = read("validate");
@@ -205,6 +205,65 @@ fn skills_end_stages_with_the_stage_commands() {
             "{name} must say not to run `stage next`"
         );
     }
+}
+
+/// Otaq never writes skills into a worktree, and its own skills come from its plugin (T4): no file of a shipped skill
+/// names another by a copy's name (`otaq-commit`) or points into a working folder's skills (`.claude/skills`,
+/// `.agents/skills`).
+#[test]
+fn no_skill_text_names_a_copy() {
+    let skills = find_plugin_dir(Path::new("/nonexistent"))
+        .expect("the repository's plugin folder")
+        .join("skills");
+    let names: Vec<String> = skill_files().into_iter().map(|(name, _)| name).collect();
+    let mut needles: Vec<String> = names.iter().map(|name| format!("otaq-{name}")).collect();
+    needles.extend([".claude/skills".to_owned(), ".agents/skills".to_owned()]);
+    let mut folders = vec![skills];
+    let mut read = 0;
+    while let Some(folder) = folders.pop() {
+        for entry in std::fs::read_dir(&folder).unwrap() {
+            let path = entry.unwrap().path();
+            if path.is_dir() {
+                folders.push(path);
+                continue;
+            }
+            let Ok(text) = std::fs::read_to_string(&path) else {
+                continue;
+            };
+            read += 1;
+            for needle in &needles {
+                assert!(
+                    !text.contains(needle.as_str()),
+                    "{} must not say {needle:?}",
+                    path.display()
+                );
+            }
+        }
+    }
+    assert!(read >= names.len(), "read {read} files");
+}
+
+/// Agents have no skill list, and a stage's `skill:` is the only place a skill is picked (T4): no agent the `flow`
+/// skill shows carries a `skills:` key, and its example security reviewer's skill is its stage's.
+#[test]
+fn the_flow_skills_agents_have_no_skill_list() {
+    let flow = read_skill("flow");
+    let lines: Vec<&str> = flow.lines().collect();
+    for (n, line) in lines.iter().enumerate() {
+        assert!(
+            !line.trim_start().starts_with("skills:"),
+            "flow line {}: {line:?}",
+            n + 1
+        );
+    }
+    assert!(
+        flow.contains("agent: Security reviewer\n       skill: team-security-review\n"),
+        "the security reviewer's skill is its stage's"
+    );
+    assert!(
+        !flow.contains("- **`skills`**"),
+        "no `skills` field for agents"
+    );
 }
 
 /// The text of the shipped skill `name`.
@@ -237,10 +296,7 @@ fn product_spec_asks_one_at_a_time_commits_and_moves_on() {
         format!("{cmd} ask human"),
         "Ask one question at a time".to_owned(),
         "what to build, for whom and why".to_owned(),
-        format!(
-            "with the commit skill `prime` names (`{}`",
-            naming::copy_name("commit")
-        ),
+        "with Otaq's `commit` skill".to_owned(),
         format!("{cmd} stage next --stdin"),
         "Product spec: decisions/0140 (the share link), DESIGN.md".to_owned(),
         format!("Spec review sent SHOP-40 back to you with a comment. Run `{cmd} prime`."),
@@ -275,10 +331,7 @@ fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
         "Ask the user only where a choice changes what gets built".to_owned(),
         "Decide everything else yourself".to_owned(),
         format!("{cmd} ask human"),
-        format!(
-            "with the commit skill `prime` names (`{}`",
-            naming::copy_name("commit")
-        ),
+        "with Otaq's `commit` skill".to_owned(),
         format!("{cmd} stage next --stdin"),
         "**Start from the caller.**".to_owned(),
         "**Design it twice when the shape matters**".to_owned(),
@@ -317,10 +370,7 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
         "**Keep the user's edits**".to_owned(),
         "unless their comment says otherwise".to_owned(),
         "**Change only what the comment asks**".to_owned(),
-        format!(
-            "with the commit skill `prime` names (`{}`",
-            naming::copy_name("commit")
-        ),
+        "with Otaq's `commit` skill".to_owned(),
         format!("{cmd} stage next --stdin"),
         "Milestone plan: 4 pieces; docs/milestones/wishlist.md".to_owned(),
         // The size measure is concrete signs, not time (T3).
@@ -417,7 +467,8 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
             "flow must document `{field}`"
         );
     }
-    for field in ["role", "instructions", "skills", "why", "model"] {
+    // Agents have no skill list (T4): the agent's fields leave `skills` out.
+    for field in ["role", "instructions", "why", "model"] {
         assert!(
             flow.contains(&format!("**`{field}`**")),
             "flow must document the agent's `{field}`"
@@ -425,17 +476,19 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
     }
 }
 
-/// T-0472 (FED-06; d0092, d0023): `flow` writes a stage's skill only in the folder `flow write-skill` gives, and
-/// hands it in with `--done`; it never writes in the repo for it.
+/// T-0472 (FED-06): `flow` names the skill and writes it only in the folder `flow write-skill --name` gives, inside
+/// the project, and hands it in with `--done`; "Ask the agent to write it" saves into the project, and the user
+/// commits it, never the agent (T6).
 #[test]
-fn flow_writes_a_stages_skill_only_in_otaqs_folder() {
+fn flow_writes_a_stages_skill_only_in_the_folder_it_is_given() {
     let cmd = naming::COMMAND_NAME;
     let flow = read_skill("flow");
     for text in [
-        format!("{cmd} flow write-skill <stage>"),
+        format!("{cmd} flow write-skill <stage> --name <name>"),
         format!("{cmd} flow write-skill <stage> --done"),
         "Write nothing anywhere else".to_owned(),
-        "never in this repo".to_owned(),
+        "inside\nthis project".to_owned(),
+        "Never commit it".to_owned(),
     ] {
         assert!(flow.contains(&text), "flow must say {text:?}");
     }
@@ -487,7 +540,7 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
             assert!(text.contains(&needle), "{name} must say {needle:?}");
         }
     }
-    assert!(read_skill("open-pr").contains(&format!("`{}` skill", naming::copy_name("push"))));
+    assert!(read_skill("open-pr").contains("Otaq's `push` skill"));
 }
 
 /// A host's PR lists the tickets merged into it: `open-pr` and `push` read prime's "Tickets merged into this one" and
