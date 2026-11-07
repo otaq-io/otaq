@@ -70,7 +70,13 @@ const EMPTY: AgentPanelView = {
     close: { icon: "panel-left-close", label: "Close", keys: "⌘L" },
   },
   empty: {
-    line: { avatar: null, agent: "Claude Code", note: "· starts when you send", rename: null, reads: "Never edits your code" },
+    line: {
+      avatar: null,
+      agent: "Claude Code",
+      note: "· starts when you send",
+      rename: null,
+      reads: "Never edits your code",
+    },
     title: "Ask Noyan",
     text: "It reads and runs code in pocket-notes but never edits it. It writes tickets to Backlog, proposing two or more first, and you start them.",
     examples: [
@@ -86,7 +92,13 @@ const EMPTY: AgentPanelView = {
     pick: null,
   },
   running: null,
-  switcher: { rows: [], recent_title: "RECENTLY ENDED", recent: [], new_label: "New conversation", new_keys: "⇧⌘L" },
+  switcher: {
+    rows: [],
+    recent_title: "RECENTLY ENDED",
+    recent: [],
+    new_label: "New conversation",
+    new_keys: "⇧⌘L",
+  },
   menu: [],
   recent: { title: "RECENTLY ENDED · POCKET-NOTES", rows: [], empty: "No ended conversations yet." },
 };
@@ -103,7 +115,13 @@ const RUNNING: AgentPanelView = {
   },
   empty: null,
   running: {
-    line: { avatar: null, agent: "Claude Code", note: "· 52k", rename: "Rename", reads: "Never edits your code" },
+    line: {
+      avatar: null,
+      agent: "Claude Code",
+      note: "· 52k",
+      rename: "Rename",
+      reads: "Never edits your code",
+    },
     created: {
       line: "CREATED 2 · CHANGED 1",
       folded: true,
@@ -423,7 +441,10 @@ describe("a running agent", () => {
 
   it("lists the created tickets on top: Start on one in Backlog starts it as a Backlog card's Start does", async () => {
     ask.mockResolvedValue({ outcome: "moved" });
-    show({ ...RUNNING, running: { ...RUNNING.running!, created: { ...RUNNING.running!.created!, folded: false } } });
+    const running = RUNNING.running;
+    const created = running?.created;
+    if (!running || !created) throw new Error("the fixture runs and created tickets");
+    show({ ...RUNNING, running: { ...running, created: { ...created, folded: false } } });
     expect(box.textContent).toContain("CREATED 2");
     expect(box.textContent).not.toContain("CREATED 2 · CHANGED 1");
     // The started one says where it is and why it waits; the one in Backlog has Start (Noyan never starts it).
@@ -491,7 +512,9 @@ describe("a running agent", () => {
     const switcher = document.querySelector(".agent-panel-switcher");
     expect(switcher?.textContent).toContain("RECENTLY ENDED");
     expect(switcher?.textContent).toContain("Footer audit");
-    const resumes = [...(switcher?.querySelectorAll<HTMLButtonElement>(".agent-panel-switcher-resume") ?? [])];
+    const resumes = [
+      ...(switcher?.querySelectorAll<HTMLButtonElement>(".agent-panel-switcher-resume") ?? []),
+    ];
     expect(resumes).toHaveLength(2);
     await act(async () => {
       resumes[1]?.click();
