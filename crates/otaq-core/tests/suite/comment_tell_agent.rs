@@ -1,4 +1,4 @@
-//! "Also tell the agent now" (T-0495; d0123, d0048): the user's comment posted with `tell_agent` on a ticket whose
+//! "Tell <agent> now" (T-0495; d0123, d0048): the user's comment posted with `tell_agent` on a ticket whose
 //! agent (or check) runs queues one line for that session, "The user added comment N. Run `otaq prime` to read it.",
 //! typed once it is idle with an empty input line, "1 message waiting" until then. It is not a hand-off. Without the
 //! flag, from an agent, or with no running session: nothing. An ordinary `sh` stands in for `claude`.
@@ -46,6 +46,13 @@ async fn a_ticked_comment_tells_the_working_agent_once_idle() {
         panic!("{reply:?}");
     };
     assert_eq!(posted.n, 2);
+    // The comment says who was told; the plain one before it told nobody.
+    assert!(posted.told.is_some(), "{posted:?}");
+    let first = w.board.ticket_comment("SHOP-1", 1).await.unwrap();
+    assert_eq!(
+        first.told, None,
+        "a plain comment reaches the running agent only when chosen"
+    );
 
     // Queued, never the comment itself: "1 message waiting" until the agent is idle.
     let pending = w.deliveries.pending(&agent.session).await.unwrap();

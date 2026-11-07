@@ -3,10 +3,15 @@ import type { PillView } from "./PillView";
 import type { ToolAvatarView } from "./ToolAvatarView";
 
 /**
- * One row of the switcher: a Project agent of the project, with its state.
+ * One row of the switcher: a conversation of the project, with its state, and Resume on one that ended.
  */
 export type AgentPanelSwitcherRow = { id: string, name: string, unnamed: boolean, pill: PillView, 
 /**
  * Hidden while one tool is connected.
  */
-avatar: ToolAvatarView | null, selected: boolean, };
+avatar: ToolAvatarView | null, selected: boolean, 
+/**
+ * "Resume" on an ended conversation: `agent_panel.resume` continues it (the click is the go-ahead) and the
+ * panel shows it.
+ */
+resume: string | null, };

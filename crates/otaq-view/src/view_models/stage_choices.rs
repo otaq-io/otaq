@@ -1032,6 +1032,8 @@ pub enum HistoryLine {
         detail: String,
         note: Option<String>,
         ended: String,
+        /// Its quiet row in History: "Session · Product spec · Spec writer".
+        quiet: String,
     },
     /// A line of its own: "Session ended · Sonnet · claude-sonnet-5-5 · 54k", "Developer: Light (deleted) ·
     /// claude-haiku-5-5 · 48k".
@@ -1087,6 +1089,7 @@ pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
             detail,
             note: swap_note(session, tool, tools),
             ended: format!("{stage} finished \u{b7} {name}"),
+            quiet: format!("Session \u{b7} {stage} \u{b7} {name}"),
         });
     }
     if finished(t) {

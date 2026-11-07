@@ -55,9 +55,9 @@ answer_agent: SheetAnswerAgent | null,
  */
 parent: string | null, menu: Array<MenuItem>, 
 /**
- * `otaq attach SHOP-19`, for Copy attach command.
+ * What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
  */
-attach_command: string, answer: SheetAnswer | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
+ask_noyan: string, answer: SheetAnswer | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
 /**
  * The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
  */

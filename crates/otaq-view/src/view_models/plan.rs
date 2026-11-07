@@ -781,7 +781,7 @@ mod tests {
             ]
         );
         assert!(rows.iter().all(|r| r.kind == Kind::Description));
-        assert_eq!(history::filtered(&rows, Filter::Description).len(), 3);
+        assert!(history::filtered(&rows, Filter::Sessions).is_empty());
         assert_eq!(
             (rows[0].mark.clone(), rows[1].mark.clone()),
             (Mark::Agent, Mark::You)

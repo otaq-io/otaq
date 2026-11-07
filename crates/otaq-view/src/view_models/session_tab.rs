@@ -1,7 +1,7 @@
 //! The sheet's Session tab (SHT-04; d0022, d0035, d0048, d0063, d0108, d0130; canvas `s25-06`, `s29-04`): the ticket's
-//! terminals under its header, with the switch **Agent · <check's agent> · Run · Shell**. The check's side shows while a
-//! check stage runs on the ticket or after one ran (the running check, else the last: "Validator", "Security
-//! reviewer"; its terminal attaches with `--stage <id>`). A check has one agent; a round stored from when a check could
+//! terminals under its header, with the switch **Agent · <check stage> · Run · Terminal**, each side named by what it
+//! is. The check's side shows while a check stage runs on the ticket or after one ran (the running check, else the
+//! last), named by its stage ("Validate", "Security"); its terminal attaches with `--stage <id>`. A check has one agent; a round stored from when a check could
 //! have several agents still has one side per check agent, each with its verdict ("Security reviewer ✓", "Performance
 //! reviewer"). The dots say which side waits for you (turquoise) or runs (green). Over the
 //! terminal, the line "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22" and "Typing goes to Rust
@@ -67,12 +67,15 @@ pub struct CheckSide {
 }
 
 impl CheckSide {
-    /// The switch's label: the agent, with ✓ once it passed and ✗ once it failed, for one of several (`s29-04`).
+    /// The switch's label: the check's stage ("Validate"), since the switch names each side by what it is, not by the
+    /// checker agent (its agent when the stage can't be named). One of several check agents of an old round is its
+    /// agent, with ✓ once it passed and ✗ once it failed (`s29-04`): the stage would name them all alike.
     pub fn label(&self) -> String {
         match (self.several, self.verdict) {
             (true, Some(RunResult::Passed)) => format!("{} \u{2713}", self.agent),
             (true, Some(RunResult::Failed)) => format!("{} \u{2717}", self.agent),
-            _ => self.agent.clone(),
+            (true, _) => self.agent.clone(),
+            (false, _) => self.stage.clone().unwrap_or_else(|| self.agent.clone()),
         }
     }
 }
@@ -442,7 +445,7 @@ mod tests {
             labels(&parts),
             [
                 ("Agent", None),
-                ("Validator", Some(Dot::Running)),
+                ("Validate", Some(Dot::Running)),
                 ("Run", None),
                 ("Terminal", None)
             ]
@@ -534,11 +537,11 @@ mod tests {
             format!("{attach} --stage validate")
         );
         assert_eq!(check_attach_command(&key, &sides[0]), attach, "it ended");
-        // One check agent: one side, no --agent, its name alone (as today).
+        // One check agent: one side, no --agent, named by its stage.
         let one = check_sides(&t, &sessions[..2], &runs[..1], &stages());
         assert_eq!(one.len(), 1);
         assert!(!one[0].several);
-        assert_eq!(one[0].label(), "Security reviewer");
+        assert_eq!(one[0].label(), "Validate");
     }
 
     #[test]
@@ -563,7 +566,7 @@ mod tests {
         });
         assert_eq!(
             parts.iter().map(|p| p.label.as_str()).collect::<Vec<_>>(),
-            ["Agent", "Security reviewer", "Run", "Terminal"]
+            ["Agent", "Security", "Run", "Terminal"]
         );
     }
 

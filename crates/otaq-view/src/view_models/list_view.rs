@@ -1,117 +1,77 @@
-//! The List view (LST-01, LST-02; *24 · The two views*, `s24-03`, `s24-04`, `s24-05`): the project's tickets as rows
-//! under the header TICKET · WHERE IN THE FLOW · WHAT'S HAPPENING · WHO. A row is the ticket's card in one line (its
-//! key, title, the card's status line, who, time and its one action, from [`board::ticket_card`] so both views say
-//! the same), its status icon and its track: one step per stage of the flow, the steps it passed filled, its own in
-//! its state's colour. Rows are grouped by the project's Group by ([`GroupBy`]): **Stage** (flow order: Backlog with
-//! "Start, or drag a row into the first stage", each stage, Finished with "4 this week · show"), **Status** (Needs
-//! you · Working · Waiting to start · Backlog · Open PRs · Finished this week) or **Agent**; Hide empty stages leaves
-//! empty groups out. Within a group the board's order holds (the core's; a started ticket waiting to begin is at the
-//! top of the first stage's group, d0065), so answering a ticket changes its row's edge and words, not its place.
+//! The List: the board as rows. Board and List are two layouts of the same board, so the List shows the board's
+//! groups in the board's places: each stage of the flow in flow order, then Backlog, then Done; a stage folded on the
+//! board (its ⋯, or Fold empty columns while it is empty) is folded here too, and Done folded is one line at the end,
+//! "Done · 3". A row says what the card says ([`board::ticket_card`]: key, title, the status line, who, time and the
+//! one action), and what needs you stands out only by the card's coloured edge.
 //!
-//! Starting (LST-02): a Backlog row has **Start**, the drop on the first agent column that the card's ⌘D sends; with
-//! Group by Stage each group that is a board drop target says so (`target`), so a row dragged onto the first stage
-//! starts it with the drop zone's words (the drag's verdicts are `board.drag`'s, as on the Board). The row menu is the
-//! card's (`board.menu`).
+//! Inside a stage the rows keep the board's order with one difference: the board floats a card that needs you to the
+//! top of its column, the List doesn't, so answering a ticket changes its row's colour and words, never its place. A
+//! started ticket waiting to begin is still at the top of its stage.
+//!
+//! Each group is the drop target of its board column: a row dragged onto a stage is the card dropped on that column
+//! (the drag's verdicts are `board.drag`'s). The row menu is the card's (`board.menu`).
 
-use otaq_core::board::needs_you::{group_of, waits_for_click};
+use std::cmp::Reverse;
+
+use otaq_core::board::order::{blocked_counts, start_order};
 use otaq_core::board::settings::ViewPrefs;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Place, Status, TicketKey};
-use otaq_core::flow::Stage;
+use otaq_core::domain::{StatusSet, TicketKey};
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::icons::IconName;
-use crate::theme::Palette;
 use crate::view_models::board::{self, BoardInput};
 use crate::view_models::board_page::DropTargetId;
-use crate::view_models::card::Tone;
 use crate::view_models::card_page::TicketCardView;
-use crate::view_models::flow_columns::{self, ColumnKind, Columns};
-use crate::view_models::status::{self, PillView};
-use crate::view_models::view_prefs::{Change, GroupBy};
+use crate::view_models::flow_columns::{self, Columns};
+use crate::view_models::view_prefs::Change;
 
-/// The header row (`s24-03`).
-pub const HEADER_TICKET: &str = "TICKET";
-pub const HEADER_FLOW: &str = "WHERE IN THE FLOW";
-pub const HEADER_HAPPENING: &str = "WHAT\u{2019}S HAPPENING";
-pub const HEADER_WHO: &str = "WHO";
-
-/// Group by Stage's fixed group at the start and its hint (LST-01).
+/// The group of tickets in Backlog, as the board's column.
 pub const BACKLOG: &str = "Backlog";
-pub const BACKLOG_HINT: &str = "Start, or drag a row into the first stage";
-/// A finished ticket's place on its track.
+/// The group of finished tickets, as the board's column.
 pub const DONE: &str = "Done";
-/// The group of finished tickets, whatever the stages are named: the default flow's last stage is itself Done, so
-/// the two never read alike (#53, Q468).
-pub const FINISHED: &str = "Finished";
-/// Finished's hint while its rows are folded, and while they show.
-pub const DONE_SHOW: &str = "{n} this week \u{b7} show";
-pub const DONE_HIDE: &str = "{n} this week \u{b7} hide";
-
-/// Group by Status's groups (LST-01), in order.
-pub const NEEDS_YOU: &str = "Needs you";
-pub const WORKING: &str = "Working";
-pub const WAITING_TO_START: &str = "Waiting to start";
-pub const OPEN_PRS: &str = "Open PRs";
-pub const FINISHED_THIS_WEEK: &str = "Finished this week";
-
-/// Group by Agent's groups besides each agent: not started yet, and the stages you check.
-pub const NOT_STARTED: &str = "Not started";
-pub const YOU: &str = "You";
-
-/// An empty group's line.
+/// Done folded: one line at the end ("Done · 3").
+pub const DONE_LINE: &str = "Done \u{b7} {n}";
+/// An open group with no row to show.
 pub const NOTHING_HERE: &str = "Nothing here";
-
-/// A Backlog row's button.
-pub const START: &str = "Start";
-
-/// The track's place before the flow (Backlog).
-pub const NO_PLACE: &str = "\u{2014}";
-
-/// How far back "this week" reaches: Done lists what finished in the last seven days.
-pub const WEEK_MS: i64 = 7 * 24 * 60 * 60 * 1000;
 
 /// The List as the page draws it. `ListView` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListView")]
 pub struct ListView {
-    pub header: Header,
     pub groups: Vec<Group>,
+    /// Done while it is folded: one line at the end; `null` while Done is a group of its own.
+    pub done: Option<DoneLine>,
 }
 
-/// The column names over the rows. `ListHeader` on the page.
+/// Done folded at the end of the List: "Done · 3"; a click opens it. `ListDoneLine` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ListHeader")]
-pub struct Header {
-    pub ticket: String,
-    pub flow: String,
-    pub happening: String,
-    pub who: String,
+#[ts(rename = "ListDoneLine")]
+pub struct DoneLine {
+    pub text: String,
+    pub unfold: Change,
+    /// It stays Done's drop target.
+    pub target: DropTargetId,
 }
 
-/// One group of rows: its head ("Backlog 3 · Start, or drag a row into the first stage") and its rows. `ListGroup` on the page.
+/// One group of rows: its head ("Dev 5", with the fold's chevron) and its rows. `ListGroup` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListGroup")]
 pub struct Group {
-    /// "backlog", a stage's id, "done"; "needs_you"…; "agent:Rust developer".
+    /// The board column's id: a stage's id, "backlog", "done".
     pub id: String,
     pub title: String,
-    pub icon: IconName,
-    /// The title's colour: Needs you's and Working's in Group by Status; `null` is the primary text.
-    pub tone: Option<Tone>,
     /// "3", or "1/3" while a filter hides some.
     pub count: String,
-    pub hint: Option<String>,
-    /// Done's "show" / "hide": the change a click on the hint sends (Done's fold, shared with the Board's "Done 4 →").
-    pub toggle: Option<Change>,
-    /// Its rows are folded away (Done until "show").
+    /// Its rows are folded away: the head alone, its chevron pointing right.
     pub folded: bool,
-    /// "Nothing here" when it has no row to show.
+    /// The change a click on the head sends (the board column's fold); `null` for an empty stage folded by Fold empty
+    /// columns, which has nothing to open.
+    pub toggle: Option<Change>,
+    /// "Nothing here" when it is open and has no row to show.
     pub empty: Option<String>,
-    /// With Group by Stage, the board drop target the group stands for (LST-02): a row dropped on Ready queues it.
-    /// `null` for a stage shown in another's column (Validate in Dev) and in the other groupings.
-    pub target: Option<DropTargetId>,
+    /// The board column it stands for, as a drop target.
+    pub target: DropTargetId,
     pub entries: Vec<Entry>,
 }
 
@@ -132,408 +92,149 @@ pub enum Entry {
     Ticket { row: Box<Row> },
 }
 
-/// A ticket's row (LST-01). `ListRow` on the page.
+/// A ticket's row. `ListRow` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListRow")]
 pub struct Row {
-    /// The card it stands for: key, title, status line, who, time, the coloured edge and the one action.
+    /// The card it stands for: key, title, status line, who, time, the coloured edge (only while it needs you) and
+    /// the one action (Start on a Backlog row).
     pub card: TicketCardView,
-    /// The status icon before the key: the status pill's icon and colour.
-    pub icon: IconName,
-    pub palette: Palette,
-    pub track: Track,
-    /// Backlog rows' Start (LST-02).
-    pub start: Option<RowStart>,
-    pub needs_you: bool,
 }
 
-/// Start on a Backlog row: the drop on `target` (the first agent column) that ⌘D sends from the Board.
-/// `ListRowStart` on the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ListRowStart")]
-pub struct RowStart {
-    pub label: String,
-    pub target: DropTargetId,
-}
-
-/// Where the ticket is in its flow: one step per stage, then the place's name ("Dev", "—"). `ListTrack` on
-/// the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ListTrack")]
-pub struct Track {
-    pub steps: Vec<Step>,
-    pub label: String,
-}
-
-/// One stage on the track: passed (`approved`), its own in its state's colour, or ahead (`null`). `ListTrackStep` on
-/// the page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "ListTrackStep")]
-pub struct Step {
-    /// The stage's name, for the step's tooltip.
-    pub name: String,
-    pub fill: Option<Palette>,
-}
-
-/// The track of `ticket` on `columns`' flow: Backlog has no step yet, a started ticket waiting to begin is on the first
-/// stage's, Done passed them all.
-pub fn track(columns: &Columns, ticket: &Ticket) -> Track {
-    let flow = columns.flow();
-    let at = columns
-        .stage_of(ticket)
-        .and_then(|stage| flow.stages.iter().position(|s| s.id == stage.id));
-    let here = PillView::of(status::shown(ticket)).palette;
-    let done = ticket.place == Place::Done;
-    let steps = flow
-        .stages
-        .iter()
-        .enumerate()
-        .map(|(i, stage)| Step {
-            name: stage.name.clone(),
-            fill: match at {
-                _ if done => Some(Palette::Approved),
-                Some(at) if i < at => Some(Palette::Approved),
-                Some(at) if i == at => Some(here),
-                _ => None,
-            },
-        })
-        .collect();
-    let label = match &ticket.place {
-        Place::Backlog => NO_PLACE.to_owned(),
-        Place::Done => DONE.to_owned(),
-        Place::Waiting(_) | Place::InStage(_) => at
-            .map(|i| flow.stages[i].name.clone())
-            .unwrap_or_else(|| NO_PLACE.to_owned()),
-    };
-    Track { steps, label }
-}
-
-/// A row before it is put in its group: whether the filter shows it.
-struct Listed<'t> {
-    ticket: &'t Ticket,
-    row: Row,
-    shown: bool,
-}
-
-/// A group before its words: what Group by Stage gives each of its groups.
-struct Bucket<'t> {
-    id: String,
-    title: String,
-    icon: IconName,
-    tone: Option<Tone>,
-    hint: Option<String>,
-    target: Option<DropTargetId>,
-    /// A stage of the flow (Hide empty stages leaves it out when empty); Backlog, Ready and Done always show.
-    stage: bool,
-    done: bool,
-    rows: Vec<Listed<'t>>,
-}
-
-impl<'t> Bucket<'t> {
-    fn new(id: impl Into<String>, title: impl Into<String>, icon: IconName) -> Self {
-        Self {
-            id: id.into(),
-            title: title.into(),
-            icon,
-            tone: None,
-            hint: None,
-            target: None,
-            stage: false,
-            done: false,
-            rows: Vec::new(),
-        }
-    }
-}
-
-/// The icon of a stage's group: what it is (an agent, an agent's check, your check).
-fn stage_icon(stage: &Stage) -> IconName {
-    if stage.is_agent_check() {
-        IconName::ShieldCheck
-    } else if stage.is_human_check() {
-        IconName::UserCheck
-    } else {
-        IconName::Bot
-    }
-}
-
-/// Whether the ticket waits for the user as the Needs you strip counts it (NYS-01, d0114): its question, a stop, your
-/// check or a Delivery's click.
-pub(crate) fn needs_you(ticket: &Ticket) -> bool {
-    group_of(ticket.status).is_some() && waits_for_click(ticket) && !ticket.flags.your_turn
-}
-
-/// Whether `ticket` finished in the week before `now_ms`.
-fn this_week(ticket: &Ticket, now_ms: i64) -> bool {
-    now_ms - ticket.status_since.unwrap_or(ticket.updated_at) <= WEEK_MS
-}
-
-/// `t`'s row on `columns`' flow (LST-01): its card from [`board::ticket_card`], its status icon and track, Start
-/// on a Backlog row (the drop on `start`, the first agent column) and whether it needs you.
-pub fn row(input: &BoardInput, columns: &Columns, start: Option<&DropTargetId>, t: &Ticket) -> Row {
-    let card = TicketCardView::from_vm(board::ticket_card(input, t), t);
-    let pill = PillView::of(status::shown(t));
-    // A blocked row leads with the link, in the line's amber (DPV-01, `s24-10`).
-    let (icon, palette) = match card
-        .status
-        .as_ref()
-        .and_then(|s| s.icon.map(|i| (i, s.dot)))
-    {
-        Some(blocked) => blocked,
-        None => (pill.icon, pill.palette),
-    };
+/// `t`'s row: its card from [`board::ticket_card`].
+pub fn row(input: &BoardInput, t: &Ticket) -> Row {
     Row {
-        card,
-        icon,
-        palette,
-        track: track(columns, t),
-        start: start
-            .filter(|_| t.place == Place::Backlog)
-            .map(|target| RowStart {
-                label: START.to_owned(),
-                target: target.clone(),
-            }),
-        needs_you: needs_you(t),
+        card: TicketCardView::from_vm(board::ticket_card(input, t), t),
     }
 }
 
-/// The first agent column: where a Backlog row's Start drops it (⌘D's drop on the Board).
-pub fn start_target(columns: &Columns) -> Option<DropTargetId> {
-    columns
-        .first(ColumnKind::Agent)
-        .map(|c| DropTargetId::new(c.id.clone()))
+/// Where a ticket's status puts it within its column, as the board's order has it: waiting to begin first, then the
+/// stage's own work, the user's check, delivery, done.
+fn set_rank(t: &Ticket) -> usize {
+    const ORDER: [StatusSet; 6] = [
+        StatusSet::Waiting,
+        StatusSet::Backlog,
+        StatusSet::AgentStage,
+        StatusSet::HumanCheck,
+        StatusSet::Delivery,
+        StatusSet::Done,
+    ];
+    let set = t.status.set().board_group();
+    ORDER.iter().position(|s| *s == set).unwrap_or(ORDER.len())
 }
 
-/// The List for `input`'s project, grouped and folded by `prefs`.
-pub fn view<'a>(input: &BoardInput<'a>, prefs: &ViewPrefs) -> ListView {
+/// A stage's rows in the board's order, without the board's lift of what needs the user: waiting tickets in their
+/// start order, the others pinned first, then by how many wait for them, then oldest first. Nothing in it changes
+/// when a ticket is answered, so answering never moves a row.
+fn stage_order(keys: Vec<TicketKey>, all: &[Ticket]) -> Vec<TicketKey> {
+    let blocks = blocked_counts(all);
+    let mut tickets: Vec<&Ticket> = keys
+        .iter()
+        .filter_map(|k| all.iter().find(|t| &t.key == k))
+        .collect();
+    tickets.sort_by(|a, b| {
+        set_rank(a).cmp(&set_rank(b)).then_with(|| {
+            if a.status.set() == StatusSet::Waiting {
+                start_order(a, all).cmp(&start_order(b, all))
+            } else {
+                let key = |t: &Ticket| {
+                    (
+                        Reverse(t.flags.pinned_at.unwrap_or(0)),
+                        Reverse(blocks.get(&t.key).copied().unwrap_or(0)),
+                        t.created_at,
+                        t.key.clone(),
+                    )
+                };
+                key(a).cmp(&key(b))
+            }
+        })
+    });
+    tickets.into_iter().map(|t| t.key.clone()).collect()
+}
+
+/// The List for `input`'s project, folded as the board is by `prefs`.
+pub fn view(input: &BoardInput, prefs: &ViewPrefs) -> ListView {
     let columns = Columns::of(input.flow);
     let all = input.tickets;
-    let start = start_target(&columns);
-    let listed = |t: &'_ Ticket| t.place != Place::Done || this_week(t, input.now_ms);
-    let row = |t: &Ticket| row(input, &columns, start.as_ref(), t);
-    let header = Header {
-        ticket: HEADER_TICKET.to_owned(),
-        flow: HEADER_FLOW.to_owned(),
-        happening: HEADER_HAPPENING.to_owned(),
-        who: HEADER_WHO.to_owned(),
-    };
-    let group_by: GroupBy = prefs.group_by.into();
-    // Group by Stage, in flow order and in each group the board's order; the other groupings re-sort these rows.
-    let keys: Vec<&TicketKey> = all.iter().filter(|t| listed(t)).map(|t| &t.key).collect();
-    let bucket_of = |mut bucket: Bucket<'a>, column: &str| -> Bucket<'a> {
-        bucket.rows = columns
-            .order(column, &keys, all)
+    let keys: Vec<&TicketKey> = all.iter().map(|t| &t.key).collect();
+    let filtered = input.visible.is_some();
+    let shown = |k: &TicketKey| input.visible.is_none_or(|v| v.contains(k));
+    let folded_on_board = |id: &str| prefs.folded_columns.iter().any(|c| c == id);
+    let group = |id: &str, title: &str, order: Vec<TicketKey>| -> Group {
+        let total = order.len();
+        let rows: Vec<Row> = order
             .iter()
+            .filter(|k| shown(k))
             .filter_map(|k| all.iter().find(|t| &t.key == k))
-            .map(|t| Listed {
-                ticket: t,
-                row: row(t),
-                shown: input.visible.is_none_or(|v| v.contains(&t.key)),
-            })
-            .collect::<Vec<_>>();
-        bucket
-    };
-    let mut stages: Vec<Bucket<'a>> = Vec::new();
-    stages.push(bucket_of(
-        Bucket {
-            hint: Some(BACKLOG_HINT.to_owned()),
-            target: Some(DropTargetId::BACKLOG),
-            ..Bucket::new(flow_columns::BACKLOG, BACKLOG, IconName::CircleDashed)
-        },
-        flow_columns::BACKLOG,
-    ));
-    for column in columns.iter() {
-        let Some(stage) = column.stage else {
-            continue;
-        };
-        stages.push(bucket_of(
-            Bucket {
-                target: Some(DropTargetId::new(column.id.clone())),
-                stage: true,
-                ..Bucket::new(stage.id.clone(), stage.name.clone(), stage_icon(stage))
-            },
-            &column.id,
-        ));
-    }
-    stages.push(bucket_of(
-        Bucket {
-            target: Some(DropTargetId::DONE),
-            done: true,
-            ..Bucket::new(flow_columns::DONE, FINISHED, IconName::CircleCheck)
-        },
-        flow_columns::DONE,
-    ));
-    let buckets = match group_by {
-        GroupBy::Stage => stages,
-        GroupBy::Status => by_status(stages),
-        GroupBy::Agent => by_agent(stages, &columns),
-    };
-    let done_folded = prefs.folded_columns.iter().any(|c| c == flow_columns::DONE);
-    ListView {
-        header,
-        groups: buckets
-            .into_iter()
-            .filter(|b| {
-                let empty = b.rows.is_empty();
-                // Hide empty stages (LST-01): Group by Stage keeps Backlog, Ready and Done; the others drop any
-                // empty group.
-                !(prefs.hide_empty_stages && empty && (b.stage || group_by != GroupBy::Stage))
-            })
-            .map(|b| group(b, input.visible.is_some(), done_folded))
-            .collect(),
-    }
-}
-
-/// A bucket in words: its count, Done's fold and hint, the empty line.
-fn group(bucket: Bucket<'_>, filtered: bool, done_folded: bool) -> Group {
-    let total = bucket.rows.len();
-    let shown: Vec<Row> = bucket
-        .rows
-        .into_iter()
-        .filter(|l| l.shown)
-        .map(|l| l.row)
-        .collect();
-    let count = if filtered {
-        format!("{}/{total}", shown.len())
-    } else {
-        total.to_string()
-    };
-    let folded = bucket.done && done_folded && total > 0;
-    let (hint, toggle) = match (bucket.done, total) {
-        (true, 0) | (false, _) => (bucket.hint, None),
-        (true, n) => (
-            Some(if folded { DONE_SHOW } else { DONE_HIDE }.replace("{n}", &n.to_string())),
-            Some(Change::FoldColumn {
-                column: flow_columns::DONE.to_owned(),
-                folded: !folded,
-            }),
-        ),
-    };
-    Group {
-        id: bucket.id,
-        title: bucket.title,
-        icon: bucket.icon,
-        tone: bucket.tone,
-        count,
-        hint,
-        toggle,
-        folded,
-        empty: (shown.is_empty() && !folded).then(|| NOTHING_HERE.to_owned()),
-        target: bucket.target,
-        entries: if folded {
-            Vec::new()
+            .map(|t| row(input, t))
+            .collect();
+        let count = if filtered {
+            format!("{}/{total}", rows.len())
         } else {
-            shown
-                .into_iter()
-                .map(|row| Entry::Ticket { row: Box::new(row) })
-                .collect()
-        },
-    }
-}
-
-/// Group by Status (LST-01): Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week, each in
-/// flow order.
-fn by_status(stages: Vec<Bucket<'_>>) -> Vec<Bucket<'_>> {
-    let mut groups = vec![
-        Bucket {
-            tone: Some(Tone::Attention),
-            ..Bucket::new("needs_you", NEEDS_YOU, IconName::Hand)
-        },
-        Bucket {
-            tone: Some(Tone::Working),
-            ..Bucket::new("working", WORKING, IconName::LoaderCircle)
-        },
-        Bucket {
-            tone: Some(Tone::Muted),
-            ..Bucket::new("waiting", WAITING_TO_START, IconName::Hourglass)
-        },
-        Bucket {
-            tone: Some(Tone::Muted),
-            ..Bucket::new("backlog", BACKLOG, IconName::CircleDashed)
-        },
-        Bucket {
-            tone: Some(Tone::Muted),
-            ..Bucket::new("open_prs", OPEN_PRS, IconName::GitPullRequest)
-        },
-        Bucket {
-            tone: Some(Tone::Muted),
-            done: true,
-            ..Bucket::new("done", FINISHED_THIS_WEEK, IconName::CircleCheck)
-        },
-    ];
-    for listed in stages.into_iter().flat_map(|b| b.rows) {
-        let t = listed.ticket;
-        let at = match &t.place {
-            Place::Done => 5,
-            _ if needs_you(t) => 0,
-            Place::Backlog => 3,
-            Place::Waiting(_) => 2,
-            _ if t.status == Status::PrOpen => 4,
-            _ => 1,
+            total.to_string()
         };
-        groups[at].rows.push(listed);
-    }
-    groups
-}
-
-/// Group by Agent: Not started, then each agent in the flow's order (the one the row names, else its stage's), You for
-/// the stages you check, Finished this week.
-fn by_agent<'t>(stages: Vec<Bucket<'t>>, columns: &Columns) -> Vec<Bucket<'t>> {
-    let mut not_started = Bucket::new("not_started", NOT_STARTED, IconName::CircleDashed);
-    let mut agents: Vec<Bucket> = Vec::new();
-    let mut you = Bucket::new("you", YOU, IconName::UserCheck);
-    let mut done = Bucket {
-        done: true,
-        ..Bucket::new("done", FINISHED_THIS_WEEK, IconName::CircleCheck)
-    };
-    // Every agent of the flow has its group, in order, even before a ticket reaches it.
-    for agent in columns.flow().stages.iter().flat_map(Stage::named_agents) {
-        if !agents.iter().any(|b| &b.title == agent) {
-            agents.push(Bucket::new(
-                format!("agent:{agent}"),
-                agent.clone(),
-                IconName::Bot,
-            ));
-        }
-    }
-    for listed in stages.into_iter().flat_map(|b| b.rows) {
-        let t = listed.ticket;
-        let stage = columns.stage_of(t);
-        match &t.place {
-            Place::Done => done.rows.push(listed),
-            Place::Backlog | Place::Waiting(None) => not_started.rows.push(listed),
-            _ => match listed
-                .row
-                .card
-                .who
-                .clone()
-                .or_else(|| stage.and_then(|s| s.named_agents().next().cloned()))
-            {
-                Some(agent) => {
-                    let at = match agents.iter().position(|b| b.title == agent) {
-                        Some(at) => at,
-                        None => {
-                            agents.push(Bucket::new(
-                                format!("agent:{agent}"),
-                                agent.clone(),
-                                IconName::Bot,
-                            ));
-                            agents.len() - 1
-                        }
-                    };
-                    agents[at].rows.push(listed);
-                }
-                None => you.rows.push(listed),
+        let by_hand = folded_on_board(id);
+        let folded = by_hand || (prefs.fold_empty_columns && total == 0);
+        let toggle = (by_hand || !folded).then(|| Change::FoldColumn {
+            column: id.to_owned(),
+            folded: !folded,
+        });
+        Group {
+            id: id.to_owned(),
+            title: title.to_owned(),
+            count,
+            folded,
+            toggle,
+            empty: (!folded && rows.is_empty()).then(|| NOTHING_HERE.to_owned()),
+            target: DropTargetId::new(id.to_owned()),
+            entries: if folded {
+                Vec::new()
+            } else {
+                rows.into_iter()
+                    .map(|row| Entry::Ticket { row: Box::new(row) })
+                    .collect()
             },
         }
-    }
-    std::iter::once(not_started)
-        .chain(agents)
-        .chain([you, done])
-        .collect()
+    };
+    let mut groups: Vec<Group> = columns
+        .iter()
+        .filter(|c| c.stage.is_some())
+        .map(|c| {
+            group(
+                &c.id,
+                &c.title,
+                stage_order(columns.order(&c.id, &keys, all), all),
+            )
+        })
+        .collect();
+    groups.push(group(
+        flow_columns::BACKLOG,
+        BACKLOG,
+        columns.order(flow_columns::BACKLOG, &keys, all),
+    ));
+    let done = group(
+        flow_columns::DONE,
+        DONE,
+        columns.order(flow_columns::DONE, &keys, all),
+    );
+    // Done folded is a line at the end, as on the board; open, it is the last group.
+    let done = if done.folded {
+        Some(DoneLine {
+            text: DONE_LINE.replace("{n}", &done.count),
+            unfold: Change::FoldColumn {
+                column: flow_columns::DONE.to_owned(),
+                folded: false,
+            },
+            target: DropTargetId::DONE,
+        })
+    } else {
+        groups.push(done);
+        None
+    };
+    ListView { groups, done }
 }
 
-/// The List's states for the Gallery (`gallery.list_view`), on the example's shop-web: by Stage (Done folded, then
-/// opened), by Status, by Agent, and Hide empty stages on. `ListGallery` on the page.
+/// The List's states for the Gallery (`gallery.list_view`), on the example's shop-web. `ListGallery` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "ListGallery")]
 pub struct Gallery {
@@ -549,7 +250,6 @@ pub struct GalleryState {
 }
 
 pub fn gallery() -> Gallery {
-    use otaq_core::board::settings::GroupBy as G;
     use samples::{input, prefs, shop_web, tickets};
     let flow = shop_web();
     let tickets = tickets();
@@ -557,31 +257,21 @@ pub fn gallery() -> Gallery {
     Gallery {
         states: vec![
             GalleryState {
-                label: "By stage, Done folded (s24-03)",
-                view: draw(prefs(G::Stage)),
+                label: "Done folded",
+                view: draw(prefs()),
             },
             GalleryState {
-                label: "By status (s24-04)",
-                view: draw(prefs(G::Status)),
-            },
-            GalleryState {
-                label: "By agent",
-                view: draw(prefs(G::Agent)),
-            },
-            GalleryState {
-                label: "By stage, Done shown, Hide empty stages",
+                label: "Done open, Security folded",
                 view: draw(ViewPrefs {
-                    folded_columns: Vec::new(),
-                    hide_empty_stages: true,
-                    ..prefs(G::Stage)
+                    folded_columns: vec!["security".to_owned()],
+                    ..prefs()
                 }),
             },
         ],
     }
 }
 
-/// The example's shop-web (`tickets/m38-tickets.md` → The example, as `s24-03` draws it), for the Gallery and the
-/// tests.
+/// The example's shop-web (`tickets/m38-tickets.md` → The example), for the Gallery and the tests.
 pub mod samples {
     use otaq_core::board::settings::{BoardView, ViewPrefs};
     use otaq_core::board::tickets::{AgentSignal, Ticket};
@@ -591,7 +281,7 @@ pub mod samples {
     use crate::view_models::board::BoardInput;
     use crate::view_models::card_fixtures::{NOW, ticket};
 
-    /// The example's shop-web flow (`s24-03`): Product spec, Dev, Validate, Security, Review, then a PR.
+    /// The example's shop-web flow: Product spec, Dev, Validate, Security, Review, then a PR.
     pub fn shop_web() -> Flow {
         let yaml = "\
 flow:
@@ -620,7 +310,7 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         t
     }
 
-    /// The example's shop-web tickets as the List draws them (`s24-03`).
+    /// The example's shop-web tickets.
     pub fn tickets() -> Vec<Ticket> {
         let mut hotfix = at(
             "SHOP-31",
@@ -727,7 +417,7 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             t.status_since = Some(NOW - (i as i64 + 1) * 24 * 60 * 60 * 1000);
             tickets.push(t);
         }
-        // Merged a month ago: not this week's.
+        // Merged a month ago.
         let mut old = at("SHOP-2", "Shipped long ago", Status::Merged, Place::Done);
         old.key = "SHOP-5".parse().unwrap();
         old.status_since = Some(NOW - 30 * 24 * 60 * 60 * 1000);
@@ -755,10 +445,10 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         }
     }
 
-    pub fn prefs(group_by: otaq_core::board::settings::GroupBy) -> ViewPrefs {
+    pub fn prefs() -> ViewPrefs {
         ViewPrefs {
             view: BoardView::List,
-            group_by,
+            list_layout: true,
             ..ViewPrefs::default()
         }
     }
@@ -768,17 +458,19 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
 mod tests {
     use super::samples::{input, prefs, shop_web, tickets};
     use super::*;
+    use crate::view_models::card::{CardActionKind, Tone};
     use crate::view_models::card_fixtures::ticket;
+    use otaq_core::domain::{Place, Status};
 
-    /// Each group's title, count and hint, then its rows' keys.
-    fn outline(list: &ListView) -> Vec<(String, String, Option<String>, Vec<String>)> {
+    /// Each group's title, count, whether it is folded, then its rows' keys.
+    fn outline(list: &ListView) -> Vec<(String, String, bool, Vec<String>)> {
         list.groups
             .iter()
             .map(|g| {
                 (
                     g.title.clone(),
                     g.count.clone(),
-                    g.hint.clone(),
+                    g.folded,
                     g.rows().map(|r| r.card.key.clone()).collect(),
                 )
             })
@@ -793,103 +485,97 @@ mod tests {
             .unwrap_or_else(|| panic!("no row {key}"))
     }
 
-    fn view(input: &BoardInput, prefs: &ViewPrefs) -> ListView {
-        super::view(input, prefs)
-    }
-
-    fn s(text: &str) -> Option<String> {
-        Some(text.to_owned())
+    /// Where `key`'s row is: its group's title and its index there.
+    fn place_of(list: &ListView, key: &str) -> (String, usize) {
+        list.groups
+            .iter()
+            .find_map(|g| {
+                g.rows()
+                    .position(|r| r.card.key == key)
+                    .map(|i| (g.title.clone(), i))
+            })
+            .unwrap_or_else(|| panic!("no row {key}"))
     }
 
     fn keys(list: &[&str]) -> Vec<String> {
         list.iter().map(|k| (*k).to_owned()).collect()
     }
 
-    /// LST-01 by Stage (`s24-03`): the header, Backlog to Done in flow order with each stage its own group, the
-    /// counts, the hints, the board's order in each group, Done folded with "4 this week · show".
+    /// The stages in flow order, then Backlog, then Done folded to its line; inside each stage the board's order
+    /// with a started ticket waiting to begin at the top.
     #[test]
-    fn the_example_by_stage() {
-        use otaq_core::board::settings::GroupBy as G;
+    fn groups_are_the_stages_in_flow_order_then_backlog_then_done() {
         let flow = shop_web();
         let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
-        assert_eq!(
-            list.header,
-            Header {
-                ticket: "TICKET".into(),
-                flow: "WHERE IN THE FLOW".into(),
-                happening: "WHAT\u{2019}S HAPPENING".into(),
-                who: "WHO".into(),
-            }
-        );
+        let list = view(&input(&flow, &tickets), &prefs());
         assert_eq!(
             outline(&list),
             [
                 (
-                    "Backlog".into(),
-                    "3".into(),
-                    s("Start, or drag a row into the first stage"),
-                    keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
-                ),
-                (
                     "Product spec".into(),
                     "4".into(),
-                    None,
+                    false,
                     keys(&["SHOP-35", "SHOP-20", "SHOP-12", "SHOP-44"])
                 ),
                 (
                     "Dev".into(),
                     "3".into(),
-                    None,
+                    false,
                     keys(&["SHOP-22", "SHOP-29", "SHOP-33"])
                 ),
-                ("Validate".into(), "1".into(), None, keys(&["SHOP-30"])),
+                ("Validate".into(), "1".into(), false, keys(&["SHOP-30"])),
                 (
                     "Security".into(),
                     "2".into(),
-                    None,
-                    keys(&["SHOP-32", "SHOP-19"])
+                    false,
+                    keys(&["SHOP-19", "SHOP-32"])
                 ),
                 (
                     "Review".into(),
                     "2".into(),
-                    None,
+                    false,
                     keys(&["SHOP-18", "SHOP-26"])
                 ),
                 (
-                    "Finished".into(),
-                    "4".into(),
-                    s("4 this week \u{b7} show"),
-                    keys(&[])
+                    "Backlog".into(),
+                    "3".into(),
+                    false,
+                    keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
                 ),
             ]
         );
-        let done = list.groups.last().unwrap();
-        assert!(done.folded && done.empty.is_none());
         assert_eq!(
-            done.toggle,
-            Some(Change::FoldColumn {
-                column: "done".into(),
-                folded: false
+            list.done,
+            Some(DoneLine {
+                text: "Done \u{b7} 5".into(),
+                unfold: Change::FoldColumn {
+                    column: "done".into(),
+                    folded: false
+                },
+                target: DropTargetId::DONE,
             })
         );
-        // Drop targets (LST-02): the first stage starts; every stage is a column on the Board, so every stage takes a
-        // drop.
-        let target = |title: &str| {
-            list.groups
-                .iter()
-                .find(|g| g.title == title)
-                .unwrap()
-                .target
-                .as_ref()
-                .map(|t| t.as_str().to_owned())
-        };
-        assert_eq!(target("Product spec"), s("product-spec"));
-        assert_eq!(target("Dev"), s("dev"));
-        assert_eq!(target("Validate"), s("validate"));
-        assert_eq!(target("Review"), s("review"));
+        // Each group is its board column's drop target.
+        let targets: Vec<&str> = list.groups.iter().map(|g| g.target.as_str()).collect();
+        assert_eq!(
+            targets,
+            [
+                "product-spec",
+                "dev",
+                "validate",
+                "security",
+                "review",
+                "backlog"
+            ]
+        );
+    }
 
-        // The rows say what the cards say (BRD-03).
+    /// A row says what the card says, and only what needs you has the coloured edge.
+    #[test]
+    fn rows_use_the_cards_words() {
+        let flow = shop_web();
+        let tickets = tickets();
+        let list = view(&input(&flow, &tickets), &prefs());
         let line = |key: &str| {
             let r = row(&list, key);
             (
@@ -901,36 +587,102 @@ mod tests {
         assert_eq!(
             line("SHOP-12"),
             (
-                s("Asks you \u{b7} follow the system setting?"),
-                s("Answer"),
+                Some("Asks you \u{b7} follow the system setting?".into()),
+                Some("Answer".into()),
                 Some(Tone::Attention)
             )
         );
-        assert_eq!(line("SHOP-32").1, s("Decide"));
-        assert_eq!(
-            line("SHOP-18"),
-            (s("Ready for you"), s("Review"), Some(Tone::Review))
-        );
-        assert_eq!(line("SHOP-30").0, s("Checking"));
+        assert_eq!(line("SHOP-18").2, Some(Tone::Review));
+        assert_eq!(line("SHOP-30").0.as_deref(), Some("Checking"));
+        assert_eq!(line("SHOP-33").2, None);
         assert_eq!(row(&list, "SHOP-33").card.time.as_ref().unwrap().text, "3m");
+        let blocked = row(&list, "SHOP-20").card.status.as_ref().unwrap();
+        assert_eq!(blocked.text, "Waits for SHOP-18 to merge");
+        // A Backlog row's one action is the card's Start.
+        let start = row(&list, "SHOP-41").card.action.as_ref().unwrap();
+        assert_eq!(start.kind, CardActionKind::Start);
+        // Each row is the board's card for that ticket, word for word.
+        let t = tickets
+            .iter()
+            .find(|t| t.key.to_string() == "SHOP-22")
+            .unwrap();
         assert_eq!(
-            row(&list, "SHOP-12").icon,
-            IconName::MessageCircleQuestionMark
+            row(&list, "SHOP-22").card,
+            TicketCardView::from_vm(board::ticket_card(&input(&flow, &tickets), t), t)
         );
-        assert_eq!(row(&list, "SHOP-12").palette, Palette::Attn);
-        assert!(row(&list, "SHOP-12").needs_you && !row(&list, "SHOP-33").needs_you);
+    }
 
-        // Done's "show" opens this week's four; the month-old one isn't listed.
-        let open = view(
+    /// Answering a ticket changes its row's colour and words, never its place, even where the board floats what
+    /// needs you to the top.
+    #[test]
+    fn answering_changes_the_row_not_its_place() {
+        let flow = shop_web();
+        let mut tickets = tickets();
+        // A later ticket in Dev that asks: the board lifts it over the working ones, the List keeps it last.
+        let mut late = ticket("SHOP-50", "Late question", Status::AsksYou);
+        late.place = Place::stage_of("dev");
+        late.created_at = 10;
+        tickets.push(late);
+        let before = view(&input(&flow, &tickets), &prefs());
+        assert_eq!(place_of(&before, "SHOP-50"), ("Dev".into(), 3));
+        assert_eq!(place_of(&before, "SHOP-22"), ("Dev".into(), 0));
+        assert_eq!(row(&before, "SHOP-50").card.edge, Some(Tone::Attention));
+
+        // Both answered: back at work.
+        for t in tickets.iter_mut() {
+            if ["SHOP-50", "SHOP-22", "SHOP-12"].contains(&t.key.to_string().as_str()) {
+                t.status = Status::Working;
+                t.signal = None;
+            }
+        }
+        let after = view(&input(&flow, &tickets), &prefs());
+        for key in ["SHOP-50", "SHOP-22", "SHOP-12"] {
+            assert_eq!(place_of(&after, key), place_of(&before, key), "{key}");
+            assert_eq!(row(&after, key).card.edge, None, "{key}");
+        }
+        assert_eq!(
+            row(&after, "SHOP-50")
+                .card
+                .status
+                .as_ref()
+                .map(|s| s.text.as_str()),
+            Some("Working")
+        );
+    }
+
+    /// The List folds as the board does: a column folded by its ⋯ is a folded group whose head opens it; Fold empty
+    /// columns folds an empty stage, with nothing to open; Done open is the last group.
+    #[test]
+    fn folds_follow_the_board() {
+        let flow = shop_web();
+        let tickets: Vec<Ticket> = tickets()
+            .into_iter()
+            .filter(|t| t.key.to_string() != "SHOP-30")
+            .collect();
+        let list = view(
             &input(&flow, &tickets),
             &ViewPrefs {
-                folded_columns: Vec::new(),
-                ..prefs(G::Stage)
+                folded_columns: vec!["security".into()],
+                fold_empty_columns: true,
+                ..prefs()
             },
         );
-        let done = open.groups.last().unwrap();
-        assert_eq!(done.hint, s("4 this week \u{b7} hide"));
-        assert_eq!(done.entries.len(), 4);
+        let group = |title: &str| list.groups.iter().find(|g| g.title == title).unwrap();
+        let security = group("Security");
+        assert!(security.folded && security.entries.is_empty() && security.empty.is_none());
+        assert_eq!(security.count, "2");
+        assert_eq!(
+            security.toggle,
+            Some(Change::FoldColumn {
+                column: "security".into(),
+                folded: false
+            })
+        );
+        let validate = group("Validate");
+        assert!(validate.folded && validate.toggle.is_none());
+        assert_eq!(list.done, None);
+        let done = list.groups.last().unwrap();
+        assert_eq!((done.title.as_str(), done.count.as_str()), ("Done", "5"));
         assert_eq!(
             done.toggle,
             Some(Change::FoldColumn {
@@ -938,274 +690,63 @@ mod tests {
                 folded: true
             })
         );
-    }
-
-    /// #39: a row shows its ticket's priority chip, in Backlog and Ready alike; Normal shows none.
-    #[test]
-    fn rows_show_the_priority() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
-        let chip = |key| {
-            row(&list, key)
-                .card
-                .priority
-                .as_ref()
-                .map(|p| p.short.clone())
-        };
-        assert_eq!(chip("SHOP-31").as_deref(), Some("P1"));
-        assert_eq!(chip("SHOP-35").as_deref(), Some("P1"));
-        assert_eq!(chip("SHOP-20"), None);
-    }
-
-    /// #53 (Q468): with the default flow, whose last stage is named Done, the stage group says "Done" and the group
-    /// of finished tickets says "Finished", so the two never read alike; by Status it is "Finished this week".
-    #[test]
-    fn the_finished_group_is_never_called_done() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = otaq_core::flow::default::default_flow();
-        let tickets = tickets();
-        let titles = |group_by| -> Vec<String> {
-            view(&input(&flow, &tickets), &prefs(group_by))
-                .groups
-                .iter()
-                .map(|g| g.title.clone())
-                .collect()
-        };
-        let by_stage = titles(G::Stage);
-        assert_eq!(by_stage.iter().filter(|t| *t == "Done").count(), 0);
-        assert_eq!(by_stage.last().map(String::as_str), Some(FINISHED));
-        let by_status = titles(G::Status);
-        assert_eq!(
-            by_status.last().map(String::as_str),
-            Some(FINISHED_THIS_WEEK)
-        );
-        assert!(!by_status.iter().any(|t| t.starts_with("Done")));
-    }
-
-    /// Hide empty stages leaves out an empty stage, never Backlog, Ready or Finished; a filter counts "1/3".
-    #[test]
-    fn hide_empty_stages_and_a_filter() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets: Vec<Ticket> = tickets()
-            .into_iter()
-            .filter(|t| !matches!(t.place, Place::InStage(_)) || t.key.to_string() == "SHOP-12")
-            .collect();
-        let shown: Vec<String> = view(
+        // Without Fold empty columns an empty stage is open and says so.
+        let open = view(
             &input(&flow, &tickets),
             &ViewPrefs {
-                hide_empty_stages: true,
-                ..prefs(G::Stage)
+                folded_columns: Vec::new(),
+                ..prefs()
             },
-        )
-        .groups
-        .iter()
-        .map(|g| g.title.clone())
-        .collect();
-        assert_eq!(shown, ["Backlog", "Product spec", "Finished"]);
-        let all = view(&input(&flow, &tickets), &prefs(G::Stage));
-        let dev = all.groups.iter().find(|g| g.title == "Dev").unwrap();
-        assert_eq!(
-            (dev.count.as_str(), dev.empty.as_deref()),
-            ("0", Some("Nothing here"))
         );
+        let validate = open.groups.iter().find(|g| g.title == "Validate").unwrap();
+        assert!(!validate.folded);
+        assert_eq!(validate.empty.as_deref(), Some("Nothing here"));
+        assert_eq!(
+            validate.toggle,
+            Some(Change::FoldColumn {
+                column: "validate".into(),
+                folded: true
+            })
+        );
+    }
 
+    /// A filter counts "1/3" and shows only the rows it keeps.
+    #[test]
+    fn a_filter_counts_what_it_shows() {
+        let flow = shop_web();
+        let tickets = tickets();
         let visible: Vec<TicketKey> = vec!["SHOP-41".parse().unwrap()];
-        let filtered = view(
+        let list = view(
             &BoardInput {
                 visible: Some(&visible),
                 ..input(&flow, &tickets)
             },
-            &prefs(G::Stage),
+            &prefs(),
         );
-        let backlog = &filtered.groups[0];
+        let backlog = list.groups.iter().find(|g| g.title == "Backlog").unwrap();
         assert_eq!(backlog.count, "1/3");
         assert_eq!(backlog.entries.len(), 1);
+        let dev = list.groups.iter().find(|g| g.title == "Dev").unwrap();
+        assert_eq!(dev.count, "0/3");
     }
 
-    /// LST-01 by Status (`s24-04`): Needs you · Working · Waiting to start · Backlog · Open PRs · Finished this week, with
-    /// their counts and colours.
+    /// A stored Group by from before (Status, Agent) changes nothing: the List is always grouped by stage.
     #[test]
-    fn the_example_by_status() {
-        use otaq_core::board::settings::GroupBy as G;
+    fn a_stored_group_by_is_ignored() {
+        use otaq_core::board::settings::GroupBy;
         let flow = shop_web();
         let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Status));
-        assert_eq!(
-            outline(&list),
-            [
-                (
-                    "Needs you".into(),
-                    "4".into(),
-                    None,
-                    keys(&["SHOP-12", "SHOP-22", "SHOP-32", "SHOP-18"])
-                ),
-                (
-                    "Working".into(),
-                    "5".into(),
-                    None,
-                    keys(&["SHOP-44", "SHOP-29", "SHOP-33", "SHOP-30", "SHOP-19"])
-                ),
-                (
-                    "Waiting to start".into(),
-                    "2".into(),
-                    None,
-                    keys(&["SHOP-35", "SHOP-20"])
-                ),
-                (
-                    "Backlog".into(),
-                    "3".into(),
-                    None,
-                    keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
-                ),
-                ("Open PRs".into(), "1".into(), None, keys(&["SHOP-26"])),
-                (
-                    "Finished this week".into(),
-                    "4".into(),
-                    s("4 this week \u{b7} show"),
-                    keys(&[])
-                ),
-            ]
-        );
-        assert_eq!(list.groups[0].tone, Some(Tone::Attention));
-        assert_eq!(list.groups[1].tone, Some(Tone::Working));
-        assert_eq!(list.groups[2].tone, Some(Tone::Muted));
-        // Only Group by Stage's groups are drop targets.
-        assert!(list.groups.iter().all(|g| g.target.is_none()));
-    }
-
-    /// Group by Agent: Not started, each agent of the flow in order, You, Finished this week.
-    #[test]
-    fn by_agent_follows_the_flow() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Agent));
-        let groups: Vec<(String, String)> = list
-            .groups
-            .iter()
-            .map(|g| (g.title.clone(), g.count.clone()))
-            .collect();
-        assert_eq!(
-            groups,
-            [
-                ("Not started".into(), "5".into()),
-                ("Spec writer".into(), "2".into()),
-                ("Rust developer".into(), "3".into()),
-                ("Validator".into(), "1".into()),
-                ("Security reviewer".into(), "2".into()),
-                ("You".into(), "2".into()),
-                ("Finished this week".into(), "4".into()),
-            ]
-        );
-    }
-
-    /// A row's track (LST-01): one step per stage, the passed ones filled, its own in its state's colour, then its
-    /// place; Backlog "—", a started ticket waiting to begin on its first stage, Done all passed.
-    #[test]
-    fn a_rows_track() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets = tickets();
-        let list = view(
-            &input(&flow, &tickets),
-            &ViewPrefs {
-                folded_columns: Vec::new(),
-                ..prefs(G::Stage)
-            },
-        );
-        let fills = |key: &str| -> (Vec<Option<Palette>>, String) {
-            let t = &row(&list, key).track;
-            (t.steps.iter().map(|s| s.fill).collect(), t.label.clone())
-        };
-        let a = Some(Palette::Approved);
-        assert_eq!(
-            fills("SHOP-22"),
-            (vec![a, Some(Palette::Attn), None, None, None], "Dev".into())
-        );
-        assert_eq!(
-            fills("SHOP-30"),
-            (
-                vec![a, a, Some(Palette::Working), None, None],
-                "Validate".into()
-            )
-        );
-        assert_eq!(fills("SHOP-32").0[3], Some(Palette::Attn));
-        assert_eq!(fills("SHOP-18").0[4], Some(Palette::Review));
-        assert_eq!(fills("SHOP-31"), (vec![None; 5], "\u{2014}".into()));
-        assert_eq!(
-            fills("SHOP-35"),
-            (
-                vec![Some(Palette::Queued), None, None, None, None],
-                "Product spec".into()
-            )
-        );
-        assert_eq!(fills("SHOP-1"), (vec![a; 5], "Done".into()));
-        let names: Vec<&str> = row(&list, "SHOP-22")
-            .track
-            .steps
-            .iter()
-            .map(|s| s.name.as_str())
-            .collect();
-        assert_eq!(
-            names,
-            ["Product spec", "Dev", "Validate", "Security", "Review"]
-        );
-    }
-
-    /// LST-02: Backlog rows have Start, the drop on the first agent column that ⌘D sends; other rows don't.
-    #[test]
-    fn a_blocked_row_leads_with_the_link_and_a_blocker_says_blocks_n() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
-        // SHOP-20 waits for SHOP-18, with the card's amber hourglass; SHOP-18 "blocks 1".
-        let blocked = row(&list, "SHOP-20");
-        assert_eq!(
-            (blocked.icon, blocked.palette),
-            (IconName::Hourglass, Palette::Paused)
-        );
-        let line = blocked.card.status.as_ref().unwrap();
-        assert_eq!(
-            (line.text.as_str(), line.icon),
-            ("Waits for SHOP-18 to merge", Some(IconName::Hourglass))
-        );
-        let blocker = row(&list, "SHOP-18");
-        assert_eq!(blocker.card.blocks.as_ref().unwrap().tag, "blocks 1");
-        assert_eq!(
-            blocker.card.blocks.as_ref().unwrap().line,
-            "SHOP-20 waits for it"
-        );
-        assert_ne!(blocker.icon, IconName::Hourglass);
-    }
-
-    #[test]
-    fn backlog_rows_start() {
-        use otaq_core::board::settings::GroupBy as G;
-        let flow = shop_web();
-        let tickets = tickets();
-        let list = view(&input(&flow, &tickets), &prefs(G::Stage));
-        assert_eq!(
-            row(&list, "SHOP-41").start,
-            Some(RowStart {
-                label: "Start".into(),
-                target: DropTargetId::new("product-spec"),
-            })
-        );
-        assert_eq!(row(&list, "SHOP-35").start, None);
-        assert_eq!(row(&list, "SHOP-12").start, None);
-        // On the default flow it is Dev, as ⌘D's drop.
-        let default = otaq_core::flow::default_flow();
-        let mut backlog = ticket("NOTE-1", "Sort notes", Status::Backlog);
-        backlog.place = Place::Backlog;
-        let one = [backlog];
-        let list = view(&input(&default, &one), &prefs(G::Stage));
-        assert_eq!(
-            row(&list, "NOTE-1").start.as_ref().unwrap().target,
-            DropTargetId::DEV
-        );
+        let by_stage = view(&input(&flow, &tickets), &prefs());
+        for group_by in [GroupBy::Status, GroupBy::Agent] {
+            let old = view(
+                &input(&flow, &tickets),
+                &ViewPrefs {
+                    group_by,
+                    hide_empty_stages: true,
+                    ..prefs()
+                },
+            );
+            assert_eq!(old, by_stage);
+        }
     }
 }

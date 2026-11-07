@@ -16,6 +16,7 @@ import type { SheetSendAgainParams } from "../../generated/SheetSendAgainParams"
 import type { SheetSent } from "../../generated/SheetSent";
 import type { SheetView } from "../../generated/SheetView";
 import { request } from "../../tauri";
+import { askNoyanAbout } from "../agent_panel/logic";
 import { startTicket } from "../board/Board";
 import { passTicket } from "../review/CheckDialogs";
 import { startRun } from "../session/logic";
@@ -217,7 +218,10 @@ export function useSheetActions(view: SheetView): SheetActions {
         request("sheet.menu", { key: view.key, item }).catch(ignore);
         return;
       case "copy":
-        copy(route.what === "branch" ? (view.branch?.full ?? "") : view.attach_command);
+        copy(view.branch?.full ?? "");
+        return;
+      case "ask_noyan":
+        askNoyanAbout(view.ask_noyan);
         return;
       case "overlay":
         openOverlay(route.id, { ticket: view.key });

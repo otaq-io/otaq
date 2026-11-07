@@ -1,7 +1,6 @@
-// The gallery's List view (T-0461; `s24-03`, `s24-04`, `s24-05`): the example's shop-web by stage (Done folded), by
-// status, by agent, and by stage with Done shown and Hide empty stages on, each at the full width and narrowed as the
-// agent panel leaves it (What's happening takes the difference). SHOP-22 is selected in the first. Nothing is sent;
-// the fixtures are Rust's (`gallery.list_view`).
+// The gallery's List layout: the example's shop-web with Done folded, then with Done open and a stage folded, each at
+// the full width and narrowed as the agent panel leaves it. SHOP-22 is selected in the first. Nothing is sent; the
+// fixtures are Rust's (`gallery.list_view`).
 import { useCallback } from "react";
 
 import type { ListGallery as Fixtures } from "../../generated/ListGallery";
@@ -14,7 +13,6 @@ const HANDLERS: ListHandlers = {
   press: ignore,
   key: ignore,
   action: ignore,
-  start: ignore,
   menu: ignore,
 };
 

@@ -5,6 +5,19 @@ before Publish (`scripts/README.md`, "Making a release").
 
 ## Unreleased
 
+- **The ticket's History reads as a story.** Newest first, in plain sentences with who and when under each, under
+  the filters **All · Questions · Checks · Sessions**. Each agent session is one quiet row, "Session · Dev · Strong",
+  with the start of its session ID, a button that copies all of it (to resume that session by hand) and its times.
+- **Session's switch names each side by what it is:** Agent · Validate · Run · Terminal (the check's stage, not its
+  agent). The Changes tab counts "2 files".
+- **Tell the running agent only when you mean to.** While an agent works the ticket, the comment box has two
+  buttons: **Comment** (the next stage reads it) and **Tell Strong now** (Strong also gets it, once it's idle). A
+  comment sent that way is tagged "· told Strong now". It replaces the "Also tell the agent now" tick box; comments
+  keep their attachments as before.
+- **Ask Noyan about a ticket from its ⋯ menu.** **Ask Noyan about this** opens Noyan's panel on a new conversation
+  addressed to the ticket; it starts when you send. The menu no longer has Copy attach command (it's on Session's
+  strip), and Edit ticket… says over the form that the working agent reads your edit the next time it's idle.
+
 - **One box for new work.** "New ticket, or ask Noyan…" sits at the bottom of the board and the List; ⌘N, a click
   or the toolbar's New ticket opens it. The first line is the title and the rest the description. **↵** creates the
   ticket in Backlog exactly as typed, with no agent and no cost; **⌘↵** creates and starts it; **⇧↵** (Ask Noyan to

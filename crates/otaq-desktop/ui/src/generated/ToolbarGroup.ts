@@ -3,14 +3,14 @@ import type { IconName } from "./IconName";
 import type { ToolbarOption } from "./ToolbarOption";
 
 /**
- * A segmented switch: "Group by" Stage · Status · Agent. `ToolbarGroup` on the page.
+ * A segmented switch: the views, or the board's layouts. `ToolbarGroup` on the page.
  */
 export type ToolbarGroup = { 
 /**
- * The words before it ("Group by"); `null` for Board · List · Files.
+ * The words before it; `null` for the views and the layouts.
  */
 label: string | null, 
 /**
- * An icon before the words: the link before "Dependencies".
+ * An icon before the words.
  */
 icon: IconName | null, options: Array<ToolbarOption>, };

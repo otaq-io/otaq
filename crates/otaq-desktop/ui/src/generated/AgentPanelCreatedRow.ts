@@ -2,15 +2,24 @@
 import type { IconName } from "./IconName";
 
 /**
- * One row of Created and changed: the key (a link that opens the panel), the title, where it is, and Delete on a
+ * One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
+ * still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
  * created ticket that never went to Dev (TKT-08, the 0060 confirmation).
  */
 export type AgentPanelCreatedRow = { key: string, title: string, 
 /**
- * "Dev", "Backlog".
+ * "Dev", "Validate"; empty for a created ticket in Backlog (its Start says it).
  */
 place: string, 
 /**
+ * What its card says there: "Working", "Waits for SHOP-27 to merge".
+ */
+line: string | null, 
+/**
  * Created (square-plus) or changed (pencil).
  */
-icon: IconName, edited: boolean, delete: string | null, };
+icon: IconName, edited: boolean, 
+/**
+ * "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
+ */
+start: string | null, delete: string | null, };

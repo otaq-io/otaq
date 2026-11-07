@@ -15,8 +15,9 @@
 //! - Posting, editing and deleting log `comment_posted`, `comment_edited` and `comment_deleted` with the actor.
 //! - A comment the user wrote with a new ticket ([`super::tickets::NewTicketInput::first_comment`], RPT-03) is marked
 //!   "at creation": its row's `stage_id` is [`AT_CREATION`] (a user's comment has no stage otherwise).
-//! - The user's comment can also tell the ticket's running agent or check to read it ([`tell_agent_line`], d0123);
-//!   the service queues that line as an automatic delivery.
+//! - The user's comment can also tell the ticket's running agent or check to read it ([`tell_agent_line`], d0123),
+//!   only when the user picks "Tell <agent> now"; the service queues that line as an automatic delivery and records
+//!   the agent told on the comment (`told`, migration 0108).
 //! - Who may do what (CMT-04) is the policy's ([`crate::policy::Action::Comment`]); a check's checker posts only
 //!   through its verdict, which calls [`post_in`] itself.
 
@@ -54,8 +55,7 @@ pub const AT_CREATION: &str = "@creation";
 /// What a comment posted with its ticket says where its stage would: "You · at creation".
 pub const AT_CREATION_LABEL: &str = "at creation";
 
-/// The line typed into the running agent's session when the user's comment is posted with "Also tell the agent now"
-/// (d0123): "The user added comment 3. Run `otaq prime` to read it." The comment itself is never typed in.
+/// The line typed into the running agent's session when the user posts a comment with "Tell <agent> now" (d0123): "The user added comment 3. Run `otaq prime` to read it." The comment itself is never typed in.
 pub fn tell_agent_line(n: u32) -> String {
     format!(
         "The user added comment {n}. Run `{} prime` to read it.",
@@ -183,6 +183,10 @@ pub struct TicketComment {
     pub posted_at: i64,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub edited_at: Option<i64>,
+    /// The agent the user's comment was also sent to while it worked ("Strong"), when the user picked "Tell <agent>
+    /// now" and an agent was running to get it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub told: Option<String>,
 }
 
 impl TicketComment {
@@ -334,10 +338,11 @@ struct Row {
     posted_at: i64,
     edited_at: Option<i64>,
     deleted_at: Option<i64>,
+    told: Option<String>,
 }
 
 const COLUMNS: &str = "id, n, author_kind, author_id, author_name, author_tool, stage_id, round, body, posted_at, \
-                       edited_at, deleted_at";
+                       edited_at, deleted_at, told";
 
 /// One row of `comment_attachments` (migrations 0076, 0077).
 #[derive(FromRow)]
@@ -483,6 +488,7 @@ impl Row {
             body: self.body,
             posted_at: self.posted_at,
             edited_at: self.edited_at,
+            told: self.told,
         }
     }
 }
@@ -862,6 +868,24 @@ impl Board {
             .into_iter()
             .find(|c| c.n == n)
             .ok_or_else(|| no_comment(&key, n))
+    }
+
+    /// Records that comment `n` also went to `agent`, the agent working the ticket when the user picked "Tell <agent>
+    /// now": the thread tags it "· told Strong now".
+    pub async fn mark_comment_told(
+        &self,
+        key: &str,
+        n: u32,
+        agent: &str,
+    ) -> Result<(), BoardError> {
+        let ticket = self.ticket(key).await?;
+        sqlx::query("UPDATE ticket_comments SET told = ? WHERE ticket_id = ? AND n = ?")
+            .bind(agent)
+            .bind(&ticket.id)
+            .bind(i64::from(n))
+            .execute(self.store.pool())
+            .await?;
+        Ok(())
     }
 
     /// Where attachment `attachment` (1, 2, 3…) of comment `n` is; with `None`, its only one. A comment with several

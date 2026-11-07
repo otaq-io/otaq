@@ -391,7 +391,15 @@ pub fn buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 
 pub const EDIT_TICKET: &str = "edit-ticket";
 pub const COPY_BRANCH: &str = "copy-branch";
-pub const COPY_ATTACH: &str = "copy-attach";
+/// Ask Noyan about this: Noyan's panel opens on a new conversation whose box is addressed to the ticket
+/// ([`ask_noyan_draft`]). No agent starts before the user's first words; earlier conversations continue from the
+/// panel's switcher.
+pub const ASK_NOYAN: &str = "ask-noyan";
+
+/// The start of Ask Noyan about this's first message: "About SHOP-19: ", the user's words after it.
+pub fn ask_noyan_draft(key: &impl std::fmt::Display) -> String {
+    format!("About {key}: ")
+}
 pub const STOP_VALIDATION: &str = "stop-validation";
 pub const SKIP_TO_REVIEW: &str = "skip-to-review";
 
@@ -401,16 +409,10 @@ pub fn validating(ticket: &Ticket) -> bool {
 }
 
 /// The "…" menu: Stop this check, and Skip this check on a check the flow marks skippable (`skippable`), while it
-/// validates (d0063), Edit ticket… (the fields the
-/// sheet's details line doesn't cover, SHT-01), Pin / Unpin, Copy
-/// branch name, Copy attach command (with a session), Move to next stage (hidden while it validates), Close ticket…, and Delete… (enabled only for
-/// never-started tickets, d0060).
-pub fn menu(
-    ticket: &Ticket,
-    has_branch: bool,
-    has_session: bool,
-    skippable: bool,
-) -> Vec<MenuItem> {
+/// validates (d0063), then Edit ticket… (Overview turns into the form), Ask Noyan about this, Pin / Unpin, Copy branch
+/// name, Move to next stage… (unavailable while the agent works, saying so), Close ticket…, and Delete… (only for
+/// never-started tickets, saying why otherwise). The attach command is on Session's strip, not here.
+pub fn menu(ticket: &Ticket, has_branch: bool, skippable: bool) -> Vec<MenuItem> {
     let mut items = Vec::new();
     if validating(ticket) {
         items.push(
@@ -432,6 +434,7 @@ pub fn menu(
     } else {
         edit.separated()
     });
+    items.push(MenuItem::new(ASK_NOYAN, "Ask Noyan about this").icon(IconName::Bot));
     let pin = if ticket.flags.is_pinned() {
         MenuItem::new(card_menu::UNPIN, "Unpin").icon(IconName::PinOff)
     } else {
@@ -440,9 +443,6 @@ pub fn menu(
     items.push(pin);
     if has_branch {
         items.push(MenuItem::new(COPY_BRANCH, "Copy branch name").icon(IconName::GitBranch));
-    }
-    if has_session {
-        items.push(MenuItem::new(COPY_ATTACH, "Copy attach command").icon(IconName::Copy));
     }
     if let Some(submit) = crate::view_models::close::submit_item(ticket) {
         items.push(submit);
@@ -677,7 +677,7 @@ mod tests {
     #[test]
     fn menu_delete_only_for_never_started() {
         let fresh = ticket("SHOP-21", "Order confirmation email", Status::Backlog);
-        let items = menu(&fresh, false, false, false);
+        let items = menu(&fresh, false, false);
         let delete = items.last().unwrap();
         assert_eq!(delete.label, "Delete…");
         assert!(!delete.disabled);
@@ -688,7 +688,7 @@ mod tests {
 
         let mut started = ticket("SHOP-19", "Price table", Status::Working);
         started.started_at = Some(1);
-        let items = menu(&started, true, true, false);
+        let items = menu(&started, true, false);
         let delete = items.last().unwrap();
         assert!(delete.disabled);
         assert_eq!(
@@ -700,15 +700,17 @@ mod tests {
             labels,
             [
                 "Edit ticket\u{2026}",
+                "Ask Noyan about this",
                 "Pin to top",
                 "Copy branch name",
-                "Copy attach command",
                 "Move to next stage…",
                 "Close ticket…",
                 "Delete…"
             ]
         );
         assert!(items[4].disabled, "mid-turn");
+        assert_eq!(items[4].hint.as_deref(), Some("agent is working"));
+        assert_eq!(items[1].id, ASK_NOYAN);
     }
 
     /// The M12 rows of *Action bar · every state* (d0063, d0064).
@@ -759,7 +761,7 @@ mod tests {
     fn the_menu_while_validating() {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.started_at = Some(1);
-        let items = menu(&t, true, false, true);
+        let items = menu(&t, true, true);
         let labels: Vec<_> = items.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(
             labels,
@@ -767,6 +769,7 @@ mod tests {
                 "Stop this check",
                 "Skip this check",
                 "Edit ticket\u{2026}",
+                "Ask Noyan about this",
                 "Pin to top",
                 "Copy branch name",
                 "Close ticket…",
@@ -781,7 +784,7 @@ mod tests {
         assert!(items[2].separated);
         let mut idle = ticket("SHOP-19", "Price table", Status::Idle);
         idle.started_at = Some(1);
-        let items = menu(&idle, false, false, false);
+        let items = menu(&idle, false, false);
         assert_eq!(items[0].label, "Edit ticket\u{2026}");
         assert!(!items[0].separated);
         assert!(
@@ -790,7 +793,7 @@ mod tests {
                 .any(|i| i.label == "Move to next stage…" && !i.disabled)
         );
         t.status = Status::CheckerNeedsYou;
-        assert_eq!(menu(&t, true, false, true)[0].id, STOP_VALIDATION);
+        assert_eq!(menu(&t, true, true)[0].id, STOP_VALIDATION);
     }
 
     /// Skip this check only on a check the flow marks skippable: on another (the default flow's Validate) the menu
@@ -801,7 +804,7 @@ mod tests {
         t.started_at = Some(1);
         for status in [Status::Checking, Status::CheckerNeedsYou] {
             t.status = status;
-            let items = menu(&t, true, false, false);
+            let items = menu(&t, true, false);
             assert_eq!(items[0].id, STOP_VALIDATION);
             assert!(!items.iter().any(|i| i.id == SKIP_TO_REVIEW), "{status}");
             assert!(

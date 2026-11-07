@@ -287,7 +287,7 @@ pub struct View {
     /// The priority shown while none is picked: Normal.
     pub shown_priority: u8,
     pub base: BaseView,
-    /// "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
+    /// "SHOP-19’s agent reads your edit the next time it’s idle." while its agent runs (SES-08), over the form.
     pub save_hint: Option<String>,
     /// While it validates (VAL-08): "SHOP-29’s validation will be cancelled and its agent told what changed."
     pub save_warning: Option<String>,
@@ -1169,7 +1169,7 @@ mod tests {
         assert!(read.marked.is_empty());
         assert_eq!(
             view.save_hint.as_deref(),
-            Some("SHOP-19\u{2019}s agent will be told what changed.")
+            Some("SHOP-19\u{2019}s agent reads your edit the next time it\u{2019}s idle.")
         );
         assert_eq!(
             view.base,

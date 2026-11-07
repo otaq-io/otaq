@@ -27,7 +27,7 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::Agent;
-use otaq_core::domain::{Status, TicketKey};
+use otaq_core::domain::{Status, StatusSet, TicketKey};
 use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList};
 use serde::Serialize;
 use ts_rs::TS;
@@ -35,7 +35,9 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::{KeyAction, Platform};
+use crate::view_models::board::BoardInput;
 use crate::view_models::card::tokens_label;
+use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::{
     self as agent_page, Recent, ResumeButton, column_name,
@@ -65,7 +67,7 @@ pub const COLLAPSE: &str = "Collapse";
 pub const EXAMPLES: [&str; 4] = [
     "Turn this into tickets: \u{2026}",
     "Why is a ticket stuck?",
-    "Plan a feature for \u{2026}",
+    "Write a ticket for \u{2026}",
     "Import issues from our tracker",
 ];
 
@@ -101,7 +103,7 @@ pub struct Header {
     pub title: String,
     /// "New conversation" until it is named reads muted.
     pub unnamed: bool,
-    /// The name opens the switcher (▾): the project has a Project agent to switch to.
+    /// The name opens the switcher (▾): the project has a conversation to switch to or continue (open or recently ended).
     pub switcher: bool,
     /// The shown agent's state; none on the empty agent panel.
     pub pill: Option<crate::view_models::status::PillView>,
@@ -129,7 +131,12 @@ pub struct AgentLine {
     /// "· 52k", "· starts when you send".
     pub note: String,
     pub rename: Option<&'static str>,
+    /// What Noyan does with the code, at the line's end: [`NEVER_EDITS`].
+    pub reads: &'static str,
 }
+
+/// The agent line's promise: Noyan reads and runs the code and writes tickets, but never edits the code.
+pub const NEVER_EDITS: &str = "Never edits your code";
 
 fn avatar(tools: &Tools, tool: Tool, model: Option<&str>) -> Option<ToolAvatarView> {
     tools.avatar(tool, model)
@@ -245,11 +252,12 @@ pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Em
             agent: name.clone(),
             note: "\u{b7} starts when you send".to_owned(),
             rename: None,
+            reads: NEVER_EDITS,
         },
         title: "Ask Noyan",
         text: format!(
-            "It reads and runs code in {project_name} (never edits) and creates or changes Backlog tickets. Nothing \
-             runs and no tokens are used until you send."
+            "It reads and runs code in {project_name} but never edits it. It writes tickets to Backlog, proposing two \
+             or more first, and you start them. Nothing runs and no tokens are used until you send."
         ),
         examples: EXAMPLES.into_iter().map(example).collect(),
         recent_title: "RECENTLY ENDED",
@@ -270,18 +278,49 @@ pub struct EditedTicket {
     pub status: Status,
 }
 
-/// One row of Created and changed: the key (a link that opens the panel), the title, where it is, and Delete on a
+/// Where a started ticket is now, as the board shows it: its column ("Dev", the stage's name) and its card's status
+/// line ("Working", "Waits for SHOP-27 to merge", "Waits for a free agent · next in line").
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Whereabouts {
+    pub key: TicketKey,
+    pub place: String,
+    pub line: Option<String>,
+}
+
+/// Where each of `keys` is on the board `input` draws: its column and its card's status line, the same words the
+/// board's card says, so a ticket started from the panel tells where it went or why it waits.
+pub fn whereabouts(input: &BoardInput, keys: &[TicketKey]) -> Vec<Whereabouts> {
+    let columns = Columns::of(input.flow);
+    keys.iter()
+        .filter_map(|key| {
+            let t = input.tickets.iter().find(|t| t.key == *key)?;
+            let card = crate::view_models::board::ticket_card(input, t);
+            Some(Whereabouts {
+                key: key.clone(),
+                place: columns.column_of(t).title.clone(),
+                line: card.one_line.line.map(|l| l.text),
+            })
+        })
+        .collect()
+}
+
+/// One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
+/// still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
 /// created ticket that never went to Dev (TKT-08, the 0060 confirmation).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentPanelCreatedRow")]
 pub struct CreatedRow {
     pub key: String,
     pub title: String,
-    /// "Dev", "Backlog".
-    pub place: &'static str,
+    /// "Dev", "Validate"; empty for a created ticket in Backlog (its Start says it).
+    pub place: String,
+    /// What its card says there: "Working", "Waits for SHOP-27 to merge".
+    pub line: Option<String>,
     /// Created (square-plus) or changed (pencil).
     pub icon: IconName,
     pub edited: bool,
+    /// "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
+    pub start: Option<&'static str>,
     pub delete: Option<&'static str>,
 }
 
@@ -296,51 +335,76 @@ pub struct ShowOnBoard {
     pub agent: String,
 }
 
-/// Created and changed at the top of the agent panel (collapsible; one line at the 1280 class).
+/// What the conversation made and changed, at the top of the panel (collapsible; one line at the 1280 class): the
+/// created tickets first, each with Start while in Backlog, then the changed ones.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentPanelCreated")]
 pub struct Created {
-    /// "CREATED 2 · CHANGED 1".
+    /// The folded line: "CREATED 2 · CHANGED 1".
     pub line: String,
     /// Whether it opens folded to that one line; the page keeps the user's own toggle.
     pub folded: bool,
     pub show_on_board: ShowOnBoard,
+    /// "CREATED 2 · IN BACKLOG" while every created ticket is in Backlog, else "CREATED 2"; none with none created.
+    pub title: Option<String>,
     pub rows: Vec<CreatedRow>,
+    /// "CHANGED 1"; none with none changed.
+    pub changed_title: Option<String>,
+    pub changed: Vec<CreatedRow>,
 }
 
-/// `None` while the agent created and changed nothing.
+/// `None` while the agent created and changed nothing. `places` says where each started ticket is.
 pub fn created(
     agent: &ProjectAgent,
     c: &CreatedAndChanged,
     edited: &[EditedTicket],
+    places: &[Whereabouts],
     window_width: Option<f32>,
 ) -> Option<Created> {
     if c.created.is_empty() && c.edited.is_empty() {
         return None;
     }
-    let mut rows: Vec<CreatedRow> = c
+    let in_backlog = |s: Status| s.set() == StatusSet::Backlog;
+    let rows: Vec<CreatedRow> = c
         .created
         .iter()
-        .map(|t| CreatedRow {
-            key: t.key.to_string(),
-            title: t.title.clone(),
-            place: column_name(t.status),
-            icon: IconName::SquarePlus,
-            edited: false,
-            delete: t.deletable.then_some("Delete"),
+        .map(|t| {
+            let waiting = in_backlog(t.status);
+            let now = places.iter().find(|w| w.key == t.key).filter(|_| !waiting);
+            CreatedRow {
+                key: t.key.to_string(),
+                title: t.title.clone(),
+                place: match now {
+                    _ if waiting => String::new(),
+                    Some(w) => w.place.clone(),
+                    None => column_name(t.status).to_owned(),
+                },
+                line: now.and_then(|w| w.line.clone()),
+                icon: IconName::SquarePlus,
+                edited: false,
+                start: waiting.then_some("Start"),
+                delete: t.deletable.then_some("Delete"),
+            }
         })
         .collect();
-    rows.extend(c.edited.iter().map(|key| {
-        let known = edited.iter().find(|t| t.key == *key);
-        CreatedRow {
-            key: key.to_string(),
-            title: known.map_or_else(String::new, |t| t.title.clone()),
-            place: known.map_or("", |t| column_name(t.status)),
-            icon: IconName::Pencil,
-            edited: true,
-            delete: None,
-        }
-    }));
+    let changed: Vec<CreatedRow> = c
+        .edited
+        .iter()
+        .map(|key| {
+            let known = edited.iter().find(|t| t.key == *key);
+            CreatedRow {
+                key: key.to_string(),
+                title: known.map_or_else(String::new, |t| t.title.clone()),
+                place: known.map_or_else(String::new, |t| column_name(t.status).to_owned()),
+                line: None,
+                icon: IconName::Pencil,
+                edited: true,
+                start: None,
+                delete: None,
+            }
+        })
+        .collect();
+    let all_waiting = c.created.iter().all(|t| in_backlog(t.status));
     Some(Created {
         line: format!(
             "CREATED {} \u{b7} CHANGED {}",
@@ -352,7 +416,16 @@ pub fn created(
             label: "Show on board",
             agent: agent.id.clone(),
         },
+        title: (!rows.is_empty()).then(|| {
+            if all_waiting {
+                format!("CREATED {} \u{b7} IN BACKLOG", rows.len())
+            } else {
+                format!("CREATED {}", rows.len())
+            }
+        }),
         rows,
+        changed_title: (!changed.is_empty()).then(|| format!("CHANGED {}", changed.len())),
+        changed,
     })
 }
 
@@ -415,7 +488,7 @@ pub struct Running {
     pub question: Option<crate::view_models::agent_question::AgentQuestion>,
 }
 
-/// One row of the switcher: a Project agent of the project, with its state.
+/// One row of the switcher: a conversation of the project, with its state, and Resume on one that ended.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentPanelSwitcherRow")]
 pub struct SwitcherRow {
@@ -426,20 +499,40 @@ pub struct SwitcherRow {
     /// Hidden while one tool is connected.
     pub avatar: Option<ToolAvatarView>,
     pub selected: bool,
+    /// "Resume" on an ended conversation: `agent_panel.resume` continues it (the click is the go-ahead) and the
+    /// panel shows it.
+    pub resume: Option<&'static str>,
 }
 
-/// The switcher (`h038v`, `b8kIUd`): the project's open Project agents, newest first, then the empty agent panel.
+/// The switcher (`h038v`, `b8kIUd`): the project's open conversations, newest first, then the recently ended ones
+/// (each with Resume, so any conversation continues from here), then the empty agent panel.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "AgentPanelSwitcher")]
 pub struct Switcher {
     pub rows: Vec<SwitcherRow>,
+    /// "RECENTLY ENDED", over `recent`; hidden with none.
+    pub recent_title: &'static str,
+    pub recent: Vec<SwitcherRow>,
     pub new_label: &'static str,
     pub new_keys: Option<String>,
 }
 
-/// Newest first; closed agents aren't in `open`, so they aren't listed.
+fn switcher_row(a: &ProjectAgent, shown: Option<&str>, tools: &Tools) -> SwitcherRow {
+    SwitcherRow {
+        id: a.id.clone(),
+        name: a.name.clone(),
+        unnamed: a.name_source.is_none(),
+        pill: agent_page::state_pill(a),
+        avatar: avatar(tools, a.tool, a.model.as_deref()),
+        selected: shown == Some(a.id.as_str()),
+        resume: agent_page::resume_button(a).map(|r| r.label),
+    }
+}
+
+/// Newest first; closed conversations are under Recently ended (`recent`, as the service lists them).
 pub fn switcher(
     agents: &[ProjectAgent],
+    recent: &[ProjectAgent],
     shown: Option<&str>,
     keys: &KeyLabels,
     tools: &Tools,
@@ -449,14 +542,12 @@ pub fn switcher(
     Switcher {
         rows: newest
             .into_iter()
-            .map(|a| SwitcherRow {
-                id: a.id.clone(),
-                name: a.name.clone(),
-                unnamed: a.name_source.is_none(),
-                pill: agent_page::state_pill(a),
-                avatar: avatar(tools, a.tool, a.model.as_deref()),
-                selected: shown == Some(a.id.as_str()),
-            })
+            .map(|a| switcher_row(a, shown, tools))
+            .collect(),
+        recent_title: "RECENTLY ENDED",
+        recent: recent
+            .iter()
+            .map(|a| switcher_row(a, None, tools))
             .collect(),
         new_label: TITLE,
         new_keys: keys.label(KeyAction::NewProjectAgent),
@@ -521,6 +612,8 @@ pub struct Facts<'a> {
     /// The shown agent's Created and changed, and the tickets it edited.
     pub created: Option<&'a CreatedAndChanged>,
     pub edited: &'a [EditedTicket],
+    /// Where its started created tickets are ([`whereabouts`]).
+    pub whereabouts: &'a [Whereabouts],
     pub project_name: &'a str,
     /// The agent Noyan uses (the app setting, `agents::resolve::noyan_agent`), which the empty agent panel's first
     /// message starts unless the conversation picks another; `None` while none is set.
@@ -547,7 +640,8 @@ pub fn view(f: &Facts) -> AgentPanelView {
         label: LABEL,
         title: shown.map_or_else(|| TITLE.to_owned(), |a| a.name.clone()),
         unnamed: shown.is_some_and(|a| a.name_source.is_none()),
-        switcher: !open.is_empty(),
+        // Any conversation to continue: an open one, or one recently ended.
+        switcher: !open.is_empty() || !f.agents.recent.is_empty(),
         pill: shown.map(agent_page::state_pill),
         recent: Button {
             icon: IconName::History,
@@ -587,10 +681,11 @@ pub fn view(f: &Facts) -> AgentPanelView {
             agent: ran_on(a, f.tools),
             note: format!("\u{b7} {}", tokens_label(a.tokens.shown())),
             rename: Some("Rename"),
+            reads: NEVER_EDITS,
         },
         created: f
             .created
-            .and_then(|c| created(a, c, f.edited, f.window_width)),
+            .and_then(|c| created(a, c, f.edited, f.whereabouts, f.window_width)),
         session: a.session.as_ref().map(|s| s.id.clone()),
         ended: a.state != AgentState::Running,
         footer: footer(a, &f.keys),
@@ -602,7 +697,13 @@ pub fn view(f: &Facts) -> AgentPanelView {
         header,
         empty: shown.is_none().then(|| empty_of(f)),
         running,
-        switcher: switcher(open, shown.map(|a| a.id.as_str()), &f.keys, f.tools),
+        switcher: switcher(
+            open,
+            &f.agents.recent,
+            shown.map(|a| a.id.as_str()),
+            &f.keys,
+            f.tools,
+        ),
         menu: menu(shown, open),
         recent: agent_page::recent(&f.agents.recent, f.project_name, f.now_ms),
     }
@@ -743,6 +844,12 @@ pub fn gallery() -> Gallery {
         title: "Sync conflicts".into(),
         status: Status::Backlog,
     }];
+    // NOTE-11 was started from the panel and waits at the top of Dev.
+    let places = [Whereabouts {
+        key: "NOTE-11".parse().expect("a key"),
+        place: "Dev".into(),
+        line: Some("Waits for a free agent \u{b7} next in line".into()),
+    }];
     let strong = sample_agent("Strong", Some("opus"));
     let one = Tools::one(None);
     let state = |name: &'static str, shown: Option<&str>, width: f32| GalleryState {
@@ -752,6 +859,7 @@ pub fn gallery() -> Gallery {
             shown,
             created: shown.is_some().then_some(&changed),
             edited: &edited,
+            whereabouts: &places,
             project_name: "pocket-notes",
             new_agent: None,
             window_width: Some(width),
@@ -773,6 +881,7 @@ pub fn gallery() -> Gallery {
                     shown: None,
                     created: None,
                     edited: &edited,
+                    whereabouts: &[],
                     project_name: "pocket-notes",
                     new_agent: Some(&strong),
                     window_width: Some(1440.),
@@ -844,6 +953,7 @@ fn several_tools_states(now: i64) -> Vec<GalleryState> {
             shown,
             created: None,
             edited: &[],
+            whereabouts: &[],
             project_name: "shop-web",
             new_agent: Some(&standard),
             window_width: Some(1440.),
@@ -1040,8 +1150,8 @@ mod tests {
         assert_eq!(e.title, "Ask Noyan");
         assert_eq!(
             e.text,
-            "It reads and runs code in pocket-notes (never edits) and creates or changes Backlog tickets. Nothing \
-             runs and no tokens are used until you send."
+            "It reads and runs code in pocket-notes but never edits it. It writes tickets to Backlog, proposing two \
+             or more first, and you start them. Nothing runs and no tokens are used until you send."
         );
         let examples: Vec<(&str, &str)> = e.examples.iter().map(|x| (x.label, x.fill)).collect();
         assert_eq!(
@@ -1052,7 +1162,7 @@ mod tests {
                     "Turn this into tickets: "
                 ),
                 ("Why is a ticket stuck?", "Why is a ticket stuck?"),
-                ("Plan a feature for \u{2026}", "Plan a feature for "),
+                ("Write a ticket for \u{2026}", "Write a ticket for "),
                 (
                     "Import issues from our tracker",
                     "Import issues from our tracker"
@@ -1134,6 +1244,7 @@ mod tests {
             shown,
             created: None,
             edited: &[],
+            whereabouts: &[],
             project_name: "pocket-notes",
             new_agent: None,
             window_width: Some(1440.),
@@ -1365,55 +1476,119 @@ mod tests {
         assert_eq!(v.header.close.keys, None);
     }
 
-    #[test]
-    fn created_and_changed_folds_at_the_1280_class() {
-        let a = agent("a1", "Search slowness", 1);
-        let c = created(&a, &changed(), &edited(), Some(1280.)).unwrap();
-        assert_eq!(c.line, "CREATED 2 \u{b7} CHANGED 1");
-        assert!(c.folded);
-        assert!(
-            created(&a, &changed(), &edited(), Some(1359.))
-                .unwrap()
-                .folded
-        );
-        assert!(
-            !created(&a, &changed(), &edited(), Some(1360.))
-                .unwrap()
-                .folded
-        );
-        assert!(
-            !created(&a, &changed(), &edited(), Some(1920.))
-                .unwrap()
-                .folded
-        );
-        let rows: Vec<(&str, &str, &str, bool, Option<&str>)> = c
-            .rows
-            .iter()
+    type RowParts<'r> = (
+        &'r str,
+        &'r str,
+        &'r str,
+        Option<&'static str>,
+        Option<&'static str>,
+    );
+
+    /// A row's key, title, place, Start and Delete.
+    fn row_parts(rows: &[CreatedRow]) -> Vec<RowParts<'_>> {
+        rows.iter()
             .map(|r| {
                 (
                     r.key.as_str(),
                     r.title.as_str(),
-                    r.place,
-                    r.edited,
+                    r.place.as_str(),
+                    r.start,
                     r.delete,
                 )
             })
-            .collect();
+            .collect()
+    }
+
+    /// Created tickets in Backlog have Start (only the user starts a ticket); once started, a row says where the
+    /// ticket is and what its card says there.
+    #[test]
+    fn a_created_row_has_start_until_it_starts_then_says_where_it_is() {
+        let a = agent("a1", "Search slowness", 1);
+        let mut c = changed();
+        c.created[0].status = Status::Backlog;
+        c.edited.clear();
+        let all = created(&a, &c, &[], &[], None).unwrap();
+        assert_eq!(all.title.as_deref(), Some("CREATED 2 \u{b7} IN BACKLOG"));
+        assert!(all.rows.iter().all(|r| r.start == Some("Start")));
+        assert_eq!((all.changed_title, all.changed), (None, Vec::new()));
+        c.created[0].status = Status::Queued;
+        let places = [Whereabouts {
+            key: "NOTE-11".parse().unwrap(),
+            place: "Build".into(),
+            line: Some("Waits for NOTE-3 to merge".into()),
+        }];
+        let row = &created(&a, &c, &[], &places, None).unwrap().rows[0];
         assert_eq!(
-            rows,
+            (row.place.as_str(), row.line.as_deref(), row.start),
+            ("Build", Some("Waits for NOTE-3 to merge"), None)
+        );
+    }
+
+    /// The row's words are the board card's: its column's title and its status line.
+    #[test]
+    fn whereabouts_follow_the_boards_card() {
+        use otaq_core::domain::Place;
+        let flow = otaq_core::flow::default_flow();
+        let first = flow.first_agent_stage().unwrap().id.clone();
+        let ticket = crate::view_models::card_fixtures::ticket;
+        let mut parent = ticket("NOTE-3", "Parent", Status::Working);
+        parent.place = Place::InStage(first.clone());
+        let mut waits = ticket("NOTE-11", "Child", Status::Queued);
+        waits.place = Place::InStage(first);
+        waits.depends_on = vec!["NOTE-3".parse().unwrap()];
+        let tickets = [parent, waits];
+        let input = crate::view_models::list_view::samples::input(&flow, &tickets);
+        let w = whereabouts(
+            &input,
+            &["NOTE-11".parse().unwrap(), "NOTE-99".parse().unwrap()],
+        );
+        assert_eq!(w.len(), 1, "a ticket that is gone is left out");
+        assert_eq!(w[0].place, "Dev");
+        assert_eq!(w[0].line.as_deref(), Some("Waits for NOTE-3 to merge"));
+    }
+
+    #[test]
+    fn created_and_changed_folds_at_the_1280_class() {
+        let a = agent("a1", "Search slowness", 1);
+        let c = created(&a, &changed(), &edited(), &[], Some(1280.)).unwrap();
+        assert_eq!(c.line, "CREATED 2 \u{b7} CHANGED 1");
+        assert!(c.folded);
+        assert!(
+            created(&a, &changed(), &edited(), &[], Some(1359.))
+                .unwrap()
+                .folded
+        );
+        assert!(
+            !created(&a, &changed(), &edited(), &[], Some(1360.))
+                .unwrap()
+                .folded
+        );
+        assert!(
+            !created(&a, &changed(), &edited(), &[], Some(1920.))
+                .unwrap()
+                .folded
+        );
+        assert_eq!(
+            row_parts(&c.rows),
             [
-                ("NOTE-11", "Slow search query", "Dev", false, None),
+                ("NOTE-11", "Slow search query", "Dev", None, None),
                 (
                     "NOTE-12",
                     "Cache note previews",
-                    "Backlog",
-                    false,
+                    "",
+                    Some("Start"),
                     Some("Delete")
                 ),
-                ("NOTE-5", "Sync conflicts", "Backlog", true, None),
-            ]
+            ],
+            "only the one in Backlog has Start: Noyan never starts a ticket"
         );
-        assert_eq!(c.rows[2].icon, IconName::Pencil);
+        assert_eq!(c.title.as_deref(), Some("CREATED 2"), "one has started");
+        assert_eq!(c.changed_title.as_deref(), Some("CHANGED 1"));
+        assert_eq!(
+            row_parts(&c.changed),
+            [("NOTE-5", "Sync conflicts", "Backlog", None, None)]
+        );
+        assert_eq!(c.changed[0].icon, IconName::Pencil);
         assert_eq!(
             c.show_on_board,
             ShowOnBoard {
@@ -1422,7 +1597,7 @@ mod tests {
             }
         );
         assert_eq!(
-            created(&a, &CreatedAndChanged::default(), &[], None),
+            created(&a, &CreatedAndChanged::default(), &[], &[], None),
             None,
             "nothing created or changed: no section"
         );
@@ -1453,6 +1628,13 @@ mod tests {
             ]
         );
         assert!(v.switcher.rows[0].unnamed);
+        let resume: Vec<Option<&str>> = v.switcher.rows.iter().map(|r| r.resume).collect();
+        assert_eq!(
+            resume,
+            [None, None, Some("Resume")],
+            "an ended conversation continues from the switcher"
+        );
+        assert!(v.switcher.recent.is_empty());
         assert!(v.switcher.rows.iter().all(|r| r.avatar.is_none()));
         assert_eq!(v.switcher.new_label, "New conversation");
         assert_eq!(v.switcher.new_keys.as_deref(), Some("\u{21e7}\u{2318}L"));
@@ -1461,6 +1643,27 @@ mod tests {
             Some("a3"),
             "the newest running agent"
         );
+    }
+
+    /// A recently ended conversation is in the switcher too, with Resume: with nothing open, the switcher is still
+    /// there to continue one.
+    #[test]
+    fn the_switcher_continues_a_recently_ended_conversation() {
+        let mut gone = agent("a4", "Footer audit", 1);
+        gone.state = AgentState::EndedByRestart;
+        let mut agents = list(Vec::new());
+        agents.recent = vec![gone];
+        let v = view_of(&agents, None);
+        assert!(v.header.switcher, "a conversation to continue");
+        assert_eq!(v.switcher.recent_title, "RECENTLY ENDED");
+        let recent: Vec<(&str, &str, Option<&str>, bool)> = v
+            .switcher
+            .recent
+            .iter()
+            .map(|r| (r.id.as_str(), r.pill.label.as_str(), r.resume, r.selected))
+            .collect();
+        assert_eq!(recent, [("a4", "Ended by restart", Some("Resume"), false)]);
+        assert!(!view_of(&list(Vec::new()), None).header.switcher);
     }
 
     #[test]

@@ -25,7 +25,7 @@ heading: string, texts: EditorTexts, form: EditorForm, priorities: Array<EditorP
  */
 shown_priority: number, base: EditorBaseField, 
 /**
- * "SHOP-19’s agent will be told what changed." while its agent runs (SES-08).
+ * "SHOP-19’s agent reads your edit the next time it’s idle." while its agent runs (SES-08), over the form.
  */
 save_hint: string | null, 
 /**

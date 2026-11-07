@@ -32,6 +32,10 @@ editing_meta: string,
  */
 edited: string | null, 
 /**
+ * "· told Strong now" once the user also sent it to the agent working then.
+ */
+told: string | null, 
+/**
  * Who and when in one line, for the delete dialog: "Validator · Validate · round 2 · 3:05 pm".
  */
 heading: string, body: string, 

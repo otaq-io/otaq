@@ -8,9 +8,9 @@
 // the rest of the box stays (tuq 005; `attachmentAdding.ts`). With only pasted text the button stays off and the hint
 // asks for a line; with a file the line "A comment always has its own line; the file goes with it." shows; typing
 // past the limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
-// limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it. While the
-// ticket's agent or check runs the thread's box shows "Also tell the agent now" (d0123, `CommentBoxView.tell_agent`),
-// ticked by default; the thread keeps the tick and posts it as `tell_agent`. Editing a posted comment uses this box
+// limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it as a Comment. While
+// the ticket's agent or check runs, the thread's box has a second button, "Tell Strong now" (`CommentBoxView.tell_agent`):
+// it posts the comment with `tell_agent`, so the running agent also gets it when idle; Comment never does. Editing a posted comment uses this box
 // too (tuq 008): its attachments are `posted` chips with ✕, and the thread gives it Cancel · Save (`actions`).
 import {
   type ClipboardEvent,
@@ -25,7 +25,7 @@ import {
   useState,
 } from "react";
 
-import { Button, Checkbox, Kbd, PROSE_TEXT } from "../../components";
+import { Button, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
 import { useServiceView } from "../../service";
 import { attachmentImage, pickAttachmentFiles, request } from "../../tauri";
@@ -173,9 +173,8 @@ export interface CommentBoxProps {
   /** The service's refusal, under the box. */
   error?: string | null;
   ref?: Ref<HTMLTextAreaElement>;
-  /** "Also tell the agent now" ticked; shown only when the view has the tick box (d0123). */
-  tellAgent?: boolean;
-  onTellAgent?: (tell: boolean) => void;
+  /** "Tell Strong now": the comment also goes to the running agent; shown only when the view has the button. */
+  onTell?: () => void;
   /** Buttons at the end of the box's row instead of its own (an edit's Cancel · Save, tuq 008). */
   actions?: ReactNode;
   /** Esc: an edit's Cancel. */
@@ -191,8 +190,7 @@ export function CommentBox({
   busy = false,
   error,
   ref,
-  tellAgent = true,
-  onTellAgent,
+  onTell,
   actions,
   onCancel,
 }: CommentBoxProps) {
@@ -350,8 +348,15 @@ export function CommentBox({
           </span>
         )}
         <span className="editor-spacer" />
-        {view.tell_agent !== null && onTellAgent && (
-          <Checkbox checked={tellAgent} label={view.tell_agent} onChange={onTellAgent} />
+        {view.tell_agent !== null && onTell && (
+          <Button
+            variant="secondary"
+            label={view.tell_agent}
+            disabled={!state.canSubmit || busy}
+            onClick={() => {
+              if (state.canSubmit && !busy) onTell();
+            }}
+          />
         )}
         {actions}
         {view.submit !== null && (

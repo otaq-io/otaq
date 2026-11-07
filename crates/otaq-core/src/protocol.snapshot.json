@@ -10906,6 +10906,10 @@
         "stage_name": {
           "ty": "Option<String>",
           "omittable": true
+        },
+        "told": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -11856,6 +11860,9 @@
           "ty": "GroupBy"
         },
         "hide_empty_stages": {
+          "ty": "bool"
+        },
+        "list_layout": {
           "ty": "bool"
         },
         "view": {

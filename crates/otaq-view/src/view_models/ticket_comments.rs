@@ -10,7 +10,9 @@
 //! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
 //!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
 //!   page applies these rules while typing (it keeps no limit of its own: [`CommentLimits`] comes with the view); the
-//!   service checks again. While an agent works, a quiet line says the comment is for the next stage. The dialogs
+//!   service checks again. While an agent works, a second button, **Tell Strong now**, also sends it to that agent
+//!   (typed when it is idle), and a quiet line says what each button does; Comment alone never reaches the running
+//!   agent. A comment sent that way is tagged "· told Strong now". The dialogs
 //!   (Send back, Fail, drag back; T-0447) reuse it with their own label and line ([`CommentBoxView::dialog`]).
 //! - **The ⋯ menu:** Edit (in place, Cancel · Save), Copy text, Delete… with its dialog. The user may edit and delete
 //!   every comment (CMT-04), so every comment has all three.
@@ -175,6 +177,8 @@ pub struct CommentRow {
     pub editing_meta: String,
     /// "· edited" once its text changed.
     pub edited: Option<String>,
+    /// "· told Strong now" once the user also sent it to the agent working then.
+    pub told: Option<String>,
     /// Who and when in one line, for the delete dialog: "Validator · Validate · round 2 · 3:05 pm".
     pub heading: String,
     pub body: String,
@@ -193,8 +197,9 @@ pub struct CommentBoxView {
     pub placeholder: String,
     /// The box's own button ("Comment", ⌘↵); none in a dialog, whose button sends it.
     pub submit: Option<String>,
-    /// The quiet line under it: "Read by the next stage's agent" while an agent works (the tick box beside it says
-    /// whether the running one is told too, d0123), a dialog's "Posted as a comment for Dev · every later stage reads it".
+    /// The quiet line under it: while an agent works, what each button does ("Comment: the next stage reads it. Tell
+    /// Strong now: Strong also gets it while it works."); a dialog's "Posted as a comment for Dev · every later stage
+    /// reads it".
     pub footer: Option<String>,
     /// Before the line: an arrow in the thread, a speech bubble in a dialog (`s03-50`, `s07-20`).
     pub footer_icon: IconName,
@@ -216,8 +221,8 @@ pub struct CommentBoxView {
     /// An empty box is fine (a dialog's optional comment); the thread's box needs text.
     pub optional: bool,
     pub limits: CommentLimits,
-    /// The tick box's label, "Also tell the agent now", only in the thread's box while the ticket's agent or check
-    /// runs (d0123); ticked by default. Ticked, the post sends `tell_agent`.
+    /// The second button, "Tell Strong now", only in the thread's box while the ticket's agent or check runs: it posts
+    /// the comment with `tell_agent`, so the running agent also gets it when it is idle. Comment (and ⌘↵) never does.
     pub tell_agent: Option<String>,
 }
 
@@ -250,15 +255,16 @@ impl CommentBoxView {
         }
     }
 
-    /// The thread's box: its own Comment button, and the quiet line and "Also tell the agent now" while `working`
-    /// (the running agent's name).
+    /// The thread's box: its own Comment button, and while an agent works the ticket (`working`, its name) a second
+    /// button, "Tell Strong now", with the line saying what each one does. A comment reaches the running agent only
+    /// when the user picks that button.
     pub fn thread(working: Option<&str>) -> Self {
         Self {
-            tell_agent: working.map(|_| TELL_AGENT.to_owned()),
+            tell_agent: working.map(tell_agent),
             ..Self::new(
                 None,
                 Some(SUBMIT.to_owned()),
-                working.map(|_| WORKING_LINE.to_owned()),
+                working.map(working_line),
                 false,
             )
         }
@@ -290,12 +296,25 @@ impl CommentBoxView {
     }
 }
 
-/// The thread box's tick box while the ticket's agent or check runs (d0123).
-pub const TELL_AGENT: &str = "Also tell the agent now";
+/// The thread box's second button while the ticket's agent or check runs: "Tell Strong now".
+pub fn tell_agent(agent: &str) -> String {
+    format!("Tell {agent} now")
+}
 
-/// The box's line while an agent works (CMT-10): the comment is a hand-over for the next stage; "Also tell the agent
-/// now" beside it is what reaches the running one (d0123), so the line no longer sends the user to its terminal.
-pub const WORKING_LINE: &str = "Read by the next stage\u{2019}s agent";
+/// The box's line while an agent works (CMT-10): a comment is a hand-over for the next stage; the second button is
+/// what also reaches the running one, typed when it is idle. "Comment: the next stage reads it. Tell Strong now:
+/// Strong also gets it while it works."
+pub fn working_line(agent: &str) -> String {
+    format!(
+        "Comment: the next stage reads it. {}: {agent} also gets it while it works.",
+        tell_agent(agent)
+    )
+}
+
+/// After a sent comment's time, once it also went to the agent working then: "· told Strong now".
+pub fn told(agent: &str) -> String {
+    format!("\u{b7} told {agent} now")
+}
 
 /// Edit in place: Cancel · Save.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -443,6 +462,7 @@ fn row(comment: &TicketComment, avatars: bool, clock: &dyn Fn(i64) -> String) ->
         mark,
         meta,
         edited: comment.edited_at.map(|_| EDITED.to_owned()),
+        told: comment.told.as_deref().map(told),
         body: comment.body.clone(),
         thumbnails,
         attachments,
@@ -555,6 +575,7 @@ mod tests {
             posted_at: posted,
             edited_at: None,
             at_creation: false,
+            told: None,
         }
     }
 
@@ -718,10 +739,10 @@ mod tests {
     fn the_four_comment_thread_reads_as_the_frame() {
         let v = view(&shop_34(), Some("Rust developer"));
         assert_eq!(v.heading, "Comments \u{b7} 4");
-        // d0123: the tick box while the agent (or its check) runs.
+        // The second button while the agent (or its check) runs, named after it.
         assert_eq!(
             v.composer.tell_agent.as_deref(),
-            Some("Also tell the agent now")
+            Some("Tell Rust developer now")
         );
         assert_eq!(
             v.hint,
@@ -778,7 +799,14 @@ mod tests {
         assert_eq!(b.submit.as_deref(), Some("Comment"));
         assert_eq!(
             b.footer.as_deref(),
-            Some("Read by the next stage\u{2019}s agent")
+            Some(
+                "Comment: the next stage reads it. Tell Rust developer now: Rust developer also gets it while it \
+                 works."
+            )
+        );
+        assert_eq!(
+            working_line("Strong"),
+            "Comment: the next stage reads it. Tell Strong now: Strong also gets it while it works."
         );
         assert_eq!(b.label, None);
         assert!(!b.optional);
@@ -859,6 +887,32 @@ mod tests {
         );
     }
 
+    /// A comment the user also sent to the working agent says so after its time; the others don't.
+    #[test]
+    fn a_told_comment_is_tagged() {
+        let mut told = comment(
+            1,
+            CommentAuthor::User { name: "nt".into() },
+            None,
+            "Links should expire after 30 days.",
+            0,
+        );
+        told.told = Some("Strong".into());
+        let plain = comment(
+            2,
+            CommentAuthor::User { name: "nt".into() },
+            None,
+            "Ship 1–3 first.",
+            0,
+        );
+        let v = view(&[told, plain], Some("Strong"));
+        assert_eq!(
+            v.comments[1].told.as_deref(),
+            Some("\u{b7} told Strong now")
+        );
+        assert_eq!(v.comments[0].told, None);
+    }
+
     /// `s05-43`'s writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB") and the
     /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007):
     /// only the New ticket form's box asks for one.
@@ -866,7 +920,11 @@ mod tests {
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
         assert_eq!(b.pasted, "Pasted text");
-        assert_eq!(b.tell_agent, None, "no tick box without a running session");
+        assert_eq!(
+            b.tell_agent, None,
+            "no Tell button without a running session"
+        );
+        assert_eq!(b.footer, None, "nor its line");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
         assert_eq!(b.file_line, None, "attachments alone are sent (tuq 007)");
         assert_eq!(b.limits.chars, 2000);
