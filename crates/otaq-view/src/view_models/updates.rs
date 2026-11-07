@@ -659,19 +659,17 @@ pub fn restart_step(
     }
 }
 
-/// The status icon's Restart to update (page 32 item 3): "Restart to update · Otaq 0.2.0", or "Restart to update ·
-/// stops 3 agents" for one the service can't work with; only while an update is ready and not skipped.
+/// The status icon's Restart to update (page 32 item 3): "Restart to update", which restarts the app only, so working
+/// agents continue; "Restart to update · stops 3 agents" for one the service can't work with while agents work.
+/// Only while an update is ready and not skipped.
 pub fn restart_item(state: &UpdateState, ctx: &Context) -> Option<String> {
     let notice = notice(state, ctx)?;
     match notice.kind {
-        NoticeKind::Ready => Some(format!(
-            "Restart to update · {PRODUCT_NAME} {}",
-            notice.version
-        )),
+        NoticeKind::Ready => Some(RESTART_TO_UPDATE.to_owned()),
         NoticeKind::NeedsAgentsRestarted => {
             let working = ctx.service.map_or(0, |s| s.agents_working);
             Some(if working == 0 {
-                format!("Restart to update · {PRODUCT_NAME} {}", notice.version)
+                RESTART_TO_UPDATE.to_owned()
             } else {
                 format!(
                     "Restart to update · stops {working} agent{}",
@@ -1018,7 +1016,7 @@ mod tests {
     fn restart_to_update_in_the_menu() {
         assert_eq!(
             restart_item(&kept("0.2.0", Some(1)), &ctx()).unwrap(),
-            format!("Restart to update · {PRODUCT_NAME} 0.2.0")
+            "Restart to update"
         );
         assert_eq!(
             restart_item(&kept("0.3.0", Some(2)), &ctx()).unwrap(),

@@ -548,6 +548,8 @@ pub struct GlobalInputs<'a> {
     /// The database file and the logs folder (`settings::data_paths`).
     pub data: Option<(String, String)>,
     pub cleanup_count: usize,
+    /// What the leftovers take on disk, as far as the scan could tell.
+    pub cleanup_bytes: u64,
     pub os: Os,
     /// What the OS allows Otaq's notifications (`notifications.state`); `Unknown` when it couldn't be read.
     pub notification_permission: PermissionState,
@@ -906,8 +908,12 @@ pub fn global_page(input: &GlobalInputs) -> Page {
         if count == 0 {
             "Nothing to clear: no leftover copies, branches, sessions or ports that no ticket uses.".to_owned()
         } else {
+            let size = match input.cleanup_bytes {
+                0 => String::new(),
+                bytes => format!(" \u{b7} {}", crate::view_models::cleanup::size(bytes)),
+            };
             format!(
-                "{count} {} \u{b7} copies and branches no ticket uses. Nothing is deleted without your click.",
+                "{count} {}{size} \u{b7} copies and branches no ticket uses. Nothing is deleted without your click.",
                 if count == 1 { "leftover" } else { "leftovers" }
             )
         },
@@ -1539,6 +1545,7 @@ pub fn notifications_gallery() -> NotificationsGallery {
             text: "Resets at 3:00 pm \u{b7} 8 agents stopped".into(),
             resume: None,
             lines: Vec::new(),
+            state: String::new(),
         }
     }
     fn failed() -> Vec<TrustFailure> {
@@ -1634,6 +1641,7 @@ pub fn notifications_gallery() -> NotificationsGallery {
                 scheduler: None,
                 data: None,
                 cleanup_count: 0,
+                cleanup_bytes: 0,
                 os: Os::Mac,
                 notification_permission: permission,
                 fonts: &InstalledFonts::default(),
@@ -2394,6 +2402,7 @@ mod tests {
             scheduler: None,
             data: Some(("~/x/data.db".into(), "~/x/logs/".into())),
             cleanup_count: 0,
+            cleanup_bytes: 0,
             os: Os::Mac,
             notification_permission: PermissionState::Unknown,
             fonts: &InstalledFonts::default(),
@@ -2412,6 +2421,7 @@ mod tests {
             scheduler: None,
             data: None,
             cleanup_count: 0,
+            cleanup_bytes: 0,
             os: Os::Mac,
             notification_permission: permission,
             fonts: &InstalledFonts::default(),
@@ -2976,6 +2986,7 @@ mod tests {
             scheduler: Some(&status),
             data: None,
             cleanup_count: 2,
+            cleanup_bytes: 432_013_312,
             os: Os::Linux,
             notification_permission: PermissionState::Unknown,
             fonts: &InstalledFonts::default(),
@@ -2996,7 +3007,8 @@ mod tests {
             .unwrap();
         assert_eq!(
             cleanup.description,
-            "2 leftovers \u{b7} copies and branches no ticket uses. Nothing is deleted without your click."
+            "2 leftovers \u{b7} 412 MB \u{b7} copies and branches no ticket uses. Nothing is deleted without your \
+             click."
         );
         let size = sections
             .iter()
@@ -3025,6 +3037,7 @@ mod tests {
                 scheduler: None,
                 data: None,
                 cleanup_count: 0,
+                cleanup_bytes: 0,
                 os: Os::Mac,
                 notification_permission: PermissionState::Unknown,
                 fonts: &fonts,

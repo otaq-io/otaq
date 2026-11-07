@@ -127,8 +127,7 @@ pub struct NoticesView {
     /// Whether the board, rail and sheet take input: not while connecting, reconnecting or stopped (SVC-04), nor
     /// while only Restart works. The page dims them and swallows their clicks meanwhile.
     pub input_enabled: bool,
-    /// The service start the after-restart summary was raised for: the page opens the summary sheet once per
-    /// value (*16 → Opening after a reboot*, T-0235).
+    /// The service start the after-restart dialog was raised for: the page opens it once per value.
     #[ts(type = "number | null")]
     pub summary_for: Option<i64>,
     /// What a terminal says over its scrollback while the link is down: "Reconnecting… agents keep running", or
@@ -136,6 +135,8 @@ pub struct NoticesView {
     pub terminal_note: Option<connection::TerminalNote>,
     /// The link is down (reconnecting, stopped or failed): the header's running count is last known, so it dims.
     pub service_down: bool,
+    /// Every tool's limit line while a limit holds, closed banner or not: the usage chip's popover offers its Resume.
+    pub limit_lines: Vec<otaq_view::view_models::limit_banner::LineView>,
 }
 
 /// What a notification click opens (`OTAQ_OPEN`, or the `open_from_notification` event; d0090 "What a click
@@ -217,8 +218,6 @@ struct State {
     summary_for: Option<i64>,
     connected_once: bool,
     was_disconnected: bool,
-    /// The summary banner as raised, until the startup report adds its Project agents (T-0244).
-    summary: Option<Situation>,
     /// A start or restart the user asked for is running.
     busy: bool,
     /// What a notification click asked this app to open when it started, or a second start handed over before the
@@ -281,7 +280,6 @@ impl Notices {
                 summary_for: None,
                 connected_once: false,
                 was_disconnected: false,
-                summary: None,
                 busy: false,
                 open_at_start,
                 page_follows: false,
@@ -390,11 +388,6 @@ impl Notices {
         self.publish();
     }
 
-    pub fn clear(&self, kind: SituationKind) {
-        self.lock().banners.clear(kind);
-        self.publish();
-    }
-
     /// The agent counts for the restart confirmation (0, 0 while not connected).
     pub fn agent_counts(&self) -> (u32, u32) {
         match &self.lock().link {
@@ -484,30 +477,6 @@ impl Notices {
         self.lock()
             .banners
             .set_notifications(state.ask_pending, state.blocked_banner);
-        self.publish();
-    }
-
-    /// The target `OTAQ_OPEN` named when the app started, once.
-    /// The startup report was read: the summary banner counts the Project agents the restart ended too
-    /// ("8 sessions were interrupted · 2 conversations with Noyan ended", T-0244).
-    pub fn on_startup_agents(&self, ended: u32) {
-        {
-            let mut guard = self.lock();
-            let state = &mut *guard;
-            let shown = state
-                .banners
-                .rows()
-                .iter()
-                .any(|r| r.kind == SituationKind::SessionsInterrupted);
-            if let Some(situation) = state.summary.as_mut()
-                && let Situation::SessionsInterrupted { agents, .. } = situation
-                && *agents != ended
-                && shown
-            {
-                *agents = ended;
-                state.banners.raise(situation.clone());
-            }
-        }
         self.publish();
     }
 
@@ -655,6 +624,7 @@ impl State {
             summary_for: self.summary_for,
             terminal_note: connection::terminal_note(&self.link),
             service_down: connection::service_down(&self.link),
+            limit_lines: self.limit.iter().map(|l| l.view.clone()).collect(),
         }
     }
 
@@ -712,10 +682,9 @@ impl State {
                 !self.connected_once,
                 self.summary_for,
             ) {
-                OnConnect::Summary(situation) => {
+                // The page opens the after-restart dialog once for this start; no banner.
+                OnConnect::Summary => {
                     self.summary_for = Some(info.status.started_at);
-                    self.summary = Some(situation.clone());
-                    self.banners.raise(situation);
                     summarized = true;
                 }
                 OnConnect::Reconnected => {
@@ -773,6 +742,11 @@ impl State {
                 text: first.banner.text.clone(),
                 resume: first.banner.resume.clone(),
                 lines: lines.iter().map(|l| l.view.clone()).collect(),
+                state: lines
+                    .iter()
+                    .map(|l| l.state.as_str())
+                    .collect::<Vec<_>>()
+                    .join(","),
             }),
             None => self.banners.clear(SituationKind::UsageLimit),
         }
@@ -840,11 +814,9 @@ async fn follow(
     let mut notifications_due = true;
     let mut flows_due = true;
     let mut pause_due = true;
-    // After the summary: the startup report names the Project agents the restart ended (T-0244).
-    let mut report_due = false;
     let first = states.borrow_and_update().clone();
     if let Some(notices) = weak.upgrade() {
-        report_due = notices.on_link(&first);
+        notices.on_link(&first);
     }
     loop {
         tokio::select! {
@@ -861,7 +833,7 @@ async fn follow(
                     flows_due = true;
                     pause_due = true;
                 }
-                report_due |= notices.on_link(&state);
+                notices.on_link(&state);
             }
             event = events.recv() => {
                 let Some(event) = event else { return };
@@ -953,17 +925,6 @@ async fn follow(
                     .await;
                     if let Ok(Ok(Reply::PauseCounts(counts))) = counts {
                         notices.on_pause(*counts);
-                    }
-                }
-                let client = clients.borrow().clone();
-                if report_due && let Some(client) = client {
-                    report_due = false;
-                    let report =
-                        tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::StartupReport)).await;
-                    if let Ok(Ok(Reply::StartupReport(report))) = report {
-                        notices.on_startup_agents(
-                            report.project_agents_ended.len() as u32,
-                        );
                     }
                 }
                 notices.tick();
@@ -1274,7 +1235,7 @@ mod tests {
             view.banners[0].tone,
             otaq_view::view_models::banners::BannerTone::Warning
         );
-        assert!(!view.banners[0].dismissable);
+        assert!(view.banners[0].dismissable, "the ×");
         // Its Resume resumes the project on screen; Pause leaves the title bar while nothing runs.
         assert_eq!(view.banners[0].buttons[0].label, "Resume");
         assert!(view.banners[0].buttons[0].primary);
@@ -1287,8 +1248,6 @@ mod tests {
             SituationKind::NotificationsBlocked,
             "first in the stack"
         );
-        n.dismiss_banner(SituationKind::Paused);
-        assert_eq!(n.view().banners[0].kind, SituationKind::Paused, "no close");
         n.set_project(Some("BILL".into()));
         assert_ne!(
             n.view().banners[0].kind,
@@ -1324,6 +1283,23 @@ mod tests {
             toasts(&view)
         );
 
+        // Closed, it stays closed for this pause, on the project's return too; a new pause shows it again.
+        n.dismiss_banner(SituationKind::Paused);
+        assert_ne!(n.view().banners[0].kind, SituationKind::Paused, "closed");
+        n.set_project(Some("BILL".into()));
+        n.set_project(Some("SHOP".into()));
+        assert_ne!(
+            n.view().banners[0].kind,
+            SituationKind::Paused,
+            "the same pause"
+        );
+        n.on_pause(counts(Some(OPENED + 120_000)));
+        assert_eq!(
+            n.view().banners[0].kind,
+            SituationKind::Paused,
+            "a new pause"
+        );
+
         n.on_pause(counts(None));
         assert_ne!(n.view().banners[0].kind, SituationKind::Paused, "resumed");
     }
@@ -1339,32 +1315,14 @@ mod tests {
         };
         assert!(n.on_link(&connected(Compatibility::Same, rebooted.clone())));
         let view = n.view();
-        assert_eq!(view.banners[0].title, "4 sessions were interrupted");
-        assert!(toasts(&view).is_empty(), "the summary says it, no toast");
+        assert!(view.banners.is_empty(), "the dialog says it, no banner");
+        assert!(toasts(&view).is_empty(), "the dialog says it, no toast");
         assert_eq!(
             view.summary_for,
             Some(OPENED + 1_000),
-            "the page opens the sheet"
-        );
-        // The startup report adds the Project agents the restart ended (T-0244): one, then two.
-        n.on_startup_agents(1);
-        assert_eq!(
-            n.view().banners[0].title,
-            "4 sessions were interrupted \u{b7} 1 conversation with Noyan ended"
-        );
-        n.on_startup_agents(2);
-        assert_eq!(
-            n.view().banners[0].title,
-            "4 sessions were interrupted \u{b7} 2 conversations with Noyan ended"
+            "the page opens the dialog"
         );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
-        n.dismiss_banner(SituationKind::SessionsInterrupted);
-        assert!(n.view().banners.is_empty());
-        n.on_startup_agents(3);
-        assert!(
-            n.view().banners.is_empty(),
-            "a dismissed summary stays dismissed"
-        );
     }
 
     #[test]
@@ -1387,7 +1345,7 @@ mod tests {
         assert!(view.banners.is_empty());
         assert_eq!(toasts(&view), [restart::RESTARTED]);
 
-        // Interrupted sessions: the summary banner instead of the toast.
+        // Stopped agents: the dialog instead of the toast.
         let n = notices();
         n.on_link(&connected(Compatibility::ServiceOlder, running(3, 2)));
         let before = n.begin_restart();
@@ -1398,7 +1356,7 @@ mod tests {
         };
         n.end_restart(Ok(()), before, &connected(Compatibility::Same, restarted));
         let view = n.view();
-        assert_eq!(view.banners[0].title, "Service restarted");
+        assert_eq!(view.summary_for, Some(OPENED + 600_000));
         assert_eq!(toasts(&view), [RECONNECTED], "only the first connect's");
 
         n.begin_restart();
