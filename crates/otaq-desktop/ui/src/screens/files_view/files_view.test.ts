@@ -214,7 +214,9 @@ describe("the picker (FIL-07, s28-04)", () => {
     const out = renderToStaticMarkup(
       createElement(PickerBody, { picker: PICKER, query: "", onQuery: ignore, onPick: ignore }),
     );
-    expect(out).toMatch(/SHOW FILES FROM.*Your base branch.*SHOP-22.*YOUR WORKTREES · COMMITTED ONLY.*Your folder · main/);
+    expect(out).toMatch(
+      /SHOW FILES FROM.*Your base branch.*SHOP-22.*YOUR WORKTREES · COMMITTED ONLY.*Your folder · main/,
+    );
     expect(out).toContain("~/code/shop-web, as committed");
     expect(out).toContain("Dev · 3 files");
     expect(out).toContain("No worktree yet: SHOP-12 (Product spec).");
