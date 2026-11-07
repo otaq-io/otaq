@@ -3,13 +3,13 @@ import type { IconName } from "./IconName";
 import type { ProviderLook } from "./ProviderLook";
 
 /**
- * The Repository card's PR provider line (`settings.provider`): "GitHub · otaq-io/shop-web", with how its tool
+ * The Repository card's PR provider line (`settings.provider`): "GitHub · acme/shop-web", with how its tool
  * stands on this computer and "Set up…" when it isn't ready here. Detected from the remote: a fact of the
  * repository, not a setting and not the flow's.
  */
 export type SettingsProvider = { 
 /**
- * "GitHub · otaq-io/shop-web"; "None detected" when no provider matches the remote.
+ * "GitHub · acme/shop-web"; "None detected" when no provider matches the remote.
  */
 line: string, 
 /**
