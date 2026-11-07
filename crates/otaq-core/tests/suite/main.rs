@@ -70,6 +70,7 @@ mod handoffs;
 mod helper_drop;
 mod helper_waits;
 mod helpers;
+mod hints;
 mod human_answers;
 mod human_checks;
 mod launch_gate;

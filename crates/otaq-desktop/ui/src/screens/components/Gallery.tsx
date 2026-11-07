@@ -35,6 +35,7 @@ import {
   Kbd,
   Menu,
   MetaChip,
+  OneTimeHint,
   OtaqMark,
   pickTheme,
   Popover,
@@ -569,6 +570,7 @@ function Fields({ view }: { view: GalleryView }) {
 function Overlays({ view }: { view: GalleryView }) {
   const menuButton = useRef<HTMLButtonElement>(null);
   const popoverButton = useRef<HTMLButtonElement>(null);
+  const hintTarget = useRef<HTMLButtonElement>(null);
   const [menu, setMenu] = useState<"button" | { x: number; y: number } | null>(null);
   const [popover, setPopover] = useState(false);
   const [chosen, setChosen] = useState("nothing yet");
@@ -642,6 +644,11 @@ function Overlays({ view }: { view: GalleryView }) {
               </div>
             </Popover>
           )}
+        </div>
+        <Caption>ONE-TIME HINT · Got it dismisses it for good; a fresh OTAQ_HOME shows it again</Caption>
+        <div className="gallery-wrap">
+          <Button ref={hintTarget} variant="secondary" label="Explained here" icon="sparkles" />
+          <OneTimeHint hint="gallery_sample" anchor={hintTarget} />
         </div>
       </div>
       <div className="gallery-stack">

@@ -244,6 +244,13 @@ pub enum Request {
     /// [`Reply::UpdatePrefs`].
     #[serde(rename = "updates.set_prefs")]
     UpdateSetPrefs(crate::updates::UpdatePrefsChange),
+    /// The one-time hints the user dismissed, kept per data folder. Answered with [`Reply::HintsSeen`].
+    #[serde(rename = "hints.seen")]
+    HintsSeen,
+    /// `{"hint": "gallery_sample"}`: the user dismissed a one-time hint; it never shows again. Answered with
+    /// [`Reply::Ok`].
+    #[serde(rename = "hints.dismiss")]
+    HintDismiss(HintParams),
 
     // Projects (PRJ-01…04). Answered with [`Reply::Projects`], [`Reply::FolderProbe`] or [`Reply::Project`]
     // ([`Reply::ProjectAdded`] for `project.add`).
@@ -1812,6 +1819,12 @@ pub struct ProjectParams {
     pub project: String,
 }
 
+/// `{"hint": "gallery_sample"}`: a one-time hint.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HintParams {
+    pub hint: crate::store::settings::Hint,
+}
+
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectUpdateParams {
     /// The project's key. A `key` among the changes is the (refused) attempt to change it.
@@ -2046,6 +2059,8 @@ impl Request {
             Self::AppFirstHideShown => "app.first_hide_shown",
             Self::UpdatePrefs => "updates.prefs",
             Self::UpdateSetPrefs(_) => "updates.set_prefs",
+            Self::HintsSeen => "hints.seen",
+            Self::HintDismiss(_) => "hints.dismiss",
             Self::ProjectList => "project.list",
             Self::ProjectProbe(_) => "project.probe",
             Self::ProjectAdd(_) => "project.add",
@@ -2286,6 +2301,8 @@ pub enum Reply {
     NotificationsState(crate::attention::os_permission::NotificationsState),
     FirstHide(crate::attention::os_permission::FirstHide),
     UpdatePrefs(crate::updates::UpdatePrefs),
+    /// The answer to `hints.seen`: the one-time hints the user dismissed.
+    HintsSeen(Vec<crate::store::settings::Hint>),
     Projects(Vec<ProjectInfo>),
     Project(ProjectInfo),
     /// The answer to `project.add`: the project, and whether the agent tools' trust was recorded for its folder
@@ -2945,6 +2962,17 @@ mod tests {
             Message::request(13, Request::AppFirstHidePending),
             Message::request(13, Request::AppFirstHideShown),
             Message::request(13, Request::UpdatePrefs),
+            Message::request(13, Request::HintsSeen),
+            Message::request(
+                13,
+                Request::HintDismiss(HintParams {
+                    hint: crate::store::settings::Hint::GallerySample,
+                }),
+            ),
+            Message::reply(
+                13,
+                Reply::HintsSeen(vec![crate::store::settings::Hint::GallerySample]),
+            ),
             Message::request(
                 13,
                 Request::UpdateSetPrefs(crate::updates::UpdatePrefsChange {

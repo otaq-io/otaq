@@ -330,6 +330,16 @@ pub(super) async fn handle(
                 crate::updates::change(shared.board.store(), &change).await?,
             ))
         }),
+        // One-time hints: shown until dismissed, then never again for this data folder.
+        Request::HintsSeen => {
+            boxed(
+                move || async move { Ok(Reply::HintsSeen(shared.board.store().hints_seen().await?)) },
+            )
+        }
+        Request::HintDismiss(p) => boxed(move || async move {
+            shared.board.store().see_hint(p.hint).await?;
+            Ok(Reply::Ok)
+        }),
         // Pause and Resume (PAU-01, PAU-02, PAU-06, PAU-08; d0112).
         Request::AgentsPause(scope) => boxed(move || async move {
             let counts = shared.pause.pause(&scope).await?;

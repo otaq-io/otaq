@@ -117,6 +117,9 @@ fn sample(method: &str, unit: bool) -> Request {
             params["n"] = json!(1);
             params["ticked"] = json!(true);
         }
+        if method == "hints.dismiss" {
+            params["hint"] = json!("gallery_sample");
+        }
         if method == "decision.mark" {
             params["source"] = json!("PAY-1");
             params["text"] = json!("t");
@@ -174,6 +177,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AppFirstHideShown
         | Request::UpdatePrefs
         | Request::UpdateSetPrefs(_)
+        | Request::HintsSeen
+        | Request::HintDismiss(_)
         | Request::ProjectList
         | Request::ProjectProbe(_)
         | Request::ProjectAdd(_)

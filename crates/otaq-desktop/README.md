@@ -203,6 +203,7 @@ without a DOM.
 | `Tabs`, `Segmented`, `Toggle`                                   | items with icon, label, indicator; options; on/off. ←/→ move between them            |
 | `Field`, `TextInput`, `TextArea`, `Select`, `Checkbox`, `Radio` | label, hint, error (`fields.rs` says which shows); `Select` takes `MenuItem`s        |
 | `Menu`, `AnchoredMenu`, `Popover`, `Tooltip`                    | `MenuItem`s (`menu.rs` rules: arrows skip disabled rows and wrap); an anchor         |
+| `OneTimeHint`, `HintPopover`                                    | a `HintId` and an anchor; the dark one-sentence popover with its one button          |
 | `Dialog`, `ConfirmDialog`                                       | title, body, confirm label, `destructive` (↵ = Cancel); traps focus, Esc cancels     |
 | `Banner`, `Toast`, `StackList`, `StackRow`                      | tone, icon, title, text, actions; the Stack list's row shell                         |
 | `ThemePicker`, `useThemePicker`, `pickTheme`                    | the picker's sections (`theme.picker`); a click applies and saves (`theme.pick`)     |
@@ -212,6 +213,11 @@ Any screen asks for a confirmation without drawing one: `openOverlay("confirm", 
 destructive, onConfirm })`; the components screen (`ui/src/screens/components/`) draws it with `ConfirmDialog`.
 Menus, popovers and tooltips are fixed-position layers inside their anchor's subtree, so a scrolling parent never cuts
 them and the anchor's theme applies.
+
+**A one-time hint** (a concept explained when it first matters, never behind a setting) is
+`<OneTimeHint hint="…" anchor={ref} />`, rendered at the hint's moment: it shows the hint's sentence until the user
+presses its button, then never again for that data folder (`hints.view`, `hints.dismiss`). A new hint adds its id to
+`Hint` (`otaq-core/src/store/settings.rs`) and `HintId` with its wording (`otaq-view/src/view_models/hint.rs`).
 
 **A new dropdown, menu or popover** uses `Select`, `AnchoredMenu` or `Popover`. One that can't places itself with
 `useFloatingStyle(anchor, floating, align, onClose)`: passing `onClose` is what closes it on a press outside it and on
