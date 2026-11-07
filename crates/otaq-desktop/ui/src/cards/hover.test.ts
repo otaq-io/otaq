@@ -25,15 +25,13 @@ const SHOP_32: TicketCardView = {
   time: null,
   edge: "attention",
   action: { kind: "decide", label: "Decide", icon: null, primary: true },
-  origin: null,
+  note: null,
+  opens: null,
   hover: { status: "Security failed 3 times", details: ["Tokens: 312k"] },
   faded: null,
   fresh: false,
   open_sheet: "Open panel",
   open_sheet_keys: "↵",
-  skill_warning: null,
-  plan: null,
-  pieces: null,
   open_terminal: "Open terminal",
 };
 

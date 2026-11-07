@@ -17,8 +17,9 @@
 // card's column into the part the sheet leaves; the sheet's backdrop takes every click on the board and closes the
 // sheet (`app/scrim.ts`). "Show on board" in a Project agent panel filters the board to its tickets
 // (`boardAgent`, d0087), with a chip whose ✕ (or Esc) clears it.
-// Hovering (or selecting) a linked card highlights its chain, with its tooltip, and Dependencies: Always keeps every
-// link drawn dashed (`chain.ts`, `ChainLayer`; T-0229, DPV-02). A Backlog card's Start (and ⌘D) starts it without
+// Hovering (or selecting) a card others wait for highlights them and dims the rest (`chain.ts`, `ChainLayer`); the
+// card gains one line, "SHOP-30 waits for it". Dropping a card where it may not go (a waiting ticket dragged ahead)
+// says why in a toast, and nothing moves. A Backlog card's Start (and ⌘D) starts it without
 // opening the sheet: it goes into the first stage, waiting at its top until it can begin.
 import {
   type CSSProperties,
@@ -79,6 +80,7 @@ import {
 import { EmptyBoard } from "./EmptyBoard";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
+import { FilterStrip } from "./FilterStrip";
 import { Toolbar } from "./Toolbar";
 import {
   agentOf,
@@ -125,6 +127,13 @@ export function failureToast(error: unknown): NewToast {
 
 function toast(error: unknown, ask: typeof request = request) {
   ask("notices.toast", failureToast(error)).catch(() => undefined);
+}
+
+/** A drop where the card may not go: nothing moves, and a toast says why ("SHOP-30 can't go to Validate yet" · "It
+ * waits for SHOP-27 to merge, then starts by itself."). */
+export function refusedToast(title: string, detail: string | null, ask: typeof request = request): void {
+  const notice: NewToast = { level: "error", title, text: detail, link: null, ticket: null };
+  ask("notices.toast", notice).catch(() => undefined);
 }
 
 /** The board's size, settled. */
@@ -444,6 +453,7 @@ export function Board() {
       else openTicket(done.key);
     }
     if (done.kind === "drop") void dropCard(done.key, done.target);
+    if (done.kind === "refused") refusedToast(done.title, done.detail);
   }, [controller]);
 
   // The pointer is followed on the window while pressed, so a drag keeps going over anything.
@@ -798,6 +808,9 @@ export function Board() {
           }}
         />
       )}
+      {view?.filter_strip && project !== null && !filesShown && (
+        <FilterStrip strip={view.filter_strip} project={project} />
+      )}
       <NeedsYouStrip />
       {filesShown && project !== null && <FilesView project={project} />}
       <div
@@ -867,15 +880,7 @@ export function Board() {
         )}
         {view?.empty && <EmptyBoard view={view.empty} />}
         {project === null && <NoProjects />}
-        {list === null && (
-          <ChainLayer
-            chain={chain}
-            links={view?.links ?? []}
-            hovered={hovered}
-            board={element}
-            layout={view}
-          />
-        )}
+        {list === null && <ChainLayer chain={chain} hovered={hovered} board={element} layout={view} />}
         <div className="board-ghost" ref={ghost} hidden={drag === null}>
           {draggedCard && (
             <div className="board-ghost-card">

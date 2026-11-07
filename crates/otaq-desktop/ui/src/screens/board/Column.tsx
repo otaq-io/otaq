@@ -5,7 +5,8 @@
 // count, a dot when something in it needs you, and its name (`s26-10`); a click unfolds it. Done folded is the board's
 // "Done 4 →" line, under the last column. Which of these a column is comes from its `kind` (STG-08), never its id.
 // Folds are view preferences kept by the service (SHB-05): the column asks the board to change them (`onView`). The
-// header (FLW-12): one 13 px icon by the stage's kind; hovering the title shows who runs it (agent, model, options).
+// header (FLW-12): one 13 px icon by the stage's kind; under the title, who acts there in plain words ("An agent does the
+// work", "You review and approve"); hovering the title shows the stage's description and who runs it.
 // Every stage is its own column, a check by you's too: Review lists its cards, the ones being delivered (To deliver, PR
 // open) after the ones waiting for you, with no sections. Everything it says is `BoardColumn`'s; while a card is
 // dragged over it, it takes the verdict's outline. Under the chain highlight (T-0229) its cards take their chain look, and the above chip, Dev's
@@ -113,7 +114,7 @@ const CardItem = memo(function CardItem({
         state={state}
         onAction={(kind) => {
           // A helper's permission prompt (d0133): the action opens that helper's terminal, else the agent in charge's.
-          shownPiece.set(card.card.pieces?.opens ?? null);
+          shownPiece.set(card.card.opens);
           handlers.action(key, kind);
         }}
         onOpenSheet={() => {
@@ -427,6 +428,7 @@ export function Column({
         )}
         <ColumnMenu column={column} onView={onView} />
       </header>
+      <div className="board-column-who">{column.who_acts}</div>
       {chip !== null && (
         <div className="board-above">
           <button

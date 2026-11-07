@@ -90,6 +90,9 @@ pub struct ColumnView {
     pub count: String,
     /// Who runs it; `None` for Backlog and Done.
     pub tooltip: Option<HeaderTooltip>,
+    /// Who acts there, in plain words under the title ([`who_acts`]): "An agent does the work", "A checker tests it",
+    /// "You review and approve".
+    pub who_acts: String,
     /// Its cards over all, whatever the filter: an empty stage of a long flow folds to its rail.
     pub total: usize,
     /// Every column but the agent columns.
@@ -437,6 +440,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
                 quiet_icon: quiet,
                 count: count_text(whole.visible, whole.total, filtered),
                 tooltip: header_tooltip(column, input.agent_list),
+                who_acts: who_acts(column, input.flow),
                 total: whole.total,
                 cards: Vec::new(),
                 dev: None,
@@ -458,7 +462,40 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         .collect()
 }
 
-/// The header's tooltip: the stage's line, its tool and model, its options.
+/// Before any stage: nothing has started.
+pub const NOT_STARTED_YET: &str = "Not started";
+/// An Agent stage: an agent does the work there.
+pub const AN_AGENT_DOES_IT: &str = "An agent does the work";
+/// A check by an agent.
+pub const A_CHECKER_TESTS_IT: &str = "A checker tests it";
+/// A check by the user, before the last stage.
+pub const YOU_CHECK_IT: &str = "You check it";
+/// The user's check where delivery waits: the flow's last stage.
+pub const YOU_REVIEW_AND_APPROVE: &str = "You review and approve";
+/// After the last stage.
+pub const FINISHED: &str = "Merged";
+
+/// Who acts in a column, in plain words, from its stage's kind alone (never its name): Backlog "Not started", an
+/// Agent stage "An agent does the work", a check by an agent "A checker tests it", a check by you "You check it", or
+/// "You review and approve" when it is the flow's last stage (where delivery waits), Done "Merged".
+pub fn who_acts(column: &FlowColumn, flow: &Flow) -> String {
+    let words = match (column.kind, column.stage) {
+        (ColumnKind::Backlog, _) => NOT_STARTED_YET,
+        (ColumnKind::Done, _) => FINISHED,
+        (_, Some(stage)) if stage.is_agent_check() => A_CHECKER_TESTS_IT,
+        (_, Some(stage)) if stage.is_human_check() => {
+            if flow.last_stage().is_some_and(|last| last.id == stage.id) {
+                YOU_REVIEW_AND_APPROVE
+            } else {
+                YOU_CHECK_IT
+            }
+        }
+        _ => AN_AGENT_DOES_IT,
+    };
+    words.to_owned()
+}
+
+/// The header's tooltip: the stage's description (what it is for), then its line, its tool and model, its options.
 pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option<HeaderTooltip> {
     let stage = column.stage?;
     let named = |name: &str| -> Option<&Agent> {
@@ -468,7 +505,7 @@ pub fn header_tooltip(column: &FlowColumn, agents: Option<&AgentList>) -> Option
             .find(|a| a.name.eq_ignore_ascii_case(name))
     };
     let agent = |s: &Stage| -> Option<&Agent> { named(s.named_agents().next()?) };
-    let mut detail: Vec<String> = Vec::new();
+    let mut detail: Vec<String> = stage.description.iter().cloned().collect();
     let mut runs: Vec<String> = agent(stage)
         .and_then(|a| runs_on(a, agents?))
         .into_iter()
@@ -1088,6 +1125,8 @@ mod tests {
             ),
         ];
         let card = |key: &str, starts: Option<&str>| CardAgents {
+            instead_of: None,
+            skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
             running_validator: None,
@@ -1121,14 +1160,17 @@ mod tests {
                 .unwrap_or_default()
         };
         assert_eq!(line("SHOP-35"), "Dev next \u{b7} skips planning");
-        assert_eq!(line("SHOP-60"), "Asks you: who is the site for, first?");
+        assert_eq!(
+            line("SHOP-60"),
+            "Asks you \u{b7} who is the site for, first?"
+        );
         assert_eq!(line("SHOP-52"), "Working \u{b7} writing the architecture");
         assert_eq!(line("SHOP-55"), "Working \u{b7} writing the plan");
         assert_eq!(
             line("SHOP-40"),
-            "Your check \u{b7} the decisions and the plan"
+            "Ready for you \u{b7} the decisions and the plan"
         );
-        assert_eq!(line("SHOP-58"), "Your check \u{b7} the decisions");
+        assert_eq!(line("SHOP-58"), "Ready for you \u{b7} the decisions");
         // The build stage and the last check read as before.
         assert_eq!(line("SHOP-33"), "Working");
         assert!(
@@ -1196,21 +1238,35 @@ mod tests {
             tip(1),
             Some(HeaderTooltip {
                 title: "Dev · Developer · work-ticket".into(),
-                detail: vec!["Claude Code · sonnet".into()],
+                detail: vec![
+                    "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the \
+                     code needs it."
+                        .into(),
+                    "Claude Code · sonnet".into()
+                ],
             })
         );
         assert_eq!(
             tip(2),
             Some(HeaderTooltip {
                 title: "Validate · Checker · validate".into(),
-                detail: vec!["Codex · gpt-5.5 · up to 3 rounds".into()],
+                detail: vec![
+                    "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught \
+                     before anyone reviews it."
+                        .into(),
+                    "Codex · gpt-5.5 · up to 3 rounds".into()
+                ],
             })
         );
         assert_eq!(
             tip(3),
             Some(HeaderTooltip {
                 title: "Review · your check".into(),
-                detail: vec![],
+                detail: vec![
+                    "The user reads the change and passes it, or sends it back with what to fix: their say before it \
+                     is delivered."
+                        .into()
+                ],
             })
         );
         assert_eq!(tip(4), None);

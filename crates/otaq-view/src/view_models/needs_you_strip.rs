@@ -2,7 +2,8 @@
 //! views* `s24-03`, *Row · Needs you: the next project, and every group* `s24-12`): under the board's toolbar, in both
 //! views, the open project's needs-you items as chips, in the queue's order (d0016) and its groups: what needs you
 //! ("Needs you · 3": questions, permission prompts, Idle, a waiting Project agent), Interrupted ("Interrupted · 3"
-//! with Resume all), then your checks ("Checks · 1"). "Needs you · 0 here" when the project has none.
+//! with Resume all), then what waits for your review ("Your review · 1", each chip "ready"). With nothing needing
+//! the user anywhere the strip isn't shown; "Needs you · 0 here" only while another project has items.
 //!
 //! **Next (⌘J)** opens the item after the open one in this project; after this project's last item it reads "Next ·
 //! billing-api, 1" and goes to the next project with items, in the rail's order, opening its first. It never moves on
@@ -297,6 +298,9 @@ fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
     })
 }
 
+/// A Your review chip's reason ("SHOP-18 ready").
+pub const READY: &str = "ready";
+
 /// The groups of 0016's queue. `StripGroupId` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
@@ -307,7 +311,7 @@ pub enum GroupId {
     Checks,
 }
 
-/// One group: its head ("Needs you · 3", "Interrupted · 3", "Checks · 1") and its chips. `StripGroup` on
+/// One group: its head ("Needs you · 3", "Interrupted · 3", "Your review · 1") and its chips. `StripGroup` on
 /// the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StripGroup")]
@@ -392,13 +396,20 @@ pub fn view(
             resume_all: resumable.then_some("Resume all"),
         });
     }
-    let checks: Vec<Chip> = in_group(NeedsYouGroup::Review).filter_map(chip).collect();
+    // Your review: each is ready for you; the sheet says what Approve does.
+    let checks: Vec<Chip> = in_group(NeedsYouGroup::Review)
+        .filter_map(chip)
+        .map(|c| Chip {
+            reason: READY.to_owned(),
+            ..c
+        })
+        .collect();
     if !checks.is_empty() {
         groups.push(Group {
             id: GroupId::Checks,
             icon: IconName::UserCheck,
             tone: Tone::Review,
-            title: format!("Checks \u{b7} {}", checks.len()),
+            title: format!("Your review \u{b7} {}", checks.len()),
             chips: checks,
             resume_all: None,
         });
@@ -418,14 +429,16 @@ pub fn view(
             elsewhere: true,
         },
     });
-    let empty = here.is_empty().then(|| Empty {
-        icon: IconName::CircleCheck,
-        title: "Needs you \u{b7} 0 here",
-        text: next_button
-            .as_ref()
-            .filter(|n| n.elsewhere)
-            .map(|_| format!("You\u{2019}re through {project_name}\u{2019}s items.")),
-    });
+    // With nothing needing the user anywhere the strip isn't shown: no groups, no Next, no empty line. Only another
+    // project's items keep it, to say this one is done and offer Next.
+    let empty =
+        (here.is_empty() && next_button.as_ref().is_some_and(|n| n.elsewhere)).then(|| Empty {
+            icon: IconName::CircleCheck,
+            title: "Needs you \u{b7} 0 here",
+            text: Some(format!(
+                "You\u{2019}re through {project_name}\u{2019}s items."
+            )),
+        });
     View {
         groups,
         empty,
@@ -969,8 +982,9 @@ mod tests {
             (IconName::Hand, Tone::Attn)
         );
         assert_eq!(v.groups[0].chips[2].tone, Tone::Error);
-        assert_eq!(v.groups[1].title, "Checks \u{b7} 1");
-        assert_eq!(chips(&v.groups[1]), ["SHOP-18 your check"]);
+        // Your review sits in the strip too, each chip "ready".
+        assert_eq!(v.groups[1].title, "Your review \u{b7} 1");
+        assert_eq!(chips(&v.groups[1]), ["SHOP-18 ready"]);
         assert_eq!(
             v.groups[1].chips[0].target,
             Target::Ticket {
@@ -998,7 +1012,7 @@ mod tests {
 
     /// NYS-01 (`s24-12`): every group in the queue's order: a passed-on question and a waiting Project agent under
     /// Needs you, "Interrupted · 3" with Resume all and no chips, then
-    /// "Checks · 1".
+    /// "Your review · 1".
     #[test]
     fn every_group_in_the_queues_order() {
         let mut items = shop_web();
@@ -1011,7 +1025,7 @@ mod tests {
             [
                 "Needs you \u{b7} 5",
                 "Interrupted \u{b7} 3",
-                "Checks \u{b7} 1"
+                "Your review \u{b7} 1"
             ]
         );
         assert_eq!(
@@ -1060,7 +1074,7 @@ mod tests {
         assert_eq!(agent.asks, None);
         assert!(v.groups[1].chips.is_empty());
         assert_eq!(v.groups[1].resume_all, Some("Resume all"));
-        assert_eq!(v.groups[2].title, "Checks \u{b7} 1");
+        assert_eq!(v.groups[2].title, "Your review \u{b7} 1");
     }
 
     /// Start failed and Parent closed keep a chip under Interrupted; Resume all only while a session can resume.
@@ -1176,10 +1190,10 @@ mod tests {
             (next.label.as_str(), next.elsewhere),
             ("Next \u{b7} billing-api, 1", true)
         );
-        // Nothing anywhere: no Next, no "through" line.
+        // Nothing needing the user anywhere: the strip has nothing to draw, so it isn't shown.
         let v = draw(&[], None);
-        assert_eq!(v.empty.unwrap().text, None);
-        assert_eq!(v.next, None);
+        assert!(v.groups.is_empty());
+        assert_eq!((v.empty, v.next), (None, None));
     }
 
     /// NYS-02: Next walks this project in order, then reads "Next · billing-api, 1" on its last item and opens

@@ -247,6 +247,8 @@ pub struct ColumnPage {
     pub count: String,
     /// Who runs it, on hovering the title; `None` for Backlog and Done.
     pub tooltip: Option<ColumnTooltip>,
+    /// Who acts there, in plain words under the title ("An agent does the work", "You review and approve").
+    pub who_acts: String,
     /// Shown when the column has no card.
     pub empty_hint: String,
     /// Folded (BRD-02): a stage's rail ([`ColumnRail`]); Done's is the board's "Done 4 →" line ([`DoneLine`]).
@@ -286,11 +288,10 @@ pub struct BoardPage {
     /// The centred card of a project with no tickets (the columns stay behind it).
     pub empty: Option<empty_board::View>,
     pub scroll_chip: ScrollChip,
-    /// The chain of every linked card, for the highlight on hover or selection (DEP-05, T-0229).
+    /// What waits for each card others wait for, lit while it is hovered or selected.
     pub chains: Vec<chain::View>,
-    /// Dependencies: Always (DPV-02): every link between open tickets, drawn dashed where both cards are in view;
-    /// empty with On hover.
-    pub links: Vec<chain::Edge>,
+    /// The filter strip under the toolbar while the search filters the board; `null` otherwise.
+    pub filter_strip: Option<FilterStrip>,
     /// The "Created or changed by <agent> ✕" chip while the board is filtered by a Project agent (d0087).
     pub agent_filter: Option<AgentChip>,
     /// The one width rule (BRD-02): every open column at least this wide; they share the width when they fit,
@@ -452,6 +453,7 @@ pub(crate) fn column_page(view: ColumnView, tickets: &[Ticket]) -> ColumnPage {
         quiet_icon: view.quiet_icon,
         count: view.count,
         tooltip: view.tooltip.map(ColumnTooltip::from),
+        who_acts: view.who_acts,
         empty_hint: view.empty_hint.to_owned(),
         collapsed: view.collapsed,
         rail,
@@ -602,12 +604,11 @@ pub fn page(
             &crate::view_models::flow_columns::Columns::of(project.flow),
             tickets,
         ),
-        // Always (DPV-02): every open link drawn, quiet and dashed.
-        links: if prefs.dependencies == otaq_core::board::settings::Dependencies::Always {
-            crate::view_models::dependencies::links(tickets)
-        } else {
-            Vec::new()
-        },
+        filter_strip: filter_strip(
+            &params.filter,
+            visible.as_ref().map_or(tickets.len(), Vec::len),
+            tickets.len(),
+        ),
         agent_filter: agent_filter.map(AgentFilter::chip),
         min_column_width: board::COLUMN_MIN_WIDTH,
         folded_width: board::FOLDED_COLUMN_WIDTH,
@@ -641,6 +642,63 @@ pub enum Verdict {
         title: String,
         detail: Option<String>,
     },
+}
+
+/// One chip of the filter strip: a token (`is:needs-you`) or the typed words (“checkout”). Its ✕ removes it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilterStripChip")]
+pub struct FilterStripChip {
+    pub label: String,
+    /// The token it stands for; `null` for the typed words.
+    pub token: Option<String>,
+}
+
+/// The board's filter strip, under the toolbar while the search filters the board: "Showing 3 of 17", the active
+/// filters as chips, one filter to add ("+ is:needs-you") while it isn't on, and Clear. The search field shows the same
+/// filter: both read and change the one filter the board keeps.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FilterStrip")]
+pub struct FilterStrip {
+    pub showing: String,
+    pub chips: Vec<FilterStripChip>,
+    /// The filter offered to add, as a token; `null` once it is on.
+    pub suggest: Option<String>,
+    pub suggest_label: Option<String>,
+    pub clear: String,
+}
+
+/// The filter the strip offers to add while it isn't on.
+pub const SUGGESTED_FILTER: &str = "is:needs-you";
+
+/// The strip for `filter`, showing `shown` of `total` tickets; `None` while nothing filters the board.
+pub fn filter_strip(filter: &FilterState, shown: usize, total: usize) -> Option<FilterStrip> {
+    let text = filter.text.trim();
+    if filter.tokens.is_empty() && text.is_empty() {
+        return None;
+    }
+    let mut chips: Vec<FilterStripChip> = filter
+        .tokens
+        .iter()
+        .map(|t| FilterStripChip {
+            label: t.clone(),
+            token: Some(t.clone()),
+        })
+        .collect();
+    if !text.is_empty() {
+        chips.push(FilterStripChip {
+            label: format!("\u{201c}{text}\u{201d}"),
+            token: None,
+        });
+    }
+    let suggest =
+        (!filter.tokens.iter().any(|t| t == SUGGESTED_FILTER)).then(|| SUGGESTED_FILTER.to_owned());
+    Some(FilterStrip {
+        showing: format!("Showing {shown} of {total}"),
+        chips,
+        suggest_label: suggest.as_ref().map(|t| format!("+ {t}")),
+        suggest,
+        clear: "Clear".to_owned(),
+    })
 }
 
 /// One drop target's verdict.
@@ -697,6 +755,11 @@ fn verdict(
 ) -> Verdict {
     match drag::feedback_in(flow, ticket, tickets, &column) {
         DropFeedback::Home => Verdict::Home,
+        DropFeedback::Forbidden { .. }
+            if let Some(waits) = waits_ahead(flow, ticket, tickets, &column) =>
+        {
+            waits
+        }
         DropFeedback::Forbidden { title, detail } => Verdict::Forbidden {
             title,
             detail: detail.map(str::to_owned),
@@ -711,6 +774,32 @@ fn verdict(
             }
         }
     }
+}
+
+/// A ticket that waits for others to merge, dragged ahead to a stage: refused with the reason, which the board shows
+/// in a toast once it is dropped ("SHOP-30 can't go to Validate yet" · "It waits for SHOP-27 to merge, then starts by
+/// itself."). `None` for any other refusal.
+fn waits_ahead(
+    flow: &Flow,
+    ticket: &Ticket,
+    tickets: &[Ticket],
+    column: &DropOn,
+) -> Option<Verdict> {
+    let Some(Target::Stage(stage)) = column.in_flow(flow) else {
+        return None;
+    };
+    let parents = crate::view_models::dependencies::waiting_for(ticket, tickets);
+    if parents.is_empty() || ticket.place.is_done() {
+        return None;
+    }
+    let names: Vec<String> = parents.iter().map(|p| p.key.to_string()).collect();
+    Some(Verdict::Forbidden {
+        title: format!("{} can\u{2019}t go to {} yet", ticket.key, stage.name),
+        detail: Some(format!(
+            "It waits for {} to merge, then starts by itself.",
+            crate::view_models::dependencies::and_list(&names)
+        )),
+    })
 }
 
 /// One thing a confirmation keeps: "otaq/SHOP-25", "worktree · kept with its files".
@@ -2305,32 +2394,12 @@ mod tests {
         );
     }
 
-    /// DPV-02: Always sends every open link (the page draws those in view, dashed); On hover sends none, and each
-    /// chain carries its tooltip.
+    /// Hovering a ticket others wait for lights them: SHOP-19's card lights SHOP-20 and SHOP-21 behind it, with no
+    /// tooltip (its card's own line says it); a stored "Always" no longer draws every link, and the toolbar has no
+    /// Dependencies switch.
     #[test]
-    fn always_sends_every_link_and_each_chain_its_tooltip() {
+    fn hovering_lights_what_waits_and_always_is_gone() {
         let tickets = storyboard(Status::WaitingForYou, Status::Working, Status::Queued);
-        let on_hover = page(
-            &tickets,
-            &facts(),
-            &params(1376.),
-            NOW,
-            &KeyLabels::base(Platform::Mac),
-        );
-        assert!(on_hover.links.is_empty());
-        let tip = on_hover
-            .chains
-            .iter()
-            .find(|c| c.key == "SHOP-20")
-            .and_then(|c| c.tip.clone())
-            .unwrap();
-        assert_eq!(
-            (tip.title.as_str(), tip.detail.as_str()),
-            (
-                "SHOP-20 is blocked",
-                "by SHOP-18 (Review) and SHOP-19 (Dev)"
-            )
-        );
         let always = ProjectFacts {
             view: view(ViewPrefs {
                 dependencies: otaq_core::board::settings::Dependencies::Always,
@@ -2345,21 +2414,12 @@ mod tests {
             NOW,
             &KeyLabels::base(Platform::Mac),
         );
-        let links: Vec<(&str, &str)> = page
-            .links
-            .iter()
-            .map(|e| (e.parent.as_str(), e.child.as_str()))
-            .collect();
-        // SHOP-17 is merged: its link to SHOP-18 is history.
-        assert_eq!(
-            links,
-            [
-                ("SHOP-18", "SHOP-20"),
-                ("SHOP-19", "SHOP-20"),
-                ("SHOP-20", "SHOP-21")
-            ]
-        );
-        assert!(page.toolbar.dependencies.unwrap().options[1].selected);
+        let shop_19 = page.chains.iter().find(|c| c.key == "SHOP-19").unwrap();
+        assert_eq!(shop_19.members, ["SHOP-19", "SHOP-20", "SHOP-21"]);
+        assert_eq!(shop_19.tip, None);
+        let json = serde_json::to_value(&page).unwrap();
+        assert!(json.get("links").is_none());
+        assert!(json["toolbar"].get("dependencies").is_none());
     }
 
     /// *12 · Stack & dependencies → 2 · The chain runs … 6 · Closed parent*, as the page receives them (the hand
@@ -2376,9 +2436,9 @@ mod tests {
                 &KeyLabels::base(Platform::Mac),
             )
         };
-        // 1 · Planning: DPV-01's blocked line in Backlog, with Start all the same.
+        // 1 · Planning: the waiting line in Backlog, with Start all the same.
         let planning = at(Status::Backlog, Status::Backlog, Status::Backlog);
-        let blocked = "Blocked \u{b7} waits for SHOP-18 and SHOP-19 to merge";
+        let blocked = "Waits for SHOP-18 and SHOP-19 to merge";
         assert!(card_text(&planning, "SHOP-20").contains(blocked));
         assert!(card_text(&planning, "SHOP-20").contains("\"start\""));
         // 2 · The chain runs, then SHOP-18 in Review: started, it waits at the top of Dev with the same parents until
@@ -2387,17 +2447,15 @@ mod tests {
         let runs = at(Status::Working, Status::Working, Status::Queued);
         assert!(card_text(&runs, "SHOP-20").contains(waits));
         assert!(card_text(&runs, "SHOP-21").contains("Waits for SHOP-20 to merge"));
-        assert!(card_text(&runs, "SHOP-18").contains("Blocks SHOP-20"));
+        assert!(card_text(&runs, "SHOP-18").contains("SHOP-20 waits for it"));
         let review = at(Status::WaitingForYou, Status::Working, Status::Queued);
         assert!(card_text(&review, "SHOP-20").contains(waits));
         // 3 · One parent merged.
         let one = at(Status::Merged, Status::WaitingForYou, Status::Queued);
         assert!(card_text(&one, "SHOP-20").contains("Waits for SHOP-19 to merge"));
-        // 4 · All parents merged: SHOP-20 works from the new main; SHOP-21 still waits.
+        // 4 · All parents merged: SHOP-20 works (where it started from is the sheet's); SHOP-21 still waits.
         let all = at(Status::Merged, Status::Merged, Status::Working);
-        assert!(
-            card_text(&all, "SHOP-20").contains("from main @ 3b7d0e1 · all dependencies merged")
-        );
+        assert!(card_text(&all, "SHOP-20").contains("\"Working\""));
         assert!(card_text(&all, "SHOP-21").contains("Waits for SHOP-20 to merge"));
         // 5 · PR variant.
         let mut tickets = storyboard(Status::PrOpen, Status::Merged, Status::Queued);
@@ -2410,8 +2468,8 @@ mod tests {
             &KeyLabels::base(Platform::Mac),
         );
         assert!(card_text(&pr, "SHOP-20").contains("Waits for SHOP-18 to merge"));
-        // Mark merged is the sheet's now: a card that doesn't need the user has no button (BRD-03).
-        assert!(!card_text(&pr, "SHOP-18").contains("Mark merged"));
+        // An open PR is the user's to mark merged: its card's one action.
+        assert!(card_text(&pr, "SHOP-18").contains("Mark merged"));
         // 6 · Closed parent never counts as merged.
         let closed = at(
             Status::Merged,
@@ -2419,15 +2477,31 @@ mod tests {
             Status::ParentClosed,
         );
         let shop_20 = card_text(&closed, "SHOP-20");
-        assert!(shop_20.contains("Parent closed"), "{shop_20}");
-        assert!(shop_20.contains("SHOP-19 was closed without merging"));
-        // The highlight of SHOP-20 lights the whole chain.
+        assert!(shop_20.contains("Parent SHOP-19 was closed"), "{shop_20}");
+        assert!(shop_20.contains("Decide"), "{shop_20}");
+        // Hovering SHOP-20 lights what waits for it.
         let chain = all.chains.iter().find(|c| c.key == "SHOP-20").unwrap();
-        assert_eq!(
-            chain.members,
-            ["SHOP-17", "SHOP-18", "SHOP-19", "SHOP-20", "SHOP-21"]
-        );
+        assert_eq!(chain.members, ["SHOP-20", "SHOP-21"]);
         assert!(planning.chains.iter().all(|c| c.key != "SHOP-22"));
+    }
+
+    /// The filter strip shows while the search filters the board: how many of how many, its chips, one filter to
+    /// add while it isn't on, and Clear; nothing filters, no strip.
+    #[test]
+    fn the_filter_strip_follows_the_search() {
+        let state = |tokens: &[&str], text: &str| FilterState {
+            tokens: tokens.iter().map(|t| (*t).to_owned()).collect(),
+            text: text.to_owned(),
+        };
+        assert_eq!(filter_strip(&state(&[], "  "), 17, 17), None);
+        let strip = filter_strip(&state(&[], "checkout"), 3, 17).unwrap();
+        assert_eq!(strip.showing, "Showing 3 of 17");
+        assert_eq!(strip.chips[0].label, "\u{201c}checkout\u{201d}");
+        assert_eq!(strip.chips[0].token, None);
+        assert_eq!(strip.suggest_label.as_deref(), Some("+ is:needs-you"));
+        let on = filter_strip(&state(&["is:needs-you"], ""), 2, 17).unwrap();
+        assert_eq!(on.chips[0].token.as_deref(), Some("is:needs-you"));
+        assert_eq!((on.suggest, on.clear.as_str()), (None, "Clear"));
     }
 
     /// The example's shop-web flow (*24 · The two views*): Product spec, Dev with Validate shown in it, Security,
@@ -2658,38 +2732,33 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         let s = |text: &str| Some(text.to_owned());
         assert_eq!(
             line_of(&page, "SHOP-31"),
-            (None, s("Start"), None),
+            (s("Not started"), s("Start"), None),
             "a calm Backlog card, with Start"
         );
         assert_eq!(
             line_of(&page, "SHOP-22"),
             (
-                s("Needs you: allow rm -rf .next?"),
-                s("Answer"),
+                s("Asks you \u{b7} allow rm -rf .next?"),
+                s("Open"),
                 Some(Tone::Attention)
             )
         );
         assert_eq!(
             line_of(&page, "SHOP-12"),
             (
-                s("Asks you: follow the system setting?"),
-                s("Reply"),
+                s("Asks you \u{b7} follow the system setting?"),
+                s("Answer"),
                 Some(Tone::Attention)
             )
         );
         assert_eq!(line_of(&page, "SHOP-33"), (s("Working"), None, None));
-        assert_eq!(
-            line_of(&page, "SHOP-19").0,
-            s("Checking \u{b7} round 1 of 3")
-        );
-        assert_eq!(
-            line_of(&page, "SHOP-30").0,
-            s("Validating \u{b7} round 1 of 3")
-        );
+        // No rounds on the card: they are the sheet's.
+        assert_eq!(line_of(&page, "SHOP-19").0, s("Checking"));
+        assert_eq!(line_of(&page, "SHOP-30").0, s("Checking"));
         assert_eq!(
             line_of(&page, "SHOP-32"),
             (
-                s("Security failed 3 times"),
+                s("Security failed 3 times \u{b7} decide"),
                 s("Decide"),
                 Some(Tone::Attention)
             )
@@ -2697,11 +2766,11 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
         let check = line_of(&page, "SHOP-18");
         assert_eq!(
             (check.0, check.1, check.2),
-            (s("Your check"), s("Review"), Some(Tone::Review))
+            (s("Ready for you"), s("Review"), Some(Tone::Review))
         );
         let pr = line_of(&page, "SHOP-26").0.unwrap();
         assert!(pr.starts_with("PR #481 open"), "{pr}");
-        assert_eq!(line_of(&page, "SHOP-26").1, None);
+        assert_eq!(line_of(&page, "SHOP-26").1, s("Mark merged"));
         // #36: the priority is the card's chip after its key, in every column, not the line's first word.
         let p1 = line_of(&page, "SHOP-35").0.unwrap();
         assert!(!p1.starts_with("P1"), "{p1}");

@@ -28,14 +28,6 @@ subtitle: string | null,
  */
 live: string | null, 
 /**
- * The List's Group by Stage · Status · Agent (LST-01).
- */
-group_by: ToolbarGroup | null, 
-/**
- * The Board's Dependencies On hover · Always (DPV-02), on the right before the switch.
- */
-dependencies: ToolbarGroup | null, 
-/**
  * Fold empty columns (Board) or Hide empty stages (List): a switch; none on Files.
  */
 switch: ToolbarOption | null, 
