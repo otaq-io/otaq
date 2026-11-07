@@ -246,29 +246,39 @@ pub async fn answer_message(app: &App, params: AnswerMessage) -> Result<(), Requ
 // ---------------------------------------------------------------------------------------------------------------
 // History (REC-03; d0045)
 
-/// One row of Activity's timeline (Q432, `s25-07`): the time, who, a plain sentence and what it opens.
+/// One row of History, newest first: a plain sentence over "you · 09:58" with who's mark beside it, or an agent
+/// session's quiet row, "Session · Dev · Strong  8b2f61d3-…  09:40–10:21", its id copyable.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HistoryRowView")]
 pub struct HistoryRowView {
-    /// "You created the ticket", "Product spec started · Spec writer".
+    /// "You created the ticket", "Session · Dev · Strong".
     pub title: String,
-    /// "Claude Code · sonnet", "“Don’t touch the auth middleware…”".
+    /// "Claude Code · sonnet", "“Don’t touch the auth middleware…”" (a quiet row's tooltip).
     pub detail: Option<String>,
     /// "09:42".
     pub when: String,
-    /// "· 18 min · 64k tokens" after the sentence, only where an agent ran (never a dollar figure, d0086).
+    /// Under the sentence: "you · 09:42", "Otaq · 09:42", or the time alone for an agent's row.
+    pub who: String,
+    /// "· 18 min · 64k tokens" after the sentence, only where an agent ran; a quiet row's tokens, "· 64k tokens"
+    /// (never a dollar figure, d0086).
     pub cost: Option<String>,
     /// The full tool session id, for the copy button (`claude --resume <id>`).
     pub tool_session_id: Option<String>,
+    /// An agent session's quiet row.
+    pub quiet: bool,
+    /// The quiet row's id as it shows: "8b2f61d3-…".
+    pub short_id: Option<String>,
+    /// The quiet row's times: "09:40–10:21", "10:22 · running".
+    pub range: Option<String>,
     /// Who: you, the agent (its tool avatar), Otaq.
     pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said and its report (CMT-14).
     pub opens: Option<Opens>,
-    /// Activity's filter it shows under (SHT-05).
+    /// History's filter it shows under.
     pub kind: history::Kind,
 }
 
-/// One of Activity's filters: "All", "Comments", "Stages", "Description".
+/// One of History's filters: "All", "Questions", "Checks", "Sessions".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityFilterView")]
 pub struct FilterView {
@@ -280,12 +290,34 @@ pub struct FilterView {
 
 impl From<HistoryRow> for HistoryRowView {
     fn from(r: HistoryRow) -> Self {
+        let quiet = r.is_quiet();
+        let when = local_hhmm(r.at);
+        let range = quiet.then(|| match r.ended {
+            Some(end) => format!("{when}\u{2013}{}", local_hhmm(end)),
+            None => format!("{when} \u{b7} running"),
+        });
+        let cost = if quiet {
+            Some(r.tokens.as_str())
+                .filter(|t| !t.is_empty() && *t != "\u{2014}" && *t != "0")
+                .map(|t| format!("\u{b7} {t} tokens"))
+        } else {
+            r.cost()
+        };
+        let who = match r.mark {
+            Mark::You => format!("you \u{b7} {when}"),
+            Mark::Otaq => format!("{} \u{b7} {when}", otaq_core::naming::PRODUCT_NAME),
+            Mark::Tool { .. } | Mark::Agent => when.clone(),
+        };
         Self {
-            cost: r.cost(),
+            cost,
+            short_id: quiet.then(|| r.short_id()).flatten(),
             title: r.title,
             detail: r.detail,
-            when: local_hhmm(r.at),
+            when,
+            who,
             tool_session_id: r.tool_session_id,
+            quiet,
+            range,
             mark: r.mark,
             opens: r.opens,
             kind: r.kind,
@@ -416,7 +448,8 @@ pub async fn history_view(app: &App, params: Params) -> Result<Option<HistoryVie
         }
         None => rows,
     };
-    let mut view = history_of(rows);
+    // One quiet row per agent session, its id copyable.
+    let mut view = history_of(history::one_row_per_session(rows));
     view.total =
         validation_report::total(&records).map(|(label, tokens)| HistoryTotal { label, tokens });
     view.key = params.key;
@@ -478,13 +511,60 @@ mod tests {
             filters,
             [
                 ("All", None),
-                ("Comments", Some(history::Kind::Comment)),
-                ("Stages", Some(history::Kind::Stage)),
-                ("Description", Some(history::Kind::Description))
+                ("Questions", Some(history::Kind::Question)),
+                ("Checks", Some(history::Kind::Check)),
+                ("Sessions", Some(history::Kind::Session))
             ]
         );
         assert_eq!(history.order, "newest first");
         assert_eq!(history.copy_hint, "Copy session ID");
+    }
+
+    /// An agent session's quiet row shows the start of its id (the copy takes all of it) and its times; an event
+    /// says who and when under its sentence.
+    #[test]
+    fn a_session_is_a_quiet_row_with_its_id() {
+        let row = HistoryRow {
+            title: "Session \u{b7} Dev \u{b7} Strong".into(),
+            detail: Some("Claude Code \u{b7} opus".into()),
+            at: 0,
+            duration: "41 min".into(),
+            tokens: "64k".into(),
+            ran: false,
+            tool_session_id: Some("8b2f61d3-4c1e-4a7b-9f00-1d2e3f4a5b6c".into()),
+            is_session: true,
+            session: Some("s1".into()),
+            mark: Mark::Agent,
+            opens: None,
+            kind: history::Kind::Session,
+            quiet: None,
+            ended: Some(41 * 60_000),
+        };
+        let view = HistoryRowView::from(row.clone());
+        assert!(view.quiet);
+        assert_eq!(view.short_id.as_deref(), Some("8b2f61d3-\u{2026}"));
+        assert_eq!(
+            view.tool_session_id.as_deref(),
+            Some("8b2f61d3-4c1e-4a7b-9f00-1d2e3f4a5b6c")
+        );
+        let range = view.range.unwrap();
+        assert!(range.contains('\u{2013}'), "{range}");
+        assert_eq!(view.cost.as_deref(), Some("\u{b7} 64k tokens"));
+        let running = HistoryRowView::from(HistoryRow {
+            ended: None,
+            ..row.clone()
+        });
+        assert!(running.range.unwrap().ends_with("\u{b7} running"));
+        let event = HistoryRowView::from(HistoryRow {
+            title: "You answered".into(),
+            is_session: false,
+            kind: history::Kind::Question,
+            mark: Mark::You,
+            ..row
+        });
+        assert!(!event.quiet);
+        assert_eq!(event.short_id, None);
+        assert!(event.who.starts_with("you \u{b7} "));
     }
 
     async fn create(h: &Harness, project: &str, title: &str) -> String {

@@ -93,7 +93,8 @@ describe("where buttons and menu items go", () => {
     expect(menuRoute("submit-for-review")).toEqual({ kind: "overlay", id: "submit_for_review" });
     expect(menuRoute("delete")).toEqual({ kind: "overlay", id: "delete_ticket" });
     expect(menuRoute("pin")).toEqual({ kind: "service" });
-    expect(menuRoute("copy-attach")).toEqual({ kind: "copy", what: "attach" });
+    expect(menuRoute("copy-branch")).toEqual({ kind: "copy" });
+    expect(menuRoute("ask-noyan")).toEqual({ kind: "ask_noyan" });
     expect(menuRoute("something")).toEqual({ kind: "unknown" });
   });
 

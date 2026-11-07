@@ -454,9 +454,12 @@ pub fn counts_files(ticket: &Ticket) -> bool {
         .is_some_and(|w| w.branch.is_some() && w.base_sha.is_some())
 }
 
-/// The Files tab's note: "3"; none without changes.
+/// The Changes tab's note: "3 files", "1 file"; none without changes.
 pub fn files_count_label(count: Option<u32>) -> Option<String> {
-    count.map(|n| n.to_string())
+    count.map(|n| match n {
+        1 => "1 file".to_owned(),
+        n => format!("{n} files"),
+    })
 }
 
 /// The Files tab's counts by ticket (Q421), kept between the sheet's refreshes so a plain refresh never asks git
@@ -1093,7 +1096,11 @@ mod tests {
             ],
         );
         assert_eq!(files_count(&three), Some(3));
-        assert_eq!(files_count_label(files_count(&three)).as_deref(), Some("3"));
+        assert_eq!(
+            files_count_label(files_count(&three)).as_deref(),
+            Some("3 files")
+        );
+        assert_eq!(files_count_label(Some(1)).as_deref(), Some("1 file"));
         assert_eq!(files_count(&changes(FilesFrom::Branch, Vec::new())), None);
         assert_eq!(files_count_label(None), None);
         assert_eq!(files_count(&changes(FilesFrom::Base, Vec::new())), None);

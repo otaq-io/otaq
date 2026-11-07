@@ -164,46 +164,52 @@ pub struct Opens {
     pub attachments: Vec<OpenAttachment>,
 }
 
-/// What a row is about, for Activity's filters (SHT-05).
+/// What a row is about, for History's filters.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "ActivityKind")]
 pub enum Kind {
-    /// A comment posted, edited or deleted.
+    /// A question asked or answered, a decision recorded, kept or changed: under Questions.
+    Question,
+    /// A check: its rounds and verdicts, a check you passed, a manual check ticked: under Checks.
+    Check,
+    /// An agent session (its quiet row with its id), one interrupted, resumed or started again: under Sessions.
+    Session,
+    /// A comment posted, edited or deleted: only under All.
     Comment,
-    /// Who worked on it and where it went: sessions, check rounds, moves, passes, send-backs, merges.
+    /// Where it went: moves, send-backs, merges, PRs: only under All.
     Stage,
-    /// A change of the description (with its before / after).
+    /// A change of the description (with its before / after): only under All.
     Description,
-    /// The rest (created, pinned, a dependency, a question…): only under All.
+    /// The rest (created, pinned, a dependency…): only under All.
     Other,
 }
 
-/// Activity's filters (SHT-05), in order.
+/// History's filters, in order: All · Questions · Checks · Sessions.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "ActivityFilter")]
 pub enum Filter {
     All,
-    Comments,
-    Stages,
-    Description,
+    Questions,
+    Checks,
+    Sessions,
 }
 
 impl Filter {
     pub const ALL: [Filter; 4] = [
         Filter::All,
-        Filter::Comments,
-        Filter::Stages,
-        Filter::Description,
+        Filter::Questions,
+        Filter::Checks,
+        Filter::Sessions,
     ];
 
     pub fn label(self) -> &'static str {
         match self {
             Self::All => "All",
-            Self::Comments => "Comments",
-            Self::Stages => "Stages",
-            Self::Description => "Description",
+            Self::Questions => "Questions",
+            Self::Checks => "Checks",
+            Self::Sessions => "Sessions",
         }
     }
 
@@ -211,9 +217,9 @@ impl Filter {
     pub fn kind(self) -> Option<Kind> {
         match self {
             Self::All => None,
-            Self::Comments => Some(Kind::Comment),
-            Self::Stages => Some(Kind::Stage),
-            Self::Description => Some(Kind::Description),
+            Self::Questions => Some(Kind::Question),
+            Self::Checks => Some(Kind::Check),
+            Self::Sessions => Some(Kind::Session),
         }
     }
 
@@ -233,10 +239,22 @@ pub fn filtered(rows: &[HistoryRow], filter: Filter) -> Vec<&HistoryRow> {
 /// The kind of an event's row (descriptions and comments are told apart in [`comment_row`]).
 fn kind_of(kind: EventKind) -> Kind {
     match kind {
+        EventKind::QuestionAsked
+        | EventKind::QuestionAnswered
+        | EventKind::DecisionRecorded
+        | EventKind::DecisionsKept
+        | EventKind::DecisionChanged => Kind::Question,
+        EventKind::ValidationEnded | EventKind::Passed | EventKind::ManualCheckTicked => {
+            Kind::Check
+        }
+        EventKind::Interrupted
+        | EventKind::SessionEnded
+        | EventKind::Resumed
+        | EventKind::ResumeFailed
+        | EventKind::StartedFromScratch => Kind::Session,
         EventKind::Moved
         | EventKind::Dragged
         | EventKind::StageFinished
-        | EventKind::Passed
         | EventKind::ReviewSubmitted
         | EventKind::SentToFix
         | EventKind::SentBack
@@ -253,12 +271,6 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::Closed
         | EventKind::StartInterrupted
         | EventKind::StartRetried
-        | EventKind::Interrupted
-        | EventKind::SessionEnded
-        | EventKind::Resumed
-        | EventKind::ResumeFailed
-        | EventKind::StartedFromScratch
-        | EventKind::ValidationEnded
         | EventKind::PrProposed
         | EventKind::PrConfirmed
         | EventKind::PrCancelled
@@ -295,9 +307,30 @@ pub struct HistoryRow {
     pub opens: Option<Opens>,
     /// Activity's filter it shows under.
     pub kind: Kind,
+    /// An agent session's start: its quiet row's words, "Session · Dev · Strong" ([`one_row_per_session`] makes it
+    /// that row).
+    pub quiet: Option<String>,
+    /// An agent session's quiet row: when the session ended (`None` while it runs).
+    pub ended: Option<i64>,
 }
 
 impl HistoryRow {
+    /// An agent session's own row: drawn quiet, with its id and its times.
+    pub fn is_quiet(&self) -> bool {
+        self.is_session && self.kind == Kind::Session
+    }
+
+    /// "c41e9a07-…": the start of the tool session id the quiet row shows; the copy button copies all of it.
+    pub fn short_id(&self) -> Option<String> {
+        let id = self.tool_session_id.as_deref()?;
+        let head: String = id.chars().take(9).collect();
+        Some(if id.chars().count() > 9 {
+            format!("{head}\u{2026}")
+        } else {
+            head
+        })
+    }
+
     /// "· 18 min · 64k tokens" after the sentence of a row where an agent ran (Q432); none on other rows, and none
     /// when nothing was recorded (never "0 tokens"; tokens and time only, never a dollar figure, d0086).
     pub fn cost(&self) -> Option<String> {
@@ -429,7 +462,9 @@ pub fn rows_with_rounds(
             session: None,
             mark: comments::agent_mark(tool, facts.avatars),
             opens: None,
-            kind: Kind::Stage,
+            kind: Kind::Check,
+            quiet: None,
+            ended: None,
         }
     }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -478,10 +513,26 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         false => Mark::You,
     };
     let kind = match agent {
-        true => Kind::Stage,
-        // The Run's and the Shell's sessions aren't stage work.
+        true => Kind::Session,
+        // The Run's and the Shell's sessions aren't an agent's work.
         false => Kind::Other,
     };
+    // Its quiet row's words until the named agents name it ([`with_agents`]): "Session · Checker", "Session · Spec
+    // writer".
+    let quiet = agent.then(|| {
+        let who = s.agent.as_ref().map_or(
+            match s.kind {
+                SessionKind::Validator => "Checker",
+                SessionKind::Helper => "Helper",
+                SessionKind::Answer => "Answer",
+                SessionKind::Delivery => "PR",
+                SessionKind::ProjectAgent => "Noyan",
+                _ => "Agent",
+            },
+            |a| a.name.as_str(),
+        );
+        format!("Session \u{b7} {who}")
+    });
     let start = HistoryRow {
         title: match agent {
             true => format!("{title} started"),
@@ -501,6 +552,8 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         mark: mark.clone(),
         opens: None,
         kind,
+        quiet,
+        ended: s.ended_at,
     };
     let end = s.ended_at.filter(|_| agent).map(|at| HistoryRow {
         title: format!("{title} ended"),
@@ -510,6 +563,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         ran: true,
         tool_session_id: None,
         is_session: false,
+        quiet: None,
         ..start.clone()
     });
     std::iter::once(start).chain(end).collect()
@@ -1002,6 +1056,8 @@ fn told(
         mark,
         opens: Some(opens),
         kind,
+        quiet: None,
+        ended: None,
     }
 }
 
@@ -1669,6 +1725,8 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         mark: event_mark(e, facts),
         opens: None,
         kind: kind_of(e.kind),
+        quiet: None,
+        ended: None,
     })
 }
 
@@ -1717,6 +1775,7 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 detail,
                 note,
                 ended,
+                quiet,
             } => {
                 for row in rows
                     .iter_mut()
@@ -1724,6 +1783,9 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 {
                     if row.is_session {
                         row.title = started.clone();
+                        if row.quiet.is_some() {
+                            row.quiet = Some(quiet.clone());
+                        }
                         // "asked for gpt-5.5, ran on auto" (AGT-05).
                         row.detail = Some(match note {
                             Some(note) => format!("{detail} \u{b7} {note}"),
@@ -1746,12 +1808,51 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 session: None,
                 mark: Mark::Otaq,
                 opens: None,
-                kind: Kind::Stage,
+                kind: Kind::Session,
+                quiet: None,
+                ended: None,
             }),
         }
     }
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
     rows
+}
+
+/// History keeps one quiet row per agent session: its start becomes "Session · Dev · Strong" with its tool session
+/// id (copyable, for resuming it by hand) and its times, the duration and tokens its end carried; the end's own row
+/// goes. The Shell's and the Run's rows, and every event, stay as they are.
+pub fn one_row_per_session(rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
+    let ends: BTreeMap<String, HistoryRow> = rows
+        .iter()
+        .filter(|r| !r.is_session && r.kind == Kind::Session)
+        .filter_map(|r| Some((r.session.clone()?, r.clone())))
+        .collect();
+    let quiet_sessions: Vec<String> = rows
+        .iter()
+        .filter(|r| r.is_session && r.quiet.is_some())
+        .filter_map(|r| r.session.clone())
+        .collect();
+    rows.into_iter()
+        .filter(|r| {
+            r.is_session
+                || r.kind != Kind::Session
+                || r.session
+                    .as_ref()
+                    .is_none_or(|s| !quiet_sessions.contains(s))
+        })
+        .map(|mut r| {
+            let Some(quiet) = r.quiet.take().filter(|_| r.is_session) else {
+                return r;
+            };
+            r.title = quiet;
+            if let Some(end) = r.session.as_ref().and_then(|s| ends.get(s)) {
+                r.ended = Some(end.at);
+                r.duration = end.duration.clone();
+                r.tokens = end.tokens.clone();
+            }
+            r
+        })
+        .collect()
 }
 
 #[cfg(test)]
@@ -2451,7 +2552,7 @@ mod tests {
             [
                 Kind::Other,
                 Kind::Comment,
-                Kind::Stage,
+                Kind::Session,
                 Kind::Stage,
                 Kind::Comment,
                 Kind::Description,
@@ -2459,33 +2560,20 @@ mod tests {
             ]
         );
         assert_eq!(rows[6].title, "You created the ticket", "newest first");
-        let titles = |filter| -> Vec<String> {
-            filtered(&rows, filter)
-                .iter()
-                .map(|r| r.title.clone())
-                .collect()
-        };
-        assert_eq!(titles(Filter::All).len(), rows.len());
-        assert_eq!(
-            titles(Filter::Comments),
-            ["You commented", "Spec writer \u{b7} Product spec commented"]
-        );
-        assert_eq!(
-            titles(Filter::Description),
-            [
-                "Spec writer \u{b7} Product spec edited the description \u{b7} added the redirect waits for the session\u{2026} (2 lines)"
-            ]
-        );
-        assert_eq!(filtered(&rows, Filter::Stages).len(), 2);
+        assert_eq!(filtered(&rows, Filter::All).len(), rows.len());
+        assert_eq!(filtered(&rows, Filter::Sessions).len(), 1);
+        assert!(filtered(&rows, Filter::Questions).is_empty());
+        assert!(filtered(&rows, Filter::Checks).is_empty());
         // The description edit opens its before / after.
-        let opens = filtered(&rows, Filter::Description)[0]
-            .opens
-            .clone()
+        let opens = rows
+            .iter()
+            .find(|r| r.kind == Kind::Description)
+            .and_then(|r| r.opens.clone())
             .unwrap();
         assert_eq!(opens.caption.as_deref(), Some("Before / after"));
         assert_eq!(
             Filter::ALL.map(Filter::label),
-            ["All", "Comments", "Stages", "Description"]
+            ["All", "Questions", "Checks", "Sessions"]
         );
     }
 
@@ -3044,8 +3132,28 @@ mod tests {
                 detail: "Claude Code \u{b7} sonnet".into(),
                 note: None,
                 ended: "Product spec finished \u{b7} Spec writer".into(),
+                quiet: "Session \u{b7} Product spec \u{b7} Spec writer".into(),
             }],
         ));
+        // History keeps one quiet row per agent session, with its id, its times and its tokens; the Shell's stays.
+        let one = one_row_per_session(named.clone());
+        let quiet: Vec<_> = one
+            .iter()
+            .map(|r| (r.title.as_str(), r.is_quiet()))
+            .collect();
+        assert_eq!(
+            quiet,
+            [
+                ("You created the ticket", false),
+                ("Session \u{b7} Product spec \u{b7} Spec writer", true),
+                ("Terminal", false),
+            ]
+        );
+        assert_eq!(one[1].tool_session_id.as_deref(), Some("3be94c10-g"));
+        assert_eq!(one[1].ended, Some(23 * MIN));
+        assert_eq!(one[1].tokens, "64k");
+        assert_eq!(one[1].short_id().as_deref(), Some("3be94c10-\u{2026}"));
+        assert_eq!(one[1].kind, Kind::Session);
         let read: Vec<_> = named
             .iter()
             .map(|r| (r.title.as_str(), r.mark.clone(), r.cost()))

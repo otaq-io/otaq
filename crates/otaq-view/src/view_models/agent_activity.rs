@@ -130,10 +130,15 @@ pub fn agent_is_told(ticket: &Ticket, live_agent_session: bool) -> bool {
     live_agent_session && LIVE.contains(&ticket.status)
 }
 
-/// The line under Save while editing a working ticket: "SHOP-19’s agent will be told what changed."
+/// The line at the top of the form while editing a working ticket: "SHOP-19’s agent reads your edit the next time it’s
+/// idle."
 pub fn save_hint(ticket: &Ticket, live_agent_session: bool) -> Option<String> {
-    agent_is_told(ticket, live_agent_session)
-        .then(|| format!("{}’s agent will be told what changed.", ticket.key))
+    agent_is_told(ticket, live_agent_session).then(|| {
+        format!(
+            "{}’s agent reads your edit the next time it’s idle.",
+            ticket.key
+        )
+    })
 }
 
 /// After a save: "Saved. SHOP-19’s agent will be told what changed: The description changed: added 'works on
@@ -289,7 +294,7 @@ mod tests {
         after.body.push_str("\n- Works on mobile widths");
         assert_eq!(
             save_hint(&before, true).as_deref(),
-            Some("SHOP-19’s agent will be told what changed.")
+            Some("SHOP-19’s agent reads your edit the next time it’s idle.")
         );
         assert_eq!(
             saved_note(&before, &after, true).as_deref(),

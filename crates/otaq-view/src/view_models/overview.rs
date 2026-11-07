@@ -477,6 +477,7 @@ pub mod fixtures {
             posted_at: (14 * 60 + minute) * MIN,
             edited_at: None,
             at_creation: false,
+            told: None,
         }
     }
 

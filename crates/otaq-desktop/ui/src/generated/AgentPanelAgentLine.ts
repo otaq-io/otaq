@@ -14,4 +14,8 @@ agent: string,
 /**
  * "· 52k", "· starts when you send".
  */
-note: string, rename: string | null, };
+note: string, rename: string | null, 
+/**
+ * What Noyan does with the code, at the line's end: [`NEVER_EDITS`].
+ */
+reads: string, };

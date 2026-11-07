@@ -165,11 +165,27 @@ pub async fn view(app: &App, params: Params) -> Result<AgentPanelView, RequestEr
         }
         None => (None, Vec::new()),
     };
+    // A created ticket the user started says where it is or why it waits, as its card does; the board is read only
+    // while one has left Backlog.
+    let started: Vec<_> = created
+        .iter()
+        .flat_map(|c| &c.created)
+        .filter(|t| t.status.set() != otaq_core::domain::StatusSet::Backlog)
+        .map(|t| t.key.clone())
+        .collect();
+    let whereabouts = if started.is_empty() {
+        Vec::new()
+    } else {
+        super::board::whereabouts(app, &params.project, &started)
+            .await
+            .unwrap_or_default()
+    };
     Ok(vm::view(&vm::Facts {
         agents: &agents,
         shown,
         created: created.as_ref(),
         edited: &edited,
+        whereabouts: &whereabouts,
         project_name: &name,
         new_agent: new_agent.as_ref(),
         window_width: params.window_width,
@@ -454,7 +470,7 @@ mod tests {
             view["empty"]["text"]
                 .as_str()
                 .unwrap()
-                .contains("in pocket-notes (never edits)")
+                .contains("in pocket-notes but never edits it")
         );
         assert_eq!(view["switcher"]["rows"], json!([]));
         // An agent the page remembers but the project doesn't have: the empty agent panel.

@@ -21,7 +21,7 @@ title: string,
  */
 unnamed: boolean, 
 /**
- * The name opens the switcher (▾): the project has a Project agent to switch to.
+ * The name opens the switcher (▾): the project has a conversation to switch to or continue (open or recently ended).
  */
 switcher: boolean, 
 /**

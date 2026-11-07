@@ -4,15 +4,16 @@ import type { CommentMark } from "./CommentMark";
 import type { HistoryOpens } from "./HistoryOpens";
 
 /**
- * One row of Activity's timeline (Q432, `s25-07`): the time, who, a plain sentence and what it opens.
+ * One row of History, newest first: a plain sentence over "you · 09:58" with who's mark beside it, or an agent
+ * session's quiet row, "Session · Dev · Strong  8b2f61d3-…  09:40–10:21", its id copyable.
  */
 export type HistoryRowView = { 
 /**
- * "You created the ticket", "Product spec started · Spec writer".
+ * "You created the ticket", "Session · Dev · Strong".
  */
 title: string, 
 /**
- * "Claude Code · sonnet", "“Don’t touch the auth middleware…”".
+ * "Claude Code · sonnet", "“Don’t touch the auth middleware…”" (a quiet row's tooltip).
  */
 detail: string | null, 
 /**
@@ -20,13 +21,30 @@ detail: string | null,
  */
 when: string, 
 /**
- * "· 18 min · 64k tokens" after the sentence, only where an agent ran (never a dollar figure, d0086).
+ * Under the sentence: "you · 09:42", "Otaq · 09:42", or the time alone for an agent's row.
+ */
+who: string, 
+/**
+ * "· 18 min · 64k tokens" after the sentence, only where an agent ran; a quiet row's tokens, "· 64k tokens"
+ * (never a dollar figure, d0086).
  */
 cost: string | null, 
 /**
  * The full tool session id, for the copy button (`claude --resume <id>`).
  */
 tool_session_id: string | null, 
+/**
+ * An agent session's quiet row.
+ */
+quiet: boolean, 
+/**
+ * The quiet row's id as it shows: "8b2f61d3-…".
+ */
+short_id: string | null, 
+/**
+ * The quiet row's times: "09:40–10:21", "10:22 · running".
+ */
+range: string | null, 
 /**
  * Who: you, the agent (its tool avatar), Otaq.
  */
@@ -36,6 +54,6 @@ mark: CommentMark,
  */
 opens: HistoryOpens | null, 
 /**
- * Activity's filter it shows under (SHT-05).
+ * History's filter it shows under.
  */
 kind: ActivityKind, };

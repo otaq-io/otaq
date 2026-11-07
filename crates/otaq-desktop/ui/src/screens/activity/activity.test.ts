@@ -1,4 +1,4 @@
-// The sheet's Activity (SHT-05, `s25-07`): History's rows newest first under All · Comments · Stages · Description.
+// The sheet's History: its rows newest first under All · Questions · Checks · Sessions, an agent session as a quiet row.
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";
@@ -15,13 +15,30 @@ const html = (el: Parameters<typeof renderToStaticMarkup>[0]) => renderToStaticM
 /** `sections::history_of`'s filters. */
 const FILTERS: ActivityFilterView[] = [
   { filter: "all", label: "All", kind: null },
-  { filter: "comments", label: "Comments", kind: "comment" },
-  { filter: "stages", label: "Stages", kind: "stage" },
-  { filter: "description", label: "Description", kind: "description" },
+  { filter: "questions", label: "Questions", kind: "question" },
+  { filter: "checks", label: "Checks", kind: "check" },
+  { filter: "sessions", label: "Sessions", kind: "session" },
 ];
 
+/** A row as `sections::history_of` gives it, an event's by default. */
+const base = (over: Partial<HistoryRowView>): HistoryRowView => ({
+  title: "",
+  detail: null,
+  when: "2:14 pm",
+  who: "2:14 pm",
+  cost: null,
+  tool_session_id: null,
+  quiet: false,
+  short_id: null,
+  range: null,
+  mark: { kind: "agent" },
+  opens: null,
+  kind: "other",
+  ...over,
+});
+
 describe("Activity", () => {
-  it("reads as a timeline: who, the sentence, the cost only where an agent ran, the copyable session ID (Q432)", () => {
+  it("reads as plain sentences over who and when; an agent session is a quiet row with its id, copyable", () => {
     const view: HistoryView = {
       filters: FILTERS,
       order: "newest first",
@@ -31,58 +48,53 @@ describe("Activity", () => {
       total: null,
       key: "SHOP-28",
       rows: [
-        {
-          title: "You created the ticket",
-          detail: null,
-          when: "9:10 am",
-          cost: null,
-          tool_session_id: null,
-          mark: { kind: "you" },
-          opens: null,
-          kind: "other",
-        },
-        {
-          title: "Dev started · Rust developer",
-          detail: "Codex · gpt-5.5",
-          when: "9:42 am",
-          cost: null,
-          tool_session_id: "9f1c-77",
-          mark: { kind: "agent" },
-          opens: null,
-          kind: "stage",
-        },
-        {
-          title: "Dev finished · Rust developer",
-          detail: "exited",
-          when: "10:20 am",
-          cost: "· 38 min · 74k tokens",
-          tool_session_id: null,
-          mark: { kind: "agent" },
-          opens: null,
-          kind: "stage",
-        },
-        {
+        base({
           title: "Interrupted by restart",
           detail: "conversation saved",
           when: "10:21 am",
-          cost: null,
-          tool_session_id: null,
+          who: "Otaq · 10:21 am",
           mark: { kind: "otaq" },
-          opens: null,
-          kind: "stage",
-        },
+          kind: "session",
+        }),
+        base({
+          title: "Validate passed · round 1",
+          when: "10:20 am",
+          who: "10:20 am",
+          cost: "· 38 min · 74k tokens",
+          kind: "check",
+        }),
+        base({
+          title: "Session · Dev · Rust developer",
+          detail: "Codex · gpt-5.5",
+          when: "9:42 am",
+          tool_session_id: "9f1c2d3e-77aa",
+          quiet: true,
+          short_id: "9f1c2d3e-…",
+          range: "9:42 am–10:20 am",
+          cost: "· 74k tokens",
+          kind: "session",
+        }),
+        base({
+          title: "You created the ticket",
+          when: "9:10 am",
+          who: "you · 9:10 am",
+          mark: { kind: "you" },
+        }),
       ],
     };
     const out = html(createElement(HistoryBody, { view }));
     expect(out).toMatch(
-      /9:10 am.*data-you.*You created the ticket.*9:42 am.*Dev started · Rust developer.*Codex · gpt-5.5/,
+      /Interrupted by restart.*Otaq · 10:21 am.*Session · Dev · Rust developer.*You created the ticket/,
     );
     expect(out).toContain(
-      'Dev finished · Rust developer<span class="history-cost"> · 38 min · 74k tokens</span>',
+      'Validate passed · round 1<span class="history-cost"> · 38 min · 74k tokens</span>',
     );
-    expect(out.match(/history-cost/g)).toHaveLength(1);
+    expect(out).toContain('class="history-session-id">9f1c2d3e-…</span>');
+    expect(out).toContain("9:42 am–10:20 am · 74k tokens");
+    expect(out).toContain('title="Codex · gpt-5.5"');
+    expect(out).toContain("you · 9:10 am");
+    expect(out.match(/history-session"/g)).toHaveLength(1);
     expect(out).toContain("otaq-mark");
-    expect(out).not.toContain("EVENT");
     expect(out).not.toContain("$");
     expect(out.match(/Copy session ID/g)).toHaveLength(1);
     expect(html(createElement(HistoryBody, { view: { ...view, rows: [] } }))).toContain(view.empty);
@@ -98,16 +110,14 @@ describe("Activity", () => {
       total: { label: "Validation total · 2 entries", tokens: "15k" },
       key: "SHOP-32",
       rows: [
-        {
+        base({
           title: "Round 1 · failed",
           detail: "agent submitted",
           when: "10:02",
+          who: "10:02",
           cost: "· 4 min · 12k tokens",
-          tool_session_id: null,
-          mark: { kind: "agent" },
-          opens: null,
-          kind: "stage",
-        },
+          kind: "check",
+        }),
       ],
     };
     const out = html(createElement(HistoryBody, { view }));
@@ -118,17 +128,7 @@ describe("Activity", () => {
   });
 
   it(" description and comment lines open their before / after and a report (s05-45, CMT-14)", () => {
-    const row = (over: Partial<HistoryRowView>): HistoryRowView => ({
-      title: "",
-      detail: null,
-      when: "2:14 pm",
-      cost: null,
-      tool_session_id: null,
-      mark: { kind: "agent" },
-      opens: null,
-      kind: "comment",
-      ...over,
-    });
+    const row = (over: Partial<HistoryRowView>): HistoryRowView => base({ kind: "comment", ...over });
     const view: HistoryView = {
       filters: FILTERS,
       order: "newest first",
@@ -242,21 +242,12 @@ describe("Activity", () => {
     expect(edit).toContain(">Added</span>");
   });
 
-  it("filters by kind under All · Comments · Stages · Description, newest first; description edits open", () => {
+  it("filters under All · Questions · Checks · Sessions, newest first; description edits open", () => {
     const row = (
       title: string,
       kind: HistoryRowView["kind"],
       opens: HistoryRowView["opens"] = null,
-    ): HistoryRowView => ({
-      title,
-      detail: null,
-      when: "2:02 pm",
-      cost: null,
-      tool_session_id: null,
-      mark: { kind: "you" },
-      opens,
-      kind,
-    });
+    ): HistoryRowView => base({ title, kind, opens, mark: { kind: "you" } });
     const view: HistoryView = {
       filters: FILTERS,
       order: "newest first",
@@ -274,26 +265,27 @@ describe("Activity", () => {
           thumbnails: [],
           attachments: [],
         }),
-        row("Spec writer · Product spec commented", "comment"),
+        row("Question answered", "question"),
+        row("Validate passed", "check"),
+        base({ title: "Session · Dev · Strong", kind: "session", quiet: true }),
         row("Moved to Dev", "stage"),
-        row("You commented", "comment"),
       ],
     };
-    expect(shownRows(view, "all")).toEqual([0, 1, 2, 3, 4]);
-    expect(shownRows(view, "comments")).toEqual([2, 4]);
-    expect(shownRows(view, "stages")).toEqual([3]);
-    expect(shownRows(view, "description")).toEqual([1]);
+    expect(shownRows(view, "all")).toEqual([0, 1, 2, 3, 4, 5]);
+    expect(shownRows(view, "questions")).toEqual([2]);
+    expect(shownRows(view, "checks")).toEqual([3]);
+    expect(shownRows(view, "sessions")).toEqual([4]);
     const all = html(createElement(HistoryBody, { view }));
-    for (const text of ["All", "Comments", "Stages", "Description", "newest first"])
+    for (const text of ["All", "Questions", "Checks", "Sessions", "newest first"])
       expect(all).toContain(text);
     expect(all).toContain('aria-checked="true">All');
     // The description edit's before / after shows without a click.
     expect(all).toContain("the redirect waits for the session cookie");
-    const comments = html(createElement(HistoryBody, { view, filter: "comments" }));
-    expect(comments).toContain("You commented");
-    expect(comments).not.toContain("Moved to Dev");
-    expect(comments).not.toContain("Created");
-    expect(html(createElement(HistoryBody, { view: { ...view, rows: [] }, filter: "stages" }))).toContain(
+    const sessions = html(createElement(HistoryBody, { view, filter: "sessions" }));
+    expect(sessions).toContain("Session · Dev · Strong");
+    expect(sessions).not.toContain("Moved to Dev");
+    expect(sessions).not.toContain("Created");
+    expect(html(createElement(HistoryBody, { view: { ...view, rows: [] }, filter: "checks" }))).toContain(
       view.empty,
     );
   });

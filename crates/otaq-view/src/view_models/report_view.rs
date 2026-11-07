@@ -526,6 +526,7 @@ mod tests {
             meta: "Validate \u{b7} round 2 \u{b7} 3:05 pm".into(),
             editing_meta: String::new(),
             edited: None,
+            told: None,
             heading: "Validator \u{b7} Validate \u{b7} round 2 \u{b7} 3:05 pm".into(),
             body: "Fail: the list isn\u{2019}t paginated".into(),
             thumbnails: Vec::new(),
