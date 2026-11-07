@@ -23,6 +23,9 @@ export interface SettingsContextValue {
   /** Puts a topic's own heading in place of its nav label (one agent's page, T-0410); `null` gives the label back.
    * Absent in the gallery. */
   setHeading?: (heading: ReactNode | null) => void;
+  /** Draws only this section of the open topic while it shows a page of its own (one agent on Agents, without the
+   * tools above it); `null` gives the topic back. Absent in the gallery. */
+  setSolo?: (section: string | null) => void;
   /** Counts the nav clicks: a topic showing a page of its own (one agent) goes back to its first page on one. */
   visit?: number;
   /** The agent Settings was opened on: Agents opens its page (Open agent…, T-0411). */

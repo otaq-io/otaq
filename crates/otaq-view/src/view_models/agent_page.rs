@@ -2,8 +2,9 @@
 //! "Deleting an agent that's in use"): its name, its model (the model picker of `s15-30`, with the tool's effort level
 //! where the tool has one), its instructions (the Markdown editor), where it is used, and its amber mark (AGT-05). An
 //! agent has no role: each stage names its agent, and the agent Noyan uses is one setting on the Agents page. An agent
-//! has no skill list: a stage's `skill:` is the only place a skill is picked (T7). A saved agent's edits are saved one change at a time and apply to the next
-//! session that starts; New agent and Duplicate fill a draft that **Add agent** saves.
+//! has no skill list: a stage's `skill:` is the only place a skill is picked (T7). Every page holds a draft: a saved
+//! agent's edits are kept only on **Save** (Cancel drops them) and apply to the next session that starts; New agent and
+//! Duplicate fill a draft that **Add agent** saves.
 //!
 //! The page holds the agent's fields as a [`Draft`]; every change goes through [`apply`], so the rules (a new tool
 //! clears the model and the effort) live here.
@@ -209,12 +210,18 @@ pub struct UsedIn {
     pub empty: Option<String>,
 }
 
-/// New agent's and Duplicate's buttons.
+/// The page's buttons: Cancel and Add agent on a draft (New agent, Duplicate), Cancel and Save on a saved agent,
+/// whose edits are kept only on Save.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentAddButtons")]
 pub struct AddButtons {
+    /// "Add agent" or "Save".
     pub add_label: String,
     pub cancel_label: String,
+    /// A saved agent's "Delete agent"; `None` on a draft.
+    pub delete_label: Option<String>,
+    /// A saved agent with nothing changed: Save is disabled.
+    pub unchanged: bool,
 }
 
 /// The whole page.
@@ -384,9 +391,11 @@ pub fn page(input: &Inputs) -> Page {
         }),
         mark: agent.and_then(|a| a.mark.as_ref()).map(mark_view),
         note: saved.then(|| "Edits apply to the next session that starts.".to_owned()),
-        add: (!saved).then(|| AddButtons {
-            add_label: "Add agent".to_owned(),
+        add: Some(AddButtons {
+            add_label: if saved { "Save" } else { "Add agent" }.to_owned(),
             cancel_label: "Cancel".to_owned(),
+            delete_label: saved.then(|| "Delete agent".to_owned()),
+            unchanged: agent.is_some_and(|a| Draft::of(a) == *draft),
         }),
         problem: problem(Field::Page),
     }
@@ -585,6 +594,35 @@ mod tests {
         );
         let strong = page_of(&list, &tools, "strong", &[]);
         assert_eq!(strong.used_in.unwrap().empty.as_deref(), Some("\u{2014}"));
+    }
+
+    /// A saved agent's page has Cancel and Save, Save off until something changes, and Delete agent.
+    #[test]
+    fn a_saved_agent_is_changed_in_a_draft_until_save() {
+        let (list, uses) = example();
+        let tools = AgentTools::one(Some(claude_list()));
+        let developer = page_of(&list, &tools, "developer", &uses);
+        let buttons = developer.add.unwrap();
+        assert_eq!(
+            (buttons.add_label.as_str(), buttons.cancel_label.as_str()),
+            ("Save", "Cancel")
+        );
+        assert_eq!(buttons.delete_label.as_deref(), Some("Delete agent"));
+        assert!(buttons.unchanged);
+        let agent = list.agents.iter().find(|a| a.id == "developer").unwrap();
+        let draft = apply(Draft::of(agent), Change::Name("Builder".into()));
+        let changed = page(&Inputs {
+            list: &list,
+            tools: &tools,
+            id: Some("developer"),
+            draft: &draft,
+            uses: None,
+            refused: None,
+        });
+        // The title stays the saved name; the field shows the draft's.
+        assert_eq!(changed.title, "Developer");
+        assert_eq!(changed.name.value, "Builder");
+        assert!(!changed.add.unwrap().unchanged);
     }
 
     /// New agent and Duplicate fill a draft: no used in, Add agent; a new tool starts on its default model

@@ -54,4 +54,4 @@ confirm: CleanupWarmConfirm | null, } | { "kind": "branch", value: string,
 /**
  * The dropdown's search field.
  */
-search: MenuSearch, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "tools", recheck_label: string, } | { "kind": "about" };
+search: MenuSearch, } | { "kind": "themes" } | { "kind": "provider" } | { "kind": "about" };

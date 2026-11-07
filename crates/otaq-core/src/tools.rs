@@ -172,6 +172,12 @@ pub struct ToolStatus {
     /// The package manager `install_command` needs and `PATH` lacks (`brew`): Install isn't offered.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_package_manager: Option<String>,
+    /// Where the tool was found (`/usr/bin/git`); `None` when it wasn't.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub path: Option<String>,
+    /// gh and az, signed in: the account the tool says it uses (`nt`, `nt@example.com`), when it says one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub account: Option<String>,
 }
 
 impl ToolStatus {
@@ -484,6 +490,7 @@ fn is_executable(path: &Path) -> bool {
 struct Run {
     success: bool,
     stdout: String,
+    stderr: String,
 }
 
 /// Runs a tool with no input and a time limit; `None` if it couldn't run or timed out.
@@ -494,7 +501,7 @@ async fn run(program: &Path, args: &[&str], env: &CheckEnv) -> Option<Run> {
         .env("PATH", &env.path)
         .stdin(Stdio::null())
         .stdout(Stdio::piped())
-        .stderr(Stdio::null())
+        .stderr(Stdio::piped())
         .kill_on_drop(true);
     let output = tokio::time::timeout(COMMAND_TIMEOUT, command.output())
         .await
@@ -503,6 +510,7 @@ async fn run(program: &Path, args: &[&str], env: &CheckEnv) -> Option<Run> {
     Some(Run {
         success: output.status.success(),
         stdout: String::from_utf8_lossy(&output.stdout).into_owned(),
+        stderr: String::from_utf8_lossy(&output.stderr).into_owned(),
     })
 }
 
@@ -522,6 +530,8 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
         install_command: Some(tool.install_command().to_owned()),
         login_command: None,
         missing_package_manager: None,
+        path: None,
+        account: None,
     };
     let Some(program) = find_on_path(tool.command(), &env.path) else {
         status.missing_package_manager = package_manager_of(tool.install_command())
@@ -530,6 +540,7 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
         return status;
     };
     status.found = true;
+    status.path = Some(program.to_string_lossy().into_owned());
     status.install_command = None;
     match tool {
         Tool::Git | Tool::Claude | Tool::Gh => {
@@ -559,13 +570,35 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
         Tool::Git | Tool::Claude => None,
     };
     if let (Some(args), Some(login_command)) = (status_args, tool.login_command()) {
-        let logged_in = run(&program, args, env).await.is_some_and(|o| o.success);
+        let answer = run(&program, args, env).await;
+        let logged_in = answer.as_ref().is_some_and(|o| o.success);
         status.logged_in = Some(logged_in);
+        status.account = answer
+            .filter(|o| o.success)
+            .and_then(|o| signed_in_account(tool, &o.stdout, &o.stderr));
         if !logged_in {
             status.login_command = Some(login_command.to_owned());
         }
     }
     status
+}
+
+/// The account a signed-in tool names: gh's `auth status` ("Logged in to github.com account nt (keyring)", on
+/// stdout or, from older versions, stderr), az's `account show` (its JSON's `user.name`). `None` when it names none.
+pub fn signed_in_account(tool: Tool, stdout: &str, stderr: &str) -> Option<String> {
+    match tool {
+        Tool::Gh => stdout.lines().chain(stderr.lines()).find_map(|line| {
+            let (_, after) = line.split_once(" account ")?;
+            let name = after.split_whitespace().next()?;
+            (!name.is_empty()).then(|| name.to_owned())
+        }),
+        Tool::Az => {
+            let value: Value = serde_json::from_str(stdout).ok()?;
+            let name = value.get("user")?.get("name")?.as_str()?.trim();
+            (!name.is_empty()).then(|| name.to_owned())
+        }
+        Tool::Git | Tool::Claude => None,
+    }
 }
 
 /// The version as shown in the checklist, from the tool's `--version` output.

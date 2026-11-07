@@ -15,18 +15,20 @@ const every =
     list;
 
 export const GLOBAL_SECTIONS = every<GlobalSectionId>()([
-  /** M23: the agent tools (T-0360's view; T-0365 draws it). */
+  /** M23: the agent tools (T-0360's view; T-0365 draws it), on the Agents page above the agents. */
   "agent_tools",
-  /** The agents, the default model, and one agent's page (T-0410). */
+  /** The agents, the default model, the agent Noyan uses, and one agent's page (T-0410). */
   "agents",
+  /** Git & pull requests: git and the PR providers on this machine. Other screens open Settings here by this id. */
+  "git",
+  /** Limits & usage: the optional agent limit, then each tool's "% left". */
   "agent_limits",
   "usage",
   "notifications",
-  "data",
   "appearance",
-  /** M29: custom shortcuts and the single-letter switch (T-0395). */
+  /** M29: the short list and every shortcut, with the single-letter switch (T-0395). */
   "keyboard_shortcuts",
-  "tools",
+  "data",
   /** The last one: Settings → About (d0071). */
   "about",
 ] as const);

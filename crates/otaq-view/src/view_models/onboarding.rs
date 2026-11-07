@@ -288,6 +288,8 @@ pub(crate) mod tests {
             install_command: (!found).then(|| tool.install_command().to_owned()),
             login_command: None,
             missing_package_manager: None,
+            path: None,
+            account: None,
         }
     }
 

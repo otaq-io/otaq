@@ -83,6 +83,12 @@
   flex-direction: column;
 }
 
+/* All shortcuts under the short list, Fewer shortcuts under every group. */
+.shortcut-settings-more {
+  display: flex;
+  padding-top: 12px;
+}
+
 .shortcut-settings-group-title {
   margin: 0;
   padding: 18px 0 6px;

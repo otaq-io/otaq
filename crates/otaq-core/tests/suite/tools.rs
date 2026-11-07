@@ -50,7 +50,8 @@ async fn no_agent_tool_gh_logged_in() {
     stub(
         &f.bin,
         "gh",
-        r#"case "$1" in --version) echo "gh version 2.62.0 (2024-11-14)";; auth) exit 0;; esac"#,
+        // An older gh writes its status on stderr.
+        r#"case "$1" in --version) echo "gh version 2.62.0 (2024-11-14)";; auth) echo "  Logged in to github.com account nt (keyring)" >&2; exit 0;; esac"#,
     );
     std::fs::write(
         f.claude_dir.join("settings.json"),
@@ -79,6 +80,9 @@ async fn no_agent_tool_gh_logged_in() {
     assert!(git.found && git.required);
     assert_eq!(git.version.as_deref(), Some("2.46.0"));
     assert_eq!(git.install_command, None);
+    // Where it was found, for Settings → Git & pull requests.
+    let git_path = std::path::PathBuf::from(git.path.as_deref().unwrap());
+    assert_eq!(git_path.parent(), Some(f.bin.as_path()));
 
     // `claude` is no row (SET-02 `[M23]`): with no agent tool connected, the report blocks.
     assert!(report.tools.iter().all(|t| t.tool != Tool::Claude));
@@ -89,10 +93,12 @@ async fn no_agent_tool_gh_logged_in() {
     assert!(gh.found && !gh.required);
     assert_eq!(gh.version.as_deref(), Some("2.62.0"));
     assert_eq!(gh.logged_in, Some(true));
+    assert_eq!(gh.account.as_deref(), Some("nt"));
     assert_eq!(gh.login_command, None);
 
     let az = row(&report, Tool::Az);
     assert!(!az.found && !az.required);
+    assert_eq!(az.path, None);
     assert_eq!(
         az.install_command.as_deref(),
         Some(Tool::Az.install_command())
@@ -179,6 +185,29 @@ async fn unreadable_settings_give_unknown_and_managed_drop_ins_count() {
 }
 
 /// macOS and Linux need the executable bit; Windows needs an extension from `PATHEXT` (`git.cmd`).
+/// The account a signed-in provider tool names: gh's status line (stdout or stderr), az's `user.name`.
+#[test]
+fn a_signed_in_tool_names_its_account() {
+    let gh =
+        "github.com\n  ✓ Logged in to github.com account nt (keyring)\n  - Active account: true\n";
+    assert_eq!(
+        tools::signed_in_account(Tool::Gh, gh, "").as_deref(),
+        Some("nt")
+    );
+    assert_eq!(
+        tools::signed_in_account(Tool::Gh, "", gh).as_deref(),
+        Some("nt")
+    );
+    assert_eq!(tools::signed_in_account(Tool::Gh, "Logged in", ""), None);
+    let az = r#"{"name": "Visual Studio", "user": {"name": "nt@example.com", "type": "user"}}"#;
+    assert_eq!(
+        tools::signed_in_account(Tool::Az, az, "").as_deref(),
+        Some("nt@example.com")
+    );
+    assert_eq!(tools::signed_in_account(Tool::Az, "not json", ""), None);
+    assert_eq!(tools::signed_in_account(Tool::Git, gh, ""), None);
+}
+
 #[test]
 fn path_lookup_needs_an_executable() {
     let f = fixture();

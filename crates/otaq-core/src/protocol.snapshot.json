@@ -12492,6 +12492,10 @@
     "crate::tools::ToolStatus": {
       "kind": "struct",
       "fields": {
+        "account": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "extension_installed": {
           "ty": "Option<bool>"
         },
@@ -12509,6 +12513,10 @@
           "ty": "Option<String>"
         },
         "missing_package_manager": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "path": {
           "ty": "Option<String>",
           "omittable": true
         },

@@ -243,6 +243,8 @@ export interface ShortcutsViewProps {
   header?: boolean;
   /** An edit failed (the request, not its checks). */
   onError?: (message: string) => void;
+  /** Opens on the short list (Settings): the shortcuts that matter most, with All shortcuts to see every group. */
+  short?: boolean;
 }
 
 /** The page: header, switch and rows, and the moment (the recording cell, the answer under a row). */
@@ -254,7 +256,9 @@ export function ShortcutsView({
   headerSlot,
   header = true,
   onError,
+  short = false,
 }: ShortcutsViewProps) {
+  const [all, setAll] = useState(!short);
   const [recording, setRecording] = useState<ShortcutsSlot | null>(moment?.recording ?? null);
   const [afterG, setAfterG] = useState(moment?.after_g ?? false);
   const [answer, setAnswer] = useState(moment?.answer ?? null);
@@ -554,7 +558,27 @@ export function ShortcutsView({
           {resetAll}
         </header>
       )}
-      {only === null ? (
+      {only === null && !all ? (
+        <>
+          <p className="settings-intro">{page.short.intro}</p>
+          <div className="shortcut-settings-group">
+            {page.short.rows.map((id) => {
+              const row = shownRows.find((r) => r.id === id);
+              return row && rowView(row);
+            })}
+          </div>
+          <span className="shortcut-settings-more">
+            <Button
+              variant="secondary"
+              compact
+              label={page.short.all_label}
+              onClick={() => {
+                setAll(true);
+              }}
+            />
+          </span>
+        </>
+      ) : only === null ? (
         <>
           <p className="settings-intro">{page.intro}</p>
           <div className="shortcut-settings-letters">
@@ -578,6 +602,18 @@ export function ShortcutsView({
               {g.rows.map(rowView)}
             </div>
           ))}
+          {short && (
+            <span className="shortcut-settings-more">
+              <Button
+                variant="secondary"
+                compact
+                label={page.short.fewer_label}
+                onClick={() => {
+                  setAll(false);
+                }}
+              />
+            </span>
+          )}
         </>
       ) : (
         <div className="shortcut-settings-group">
@@ -618,7 +654,13 @@ export function KeyboardSection() {
           {failure}
         </p>
       )}
-      <ShortcutsView page={view} calls={serviceCalls} headerSlot={headerSlot ?? null} onError={setFailure} />
+      <ShortcutsView
+        page={view}
+        calls={serviceCalls}
+        headerSlot={headerSlot ?? null}
+        onError={setFailure}
+        short
+      />
     </>
   );
 }
