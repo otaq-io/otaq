@@ -249,7 +249,7 @@ fn marks_between(
             stage: change.stage,
             mark,
             by: by.to_owned(),
-            why: stage.and_then(|s| s.why.clone()),
+            why: stage.and_then(|s| s.description.clone()),
         });
     }
     marks

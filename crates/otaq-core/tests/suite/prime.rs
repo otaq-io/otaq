@@ -151,6 +151,23 @@ const RULES: &str = "## Otaq's rules
 /// The default flow's Dev, as the ticket prime names it.
 const DEV: &str = "## Your stage\n\nDev, as Developer, with the skill `/otaq:work-ticket`.\n";
 
+/// The default flow's stages as Dev's prime lists them: each with its description, Dev marked as the reader's own,
+/// and the Delivery, which the shipped file gives none, by its name alone.
+const DEFAULT_FLOW: &str = "## The flow
+
+The stages this ticket walks, in order, and what each is for. When your stage has nothing to add for this ticket, \
+finish it at once as usual, with a short note saying so (\"Nothing to settle: README-only change\"). That is an \
+ordinary finish, not a skip: only the user skips a stage.
+
+- Dev (your stage): Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the \
+code needs it.
+- Validate: Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before \
+anyone reviews it.
+- Review: The user reads the change and passes it, or sends it back with what to fix: their say before it is \
+delivered.
+- Done
+";
+
 #[tokio::test(flavor = "multi_thread")]
 async fn without_instructions() {
     let w = sample().await;
@@ -177,6 +194,7 @@ The checkout page shows the cart, the price table and a pay button.
 - works on mobile widths
 
 {DEV}
+{DEFAULT_FLOW}
 ## Depends on
 
 - SHOP-18 · Checkout API (Ready for Review)
@@ -430,7 +448,13 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
     assert!(!text.contains("## Stage choices"), "{text}");
     assert!(!text.contains("QA=skip"), "{text}");
     assert!(!text.contains("stopped"), "only the latest run: {text}");
-    assert!(!text.contains("- Dev ("), "Dev has started: {text}");
+    // The test flow's file describes no stage: the flow still loads, and prime lists its stages by name.
+    assert!(
+        text.contains(
+            "\n- Product spec\n- Dev (your stage)\n- Validate\n- Security\n- QA\n- Done\n\n## Earlier stages\n"
+        ),
+        "{text}"
+    );
     assert_eq!(context.commit_skill, claude_skill("commit"));
     w.stop().await;
 }
@@ -605,6 +629,60 @@ async fn only_noyans_prime_lists_choices_on_the_default_flow() {
     w.stop().await;
 }
 
+/// Every agent reads what each stage is for: on Spec first, a ticket's prime and Noyan's list every stage of the flow
+/// in order with its description; the ticket's lists the stage the user skipped for it as skipped, and says that a
+/// stage with nothing to add finishes at once, as an ordinary finish, since only the user skips a stage.
+#[tokio::test(flavor = "multi_thread")]
+async fn both_primes_list_every_stage_with_its_description() {
+    let w = with_agents().await;
+    let spec_first = otaq_core::flow::presets::preset("spec-first.yaml")
+        .unwrap()
+        .read();
+    w.board.use_flow_for_tests("SHOP", &spec_first).await;
+    let ticket = w.board.ticket("SHOP-20").await.unwrap();
+    sqlx::query(
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, set_by, set_at)
+         VALUES (?, 'product-spec', 'skip', 'user', 1)",
+    )
+    .bind(&ticket.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let (ticket, project) = primes(&w).await;
+
+    let tech = "Settles how it's built: needed when the change touches several parts or its approach isn't obvious.";
+    for stage in &spec_first.flow.stages {
+        let line = format!("\n- {}", stage.name);
+        for text in [&ticket, &project] {
+            assert!(text.contains(&line), "{line:?} in\n{text}");
+        }
+    }
+    for text in [&ticket, &project] {
+        assert!(text.contains("\n## The flow\n"), "{text}");
+    }
+    // The ticket's agent works in Tech spec (Product spec is skipped); Noyan works in none.
+    assert!(
+        ticket.contains(&format!("\n- Tech spec (your stage): {tech}\n")),
+        "{ticket}"
+    );
+    assert!(
+        project.contains(&format!("\n- Tech spec: {tech}\n")),
+        "{project}"
+    );
+    assert!(
+        ticket.contains(
+            "\n- Product spec (skipped for this ticket): Settles what to build and how it behaves, with the user,"
+        ),
+        "{ticket}"
+    );
+    assert!(
+        ticket.contains("That is an ordinary finish, not a skip: only the user skips a stage."),
+        "{ticket}"
+    );
+    assert!(!project.contains("skipped for this ticket"), "{project}");
+    w.stop().await;
+}
+
 /// The model as Settings shows it, from the tool's list.
 #[test]
 fn models_read_as_settings_shows_them() {
@@ -749,8 +827,15 @@ async fn prime_prints_the_examples_four_comments() {
     };
     let text = render(&context);
     // Only QA is ahead, and it offers no other agent: no Stage choices section, so the rules follow (T9).
+    assert!(
+        text.contains(
+            "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq:work-ticket`.\n\n## The flow\n"
+        ),
+        "{text}"
+    );
+    // The flow's stages (its last is Done), then the earlier stages and the comments.
     let expected = format!(
-        "\n## Your stage\n\nDev, as Rust developer, with the skill `/otaq:work-ticket`.\n\
+        "\n- Done\n\
          \n## Earlier stages\n\n- Product spec · Spec writer · finished\n- Validate · Validator · round 2 · failed\n{}\
          \n{}\n",
         example_comments(&key),

@@ -1,8 +1,8 @@
 //! `otaq prime`: the context a ticket's agent reads first (PLG-02, AGM-06; d0032, d0040, d0108).
 //!
 //! The ticket (title, What and why, base branch), then what its agent is told (AGM-06): **the agent's
-//! instructions**, then **the project's notes**, then **the stage it works in and that stage's skill**, then the
-//! **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
+//! instructions**, then **the project's notes**, then **the stage it works in and that stage's skill**, then **the
+//! flow**: every stage of the ticket's flow with what it is for (its description), then the **earlier stages** ([`Board::earlier_stages`]: each stage's latest run with its agent and result, oldest first),
 //! then the ticket's **comments** in full, oldest first (CMT-07, d0109: the hand-over between stages; a report is
 //! only named, never printed) and the **manual checks** listed for the user (d0125). After them the tickets it
 //! depends on with their last comment from an Agent stage, pending questions, recorded decisions, and Otaq's own rules
@@ -55,6 +55,9 @@ pub struct PrimeContext {
     /// The stage the session works in, its agent and its skill (AGM-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<CurrentStage>,
+    /// Every stage of the ticket's flow, in order, with what it is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<FlowStage>,
     /// The ticket's earlier stages (AGM-06), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub earlier: Vec<EarlierStage>,
@@ -161,6 +164,69 @@ pub struct CurrentStage {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
 }
+
+/// A stage of the flow as `prime` lists it: its name and what it is for, so every agent (and Noyan) knows what each
+/// stage settles and when it matters.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct FlowStage {
+    /// The stage's name ("Tech spec").
+    pub name: String,
+    /// What it settles and when it matters; `None` when the flow file gives it none.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub description: Option<String>,
+    /// The stage the reader works in.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub yours: bool,
+    /// The user chose to skip it for this ticket.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub skipped: bool,
+}
+
+/// Every stage of `flow`, in order: `yours` is the reader's own stage's id, `skips` the ids the ticket skips.
+pub fn flow_stages(flow: &Flow, yours: Option<&str>, skips: &[String]) -> Vec<FlowStage> {
+    flow.stages
+        .iter()
+        .map(|s| FlowStage {
+            name: s.name.clone(),
+            description: s.description.clone(),
+            yours: Some(s.id.as_str()) == yours,
+            skipped: skips.contains(&s.id),
+        })
+        .collect()
+}
+
+/// The "## The flow" section: each stage with what it is for, the reader's own and the skipped ones marked; `lead`
+/// opens it. Nothing when the flow has no stages.
+pub fn render_flow(stages: &[FlowStage], lead: &str) -> String {
+    if stages.is_empty() {
+        return String::new();
+    }
+    let mut out = format!("\n## The flow\n\n{lead}\n\n");
+    for stage in stages {
+        out.push_str(&format!("- {}", stage.name));
+        let marks: Vec<&str> = [
+            (stage.yours, "your stage"),
+            (stage.skipped, "skipped for this ticket"),
+        ]
+        .into_iter()
+        .filter_map(|(on, mark)| on.then_some(mark))
+        .collect();
+        if !marks.is_empty() {
+            out.push_str(&format!(" ({})", marks.join(", ")));
+        }
+        if let Some(description) = &stage.description {
+            out.push_str(&format!(": {description}"));
+        }
+        out.push('\n');
+    }
+    out
+}
+
+/// What a ticket's agent (a work agent or a checker) is told above the flow's stages: a stage with nothing to add
+/// finishes at once, as an ordinary finish; only the user skips a stage.
+pub const FLOW_LEAD: &str = "The stages this ticket walks, in order, and what each is for. When your stage has \
+    nothing to add for this ticket, finish it at once as usual, with a short note saying so (\"Nothing to settle: \
+    README-only change\"). That is an ordinary finish, not a skip: only the user skips a stage.";
 
 /// A stage the ticket ran before (AGM-06), as its latest run ended.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -424,6 +490,7 @@ impl Board {
             None => None,
         };
         let instructions = self.instructions(&project, agent.as_ref()).await?;
+        let flow_stages = flow_stages(&flow, stage.as_ref().map(|s| s.id.as_str()), &skips);
         let earlier = self
             .earlier_stages(&ticket, &flow, stage.as_ref().map(|s| s.id.as_str()))
             .await?;
@@ -463,6 +530,7 @@ impl Board {
                 agent: agent.as_ref().map(|a| a.name.clone()),
                 skill: s.skill,
             }),
+            flow: flow_stages,
             earlier,
             comments,
             manual_checks,
@@ -630,6 +698,9 @@ pub struct ValidatePrime {
     /// as the caller's tool names it ([`Board::validate_prime_for`]), else by its own name.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub stage: Option<CurrentStage>,
+    /// Every stage of the ticket's flow, in order, with what it is for.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub flow: Vec<FlowStage>,
     /// The ticket's earlier stages (AGM-06), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub earlier: Vec<EarlierStage>,
@@ -727,6 +798,7 @@ impl Board {
             round,
             rounds,
             stage: base.stage,
+            flow: base.flow,
             earlier: base.earlier,
             comments: base.comments,
             manual_checks: base.manual_checks,
@@ -814,6 +886,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     if let Some(stage) = &ctx.stage {
         out.push_str(&render_your_stage(stage));
     }
+    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
     out.push_str(&render_manual_checks(&ctx.manual_checks));
@@ -1187,13 +1260,15 @@ pub fn render(ctx: &PrimeContext) -> String {
     }
     out.push_str(&render_plan(&t.plan));
 
-    // What the agent is told (AGM-06): its instructions, the project's notes, its stage, the earlier stages.
+    // What the agent is told (AGM-06): its instructions, the project's notes, its stage, the flow's stages, the
+    // earlier stages.
     if let Some(instructions) = &ctx.instructions {
         out.push_str(&instructions.render("Agent instructions"));
     }
     if let Some(stage) = &ctx.stage {
         out.push_str(&render_your_stage(stage));
     }
+    out.push_str(&render_flow(&ctx.flow, FLOW_LEAD));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&t.key, &ctx.comments));
     out.push_str(&render_manual_checks(&ctx.manual_checks));

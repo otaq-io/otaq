@@ -29,6 +29,10 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    files the user attached under "Reports from you · read these before you start"; read each one
    (`otaq report SHOP-40 1`, or search a long one with `grep -n "token" "$(otaq report SHOP-40 1 --path)"`). The
    agents' reports you open only when you need them.
+   **Your stage may have nothing to settle.** `prime` lists every stage of the flow under "## The flow", each with
+   what it is for. When this ticket is small enough to build and review in one go (a README-only change, a one-file
+   fix), write no Plan: end your stage at once with a short note saying so, `otaq stage next` with, on stdin, "Nothing
+   to settle: README-only change, one piece". That is an ordinary finish, never a skip: only the user skips a stage.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules (for example "pieces that
    touch one crate each") and they apply to every step below. They add to these steps; they never remove getting the context (step 1)
    or ending your stage (step 7).

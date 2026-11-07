@@ -65,9 +65,12 @@ pub struct Stage {
     /// before the check. Resolve it with [`Flow::fail_to_of`].
     pub fail_to: Option<String>,
     pub delivery: Option<Delivery>,
-    /// Why the flow has this stage, naming its source ("From 41 /security-review runs in shop-web"): the flow editor's
-    /// why line (FLW-04). The engine and the checks never read it.
-    pub why: Option<String>,
+    /// What the stage settles and when it matters ("Settles how it's built: needed when the change touches several
+    /// parts or its approach isn't obvious"). Every agent working a ticket, and Noyan, reads each stage's in `prime`,
+    /// so a stage's agent can tell when it has nothing to add (it then finishes at once, with a short note). The
+    /// engine and the checks never read it; a stage may have none. Written `description:`; an older file's `why:`
+    /// reads as it.
+    pub description: Option<String>,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Hash)]

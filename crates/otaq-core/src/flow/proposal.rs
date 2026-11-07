@@ -288,6 +288,11 @@ pub enum Change {
         from: String,
         to: String,
     },
+    /// What the stage is for: every agent reads it in `prime`, so a new one is a change, applying at once.
+    Description {
+        from: Option<String>,
+        to: Option<String>,
+    },
 }
 
 impl Change {
@@ -437,8 +442,8 @@ pub struct Proposal {
     pub yaml: String,
     pub problems: Vec<ProposalProblem>,
     pub diff: FlowDiff,
-    /// The document's why lines (its `why:`s, FLW-04), stages in order, then agents: each names where the stage or
-    /// agent came from. Not a change: a document that differs only in them is the same flow.
+    /// The document's why lines, stages in order, then agents: each stage's description, then each agent's `why:`
+    /// (FLW-04: where it came from). An agent's is not a change; a stage's description is ([`Change::Description`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub why: Vec<WhyLine>,
     pub created_at: i64,
@@ -454,7 +459,7 @@ pub struct WhyLine {
 /// The why lines of `file`: its stages' (in order), then its agents'.
 pub fn why_lines(file: &FlowFile) -> Vec<WhyLine> {
     let stages = file.flow.stages.iter().filter_map(|s| {
-        s.why.as_ref().map(|text| WhyLine {
+        s.description.as_ref().map(|text| WhyLine {
             about: About::Stage {
                 id: s.id.clone(),
                 name: s.name.clone(),
@@ -794,6 +799,15 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
                 );
             }
         }
+        if old.description != stage.description {
+            push(
+                stage,
+                Change::Description {
+                    from: old.description.clone(),
+                    to: stage.description.clone(),
+                },
+            );
+        }
     }
     for old in base.stages.iter().filter(|s| new.stage(&s.id).is_none()) {
         push(old, Change::Removed);
@@ -891,6 +905,15 @@ fn describe(stage: &Stage, change: &Change) -> (String, String) {
             let text = detail(field, from.clone(), to.clone());
             (text.clone(), text)
         }
+        // The text itself can be long: the change only says what happened to it.
+        Change::Description { from, to } => {
+            let text = match (from, to) {
+                (None, _) => format!("{name} \u{b7} description added"),
+                (_, None) => format!("{name} \u{b7} description removed"),
+                _ => format!("{name} \u{b7} description changed"),
+            };
+            (text.clone(), text)
+        }
     }
 }
 
@@ -915,7 +938,7 @@ pub fn applied_now(base: &Flow, new: &Flow) -> Flow {
 }
 
 /// `base` with `new`'s edits (FLW-05): each stage `new` keeps with the same kind takes its new fields (name, agent,
-/// skill, options, rounds, column, mode, target); stages stay where they are, none is added or removed. What a swap
+/// skill, options, rounds, column, mode, target, description); stages stay where they are, none is added or removed. What a swap
 /// to another flow applies now while the rest waits for a quiet board (FED-08).
 pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
     Flow {
@@ -923,10 +946,7 @@ pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
             .stages
             .iter()
             .map(|old| match new.stage(&old.id) {
-                Some(now) if now.kind == old.kind => Stage {
-                    why: old.why.clone(),
-                    ..now.clone()
-                },
+                Some(now) if now.kind == old.kind => now.clone(),
                 _ => old.clone(),
             })
             .collect(),
@@ -1601,7 +1621,15 @@ fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalP
 #[cfg(test)]
 mod tests {
     use super::*;
-    use crate::flow::default_flow;
+
+    /// The shipped default flow without its stages' descriptions, as the documents these tests write have none.
+    fn default_flow() -> Flow {
+        let mut flow = crate::flow::default_flow();
+        for stage in &mut flow.stages {
+            stage.description = None;
+        }
+        flow
+    }
 
     fn names(flow: &Flow) -> Vec<(&str, &str)> {
         flow.stages
@@ -1721,9 +1749,10 @@ mod tests {
         assert_eq!(names(&new), [("build", "Dev"), ("deliver", "Done")]);
     }
 
-    /// FLW-04's why lines: read, written back, and never a change.
+    /// A stage's description, from an older file's `why:`: read, written back as `description:`, and a change that
+    /// applies at once (every agent reads it).
     #[test]
-    fn why_lines_round_trip_and_change_nothing() {
+    fn a_description_round_trips_and_applies_at_once() {
         let base = default_flow();
         let text = DEFAULT_RENAMED.replace(
             "  - name: QA\n",
@@ -1733,16 +1762,27 @@ mod tests {
         let mut flow = file.flow.clone();
         match_ids(&base, &mut flow, &written);
         assert_eq!(
-            flow.stage("review").unwrap().why.as_deref(),
+            flow.stage("review").unwrap().description.as_deref(),
             Some("Your PRs on GitHub always get one review before merging (gh)")
         );
-        assert!(stage_changes(&base, &flow, false).is_empty());
-        assert_eq!(applied_now(&base, &flow), base);
+        let changes = stage_changes(&base, &flow, false);
+        let labels: Vec<(&str, &Applies)> = changes
+            .iter()
+            .map(|c| (c.label.as_str(), &c.applies))
+            .collect();
+        assert_eq!(
+            labels,
+            [("Review \u{b7} description added", &Applies::AtOnce)]
+        );
+        assert_eq!(applied_now(&base, &flow), flow);
         let again = FlowFile {
             agents: Vec::new(),
             flow,
         };
-        assert_eq!(yaml::read(&yaml::write(&again)).unwrap(), again);
+        let written = yaml::write(&again);
+        assert!(written.contains("    description: "), "{written}");
+        assert!(!written.contains("why:"), "{written}");
+        assert_eq!(yaml::read(&written).unwrap(), again);
         let lines = why_lines(&again);
         assert_eq!(lines.len(), 1);
         assert_eq!(

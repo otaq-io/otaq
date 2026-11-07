@@ -74,7 +74,7 @@ fn with_review() -> FlowFile {
             rounds: None,
             fail_to: None,
             delivery: None,
-            why: None,
+            description: None,
         },
     );
     for stage in file.flow.stages.iter_mut().filter(|s| s.is_delivery()) {

@@ -40,7 +40,7 @@ async fn with_plan(w: &TestService, key: &str) -> FlowFile {
             rounds: None,
             fail_to: None,
             delivery: None,
-            why: None,
+            description: None,
         },
     );
     w.board

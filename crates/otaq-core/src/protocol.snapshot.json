@@ -1351,6 +1351,16 @@
             }
           }
         },
+        "description": {
+          "fields": {
+            "from": {
+              "ty": "Option<String>"
+            },
+            "to": {
+              "ty": "Option<String>"
+            }
+          }
+        },
         "fail_to": {
           "fields": {
             "from": {
@@ -3768,6 +3778,27 @@
         "tool": {
           "ty": "crate::agent_tools::Tool",
           "required": true
+        }
+      }
+    },
+    "FlowStage": {
+      "kind": "struct",
+      "fields": {
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "skipped": {
+          "ty": "bool",
+          "omittable": true
+        },
+        "yours": {
+          "ty": "bool",
+          "omittable": true
         }
       }
     },
@@ -6249,6 +6280,10 @@
           "ty": "Vec<EarlierStage>",
           "omittable": true
         },
+        "flow": {
+          "ty": "Vec<FlowStage>",
+          "omittable": true
+        },
         "instructions": {
           "ty": "Option<Instructions>",
           "omittable": true
@@ -6852,6 +6887,10 @@
       "fields": {
         "choices": {
           "ty": "Vec<PrimeChoice>",
+          "omittable": true
+        },
+        "flow": {
+          "ty": "Vec<FlowStage>",
           "omittable": true
         },
         "instructions": {
@@ -11517,6 +11556,10 @@
         },
         "earlier": {
           "ty": "Vec<EarlierStage>",
+          "omittable": true
+        },
+        "flow": {
+          "ty": "Vec<FlowStage>",
           "omittable": true
         },
         "instructions": {

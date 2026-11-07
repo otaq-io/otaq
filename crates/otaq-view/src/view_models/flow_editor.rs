@@ -2740,7 +2740,7 @@ fn plain_stage(file: &FlowFile, at: usize, name: &str, kind: EditorKind) -> Stag
         rounds,
         fail_to: None,
         delivery: None,
-        why: None,
+        description: None,
     };
     set_agent(&mut stage, agent.map(str::to_owned));
     stage
@@ -2854,7 +2854,7 @@ pub fn edited(
                     rounds: None,
                     fail_to: None,
                     delivery: None,
-                    why: None,
+                    description: None,
                 },
             );
             select = Some(id);
@@ -2947,7 +2947,7 @@ pub fn edited(
                     let new = Stage {
                         id: out.flow.stages[d].id.clone(),
                         name: out.flow.stages[d].name.clone(),
-                        why: None,
+                        description: None,
                         ..from
                     };
                     bring_agents(&mut out, &new, &agents, stored);
@@ -2962,7 +2962,7 @@ pub fn edited(
                     let new = Stage {
                         id: fresh_id(&others, &name),
                         name,
-                        why: None,
+                        description: None,
                         ..from
                     };
                     bring_agents(&mut out, &new, &agents, stored);

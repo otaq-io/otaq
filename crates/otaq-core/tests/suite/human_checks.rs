@@ -67,7 +67,7 @@ fn human_check(id: &str, name: &str) -> Stage {
         rounds: None,
         fail_to: None,
         delivery: None,
-        why: None,
+        description: None,
     }
 }
 

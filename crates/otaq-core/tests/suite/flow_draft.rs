@@ -74,7 +74,7 @@ fn plan_after_product_spec(file: &mut FlowFile) {
     plan.id = "plan".into();
     plan.name = "Plan".into();
     plan.options.clear();
-    plan.why = Some("Big tickets in shop-web get a plan first".into());
+    plan.description = Some("Big tickets in shop-web get a plan first".into());
     file.flow.stages.insert(1, plan);
 }
 
