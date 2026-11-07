@@ -301,10 +301,14 @@
   color: var(--text-primary);
   font: inherit;
   text-align: left;
+}
+
+/* Only a row that opens (text, an image) is a button; another file's row is plain (tuq 002). */
+button.overview-attachment {
   cursor: pointer;
 }
 
-.overview-attachment:hover {
+button.overview-attachment:hover {
   background: var(--bg-hover);
 }
 

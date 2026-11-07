@@ -413,7 +413,49 @@ describe("the Attachments column (RPT-02, s25-05)", () => {
       }),
     );
     expect(out).toContain(`src="otaq-attachment://localhost/${KEY}%2F4%2F2"`);
-    expect(out).not.toContain("aria-disabled");
+    expect(out).toMatch(/<button type="button" class="overview-attachment"/);
+  });
+
+  it("draws another file's row (a .zip) as plain, not a button: it has no preview in the app (tuq 002)", () => {
+    const zip: AttachmentRow = {
+      n: 4,
+      mark: { kind: "agent" },
+      who: "Rust developer · Dev",
+      mine: false,
+      line: "",
+      attachment: 3,
+      name: "trace.zip",
+      kind: "other",
+      thumbnail: null,
+      size: "2.1 MB",
+    };
+    const host = document.createElement("div");
+    document.body.append(host);
+    const root = createRoot(host);
+    act(() => {
+      root.render(
+        createElement(Attachments, {
+          ticket: KEY,
+          view: { ...OVERVIEW, attachments: [zip] },
+          error: null,
+          onAdd: () => undefined,
+        }),
+      );
+    });
+    const row = host.querySelector<HTMLElement>(".overview-attachment");
+    expect(row?.tagName).toBe("DIV");
+    expect(row?.textContent).toContain("trace.zip");
+    expect(row?.tabIndex).toBe(-1);
+    expect(row?.getAttribute("role")).toBeNull();
+    act(() => {
+      row?.click();
+    });
+    expect(ipc.calls.map(([method]) => method)).not.toContain("report.open");
+    expect(overlays.store.get()).toEqual([]);
+    act(() => {
+      root.unmount();
+    });
+    host.remove();
   });
 });
 
