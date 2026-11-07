@@ -118,7 +118,7 @@ export function uniqueName(name: string, taken: readonly string[]): string {
   const dot = name.lastIndexOf(".");
   const [stem, ext] = dot > 0 ? [name.slice(0, dot), name.slice(dot)] : [name, ""];
   for (let k = 2; ; k += 1) {
-    const candidate = `${stem} ${k}${ext}`;
+    const candidate = `${stem} ${String(k)}${ext}`;
     if (!taken.includes(candidate)) return candidate;
   }
 }
