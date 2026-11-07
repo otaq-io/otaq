@@ -318,7 +318,6 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     footer,
     footer_icon: "message-square",
     pasted: "Pasted text",
-    file_line: null,
     remove_file: "Remove the file",
     open: "Open",
     remove: "Remove the pasted text",

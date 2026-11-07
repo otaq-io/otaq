@@ -567,14 +567,6 @@
   gap: 8px;
 }
 
-.comment-box-hint {
-  display: inline-flex;
-  align-items: center;
-  gap: 6px;
-  color: var(--st-paused);
-  font: 400 12px var(--font-ui);
-}
-
 .comment-box-counter {
   color: var(--st-error);
   font: 500 12px var(--font-mono);
