@@ -1,8 +1,7 @@
-// Pause in the title bar (T-0457; PAU-08; d0112, d0097; *24 → Row · Pause and resume* `s24-07`, *Row · Resume asks for
-// the scope too, and a restart* `s24-08`): after Activity, the Pause button (its icon), or Resume (the accent, with
-// its label) while the open project is paused. A click or ⇧⌘. opens the scope menu: "PAUSE AGENTS" / "RESUME AGENTS",
-// This project first and highlighted (↵ picks it), All projects, each with its count, and the line under them. A pick
-// pauses or resumes at once: no confirmation, since nothing is lost. Every word and count is `pause.view`'s.
+// Pause in the title bar (T-0457; PAU-08; d0112, d0097): after Running, "Pause" with its icon, shown only while
+// agents run (a paused project's Resume is its banner's). A click or ⇧⌘. opens the scope menu: "Pause shop-web" first
+// and highlighted (↵ picks it), "Pause all projects", each saying what it stops, and the line under them. A pick
+// pauses at once: no confirmation, since nothing is lost. Every word and count is `pause.view`'s.
 import { type RefObject, useCallback, useEffect, useRef, useState } from "react";
 
 import { useSelection } from "../../app/selection";
@@ -26,7 +25,7 @@ export interface PauseButtonProps {
   onClick?: () => void;
 }
 
-/** Pause (icon only) or Resume (the accent, its label and a chevron). */
+/** Pause, its icon and its label. */
 export function PauseButton({ button, open = false, anchor, onClick }: PauseButtonProps) {
   return (
     <Tooltip text={button.tooltip} keys={button.keys ?? undefined}>
@@ -34,20 +33,14 @@ export function PauseButton({ button, open = false, anchor, onClick }: PauseButt
         ref={anchor}
         type="button"
         className="header-pause"
-        data-resumes={button.resumes || undefined}
         data-open={open || undefined}
         aria-label={button.label}
         aria-haspopup="menu"
         aria-expanded={open}
         onClick={onClick}
       >
-        <Icon name={button.icon} size={button.resumes ? 13 : 14} />
-        {button.resumes && (
-          <>
-            <span>{button.label}</span>
-            <Icon name="chevron-down" size={12} />
-          </>
-        )}
+        <Icon name={button.icon} size={13} />
+        <span>{button.label}</span>
       </button>
     </Tooltip>
   );
@@ -60,11 +53,10 @@ export interface PauseMenuBoxProps {
   onHover?: (index: number) => void;
 }
 
-/** The menu's content: its heading, the two scopes and the line. */
+/** The menu's content: the scopes and the line. */
 export function PauseMenuBox({ menu, cursor, onPick, onHover }: PauseMenuBoxProps) {
   return (
     <div className="pause-menu" role="menu" aria-label={menu.title}>
-      <div className="pause-menu-title">{menu.title}</div>
       {menu.rows.map((row, i) => (
         <button
           key={row.scope}
@@ -75,7 +67,7 @@ export function PauseMenuBox({ menu, cursor, onPick, onHover }: PauseMenuBoxProp
           onMouseMove={() => onHover?.(i)}
           onClick={() => onPick?.(row)}
         >
-          <Icon name={row.icon} size={15} />
+          <Icon name={row.icon} size={14} />
           <span className="pause-row-text">
             <span className="pause-row-label">{row.label}</span>
             <span className="pause-row-detail">{row.detail}</span>
@@ -141,7 +133,7 @@ function MenuPopover({
   );
 }
 
-/** The `header_pause` slot: the open project's button, and its menu while open. */
+/** The `header_pause` slot: the button while agents run, and its menu while open. */
 export function HeaderPause() {
   const { project } = useSelection();
   const open = useStore(pauseMenu);
@@ -162,7 +154,12 @@ export function HeaderPause() {
     [view],
   );
   useEffect(() => closePauseMenu, []);
-  if (shown === undefined) return null;
+  // Nothing runs: no Pause, and ⇧⌘. has no menu to open.
+  const hidden = shown === undefined || !shown.shown;
+  useEffect(() => {
+    if (hidden) closePauseMenu();
+  }, [hidden, open]);
+  if (shown === undefined || hidden) return null;
   return (
     <>
       <PauseButton button={shown.button} open={open} anchor={anchor} onClick={togglePauseMenu} />

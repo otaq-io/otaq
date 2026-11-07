@@ -21,6 +21,7 @@ function view(dot: string | null): UpdatesView {
     },
     notice: null,
     dot,
+    banner: null,
   };
 }
 

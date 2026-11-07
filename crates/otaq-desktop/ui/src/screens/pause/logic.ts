@@ -45,9 +45,9 @@ export function menuKey(key: string, index: number, count: number): MenuStep {
   }
 }
 
-/** What picking `row` sends (`pause.run`): its scope, the open project for This project, Pause or Resume. */
+/** What picking `row` sends (`pause.run`): its scope and the open project for its own row; the menu only pauses. */
 export function runParams(row: PauseScopeRow, view: PauseView): PauseRunParams {
-  const params: PauseRunParams = { scope: row.scope, resume: view.menu.resumes };
+  const params: PauseRunParams = { scope: row.scope, resume: false };
   if (view.project !== null) params.project = view.project;
   return params;
 }

@@ -4,7 +4,7 @@ import type { ProjectMenuView } from "./ProjectMenuView";
 
 /**
  * The shown project at the header's start: "shop-web" and its base branch; the folder on the name's hover, and the
- * project menu on a click (FED-09).
+ * project switcher on a click (the name only switches projects or adds one).
  */
 export type HeaderProject = { key: string, name: string, base_branch: string, 
 /**
@@ -12,12 +12,12 @@ export type HeaderProject = { key: string, name: string, base_branch: string,
  */
 path: string, 
 /**
- * The full folder, which Open in Finder opens.
+ * The full folder.
  */
 repo_path: string, 
 /**
- * The project menu (FED-09, `s26-08`): Change flow… with the flow in use, Export flow…, Project settings…, Open
- * in Finder, Open a terminal here.
+ * The project switcher: every project with a dot on one that needs you and a check on this one, then Add
+ * project….
  */
 menu: ProjectMenuView, 
 /**

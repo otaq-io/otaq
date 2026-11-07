@@ -2,7 +2,7 @@
 // cleanup*; REC-04, d0018): the leftovers no ticket owns, grouped, each with its path, why, size and age. It scans
 // when it opens; nothing is ticked at first; long lists open with their groups folded. Delete selected… asks with
 // every item named, and only the confirmation's button deletes (`recovery.cleanup_delete`, which toasts what went).
-// The rail's broom, Settings → Data and `cleanup` + ↵ in search open it.
+// Settings → Data and `cleanup` + ↵ in search open it.
 //
 // Under the action bar, the kept warm builds (*Row · Cleanup with warm builds (0082)*, WRM-07): no checkboxes, each
 // with a Clear… that asks first (`recovery.warm_clear` only from the confirmation). A Clear waiting for a copy shows

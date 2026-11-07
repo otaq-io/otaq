@@ -996,6 +996,13 @@
   white-space: nowrap;
 }
 
+.banner-aside {
+  flex: none;
+  color: var(--text-secondary);
+  font: 400 12.5px var(--font-ui);
+  white-space: nowrap;
+}
+
 /* A text with a tooltip takes the text's place in the row. */
 .banner > .tooltip-anchor {
   flex: 1;

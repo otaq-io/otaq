@@ -2801,10 +2801,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -4177,10 +4179,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -5553,10 +5557,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -6076,10 +6082,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -6546,10 +6554,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -7016,10 +7026,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -8206,10 +8218,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -9010,10 +9024,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {
@@ -9814,10 +9830,12 @@
               }
             ]
           },
+          "edit_flow": "Edit flow",
           "group_by": null,
           "live": null,
           "new_ticket": "New ticket",
           "new_ticket_keys": "⌘N",
+          "settings": "Settings",
           "subtitle": null,
           "switch": {
             "change": {

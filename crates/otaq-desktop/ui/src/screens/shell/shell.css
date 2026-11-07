@@ -8,8 +8,10 @@ button.header-search,
 button.header-activity,
 button.rail-item,
 button.rail-add,
-button.rail-broom,
 button.rail-bottom,
+button.header-usage,
+button.switcher-row,
+button.switcher-add,
 button.rail-agent,
 button.activity-link,
 .stepper button {
@@ -23,7 +25,7 @@ button.activity-link,
   cursor: pointer;
 }
 
-:is(.header, .rail, .quick, .activity) :focus-visible:not(input) {
+:is(.header, .rail, .quick, .activity, .switcher) :focus-visible:not(input) {
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
@@ -55,12 +57,145 @@ button.activity-link,
 }
 
 button.header-project-name {
-  overflow: hidden;
+  display: flex;
+  align-items: center;
+  gap: 4px;
+  min-width: 0;
   padding: 2px 4px;
   margin: 0 -4px;
   border-radius: var(--r-sm);
   font: 600 15px/19px var(--font-ui);
+}
+
+.header-project-text {
+  overflow: hidden;
   text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+button.header-project-name > .icon {
+  flex: none;
+  color: var(--text-muted);
+}
+
+/* The project switcher under the name: each project's tile, name and folder, the needs-you dot and the check; then
+   Add project…. */
+.switcher {
+  display: flex;
+  flex-direction: column;
+  box-sizing: border-box;
+  width: 292px;
+  margin: -4px;
+}
+
+button.switcher-row {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 6px 8px;
+  border-radius: var(--r-md);
+}
+
+button.switcher-row:hover,
+button.switcher-add:hover {
+  background: var(--bg-hover);
+}
+
+.switcher-tile {
+  display: flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  min-width: 26px;
+  height: 26px;
+  padding: 0 4px;
+  border: 1px solid var(--border-strong);
+  border-radius: var(--r-md);
+  color: var(--text-primary);
+  font: 600 10px/13px var(--font-mono);
+}
+
+.switcher-tile[data-current] {
+  border: 1.5px solid var(--accent);
+}
+
+.switcher-text {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  min-width: 0;
+}
+
+.switcher-name {
+  overflow: hidden;
+  color: var(--text-primary);
+  font: 500 13px/17px var(--font-ui);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-path {
+  overflow: hidden;
+  color: var(--text-muted);
+  font: 400 11px/15px var(--font-mono);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.switcher-dot {
+  flex: none;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: var(--st-attn);
+}
+
+.switcher-check {
+  display: flex;
+  flex: none;
+  color: var(--accent);
+}
+
+.switcher-rule {
+  height: 1px;
+  margin: 4px 0;
+  background: var(--border);
+}
+
+button.switcher-add {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  padding: 6px 10px;
+  border-radius: var(--r-md);
+  color: var(--text-primary);
+  font: 400 13px/17px var(--font-ui);
+}
+
+/* The usage chip (only when it needs you): amber, "Claude Code · 15% left"; a click opens the Running popover. */
+button.header-usage {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 6px;
+  box-sizing: border-box;
+  height: 28px;
+  padding: 0 10px;
+  border: 1px solid transparent;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+  color: var(--st-paused);
+  font: 500 12.5px var(--font-ui);
+  white-space: nowrap;
+}
+
+button.header-usage:hover {
+  filter: brightness(0.97);
+}
+
+button.header-usage[data-open] {
+  border-color: var(--st-paused);
 }
 
 button.header-project-name:hover {
@@ -115,7 +250,7 @@ button.header-search:hover {
   color: var(--text-muted);
 }
 
-/* Activity (*Activity button · states*): a quiet outline; the warning is amber, and at a limit so is the edge. */
+/* Running: a quiet outline, only while something runs. */
 button.header-activity {
   display: flex;
   align-items: center;
@@ -132,24 +267,14 @@ button.header-activity:hover {
   background: var(--bg-hover);
 }
 
-button.header-activity[data-limit] {
-  border-color: var(--st-paused);
-}
-
 button.header-activity[data-open] {
   border-color: var(--accent);
 }
 
-.header-processes,
-.header-warning {
+.header-processes {
   display: flex;
   align-items: center;
   gap: 5px;
-}
-
-.header-warning {
-  font-family: var(--font-mono);
-  font-weight: 600;
 }
 
 .header-dot {
@@ -548,8 +673,7 @@ button.rail-add {
   color: var(--text-muted);
 }
 
-button.rail-add:hover,
-button.rail-broom:hover .rail-broom-icon {
+button.rail-add:hover {
   background: var(--bg-hover);
 }
 
@@ -603,7 +727,7 @@ button.rail-agent[data-tinted] {
   background: var(--border);
 }
 
-/* Terminals and Settings around Cleanup (*Rail bottom: Terminals & Settings*): no dot. */
+/* Terminal and the app-settings gear at the rail's foot, under Noyan. */
 button.rail-bottom {
   position: relative;
   display: flex;
@@ -631,34 +755,6 @@ button.rail-bottom:hover {
   border-radius: 50%;
   outline: 2px solid var(--bg-panel);
   background: var(--st-working);
-}
-
-button.rail-broom {
-  display: flex;
-  flex: none;
-  align-items: center;
-  gap: 4px;
-  color: var(--text-muted);
-}
-
-.rail-broom-icon {
-  position: relative;
-  display: flex;
-  align-items: center;
-  justify-content: center;
-  width: 36px;
-  height: 36px;
-  border-radius: var(--r-lg);
-}
-
-.rail-broom-dot {
-  position: absolute;
-  top: 6px;
-  right: 6px;
-  width: 7px;
-  height: 7px;
-  border-radius: 50%;
-  background: var(--text-muted);
 }
 
 /* ---- Quick switcher ---- */

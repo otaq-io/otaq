@@ -13,7 +13,6 @@ use otaq_core::board::snapshot::ProjectInfo;
 use otaq_core::protocol::{ProjectParams, Reply, Request};
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::terminals::run::RunInfo;
-use otaq_core::tools::Os;
 use otaq_core::usage::activity::Activity;
 use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
@@ -66,7 +65,7 @@ pub struct Params {
 }
 
 /// The shown project at the header's start: "shop-web" and its base branch; the folder on the name's hover, and the
-/// project menu on a click (FED-09).
+/// project switcher on a click (the name only switches projects or adds one).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "HeaderProject")]
 pub struct Project {
@@ -75,10 +74,10 @@ pub struct Project {
     pub base_branch: String,
     /// "~/code/shop-web": the name's hover.
     pub path: String,
-    /// The full folder, which Open in Finder opens.
+    /// The full folder.
     pub repo_path: String,
-    /// The project menu (FED-09, `s26-08`): Change flow… with the flow in use, Export flow…, Project settings…, Open
-    /// in Finder, Open a terminal here.
+    /// The project switcher: every project with a dot on one that needs you and a check on this one, then Add
+    /// project….
     pub menu: ProjectMenu,
     /// While the project is in Flow setup (ASK-04): "Flow setup" and "2 agents at work" or "2 proposals" after the
     /// name, in place of the base branch.
@@ -186,13 +185,20 @@ impl ActivityData {
 }
 
 pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
-    let (projects, data, keys, paused) = tokio::join!(
+    let (projects, data, keys, waiting) = tokio::join!(
         projects(app),
         ActivityData::fetch(app),
         super::keymap::labels(app),
-        super::pause::counts(app),
+        // Waiting Noyan conversations count in their project's needs-you dot, as on the rail.
+        optional(app, Request::NeedsYouList, |r| match r {
+            Reply::NeedsYou(list) => Some(list.project_agents),
+            _ => None,
+        }),
     );
-    let (projects, data) = (projects?, data?);
+    let (mut projects, data) = (projects?, data?);
+    if let Some(agents) = waiting {
+        switcher::add_waiting_agents(&mut projects, &agents);
+    }
     let shown = params.project.as_deref();
     // The shown project's Flow setup, for its title bar part; without an answer the name shows alone.
     let setup = match shown.filter(|p| flow_setup_page::in_flow_setup(&projects, p)) {
@@ -220,16 +226,6 @@ pub async fn header(app: &App, params: Params) -> Result<Header, RequestError> {
     if let (Some(project), Some(setup)) = (view.project.as_mut(), setup.as_ref()) {
         project.flow_setup = flow_setup_page::header(setup);
     }
-    if let Some(project) = view.project.as_mut() {
-        project.menu = flow_menu(app, project, &keys).await;
-    }
-    // "5 paused" while the shown project is (PAU-08); without the counts Activity reads as before.
-    if let Some(chip) = paused
-        .ok()
-        .and_then(|counts| otaq_view::view_models::pause::activity(shown, &counts))
-    {
-        view.activity.agents = chip;
-    }
     Ok(view)
 }
 
@@ -249,14 +245,7 @@ fn header_view(
                     key: p.key.clone(),
                     name: p.name.clone(),
                     base_branch: p.base_branch.clone(),
-                    menu: project_menu::menu(&project_menu::Facts {
-                        name: &p.name,
-                        path: &path,
-                        flow: None,
-                        waiting: None,
-                        os: Os::current(),
-                        keys,
-                    }),
+                    menu: project_menu::switcher(projects, shown, tilde),
                     path,
                     repo_path: p.repo_path.clone(),
                     flow_setup: None,
@@ -265,31 +254,6 @@ fn header_view(
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
         activity: activity::button(activity, keys),
     }
-}
-
-/// The project menu with the project's flow in use and its waiting change, if the service answers them.
-async fn flow_menu(app: &App, project: &Project, keys: &KeyLabels) -> ProjectMenu {
-    let params = || ProjectParams {
-        project: project.key.clone(),
-    };
-    let (current, waiting) = tokio::join!(
-        optional(app, Request::FlowCurrent(params()), |r| match r {
-            Reply::FlowVersion(v) => v.file().ok(),
-            _ => None,
-        }),
-        optional(app, Request::FlowWaiting(params()), |r| match r {
-            Reply::FlowWaiting(w) => w.map(|w| *w),
-            _ => None,
-        }),
-    );
-    project_menu::menu(&project_menu::Facts {
-        name: &project.name,
-        path: &project.path,
-        flow: current.as_ref(),
-        waiting: waiting.as_ref(),
-        os: Os::current(),
-        keys,
-    })
 }
 
 /// `shell.open_folder {project}`: Open in Finder, the project's folder in the file manager.
@@ -541,13 +505,19 @@ mod tests {
         let shown = view.project.unwrap();
         assert_eq!((shown.name.as_str(), shown.base_branch.as_str()), ("notes-api", "main"));
         assert_eq!(shown.path, "/code/notes-api");
-        assert_eq!(shown.menu.title, "notes-api");
-        let menu: Vec<&str> = shown.menu.items.iter().map(|i| i.label.as_str()).collect();
-        assert_eq!(menu[0], "Change flow\u{2026}");
-        assert_eq!(menu.len(), 5);
+        // The name only switches projects or adds one: every project, a dot on one that needs you.
+        let rows: Vec<(&str, bool, bool)> = shown
+            .menu
+            .rows
+            .iter()
+            .map(|r| (r.name.as_str(), r.needs_you, r.current))
+            .collect();
+        assert_eq!(rows, [("pocket-notes", true, false), ("notes-api", true, true)]);
+        assert_eq!(shown.menu.add, "Add project\u{2026}");
+        assert!(view.activity.shown);
         assert_eq!(view.activity.agents.count, "3");
         assert_eq!(view.activity.processes.as_deref(), Some("2"));
-        assert_eq!(view.activity.warning.unwrap().text, "5h 18% left");
+        assert_eq!(view.activity.warning.unwrap().text, "Claude Code \u{b7} 18% left");
 
         // No project shown, nothing running, nothing waiting.
         let view = header_view(&projects, None, &fixtures.idle.inputs(), &mac);

@@ -12,7 +12,7 @@ import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
 import { ActivityBody, LimitsBody } from "./ActivityPopover";
-import { ActivityChip, HeaderBar } from "./Header";
+import { activityAnchor, ActivityChip, HeaderBar, SwitcherBox } from "./Header";
 import { shell, switchToDigit } from ".";
 import { clampCursor, switcherKey } from "./logic";
 import { QuickList } from "./QuickSwitcher";
@@ -33,19 +33,35 @@ const HEADER: HeaderView = {
     path: "~/code/shop-web",
     repo_path: "/code/shop-web",
     menu: {
-      title: "shop-web",
-      path: "~/code/shop-web",
-      items: [],
-      export_title: "Export shop-web’s flow",
-      export_file: "shop-web-flow.yaml",
+      title: "Switch project",
+      rows: [
+        {
+          key: "SHOP",
+          name: "shop-web",
+          path: "~/code/shop-web",
+          needs_you: true,
+          current: true,
+          label: "shop-web, needs you, current",
+        },
+        {
+          key: "BILL",
+          name: "billing-api",
+          path: "~/code/billing-api",
+          needs_you: false,
+          current: false,
+          label: "billing-api",
+        },
+      ],
+      add: "Add project…",
     },
     flow_setup: null,
   },
   search: hint("Search  ·  is:needs-you", "/"),
   activity: {
+    shown: true,
     agents: { count: "3", label: "running", control: false, active: true, paused: false },
     processes: "3",
-    warning: { text: "5h 18% left", token: "st-paused", limit: false },
+    warning: { text: "Claude Code · 18% left", token: "st-paused", limit: false },
     hover: {
       title: "3 agents running across all projects",
       lines: ["shop-web 2 · billing-api 1 · 3 processes"],
@@ -162,7 +178,7 @@ describe("the rail", () => {
     expect(out).toContain('aria-label="Add project"');
   });
 
-  it("ends with Noyan, Terminals, Cleanup and Settings, which open their screens as Terminals and Settings do", () => {
+  it("ends with Noyan, Terminal and Settings, which open their screens as their keys do; no Cleanup", () => {
     const agent: AskAgentButton = {
       icon: "bot",
       label: "Noyan",
@@ -176,9 +192,10 @@ describe("the rail", () => {
       'aria-label="Noyan, New reply"',
       'class="rail-rule"',
       'aria-label="Terminal"',
-      'aria-label="Cleanup"',
       'aria-label="Settings"',
     ].map((t) => out.indexOf(t));
+    // Cleanup lives in Settings (Data), not on the rail.
+    expect(out).not.toContain("Cleanup");
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
     // SHB-02: a dot while a reply waits; tinted only while the panel is open.
@@ -305,26 +322,15 @@ describe("the header", () => {
       expect(out).not.toContain(gone);
   });
 
-  it("Activity reads its counts and draws the warning only when the view has one, in the view's amber", () => {
+  it("Running reads its counts; the usage chip is its own amber chip before it, only when the view has one", () => {
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: HEADER, onSearch: () => undefined }));
-    const order = ["running", "▷ 3", "5h 18% left"].map((text) => out.indexOf(text));
+    const order = ["Claude Code · 18% left", 'aria-label="Running"', "running", "▷ 3"].map((text) =>
+      out.indexOf(text),
+    );
     expect(order.every((at) => at >= 0)).toBe(true);
     expect(order).toEqual(order.toSorted((a, b) => a - b));
-    expect(out).toContain('class="header-warning" style="color:var(--st-paused)"');
+    expect(out).toContain('class="header-usage"');
     expect(out).not.toContain("st-attn");
-    expect(out).not.toContain("data-limit");
-
-    const atLimit = renderToStaticMarkup(
-      createElement(HeaderBar, {
-        view: {
-          ...HEADER,
-          activity: { ...HEADER.activity, warning: { text: "5h limit", token: "st-paused", limit: true } },
-        },
-        onSearch: () => undefined,
-      }),
-    );
-    expect(atLimit).toContain('data-limit="true"');
-    expect(atLimit).toContain("5h limit");
 
     const calm = renderToStaticMarkup(
       createElement(HeaderBar, {
@@ -332,8 +338,53 @@ describe("the header", () => {
         onSearch: () => undefined,
       }),
     );
-    expect(calm).not.toContain("header-warning");
+    expect(calm).not.toContain("header-usage");
     expect(calm).not.toContain("18% left");
+  });
+
+  it("with nothing running the title bar has no Running and no Pause; the usage chip stays when it needs you", () => {
+    const idle: HeaderView = {
+      ...HEADER,
+      activity: {
+        ...HEADER.activity,
+        shown: false,
+        agents: { count: "0", label: "running", control: false, active: false, paused: false },
+        processes: null,
+      },
+    };
+    const pause = createElement("button", { className: "header-pause" }, "Pause");
+    const out = renderToStaticMarkup(
+      createElement(HeaderBar, { view: idle, onSearch: () => undefined, pause }),
+    );
+    expect(out).not.toContain('aria-label="Running"');
+    expect(out).toContain("Claude Code · 18% left");
+    const quiet = renderToStaticMarkup(
+      createElement(HeaderBar, {
+        view: { ...idle, activity: { ...idle.activity, warning: null } },
+        onSearch: () => undefined,
+      }),
+    );
+    expect(quiet).not.toContain("header-activity");
+    expect(quiet).not.toContain("header-usage");
+  });
+
+  it("the project switcher lists every project with a dot on one that needs you, a check on this one, then Add project", () => {
+    const menu = HEADER.project?.menu;
+    if (!menu) throw new Error("a menu");
+    const chosen: (string | null)[] = [];
+    const out = renderToStaticMarkup(
+      createElement(SwitcherBox, { menu, onChoose: (key) => chosen.push(key) }),
+    );
+    const order = ["shop-web", "~/code/shop-web", "billing-api", "Add project…"].map((t) => out.indexOf(t));
+    expect(order.every((at) => at >= 0)).toBe(true);
+    expect(order).toEqual(order.toSorted((a, b) => a - b));
+    expect(out.match(/switcher-dot/g)).toHaveLength(1);
+    expect(out.match(/switcher-check/g)).toHaveLength(1);
+    expect(out).toContain('aria-current="true"');
+    const clicks = clicksOf(SwitcherBox({ menu, onChoose: (key) => chosen.push(key) }));
+    clicks.get("billing-api")?.();
+    clicks.get("switcher-add")?.();
+    expect(chosen).toEqual(["BILL", null]);
   });
 
   it("search and Activity open what they open", () => {
@@ -354,12 +405,13 @@ describe("the header", () => {
         agents: { count: "0/5", label: "agents", control: true, active: false, paused: false },
         processes: null,
         warning: null,
+        shown: true,
       },
     };
     const out = renderToStaticMarkup(createElement(HeaderBar, { view: quiet, onSearch: () => undefined }));
     expect(out).not.toContain("header-search");
     expect(out).not.toContain("▷");
-    expect(out).not.toContain("header-warning");
+    expect(out).not.toContain("header-usage");
     expect(out).toContain("0/5");
   });
 });
@@ -522,8 +574,13 @@ describe("the shell screen", () => {
     expect(overlays.store.get()).toEqual([]);
   });
 
-  it("⇧⌘U toggles the Activity popover", () => {
+  it("⇧⌘U toggles the Running popover while Running or the usage chip is in the title bar", () => {
     const app = registerScreens({ shell });
+    const anchor = activityAnchor as { current: HTMLButtonElement | null };
+    anchor.current = null;
+    app.shortcuts.run({ action: "open_activity" });
+    expect(overlays.store.get(), "nothing to open it under").toEqual([]);
+    anchor.current = {} as HTMLButtonElement;
     expect(app.shortcuts.run({ action: "open_activity" })).toBe(true);
     expect(overlays.store.get()).toEqual([{ id: "activity", params: undefined }]);
     app.shortcuts.run({ action: "open_activity" });

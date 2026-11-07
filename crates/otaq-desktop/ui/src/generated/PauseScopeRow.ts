@@ -3,11 +3,11 @@ import type { IconName } from "./IconName";
 import type { PauseScopeKind } from "./PauseScopeKind";
 
 /**
- * One row of the menu: "This project · shop-web · 5 working ⇧⌘." or "All projects · 7 working in 2 projects".
- * `PauseScopeRow` on the page.
+ * One row of the menu: "Pause shop-web · 4 agents stop where they are; queued tickets wait. ⇧⌘." or "Pause all
+ * projects · 5 agents in 2 projects.". `PauseScopeRow` on the page.
  */
 export type PauseScopeRow = { scope: PauseScopeKind, icon: IconName, label: string, detail: string, 
 /**
- * The menu's key on the first row (⇧⌘.), as drawn.
+ * The menu's key on the first row (⇧⌘.).
  */
 keys: string | null, };

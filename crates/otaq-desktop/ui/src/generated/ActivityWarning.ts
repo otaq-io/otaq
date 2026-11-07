@@ -5,7 +5,7 @@
  */
 export type ActivityWarning = { 
 /**
- * "18% left", "5h 18% left", "Claude Code limit", "5h limit".
+ * "Claude Code · 15% left", always naming the tool; "Claude Code · 0% left" at its limit.
  */
 text: string, 
 /**

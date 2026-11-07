@@ -1,12 +1,12 @@
 // Area 02 · App shell & project switcher (T-0219, T-0329): the header, the project rail, the quick switcher (⌘P),
-// ⌘1–9 and the Activity popover (⇧⌘U). What they say is Rust's (`src/api/shell.rs`, the `otaq-view` view models).
+// ⌘1–9 and the Running popover (⇧⌘U). What they say is Rust's (`src/api/shell.rs`, the `otaq-view` view models).
 import { toggleOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
 import { selectProject } from "../../app/selection";
 import type { ProjectDigitParams } from "../../generated/ProjectDigitParams";
 import { request } from "../../tauri";
 import { ActivityOverlay } from "./ActivityPopover";
-import { ShellHeader } from "./Header";
+import { activityAnchor, ShellHeader } from "./Header";
 import { QuickSwitcher } from "./QuickSwitcher";
 import { ShellRail } from "./Rail";
 import "./shell.css";
@@ -27,8 +27,9 @@ export const shell: Screen = (app) => {
   app.shortcuts.on("switch_project", () => {
     toggleOverlay("quick_switcher");
   });
+  // The popover sits under Running or the usage chip: with neither in the title bar there is nothing to open.
   app.shortcuts.on("open_activity", () => {
-    toggleOverlay("activity");
+    if (activityAnchor.current !== null) toggleOverlay("activity");
   });
   app.shortcuts.on("project", ({ number }) => {
     switchToDigit(number).catch(() => undefined);

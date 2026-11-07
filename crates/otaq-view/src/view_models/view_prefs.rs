@@ -222,6 +222,11 @@ pub struct ToolbarGroup {
 pub struct Toolbar {
     /// Board · List · Files (BRD-01, FIL-01).
     pub views: ToolbarGroup,
+    /// "Settings", after the views: the project's settings (they open over the board until they are a view of
+    /// their own).
+    pub settings: String,
+    /// "Edit flow" on the Board: the project's flow, changed from the board (it opens the flow editor).
+    pub edit_flow: Option<String>,
     /// Files: "What the base branch looks like, and which agents are changing which files", after a divider.
     pub subtitle: Option<String>,
     /// Files: "Live", with its dot on the right: the view follows the tickets' changes (FIL-10).
@@ -240,6 +245,8 @@ pub struct Toolbar {
 }
 
 pub const ALL_TICKETS: &str = "All tickets";
+pub const SETTINGS: &str = "Settings";
+pub const EDIT_FLOW: &str = "Edit flow";
 pub const NEW_TICKET: &str = "New ticket";
 /// The Files view's toolbar subtitle (`s28-03`).
 pub const FILES_SUBTITLE: &str =
@@ -294,6 +301,8 @@ pub fn toolbar(prefs: &ViewPrefs, keys: &KeyLabels) -> Toolbar {
                 },
             ],
         },
+        settings: SETTINGS.to_owned(),
+        edit_flow: (view == ViewKind::Board).then(|| EDIT_FLOW.to_owned()),
         subtitle: (view == ViewKind::Files).then(|| FILES_SUBTITLE.to_owned()),
         live: (view == ViewKind::Files).then(|| LIVE.to_owned()),
         group_by: (view == ViewKind::List).then(|| ToolbarGroup {

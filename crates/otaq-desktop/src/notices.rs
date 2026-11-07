@@ -815,6 +815,15 @@ impl Notices {
     pub fn limited_tool(&self) -> Option<Tool> {
         self.lock().first_limited_tool()
     }
+
+    /// What the paused banner's Resume resumes: the project on screen, or every project when an All projects pause
+    /// holds them all. `None` while the project on screen isn't paused.
+    pub fn paused_resume(&self) -> Option<(pause::Scope, Option<String>)> {
+        let state = self.lock();
+        let shown = state.project.as_deref();
+        let scope = pause::banner_resume(shown, state.pause.as_ref()?)?;
+        Some((scope, shown.map(str::to_owned)))
+    }
 }
 
 /// Follows the link's states, the page's event stream and the tick until the notices are dropped.
@@ -1256,9 +1265,8 @@ mod tests {
         assert_eq!(
             titles(&view)[0],
             (
-                "shop-web is paused.",
-                "5 agents stopped; Resume continues where each one was. Queued tickets wait; questions for you stay \
-                 open. billing-api keeps working."
+                "shop-web is paused",
+                "5 agents stopped where they were; queued tickets wait. billing-api keeps working."
             )
         );
         assert_eq!(view.banners[0].kind, SituationKind::Paused);
@@ -1266,7 +1274,14 @@ mod tests {
             view.banners[0].tone,
             otaq_view::view_models::banners::BannerTone::Warning
         );
-        assert!(!view.banners[0].dismissable && view.banners[0].buttons.is_empty());
+        assert!(!view.banners[0].dismissable);
+        // Its Resume resumes the project on screen; Pause leaves the title bar while nothing runs.
+        assert_eq!(view.banners[0].buttons[0].label, "Resume");
+        assert!(view.banners[0].buttons[0].primary);
+        assert_eq!(
+            n.paused_resume(),
+            Some((pause::Scope::Project, Some("SHOP".to_owned())))
+        );
         assert_eq!(
             view.banners[1].kind,
             SituationKind::NotificationsBlocked,
@@ -1293,11 +1308,11 @@ mod tests {
         n.on_link(&LinkState::Reconnecting { attempt: 1 });
         n.on_link(&connected(Compatibility::Same, restarted));
         let view = n.view();
-        assert_eq!(titles(&view)[0].0, "shop-web is still paused.");
+        assert_eq!(titles(&view)[0].0, "shop-web is still paused");
         assert_eq!(
             titles(&view)[0].1,
             format!(
-                "{} 5 agents wait where each one was; Resume when you\u{2019}re ready.",
+                "{} 5 agents wait where each one was.",
                 pause::restarted_line()
             )
         );
@@ -1429,7 +1444,7 @@ mod tests {
         ));
         let view = n.view();
         assert_eq!(view.banners.len(), 1);
-        assert_eq!(view.banners[0].title, "Session limit reached");
+        assert_eq!(view.banners[0].title, "Claude Code limit reached");
         assert!(
             !view.banners[0].buttons[0].enabled,
             "Resume waits for the reset"
@@ -1439,7 +1454,7 @@ mod tests {
         n.on_usage(inputs(vec![limit_line(Tool::Claude, None)], false));
         let view = n.view();
         assert_eq!(view.banners.len(), 1, "updated, never a second banner");
-        assert_eq!(view.banners[0].title, "Usage limit reached");
+        assert_eq!(view.banners[0].title, "Claude Code limit reached");
         assert!(view.banners[0].buttons[0].enabled);
         n.on_usage(LimitInputs::default());
         assert!(n.view().banners.is_empty());

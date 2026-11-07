@@ -1,13 +1,13 @@
-// The gallery's Activity (T-0329; *02 → Row · Header parts: Activity, rail (0086 · V)*, *Row · Activity popover states
-// (0087)*): the button in each state and the popover in each state, drawn from `gallery.activity`'s fixtures with the
-// header's and the popover's own components. A button's click opens the live popover, as in the header.
+// The gallery's Running (T-0329): the title bar's usage chip and Running in each state (nothing at all while nothing
+// runs and usage is fine) and the popover in each state, drawn from `gallery.activity`'s fixtures with the header's
+// and the popover's own components. A button's click opens the live popover, as in the header.
 import { useCallback } from "react";
 
 import type { ActivityGallery as GalleryView } from "../../generated/ActivityGallery";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { ActivityBody } from "./ActivityPopover";
-import { ActivityChip } from "./Header";
+import { ActivityChip, UsageChip } from "./Header";
 
 const ignore = () => undefined;
 
@@ -23,7 +23,11 @@ export function ActivityGallery() {
           <div key={caption} className="activity-gallery-row">
             <span className="gallery-caption">{caption}</span>
             <span className="header">
-              <ActivityChip activity={button} />
+              {button.warning && <UsageChip warning={button.warning} />}
+              {button.shown && <ActivityChip activity={button} />}
+              {!button.shown && !button.warning && (
+                <span className="gallery-caption">nothing in the title bar</span>
+              )}
             </span>
           </div>
         ))}

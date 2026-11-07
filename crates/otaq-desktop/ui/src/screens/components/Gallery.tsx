@@ -139,6 +139,7 @@ import { type ShortcutsCalls, ShortcutsView } from "../settings/Keyboard";
 import { Section as SettingsSectionRows, WarmBuildRow } from "../settings/Rows";
 import "../settings/settings.css";
 import { ActivityGallery } from "../shell/ActivityGallery";
+import { SwitcherBox } from "../shell/Header";
 import { RailAgentButton } from "../shell/Rail";
 import { LimitLinesGallery } from "../notices/LimitLinesGallery";
 import { AddButton, AddProjectFields, staticAddProject } from "../onboarding/AddProjectForm";
@@ -1525,29 +1526,29 @@ function FlowEditorGallerySection() {
   );
 }
 
-/** *26 → Row · Changing the flow later* `s26-08`/`s26-12` (T-0473, FED-09): the project menu with the flow in use and
- * with a change waiting, from `gallery.project_menu`, in Otaq Light and Dark. Choices are only recorded. */
+/** The project switcher under the project's name: two projects, one needing you, and one alone, from
+ * `gallery.project_menu`, in Otaq Light and Dark. Choices are only recorded. */
 function ProjectMenuGallerySection() {
   const { view, error } = useServiceView(loadProjectMenu, []);
   const [picked, setPicked] = useState<string | null>(null);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="26 · The project menu (T-0473)">
+    <Section title="Window · The project switcher">
       <Caption>Last call: {picked ?? "—"}</Caption>
       {THEMES.map((theme) => (
         <div key={theme} data-theme={theme} className="gallery-wrap" style={themed}>
           {view.cells.map(([name, menu]) => (
             <div key={name} className="gallery-stack-tight">
               <Caption>{`${theme} · ${name}`.toUpperCase()}</Caption>
-              <Menu
-                label={menu.title}
-                head={{ title: menu.title, detail: menu.path }}
-                items={menu.items}
-                width={300}
-                onChoose={setPicked}
-                onClose={() => undefined}
-              />
+              <div className="popover gallery-switcher">
+                <SwitcherBox
+                  menu={menu}
+                  onChoose={(key) => {
+                    setPicked(key ?? "add project");
+                  }}
+                />
+              </div>
             </div>
           ))}
         </div>
@@ -1820,6 +1821,12 @@ function BoardViewSection() {
             }}
             onNewTicket={() => {
               setPicked("new ticket");
+            }}
+            onSettings={() => {
+              setPicked("settings");
+            }}
+            onEditFlow={() => {
+              setPicked("edit flow");
             }}
           />
         </div>

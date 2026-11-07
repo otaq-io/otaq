@@ -104,8 +104,6 @@ struct Window {
     left: f64,
     /// Used up, or the window the active limit is on.
     reached: bool,
-    /// The window the tool's active limit is on.
-    limit: bool,
     /// The reset time still ahead.
     resets_at: Option<i64>,
 }
@@ -191,7 +189,6 @@ fn windows(tool: &ToolActivity, now: i64) -> Vec<Window> {
                 label: window_label(w),
                 left,
                 reached: is_limit || (!reset && left.round() == 0.),
-                limit: is_limit,
                 resets_at: resets_at.filter(|&at| at > now),
             }
         })
@@ -202,7 +199,7 @@ fn windows(tool: &ToolActivity, now: i64) -> Vec<Window> {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityWarning")]
 pub struct Warning {
-    /// "18% left", "5h 18% left", "Claude Code limit", "5h limit".
+    /// "Claude Code · 15% left", always naming the tool; "Claude Code · 0% left" at its limit.
     pub text: String,
     /// Always [`WARNING_TOKEN`].
     pub token: &'static str,
@@ -221,15 +218,18 @@ pub struct Hover {
     pub lines: Vec<String>,
 }
 
-/// The header's Activity button.
+/// The header's Running button, and the usage chip beside it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityButton")]
 pub struct Button {
+    /// Whether Running is in the title bar: only while agents or apps run.
+    pub shown: bool,
     /// "● 6 running", or "● 3 / 5 agents" with agent limits on.
     pub agents: AgentsChip,
     /// "3" after ▷: the running processes; `None` (hidden) at 0.
     pub processes: Option<String>,
-    /// The usage warning; `None` while every window has more than [`WARN_AT_LEFT`] % left.
+    /// The usage chip, its own amber chip before Running ("Claude Code · 15% left"); `None` while every window has
+    /// more than [`WARN_AT_LEFT`] % left. It shows also while nothing runs.
     pub warning: Option<Warning>,
     pub hover: Hover,
     /// "Running" and the user's key for it (⇧⌘U), which opens the popover as a click does.
@@ -239,9 +239,13 @@ pub struct Button {
 
 pub fn button(inputs: &Inputs<'_>, keys: &KeyLabels) -> Button {
     let running = inputs.running();
+    let agents = limits::agents_chip(inputs.limits, inputs.scheduler, running);
+    let processes = processes::count(inputs.runs);
     Button {
-        agents: limits::agents_chip(inputs.limits, inputs.scheduler, running),
-        processes: processes::count(inputs.runs).map(|n| n.to_string()),
+        // Running shows only while agents or apps run: with nothing running the title bar has no Running.
+        shown: agents.active || processes.is_some(),
+        agents,
+        processes: processes.map(|n| n.to_string()),
         warning: warning(inputs),
         hover: hover(inputs, running),
         label: "Running",
@@ -250,37 +254,24 @@ pub fn button(inputs: &Inputs<'_>, keys: &KeyLabels) -> Button {
 }
 
 fn warning(inputs: &Inputs<'_>) -> Option<Warning> {
-    let names = inputs.names_tools();
-    let warn = |text, limit| {
-        Some(Warning {
-            text,
+    // A limit first, as "0% left": the tool's window is used up.
+    if let Some((tool, _)) = inputs.tools.iter().find(|(_, t)| t.limit.is_some()) {
+        return Some(Warning {
+            text: format!("{} \u{b7} {}", tool.name(), left_percent(0.)),
             token: WARNING_TOKEN,
-            limit,
-        })
-    };
-    // A limit first: the tool's name, or with one tool the window it is on.
-    if let Some((tool, data)) = inputs.tools.iter().find(|(_, t)| t.limit.is_some()) {
-        if names {
-            return warn(format!("{} limit", tool.name()), true);
-        }
-        let text = windows(data, inputs.now)
-            .into_iter()
-            .find(|w| w.limit)
-            .map_or_else(
-                || "Usage limit".to_owned(),
-                |w| format!("{} limit", w.label),
-            );
-        return warn(text, true);
+            limit: true,
+        });
     }
-    let (_, closest) = closest(inputs)?;
+    let (tool, closest) = closest(inputs)?;
     if !closest.warns() {
         return None;
     }
-    if names {
-        warn(closest.left_text(), false)
-    } else {
-        warn(format!("{} {}", closest.label, closest.left_text()), false)
-    }
+    let left = if closest.reached { 0. } else { closest.left };
+    Some(Warning {
+        text: format!("{} \u{b7} {}", tool.name(), left_percent(left)),
+        token: WARNING_TOKEN,
+        limit: false,
+    })
 }
 
 /// The window closest to its limit across the connected tools, with its tool.
@@ -912,16 +903,26 @@ mod tests {
         assert!(!b.agents.active);
     }
 
+    /// With nothing running the title bar has no Running; agents or apps running show it.
     #[test]
-    fn at_eighteen_percent_left_the_button_warns_in_amber() {
+    fn running_shows_only_while_something_runs() {
         let f = Fixtures::new();
-        // One tool: the window is named instead of the tool.
+        assert!(!mac_button(&f.idle).shown);
+        assert!(mac_button(&f.calm).shown);
+        let mut apps_only = Fixtures::new().idle;
+        apps_only.runs = Fixtures::new().calm.runs.clone();
+        assert!(mac_button(&apps_only).shown, "an app running shows it");
+    }
+
+    /// The usage chip shows only at 20% left or less, amber, always naming the tool and saying what is left.
+    #[test]
+    fn at_eighteen_percent_left_the_usage_chip_warns_in_amber() {
+        let f = Fixtures::new();
         let one = mac_button(&f.low_one).warning.unwrap();
-        assert_eq!(one.text, "5h 18% left");
+        assert_eq!(one.text, "Claude Code \u{b7} 18% left");
         assert_eq!(one.token, "st-paused");
-        // Two tools (a test-only second one): neither is named.
         let two = mac_button(&f.low_two).warning.unwrap();
-        assert_eq!(two.text, "18% left");
+        assert_eq!(two.text, "Claude Code \u{b7} 18% left");
         assert_eq!(two.token, WARNING_TOKEN);
         assert_ne!(two.token, "st-attn", "never turquoise");
         assert!(!one.limit && !two.limit, "no amber edge before a limit");
@@ -941,31 +942,21 @@ mod tests {
             mac_button(&s).warning.map(|w| w.text)
         };
         assert_eq!(WARN_AT_LEFT, 20.);
-        assert_eq!(at(80.), Some("5h 20% left".to_owned()));
+        assert_eq!(at(80.), Some("Claude Code \u{b7} 20% left".to_owned()));
         assert_eq!(at(79.9), None);
         assert_eq!(left_percent(17.6), "18% left");
         assert_eq!(left_percent(-3.), "0% left");
     }
 
     #[test]
-    fn at_a_limit_the_button_names_the_tool_or_with_one_tool_the_window() {
+    fn at_a_limit_the_usage_chip_says_none_is_left() {
         let f = Fixtures::new();
         let two = mac_button(&f.limit_two).warning.unwrap();
-        assert_eq!(two.text, "Claude Code limit");
+        assert_eq!(two.text, "Claude Code \u{b7} 0% left");
         assert_eq!(two.token, "st-paused", "amber, never turquoise");
         let one = mac_button(&f.limit_one).warning.unwrap();
-        assert_eq!(one.text, "5h limit");
-        assert_eq!(one.token, "st-paused");
+        assert_eq!(one.text, "Claude Code \u{b7} 0% left");
         assert!(one.limit && two.limit, "the amber edge at a limit");
-        // The weekly limit is on the week window.
-        let mut weekly = f.limit_one.tools[0].1.clone();
-        weekly.limit.as_mut().unwrap().kind = LimitKind::Weekly;
-        let s = State::new(
-            vec![(AvatarTool::ClaudeCode, weekly)],
-            AgentLimits::default(),
-            Vec::new(),
-        );
-        assert_eq!(mac_button(&s).warning.unwrap().text, "week limit");
     }
 
     #[test]
@@ -1192,7 +1183,10 @@ mod tests {
         let mut limited = Fixtures::new().four;
         limited.tools[1].1.limit =
             fixtures::limited(limited.tools[1].1.clone(), LimitKind::Weekly).limit;
-        assert_eq!(mac_button(&limited).warning.unwrap().text, "Codex limit");
+        assert_eq!(
+            mac_button(&limited).warning.unwrap().text,
+            "Codex \u{b7} 0% left"
+        );
     }
 
     #[test]

@@ -384,10 +384,11 @@ const avatar = (tool: "claude_code" | "codex", letters: string): ToolAvatarView 
 const claudeLine = (over: Partial<LimitLine> = {}): LimitLine => ({
   tool: "claude",
   avatar: avatar("claude_code", "CC"),
-  tone: "neutral",
+  tone: "warning",
   icon: "gauge",
   title: "Claude Code limit reached",
-  text: "Resets 3:45 pm · 4 tickets waiting",
+  text: "Its 4 tickets wait; agents on other tools keep working. Nothing switches tools.",
+  aside: "0% left · resets 3:45 pm",
   buttons: [
     {
       label: "Resume Claude Code",
@@ -407,6 +408,7 @@ const codexLine: LimitLine = {
   icon: "triangle-alert",
   title: "Codex isn’t available",
   text: "signed out · 5 tickets waiting",
+  aside: null,
   buttons: [
     {
       label: "Sign in…",
@@ -437,20 +439,20 @@ describe("the limit banner per tool", () => {
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [b] }));
     expect(html.match(/notices-line"/g)).toHaveLength(2);
     expect(html).toMatch(
-      /data-tone="neutral" data-tool="claude".*Claude Code limit reached.*Resume Claude Code/,
+      /data-tone="warning" data-tool="claude".*Claude Code limit reached.*0% left · resets 3:45 pm.*Resume Claude Code/,
     );
     expect(html).toMatch(/data-tone="warning" data-tool="codex".*Codex isn’t available.*Sign in…/);
     expect(html).not.toContain(">Resume<");
     expect(html).not.toContain('data-tone="attention"');
   });
 
-  it("the one-tool banner stays M22's: no avatar, no lines", () => {
+  it("with one tool the line has no avatar and still names the tool", () => {
     const one = limitBanner([claudeLine({ avatar: null })]);
-    expect(limitLinesOf(one)).toEqual([]);
+    expect(limitLinesOf(one)).toHaveLength(1);
     const html = renderToStaticMarkup(createElement(BannerRows, { banners: [one] }));
-    expect(html).not.toContain("notices-line");
+    expect(html).toContain("notices-line");
     expect(html).not.toContain("tool-avatar");
-    expect(html).toContain(">Resume<");
+    expect(html).toContain("Resume Claude Code");
   });
 
   it("Resume <tool> calls limits.resume_tool with its tool", () => {

@@ -1,104 +1,89 @@
-//! The **project menu** (FED-09, d0115; *26 → Row · Changing the flow later: where it is* `s26-08`, *Row · …: waiting
-//! to apply* `s26-12`): a click on the project's name in the title bar. Its head is the project's name and folder;
-//! then **Change flow…** with the flow in use under it ("shop-web’s flow · 7 steps", or "shop-web’s flow → Spec first
-//! · waiting" while a change waits), **Export flow…**, **Project settings…** with the user's key, **Open in Finder**
-//! and **Open a terminal here**. Changing the flow is rare, so it lives here and not on the board.
+//! The **project switcher** under the project's name in the title bar: a click on the name lists every project, in
+//! the rail's order, each with its tile, name and folder, a dot on one that needs you and a check on the one shown,
+//! then **Add project…**. The name only switches projects or adds one: changing the flow lives on the board (Edit
+//! flow), the project's settings in its Settings view, and exporting the flow in its Flow settings.
+//!
+//! The rail's own menu (a right-click on a tile) keeps Project settings…, Rename… and Remove project….
 
-use otaq_core::flow::apply::WaitingChange;
-use otaq_core::flow::model::FlowFile;
-use otaq_core::flow::presets::preset;
-use otaq_core::tools::Os;
+use otaq_core::board::snapshot::ProjectInfo;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::key_labels::KeyLabels;
 use crate::keymap::KeyAction;
-use crate::view_models::flow_settings::export_file;
 use crate::view_models::menu::MenuItem;
 
-/// The items' ids, which the page acts on.
-pub const CHANGE_FLOW: &str = "change_flow";
-pub const EXPORT_FLOW: &str = "export_flow";
+/// The rail menu's items' ids, which the page acts on.
 pub const PROJECT_SETTINGS: &str = "project_settings";
-pub const OPEN_FOLDER: &str = "open_folder";
-pub const OPEN_TERMINAL: &str = "open_terminal";
 /// The rail's menu only: the project's Settings at its Name field, and at Remove project.
 pub const RENAME_PROJECT: &str = "rename_project";
 pub const REMOVE_PROJECT: &str = "remove_project";
 
-/// The project menu. `ProjectMenuView` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "ProjectMenuView")]
-pub struct ProjectMenu {
+/// The switcher's last row.
+pub const ADD_PROJECT: &str = "Add project\u{2026}";
+
+/// One project in the switcher. `ProjectSwitchRow` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ProjectSwitchRow")]
+pub struct SwitchRow {
+    /// The project's key, which a click selects; also its tile's letters, as the rail draws them.
+    pub key: String,
     /// "shop-web".
-    pub title: String,
+    pub name: String,
     /// "~/code/shop-web".
     pub path: String,
-    pub items: Vec<MenuItem>,
-    /// Export flow…'s save dialog: its title and the file it offers.
-    pub export_title: String,
-    pub export_file: String,
+    /// The project needs you: the turquoise dot.
+    pub needs_you: bool,
+    /// The project on screen: the check mark.
+    pub current: bool,
+    /// What a screen reader hears: "shop-web, needs you, current".
+    pub label: String,
 }
 
-/// What the menu is built from.
-pub struct Facts<'a> {
-    pub name: &'a str,
-    /// The folder as the title bar shows it ("~/code/shop-web").
-    pub path: &'a str,
-    /// The flow in use; `None` when it couldn't be read (Change flow… then has no second line).
-    pub flow: Option<&'a FlowFile>,
-    pub waiting: Option<&'a WaitingChange>,
-    pub os: Os,
-    pub keys: &'a KeyLabels,
+/// The switcher. `ProjectMenuView` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ProjectMenuView")]
+pub struct ProjectMenu {
+    /// "Switch project": the menu's name for screen readers.
+    pub title: String,
+    pub rows: Vec<SwitchRow>,
+    /// "Add project…".
+    pub add: String,
 }
 
-/// "Open in Finder" as each OS calls it.
-pub fn open_folder_label(os: Os) -> &'static str {
-    match os {
-        Os::Mac => "Open in Finder",
-        Os::Windows => "Open in File Explorer",
-        Os::Linux => "Open in Files",
-    }
-}
-
-/// Change flow…'s second line: the flow in use and its steps (the first step and the delivery counted, as the editor
-/// counts them), or where a waiting change goes ("→ Spec first · waiting" for a preset, else "· a change waiting").
-pub fn flow_line(
-    name: &str,
-    flow: Option<&FlowFile>,
-    waiting: Option<&WaitingChange>,
-) -> Option<String> {
-    let own = format!("{name}\u{2019}s flow");
-    if let Some(waiting) = waiting {
-        return Some(match waiting.preset.as_deref().and_then(preset) {
-            Some(p) => format!("{own} \u{2192} {} \u{b7} waiting", p.name),
-            None => format!("{own} \u{b7} a change waiting"),
-        });
-    }
-    let steps = flow?.flow.stages.len() + 2;
-    Some(format!("{own} \u{b7} {steps} steps"))
-}
-
-pub fn menu(f: &Facts) -> ProjectMenu {
-    let mut change = MenuItem::new(CHANGE_FLOW, "Change flow\u{2026}").icon(IconName::Workflow);
-    change.hint = flow_line(f.name, f.flow, f.waiting);
-    let mut settings =
-        MenuItem::new(PROJECT_SETTINGS, "Project settings\u{2026}").icon(IconName::Settings);
-    settings.shortcut = f.keys.label(KeyAction::Settings);
-    settings.separated = true;
+/// The switcher for `projects` in the rail's order, `shown` the project on screen; `tilde` words each folder as the
+/// title bar shows it. A project needs you while its needs-you count is above zero.
+pub fn switcher(
+    projects: &[ProjectInfo],
+    shown: Option<&str>,
+    tilde: impl Fn(&str) -> String,
+) -> ProjectMenu {
     ProjectMenu {
-        title: f.name.to_owned(),
-        path: f.path.to_owned(),
-        items: vec![
-            change,
-            MenuItem::new(EXPORT_FLOW, "Export flow\u{2026}").icon(IconName::ArrowDownToLine),
-            settings,
-            MenuItem::new(OPEN_FOLDER, open_folder_label(f.os)).icon(IconName::FolderOpen),
-            MenuItem::new(OPEN_TERMINAL, "Open a terminal here").icon(IconName::SquareTerminal),
-        ],
-        export_title: format!("Export {}\u{2019}s flow", f.name),
-        export_file: export_file(f.name),
+        title: "Switch project".to_owned(),
+        rows: projects
+            .iter()
+            .map(|p| {
+                let needs_you = p.needs_you > 0;
+                let current = shown == Some(p.key.as_str());
+                let mut label = p.name.clone();
+                if needs_you {
+                    label.push_str(", needs you");
+                }
+                if current {
+                    label.push_str(", current");
+                }
+                SwitchRow {
+                    key: p.key.clone(),
+                    name: p.name.clone(),
+                    path: tilde(&p.repo_path),
+                    needs_you,
+                    current,
+                    label,
+                }
+            })
+            .collect(),
+        add: ADD_PROJECT.to_owned(),
     }
 }
 
@@ -118,75 +103,44 @@ pub fn rail_menu(keys: &KeyLabels) -> Vec<MenuItem> {
     ]
 }
 
-/// The menu in the component gallery: shop-web's flow in use, and with Spec first waiting.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+/// The switcher in the component gallery: shop-web shown and needing you with billing-api beside it, and one project
+/// alone.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ProjectMenuGallery")]
 pub struct Gallery {
     pub cells: Vec<(String, ProjectMenu)>,
 }
 
-pub fn gallery() -> Gallery {
-    let keys = &KeyLabels::default();
-    let flow = fixtures::seven_steps();
-    let waiting = fixtures::waiting_for("spec-first.yaml");
-    let facts = |waiting| Facts {
-        name: "shop-web",
-        path: "~/code/shop-web",
-        flow: Some(&flow),
-        waiting,
-        os: Os::Mac,
-        keys,
-    };
-    Gallery {
-        cells: vec![
-            ("The flow in use".to_owned(), menu(&facts(None))),
-            ("A change waiting".to_owned(), menu(&facts(Some(&waiting)))),
-        ],
+/// A project of the gallery and the tests.
+pub fn example(key: &str, name: &str, needs_you: u32) -> ProjectInfo {
+    ProjectInfo {
+        key: key.into(),
+        name: name.into(),
+        repo_path: format!("~/code/{name}"),
+        base_branch: "main".into(),
+        agents_working: 0,
+        needs_you,
+        flow_setup_since: None,
+        paused_since: None,
+        paused_by: None,
     }
 }
 
-/// shop-web's flow (Spec first's Product spec and the default flow's stages with a Security check: 7 steps) and a
-/// waiting swap.
-pub mod fixtures {
-    use otaq_core::flow::apply::{Hold, Wait, WaitingChange};
-    use otaq_core::flow::model::{FlowFile, Stage};
-    use otaq_core::flow::presets::preset;
-    use otaq_core::flow::store::AppliedBy;
-
-    /// Spec first with Product spec its only planning stage (Ready, Product spec, Dev, Validate, Code review, Done)
-    /// and Security after Validate.
-    pub fn seven_steps() -> FlowFile {
-        let mut file = preset("spec-first.yaml").expect("a shipped preset").read();
-        file.flow
-            .stages
-            .retain(|s| !["tech-spec", "milestone-plan", "spec-review"].contains(&s.id.as_str()));
-        let validate = file
-            .flow
-            .stages
-            .iter()
-            .position(|s| s.id == "validate")
-            .expect("Spec first has Validate");
-        let mut security: Stage = file.flow.stages[validate].clone();
-        security.id = "security".into();
-        security.name = "Security".into();
-        file.flow.stages.insert(validate + 1, security);
-        file
-    }
-
-    /// A swap to the preset `file`, waiting for the whole board.
-    pub fn waiting_for(file: &str) -> WaitingChange {
-        WaitingChange {
-            project: "SHOP".into(),
-            yaml: String::new(),
-            applied_by: AppliedBy::User,
-            agent_name: None,
-            preset: Some(file.into()),
-            changes: vec!["Spec first".into()],
-            since: 0,
-            wait: Wait::WholeBoard,
-            hold: Hold::BEFORE_FIRST_STAGE,
-            waiting_for: Vec::new(),
-        }
+pub fn gallery() -> Gallery {
+    let two = [
+        example("SH", "shop-web", 2),
+        example("BI", "billing-api", 0),
+    ];
+    let one = [example("SH", "shop-web", 0)];
+    let same = |p: &str| p.to_owned();
+    Gallery {
+        cells: vec![
+            (
+                "Two projects, one needs you".to_owned(),
+                switcher(&two, Some("SH"), same),
+            ),
+            ("One project".to_owned(), switcher(&one, Some("SH"), same)),
+        ],
     }
 }
 
@@ -214,71 +168,32 @@ mod tests {
         assert_eq!(menu[0].shortcut, keys.label(KeyAction::Settings));
     }
 
+    /// The name only switches projects or adds one: every project in the rail's order, a dot on the one that needs
+    /// you, a check on the one shown, then Add project….
     #[test]
-    fn the_menu_matches_the_frame_s26_08() {
-        let keys = keys::base();
-        let flow = fixtures::seven_steps();
-        let m = menu(&Facts {
-            name: "shop-web",
-            path: "~/code/shop-web",
-            flow: Some(&flow),
-            waiting: None,
-            os: Os::Mac,
-            keys: &keys,
-        });
-        assert_eq!(
-            (m.title.as_str(), m.path.as_str()),
-            ("shop-web", "~/code/shop-web")
-        );
-        let rows: Vec<(&str, &str, Option<&str>)> = m
-            .items
+    fn the_name_lists_the_projects_and_adds_one() {
+        let projects = [
+            example("SH", "shop-web", 2),
+            example("BI", "billing-api", 0),
+        ];
+        let menu = switcher(&projects, Some("BI"), |p| p.replace("/code", "/src"));
+        let rows: Vec<(&str, &str, bool, bool)> = menu
+            .rows
             .iter()
-            .map(|i| (i.id.as_str(), i.label.as_str(), i.hint.as_deref()))
+            .map(|r| (r.key.as_str(), r.path.as_str(), r.needs_you, r.current))
             .collect();
         assert_eq!(
             rows,
             [
-                (
-                    CHANGE_FLOW,
-                    "Change flow\u{2026}",
-                    Some("shop-web\u{2019}s flow \u{b7} 7 steps")
-                ),
-                (EXPORT_FLOW, "Export flow\u{2026}", None),
-                (PROJECT_SETTINGS, "Project settings\u{2026}", None),
-                (OPEN_FOLDER, "Open in Finder", None),
-                (OPEN_TERMINAL, "Open a terminal here", None),
+                ("SH", "~/src/shop-web", true, false),
+                ("BI", "~/src/billing-api", false, true),
             ]
         );
-        assert_eq!(m.items[2].shortcut.as_deref(), Some("\u{2318},"));
-        assert!(
-            m.items[2].separated,
-            "Project settings… starts the project's own items"
-        );
-        assert_eq!(m.export_file, "shop-web-flow.yaml");
-    }
-
-    #[test]
-    fn a_waiting_swap_shows_where_the_flow_goes_s26_12() {
-        let flow = fixtures::seven_steps();
-        let waiting = fixtures::waiting_for("spec-first.yaml");
-        assert_eq!(
-            flow_line("shop-web", Some(&flow), Some(&waiting)).as_deref(),
-            Some("shop-web\u{2019}s flow \u{2192} Spec first \u{b7} waiting")
-        );
-        let mut edit = waiting.clone();
-        edit.preset = None;
-        assert_eq!(
-            flow_line("shop-web", Some(&flow), Some(&edit)).as_deref(),
-            Some("shop-web\u{2019}s flow \u{b7} a change waiting")
-        );
-        assert_eq!(flow_line("shop-web", None, None), None);
+        assert_eq!(menu.rows[0].label, "shop-web, needs you");
+        assert_eq!(menu.rows[1].label, "billing-api, current");
+        assert_eq!(menu.add, "Add project\u{2026}");
+        let none = switcher(&projects, None, str::to_owned);
+        assert!(none.rows.iter().all(|r| !r.current));
         assert_eq!(gallery().cells.len(), 2);
-    }
-
-    #[test]
-    fn open_in_finder_as_each_os_calls_it() {
-        assert_eq!(open_folder_label(Os::Mac), "Open in Finder");
-        assert_eq!(open_folder_label(Os::Windows), "Open in File Explorer");
-        assert_eq!(open_folder_label(Os::Linux), "Open in Files");
     }
 }

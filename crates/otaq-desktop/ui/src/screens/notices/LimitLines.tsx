@@ -1,8 +1,7 @@
-// The usage limit banner with one line per tool (*11 → Row · Limit banner per tool (0086)*, *Not available*; USG-10,
-// AGM-03, d0086, d0108): the tool's avatar, its title and text, Resume <tool> or Sign in…. Only that tool's agents
-// wait; nothing moves to another tool. A limit line is neutral, a tool that isn't available
-// amber, never turquoise (d0077). Every word and which buttons show come from Rust (`limit_banner.rs`); a press goes
-// out as the line's `ToolProblemAction`.
+// The usage limit banner with one line per tool (USG-10, AGM-03, d0086, d0108): the tool's avatar (with several tools),
+// its title and text, what is left and when it resets on the right, then Resume <tool> or Sign in…. Only that tool's
+// agents wait; nothing ever moves to another tool. Amber, never turquoise (d0077). Every word and which buttons show
+// come from Rust (`limit_banner.rs`); a press goes out as the line's `ToolProblemAction`.
 import { Button, ToolAvatar } from "../../components";
 import type { LimitLine } from "../../generated/LimitLine";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
@@ -26,6 +25,7 @@ export function LimitLineRow({ line, onAction }: { line: LimitLine } & LimitLine
       )}
       <span className="banner-title">{line.title}</span>
       <span className="banner-text">{line.text}</span>
+      {line.aside !== null && <span className="banner-aside">{line.aside}</span>}
       {line.buttons.map((button) => (
         <Button
           key={button.label}

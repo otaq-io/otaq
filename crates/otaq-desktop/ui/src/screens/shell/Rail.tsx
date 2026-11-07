@@ -1,11 +1,10 @@
-// The project rail (UI-01, ATT-10, PRJ-01, SHB-02; d0024, d0058, d0087, d0113; *02 → One project, Another project
-// needs you, Ten projects · long names*, *24 → Row · The Project agent*): every project in the user's order with its
-// agents working and items needing you, quiet when idle; a project that newly needs you while another is shown rings
-// for 10 s. The 64 px column of tiles at every width. Add project after the tiles; at the bottom the Project agent
-// button (tinted while its panel is open, a dot while a reply waits; ⌘L), then Terminals (the drawer on the last-used
-// terminal, as ⌃`), Cleanup and Settings (as ⌘,) (T-0329, T-0458); Settings has a dot while an update is ready
-// (UPD-04, page 32 item 2), its tooltip saying which. A project in Flow setup is marked "Flow setup" under its name (ASK-04,
-// T-0436); selecting it opens its Flow setup page. Rows, order and wording are `shell.rail`'s.
+// The project rail (UI-01, ATT-10, PRJ-01, SHB-02; d0024, d0058, d0087, d0113): every project in the user's order with
+// its agents working and items needing you, quiet when idle; a project that newly needs you while another is shown
+// rings for 10 s. The 64 px column of tiles at every width. Add project after the tiles; at its foot Noyan (tinted
+// while its panel is open, a dot while a reply waits; ⌘L), Terminal (the drawer on the last-used terminal, as ⌃`)
+// and the app-settings gear (as ⌘,), which has a dot while an update is ready (UPD-04), its tooltip saying which.
+// Cleanup lives in Settings (Data), not on the rail. A project in Flow setup is marked "Flow setup" under its name
+// (ASK-04, T-0436); selecting it opens its Flow setup page. Rows, order and wording are `shell.rail`'s.
 import { useCallback, useEffect, useState } from "react";
 
 import { openOverlay } from "../../app/overlays";
@@ -13,7 +12,6 @@ import { type Registries, useRegistries } from "../../app/registry";
 import { selectProject, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { AnchoredMenu, type Anchor, Tooltip } from "../../components";
-import type { CleanupBroom } from "../../generated/CleanupBroom";
 import type { RailButton } from "../../generated/RailButton";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
@@ -25,7 +23,6 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askBar } from "../ask_bar/logic";
 import { toggleAgentPanel } from "../agent_panel/logic";
-import { cleanupScans } from "../recovery/logic";
 import { updatesStore, watchUpdates } from "../settings/updates";
 import { railMenuChoice } from "./projectMenu";
 
@@ -39,27 +36,6 @@ export const RAIL_EVENTS = [
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",
 ] as const;
-
-function Broom({ broom }: { broom: CleanupBroom | undefined }) {
-  const count = broom?.count ?? 0;
-  return (
-    <Tooltip text={broom?.tooltip ?? "Cleanup"} detail={broom ? [broom.detail] : undefined}>
-      <button
-        type="button"
-        className="rail-broom"
-        aria-label={broom?.tooltip ?? "Cleanup"}
-        onClick={() => {
-          openOverlay("cleanup");
-        }}
-      >
-        <span className="rail-broom-icon">
-          <Icon name="brush-cleaning" size={16} />
-          {count > 0 && <span className="rail-broom-dot" />}
-        </span>
-      </button>
-    </Tooltip>
-  );
-}
 
 function choose(item: RailItem) {
   selectProject(item.key);
@@ -124,7 +100,6 @@ export function RailAgentButton({ button }: { button: AskAgentButton }) {
 
 export interface RailProps {
   view: RailView;
-  broom?: CleanupBroom | undefined;
   actions?: RailActions;
   /** The open project's Project agent button; none before its Ask bar loaded. */
   agent?: AskAgentButton | undefined;
@@ -142,7 +117,7 @@ export interface TileMenu {
 }
 
 /** The 64 px rail of tiles. */
-export function RailTiles({ view, broom, actions, agent, menu = null, onMenu, updateDot = null }: RailProps) {
+export function RailTiles({ view, actions, agent, menu = null, onMenu, updateDot = null }: RailProps) {
   const setMenu = (next: TileMenu | null) => onMenu?.(next);
   return (
     <nav className="rail" aria-label="Projects">
@@ -201,7 +176,6 @@ export function RailTiles({ view, broom, actions, agent, menu = null, onMenu, up
         </>
       )}
       {bottomButton(view.bottom.terminals, "square-terminal", () => actions?.onTerminals())}
-      <Broom broom={broom} />
       {bottomButton(view.bottom.settings, "settings", () => actions?.onSettings(), updateDot)}
       {menu !== null && (
         <AnchoredMenu
@@ -234,14 +208,6 @@ export function ShellRail() {
     // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: a ring that is over stops drawing
   }, [project, tick]);
   const { view } = useServiceView(load, RAIL_EVENTS);
-  // Asked again after each Cleanup scan (T-0235): deleting leftovers takes the dot away.
-  const scans = useStore(cleanupScans);
-  const loadBroom = useCallback(
-    () => request("shell.cleanup") as Promise<CleanupBroom>,
-    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new scan is a new load
-    [scans],
-  );
-  const broom = useServiceView(loadBroom, []).view;
   const agent = useStore(askBar)?.button;
   const updateDot = useStore(updatesStore)?.dot ?? null;
   useEffect(() => watchUpdates(updatesStore.set), []);
@@ -270,7 +236,6 @@ export function ShellRail() {
   return (
     <RailTiles
       view={view.rail}
-      broom={broom}
       actions={railActions(app)}
       agent={agent}
       menu={menu}

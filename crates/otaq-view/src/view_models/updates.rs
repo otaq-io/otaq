@@ -165,7 +165,66 @@ pub struct View {
     pub notice: Option<Notice>,
     /// The dot on Settings in the rail, with its tooltip line ("Otaq 0.2.0 is ready").
     pub dot: Option<String>,
+    /// The calm banner under the title bar while an update is ready: never a modal, the same as About's notice.
+    pub banner: Option<UpdateBanner>,
 }
+
+/// The update banner: "Otaq 0.2.1 is ready · Restart to update; working agents continue afterwards." with Restart to
+/// update (or the `.deb`'s Download). `UpdateBanner` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "UpdateBanner")]
+pub struct UpdateBanner {
+    pub title: String,
+    pub text: String,
+    /// What its button does, as the notice's.
+    pub action: NoticeAction,
+    /// "Restart to update" or "Download".
+    pub action_label: String,
+    /// Off while Restart is putting the update in place.
+    pub enabled: bool,
+}
+
+/// The banner for an update's notice.
+fn banner(notice: &Notice, ctx: &Context) -> UpdateBanner {
+    let name = PRODUCT_NAME;
+    let version = &notice.version;
+    let working = ctx.service.map_or(0, |s| s.agents_working);
+    let (title, text, label) = match notice.kind {
+        NoticeKind::Ready => (
+            format!("{name} {version} is ready"),
+            "Restart to update; working agents continue afterwards.".to_owned(),
+            RESTART_TO_UPDATE,
+        ),
+        NoticeKind::NeedsAgentsRestarted if working > 0 => (
+            format!("{name} {version} is ready"),
+            format!(
+                "Restart to update; it restarts the background service too: {}.",
+                agents_stop(working)
+            ),
+            RESTART_TO_UPDATE,
+        ),
+        NoticeKind::NeedsAgentsRestarted => (
+            format!("{name} {version} is ready"),
+            "Restart to update; it restarts the background service too, and no agent is working now.".to_owned(),
+            RESTART_TO_UPDATE,
+        ),
+        NoticeKind::Available => (
+            format!("{name} {version} is available"),
+            "Download the new package and install it; agents keep working until the service restarts.".to_owned(),
+            "Download",
+        ),
+    };
+    UpdateBanner {
+        title,
+        text,
+        action: notice.action,
+        action_label: label.to_owned(),
+        enabled: notice.enabled,
+    }
+}
+
+/// The update banner's button.
+pub const RESTART_TO_UPDATE: &str = "Restart to update";
 
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "UpdatesAutoRow")]
@@ -337,6 +396,7 @@ pub fn view(state: &UpdateState, ctx: &Context) -> View {
             },
             notice: None,
             dot: None,
+            banner: None,
         };
     }
     let busy = matches!(
@@ -457,6 +517,7 @@ pub fn view(state: &UpdateState, ctx: &Context) -> View {
             NoticeKind::Available => format!("{name} {} is available", n.version),
             _ => format!("{name} {} is ready", n.version),
         }),
+        banner: notice.as_ref().map(|n| banner(n, ctx)),
         notice,
     }
 }
@@ -809,6 +870,32 @@ mod tests {
             ("What’s new", "Skip this version")
         );
         assert_eq!(v.dot.unwrap(), format!("{PRODUCT_NAME} 0.2.0 is ready"));
+    }
+
+    /// An update ready shows as a calm banner with Restart to update, never a modal.
+    #[test]
+    fn a_ready_update_has_its_banner() {
+        let b = view(&kept("0.2.0", Some(1)), &ctx()).banner.unwrap();
+        assert_eq!(b.title, format!("{PRODUCT_NAME} 0.2.0 is ready"));
+        assert_eq!(
+            b.text,
+            "Restart to update; working agents continue afterwards."
+        );
+        assert_eq!(
+            (b.action, b.action_label.as_str(), b.enabled),
+            (NoticeAction::Restart, "Restart to update", true)
+        );
+        let incompatible = view(&kept("0.3.0", Some(2)), &ctx()).banner.unwrap();
+        assert_eq!(
+            incompatible.text,
+            "Restart to update; it restarts the background service too: the 3 working agents stop and show \
+             Interrupted."
+        );
+        let skipped = Context {
+            skipped: Some("0.2.0".into()),
+            ..ctx()
+        };
+        assert_eq!(view(&kept("0.2.0", Some(1)), &skipped).banner, None);
     }
 
     #[test]

@@ -41,6 +41,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         }
         "notices.restart" => restart(app).await,
         "notices.resume_after_limit" => resume_after_limit(app).await,
+        "notices.resume_paused" => resume_paused(app).await,
         "notices.resume_all" => resume_all(app).await,
         "notices.open_docs" => {
             open::that_detached(PERMISSION_DOCS_URL).map_err(|e| {
@@ -212,6 +213,23 @@ async fn resume_after_limit(app: &App) -> Result<Value, RequestError> {
         return Ok(Value::Null);
     };
     resume_tool(app, tool).await
+}
+
+/// The paused banner's Resume: the project on screen, or every project when an All projects pause holds them all.
+async fn resume_paused(app: &App) -> Result<Value, RequestError> {
+    let Some((scope, project)) = app.notices.paused_resume() else {
+        return Ok(Value::Null);
+    };
+    super::pause::run(
+        app,
+        super::pause::RunParams {
+            scope,
+            project,
+            resume: true,
+        },
+    )
+    .await?;
+    Ok(Value::Null)
 }
 
 /// Resume one tool after its limit (USG-10): the strip's limit item, a notice's Resume after reset (`limits.resume_tool`).
