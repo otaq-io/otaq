@@ -616,8 +616,18 @@ mod tests {
         // A local merge opens no PR: no skill, but its agent stays to write the squash message.
         let local = deliver_as(&pr, DELIVERS_FIELD, "local").unwrap();
         assert_eq!(
-            (local.delivers, local.mode, local.agent.as_deref(), local.skill.as_deref()),
-            (Delivers::Local, DeliveryMode::Automatic, Some("Shipper"), None)
+            (
+                local.delivers,
+                local.mode,
+                local.agent.as_deref(),
+                local.skill.as_deref()
+            ),
+            (
+                Delivers::Local,
+                DeliveryMode::Automatic,
+                Some("Shipper"),
+                None
+            )
         );
         // So switching back to Either or a PR still has the agent that opens it.
         let back = deliver_as(&local, DELIVERS_FIELD, "either").unwrap();

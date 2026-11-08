@@ -205,7 +205,8 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
         checked: checked.map(|at| format!("Checked {}", ago(now - at))),
         menu_label: "More actions".to_owned(),
         not_shown_title: "Not shown here".to_owned(),
-        not_shown: "git, gh and az are under Git & pull requests: they aren\u{2019}t agents.".to_owned(),
+        not_shown: "git, gh and az are under Git & pull requests: they aren\u{2019}t agents."
+            .to_owned(),
         error: None,
         terminal: super::onboarding_page::tool_terminal_texts(),
     }
@@ -875,7 +876,11 @@ mod tests {
             format!("{PRODUCT_NAME} can see")
         );
         // Onboarding's rows don't list them.
-        assert!(row(&sample()[0], Place::Onboarding, false).can_see.is_none());
+        assert!(
+            row(&sample()[0], Place::Onboarding, false)
+                .can_see
+                .is_none()
+        );
     }
 
     #[test]
