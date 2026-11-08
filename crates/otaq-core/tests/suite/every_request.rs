@@ -62,6 +62,10 @@ fn sample(method: &str, unit: bool) -> Request {
             params["piece"] = json!(1);
             params["text"] = json!("t");
         }
+        if method == "tools.git_identity" {
+            // Refused before anything is written: the test never touches the machine's own git settings.
+            params["email"] = json!("");
+        }
         if method == "hook" {
             params["tool"] = json!("claude");
         }
@@ -161,6 +165,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::StartupReport
         | Request::Subscribe(_)
         | Request::ToolsCheck
+        | Request::GitSetIdentity(_)
         | Request::OnboardingState
         | Request::OnboardingSources(_)
         | Request::OnboardingAsk(_)

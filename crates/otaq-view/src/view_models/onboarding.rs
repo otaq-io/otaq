@@ -276,6 +276,7 @@ pub(crate) mod tests {
             missing_package_manager: None,
             path: None,
             account: None,
+            missing_identity: None,
         }
     }
 

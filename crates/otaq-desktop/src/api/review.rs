@@ -262,7 +262,7 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
                 app,
                 ToastLevel::Error,
                 format!("Local merge of {key} failed"),
-                Some(e.message.clone()),
+                Some(page::merge_failed_text(&e.message)),
             );
             return Err(e);
         }

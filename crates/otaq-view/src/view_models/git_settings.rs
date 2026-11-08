@@ -11,6 +11,7 @@ use otaq_core::tools::{Tool, ToolStatus, ToolsReport};
 use serde::Serialize;
 use ts_rs::TS;
 
+use super::git_identity;
 use super::onboarding::{OnboardingModel, ToolRow};
 use super::onboarding_page::{ToolButton, ToolTerminalTexts, tool_button, tool_terminal_texts};
 use otaq_core::naming::PRODUCT_NAME;
@@ -46,6 +47,8 @@ pub struct Row {
     pub button: Option<ToolButton>,
     /// "Needs Homebrew first…".
     pub note: Option<String>,
+    /// git's row while it has no name and email for commits: the form that saves them.
+    pub identity: Option<crate::view_models::git_identity::Form>,
 }
 
 /// The whole page.
@@ -115,7 +118,10 @@ fn git_row(row: &ToolRow, s: &ToolStatus) -> Row {
             .flatten()
             .collect::<Vec<_>>()
             .join(" \u{b7} ");
-        (detail, "Needed by every project".to_owned(), Look::Ready)
+        match &s.missing_identity {
+            Some(_) => (detail, git_identity::STATE.to_owned(), Look::Attention),
+            None => (detail, "Needed by every project".to_owned(), Look::Ready),
+        }
     } else {
         (
             "Not found".to_owned(),
@@ -134,6 +140,11 @@ fn git_row(row: &ToolRow, s: &ToolStatus) -> Row {
         command: row.command.clone(),
         button: tool_button(row),
         note: row.note.clone(),
+        identity: s
+            .found
+            .then_some(s.missing_identity.as_ref())
+            .flatten()
+            .map(git_identity::form),
     }
 }
 
@@ -182,6 +193,7 @@ fn provider_row(row: &ToolRow, s: &ToolStatus) -> Row {
         command: row.command.clone(),
         button: tool_button(row),
         note: row.note.clone(),
+        identity: None,
     }
 }
 
@@ -204,6 +216,7 @@ mod tests {
             missing_package_manager: None,
             path: Some(format!("/usr/bin/{}", tool.command())),
             account: None,
+            missing_identity: None,
         }
     }
 
@@ -283,6 +296,24 @@ mod tests {
         );
         assert_eq!(gh.button.as_ref().unwrap().label, "Install");
         assert_eq!(gh.command.as_deref(), Some("brew install gh"));
+    }
+
+    #[test]
+    fn git_without_a_name_and_email_asks_for_them_on_its_row() {
+        let git = ToolStatus {
+            missing_identity: Some(otaq_core::git::Identity::default()),
+            ..status(Tool::Git)
+        };
+        let v = view(Ok(report(vec![git])));
+        let git = v.git.unwrap();
+        assert_eq!(
+            (git.state.as_str(), git.look),
+            ("Needs your name and email", Look::Attention)
+        );
+        assert_eq!(git.identity.unwrap().save, "Save");
+        // With them, no form.
+        let v = view(Ok(report(vec![status(Tool::Git)])));
+        assert!(v.git.unwrap().identity.is_none());
     }
 
     #[test]

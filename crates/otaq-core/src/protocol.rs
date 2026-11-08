@@ -184,6 +184,11 @@ pub enum Request {
     /// running one if there is one). Answered with [`Reply::Session`]; attach with `session.attach {session}`.
     #[serde(rename = "tools.terminal")]
     ToolTerminalOpen(ToolTerminalParams),
+    /// `{"name": "Ada Lovelace", "email": "ada@example.com"}`: the user's **Save** of the name and email git signs
+    /// commits with, when git has none: written to the user's own git settings (`git config --global`), only on
+    /// that click. Answered with [`Reply::Ok`]; refused, in plain words, when one can't be used. The user's only.
+    #[serde(rename = "tools.git_identity")]
+    GitSetIdentity(GitIdentityParams),
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
@@ -1129,6 +1134,13 @@ pub struct OnboardingAskParams {
     pub tool: Tool,
 }
 
+/// `tools.git_identity`: what the user typed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitIdentityParams {
+    pub name: String,
+    pub email: String,
+}
+
 /// A request about one agent tool.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ToolParams {
@@ -2057,6 +2069,7 @@ impl Request {
             Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
             Self::ToolTerminalOpen(_) => "tools.terminal",
+            Self::GitSetIdentity(_) => "tools.git_identity",
             Self::OnboardingState => "onboarding.state",
             Self::OnboardingSources(_) => "onboarding.sources",
             Self::OnboardingAsk(_) => "onboarding.ask",
@@ -2919,6 +2932,13 @@ mod tests {
             Message::request(8, Request::OnboardingState),
             Message::request(9, Request::DismissPermissionWarning),
             Message::request(9, Request::DismissTrustNote),
+            Message::request(
+                9,
+                Request::GitSetIdentity(GitIdentityParams {
+                    name: "Ada Lovelace".into(),
+                    email: "ada@example.com".into(),
+                }),
+            ),
             Message::reply(
                 8,
                 Reply::OnboardingState(OnboardingState {

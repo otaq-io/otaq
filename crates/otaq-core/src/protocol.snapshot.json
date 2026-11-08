@@ -3963,6 +3963,19 @@
         }
       }
     },
+    "GitIdentityParams": {
+      "kind": "struct",
+      "fields": {
+        "email": {
+          "ty": "String",
+          "required": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "GlobalSettings": {
       "kind": "struct",
       "attrs": [
@@ -4457,6 +4470,19 @@
         }
       }
     },
+    "Identity": {
+      "kind": "struct",
+      "fields": {
+        "email": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "name": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
     "InUse": {
       "kind": "struct",
       "fields": {
@@ -4819,6 +4845,14 @@
             },
             "ticket": {
               "ty": "Ticket",
+              "required": true
+            }
+          }
+        },
+        "needs_identity": {
+          "fields": {
+            "has": {
+              "ty": "Identity",
               "required": true
             }
           }
@@ -8701,6 +8735,9 @@
           "newtype": "ResumeAllParams"
         },
         "tools.check": {},
+        "tools.git_identity": {
+          "newtype": "GitIdentityParams"
+        },
         "tools.terminal": {
           "newtype": "ToolTerminalParams"
         },
@@ -12616,6 +12653,10 @@
         },
         "login_command": {
           "ty": "Option<String>"
+        },
+        "missing_identity": {
+          "ty": "Option<Identity>",
+          "omittable": true
         },
         "missing_package_manager": {
           "ty": "Option<String>",

@@ -20,6 +20,11 @@ before Publish (`scripts/README.md`, "Making a release").
 - **Adding a project later** offers a light Flow choice: Otaq default, Same as <project>, or Suggest one (Noyan's
   agent drafts a flow in Edit flow while the board runs on the default).
 - **Closing the window while agents work** says once: "Agents keep working. Otaq is in the menu bar."
+- **Your first merge on a fresh Mac.** When git has no name and email for your commits, the Tools step's git row
+  (and Settings → Git & pull requests) asks for them, and Approve & merge asks too instead of failing with git's
+  "Author identity unknown": **Save and merge** saves them in your git settings (`git config --global`, only on
+  that click) and merges. A merge that fails says why in a short line, and long toasts wrap inside the window. A
+  press outside the merge confirmation no longer closes it with your message.
 - **Edit flow on the board.** **Edit flow** at the end of the board turns the board into the flow's editor in place:
   each column header is its stage (what happens, its agent and skill, a check's rounds and where its fails go), the
   cards stay where they are, dimmed, and Backlog and Done are fixed at the ends. Drag a header to reorder it, × to

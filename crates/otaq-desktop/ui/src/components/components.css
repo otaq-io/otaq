@@ -1059,6 +1059,8 @@
   gap: 10px;
   box-sizing: border-box;
   width: 340px;
+  /* Never wider than the window, whatever it says. */
+  max-width: calc(100vw - 32px);
   padding: 10px 12px;
   border: 1px solid var(--border);
   border-radius: var(--r-lg);
@@ -1104,6 +1106,7 @@
 .toast-title {
   color: var(--text-primary);
   font: 500 13px var(--font-ui);
+  overflow-wrap: anywhere;
 }
 
 /* The title and its buttons ("Undo"): on one line when they fit, the buttons below a long title. */
@@ -1127,12 +1130,17 @@
   text-decoration: underline;
 }
 
+/* A long text (a path, a command's output) wraps anywhere inside the toast rather than pushing it past the window's
+   edge, and scrolls past ten lines. */
 .toast-text {
   display: flex;
   flex-wrap: wrap;
   gap: 4px;
+  max-height: calc(12px * 1.45 * 10);
+  overflow-y: auto;
   color: var(--text-secondary);
-  font: 400 12px var(--font-ui);
+  font: 400 12px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
 }
 
 .toast-action {

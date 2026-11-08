@@ -224,3 +224,71 @@ test("with one way to deliver, Approve opens the confirmation without the choice
   expect(message()).not.toBeNull();
   expect(host?.textContent).not.toContain("Both open a confirmation step");
 });
+
+test("a press outside the confirmation leaves it open: only Cancel, Esc or Merge end it", async () => {
+  await open(VIEW, false);
+  const backdrop = host?.querySelector<HTMLElement>(".dialog-backdrop");
+  expect(backdrop).not.toBeNull();
+  act(() => {
+    backdrop?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true }));
+  });
+  expect(closed).toBe(0);
+  expect(message()).not.toBeNull();
+});
+
+const IDENTITY_FORM = {
+  title: "git doesn’t know your name and email yet",
+  text: "Every commit carries its author’s name and email.",
+  name_label: "Name",
+  name: "",
+  name_placeholder: "Ada Lovelace",
+  email_label: "Email",
+  email: "",
+  email_placeholder: "ada@example.com",
+  note: "Saved in your git settings for every repository (git config --global).",
+  save: "Save",
+};
+
+test("a merge without a name and email asks for them; Save and merge saves them, then merges", async () => {
+  await open(VIEW, false);
+  let merged = 0;
+  asked.mockImplementation((method: string) => {
+    if (method === "review.approve") return Promise.resolve(VIEW);
+    if (method === "review.local_merge") {
+      merged += 1;
+      return Promise.resolve(
+        merged === 1
+          ? { kind: "identity", form: IDENTITY_FORM, merge: "Save and merge", cancel: "Cancel" }
+          : { kind: "merged", toasts: [] },
+      );
+    }
+    if (method === "tools.git_identity") return Promise.resolve(null);
+    return new Promise(() => undefined);
+  });
+  await act(async () => {
+    press("Enter", SUBMIT);
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  expect(host?.textContent).toContain("git doesn’t know your name and email yet");
+  const inputs = [...(host?.querySelectorAll<HTMLInputElement>(".git-identity-fields input") ?? [])];
+  expect(inputs).toHaveLength(2);
+  const type = (input: HTMLInputElement | undefined, value: string) => {
+    act(() => {
+      if (input === undefined) return;
+      Reflect.set(HTMLInputElement.prototype, "value", value, input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  };
+  type(inputs[0], "Ada Lovelace");
+  type(inputs[1], "ada@example.com");
+  const save = [...(host?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Save and merge");
+  expect(save).toBeDefined();
+  await act(async () => {
+    save?.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+  });
+  const calls = asked.mock.calls.map(([method, params]) => [method, params]);
+  expect(calls).toContainEqual(["tools.git_identity", { name: "Ada Lovelace", email: "ada@example.com" }]);
+  expect(merges()).toHaveLength(2);
+  expect(closed).toBe(1);
+});

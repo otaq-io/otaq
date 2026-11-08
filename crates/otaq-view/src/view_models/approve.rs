@@ -442,6 +442,8 @@ pub enum MergeView {
     Diverged { message: String },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back.
     Uncommitted { message: String, files: Vec<String> },
+    /// git has no name and email for the user: nothing merged; they're asked for, then the merge goes on.
+    NeedsIdentity { has: otaq_core::git::Identity },
     /// "SHOP-18 changed since you reviewed it · 1 new commit": the new commits (short sha, subject) and the
     /// files they changed · Approve anyway / Send back (REV-06).
     Changed {
@@ -501,6 +503,7 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             files: files.clone(),
         },
         LocalMergeOutcome::Changed { check } => changed_view(key, check),
+        LocalMergeOutcome::NeedsIdentity { has } => MergeView::NeedsIdentity { has: has.clone() },
         // Nothing merged; the ticket is back with its agent, the comment's words (d0120).
         LocalMergeOutcome::CheckFailed {
             target,

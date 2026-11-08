@@ -181,6 +181,7 @@ describe("Git & pull requests", () => {
       command: null,
       button: null,
       note: null,
+      identity: null,
     },
     recheck_label: "Re-check",
     providers_title: "Pull request providers",
@@ -194,6 +195,7 @@ describe("Git & pull requests", () => {
         command: null,
         button: null,
         note: null,
+        identity: null,
       },
       {
         tool: "az",
@@ -204,6 +206,7 @@ describe("Git & pull requests", () => {
         command: "az login",
         button: { tool: "az", action: "login", label: "Sign in…", running: "Signing in to az…" },
         note: null,
+        identity: null,
       },
     ],
     footnote: "Otaq uses them to push and open pull requests; it never watches them.",
