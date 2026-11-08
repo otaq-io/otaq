@@ -201,3 +201,8 @@
 .dependency-open[data-still] {
   cursor: default;
 }
+
+/* In your review there is nothing to wait for: no "Waits for…" when nothing is linked. */
+.overview[data-in-review] .dependencies[data-none] {
+  display: none;
+}

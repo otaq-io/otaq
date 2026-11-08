@@ -96,7 +96,13 @@ mod tests {
             [
                 (1, "Yes", false, false, false),
                 (2, "No", true, true, false),
-                (3, "Other\u{2026} type your own answer", false, false, true),
+                (
+                    3,
+                    "Something else: type your own answer",
+                    false,
+                    false,
+                    true
+                ),
             ]
         );
         assert_eq!(q.answer.rows[0].note.as_deref(), Some("Yes: the note."));

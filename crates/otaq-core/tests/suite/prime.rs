@@ -199,7 +199,7 @@ The checkout page shows the cart, the price table and a pay button.
 {DEFAULT_FLOW}
 ## Depends on
 
-- SHOP-18 · Checkout API (Ready for Review)
+- SHOP-18 · Checkout API (Ready for you)
   Last comment, Developer · Dev · 11:20 am:
   > POST /checkout creates a Stripe session.
   > Returns the session URL.
@@ -519,7 +519,7 @@ async fn validate_prime_plain() {
         "## What and why\n\nThe checkout page shows the cart",
         "## Agent instructions (Checker)\n\nRun `pnpm test` before submitting.",
         "## Linked tickets",
-        "- depends on SHOP-18 · Checkout API (Ready for Review)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
+        "- depends on SHOP-18 · Checkout API (Ready for you)\n  Last comment, Developer · Dev · 11:20 am:\n  > POST /checkout creates a Stripe session.",
         "- depends on SHOP-19 · Price table (Working)",
         "## The diff\n\n```diff\n",
         "\n## Your verdict\n\nKeep it short: one or two lines, one line per finding with its file and line; notes \

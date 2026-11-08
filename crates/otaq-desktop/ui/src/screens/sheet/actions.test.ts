@@ -13,8 +13,6 @@ import type { CardActionKind } from "../../generated/CardActionKind";
 import type { SheetAction } from "../../generated/SheetAction";
 import type { SheetAnswerRow } from "../../generated/SheetAnswerRow";
 import type { SheetView } from "../../generated/SheetView";
-import type { StageChoicesView } from "../../generated/StageChoicesView";
-import type { TicketPathView } from "../../generated/TicketPathView";
 import { request } from "../../tauri";
 import { sheet } from ".";
 import {
@@ -28,7 +26,9 @@ import {
   picksOther,
 } from "./actionRoutes";
 import { SheetBody } from "./Sheet";
-import { renderSheet as render, sheetRegistries, VIEW } from "./sheet_fixtures";
+import { canAnswerQuestion } from "../overview/NeedsYou";
+import type { SheetAnswer } from "../../generated/SheetAnswer";
+import { renderSheet as render, VIEW } from "./sheet_fixtures";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -156,7 +156,7 @@ describe("answer options", () => {
     { number: 2, label: "SES", recommended: false, picked: false, other: false, note: null },
     {
       number: 3,
-      label: "Other… type your own answer",
+      label: "Something else: type your own answer",
       recommended: false,
       picked: false,
       other: true,
@@ -175,6 +175,35 @@ describe("answer options", () => {
     expect(canSend(2, "", rows)).toBe(true);
     expect(canSend(3, "  ", rows)).toBe(false);
     expect(canSend(3, "Mailgun", rows)).toBe(true);
+  });
+
+  it("an open question (no options) is answered in place, in the user's own words", () => {
+    const html = render({
+      ...VIEW,
+      answer: {
+        question: "q2",
+        text: "Which greeting should it print?",
+        rows: [],
+        recommended_label: "Recommended",
+        other_placeholder: "Type your answer",
+        hint: "↵ sends",
+        in_terminal: "Answer in terminal",
+        send: "Send answer",
+      },
+    });
+    const page = new DOMParser().parseFromString(html, "text/html");
+    const card = page.querySelector(".overview-main .sheet-question");
+    expect(card?.textContent).toContain("Which greeting should it print?");
+    expect(card?.querySelector("input.sheet-answer-open")?.getAttribute("placeholder")).toBe(
+      "Type your answer",
+    );
+    expect(card?.querySelectorAll('[role="radio"]')).toHaveLength(0);
+    expect(html).toContain("Answer in terminal");
+    expect(html).not.toContain("Open agent session");
+    const buttons = [...(card?.querySelectorAll("button") ?? [])];
+    expect(buttons.find((b) => b.textContent.includes("Send answer"))?.hasAttribute("disabled")).toBe(true);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "Hello from Otaq")).toBe(true);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "  ")).toBe(false);
   });
 
   it("replaces the action bar with the question and its options", () => {
@@ -224,7 +253,7 @@ describe("answer options", () => {
 describe("what it needs from you, at the top of Overview", () => {
   it("draws the bar, the last signal and the registered section under the sheet's header and tabs", () => {
     const html = render(VIEW);
-    for (const text of ["SHOP-19", "Price table", "Working", "otaq/SHOP-19", "from main", "40s ago"]) {
+    for (const text of ["SHOP-19", "Price table", "Working", "In Dev · Strong · started by you 12 min ago"]) {
       expect(html).toContain(text);
     }
     expect(html).toContain("Open agent session");
@@ -253,7 +282,7 @@ describe("what it needs from you, at the top of Overview", () => {
     expect(html).not.toContain("View the setup log");
   });
 
-  it("the M12 extras: token split, Auto-merge stop message and the Approve caret", () => {
+  it("the M12 extras: Auto-merge stop message and the Approve caret; no token split (History has the tokens)", () => {
     const html = render({
       ...VIEW,
       token_split: "agent 58k · validation 9k (1 round)",
@@ -263,7 +292,7 @@ describe("what it needs from you, at the top of Overview", () => {
       ],
       approve_more: "Approve choices",
     });
-    expect(html).toContain("agent 58k · validation 9k (1 round)");
+    expect(html).not.toContain("agent 58k · validation 9k (1 round)");
     expect(html).toContain("Keeps conflicting with otaq/SHOP-40");
     expect(html).toContain("▾");
     expect(render(VIEW)).not.toContain("▾");
@@ -278,162 +307,12 @@ describe("what it needs from you, at the top of Overview", () => {
   });
 });
 
-describe("the choices and the path in the sheet (T-0411, AGM-09)", () => {
-  const item = (id: string, checked: boolean) => ({
-    id,
-    label: id,
-    icon: null,
-    shortcut: null,
-    danger: false,
-    disabled: false,
-    hint: null,
-    separated: false,
-    checked,
-    header: false,
-  });
-  /** SHOP-29 mid-flow (*05 → Row · Stage choices and path*). */
-  const CHOICES: StageChoicesView = {
-    heading: "Choices",
-    hint: null,
-    set_by: "set by Noyan",
-    rows: [
-      {
-        stage_id: "product-spec",
-        label: "Product spec:",
-        value: "Spec writer",
-        items: [],
-        lock: "Locked: Product spec has started",
-        change: null,
-      },
-      {
-        stage_id: "dev",
-        label: "Dev:",
-        value: "Rust developer",
-        items: [],
-        lock: "Locked: Dev has started",
-        change: {
-          text: "Dev: Quick developer → Rust developer · by Spec writer · touches session handling",
-          agent_made: true,
-          icon: "bot",
-        },
-      },
-      {
-        stage_id: "review",
-        label: "Review:",
-        value: "required",
-        items: [item("required", true), item("skip", false)],
-        lock: null,
-        change: null,
-      },
-    ],
-    note: null,
-  };
-  const PATH: TicketPathView = {
-    heading: "Path",
-    summary: "Product spec · Spec writer · sonnet · Dev · Rust developer · sonnet · Review · Done",
-    rows: [
-      {
-        stage: "Product spec",
-        state: "passed",
-        icon: "circle-check",
-        current: false,
-        detail: "Spec writer",
-        model: "claude-sonnet-5-5",
-        lock: "Locked: it ran on this model",
-      },
-      {
-        stage: "Dev",
-        state: "running",
-        icon: "activity",
-        current: true,
-        detail: "Rust developer · working",
-        model: "sonnet",
-        lock: null,
-      },
-      {
-        stage: "Review",
-        state: "your_check",
-        icon: "user-check",
-        current: false,
-        detail: "your check",
-        model: "—",
-        lock: null,
-      },
-    ],
-  };
-
-  it("sit under STAGES in Overview's right column, above Attachments, not in the left one", () => {
-    const out = render({
-      ...VIEW,
-      choices: CHOICES,
-      path: PATH,
-      token_split: "Rust developer 61k · no validation yet",
-    });
-    expect(out).toContain("Rust developer 61k · no validation yet");
-    const page = new DOMParser().parseFromString(out, "text/html");
-    expect(page.querySelector(".overview-main .sheet-bar")).not.toBeNull();
-    expect(page.querySelector(".overview-main .sheet-agents")).toBeNull();
-    const side = page.querySelector(".overview-side");
-    expect(side?.firstElementChild?.className).toBe("overview-stages");
-    const stages = side?.querySelector(".overview-stages");
-    expect(stages?.querySelector(".editor-section-name")?.textContent).toBe("STAGES");
-    expect(stages?.getAttribute("aria-label")).toBe("Stages");
-    expect(stages?.querySelector(".sheet-agents .stage-choices")).not.toBeNull();
-    expect(stages?.querySelector(".sheet-agents .ticket-path")).not.toBeNull();
-    // The choices, then the path.
-    const at = (text: string) => out.indexOf(text);
-    expect(at('class="stage-choices"')).toBeLessThan(at('class="ticket-path"'));
-    expect(out).toContain("set by Noyan");
-    expect(out).toContain('aria-label="Locked: Dev has started"');
-    expect(out).toContain('data-agent="true"');
-    expect(out).toContain(
-      "Dev: Quick developer → Rust developer · by Spec writer · touches session handling",
-    );
-    expect(out).toContain(PATH.summary);
-    expect(out).toContain('data-state="running" data-current="true"');
-    // On the default flow only the path shows; without a path, neither.
-    const only = render({ ...VIEW, path: PATH });
-    expect(only).not.toContain('class="stage-choices"');
-    expect(only).toContain("ticket-path");
-    expect(render(VIEW)).not.toContain("sheet-agents");
-    expect(render(VIEW)).not.toContain("overview-stages");
-  });
-
-  it("a pick goes to the service at once (sheet.set_choice)", () => {
-    const ask = vi.mocked(request);
-    ask.mockReset();
-    ask.mockResolvedValue(null);
-    const host = document.body.appendChild(document.createElement("div"));
-    const root = createRoot(host);
-    act(() => {
-      root.render(
-        createElement(
-          RegistriesContext,
-          { value: sheetRegistries() },
-          createElement(SheetBody, {
-            view: { ...VIEW, choices: CHOICES },
-            tab: null,
-            fullPage: false,
-            width: 1040,
-          }),
-        ),
-      );
-    });
-    const press = (el: Element | null | undefined) => {
-      act(() => {
-        el?.dispatchEvent(new MouseEvent("mousedown", { bubbles: true, cancelable: true }));
-        el?.dispatchEvent(new MouseEvent("click", { bubbles: true, cancelable: true }));
-      });
-    };
-    press(host.querySelector(".stage-choice-select button"));
-    press(
-      [...document.querySelectorAll('[role="menuitemradio"]')].find((i) => i.textContent.includes("skip")),
-    );
-    expect(ask).toHaveBeenCalledWith("sheet.set_choice", { key: VIEW.key, stage: "review", choice: "skip" });
-    act(() => {
-      root.unmount();
-    });
-    host.remove();
+describe("no plumbing in Overview (the stage's agents are set in Edit ticket…)", () => {
+  it("has no STAGES, no Path and no right column without attachments", () => {
+    const out = render(VIEW);
+    expect(out).not.toContain("overview-stages");
+    expect(out).not.toContain("sheet-agents");
+    expect(out).not.toContain("overview-side");
   });
 });
 

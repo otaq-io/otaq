@@ -9,7 +9,11 @@ import type { SheetTabView } from "./SheetTabView";
 /**
  * The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
  */
-export type SheetFrame = { crumbs: Array<SheetCrumb>, details: Array<SheetDetail>, 
+export type SheetFrame = { crumbs: Array<SheetCrumb>, 
+/**
+ * The line under the title: "In Dev · Strong · started by you 12 min ago" (`sheet::subtitle`).
+ */
+subtitle: string, details: Array<SheetDetail>, 
 /**
  * The flow path under the details line.
  */

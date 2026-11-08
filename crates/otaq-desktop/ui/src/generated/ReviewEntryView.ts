@@ -3,7 +3,7 @@ import type { IconName } from "./IconName";
 import type { PillPalette } from "./PillPalette";
 
 /**
- * How the ticket reached Review, at the top of the Files tab: "Validated · round 2" with "passed on the 2nd of 3
- * rounds · round 1 findings in History".
+ * How the ticket reached Review, in Overview's CHECKER and at the top of Changes: "Check passed" with "on the second
+ * try · the first try's findings are in History" (tries, not rounds: rounds are plumbing).
  */
 export type ReviewEntryView = { label: string, icon: IconName, palette: PillPalette, text: string | null, };

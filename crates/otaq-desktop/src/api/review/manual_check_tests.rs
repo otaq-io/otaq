@@ -98,7 +98,7 @@ async fn manual_checks_on_the_overview_and_in_the_merge_dialog() {
         .unwrap();
     assert_eq!(dialog["confirm"]["manual_checks"], "1 manual check not ticked");
 
-    // Run next to Approve, as during Dev.
+    // Approve and Send back are the review bar's: Overview doesn't repeat them (no run command here: no Run).
     let sheet = request(&app, "sheet.view", json!({ "key": "SHOP-1" }))
         .await
         .unwrap();
@@ -108,5 +108,5 @@ async fn manual_checks_on_the_overview_and_in_the_merge_dialog() {
         .iter()
         .filter_map(|b| b["action"].as_str())
         .collect();
-    assert_eq!(actions, ["approve", "send_back", "run"]);
+    assert!(actions.is_empty(), "{actions:?}");
 }

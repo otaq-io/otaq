@@ -207,7 +207,7 @@ impl Prs {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Open PR works on a ticket in Ready for Review",
+                    "{} is {}; Open PR works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),

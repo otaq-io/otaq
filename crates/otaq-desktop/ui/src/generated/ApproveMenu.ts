@@ -8,6 +8,10 @@ import type { ApproveItem } from "./ApproveItem";
  */
 export type ApproveMenu = { key: string, title: string, items: Array<ApproveItem>, note: string, 
 /**
+ * "Your flow delivers either way. Change it at the Done end of Edit flow.": under the delivery's choices.
+ */
+delivery_note: string, 
+/**
  * The one enabled choice when there is no other: the page opens its dialog straight away, without the choice
  * (dogfood #18).
  */

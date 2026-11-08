@@ -1,7 +1,7 @@
 // The ticket sheet (SHT-01, SHT-02; T-0464; *25 → Opening a ticket*, *Full page, and with the agent open*): 1040 px
 // over the board (920 px beside the Project agent; only the board dims), or the whole main area at full page (⤢,
 // "← Board"). The header: breadcrumb, title and status, Move… (the drag's columns), ⋯ (the ticket's menu), ⤢ and ✕;
-// the details line (Assignee, Model, Working, Priority, Branch; a value with a menu changes it); the flow path; the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
+// the line under the title (where it is, who works on it, `sheet::subtitle`); the flow path (no Delivery step); the tabs Overview · Session · Files · Activity (`1`–`4`, `g o` / `s` / `f` / `a`, ⌃Tab), each tab's body
 // registered in `sheetTabs`. It comes in as the drawer of 0095 (the frame's sheet layer). Everything it says is Rust's
 // (`sheet.view`'s `sheet`); it keeps open menus only. Its keys: Esc, `e`, j / k (⌘[ / ⌘]), the tab keys.
 import {
@@ -19,21 +19,12 @@ import { keepSheetWidth, layoutView, mainWidth, shellLayout, toggleExpanded } fr
 import { useRegistries, useShortcut } from "../../app/registry";
 import { closeTicket, selection, showTab, stepTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import {
-  AnchoredMenu,
-  IconButton,
-  ResizeEdge,
-  StatusPill,
-  Tabs,
-  ToolAvatar,
-  Tooltip,
-} from "../../components";
+import { AnchoredMenu, IconButton, ResizeEdge, StatusPill, Tabs, Tooltip } from "../../components";
 import type { MenuItem } from "../../generated/MenuItem";
 import type { SheetHint } from "../../generated/SheetHint";
 import type { SheetLoad } from "../../generated/SheetLoad";
 import type { SheetView } from "../../generated/SheetView";
 import type { SheetContent } from "../../generated/SheetContent";
-import type { SheetDetail } from "../../generated/SheetDetail";
 import type { SheetStep } from "../../generated/SheetStep";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -130,78 +121,6 @@ function MoveButton({ view }: { view: SheetView }) {
         />
       )}
     </>
-  );
-}
-
-/**
- * One value of the details line; with a menu (Priority, the stage's agent before it starts).
- */
-function DetailValue({ view, detail }: { view: SheetView; detail: SheetDetail }) {
-  const anchor = useRef<HTMLButtonElement>(null);
-  const [open, setOpen] = useState(false);
-  const content = (
-    <>
-      {detail.working && <span className="sheet-detail-dot" />}
-      {detail.avatar && <ToolAvatar avatar={detail.avatar} />}
-      {detail.value !== "" && (
-        <span className="sheet-detail-value" data-mono={detail.mono || undefined}>
-          {detail.value}
-        </span>
-      )}
-      {detail.note !== null && <span className="sheet-detail-note">{detail.note}</span>}
-    </>
-  );
-  const change = detail.change;
-  if (change === null) return <span className="sheet-detail-content">{content}</span>;
-  return (
-    <>
-      <button
-        ref={anchor}
-        type="button"
-        className="sheet-detail-content sheet-detail-button"
-        aria-haspopup="menu"
-        aria-expanded={open}
-        aria-label={`${detail.label}: ${detail.value}`}
-        onClick={() => {
-          setOpen(!open);
-        }}
-      >
-        {content}
-        <Icon name="chevron-down" size={11} />
-      </button>
-      {open && (
-        <AnchoredMenu
-          anchor={anchor}
-          label={detail.label}
-          items={change.items}
-          width={200}
-          onChoose={(item) => {
-            setOpen(false);
-            if (change.kind === "priority") {
-              request("sheet.priority", { key: view.key, item }).catch(ignore);
-            } else {
-              request("sheet.set_choice", { key: view.key, stage: change.stage, choice: item }).catch(ignore);
-            }
-          }}
-          onClose={() => {
-            setOpen(false);
-          }}
-        />
-      )}
-    </>
-  );
-}
-
-function Details({ view }: { view: SheetView }) {
-  return (
-    <div className="sheet-details">
-      {view.sheet.details.map((detail) => (
-        <span key={detail.label} className="sheet-detail">
-          <span className="sheet-detail-label">{detail.label}</span>
-          <DetailValue view={view} detail={detail} />
-        </span>
-      ))}
-    </div>
   );
 }
 
@@ -307,7 +226,7 @@ export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
             />
           </div>
         </div>
-        <Details view={view} />
+        {sheet.subtitle !== "" && <p className="sheet-subtitle">{sheet.subtitle}</p>}
         <FlowPath steps={sheet.steps} />
         <div className="sheet-tabs">
           <Tabs

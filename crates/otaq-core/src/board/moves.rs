@@ -133,7 +133,7 @@ impl MoveCheck {
 
 /// The reason given when a ticket is dragged into Ready for Review.
 pub const ONLY_AGENT_SUBMITS: &str =
-    "Only the agent or Move to next stage moves a ticket to Ready for Review";
+    "Only the agent or Move to next stage moves a ticket to your review";
 pub const MERGED_LOCKED: &str = "Merged tickets are locked";
 /// A drag of a ticket merged into another ticket's branch: it waits for that ticket.
 pub const MERGED_INTO_WAITS: &str =

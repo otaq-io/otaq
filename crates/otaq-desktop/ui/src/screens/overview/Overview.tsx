@@ -4,8 +4,8 @@
 // Review, d0125; `NeedsYou`; USG-07's "Mark as usage
 // limit" while the agent is Idle, the Inbox's row action before T-0459), the description in place
 // (`DescriptionSection`; ⋯ Edit ticket… swaps in the whole form, `EditForm`), the PLAN under it (`PlanSection`, d0133) and at a check of planning WHAT PLANNING DID (`PlanningDid`, d0129), the agent's recorded decisions, the
-// DEPENDENCIES with Waits for and the read-only Waiting for it (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px, STAGES (the
-// ticket's choices and path, `ChoicesAndPath`, `sheet.view`'s words), then the Attachments column: every
+// DEPENDENCIES with Waits for and the read-only Waiting for it (`screens/dependencies`, DPV-04), then the comments and their box. On the right, 300 px and
+// only once the ticket has some (the stage's agents are set in Edit ticket…, no Path), the Attachments column: every
 // report of the ticket with its size, who added it and in which stage, and its comment's first line; a row opens the
 // report view. Add (the system picker, several files), files dropped anywhere on Overview, or files pasted outside a
 // text field are added to the comment box's chips (tuq 003). Its words are Rust's (`overview.view`, `editor.open`).
@@ -20,7 +20,6 @@ import { Button } from "../../components";
 import type { AttachmentRow } from "../../generated/AttachmentRow";
 import type { EditorView } from "../../generated/EditorView";
 import type { OverviewView } from "../../generated/OverviewView";
-import type { SheetView } from "../../generated/SheetView";
 import { asRequestError, useServiceView } from "../../service";
 import { pickAttachmentFiles, request } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
@@ -34,7 +33,7 @@ import { openReport } from "../editor/reportOpener";
 import { BeforeYou } from "./BeforeYou";
 import { InReview } from "./InReview";
 import { ManualChecks } from "./ManualChecks";
-import { ChoicesAndPath, NeedsYou } from "./NeedsYou";
+import { NeedsYou } from "./NeedsYou";
 import { PlanSection } from "./Plan";
 import { PlanningDid } from "./PlanningDid";
 import { TicketDecisions } from "../sections/Decisions";
@@ -106,19 +105,6 @@ function AttachmentContents({ ticket, row }: { ticket: string; row: AttachmentRo
         {row.line !== "" && <span className="overview-attachment-line">{row.line}</span>}
       </span>
     </>
-  );
-}
-
-/** STAGES at the top of the right column: the ticket's choices, then its path; nothing without either. */
-export function Stages({ view }: { view: SheetView }) {
-  if (view.choices === null && view.path === null) return null;
-  return (
-    <section className="overview-stages" aria-label={view.stages_heading}>
-      <div className="overview-label">
-        <span className="editor-section-name">{view.stages_heading.toUpperCase()}</span>
-      </div>
-      <ChoicesAndPath view={view} />
-    </section>
   );
 }
 
@@ -231,7 +217,7 @@ export function OverviewTab({ ticket }: TicketProps) {
   const inReview = overview?.key === ticket ? overview.in_review : null;
   return (
     // The paste of a file outside a text field is Overview's own (RPT-02); every other key stays with the page.
-    <div ref={root} className="overview" onPaste={onPaste}>
+    <div ref={root} className="overview" data-in-review={inReview !== null || undefined} onPaste={onPaste}>
       <div className="overview-main">
         {sheet && (
           <NeedsYou
@@ -293,7 +279,8 @@ export function OverviewTab({ ticket }: TicketProps) {
                 overview={overview}
                 overviewTabs={overviewTabs}
               />
-              {overview.plan !== null && (
+              {/* No plan yet: no section (the planning stage or Noyan writes one when the work has pieces). */}
+              {overview.plan !== null && (overview.plan.empty === null || overview.plan.writing_now) && (
                 <PlanSection ticket={ticket} view={editor} plan={overview.plan} overviewTabs={overviewTabs} />
               )}
               {overview.planning !== null && <PlanningDid view={overview.planning} />}
@@ -306,10 +293,16 @@ export function OverviewTab({ ticket }: TicketProps) {
           return Section ? <Section key={id} ticket={ticket} /> : null;
         })}
         <CommentThread ticket={ticket} />
+        {overview?.key === ticket && overview.attachments.length === 0 && error !== null && (
+          <p className="comment-box-error" role="alert">
+            {error}
+          </p>
+        )}
       </div>
-      <div className="overview-side">
-        {sheet && <Stages view={sheet.view} />}
-        {overview?.key === ticket && (
+      {/* The right column only once the ticket has attachments: files are added from the comment box, pasted or
+          dropped anywhere on Overview. The stage's agents are set in Edit ticket… (no Path, no locks). */}
+      {overview?.key === ticket && overview.attachments.length > 0 && (
+        <div className="overview-side">
           <Attachments
             ticket={ticket}
             view={overview}
@@ -318,8 +311,8 @@ export function OverviewTab({ ticket }: TicketProps) {
               pickAttachmentFiles(overview.pick_title).then(attachPaths, () => undefined);
             }}
           />
-        )}
-      </div>
+        </div>
+      )}
     </div>
   );
 }

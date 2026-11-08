@@ -361,7 +361,7 @@ async fn a_fail_goes_back_to_the_agent_until_the_last_round() {
     assert_eq!(after.status, Status::Working);
     assert_eq!(
         after.flags.validation_round.unwrap().to_string(),
-        "Validation failed · round 1 of 3"
+        "Check failed · round 1 of 3"
     );
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1);
@@ -903,7 +903,7 @@ async fn after_a_failed_or_empty_validation() {
     assert_eq!(after.status, Status::Working);
     assert_eq!(
         after.flags.validation_round.unwrap().to_string(),
-        "Validation failed · round 1 of 2"
+        "Check failed · round 1 of 2"
     );
     let text = w.deliveries.pending(&agent.session).await.unwrap()[0]
         .text

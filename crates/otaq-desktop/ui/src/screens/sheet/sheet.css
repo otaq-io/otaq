@@ -405,3 +405,15 @@
 .sheet-gallery-full > .sheet {
   width: 1376px;
 }
+
+/* The line under the title: "In Dev · Strong · started by you 12 min ago". */
+.sheet-subtitle {
+  flex: none;
+  margin: 0;
+  padding: 0 24px 10px;
+  overflow: hidden;
+  color: var(--text-secondary);
+  font: var(--text-meta);
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}

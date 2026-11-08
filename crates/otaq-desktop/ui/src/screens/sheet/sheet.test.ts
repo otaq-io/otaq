@@ -86,7 +86,7 @@ describe("the sheet's tabs (SHT-02)", () => {
 });
 
 describe("the sheet", () => {
-  it("draws the breadcrumb, title, status, Move…, the details line, the path and four tabs", () => {
+  it("draws the breadcrumb, title, status, Move…, the line under the title, the path and four tabs", () => {
     const html = render(VIEW);
     for (const text of [
       "shop-web",
@@ -94,20 +94,17 @@ describe("the sheet", () => {
       "Price table",
       "Working",
       "Move…",
-      "Assignee",
-      "Rust developer",
-      "Claude Code · sonnet",
-      "3 min · 182k tokens",
-      "otaq/SHOP-19",
-      "from main",
+      "In Dev · Strong · started by you 12 min ago",
       "Product spec",
     ]) {
       expect(html).toContain(text);
     }
+    // No details line: priority, branch and the stage's agents are set in Edit ticket… and ⋯.
+    expect(html).not.toContain("sheet-details");
+    expect(html).not.toContain('aria-label="Priority: P3"');
     expect(html.match(/role="tab"/g)).toHaveLength(4);
     expect(html).toContain('data-tab="overview"');
     expect(html).toContain('aria-current="step"');
-    expect(html).toContain('aria-label="Priority: P3"');
     expect(html).toContain('aria-label="Full page"');
     expect(html).toContain("width:1040px");
   });

@@ -45,6 +45,14 @@ impl MenuItem {
         }
     }
 
+    /// A line of explanation between the rows, never chosen: a header with no label, only its words.
+    pub fn note(text: impl Into<String>) -> Self {
+        Self {
+            hint: Some(text.into()),
+            ..Self::header("")
+        }
+    }
+
     /// A group label in a list.
     pub fn header(label: impl Into<String>) -> Self {
         Self {

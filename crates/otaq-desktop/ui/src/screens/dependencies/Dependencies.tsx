@@ -266,27 +266,41 @@ export function DependenciesBody({ ticket, view }: { ticket: string; view: Depen
     setRemoveError(null);
     void sendLink(ticket, row.key, false).then(setRemoveError);
   };
+  // Nothing linked either way: no section, only a quiet "Waits for…" to add one (controls appear when there is
+  // something to show).
+  const none = view.waits_for.rows.length === 0 && view.waiting_for_it.rows.length === 0;
+  const addButton = (
+    <button
+      ref={add}
+      type="button"
+      className="overview-add"
+      aria-expanded={open}
+      onClick={() => {
+        if (open) close();
+        else setOpen(true);
+      }}
+    >
+      <Icon name="plus" size={12} />
+      {none ? `${view.waits_for.label}\u2026` : view.add}
+    </button>
+  );
   return (
-    <section className="dependencies" aria-label={view.title}>
-      <div className="overview-label">
-        <span className="editor-section-name">{view.title.toUpperCase()}</span>
-        <span className="editor-spacer" />
-        <button
-          ref={add}
-          type="button"
-          className="overview-add"
-          aria-expanded={open}
-          onClick={() => {
-            if (open) close();
-            else setOpen(true);
-          }}
-        >
-          <Icon name="plus" size={12} />
-          {view.add}
-        </button>
-      </div>
-      <Group group={view.waits_for} remove={view.remove} onRemove={remove} />
-      <Group group={view.waiting_for_it} remove={view.remove} onRemove={remove} />
+    <section className="dependencies" data-none={none || undefined} aria-label={view.title}>
+      {none ? (
+        <div className="dependencies-none">{addButton}</div>
+      ) : (
+        <div className="overview-label">
+          <span className="editor-section-name">{view.title.toUpperCase()}</span>
+          <span className="editor-spacer" />
+          {addButton}
+        </div>
+      )}
+      {view.waits_for.rows.length > 0 && (
+        <Group group={view.waits_for} remove={view.remove} onRemove={remove} />
+      )}
+      {view.waiting_for_it.rows.length > 0 && (
+        <Group group={view.waiting_for_it} remove={view.remove} onRemove={remove} />
+      )}
       {removeError !== null && (
         <p className="dependency-rule" data-refused role="alert">
           {removeError}

@@ -885,7 +885,7 @@ mod tests {
         assert_eq!(drag["targets"][2]["target"], "validate");
         assert_eq!(
             drag["targets"][3]["verdict"]["title"],
-            "Only agents move tickets to Ready for Review"
+            "Only agents move tickets to your review"
         );
         // No Ready for Dev and no Approved target: Backlog, the stages, Done.
         assert_eq!(drag["targets"][4]["target"], "done");

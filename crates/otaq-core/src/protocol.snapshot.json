@@ -6450,6 +6450,10 @@
         "ticket": {
           "ty": "Ticket",
           "required": true
+        },
+        "user_answers": {
+          "ty": "Vec<HumanAnswer>",
+          "omittable": true
         }
       }
     },
@@ -11748,6 +11752,10 @@
         "ticket": {
           "ty": "Ticket",
           "required": true
+        },
+        "user_answers": {
+          "ty": "Vec<HumanAnswer>",
+          "omittable": true
         }
       }
     },

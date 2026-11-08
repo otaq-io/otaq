@@ -333,7 +333,7 @@ async fn the_refusals() {
         .await
         .unwrap_err();
     assert_eq!(err.refusal(), Some(Refusal::MoveRefused));
-    assert!(err.to_string().contains("Ready for Review"), "{err}");
+    assert!(err.to_string().contains("in your review"), "{err}");
 
     in_review(&w, &t, "profile.ts").await;
     let err = outcome::change_and_send_back(&w.review, "SHOP-1#1", "  ", false, &me())

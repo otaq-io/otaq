@@ -1,7 +1,7 @@
 // The top of the sheet's Overview, what the ticket needs from you (SHT-03, T-0465; UI-04, ATT-12, ATT-17): the action
 // bar of the ticket's state, or the answer options of an Asks-you question; the held roles' callouts, the refusal, the
-// queued notice, the conflict strip and the Start interrupted callout. The choices and the path (`ChoicesAndPath`) sit
-// in Overview's right column, above Attachments. The M12 rows (d0063,
+// queued notice, the conflict strip and the Start interrupted callout. The stage's agents are set in Edit ticket… (no
+// Path, no locks). The M12 rows (d0063,
 // d0064): the validation buttons, the token split, the Auto-merge stop message and Answer the agent's note box. The
 // actions are the sheet's (`sheet/actions`); everything it says comes from `sheet.view`; it keeps only the picked
 // answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
@@ -12,21 +12,12 @@ import { openOverlay } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { SHEET_UNDER_TABS } from "../../app/registry/sheet";
 import { requestTerminalFocus, showTab } from "../../app/selection";
-import {
-  Button,
-  StageChoices,
-  TextArea,
-  TicketPath,
-  ToolProblemCallout,
-  Tooltip,
-  PLAIN_TEXT,
-} from "../../components";
+import { Button, TextArea, ToolProblemCallout, Tooltip, PLAIN_TEXT } from "../../components";
 import type { BuildAsideLine } from "../../generated/BuildAsideLine";
 import type { SheetAnswer } from "../../generated/SheetAnswer";
 import type { SheetAnswerAgent } from "../../generated/SheetAnswerAgent";
 import type { SheetButton } from "../../generated/SheetButton";
 import type { SheetButtonLook } from "../../generated/SheetButtonLook";
-import type { SheetChoiceParams } from "../../generated/SheetChoiceParams";
 import type { SheetNotice } from "../../generated/SheetNotice";
 import type { SheetSent } from "../../generated/SheetSent";
 import type { SheetRefusal } from "../../generated/SheetRefusal";
@@ -181,7 +172,51 @@ export function AnswerChoices({
   );
 }
 
-/** The question bar with its options (ATT-12, ATT-17); the Gallery draws it too. */
+/** An open question (no options): the question, then a box for the user's own words; ↵ sends. */
+function OpenAnswer({
+  answer,
+  text,
+  onText,
+  onSend,
+}: {
+  answer: SheetAnswer;
+  text: string;
+  onText: (text: string) => void;
+  onSend: () => void;
+}) {
+  return (
+    <div className="sheet-answer">
+      <div className="sheet-answer-question">
+        <Icon name="message-circle-question-mark" size={14} />
+        <span>{answer.text}</span>
+      </div>
+      <input
+        {...PLAIN_TEXT}
+        className="field-input sheet-answer-open"
+        value={text}
+        placeholder={answer.other_placeholder}
+        aria-label={answer.other_placeholder}
+        onChange={(e) => {
+          onText(e.target.value);
+        }}
+        onKeyDown={(e) => {
+          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
+            e.preventDefault();
+            onSend();
+          }
+        }}
+      />
+    </div>
+  );
+}
+
+/** Whether an answer can go: an open question's words, else a pick (and Other…'s text). */
+export function canAnswerQuestion(answer: SheetAnswer, pick: number | null, other: string): boolean {
+  if (answer.rows.length === 0) return other.trim() !== "";
+  return canSend(pick, other, answer.rows);
+}
+
+/** The question bar with its options, or an open question's box (ATT-12, ATT-17); the Gallery draws it too. */
 export function AnswerBox({
   view,
   answer,
@@ -197,10 +232,13 @@ export function AnswerBox({
   const options = useRef<HTMLDivElement>(null);
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
+  const open = answer.rows.length === 0;
+  const ready = canAnswerQuestion(answer, pick, other);
   const send = (clear = false): Promise<unknown> => {
-    if (pick === null || !canSend(pick, other, answer.rows) || sending) return Promise.resolve();
+    if (!ready || sending) return Promise.resolve();
     setSending(true);
-    const params = { key: view.key, question: answer.question, pick, other, clear };
+    // An open question's words go as its answer; the pick is the options' only.
+    const params = { key: view.key, question: answer.question, pick: pick ?? 1, other, clear };
     return (request("sheet.answer", params) as Promise<SheetSent>)
       .then((sent) => {
         askUnsent(sent, () => send(true));
@@ -226,23 +264,34 @@ export function AnswerBox({
     if (fromCard !== null) onCard(fromCard);
   }, [fromCard]);
   return (
-    <>
-      <AnswerChoices
-        answer={answer}
-        pick={pick}
-        other={other}
-        onPick={setPick}
-        onOther={setOther}
-        onSend={() => {
-          void send();
-        }}
-        options={options}
-      />
+    <div className="sheet-question">
+      {open ? (
+        <OpenAnswer
+          answer={answer}
+          text={other}
+          onText={setOther}
+          onSend={() => {
+            void send();
+          }}
+        />
+      ) : (
+        <AnswerChoices
+          answer={answer}
+          pick={pick}
+          other={other}
+          onPick={setPick}
+          onOther={setOther}
+          onSend={() => {
+            void send();
+          }}
+          options={options}
+        />
+      )}
       <div className="sheet-bar">
         <span className="sheet-answer-hint">{answer.hint}</span>
         <Button
           label={answer.in_terminal}
-          variant="secondary"
+          variant="ghost"
           icon="square-terminal"
           onClick={() => {
             showTab("agent");
@@ -252,7 +301,7 @@ export function AnswerBox({
         <Button
           label={answer.send}
           icon="send"
-          disabled={!canSend(pick, other, answer.rows)}
+          disabled={!ready}
           loading={sending}
           onClick={() => {
             void send();
@@ -260,7 +309,7 @@ export function AnswerBox({
         />
         {more}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -419,50 +468,13 @@ function Holds({ view }: { view: SheetView }) {
   );
 }
 
-/**
- * The ticket's choices and its path, in every sheet state (AGM-09; *05 → Row · Stage choices and path (update AG
- * §9)*); Overview draws them in its right column under STAGES. A pick goes to the service at once
- * (`sheet.set_choice`), and the sheet follows the ticket's change. Only the path on a flow without options.
- */
-export function ChoicesAndPath({ view }: { view: SheetView }) {
-  if (view.choices === null && view.path === null) return null;
-  return (
-    <div className="sheet-agents">
-      {view.choices !== null && (
-        <StageChoices
-          key={view.key}
-          view={view.choices}
-          look="sheet"
-          onPick={(stage, choice) => {
-            request("sheet.set_choice", { key: view.key, stage, choice } satisfies SheetChoiceParams).catch(
-              ignore,
-            );
-          }}
-        />
-      )}
-      {view.path !== null && <TicketPath view={view.path} />}
-    </div>
-  );
-}
-
-/** The last signal, the tokens by agent and the Run's pill (the old header's meta row), when there are any. */
+/** The Run's pill while it is up (Open, Stop). The last signal and the tokens stay out of Overview: History has each
+ * session's tokens. */
 function MetaLine({ view }: { view: SheetView }) {
-  if (view.signal === null && view.token_split === null && view.run === null) return null;
+  if (view.run === null) return null;
   return (
     <div className="sheet-meta">
-      {view.signal && (
-        <span className="sheet-meta-item" data-stale={view.signal.stale || undefined}>
-          <Icon name="activity" size={11} />
-          <span>{view.signal.text}</span>
-        </span>
-      )}
-      {view.token_split !== null && (
-        <span className="sheet-split">
-          <Icon name="coins" size={11} />
-          <span>{view.token_split}</span>
-        </span>
-      )}
-      {view.run && <RunPill ticket={view.key} pill={view.run} />}
+      <RunPill ticket={view.key} pill={view.run} />
     </div>
   );
 }
@@ -540,7 +552,7 @@ export function NeedsYou({
             )}
           </>
         )}
-        {view.build_aside !== null && <BuildAside line={view.build_aside} />}
+        {/* A build set aside to save disk says so where it is brought back: Run and Terminal, not here. */}
         {view.stop_message !== null && (
           <p className="sheet-stop-message">
             <Icon name="triangle-alert" size={13} />

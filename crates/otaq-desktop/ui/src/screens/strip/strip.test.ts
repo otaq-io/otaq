@@ -148,7 +148,7 @@ const AGENT_ASKS: StripView = {
                 },
                 {
                   number: 3,
-                  label: "Other… type your own answer",
+                  label: "Something else: type your own answer",
                   recommended: false,
                   picked: false,
                   other: true,

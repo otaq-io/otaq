@@ -51,8 +51,8 @@ types a reminder into this session.
    Put the ones that change what gets built first. Drop anything the description, the decisions, the code or the
    Agent instructions already answer. How to build it is Tech spec's job: leave it out.
 5. **Ask one question at a time** with `otaq ask human --stdin` (see "Asking"), most important first, then **end
-   your turn**. The ticket shows "Asks you" on the board; the answer arrives in this session as the user's next
-   message. Read it, check your list again (an answer can settle or drop the next point), and ask the next question.
+   your turn**. The user answers on the ticket's Overview in Otaq (or in this terminal); the answer arrives in this
+   session as the user's next message. Read it, check your list again (an answer can settle or drop the next point), and ask the next question.
    Say where you are: "Question 2 of about 4". Once nothing that changes what gets built is open, or the user says
    "enough" or "go", go straight on to step 6. **No open points at all?** Then ask nothing and go straight on to step
    6: there is nothing to wait for.

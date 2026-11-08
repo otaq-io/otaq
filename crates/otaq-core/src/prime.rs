@@ -18,6 +18,7 @@ use crate::agents::{Agent, AgentModel, ModelRef, SessionRole};
 use crate::board::comments::FeedbackComment;
 use crate::board::conflicts::{Conflict, ConflictReason};
 use crate::board::manual_checks::ManualCheck;
+use crate::board::questions::HumanAnswer;
 use crate::board::reports::AttachmentKind;
 use crate::board::stage_choices::StageOptions;
 use crate::board::ticket_comments::{CommentAuthor, OPEN_PATH, TicketComment};
@@ -64,6 +65,10 @@ pub struct PrimeContext {
     /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<TicketComment>,
+    /// The questions this ticket's agents asked the user (`ask human`) with the user's answers, oldest first: every
+    /// later stage and the checker read what the user decided.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub user_answers: Vec<HumanAnswer>,
     /// The manual checks listed for the user so far (d0125), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_checks: Vec<ManualCheck>,
@@ -523,6 +528,7 @@ impl Board {
             .collect();
         let decisions = crate::decisions::list_by_ticket_id(self, &ticket.id).await?;
         let comments = self.ticket_comments(key).await?.comments;
+        let user_answers = self.answered_human_questions(&ticket.id).await?;
         let manual_checks = self.manual_checks(key).await?.items;
         let created_not_started = crate::board::fixes::created_not_started(&ticket.key, &tickets);
         let context = PrimeContext {
@@ -542,6 +548,7 @@ impl Board {
             flow: flow_stages,
             earlier,
             comments,
+            user_answers,
             manual_checks,
             pull_request,
             created_not_started,
@@ -716,6 +723,10 @@ pub struct ValidatePrime {
     /// The ticket's comments (CMT-07), oldest first, deleted ones left out.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<TicketComment>,
+    /// The questions this ticket's agents asked the user (`ask human`) with the user's answers, oldest first: every
+    /// later stage and the checker read what the user decided.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub user_answers: Vec<HumanAnswer>,
     /// The manual checks listed for the user so far (d0125), oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub manual_checks: Vec<ManualCheck>,
@@ -810,6 +821,7 @@ impl Board {
             flow: base.flow,
             earlier: base.earlier,
             comments: base.comments,
+            user_answers: base.user_answers,
             manual_checks: base.manual_checks,
             diff: self.committed_diff(&ticket).await?,
             review,
@@ -898,6 +910,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
     out.push_str(&render_flow(&ctx.flow, &flow_lead()));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&ctx.ticket.key, &ctx.comments));
+    out.push_str(&render_user_answers(&ctx.user_answers));
     out.push_str(&render_manual_checks(&ctx.manual_checks));
     if let Some(review) = ctx.review.as_ref().filter(|r| !r.comments.is_empty()) {
         out.push_str(&format!(
@@ -1212,6 +1225,26 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
     out
 }
 
+/// The "## The user's answers" section: each question an agent of this ticket asked the user, oldest first, with
+/// what the user answered (in the app or in the terminal); nothing when none was answered. The checker and every later
+/// stage read it, so a choice the user made is judged as the user's, not as the agent's guess.
+pub fn render_user_answers(answers: &[HumanAnswer]) -> String {
+    if answers.is_empty() {
+        return String::new();
+    }
+    let mut out = String::from(
+        "\n## The user's answers\n\nQuestions this ticket's agents asked the user, and what the user answered. Treat \
+         an answer as the user's decision.\n",
+    );
+    for a in answers {
+        out.push_str("\n- Asked:\n");
+        quote(&mut out, "  ", &a.question);
+        out.push_str("  Answered:\n");
+        quote(&mut out, "  ", &a.answer);
+    }
+    out
+}
+
 /// A parent's last comment from an Agent stage under its line in "Depends on": its heading, the text quoted and its
 /// report's line.
 fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketComment) {
@@ -1277,6 +1310,7 @@ pub fn render(ctx: &PrimeContext) -> String {
     out.push_str(&render_flow(&ctx.flow, &flow_lead()));
     out.push_str(&render_earlier(&ctx.earlier));
     out.push_str(&render_comments(&t.key, &ctx.comments));
+    out.push_str(&render_user_answers(&ctx.user_answers));
     out.push_str(&render_manual_checks(&ctx.manual_checks));
 
     if !ctx.parents.is_empty() {

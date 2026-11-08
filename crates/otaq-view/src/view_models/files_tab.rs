@@ -1202,17 +1202,30 @@ pub fn with_approve(
             .and_then(|v| v.as_str().map(str::to_owned))
             .unwrap_or_default()
     };
-    let rows = menu
-        .items
-        .iter()
-        .filter(|i| i.choice != primary.choice)
-        .map(|i| {
+    use crate::view_models::approve::ApproveChoice;
+    let delivers =
+        |c: ApproveChoice| matches!(c, ApproveChoice::LocalMerge | ApproveChoice::OpenPr);
+    // Every way to finish, the button's own first among them as drawn, with the flow's line after the last way to
+    // deliver.
+    let mut rows: Vec<crate::view_models::menu::MenuItem> = Vec::new();
+    for (n, i) in menu.items.iter().enumerate() {
+        rows.push(
             crate::view_models::menu::MenuItem::new(id(i.choice), i.title.clone())
                 .icon(i.icon)
                 .hint(i.detail.clone())
-                .disabled(!i.enabled)
-        })
-        .collect();
+                .disabled(!i.enabled),
+        );
+        let last_delivery = delivers(i.choice)
+            && menu
+                .items
+                .get(n + 1)
+                .is_none_or(|next| !delivers(next.choice));
+        if last_delivery && !menu.delivery_note.is_empty() {
+            rows.push(crate::view_models::menu::MenuItem::note(
+                menu.delivery_note.clone(),
+            ));
+        }
+    }
     bar.approve = Some(ApproveSplit {
         label: primary.title.clone(),
         choice: primary.choice,
@@ -1946,15 +1959,23 @@ mod tests {
         assert_eq!(
             rows,
             [
+                ("local_merge", "Approve & merge into main", false),
                 ("open_pr", "Approve & open PR", false),
+                ("", "", false),
                 ("merge_into", "Merge into another ticket\u{2026}", true),
+                ("done", "Done, nothing to merge", true),
                 ("done_not_merged", "Done, don\u{2019}t merge", false),
             ]
         );
         assert_eq!(
-            approve.menu[0].hint.as_deref(),
+            approve.menu[1].hint.as_deref(),
             Some("Pushes the branch and opens a pull request instead.")
         );
+        assert_eq!(
+            approve.menu[2].hint.as_deref(),
+            Some("Your flow delivers either way. Change it at the Done end of Edit flow.")
+        );
+        assert!(approve.menu[2].header);
         assert!(bar.buttons.iter().all(|b| b.action != BarAction::Approve));
         assert_eq!((bar.title.as_str(), bar.line.as_str()), ("", ""));
         assert_eq!(

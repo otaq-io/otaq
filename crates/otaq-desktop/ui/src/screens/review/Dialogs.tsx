@@ -175,6 +175,7 @@ function MenuBody({
           <Kbd keys={String(item.number)} />
         </button>
       ))}
+      {view.menu.delivery_note !== "" && <p className="review-muted">{view.menu.delivery_note}</p>}
       <p className="review-muted">{view.menu.note}</p>
     </div>
   );

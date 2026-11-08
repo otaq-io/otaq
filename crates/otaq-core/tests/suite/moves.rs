@@ -125,7 +125,7 @@ fn refused_drags_carry_a_reason() {
     for status in [Status::Backlog, Status::ClosedNotMerged] {
         assert_eq!(
             reason(&check_move(&t(status), T::ReadyForReview)),
-            "Only the agent or Move to next stage moves a ticket to Ready for Review"
+            "Only the agent or Move to next stage moves a ticket to your review"
         );
     }
     // A forward drag is the user's Move to next stage (FLW-18): not while the agent is mid-turn.

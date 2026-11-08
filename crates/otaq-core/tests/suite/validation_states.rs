@@ -113,7 +113,7 @@ async fn ticket_columns_become_flags() {
     );
     assert_eq!(
         ticket.flags.validation_round.unwrap().to_string(),
-        "Validation failed · round 1 of 3"
+        "Check failed · round 1 of 3"
     );
     validate_counter(&f, &t.id, 1, 1, None).await;
     assert_eq!(

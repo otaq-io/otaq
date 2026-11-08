@@ -74,7 +74,7 @@ impl Review {
             let why = match ticket.flags.pr_number {
                 Some(n) => format!("{} has PR #{n} open; push to it instead", ticket.key),
                 None => format!(
-                    "{} is {}; Merge into another ticket works on a ticket in Ready for Review",
+                    "{} is {}; Merge into another ticket works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),

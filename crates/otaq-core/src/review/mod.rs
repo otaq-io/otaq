@@ -222,7 +222,7 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Send back works on a ticket in Ready for Review",
+                    "{} is {}; Send back works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -365,7 +365,7 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Local merge works on a ticket in Ready for Review",
+                    "{} is {}; Local merge works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),

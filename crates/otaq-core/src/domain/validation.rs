@@ -11,12 +11,12 @@ use serde::{Deserialize, Serialize};
 
 use super::stored_enum;
 
-/// "Validating…": the agent submitted and the validator is checking (neutral, d0063).
-pub const VALIDATING: &str = "Validating…";
+/// "Checking": the agent submitted and the checker is checking (neutral).
+pub const VALIDATING: &str = "Checking";
 /// The validator waits on a permission prompt (turquoise).
 pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · checker";
 /// The validator ended its turn without a verdict (turquoise).
-pub const NO_RESULT: &str = "Validation ended without a result";
+pub const NO_RESULT: &str = "Check ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
 pub const DISCARDED: &str = "Validation discarded: the checker changed files";
 /// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
@@ -34,9 +34,9 @@ pub fn conflicts_fixing(target: &str) -> String {
     format!("Conflicts with {target} \u{b7} fixing")
 }
 
-/// "Validation failed 3 times": the last round failed (VAL-06).
+/// "Check failed 3 times": the last round failed.
 pub fn failed_times(times: u32) -> String {
-    format!("Validation failed {}", times_word(times))
+    format!("Check failed {}", times_word(times))
 }
 
 /// "1 time", "3 times".
@@ -178,7 +178,7 @@ impl fmt::Display for ReviewEntryFlag {
     }
 }
 
-/// "Validation failed · round 1 of 3": a working card whose last round failed and went back to the agent.
+/// "Check failed · round 1 of 3": a working card whose last round failed and went back to the agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ValidationRound {
     pub round: u32,
@@ -187,7 +187,7 @@ pub struct ValidationRound {
 
 impl fmt::Display for ValidationRound {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
-        write!(f, "Validation failed · round {} of {}", self.round, self.of)
+        write!(f, "Check failed · round {} of {}", self.round, self.of)
     }
 }
 
@@ -299,13 +299,13 @@ mod tests {
     /// The exact texts of SDD §7.2.
     #[test]
     fn labels() {
-        assert_eq!(VALIDATING, "Validating…");
+        assert_eq!(VALIDATING, "Checking");
         assert_eq!(
             ValidationRound { round: 1, of: 3 }.to_string(),
-            "Validation failed · round 1 of 3"
+            "Check failed · round 1 of 3"
         );
-        assert_eq!(failed_times(3), "Validation failed 3 times");
-        assert_eq!(failed_times(1), "Validation failed 1 time");
+        assert_eq!(failed_times(3), "Check failed 3 times");
+        assert_eq!(failed_times(1), "Check failed 1 time");
         assert_eq!(
             ReviewEntry::FailedMoved.label(1),
             "Failed 1 time · moved by you"

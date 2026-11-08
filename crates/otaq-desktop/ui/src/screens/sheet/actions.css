@@ -523,3 +523,24 @@
   outline: 2px solid var(--focus);
   outline-offset: 1px;
 }
+
+/* A ticket's question, first on Overview: one turquoise-edged card with the question, its options or a box for your
+   own words, and the hint with Answer in terminal and Send answer under them. */
+.sheet-question {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  padding: 14px 16px;
+  border: 1px solid var(--st-attn);
+  border-radius: var(--r-lg);
+  background: var(--bg-panel);
+}
+
+.sheet-question .sheet-answer {
+  padding: 0;
+  background: none;
+}
+
+.sheet-answer-open {
+  width: 100%;
+}
