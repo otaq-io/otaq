@@ -33,7 +33,7 @@ pub struct ChecklistView {
     pub items: Vec<Row>,
 }
 
-/// Where the checklist shows: the statuses whose bar has Approve (or Pass), a human check or a click-mode Delivery.
+/// Where the checklist shows: the statuses whose bar has Approve (or Pass), a human check or To deliver.
 pub fn shown_in(status: Status) -> bool {
     matches!(status, Status::WaitingForYou | Status::ToDeliver)
 }
@@ -159,7 +159,7 @@ mod tests {
         );
         assert!(
             checklist(Status::ToDeliver, &checks).is_some(),
-            "a click-mode Delivery"
+            "waiting for the delivery click"
         );
         for status in [
             Status::Working,

@@ -1,4 +1,4 @@
-// The box for new work (UX-22, UX-48; *New ticket · one box for new work*): the `new_work` slot, docked at the bottom
+// The box for new work (*New ticket · one box for new work*): the `new_work` slot, docked at the bottom
 // centre of the board and the List, "New ticket, or ask Noyan…" with ⌘N. A click, ⌘N or the toolbar's New ticket opens
 // it: it grows upward over a light scrim, the title line on top and "Add details (optional)" under it. ↵ Create, ⌘↵
 // Create & start, ⇧↵ Ask Noyan to shape it, ⌥↵ a new line (from the title line, into the details); More options…

@@ -209,7 +209,7 @@ struct State {
     banners: BannerModel,
     toasts: ToastModel,
     link: LinkState,
-    /// Every tool's banner line and the model lists of the tools Move waiting to… offers, as last fetched.
+    /// Every tool's banner line, as last fetched.
     usage: Option<LimitInputs>,
     limit: Vec<LimitLine>,
     /// When the app opened, the service start a summary was shown for, whether the app has connected yet and

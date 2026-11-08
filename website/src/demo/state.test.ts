@@ -196,7 +196,7 @@ describe("answering", () => {
       "Send it on to Validate",
     ]);
     store.answer("m32");
-    expect(ticket("SHOP-32")).toMatchObject({ col: "validate", st: "checking", agent: "Validator" });
+    expect(ticket("SHOP-32")).toMatchObject({ col: "validate", st: "checking", agent: "Checker" });
     expect(ticket("SHOP-32").checks?.[0]?.t).toBe("Security · failed 3 times · you sent it on");
   });
 });
@@ -335,7 +335,7 @@ describe("Edit flow, on the board", () => {
     store.pickStage("validate");
     expect(editFlowView(store.getState()).details?.rows).toEqual([
       ["What happens", "An agent checks it"],
-      ["Agent", "Validator"],
+      ["Agent", "Checker"],
       ["Skill", "/validate"],
       ["Fails go to", "Dev"],
     ]);

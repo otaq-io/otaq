@@ -7,8 +7,8 @@ disable-model-invocation: true
 # Rebase your Otaq ticket and resolve its conflicts
 
 Your ticket's branch (its key is in `$OTAQ_TICKET`, for example `SHOP-19`) **conflicts with the branch it merges
-into**: Otaq tried to rebase it for a Local merge, or after reopening the ticket, and git stopped on conflicts.
-Otaq put everything back as it was; resolving the conflicts is your job now.
+into**: Otaq tried to rebase it for the user's **Approve & merge into <base>**, or after reopening the ticket, and
+git stopped on conflicts. Otaq put everything back as it was; resolving the conflicts is your job now.
 
 **Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
 human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
@@ -54,7 +54,7 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    the user sees them as "Manual checks for you" before merging. This replaces your stage's unticked checks, so list
    again the ones that still apply. Never leave a check to "the PR": there may be none.
 
-   Then end your turn. The ticket moves to Ready for Review and the user can merge it.
+   Then end your turn. The ticket goes back to the user's review (Review on the default flow) and they can merge it.
 
 ## Long output
 

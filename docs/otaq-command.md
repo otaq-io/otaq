@@ -22,6 +22,7 @@ Open a new terminal afterwards. If the file can't be written, About shows the li
 ```sh
 otaq                         # open the app
 otaq list -P SHOP            # the project's tickets
+otaq list --status review    # only one stage of the flow (or a state: working, checking, pr_open)
 otaq create "Fix login" -p 2 --deps SHOP-12
 otaq create "Fix README typo" --stage Dev=Light  # another agent for one stage
 otaq create -f plan.md       # many tickets from one Markdown file

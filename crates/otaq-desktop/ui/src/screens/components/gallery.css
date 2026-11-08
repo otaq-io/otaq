@@ -387,7 +387,7 @@
   overflow: hidden;
 }
 
-/* The box for new work (UX-22): each state over a board-coloured ground. */
+/* The box for new work: each state over a board-coloured ground. */
 .gallery-new-work {
   box-sizing: border-box;
   width: 760px;

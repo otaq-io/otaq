@@ -1,4 +1,5 @@
-//! `new_work.*`: the box for new work at the bottom of the board and the List (UX-22; `new_work.rs` in `otaq-view`).
+//! `new_work.*`: the box for new work at the bottom of the board and the List, where a ticket or words for Noyan
+//! start (`new_work.rs` in `otaq-view`).
 //! `new_work.view` answers what the box says and whether it shows. What it sends are other areas' requests: ↵ is
 //! `editor.save` on a new ticket, ⌘↵ `editor.create_and_start`, ⇧↵ `agent_panel.send` (a conversation on Noyan's
 //! agent, which only writes tickets to Backlog).
