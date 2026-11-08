@@ -198,6 +198,16 @@ fn plural(n: usize, one: &str) -> String {
 }
 
 /// "2nd".
+/// "third", "fourth", …, "10th": which try passed.
+fn try_word(n: u32) -> String {
+    match n {
+        3 => "third".to_owned(),
+        4 => "fourth".to_owned(),
+        5 => "fifth".to_owned(),
+        n => ordinal(n),
+    }
+}
+
 fn ordinal(n: u32) -> String {
     let suffix = match (n % 10, n % 100) {
         (1, 11) | (2, 12) | (3, 13) => "th",
@@ -374,8 +384,8 @@ pub fn total(records: &[ValidationRecord]) -> Option<(String, String)> {
     ))
 }
 
-/// How the ticket reached Review, at the top of the Files tab: "Validated · round 2" with "passed on the 2nd of 3
-/// rounds · round 1 findings in History".
+/// How the ticket reached Review, in Overview's CHECKER and at the top of Changes: "Check passed" with "on the second
+/// try · the first try's findings are in History" (tries, not rounds: rounds are plumbing).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ReviewEntryView")]
 pub struct Entry {
@@ -385,22 +395,21 @@ pub struct Entry {
     pub text: Option<String>,
 }
 
-pub fn entry(flag: ReviewEntryFlag, rounds: u32) -> Entry {
+/// `_rounds`: the check's rounds, which the words no longer name.
+pub fn entry(flag: ReviewEntryFlag, _rounds: u32) -> Entry {
     let label = flag.to_string();
     match flag.entry {
         ReviewEntry::Validated => Entry {
-            label,
+            label: "Check passed".to_owned(),
             icon: IconName::ShieldCheck,
-            palette: Palette::Review,
+            palette: Palette::Approved,
             text: Some(match flag.round {
-                0 | 1 => format!("passed on the 1st of {rounds} rounds"),
-                2 => format!(
-                    "passed on the 2nd of {rounds} rounds \u{b7} round 1 findings in History"
-                ),
+                0 | 1 => "on the first try".to_owned(),
+                2 => "on the second try \u{b7} the first try\u{2019}s findings are in History"
+                    .to_owned(),
                 n => format!(
-                    "passed on the {} of {rounds} rounds \u{b7} rounds 1\u{2013}{} findings in History",
-                    ordinal(n),
-                    n - 1
+                    "on the {} try \u{b7} earlier tries\u{2019} findings are in History",
+                    try_word(n)
                 ),
             }),
         },
@@ -888,20 +897,20 @@ mod tests {
             None,
         )
         .unwrap();
-        assert_eq!(v.entry.label, "Validated · round 2");
+        assert_eq!(v.entry.label, "Check passed");
         assert_eq!(
             v.entry.text.as_deref(),
-            Some("passed on the 2nd of 3 rounds · round 1 findings in History")
+            Some("on the second try · the first try’s findings are in History")
         );
         assert_eq!(v.report.unwrap().title, "Validation report");
         assert_eq!(v.foot, None);
         assert_eq!(
             entry(flag(ReviewEntry::Validated, 1), 3).text.as_deref(),
-            Some("passed on the 1st of 3 rounds")
+            Some("on the first try")
         );
         assert_eq!(
             entry(flag(ReviewEntry::Validated, 3), 5).text.as_deref(),
-            Some("passed on the 3rd of 5 rounds · rounds 1–2 findings in History")
+            Some("on the third try · earlier tries’ findings are in History")
         );
         let skipped = review(
             Some(flag(ReviewEntry::SubmittedByUser, 0)),

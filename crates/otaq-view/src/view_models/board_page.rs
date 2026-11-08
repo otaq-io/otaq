@@ -907,6 +907,8 @@ pub struct ApproveMenu {
     pub title: String,
     pub items: Vec<ApproveItem>,
     pub note: String,
+    /// "Your flow delivers either way. Change it at the Done end of Edit flow.": under the delivery's choices.
+    pub delivery_note: String,
     /// The one enabled choice when there is no other: the page opens its dialog straight away, without the choice
     /// (dogfood #18).
     pub direct: Option<ApproveChoice>,
@@ -958,6 +960,7 @@ pub fn approve_menu(
     ApproveMenu {
         key: ticket.key.to_string(),
         title: approve::menu_title(ticket),
+        delivery_note: approve::delivery_note(ticket, target, delivers),
         items,
         note: if done_leads {
             approve::DONE_NOTE.to_owned()
@@ -2019,7 +2022,7 @@ mod tests {
         assert_eq!(
             verdict(DropTargetId::REVIEW),
             Verdict::Forbidden {
-                title: "Only agents move tickets to Ready for Review".into(),
+                title: "Only agents move tickets to your review".into(),
                 detail: Some("Drag it to the first stage to start it.".into())
             },
             "*Drag · over a forbidden column*"
@@ -2068,7 +2071,7 @@ mod tests {
                 )
             })
             .collect();
-        let only_agents = "forbidden: Only agents move tickets to Ready for Review";
+        let only_agents = "forbidden: Only agents move tickets to your review";
         let mid_turn = "forbidden: SHOP-25 can't move to the next stage now: its agent is in the middle of a turn";
         let row = |key: &str, review: &str| (key.to_owned(), review.to_owned());
         assert_eq!(
@@ -2272,10 +2275,16 @@ mod tests {
             Some(1),
             otaq_core::flow::Delivers::Either,
         );
-        assert_eq!(menu.items.len(), 4);
-        assert_eq!(menu.items[3].choice, ApproveChoice::DoneNotMerged);
-        assert_eq!(menu.items[3].number, 4);
-        assert_eq!(menu.items[3].icon, IconName::CircleMinus);
+        assert_eq!(menu.items.len(), 5);
+        assert_eq!(menu.items[3].choice, ApproveChoice::Done);
+        assert!(!menu.items[3].enabled, "the branch has a commit");
+        assert_eq!(menu.items[4].choice, ApproveChoice::DoneNotMerged);
+        assert_eq!(menu.items[4].number, 5);
+        assert_eq!(menu.items[4].icon, IconName::CircleMinus);
+        assert_eq!(
+            menu.delivery_note,
+            "Your flow delivers either way. Change it at the Done end of Edit flow."
+        );
         assert_eq!(menu.direct, None);
         let mut pushed = ticket("SHOP-26", "Add sitemap", Status::WaitingForYou);
         pushed.flags.pr_number = Some(481);
@@ -2315,6 +2324,7 @@ mod tests {
                 (2, ApproveChoice::LocalMerge, false),
                 (3, ApproveChoice::OpenPr, false),
                 (4, ApproveChoice::MergeInto, false),
+                (5, ApproveChoice::DoneNotMerged, false),
             ]
         );
         assert_eq!(menu.items[0].icon, IconName::CircleCheck);

@@ -191,7 +191,7 @@ async fn two_checks_in_a_row_count_separately() {
     assert_eq!(back.flags.check.as_deref(), Some("Validate"));
     assert_eq!(
         back.flags.validation_round.unwrap().to_string(),
-        "Validation failed · round 1 of 3"
+        "Check failed · round 1 of 3"
     );
 
     let checking = submit(&w, &t).await;

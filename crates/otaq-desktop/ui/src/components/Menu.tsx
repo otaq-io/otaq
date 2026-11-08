@@ -154,6 +154,9 @@ export function Menu({
               {separator}
               {item.hint === null ? (
                 <div className="menu-header">{item.label}</div>
+              ) : item.label === "" ? (
+                // A line of explanation between the rows (the Approve menu's "Your flow delivers either way…").
+                <div className="menu-note">{item.hint}</div>
               ) : (
                 // A header with a hint says what the list is about: a stage's name and what it is for.
                 <div className="menu-header-described">

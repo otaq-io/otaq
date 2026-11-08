@@ -72,6 +72,7 @@ const VIEW: ApproveView = {
   menu: {
     key: "SHOP-18",
     title: "Approve SHOP-18 Checkout API",
+    delivery_note: "Your flow delivers either way. Change it at the Done end of Edit flow.",
     items: [
       LOCAL_MERGE,
       {

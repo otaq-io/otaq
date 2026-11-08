@@ -488,7 +488,7 @@ Should `fullName` be split into first and last name everywhere, or only in the p
 QUESTION
 ```
 
-The ticket shows "Asks you" on the board. The answer arrives in this session as the user's next message.
+The user answers on the ticket's Overview in Otaq (or in this terminal). The answer arrives in this session as the user's next message.
 
 ### Offer options when there are clear alternatives
 

@@ -133,13 +133,17 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         out.print(
             &match send_back {
                 Some(to) => format!(
-                    "{} asks you to send it back to {}. The question is on the board; end your turn and wait: the \
-                     user sends it back or answers here.",
-                    ticket.key, to.stage
+                    "{} asks the user to send it back to {}. The user sees the question on the ticket's Overview in \
+                     {}; end your turn and wait: the user sends it back or answers here.",
+                    ticket.key,
+                    to.stage,
+                    naming::PRODUCT_NAME
                 ),
                 None => format!(
-                    "{} asks you. The question is on the board; end your turn and wait for the answer.",
-                    ticket.key
+                    "{} asks the user. The user answers on the ticket's Overview in {} (or types in this \
+                     terminal); end your turn and wait for the answer.",
+                    ticket.key,
+                    naming::PRODUCT_NAME
                 ),
             },
             &ticket,

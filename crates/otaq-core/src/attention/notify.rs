@@ -387,7 +387,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             text.unwrap_or_default().to_owned(),
             Target::Validator { key: key.clone() },
         ),
-        // "SHOP-32 · Validation failed 3 times" · "<finding>. Decide in Otaq."
+        // "SHOP-32 · Check failed 3 times" · "<finding>. Decide in Otaq."
         Status::CheckFailed => (
             format!(
                 "{key} \u{b7} {}",
@@ -1433,12 +1433,12 @@ mod tests {
                     "Allow Bash(pnpm test)?"
                 ),
                 (
-                    "SHOP-32 · Validation failed 3 times",
+                    "SHOP-32 · Check failed 3 times",
                     "shop-web · Address autocomplete",
                     failed.as_str()
                 ),
                 (
-                    "SHOP-34 · Validation ended without a result",
+                    "SHOP-34 · Check ended without a result",
                     "shop-web · Tax display",
                     decide.as_str()
                 ),
@@ -1505,7 +1505,7 @@ mod tests {
             Family,
         )];
         let out = notifications(plan(&again, &texts, &mut HashSet::new(), &on()));
-        assert_eq!(out[0].title, "SHOP-32 · Validation failed 2 times");
+        assert_eq!(out[0].title, "SHOP-32 · Check failed 2 times");
         assert_eq!(out[0].body, format!("Arrow keys do nothing. {decide}"));
         // M12: failed rounds that go back to the agent and auto-merges raise no item, so they never notify.
         for quiet in [

@@ -29,7 +29,7 @@ use otaq_view::icons::IconName;
 use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
-use otaq_view::view_models::answer_options::{Answer, AnswerOptions, question_bar};
+use otaq_view::view_models::answer_options::{self, Answer, question_bar};
 use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
@@ -48,7 +48,7 @@ use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
 use otaq_view::view_models::queue;
 use otaq_view::view_models::send_back;
-use otaq_view::view_models::status::{self, PillView};
+use otaq_view::view_models::status::PillView;
 use otaq_view::view_models::terminal_strip::{self as strip, UnsentPrompt};
 use otaq_view::view_models::toasts::{NewToast, ToastLevel};
 use otaq_view::view_models::validation_texts;
@@ -249,6 +249,8 @@ pub struct TabView {
 #[ts(rename = "SheetFrame")]
 pub struct SheetFrame {
     pub crumbs: Vec<Crumb>,
+    /// The line under the title: "In Dev · Strong · started by you 12 min ago" (`sheet::subtitle`).
+    pub subtitle: String,
     pub details: Vec<Detail>,
     /// The flow path under the details line.
     pub steps: Vec<Step>,
@@ -527,10 +529,20 @@ pub fn view_of(f: &Facts) -> View {
     // A check held before its checker started has no checker's terminal to open.
     let no_checker = held_check.is_some();
     // Run is built here (T-0232); `actions::buttons` leaves it out.
+    // In your check the review bar under every tab holds Approve and Send back: Overview doesn't repeat them.
+    let in_review = otaq_view::view_models::files_tab::waits_for_you(ticket);
+    // Run shows once the project has a run command (or a Run is up).
+    let runnable = f
+        .run
+        .is_some_and(|r| !r.command.trim().is_empty() || r.state.is_live());
     let buttons: Vec<Button> = actions::all_buttons_in(ticket, f.custom_flow, f.skippable_check)
         .into_iter()
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
         .filter(|(a, _)| !(*a == Action::OpenValidator && no_checker))
+        .filter(|(a, _)| {
+            !(in_review && matches!(a, Action::Approve | Action::Pass | Action::SendBack))
+        })
+        .filter(|(a, _)| *a != Action::Run || runnable)
         .map(|(action, look)| Button {
             action,
             label: match action {
@@ -602,10 +614,10 @@ pub fn view_of(f: &Facts) -> View {
         priority_hint: "Priority".to_owned(),
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
-            let mut pill = PillView::of(status::shown(ticket));
-            if !ticket.flags.your_turn
-                && let Some(label) = validation_texts::pill_label(ticket, f.custom_flow)
-            {
+            // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (the
+            // terminal's strip says "your turn" there).
+            let mut pill = PillView::of(ticket.status);
+            if let Some(label) = validation_texts::pill_label(ticket, f.custom_flow) {
                 pill.label = label;
             }
             if let Some(label) = held_check.clone() {
@@ -764,6 +776,15 @@ fn sheet_of(f: &Facts) -> SheetFrame {
         .collect();
     SheetFrame {
         crumbs: sheet::breadcrumb(ticket, f.project_name),
+        subtitle: sheet::subtitle(&DetailFacts {
+            ticket,
+            agents: f.agents,
+            tools: f.tools,
+            tickets: f.tickets,
+            now: f.now,
+            helpers: f.helpers,
+            usage: f.usage,
+        }),
         details: sheet::details(&DetailFacts {
             ticket,
             agents: f.agents,
@@ -1482,12 +1503,11 @@ pub struct AnswerParams {
     pub clear: bool,
 }
 
-/// The choice an answer sends, by the options' own rules (`answer_options.rs`); `None` when there is nothing to send.
+/// The choice an answer sends, by the options' own rules (`answer_options.rs`), or an open question's own words;
+/// `None` when there is nothing to send.
 pub fn choice_of(ticket: &Ticket, params: &AnswerParams) -> Option<Choice> {
     let question = ticket.question.as_ref().filter(|q| q.id == params.question)?;
-    let mut options = AnswerOptions::of(question)?;
-    options.press(params.pick).then_some(())?;
-    options.choice(&params.other)
+    answer_options::choice_for(question, Some(params.pick), &params.other)
 }
 
 /// Send answer (ATT-12): typed into the session as the options word it.
@@ -2109,7 +2129,7 @@ mod tests {
             agents: Some(&running),
             ..facts(&checking, &all, std::slice::from_ref(&checker))
         });
-        assert_eq!(view.pill.label, "Validating\u{2026} \u{b7} round 1 of 1");
+        assert_eq!(view.pill.label, "Checking \u{b7} round 1 of 1");
         assert!(labels(&view).contains(&"Open terminal \u{b7} Checker"), "{:?}", labels(&view));
     }
 
@@ -2174,7 +2194,7 @@ mod tests {
             views[3].sheet.details[0].change,
             Some(sheet::DetailChange::Choice { .. })
         ));
-        assert_eq!(views[0].sheet.steps.len(), 6);
+        assert_eq!(views[0].sheet.steps.len(), 5, "Delivery is no step");
     }
 
     #[test]
@@ -2186,7 +2206,7 @@ mod tests {
         let sessions = [agent(SessionState::Running)];
         let view = view_of(&facts(&working, &all, &sessions));
         assert_eq!((view.key.as_str(), view.title.as_str()), ("SHOP-19", "Price table"));
-        assert_eq!(labels(&view), ["Open agent session", "Run"]);
+        assert_eq!(labels(&view), ["Open agent session"], "no run command: no Run");
         assert_eq!(view.run, None, "no Run up, no pill");
         assert_eq!(view.signal.as_ref().unwrap().text, "40s ago");
         assert_eq!(view.tokens.as_ref().unwrap().text, "182k");
@@ -2358,59 +2378,55 @@ mod tests {
         assert_eq!(view.sheet.tabs[1].parts[1].dot, Some(Dot::Problem));
     }
 
+    /// In your check the review bar under every tab holds Approve and Send back: Overview doesn't repeat them, and
+    /// Run shows only once the project has a run command.
     #[test]
-    fn send_back_counts_the_pending_comments() {
+    fn overview_leaves_approve_and_send_back_to_the_review_bar() {
         let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
         let all = vec![review.clone()];
-        let view = view_of(&Facts {
-            pending: 2,
-            ..facts(&review, &all, &[])
-        });
-        assert_eq!(labels(&view), ["Approve", "Send back (2)\u{2026}", "Run"]);
-        assert_eq!(labels(&view_of(&facts(&review, &all, &[]))), ["Approve", "Send back\u{2026}", "Run"]);
-        // d0093: the stage the check's fails go to, once the engine named it.
-        let to = |pending| -> Vec<String> {
+        for custom_flow in [false, true] {
             let view = view_of(&Facts {
-                pending,
+                pending: 2,
+                decisions: 1,
+                custom_flow,
                 send_back_to: Some("Dev"),
                 ..facts(&review, &all, &[])
             });
-            labels(&view).into_iter().map(str::to_owned).collect()
+            assert!(labels(&view).is_empty(), "{:?}", labels(&view));
+            assert_eq!(view.approve_more, None);
+        }
+        use otaq_core::terminals::run::{RunInfo, RunState};
+        let mut run = RunInfo {
+            project: "SHOP".into(),
+            project_name: "shop-web".into(),
+            key: review.key.clone(),
+            title: review.title.clone(),
+            app: otaq_core::board::settings::DEFAULT_APP.into(),
+            state: RunState::NotStarted,
+            port: Some(4020),
+            command: "npm run dev".into(),
+            open_url: None,
+            session: None,
+            started_at: None,
+            ended_at: None,
+            exit_code: None,
+            stopped_by: None,
+            started_by: None,
+            command_set_by: None,
         };
-        assert_eq!(to(0), ["Approve", "Send back \u{b7} to Dev\u{2026}", "Run"]);
-        assert_eq!(to(2), ["Approve", "Send back (2) \u{b7} to Dev\u{2026}", "Run"]);
-        assert!(!view.approve_opens_menu);
-        // DEC-05: open recorded decisions; Local merge / Open PR move into ▾.
         let view = view_of(&Facts {
-            decisions: 1,
+            run: Some(&run),
             ..facts(&review, &all, &[])
         });
-        assert_eq!(labels(&view), ["Approve \u{b7} keeps 1 decision", "Send back\u{2026}", "Run"]);
-        assert!(view.approve_opens_menu);
-        assert_eq!(view.approve_more, Some("Approve choices"));
-        // In another flow (FLW-14, d0093): Approve (its Pass) and Send back to the check's fails-go-to stage.
-        let custom = |pending, decisions| -> Vec<String> {
-            let view = view_of(&Facts {
-                pending,
-                decisions,
-                custom_flow: true,
-                skippable_check: false,
-                send_back_to: Some("Product spec"),
-                ..facts(&review, &all, &[])
-            });
-            labels(&view).into_iter().map(str::to_owned).collect()
-        };
-        assert_eq!(custom(2, 0), ["Approve", "Send back (2) \u{b7} to Product spec\u{2026}", "Run"]);
-        assert_eq!(
-            custom(0, 1),
-            ["Approve \u{b7} keeps 1 decision", "Send back \u{b7} to Product spec\u{2026}", "Run"]
-        );
+        assert_eq!(labels(&view), ["Run"]);
+        run.command = String::new();
         let view = view_of(&Facts {
-            custom_flow: true,
+            run: Some(&run),
             ..facts(&review, &all, &[])
         });
-        assert_eq!(view.approve_more, None, "no Approve ▾ beside Pass");
-        assert_eq!(view.pill.label, "Your check");
+        assert!(labels(&view).is_empty(), "no run command, no Run");
+        // Its badge is the ticket's own status, in plain words.
+        assert_eq!(view_of(&facts(&review, &all, &[])).pill.label, "Ready for you");
     }
 
     /// *Row · validation (0063)*: the round in the header, the token split, Answer the agent's box, the Auto-merge
@@ -2438,12 +2454,12 @@ mod tests {
             usage: Some(&usage),
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
-        assert_eq!(view.pill.label, "Validating\u{2026} \u{b7} round 1 of 3");
+        assert_eq!(view.pill.label, "Checking \u{b7} round 1 of 3");
         assert_eq!(
             view.token_split.as_deref(),
             Some("agent 58k \u{b7} validation 9k (1 round)")
         );
-        assert_eq!(labels(&view), ["Open terminal \u{b7} Checker", "Run"]);
+        assert_eq!(labels(&view), ["Open terminal \u{b7} Checker"]);
         assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
         // Session's switch (SHT-04): the validator's side, running, named after its agent; Session lands on it.
@@ -2475,7 +2491,7 @@ mod tests {
         let mut failed = fixture("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
-        assert_eq!(view.pill.label, "Validation failed 3 times");
+        assert_eq!(view.pill.label, "Check failed 3 times");
         // Validate not skippable (the default flow): no Move on anyway.
         assert_eq!(labels(&view), ["Give it another round", "Answer the agent\u{2026}"]);
         let view = view_of(&Facts {
@@ -2501,8 +2517,9 @@ mod tests {
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
         );
 
-        let review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
-        let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        // To deliver: Approve with its ▾ (in your check they are the review bar's).
+        let deliver = fixture("SHOP-18", "Checkout API", Status::ToDeliver);
+        let view = view_of(&facts(&deliver, std::slice::from_ref(&deliver), &[]));
         assert_eq!(view.approve_more, Some("Approve choices"));
     }
 

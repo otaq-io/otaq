@@ -26,7 +26,7 @@ fn default_flow() -> &'static Flow {
 pub const DROP_TO_START: &str = "Drop to start \u{b7} waits here until it can begin";
 
 /// *03 · Drag · over a forbidden column*: the reason over Ready for Review.
-pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to Ready for Review";
+pub const ONLY_AGENTS_TO_REVIEW: &str = "Only agents move tickets to your review";
 
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum DropFeedback {

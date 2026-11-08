@@ -39,6 +39,7 @@ export const SHEET: SheetFrame = {
     { text: "shop-web", key: false },
     { text: "SHOP-19", key: true },
   ],
+  subtitle: "In Dev · Strong · started by you 12 min ago",
   details: [
     {
       label: "Assignee",

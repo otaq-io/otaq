@@ -10,7 +10,7 @@ use otaq_core::usage::TicketUsage;
 
 use crate::view_models::card::tokens_label;
 
-/// The header pill's label when it says more than the status: "Validating… · round 1 of 3", "Validation failed 3
+/// The header pill's label when it says more than the status: "Checking · round 1 of 3", "Validation failed 3
 /// times".
 pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
     use crate::view_models::card;
@@ -140,13 +140,13 @@ mod tests {
     fn the_header_names_the_round() {
         assert_eq!(
             pill_label(&validating(), false).as_deref(),
-            Some("Validating\u{2026} \u{b7} round 1 of 3")
+            Some("Checking \u{b7} round 1 of 3")
         );
         let mut failed = ticket("SHOP-32", "Address autocomplete", Status::CheckFailed);
         failed.validation_round = 3;
         assert_eq!(
             pill_label(&failed, false).as_deref(),
-            Some("Validation failed 3 times")
+            Some("Check failed 3 times")
         );
         assert_eq!(
             pill_label(&ticket("SHOP-1", "t", Status::Working), false),

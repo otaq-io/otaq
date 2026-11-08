@@ -57,7 +57,7 @@ stored_enum! {
         DeliveryStopped = "auto_merge_stopped",
 
         // An agent check
-        /// "Validating…": a separate checker session checks the work (neutral, one slot, d0063).
+        /// "Checking": a separate checker session checks the work (neutral, one slot, d0063).
         Checking = "validating",
         /// Turquoise: the checker waits on a permission prompt (d0063).
         CheckerNeedsYou = "validator_needs_you",
@@ -297,12 +297,12 @@ impl Status {
             Self::Checking => super::validation::VALIDATING,
             Self::CheckerNeedsYou => super::validation::VALIDATOR_NEEDS_YOU,
             // The card adds the count: "Validation failed 3 times" (validation::failed_times).
-            Self::CheckFailed => "Validation failed",
+            Self::CheckFailed => "Check failed",
             Self::CheckNoResult => super::validation::NO_RESULT,
             Self::MergeConflictFixing => super::validation::MERGE_CONFLICT_FIXING,
             // The card names the reason ("Keeps conflicting with `main`", base diverged, checkout dirty).
             Self::DeliveryStopped => "Delivery stopped",
-            Self::WaitingForYou => "Ready for Review",
+            Self::WaitingForYou => "Ready for you",
             Self::ToDeliver => "To deliver",
             Self::PrOpen => "PR open",
             // The card adds the ticket: "Merged into SHOP-18".
@@ -419,10 +419,10 @@ mod tests {
                 .map(|s| s.label())
                 .collect::<Vec<_>>(),
             [
-                "Validating…",
+                "Checking",
                 "Needs you · checker",
-                "Validation failed",
-                "Validation ended without a result"
+                "Check failed",
+                "Check ended without a result"
             ]
         );
         for status in Status::ALL {

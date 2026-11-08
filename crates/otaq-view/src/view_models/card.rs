@@ -3143,7 +3143,7 @@ mod tests {
             (
                 "Validation ended without a result",
                 Some("No result"),
-                Some("Validation ended without a result"),
+                Some("Check ended without a result"),
                 Some("[Retry validation]"),
             ),
             (
@@ -4076,7 +4076,7 @@ mod tests {
                 "failed",
                 Status::CheckFailed,
                 |t, _| t.validation_round = 3,
-                "Validation failed 3 times",
+                "Check failed 3 times",
             ),
             (
                 "no result",
@@ -4108,12 +4108,7 @@ mod tests {
                 |t, _| t.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::CheckoutDirty),
                 "Checkout dirty",
             ),
-            (
-                "review",
-                Status::WaitingForYou,
-                |_, _| {},
-                "Ready for Review",
-            ),
+            ("review", Status::WaitingForYou, |_, _| {}, "Ready for you"),
             (
                 "pr open",
                 Status::PrOpen,
@@ -4763,7 +4758,7 @@ mod tests {
         t.validation_round = 1;
         let vm = card(&t);
         assert_eq!(flag_of(&vm), Some("Failed ×1"));
-        assert_eq!(line(&vm), Some("Validation failed 1 time"));
+        assert_eq!(line(&vm), Some("Check failed 1 time"));
         // A discarded verdict says why (VAL-02).
         let mut t = ticket("SHOP-34", "Tax display", Status::CheckNoResult);
         t.signal = Some(otaq_core::board::tickets::AgentSignal {

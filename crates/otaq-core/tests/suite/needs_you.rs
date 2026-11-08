@@ -332,7 +332,7 @@ fn the_m12_items_read_as_the_frame() {
             (
                 "SHOP-32".into(),
                 Family,
-                "validation failed 3 times · “The description asks for keyboard navigation; arrow keys do nothing”"
+                "check failed 3 times · “The description asks for keyboard navigation; arrow keys do nothing”"
                     .into()
             ),
             (
@@ -340,7 +340,7 @@ fn the_m12_items_read_as_the_frame() {
                 Family,
                 "Delivery stopped · keeps conflicting with wishlist after 3 tries in a row".into()
             ),
-            ("SHOP-34".into(), Family, "validation ended without a result".into()),
+            ("SHOP-34".into(), Family, "check ended without a result".into()),
             (
                 "SHOP-33".into(),
                 Family,

@@ -78,7 +78,7 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Done works on a ticket in Ready for Review",
+                    "{} is {}; Done works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),

@@ -62,6 +62,12 @@ impl Item {
                 key: i.key.to_string(),
                 tab: if i.group == NeedsYouGroup::Review {
                     Content::Files
+                } else if i.status == otaq_core::domain::Status::AsksYou
+                    && i.question.is_some()
+                    && i.piece.is_none()
+                {
+                    // A question is answered where it shows first: the ticket's Overview.
+                    Content::Overview
                 } else {
                     // Session, on the side that needs you (the check's while it asks).
                     session_tab::lands_on(i.status)
@@ -1017,6 +1023,22 @@ mod tests {
     fn every_group_in_the_queues_order() {
         let mut items = shop_web();
         items.extend(every_group());
+        // SHOP-12's question, as the service sends it with the item.
+        for i in &mut items {
+            if let Item::Ticket(t) = i
+                && t.key.to_string() == "SHOP-12"
+            {
+                t.question = Some(otaq_core::board::questions::HumanQuestion {
+                    id: "q12".into(),
+                    text: "Should dark mode follow the system setting?".into(),
+                    options: Vec::new(),
+                    recommended: None,
+                    notes: Vec::new(),
+                    asked_at: 0,
+                    send_back: None,
+                });
+            }
+        }
         let list = list(items);
         let v = draw(&super::items(&list), None);
         let titles: Vec<&str> = v.groups.iter().map(|g| g.title.as_str()).collect();
@@ -1038,6 +1060,21 @@ mod tests {
                 "Agent a question"
             ]
         );
+        // A ticket's question opens on its Overview, where it is answered; a permission prompt on its terminal.
+        assert!(matches!(
+            v.groups[0].chips[1].target,
+            Target::Ticket {
+                tab: Content::Overview,
+                ..
+            }
+        ));
+        assert!(matches!(
+            v.groups[0].chips[0].target,
+            Target::Ticket {
+                tab: Content::Agent,
+                ..
+            }
+        ));
         let agent = &v.groups[0].chips[4];
         assert_eq!((agent.icon, agent.tone), (IconName::Bot, Tone::Investigate));
         assert_eq!(
@@ -1068,7 +1105,7 @@ mod tests {
             [
                 ("Add the index", true, true, true),
                 ("Leave it", false, false, true),
-                ("Other\u{2026} type your own answer", false, false, false),
+                ("Something else: type your own answer", false, false, false),
             ]
         );
         assert_eq!(agent.asks, None);

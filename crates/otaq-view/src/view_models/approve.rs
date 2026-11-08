@@ -224,35 +224,60 @@ pub fn options(
         });
     }
     out.push(merge_into_option(ticket, target, tickets));
+    let done = ApproveOption {
+        choice: ApproveChoice::Done,
+        title: DONE_NOTHING_TO_MERGE.to_owned(),
+        detail: format!("The work needed no change, or it\u{2019}s already in {target}."),
+        enabled: commits == Some(0),
+    };
+    let not_merged = |n: u32| ApproveOption {
+        choice: ApproveChoice::DoneNotMerged,
+        title: DONE_DONT_MERGE.to_owned(),
+        detail: format!(
+            "Close the ticket and keep {} out of {target}.",
+            match n {
+                1 => "its commit".to_owned(),
+                n => format!("its {n} commits"),
+            }
+        ),
+        enabled: n > 0,
+    };
+    // Both ways to finish without merging are always listed; only the one that fits the branch is enabled.
     if commits == Some(0) {
         for option in &mut out {
             option.detail = NO_CHANGES_IN_THE_REPO.to_owned();
             option.enabled = false;
         }
-        out.insert(
-            0,
-            ApproveOption {
-                choice: ApproveChoice::Done,
-                title: DONE_NOTHING_TO_MERGE.to_owned(),
-                detail: format!("The work needed no change, or it\u{2019}s already in {target}."),
-                enabled: true,
-            },
-        );
-    } else if let Some(n) = commits.filter(|n| *n > 0) {
+        out.insert(0, done);
         out.push(ApproveOption {
-            choice: ApproveChoice::DoneNotMerged,
-            title: DONE_DONT_MERGE.to_owned(),
-            detail: format!(
-                "Close the ticket and keep {} out of {target}.",
-                match n {
-                    1 => "its commit".to_owned(),
-                    n => format!("its {n} commits"),
-                }
-            ),
-            enabled: true,
+            detail: format!("The branch has no commits to keep out of {target}."),
+            ..not_merged(0)
         });
+    } else if let Some(n) = commits {
+        out.push(ApproveOption {
+            detail: format!(
+                "{} has commits: Done, don\u{2019}t merge keeps them out of {target}.",
+                ticket.key
+            ),
+            ..done
+        });
+        out.push(not_merged(n));
     }
     out
+}
+
+/// The line under the delivery's choices in the Approve menu: the flow decides how a ticket is delivered, and where
+/// to change it. Empty for a ticket with an open PR (its new commits go to that PR).
+pub fn delivery_note(ticket: &Ticket, target: &str, delivers: Delivers) -> String {
+    if ticket.flags.pr_number.is_some() {
+        return String::new();
+    }
+    let how = match delivers {
+        Delivers::Either => "Your flow delivers either way.".to_owned(),
+        Delivers::Local => format!("Your flow merges into {target}."),
+        Delivers::Pr => "Your flow opens a PR.".to_owned(),
+    };
+    format!("{how} Change it at the Done end of Edit flow.")
 }
 
 /// "Merge into another ticket…": enabled when another ticket can take this one's branch (the picker lists them).
@@ -688,7 +713,7 @@ mod tests {
             [MergeIntoItem {
                 key: "SHOP-18".into(),
                 title: "Checkout API".into(),
-                status: "Ready for Review".into(),
+                status: "Ready for you".into(),
             }]
         );
         assert_eq!(picker.empty, None);
@@ -749,13 +774,23 @@ mod tests {
         );
         let pr = (ApproveChoice::OpenPr, "Approve & open PR".to_owned());
         let into = (ApproveChoice::MergeInto, MERGE_INTO.to_owned());
+        let done = (ApproveChoice::Done, DONE_NOTHING_TO_MERGE.to_owned());
         let dont = (ApproveChoice::DoneNotMerged, DONE_DONT_MERGE.to_owned());
         assert_eq!(
             menu(Delivers::Either),
-            [merge.clone(), pr.clone(), into.clone(), dont.clone()]
+            [
+                merge.clone(),
+                pr.clone(),
+                into.clone(),
+                done.clone(),
+                dont.clone()
+            ]
         );
-        assert_eq!(menu(Delivers::Local), [merge, into.clone(), dont.clone()]);
-        assert_eq!(menu(Delivers::Pr), [pr, into, dont]);
+        assert_eq!(
+            menu(Delivers::Local),
+            [merge, into.clone(), done.clone(), dont.clone()]
+        );
+        assert_eq!(menu(Delivers::Pr), [pr, into, done, dont]);
     }
 
     /// A branch with no commits beyond its base: "Done, nothing to merge" leads; Local merge and Open PR stay listed,
@@ -779,6 +814,7 @@ mod tests {
                 (ApproveChoice::LocalMerge, false),
                 (ApproveChoice::OpenPr, false),
                 (ApproveChoice::MergeInto, false),
+                (ApproveChoice::DoneNotMerged, false),
             ]
         );
         assert_eq!(menu[0].title, "Done, nothing to merge");
@@ -786,22 +822,38 @@ mod tests {
             menu[0].detail,
             "The work needed no change, or it\u{2019}s already in main."
         );
-        for other in &menu[1..] {
+        for other in &menu[1..4] {
             assert_eq!(other.detail, "No changes in the repo");
         }
-        // Commits, or a count nobody could read: the menu as before.
-        for commits in [Some(1), None] {
-            let menu = options(
-                &shop18,
-                "main",
-                &tickets,
-                None,
-                commits,
-                otaq_core::flow::Delivers::Either,
-            );
-            assert_eq!(menu[0].choice, ApproveChoice::LocalMerge);
-            assert!(menu.iter().all(|o| o.choice != ApproveChoice::Done));
-        }
+        // Commits: Done, nothing to merge stays listed, disabled, saying why.
+        let with = options(
+            &shop18,
+            "main",
+            &tickets,
+            None,
+            Some(1),
+            otaq_core::flow::Delivers::Either,
+        );
+        let done = with
+            .iter()
+            .find(|o| o.choice == ApproveChoice::Done)
+            .unwrap();
+        assert!(!done.enabled);
+        assert_eq!(
+            done.detail,
+            "SHOP-18 has commits: Done, don\u{2019}t merge keeps them out of main."
+        );
+        // A count nobody could read: neither way to finish without merging.
+        let unknown = options(
+            &shop18,
+            "main",
+            &tickets,
+            None,
+            None,
+            otaq_core::flow::Delivers::Either,
+        );
+        assert_eq!(unknown[0].choice, ApproveChoice::LocalMerge);
+        assert!(unknown.iter().all(|o| o.choice != ApproveChoice::Done));
     }
 
     /// A branch with commits: "Done, don't merge" comes last, after every way to deliver them, and its confirmation
@@ -824,6 +876,7 @@ mod tests {
                 ApproveChoice::LocalMerge,
                 ApproveChoice::OpenPr,
                 ApproveChoice::MergeInto,
+                ApproveChoice::Done,
                 ApproveChoice::DoneNotMerged,
             ]
         );

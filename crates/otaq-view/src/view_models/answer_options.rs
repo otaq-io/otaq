@@ -19,7 +19,7 @@ use ts_rs::TS;
 pub enum Pick {
     /// One of the agent's options, 1-based.
     Option(u32),
-    /// "Other… type your own answer".
+    /// "Something else: type your own answer".
     Other,
 }
 
@@ -125,7 +125,7 @@ impl AnswerOptions {
             label: if self.send_back {
                 ANSWER_HERE.into()
             } else {
-                "Other… type your own answer".into()
+                "Something else: type your own answer".into()
             },
             recommended: false,
             picked: self.pick == Some(Pick::Other),
@@ -197,19 +197,26 @@ fn rows_of(options: &AnswerOptions) -> Vec<AnswerRow> {
         .collect()
 }
 
-/// A ticket's question bar: its options; `None` for a free-text question (answered in the terminal).
+/// A ticket's question, first on its Overview and answered there: its options, or no rows and a box for the user's
+/// own words for an open question; Answer in terminal stays beside it.
 pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
-    let options = AnswerOptions::of(question)?;
+    let (rows, hint) = match AnswerOptions::of(question) {
+        Some(options) => (
+            rows_of(&options),
+            match question.send_back {
+                Some(_) => "1\u{2013}2 pick \u{b7} \u{21b5} sends",
+                None => "1\u{2013}4 pick \u{b7} \u{21b5} sends",
+            },
+        ),
+        None => (Vec::new(), "\u{21b5} sends"),
+    };
     Some(Answer {
         question: question.id.clone(),
         text: question.text.clone(),
-        rows: rows_of(&options),
+        rows,
         recommended_label: RECOMMENDED,
         other_placeholder: "Type your answer",
-        hint: match question.send_back {
-            Some(_) => "1\u{2013}2 pick \u{b7} \u{21b5} sends",
-            None => "1\u{2013}4 pick \u{b7} \u{21b5} sends \u{b7} logged in Messages",
-        },
+        hint,
         in_terminal: "Answer in terminal",
         send: "Send answer",
     })
@@ -316,6 +323,22 @@ mod tests {
         }
     }
 
+    /// An open question (no options) is answered on Overview in the user's own words: no rows, a box, and what is
+    /// typed is the answer.
+    #[test]
+    fn an_open_question_is_answered_in_your_own_words() {
+        let q = question(&[], None);
+        let bar = question_bar(&q).expect("an open question shows too");
+        assert!(bar.rows.is_empty());
+        assert_eq!(bar.hint, "\u{21b5} sends");
+        assert_eq!(bar.other_placeholder, "Type your answer");
+        assert_eq!(
+            choice_for(&q, Some(1), " Hello from the README "),
+            Some(Choice::Other("Hello from the README".into()))
+        );
+        assert_eq!(choice_for(&q, Some(1), "  "), None);
+    }
+
     #[test]
     fn the_recommended_option_is_preselected_and_enter_sends_it() {
         let q = question(&["Postmark", "SES", "Resend"], Some(1));
@@ -331,7 +354,7 @@ mod tests {
                 (1, "Postmark", true, true),
                 (2, "SES", false, false),
                 (3, "Resend", false, false),
-                (4, "Other… type your own answer", false, false),
+                (4, "Something else: type your own answer", false, false),
             ]
         );
         let choice = o.choice("").unwrap();

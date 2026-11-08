@@ -627,7 +627,7 @@ describe("Noyan's question (OTQ-9, d0119)", () => {
         },
         {
           number: 3,
-          label: "Other… type your own answer",
+          label: "Something else: type your own answer",
           recommended: false,
           picked: false,
           other: true,

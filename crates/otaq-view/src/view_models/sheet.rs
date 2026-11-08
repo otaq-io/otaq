@@ -437,6 +437,89 @@ pub fn details(f: &DetailFacts) -> Vec<Detail> {
         .collect()
 }
 
+/// "Dev and Validate by Claude Code" for a ticket in your check: the stages its agents did, and their tools.
+fn done_by(f: &DetailFacts) -> Option<String> {
+    let agents = f.agents?;
+    let stages: Vec<&str> = steps(f.ticket, Some(agents))
+        .iter()
+        .zip(agents.path.iter().filter(|s| s.kind != PathKind::Delivery))
+        .filter(|(step, stage)| {
+            step.state == StepState::Done
+                && matches!(stage.kind, PathKind::Agent | PathKind::AgentCheck)
+        })
+        .map(|(_, stage)| stage.stage.as_str())
+        .collect();
+    let mut tools: Vec<&str> = Vec::new();
+    for tool in agents
+        .sessions
+        .iter()
+        .filter(|s| s.role != SessionRole::ProjectAgent)
+        .filter_map(|s| s.tool)
+    {
+        let name = tool.display_name();
+        if !tools.contains(&name) {
+            tools.push(name);
+        }
+    }
+    let list = |items: &[&str]| match items {
+        [] => None,
+        [one] => Some((*one).to_owned()),
+        [rest @ .., last] => Some(format!("{} and {last}", rest.join(", "))),
+    };
+    let stages = list(&stages)?;
+    Some(match list(&tools) {
+        Some(tools) => format!("{stages} by {tools}"),
+        None => stages,
+    })
+}
+
+/// The one line under the title: where the ticket is and who works on it, in the board's words. In your check: "Dev
+/// and Validate by Claude Code · 14 min · started by you"; while a stage works: "In Dev · Strong · started by you 12
+/// min ago"; "Not started" in Backlog; "Done" once finished. Priority, the branch and the stage's agents are changed in
+/// Edit ticket… and the ⋯ menu, not here.
+pub fn subtitle(f: &DetailFacts) -> String {
+    let ticket = f.ticket;
+    let started = ticket.started_at;
+    let ago = |at: i64| format!("{} ago", minutes_label(f.now - at));
+    if ticket.place == Place::Done {
+        return ticket.status.label().to_owned();
+    }
+    if ticket.place.is_backlog() || started.is_none() {
+        return "Not started".to_owned();
+    }
+    let stage = ticket.place.stage().and_then(|id| {
+        f.agents?
+            .path
+            .iter()
+            .find(|s| s.stage_id == id)
+            .map(|s| s.stage.clone())
+    });
+    let mut parts: Vec<String> = Vec::new();
+    if ticket.status.set() == StatusSet::HumanCheck {
+        if let Some(by) = done_by(f) {
+            parts.push(by);
+        }
+        if let Some(at) = started {
+            let worked = ticket.status_since.unwrap_or(f.now) - at;
+            parts.push(minutes_label(worked));
+        }
+        parts.push("started by you".to_owned());
+        return parts.join(" \u{b7} ");
+    }
+    if let Some(stage) = stage {
+        parts.push(format!("In {stage}"));
+    }
+    let (who, _) = assignee(f);
+    if who.value != DASH {
+        parts.push(who.value);
+    }
+    parts.push(match started {
+        Some(at) => format!("started by you {}", ago(at)),
+        None => "started by you".to_owned(),
+    });
+    parts.join(" \u{b7} ")
+}
+
 /// The Files tab's count (SHT-02, Q421): how many files the ticket changed against its base, as All changes counts
 /// them; `None` when there are none or it never started ("Files").
 pub fn files_count(changes: &FilesChanges) -> Option<u32> {
@@ -539,27 +622,24 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
     let Some(agents) = agents else {
         return Vec::new();
     };
-    let index = |id: &str| agents.path.iter().position(|s| s.stage_id == id);
-    // A ticket being delivered (To deliver, PR open) has passed every stage: the delivery step is current.
-    let delivering = (ticket.status.set() == otaq_core::domain::StatusSet::Delivery)
-        .then(|| {
-            agents
-                .path
-                .iter()
-                .position(|s| s.kind == PathKind::Delivery)
-        })
-        .flatten();
-    // Stages before `done_before` are done; `current` is the one it is in.
-    let (done_before, current) = match &ticket.place {
-        Place::InStage(_) if delivering.is_some() => (delivering.unwrap_or(0), delivering),
-        Place::InStage(id) => index(id).map_or((0, None), |i| (i, Some(i))),
-        Place::Waiting(Some(id)) => (index(id).unwrap_or(0), None),
-        Place::Done => (agents.path.len(), None),
-        Place::Backlog | Place::Waiting(None) => (0, None),
-    };
-    agents
+    // Delivery is how Review ends (the Approve button), not a step: the path shows the flow's stages only. A ticket
+    // being delivered (To deliver, PR open) waits in the last of them.
+    let path: Vec<&PathStage> = agents
         .path
         .iter()
+        .filter(|s| s.kind != PathKind::Delivery)
+        .collect();
+    let index = |id: &str| path.iter().position(|s| s.stage_id == id);
+    // Stages before `done_before` are done; `current` is the one it is in.
+    let (done_before, current) = match &ticket.place {
+        Place::InStage(id) => {
+            index(id).map_or((path.len(), path.len().checked_sub(1)), |i| (i, Some(i)))
+        }
+        Place::Waiting(Some(id)) => (index(id).unwrap_or(0), None),
+        Place::Done => (path.len(), None),
+        Place::Backlog | Place::Waiting(None) => (0, None),
+    };
+    path.into_iter()
         .enumerate()
         .map(|(i, stage)| {
             let check = matches!(stage.kind, PathKind::AgentCheck | PathKind::HumanCheck);
@@ -917,6 +997,57 @@ mod tests {
         );
     }
 
+    /// The one line under the title, in the board's words: where it is, who works on it, since when; in your check,
+    /// which stages its agents did and on which tool.
+    #[test]
+    fn the_line_under_the_title() {
+        let mut t = shop_22();
+        t.started_at = Some(100 * MIN);
+        let mut dev = session(
+            "s1",
+            SessionRole::Developer,
+            "Rust developer",
+            CODEX,
+            None,
+            Some("gpt-5.5"),
+        );
+        dev.running = true;
+        let agents = agents_of(&t, vec![dev.clone()]);
+        let tools = tools();
+        let facts = |t: &Ticket, agents: &TicketAgents| {
+            subtitle(&DetailFacts {
+                ticket: t,
+                agents: Some(agents),
+                tools: &tools,
+                tickets: &[],
+                now: 112 * MIN,
+                helpers: &[],
+                usage: None,
+            })
+        };
+        assert_eq!(
+            facts(&t, &agents),
+            "In Dev \u{b7} Rust developer \u{b7} started by you 12 min ago"
+        );
+        let mut review = t.clone();
+        review.status = Status::WaitingForYou;
+        review.place = Place::InStage("review".into());
+        review.status_since = Some(114 * MIN);
+        dev.running = false;
+        let agents = agents_of(&review, vec![dev]);
+        let line = facts(&review, &agents);
+        assert!(
+            line.ends_with("\u{b7} 14 min \u{b7} started by you"),
+            "{line}"
+        );
+        assert!(line.contains(" by Codex"), "{line}");
+        let backlog = ticket("SHOP-41", "Fix README typo", Status::Backlog);
+        assert_eq!(
+            facts(&backlog, &agents_of(&backlog, Vec::new())),
+            "Not started"
+        );
+    }
+
     /// SHOP-22's path (`s25-03`): Product spec done, Dev current and needing you, the rest to come.
     #[test]
     fn the_flow_path_as_steps() {
@@ -935,7 +1066,6 @@ mod tests {
                 ("Validate", StepState::ToCome, false),
                 ("Security", StepState::ToCome, false),
                 ("Review", StepState::ToCome, false),
-                ("Delivery", StepState::ToCome, false),
             ]
         );
         let backlog = ticket("SHOP-41", "Fix README typo", Status::Backlog);
@@ -949,12 +1079,13 @@ mod tests {
     }
 
     /// A stage the ticket went past without doing it is skipped: Product spec it skips by its choice, Validate it
-    /// was moved past after a fail, Security it skipped while it ran; Review failed then passed, so it is done.
+    /// was moved past after a fail, Security it skipped while it ran. Delivery is no step: a ticket to deliver waits
+    /// in Review, the last stage.
     #[test]
     fn stages_gone_past_without_doing_them_are_skipped() {
         use crate::view_models::stage_choices::fixtures::{round, run};
         use otaq_core::flow::engine::RunResult;
-        // To deliver in Review, the last stage: every stage is behind it, the delivery is current.
+        // To deliver in Review, the last stage: every other stage is behind it.
         let mut t = ticket("SHOP-30", "Saved carts", Status::ToDeliver);
         t.place = Place::InStage("review".into());
         let check = |stage: &str, n: u32, result: RunResult| {
@@ -988,8 +1119,7 @@ mod tests {
                 ("Dev", StepState::Done),
                 ("Validate", StepState::Skipped),
                 ("Security", StepState::Skipped),
-                ("Review", StepState::Done),
-                ("Delivery", StepState::Current),
+                ("Review", StepState::Current),
             ]
         );
     }

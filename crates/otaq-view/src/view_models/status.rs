@@ -135,7 +135,7 @@ mod tests {
             (
                 Core::Checking,
                 Legend::Validating,
-                "Validating…",
+                "Checking",
                 I::ShieldEllipsis,
             ),
             (
@@ -147,13 +147,13 @@ mod tests {
             (
                 Core::CheckFailed,
                 Legend::ValidationFailed,
-                "Validation failed",
+                "Check failed",
                 I::ShieldX,
             ),
             (
                 Core::CheckNoResult,
                 Legend::ValidationNoResult,
-                "Validation ended without a result",
+                "Check ended without a result",
                 I::ShieldQuestionMark,
             ),
             (
