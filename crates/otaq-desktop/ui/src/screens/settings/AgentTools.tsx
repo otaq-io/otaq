@@ -14,6 +14,7 @@ import { AnchoredMenu, Button, ConfirmDialog, Dialog, IconButton, ToolAvatar } f
 import type { AgentToolCommand } from "../../generated/AgentToolCommand";
 import type { AgentToolDisconnectDialog } from "../../generated/AgentToolDisconnectDialog";
 import type { AgentToolDisconnectOutcome } from "../../generated/AgentToolDisconnectOutcome";
+import type { AgentToolMark } from "../../generated/AgentToolMark";
 import type { AgentToolMenuAction } from "../../generated/AgentToolMenuAction";
 import type { AgentToolMenuItem } from "../../generated/AgentToolMenuItem";
 import type { AgentToolPillLook } from "../../generated/AgentToolPillLook";
@@ -102,14 +103,9 @@ const PILL_ICONS: Record<AgentToolPillLook, IconName> = {
   hidden: "eye-off",
 };
 
-/** The onboarding row's mark: what the row offers says its state (Settings shows the pill instead). */
-export type AgentToolMark = "connected" | "attention" | "missing" | "quiet";
-
+/** The onboarding row's mark, as Rust says it (Settings shows the pill instead). */
 export function markOf(row: AgentToolRow): AgentToolMark {
-  if (row.can_see !== null) return "connected";
-  if (row.sign_in !== null || row.update !== null) return "attention";
-  if (row.install !== null) return "missing";
-  return "quiet";
+  return row.mark;
 }
 
 export const MARK_ICONS: Record<AgentToolMark, IconName> = {

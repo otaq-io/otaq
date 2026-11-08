@@ -271,8 +271,8 @@ export function letterFor(map: Keymap, e: KeyLike, hold: LetterHold): KeyBinding
 }
 
 /**
- * The open ticket sheet's own actions (`KeyAction::in_sheet`): where they share a key with another action (`g a`, the
- * Activity tab and Activity, SHB-04), the sheet's is tried first and the other runs when no sheet takes it.
+ * The open ticket sheet's own actions (`KeyAction::in_sheet`): where they share a key with another action (a custom
+ * key the user gave both), the sheet's is tried first and the other runs when no sheet takes it.
  */
 const SHEET_FIRST: ReadonlySet<KeyAction["action"]> = new Set<KeyAction["action"]>(["switch_tab"]);
 

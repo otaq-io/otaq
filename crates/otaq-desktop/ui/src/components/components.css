@@ -386,8 +386,16 @@
   transition: var(--motion-colors);
 }
 
-.segment:hover {
+.segment:hover:not(:disabled) {
   color: var(--text-primary);
+}
+
+.segment:disabled {
+  cursor: default;
+}
+
+.segmented[aria-disabled="true"] {
+  opacity: 0.55;
 }
 
 .segment[aria-checked="true"] {

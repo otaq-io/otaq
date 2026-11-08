@@ -2,6 +2,7 @@
 import type { AgentToolAdded } from "./AgentToolAdded";
 import type { AgentToolCanSee } from "./AgentToolCanSee";
 import type { AgentToolCommand } from "./AgentToolCommand";
+import type { AgentToolMark } from "./AgentToolMark";
 import type { AgentToolMenuItem } from "./AgentToolMenuItem";
 import type { AgentToolPill } from "./AgentToolPill";
 import type { AgentToolWarning } from "./AgentToolWarning";
@@ -20,6 +21,10 @@ tool: string, avatar: ToolAvatarView,
  */
 name: string, 
 /**
+ * The row's state mark.
+ */
+mark: AgentToolMark, 
+/**
  * Settings only; the onboarding rows say the state in [`Self::detail`].
  */
 pill: AgentToolPill | null, 
@@ -37,7 +42,7 @@ sign_in: string | null,
 show: string | null, install: AgentToolCommand | null, 
 /**
  * **Install** (`agent_tools.install`): runs the tool's install command in a terminal under the row, on the user's
- * click. Every missing tool has it, also an optional one on onboarding whose [`Self::install`] isn't shown.
+ * click. Every missing tool has it.
  */
 install_button: string | null, 
 /**

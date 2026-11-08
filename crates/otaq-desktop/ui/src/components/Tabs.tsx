@@ -96,10 +96,12 @@ export interface SegmentedProps {
   options: readonly string[];
   selected: number;
   onSelect: (index: number) => void;
+  /** Shown with its choice but switched off: nothing can be picked. */
+  disabled?: boolean;
 }
 
 /** Two or more options, one chosen (Unified / Side-by-side). */
-export function Segmented({ label, options, selected, onSelect }: SegmentedProps) {
+export function Segmented({ label, options, selected, onSelect, disabled = false }: SegmentedProps) {
   const onKeyDown = (e: KeyboardEvent) => {
     const next = arrowIndex(e.key, selected, options.length);
     if (next === null) return;
@@ -108,7 +110,7 @@ export function Segmented({ label, options, selected, onSelect }: SegmentedProps
     focusItem(e.currentTarget, "radiogroup", "radio", next);
   };
   return (
-    <div className="segmented" role="radiogroup" aria-label={label}>
+    <div className="segmented" role="radiogroup" aria-label={label} aria-disabled={disabled || undefined}>
       {options.map((option, i) => (
         <button
           key={option}
@@ -117,6 +119,7 @@ export function Segmented({ label, options, selected, onSelect }: SegmentedProps
           className="segment"
           aria-checked={i === selected}
           tabIndex={i === selected ? 0 : -1}
+          disabled={disabled}
           onKeyDown={onKeyDown}
           onClick={() => {
             onSelect(i);

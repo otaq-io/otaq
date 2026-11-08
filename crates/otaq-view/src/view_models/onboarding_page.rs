@@ -406,7 +406,7 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
 
 /// The Tools step's last line: where more tools are added later.
 pub fn agents_line() -> String {
-    "You can add more tools later in Settings \u{2192} Agent tools.".to_owned()
+    "You can add more tools later in Settings \u{2192} Agents.".to_owned()
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -1057,7 +1057,7 @@ mod tests {
         assert_eq!(names, ["git"], "gh and az aren't asked for here");
         assert_eq!(
             fine.agents_line.as_deref(),
-            Some("You can add more tools later in Settings → Agent tools.")
+            Some("You can add more tools later in Settings → Agents.")
         );
         assert_eq!(fine.waiting, None);
         assert_eq!(fine.recheck, "Check again");

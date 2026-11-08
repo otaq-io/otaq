@@ -226,13 +226,30 @@
   font: 500 11.5px/1.35 var(--font-ui);
 }
 
-.fb-head-warning,
-.fb-warn {
+/* A skill nobody has: amber, as the canvas draws it (turquoise means "needs you"). */
+.fb-head-warning {
   display: flex;
   align-items: flex-start;
   gap: 4px;
-  color: var(--st-attn);
+  color: var(--st-paused);
   font: 400 11.5px/1.35 var(--font-ui);
+}
+
+/* A header inside its description's tooltip anchor (a row) may shrink to the column's width, so a long line in it
+   wraps instead of running past the column's edge; the skill's name breaks onto the next line. */
+.tooltip-anchor > .fb-head {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.fb-head-warning > span {
+  min-width: 0;
+  overflow-wrap: anywhere;
+}
+
+/* A ready stage's skill the user brings: a quiet line in the palette, not a warning. */
+.fb-skill-note {
+  margin-top: 2px;
 }
 
 .fb-remove {

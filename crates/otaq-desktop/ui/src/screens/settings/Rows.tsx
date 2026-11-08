@@ -323,6 +323,7 @@ function DeliveryControl({ row, control }: { row: SettingsRow; control: Of<"deli
               0,
               control.modes.findIndex((choice) => choice.id === control.mode_value),
             )}
+            disabled={control.modes_off}
             onSelect={(i) => {
               const choice = control.modes[i];
               if (choice && choice.id !== control.mode_value) edit(`${row.field}.mode`, choice.id);

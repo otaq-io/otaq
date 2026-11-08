@@ -399,8 +399,24 @@
   outline-offset: -2px;
 }
 
+/* All · Changed · Needs you · Same file on one line across the side at its usual width: each takes the width its words
+   need, with less padding than a free-standing switch, and never breaks inside. Only a side narrowed by an open panel
+   wraps the last ones onto a second line. */
 .files-view-filters {
+  display: flex;
   flex-wrap: wrap;
+  align-self: stretch;
+}
+
+.files-view-filters > * {
+  display: flex;
+  flex: 1 1 auto;
+}
+
+.files-view-filters .segment {
+  flex: 1;
+  padding: 4px 6px;
+  white-space: nowrap;
 }
 
 .files-view-loading {

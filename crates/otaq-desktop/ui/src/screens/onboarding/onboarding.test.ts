@@ -194,6 +194,7 @@ const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): Agen
   tool,
   avatar: { tool: "codex", letters: "CX", background: "tool-cx", foreground: "tool-cx-fg", hover: name },
   name,
+  mark: "quiet",
   pill: null,
   detail: "",
   sign_in: null,
@@ -237,7 +238,7 @@ describe("the agent tools on the Tools step", () => {
         ...TOOLS.agent_tools,
         blocked:
           "No agent tool is connected. Install and sign in to at least one; agents can’t start without it.",
-        rows: [agentRow("codex", "Codex", { detail: "not installed", install })],
+        rows: [agentRow("codex", "Codex", { mark: "missing", detail: "not installed", install })],
       },
     });
     expect(html).toContain('class="agent-tools-blocked" role="alert"');
@@ -260,10 +261,14 @@ describe("the agent tools on the Tools step", () => {
         count: "1 ready · 1 hidden",
         rows: [
           agentRow("claude", "Claude Code", {
+            mark: "connected",
             detail: "v2.1.301 · signed in",
-            can_see: { label: "Otaq can see", chips: [{ label: "prompts", seen: true }] },
           }),
-          agentRow("copilot", "GitHub Copilot", { detail: "found · not signed in", sign_in: "Sign in…" }),
+          agentRow("copilot", "GitHub Copilot", {
+            mark: "attention",
+            detail: "found · not signed in",
+            sign_in: "Sign in…",
+          }),
           agentRow("opencode", "OpenCode", { detail: "hidden by you", show: "Show" }),
         ],
       },

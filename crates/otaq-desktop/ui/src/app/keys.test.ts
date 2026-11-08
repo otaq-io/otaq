@@ -520,7 +520,7 @@ const BASE: [KeyAction, Slot[]][] = [
   [{ action: "open_sheet" }, [["↵", "↵", ""]]],
   [{ action: "close_sheet" }, [["Esc", "Esc", ""]]],
   [{ action: "expand_sheet" }, [letter("e")]],
-  ...(["o", "s", "f", "a"] as const).map((then, i): [KeyAction, Slot[]] => [
+  ...(["o", "s", "c", "h"] as const).map((then, i): [KeyAction, Slot[]] => [
     { action: "switch_tab", number: i + 1 },
     [letter(String(i + 1)), letter(`g ${then}`)],
   ]),
@@ -685,7 +685,7 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
       [["e"], "expand_sheet"],
       [["c"], "new_ticket"],
       [["g", "b"], "show_board"],
-      [["g", "a"], "switch_tab 4"],
+      [["g", "h"], "switch_tab 4"],
       [["g", "t"], "terminals"],
       [["⌘D"], "start_dev"],
       [["↵"], "open_sheet"],
@@ -701,23 +701,27 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     expect(run(MAC_0097, ["g", "o"]).ran).toEqual(["switch_tab 1"]);
   });
 
-  it("g a is the open sheet's Activity tab, else Activity (SHB-04)", () => {
+  it("the ticket's tabs take their initials, g o / s / c / h, and g a stays Running with a ticket open", () => {
+    for (const [then, tab] of [
+      ["o", 1],
+      ["s", 2],
+      ["c", 3],
+      ["h", 4],
+    ] as const) {
+      const sheetOpen = setup(MAC_0097, ALL);
+      for (const t of ["g", then]) dispatchKey(sheetOpen.d, press(t), BOARD);
+      expect(sheetOpen.ran, then).toEqual([`switch_tab ${String(tab)}`]);
+    }
     const sheetOpen = setup(MAC_0097, ALL);
-    for (const t of ["g", "a"]) dispatchKey(sheetOpen.d, press(t), BOARD);
-    expect(sheetOpen.ran).toEqual(["switch_tab 4"]);
-    const noSheet = setup(
-      MAC_0097,
-      ALL.filter((a) => a !== "switch_tab"),
-    );
-    const outcomes = ["g", "a"].map((t) => dispatchKey(noSheet.d, press(t), BOARD));
-    expect(noSheet.ran).toEqual(["open_activity"]);
+    const outcomes = ["g", "a"].map((t) => dispatchKey(sheetOpen.d, press(t), BOARD));
+    expect(sheetOpen.ran).toEqual(["open_activity"]);
     expect(outcomes[1]).toEqual({ kind: "ran", action: { action: "open_activity" } });
   });
 
-  it("g f is the open sheet's Files tab, else the Files view (FIL-11)", () => {
+  it("g f is the Files view, with a ticket open too (FIL-11)", () => {
     const sheetOpen = setup(MAC_0097, ALL);
     for (const t of ["g", "f"]) dispatchKey(sheetOpen.d, press(t), BOARD);
-    expect(sheetOpen.ran).toEqual(["switch_tab 3"]);
+    expect(sheetOpen.ran).toEqual(["show_files"]);
     const noSheet = setup(
       MAC_0097,
       ALL.filter((a) => a !== "switch_tab"),

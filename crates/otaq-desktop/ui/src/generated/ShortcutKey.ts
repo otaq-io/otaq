@@ -2,7 +2,7 @@
 
 /**
  * One key of a row, as Kbds: one ("⌘K", "⌘] / ⌘[", "1–4"), or a sequence's two ("g", "b") shown with "then" (a
- * run's sequences share the "g": "g", "o / s / f / a").
+ * run's sequences share the "g": "g", "o / s / c / h").
  * `ShortcutKey` on the page.
  */
 export type ShortcutKey = { kbds: Array<string>, };

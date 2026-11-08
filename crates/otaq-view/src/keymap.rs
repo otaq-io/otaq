@@ -14,8 +14,8 @@ use ts_rs::TS;
 
 /// The ticket sheet's tabs (SHT-02): `SwitchTab(1..=4)`.
 pub const SHEET_TABS: u8 = 4;
-/// The second keys of their `g` sequences: Overview, Session, Files, Activity.
-const SHEET_TAB_LETTERS: [&str; 4] = ["o", "s", "f", "a"];
+/// The second keys of their `g` sequences, the tabs' initials: Overview, Session, Changes, History.
+const SHEET_TAB_LETTERS: [&str; 4] = ["o", "s", "c", "h"];
 
 /// Which column of the keyboard map applies. `KeyPlatform` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
@@ -108,8 +108,8 @@ pub enum KeyAction {
     OpenSheet,
     CloseSheet,
     ExpandSheet,
-    /// The ticket sheet's tabs 1–4: Overview, Session, Files, Activity (SHT-02); `1`–`4` and `g o` /
-    /// `g s` / `g f` / `g a`.
+    /// The ticket sheet's tabs 1–4: Overview, Session, Changes, History (SHT-02); `1`–`4` and `g o` /
+    /// `g s` / `g c` / `g h`.
     SwitchTab(u8),
     NextTab,
     PreviousTab,
@@ -176,8 +176,7 @@ impl KeyAction {
     }
 
     /// A key of the open ticket sheet (its tabs): it comes before another action's same key while a sheet is open,
-    /// and the other one's runs when none is (`g a`: the Activity tab, else Activity, SHB-04; `g f`: the Files tab,
-    /// else the Files view, FIL-11).
+    /// and the other one's runs when none is (a custom key the user gives a tab and another action).
     pub fn in_sheet(self) -> bool {
         matches!(self, Self::SwitchTab(_))
     }
@@ -1202,8 +1201,8 @@ mod tests {
             let (mac, win) = (format!("⌘{n}"), format!("Ctrl+{n}"));
             table.push(row(Project(n), &[&mac], &[&win], &[&win]));
         }
-        // The sheet's tabs (SHT-02, SHB-04): 1–4 and g o / s / f / a.
-        for (n, then) in (1..=4).zip(["o", "s", "f", "a"]) {
+        // The sheet's tabs (SHT-02, SHB-04): 1–4 and g o / s / c / h.
+        for (n, then) in (1..=4).zip(["o", "s", "c", "h"]) {
             let (digit, sequence) = (n.to_string(), format!("g {then}"));
             table.push(row(
                 SwitchTab(n),
@@ -1327,7 +1326,7 @@ mod tests {
     /// Each key of the table, pressed where its column applies, runs its action: macOS on the board, and in a terminal
     /// when it holds ⌘ or is ⌃` / ⌃Tab / ⌃⇧Tab; Windows/Linux on the board; the terminal column in a Windows/Linux
     /// terminal, where a Windows/Linux key outside that column never runs its action. The sheet's keys run theirs in
-    /// an open sheet (`g a`: Activity without one).
+    /// an open sheet.
     #[test]
     fn each_0097_key_runs_its_action_where_it_applies() {
         for row in table_0097() {
@@ -1550,13 +1549,7 @@ mod tests {
                 let mut seen: HashMap<Key, KeyAction> = HashMap::new();
                 for (key, action, text) in place_keys(platform, inside, &all) {
                     if let Some(other) = seen.insert(key, action) {
-                        // `g a` is the sheet's Activity tab while a sheet is open, else Activity (SHB-04); `g f`
-                        // its Files tab, else the Files view (FIL-11).
-                        let sheet_first = (other.in_sheet() || action.in_sheet())
-                            && [other, action].iter().any(|a| {
-                                matches!(a, KeyAction::OpenActivity | KeyAction::ShowFiles)
-                            });
-                        assert!(other == action || sheet_first, "{text} (inside: {inside})");
+                        assert_eq!(other, action, "{text} (inside: {inside})");
                     }
                 }
             }
@@ -2249,11 +2242,11 @@ mod tests {
         );
     }
 
-    /// FIL-11: ⇧⌘O and `g f` open the Files view (Ctrl+Shift+O on Windows/Linux, in terminals too); inside a sheet
-    /// `g f` is still its Files tab, tried first as `g a` is (the dispatcher's sheet-first order), and ⌥⌘P is Go to
-    /// file wherever it is pressed.
+    /// FIL-11: ⇧⌘O and `g f` open the Files view (Ctrl+Shift+O on Windows/Linux, in terminals too), also with a
+    /// ticket open; the ticket's tabs take their initials (`g c` Changes, `g h` History), and ⌥⌘P is Go to file
+    /// wherever it is pressed.
     #[test]
-    fn files_is_bound_and_g_f_stays_the_files_tab_in_a_sheet() {
+    fn files_is_bound_and_the_ticket_tabs_take_their_initials() {
         let mac = bindings(Platform::Mac);
         assert_eq!(
             runs(Platform::Mac, false, "⇧⌘O", &mac),
@@ -2265,7 +2258,19 @@ mod tests {
         );
         assert_eq!(
             runs(Platform::Mac, false, "g f", &sheet_first(&mac)),
-            Some(KeyAction::SwitchTab(3))
+            Some(KeyAction::ShowFiles)
+        );
+        for (key, tab) in [("g o", 1), ("g s", 2), ("g c", 3), ("g h", 4)] {
+            assert_eq!(
+                runs(Platform::Mac, false, key, &sheet_first(&mac)),
+                Some(KeyAction::SwitchTab(tab)),
+                "{key}"
+            );
+        }
+        assert_eq!(
+            runs(Platform::Mac, false, "g a", &sheet_first(&mac)),
+            Some(KeyAction::OpenActivity),
+            "g a is Running, with a ticket open too"
         );
         assert_eq!(
             runs(Platform::Mac, false, "⌥⌘P", &mac),

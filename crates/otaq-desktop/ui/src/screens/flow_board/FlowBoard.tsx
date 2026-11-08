@@ -605,9 +605,9 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
                 <span className="fb-pop-words">
                   <span className="fb-pop-name">{t.title}</span>
                   <span className="fb-muted">{t.line}</span>
-                  {t.warning !== null && (
-                    <span className="fb-warn">
-                      <CodeText text={t.warning} />
+                  {t.skill_note !== null && (
+                    <span className="fb-muted fb-skill-note">
+                      <CodeText text={t.skill_note} />
                     </span>
                   )}
                 </span>

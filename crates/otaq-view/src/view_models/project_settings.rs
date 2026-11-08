@@ -262,7 +262,8 @@ pub const EITHER_NOTE: &str = "With Either, you choose at Approve.";
 pub const PROVIDER_LABEL: &str = "Pull requests through";
 
 /// The Delivery row: the flow's `delivery:` shown as the flow's own (Merge into <base> · Pull request · Either; On
-/// Approve · Automatically). Either is chosen at your click, so it has no Automatically. A flow that doesn't read
+/// Approve · Automatically). Either is chosen at your click, so with Either the modes stay on On Approve, switched off,
+/// and a line says why. A flow that doesn't read
 /// shows why instead.
 pub fn delivery_row(delivery: Option<&Delivery>, base: &str) -> Row {
     let description = "How work leaves the flow.";
@@ -292,15 +293,12 @@ pub fn delivery_row(delivery: Option<&Delivery>, base: &str) -> Row {
                 choice("either", "Either"),
             ],
             delivers_value: delivers_id(d.delivers).to_owned(),
-            modes: if either {
-                Vec::new()
-            } else {
-                vec![
-                    choice("click", "On Approve"),
-                    choice("automatic", "Automatically"),
-                ]
-            },
+            modes: vec![
+                choice("click", "On Approve"),
+                choice("automatic", "Automatically"),
+            ],
             mode_value: d.mode.as_str().to_owned(),
+            modes_off: either,
             either: either.then(|| EITHER_NOTE.to_owned()),
             note: DELIVERY_NOTE.to_owned(),
         },
@@ -316,8 +314,9 @@ fn delivers_id(d: Delivers) -> &'static str {
 }
 
 /// The flow's delivery with Deliver as's edit `field` = `value` (`delivery.delivers`: local / pr / either;
-/// `delivery.mode`: click / automatic). A local merge runs no agent, so it drops the PR's agent and skill; Either is
-/// chosen at your click, so picking it sets On Approve, and Automatically isn't offered with it.
+/// `delivery.mode`: click / automatic). A local merge opens no PR, so it drops the PR's skill but keeps the agent, which
+/// writes its squash message (and opens the PR again on a later switch back); Either is chosen at your click, so
+/// picking it sets On Approve, and Automatically isn't offered with it.
 pub fn deliver_as(delivery: &Delivery, field: &str, value: &str) -> Result<Delivery, String> {
     let mut out = delivery.clone();
     match field {
@@ -329,7 +328,6 @@ pub fn deliver_as(delivery: &Delivery, field: &str, value: &str) -> Result<Deliv
                 other => return Err(format!("not a delivery: {other}")),
             };
             if out.delivers == Delivers::Local {
-                out.agent = None;
                 out.skill = None;
             }
             if out.delivers == Delivers::Either {
@@ -560,6 +558,7 @@ mod tests {
             delivers_value,
             modes,
             mode_value,
+            modes_off,
             either,
             note,
         } = row.control
@@ -573,9 +572,10 @@ mod tests {
             ("pr", "automatic")
         );
         assert_eq!(modes.len(), 2);
+        assert!(!modes_off);
         assert_eq!(either, None);
         assert_eq!(note, DELIVERY_NOTE);
-        // Either is chosen at your click: no Automatically.
+        // Either is chosen at your click: the modes show On Approve, switched off, and the line says why.
         let either_row = delivery_row(
             Some(&Delivery {
                 delivers: Delivers::Either,
@@ -583,10 +583,20 @@ mod tests {
             }),
             "main",
         );
-        let Control::Delivery { modes, either, .. } = either_row.control else {
+        let Control::Delivery {
+            modes,
+            mode_value,
+            modes_off,
+            either,
+            ..
+        } = either_row.control
+        else {
             panic!()
         };
-        assert!(modes.is_empty());
+        let labels: Vec<&str> = modes.iter().map(|c| c.label.as_str()).collect();
+        assert_eq!(labels, ["On Approve", "Automatically"]);
+        assert_eq!(mode_value, "click");
+        assert!(modes_off);
         assert_eq!(either.as_deref(), Some(EITHER_NOTE));
         // A flow that doesn't read.
         assert!(matches!(
@@ -603,12 +613,15 @@ mod tests {
             agent: Some("Shipper".into()),
             skill: Some("open-pr".into()),
         };
-        // A local merge runs no agent.
+        // A local merge opens no PR: no skill, but its agent stays to write the squash message.
         let local = deliver_as(&pr, DELIVERS_FIELD, "local").unwrap();
         assert_eq!(
-            (local.delivers, local.mode, local.agent, local.skill),
-            (Delivers::Local, DeliveryMode::Automatic, None, None)
+            (local.delivers, local.mode, local.agent.as_deref(), local.skill.as_deref()),
+            (Delivers::Local, DeliveryMode::Automatic, Some("Shipper"), None)
         );
+        // So switching back to Either or a PR still has the agent that opens it.
+        let back = deliver_as(&local, DELIVERS_FIELD, "either").unwrap();
+        assert_eq!(back.agent.as_deref(), Some("Shipper"));
         // Either is chosen at your click.
         let either = deliver_as(&pr, DELIVERS_FIELD, "either").unwrap();
         assert_eq!(
