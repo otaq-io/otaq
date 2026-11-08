@@ -175,6 +175,7 @@ impl ActivityData {
             limits: &self.limits,
             scheduler: self.scheduler.as_ref(),
             runs: &self.runs,
+            working: self.activity.as_ref().map_or(&[], |a| a.working.as_slice()),
             now,
         }
     }

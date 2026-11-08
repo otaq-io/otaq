@@ -114,7 +114,7 @@ async fn tree_and_cycles() {
         "{tree}"
     );
     assert!(
-        tree.lines().nth(2).unwrap().contains("Ready for Review"),
+        tree.lines().nth(2).unwrap().contains("Ready for you"),
         "{tree}"
     );
     let json: Value =

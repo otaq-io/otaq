@@ -107,24 +107,7 @@ impl<'f> Columns<'f> {
     /// waiting to begin, the first Agent stage); for a stage the flow doesn't have, the one its status's kind shows in
     /// (as the core's drag rules see it), a ticket being delivered in the last stage.
     pub fn stage_of(&self, ticket: &Ticket) -> Option<&'f Stage> {
-        let id = match &ticket.place {
-            Place::Backlog | Place::Done => return None,
-            Place::Waiting(None) => return self.flow.first_agent_stage(),
-            Place::Waiting(Some(id)) | Place::InStage(id) => id,
-        };
-        if let Some(stage) = self.flow.stage(id) {
-            return Some(stage);
-        }
-        // A stage the flow doesn't have: the ticket shows where its status belongs.
-        let target = match ticket.status.set() {
-            StatusSet::HumanCheck => DropTarget::ReadyForReview,
-            StatusSet::Delivery => return self.flow.last_stage(),
-            _ => DropTarget::Dev,
-        };
-        match target.in_flow(self.flow) {
-            Some(Target::Stage(stage)) => Some(stage),
-            _ => None,
-        }
+        ticket.shown_stage(self.flow)
     }
 
     /// The column `ticket`'s card shows in: its id.

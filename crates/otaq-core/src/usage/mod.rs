@@ -173,8 +173,8 @@ pub struct UsageSummary {
     /// Agents waiting for the limit reset, across all projects (the banner's "8 agents stopped", USG-06).
     #[serde(default)]
     pub limit_waiting: u32,
-    /// The banner's line per tool (USG-10): its limit or its being unavailable, what waits, Resume, Move waiting
-    /// to… (filled by the service).
+    /// The banner's line per tool (USG-10): its limit or its being unavailable, what waits, Resume (filled by the
+    /// service).
     #[serde(default)]
     pub tool_lines: crate::agents::limits::ToolLines,
 }

@@ -301,7 +301,7 @@ pub struct OverviewView {
     /// WHAT PLANNING DID under the Plan, at a human check that reviews planning (d0129, `s30-02`); set by the service's
     /// facts ([`with_planning`]).
     pub planning: Option<crate::view_models::planning::Did>,
-    /// "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
+    /// "Manual checks for you" above Approve, while it waits in a human check or for its delivery click (d0125).
     pub manual_checks: Option<ChecklistView>,
     /// While the ticket waits in your check, Overview reads as a review: what the agent did, the checker, the
     /// decisions it made, then the ticket (`description` says "The ticket").

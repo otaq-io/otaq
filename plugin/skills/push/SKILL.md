@@ -73,8 +73,8 @@ nothing is pushed.
 
    If editing the description fails, tell the user what failed with `otaq ask human --stdin` and end your turn.
 8. **Report back** with the PR's URL as `prime` shows it: `otaq pr opened <url>`, for example
-   `otaq pr opened https://github.com/acme/shop-web/pull/481`. The ticket returns to "Approved · PR open". End
-   your turn.
+   `otaq pr opened https://github.com/acme/shop-web/pull/481`. The ticket waits in the flow's last stage as "PR
+   open". End your turn.
 
 ## Rules
 

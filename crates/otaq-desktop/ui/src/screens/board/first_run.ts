@@ -1,7 +1,7 @@
 // A new user's first run on the board, without the DOM: the first ticket's Create & start and Not now, where a
 // first-run hint points, and what its button does. Every word and every rule of when something shows is Rust's
 // (`board.view`'s `first_ticket` and `hint`, `empty_board.rs`, `hint.rs`).
-import { openTicket } from "../../app/selection";
+import { closeTicket, openTicket } from "../../app/selection";
 import { createStore, type Store } from "../../app/store";
 import type { BoardHint } from "../../generated/BoardHint";
 import type { BoardHintAnchor } from "../../generated/BoardHintAnchor";
@@ -46,10 +46,21 @@ export async function startFirstTicket(
   return saved;
 }
 
-/** The element a board hint points at: a card by its key, or Edit flow at the end of the columns. */
-export function hintTarget(anchor: BoardHintAnchor, root: ParentNode = document): HTMLElement | null {
-  if (anchor.kind === "edit_flow") return root.querySelector<HTMLElement>(".board-edit-flow");
-  return root.querySelector<HTMLElement>(`[data-card="${CSS.escape(anchor.key)}"]`);
+/** The element a board hint points at: a card by its key, Edit flow at the end of the columns, or the box for new
+ * work (docked over the board, outside it). */
+export function hintTarget(
+  anchor: BoardHintAnchor,
+  root: ParentNode = document,
+  page: ParentNode = document,
+): HTMLElement | null {
+  switch (anchor.kind) {
+    case "edit_flow":
+      return root.querySelector<HTMLElement>(".board-edit-flow");
+    case "new_work":
+      return page.querySelector<HTMLElement>(".new-work-closed");
+    case "card":
+      return root.querySelector<HTMLElement>(`[data-card="${CSS.escape(anchor.key)}"]`);
+  }
 }
 
 /** Where a hint's button goes, besides dismissing it. */
@@ -62,7 +73,9 @@ export const HINT_ROUTES: HintRoutes = {
   openTicket: (key) => {
     openTicket(key);
   },
+  // The editor is the board itself: an open ticket closes so it doesn't stay over it.
   editFlow: (project) => {
+    closeTicket();
     openFlowBoard({ project });
   },
 };

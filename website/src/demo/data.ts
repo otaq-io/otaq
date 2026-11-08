@@ -28,10 +28,9 @@ export const MODELS: Readonly<Record<string, string>> = {
   "Rust developer": "opus",
   "Spec writer": "opus",
   "Security reviewer": "opus · effort high",
-  Validator: "gpt-sol",
+  Checker: "gpt-sol",
   "Docs updater": "haiku",
   Shipper: "default model",
-  Checker: "default model",
   Developer: "opus",
 };
 
@@ -106,7 +105,7 @@ export const FLOWS: Record<FlowId, Flow> = {
     stages: [
       S("dev", "Dev", "agent", "Rust developer", "/work-ticket"),
       S("security", "Security", "check", "Security reviewer", "/security-check", "Dev"),
-      S("validate", "Validate", "check", "Validator", "/validate", "Dev"),
+      S("validate", "Validate", "check", "Checker", "/validate", "Dev"),
       S("review", "Review", "you", "You", "—", "Dev"),
     ],
     delivery: "Merge or PR · on Approve",

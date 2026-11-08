@@ -52,7 +52,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         "gallery.activity" => reply(&activity::gallery()),
         // The Project agent panel in each state (T-0330).
         "gallery.agent_panel" => reply(&agent_panel::gallery()),
-        // The box for new work (UX-22): closed, typing a ticket, words for Noyan.
+        // The box for new work, one box for a ticket or words for Noyan: closed, typing a ticket, words for Noyan.
         "gallery.new_work" => reply(&otaq_view::view_models::new_work::gallery()),
         // The Terminals drawer: terminals only (T-0331).
         "gallery.drawer" => reply(&super::drawer::gallery()),
@@ -68,7 +68,7 @@ pub async fn request(_app: &App, method: &str, _params: Value) -> Result<Value, 
         // 27 · The flow editor: shop-web's flow in the project, Otaq default in onboarding with two tools (T-0471).
         // 26 · The project menu: the flow in use, and a change waiting (T-0473).
         "gallery.project_menu" => reply(&otaq_view::view_models::project_menu::gallery()),
-        // 11 · The usage-limit banner's line per tool, Move waiting to…, a tool that isn't available (T-0364).
+        // 11 · The usage-limit banner's line per tool, a tool that isn't available (T-0364).
         "gallery.limit_lines" => reply(&limit_banner::gallery()),
         // The notification banners and Settings → Notifications in every state (T-0372).
         "gallery.notifications" => reply(&settings_page::notifications_gallery()),

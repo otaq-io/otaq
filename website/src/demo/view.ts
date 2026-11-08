@@ -584,7 +584,7 @@ export function ticketView(s: DemoState): TicketView | null {
       name: head + " report.md",
       size: "4 KB",
       tool: isSecurity(ck) ? "CC" : "CX",
-      who: isSecurity(ck) ? "Security reviewer" : "Validator",
+      who: isSecurity(ck) ? "Security reviewer" : "Checker",
       stage: head,
       line: ck.s,
     });
@@ -673,7 +673,7 @@ export function ticketView(s: DemoState): TicketView | null {
             head: beforeHead,
             sum: String(checks.length) + (checks.length === 1 ? " check · passed" : " checks · both passed"),
             checks: checks.map((ck) => ({
-              name: isSecurity(ck) ? "Security reviewer" : "Validator",
+              name: isSecurity(ck) ? "Security reviewer" : "Checker",
               tool: isSecurity(ck) ? "CC" : "CX",
               verdict: ck.t.includes("failed") ? "failed" : ck.t.split(" · ").slice(1).join(" · "),
               model: isSecurity(ck) ? "Claude Code · opus · effort high" : "Codex · gpt-sol",
@@ -686,7 +686,7 @@ export function ticketView(s: DemoState): TicketView | null {
     manual: (ot.manual ?? []).map((t, i) => ({
       t,
       on: !!s.manualDone[ot.k + ":" + String(i)],
-      src: i === 0 ? "Validator" : "Security reviewer",
+      src: i === 0 ? "Checker" : "Security reviewer",
     })),
     waitsFor: ot.waits.length
       ? ot.waits.join(", ") + (unmet.length ? " · not merged yet" : " · merged")
@@ -721,7 +721,7 @@ export function ticketView(s: DemoState): TicketView | null {
               L("a", "Round 1 found unescaped SQL. Reading the fix in lib/coupon.ts."),
             ]
           : [
-              L("d", "Validator · Codex · round 1"),
+              L("d", "Checker · Codex · round 1"),
               L("tool", "/validate"),
               L("ok", "✓ tests pass · lint clean · change matches the ticket"),
             ],

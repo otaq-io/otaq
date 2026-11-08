@@ -39,9 +39,7 @@ use crate::view_models::board::BoardInput;
 use crate::view_models::card::tokens_label;
 use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
-use crate::view_models::project_agent_page::{
-    self as agent_page, Recent, ResumeButton, column_name,
-};
+use crate::view_models::project_agent_page::{self as agent_page, Recent, ResumeButton};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
 use crate::view_models::tool_problems::{self, Callout, Tools};
 
@@ -274,7 +272,8 @@ pub fn empty(project_name: &str, new_agent: Option<&Agent>, tools: &Tools) -> Em
 pub struct EditedTicket {
     pub key: TicketKey,
     pub title: String,
-    pub status: Status,
+    /// Its column as the board names it ("Backlog", "Validate", "Review"; `Ticket::place_name`).
+    pub place: String,
 }
 
 /// Where a started ticket is now, as the board shows it: its column ("Dev", the stage's name) and its card's status
@@ -376,7 +375,7 @@ pub fn created(
                 place: match now {
                     _ if waiting => String::new(),
                     Some(w) => w.place.clone(),
-                    None => column_name(t.status).to_owned(),
+                    None => String::new(),
                 },
                 line: now.and_then(|w| w.line.clone()),
                 icon: IconName::SquarePlus,
@@ -394,7 +393,7 @@ pub fn created(
             CreatedRow {
                 key: key.to_string(),
                 title: known.map_or_else(String::new, |t| t.title.clone()),
-                place: known.map_or_else(String::new, |t| column_name(t.status).to_owned()),
+                place: known.map_or_else(String::new, |t| t.place.clone()),
                 line: None,
                 icon: IconName::Pencil,
                 edited: true,
@@ -841,7 +840,7 @@ pub fn gallery() -> Gallery {
     let edited = [EditedTicket {
         key: "NOTE-5".parse().expect("a key"),
         title: "Sync conflicts".into(),
-        status: Status::Backlog,
+        place: "Backlog".into(),
     }];
     // NOTE-11 was started from the panel and waits at the top of Dev.
     let places = [Whereabouts {
@@ -1125,7 +1124,7 @@ mod tests {
         vec![EditedTicket {
             key: "NOTE-5".parse().unwrap(),
             title: "Sync conflicts".into(),
-            status: Status::Backlog,
+            place: "Backlog".into(),
         }]
     }
 
@@ -1545,7 +1544,13 @@ mod tests {
     #[test]
     fn created_and_changed_folds_at_the_1280_class() {
         let a = agent("a1", "Search slowness", 1);
-        let c = created(&a, &changed(), &edited(), &[], Some(1280.)).unwrap();
+        // The board says where the started one is.
+        let places = [Whereabouts {
+            key: "NOTE-11".parse().unwrap(),
+            place: "Dev".into(),
+            line: None,
+        }];
+        let c = created(&a, &changed(), &edited(), &places, Some(1280.)).unwrap();
         assert_eq!(c.line, "CREATED 2 \u{b7} CHANGED 1");
         assert!(c.folded);
         assert!(

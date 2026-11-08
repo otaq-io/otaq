@@ -27,7 +27,8 @@ use otaq_core::board::stage_choices::{SetBy, TicketChoices};
 use otaq_core::board::tickets::{HistoryEvent, Ticket};
 use otaq_core::client::Client;
 use otaq_core::data_dir::DataDir;
-use otaq_core::domain::{Place, Priority, Status, StatusSet, TicketKey};
+use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
+use otaq_core::flow::Flow;
 use otaq_core::protocol::{
     ErrorBody, ErrorKind, KeyParams, ProjectParams, Reply, Request, TerminalParams,
     TicketAgentsParams, TicketChoicesParams,
@@ -109,8 +110,8 @@ pub fn show(args: ShowArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
         };
         let agents = ticket_agents(client, &ticket.key.to_string()).await?;
         let choices = ticket_choices(client, &ticket.key.to_string()).await?;
-        let first = first_stage_name(client, ticket.key.project.as_str()).await;
-        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices), &first);
+        let flow = project_flow(client, ticket.key.project.as_str()).await;
+        let mut human = show_text(&ticket, &tickets, Some(&agents), Some(&choices), &flow);
         if !decisions.is_empty() {
             human.push_str(&decisions_text(&decisions));
         }
@@ -243,17 +244,22 @@ pub fn list(args: ListArgs, global: &GlobalArgs, out: &Output) -> Result<(), Err
     service::runtime()?.block_on(with_client(global, async |client, data| {
         let project = target::require_project(client, data, global).await?;
         let tickets = list_tickets(client, project.as_str()).await?;
+        let flow = project_flow(client, project.as_str()).await;
         let status = args
             .status
             .as_deref()
-            .map(StatusFilter::parse)
+            .map(|s| StatusFilter::parse(s, &flow))
             .transpose()?;
         let shown: Vec<Ticket> = tickets
             .into_iter()
-            .filter(|t| status.as_ref().is_none_or(|s| s.matches(t)))
+            .filter(|t| status.as_ref().is_none_or(|s| s.matches(t, &flow)))
             .filter(|t| args.priority.is_none_or(|p| t.priority == p))
             .collect();
-        let human = shown.iter().map(line).collect::<Vec<_>>().join("\n");
+        let human = shown
+            .iter()
+            .map(|t| line(t, &flow))
+            .collect::<Vec<_>>()
+            .join("\n");
         let keys: Vec<String> = shown.iter().map(|t| t.key.to_string()).collect();
         out.print(
             &human,
@@ -487,100 +493,99 @@ pub fn unexpected(reply: &Reply) -> ErrorBody {
     ))
 }
 
-/// The board's columns as the default flow draws them, by the name `--status` and `otaq show` use (`dev`,
-/// "Ready for Review"); a ticket's column comes from its place (STG-08): Backlog and Done as themselves, a stage by
-/// the kind of statuses it allows (an agent check's are Dev's), and a started ticket waiting to begin, or waiting
-/// before a later Agent stage, in that stage's column, Dev.
-#[derive(Debug, Clone, Copy, PartialEq, Eq)]
-enum Column {
-    Backlog,
-    Dev,
-    ReadyForReview,
-    Approved,
-    Done,
-}
-
-impl Column {
-    const ALL: [Self; 5] = [
-        Self::Backlog,
-        Self::Dev,
-        Self::ReadyForReview,
-        Self::Approved,
-        Self::Done,
-    ];
-
-    fn of(ticket: &Ticket) -> Self {
-        match &ticket.place {
-            Place::Backlog => Self::Backlog,
-            Place::Waiting(_) => Self::Dev,
-            Place::Done => Self::Done,
-            Place::InStage(_) => match ticket.status.set() {
-                StatusSet::HumanCheck => Self::ReadyForReview,
-                StatusSet::Delivery => Self::Approved,
-                _ => Self::Dev,
-            },
-        }
-    }
-
-    fn id(self) -> &'static str {
-        match self {
-            Self::Backlog => "backlog",
-            Self::Dev => "dev",
-            Self::ReadyForReview => "ready_for_review",
-            Self::Approved => "approved",
-            Self::Done => "done",
-        }
-    }
-
-    fn label(self) -> &'static str {
-        match self {
-            Self::Backlog => "Backlog",
-            Self::Dev => "Dev",
-            Self::ReadyForReview => "Ready for Review",
-            Self::Approved => "Approved",
-            Self::Done => "Done",
-        }
+/// A ticket's state in the app's plain words, from its status alone: "Working", "Checking", "Ready for you",
+/// "To deliver", "PR open". Statuses the app words as their pill does keep that label.
+pub fn status_words(status: Status) -> &'static str {
+    match status {
+        Status::Backlog => "Not started",
+        Status::Checking => "Checking",
+        Status::CheckFailed => "Check failed",
+        Status::CheckNoResult => "Check gave no result",
+        Status::WaitingForYou => "Ready for you",
+        other => other.label(),
     }
 }
 
-/// `--status`: a status (`working`, `asks_you`, "Ready for Review") or a column (`dev`, `done`).
+/// [`status_words`] with what the ticket adds: "PR #481 open", "Merged into SHOP-18".
+pub fn state_words(ticket: &Ticket) -> String {
+    match ticket.status {
+        Status::PrOpen if let Some(number) = ticket.flags.pr_number => format!("PR #{number} open"),
+        Status::MergedInto if let Some(into) = &ticket.flags.merged_into => {
+            format!("Merged into {into}")
+        }
+        status => status_words(status).to_owned(),
+    }
+}
+
+/// `--status`: a stored status (`working`, `asks_you`), a column of the project's flow by its stage's name or id
+/// (`dev`, `Review`, `backlog`, `done`), or a state as the app words it ("Ready for you", "Checking", "PR open").
+/// `approved` still means a ticket being delivered.
 enum StatusFilter {
     Status(Status),
-    Column(Column),
+    /// A column of the flow: the stage's name ("Backlog", "Review", "Done").
+    Place(String),
+    /// A state in the app's words.
+    Words(&'static str),
+    Delivery,
+}
+
+/// "Ready for you", "ready-for-you" → "ready_for_you".
+fn normal(text: &str) -> String {
+    text.trim().to_lowercase().replace([' ', '-'], "_")
 }
 
 impl StatusFilter {
-    fn parse(text: &str) -> Result<Self, ErrorBody> {
-        let normal = text.trim().to_ascii_lowercase().replace([' ', '-'], "_");
-        if let Ok(status) = normal.parse::<Status>() {
+    fn parse(text: &str, flow: &Flow) -> Result<Self, ErrorBody> {
+        let wanted = normal(text);
+        if let Ok(status) = wanted.parse::<Status>() {
             return Ok(Self::Status(status));
         }
-        if let Some(column) = Column::ALL.into_iter().find(|c| c.id() == normal) {
-            return Ok(Self::Column(column));
+        let columns = std::iter::once(("backlog", "Backlog"))
+            .chain(flow.stages.iter().map(|s| (s.id.as_str(), s.name.as_str())))
+            .chain(std::iter::once(("done", "Done")));
+        for (id, name) in columns {
+            if normal(id) == wanted || normal(name) == wanted {
+                return Ok(Self::Place(name.to_owned()));
+            }
         }
+        if let Some(status) = Status::ALL
+            .iter()
+            .find(|s| normal(status_words(**s)) == wanted || normal(s.label()) == wanted)
+        {
+            return Ok(Self::Words(status_words(*status)));
+        }
+        if wanted == "approved" {
+            return Ok(Self::Delivery);
+        }
+        let names: Vec<String> = flow.stages.iter().map(|s| normal(&s.name)).collect();
         Err(ErrorBody::new(
             ErrorKind::Usage,
             format!(
-                "unknown status {text:?}; use a status such as working or a column such as dev"
+                "unknown status {text:?}; use a stage of the flow (backlog, {}, done) or a state such as working",
+                names.join(", ")
             ),
         ))
     }
 
-    fn matches(&self, ticket: &Ticket) -> bool {
+    fn matches(&self, ticket: &Ticket, flow: &Flow) -> bool {
         match self {
             Self::Status(s) => ticket.status == *s,
-            Self::Column(c) => Column::of(ticket) == *c,
+            Self::Place(name) => ticket.place_name(flow) == *name,
+            Self::Words(words) => status_words(ticket.status) == *words,
+            Self::Delivery => ticket.status.set() == StatusSet::Delivery,
         }
     }
 }
 
-/// `SHOP-18  Working               Split user full name`
-pub fn line(ticket: &Ticket) -> String {
+/// `SHOP-18    P3 Review       Ready for you          Split user full name`: key, priority, where the board shows it
+/// and its state.
+pub fn line(ticket: &Ticket, flow: &Flow) -> String {
     format!(
-        "{:<10} P{} {:<22} {}",
+        "{:<10} P{} {:<12} {:<22} {}",
         ticket.key.to_string(),
         ticket.priority.number(),
-        ticket.status.label(),
+        ticket.place_name(flow),
+        state_words(ticket),
         ticket.title
     )
 }
@@ -589,42 +594,37 @@ fn status_of(key: &TicketKey, tickets: &[Ticket]) -> String {
     tickets
         .iter()
         .find(|t| &t.key == key)
-        .map_or_else(|| "?".to_owned(), |t| t.status.label().to_owned())
+        .map_or_else(|| "?".to_owned(), state_words)
 }
 
-/// The name of the first stage of `project`'s flow, where a started ticket waits until it can begin ("Dev", "Product
-/// spec"); "Dev" when the flow can't be read.
-async fn first_stage_name(client: &Client, project: &str) -> String {
+/// `project`'s flow as the service runs it; the default flow when it can't be read.
+pub async fn project_flow(client: &Client, project: &str) -> Flow {
     match client
-        .request(Request::FlowCurrent(otaq_core::protocol::ProjectParams {
+        .request(Request::FlowCurrent(ProjectParams {
             project: project.to_owned(),
         }))
         .await
     {
-        Ok(Reply::FlowVersion(version)) => version.file().map_or_else(
-            |_| "Dev".to_owned(),
-            |f| f.flow.first_stage_name().to_owned(),
-        ),
-        _ => "Dev".to_owned(),
+        Ok(Reply::FlowVersion(version)) => version
+            .file()
+            .map_or_else(|_| otaq_core::flow::default_flow(), |f| f.flow),
+        _ => otaq_core::flow::default_flow(),
     }
 }
 
-/// The full human view of one ticket. A started ticket that can't begin yet says so with the first stage it waits
-/// at the top of (`first`): "Waiting to start (Product spec)".
+/// The full human view of one ticket: its state and, in brackets, where the board shows it on `flow` ("Ready for you
+/// (Review)", "Waiting to start (Product spec)").
 pub fn show_text(
     ticket: &Ticket,
     tickets: &[Ticket],
     agents: Option<&TicketAgents>,
     choices: Option<&TicketChoices>,
-    first: &str,
+    flow: &Flow,
 ) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
-    let status = ticket.status.label();
-    let column = match ticket.place {
-        Place::Waiting(None) => first,
-        _ => Column::of(ticket).label(),
-    };
-    // A status named like its column ("Backlog") says it once.
+    let status = state_words(ticket);
+    let column = ticket.place_name(flow);
+    // A state named like its column ("Done") says it once.
     let column = if status == column {
         String::new()
     } else {
@@ -703,7 +703,7 @@ fn readiness_line(state: &Readiness) -> String {
     let base = format!(
         "{:<10} {:<22} {}",
         state.key.to_string(),
-        state.status.label(),
+        status_words(state.status),
         state.title
     );
     match &state.reason {
@@ -734,6 +734,7 @@ fn project_text(project: &ProjectInfo) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+    use otaq_core::domain::Place;
 
     #[test]
     fn ages() {
@@ -743,26 +744,137 @@ mod tests {
         assert_eq!(ago(50 * 3_600_000), "2 d ago");
     }
 
+    fn ticket(key: &str, status: Status, place: Place) -> Ticket {
+        use otaq_core::board::tickets::Base;
+        use otaq_core::domain::{Actor, Flags};
+        Ticket {
+            id: key.into(),
+            key: key.parse().unwrap(),
+            title: "Checkout API".into(),
+            body: String::new(),
+            plan: String::new(),
+            plan_by: None,
+            plan_at: None,
+            priority: Priority::default(),
+            place,
+            status,
+            base: Base::Branch("main".into()),
+            base_locked: false,
+            depends_on: Vec::new(),
+            flags: Flags::default(),
+            created_by: Actor::User("me".into()),
+            updated_by: None,
+            started_at: None,
+            created_at: 0,
+            updated_at: 0,
+            status_since: None,
+            queued_at: None,
+            ready_since: None,
+            validation_round: 0,
+            auto_merge_conflicts: 0,
+            auto_merge_stop: None,
+            work: None,
+            start_problem: None,
+            interrupted_from: None,
+            signal: None,
+            question: None,
+            pushed_differs: None,
+        }
+    }
+
+    fn filter(text: &str) -> StatusFilter {
+        StatusFilter::parse(text, &otaq_core::flow::default_flow()).unwrap()
+    }
+
+    fn shown_by(text: &str, t: &Ticket) -> bool {
+        filter(text).matches(t, &otaq_core::flow::default_flow())
+    }
+
     #[test]
     fn status_filters() {
+        let flow = otaq_core::flow::default_flow();
         assert!(matches!(
-            StatusFilter::parse("working"),
-            Ok(StatusFilter::Status(Status::Working))
+            filter("working"),
+            StatusFilter::Status(Status::Working)
         ));
         assert!(matches!(
-            StatusFilter::parse("Ready for Review"),
-            Ok(StatusFilter::Status(Status::WaitingForYou))
+            filter("queued"),
+            StatusFilter::Status(Status::Queued)
+        ));
+        // The stored form of the user's check still works.
+        assert!(matches!(
+            filter("ready_for_review"),
+            StatusFilter::Status(Status::WaitingForYou)
+        ));
+        // The flow's stages, by id or name, and the fixed ends.
+        for (text, name) in [
+            ("dev", "Dev"),
+            ("Validate", "Validate"),
+            ("review", "Review"),
+            ("done", "Done"),
+        ] {
+            assert!(
+                matches!(filter(text), StatusFilter::Place(ref n) if n == name),
+                "{text}"
+            );
+        }
+        // The app's state words.
+        assert!(matches!(
+            filter("Ready for you"),
+            StatusFilter::Words("Ready for you")
         ));
         assert!(matches!(
-            StatusFilter::parse("dev"),
-            Ok(StatusFilter::Column(Column::Dev))
+            filter("checking"),
+            StatusFilter::Words("Checking")
         ));
         // No Ready for Dev column: a started ticket waits in its first stage's.
-        assert!(StatusFilter::parse("ready_for_dev").is_err());
-        assert!(matches!(
-            StatusFilter::parse("queued"),
-            Ok(StatusFilter::Status(Status::Queued))
-        ));
-        assert!(StatusFilter::parse("paused").is_err());
+        assert!(StatusFilter::parse("ready_for_dev", &flow).is_err());
+        assert!(StatusFilter::parse("paused", &flow).is_err());
+    }
+
+    /// A ticket is found by the stage the board shows it in: one in Validate is not in Dev, one being delivered is
+    /// in the last stage, Review.
+    #[test]
+    fn a_stage_filter_finds_the_tickets_in_that_stage() {
+        let checking = ticket("SHOP-19", Status::Checking, Place::stage_of("validate"));
+        let waiting = ticket("SHOP-20", Status::Queued, Place::Waiting(None));
+        let pr = ticket("SHOP-26", Status::PrOpen, Place::stage_of("review"));
+        let yours = ticket("SHOP-18", Status::WaitingForYou, Place::stage_of("review"));
+        assert!(shown_by("validate", &checking) && !shown_by("dev", &checking));
+        assert!(shown_by("dev", &waiting));
+        assert!(shown_by("review", &pr) && shown_by("review", &yours));
+        assert!(shown_by("approved", &pr) && !shown_by("approved", &yours));
+        assert!(shown_by("pr open", &pr) && shown_by("ready for you", &yours));
+    }
+
+    #[test]
+    fn list_and_show_name_the_stage_and_the_apps_words() {
+        let flow = otaq_core::flow::default_flow();
+        let mut pr = ticket("SHOP-26", Status::PrOpen, Place::stage_of("review"));
+        pr.flags.pr_number = Some(481);
+        let checking = ticket("SHOP-19", Status::Checking, Place::stage_of("validate"));
+        let yours = ticket("SHOP-18", Status::WaitingForYou, Place::stage_of("review"));
+        let deliver = ticket("SHOP-27", Status::ToDeliver, Place::stage_of("review"));
+        assert_eq!(
+            line(&checking, &flow),
+            format!(
+                "{:<10} P3 {:<12} {:<22} Checkout API",
+                "SHOP-19", "Validate", "Checking"
+            )
+        );
+        assert!(line(&yours, &flow).contains("Review       Ready for you "));
+        let status = |t: &Ticket| {
+            show_text(t, &[], None, None, &flow)
+                .lines()
+                .find(|l| l.starts_with("Status:"))
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(status(&pr), "Status:      PR #481 open (Review)");
+        assert_eq!(status(&deliver), "Status:      To deliver (Review)");
+        assert_eq!(status(&checking), "Status:      Checking (Validate)");
+        assert_eq!(status(&yours), "Status:      Ready for you (Review)");
+        let done = ticket("SHOP-12", Status::Merged, Place::Done);
+        assert_eq!(status(&done), "Status:      Merged (Done)");
     }
 }

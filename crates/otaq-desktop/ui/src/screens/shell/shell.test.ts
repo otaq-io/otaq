@@ -380,6 +380,11 @@ const POPOVER: ActivityPopover = {
   agents: {
     title: "AGENTS RUNNING",
     count: "3",
+    tickets: [
+      { key: "NOTE-5", title: "Search notes", line: "Developer · 26m" },
+      { key: "NOTE-6", title: "Tags", line: "Developer · asks you" },
+      { key: "API-1", title: "Sync endpoint", line: "Checker · 2m" },
+    ],
     rows: [],
     empty: null,
   },
@@ -433,6 +438,19 @@ describe("the Activity popover", () => {
         onOpenTerminals: () => undefined,
       }),
     );
+
+  it("lists a row for each ticket it counts, under AGENTS RUNNING", () => {
+    const out = draw(POPOVER);
+    const head = out.indexOf("AGENTS RUNNING");
+    const usage = out.indexOf("USAGE");
+    const rows = out.match(/class="activity-ticket"/g) ?? [];
+    expect(rows).toHaveLength(Number(POPOVER.agents.count));
+    for (const text of ["Search notes", "Developer · asks you", "Checker · 2m"]) {
+      const at = out.indexOf(text);
+      expect(at).toBeGreaterThan(head);
+      expect(at).toBeLessThan(usage);
+    }
+  });
 
   it("lists agents, what's left per window with its bar, the processes and Open Terminals, in order", () => {
     const out = draw(POPOVER);
