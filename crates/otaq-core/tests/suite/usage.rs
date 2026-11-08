@@ -658,9 +658,28 @@ async fn activity_sums_todays_tokens_per_tool_and_counts_running_agents_as_the_h
     let note6 = w.create(&notes.key, "Tags").await;
     let note7 = w.create(&notes.key, "Export").await;
     let api1 = w.create(&api.key, "Sync endpoint").await;
+    let note8 = w.create(&notes.key, "Share").await;
     let t0 = now_ms() - 60_000;
-    // Running: two in pocket-notes (one stored without a tool), one in notes-api. Not running: an ended agent
-    // and a validator.
+    // Three at work: two in pocket-notes (one stored without a tool), one in notes-api. Not at work: an ended
+    // agent, a validator left from a check while its ticket is back in Dev (its ticket counts once), and the build
+    // session kept while its ticket waits for your review.
+    for (ticket, state) in [
+        (&note5, "working"),
+        (&note6, "working"),
+        (&api1, "working"),
+        (&note7, "working"),
+        (&note8, "ready_for_review"),
+    ] {
+        sqlx::query("UPDATE tickets SET state = ? WHERE id = ?")
+            .bind(state)
+            .bind(&ticket.id)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+    }
+    world
+        .session(&note8, "0199a1b2-3c4d-7e5f-8a9b-0c1d2e3f4a5e", t0, None)
+        .await;
     let a = world.session(&note5, S1, t0, None).await;
     let b = world.session(&api1, S2, t0, None).await;
     sqlx::query(
@@ -704,6 +723,16 @@ async fn activity_sums_todays_tokens_per_tool_and_counts_running_agents_as_the_h
     let header: u32 = infos.iter().map(|p| p.agents_working).sum();
     assert_eq!(header, 3);
     assert_eq!(activity.running(), header);
+    // Running lists a row for each ticket it counts.
+    let mut keys: Vec<&str> = activity.working.iter().map(|a| a.key.as_str()).collect();
+    keys.sort_unstable();
+    let mut want = [
+        note5.key.to_string(),
+        note6.key.to_string(),
+        api1.key.to_string(),
+    ];
+    want.sort_unstable();
+    assert_eq!(keys, want);
     assert_eq!(claude.running, 3);
     let split: Vec<(&str, &str, u32)> = claude
         .by_project

@@ -37,7 +37,13 @@ export function ActivityGallery() {
           <figure key={caption} className="gallery-stack-tight">
             <figcaption className="gallery-caption">{caption}</figcaption>
             <div className="popover activity-gallery-popover">
-              <ActivityBody view={popover} onStep={ignore} onOpenTicket={ignore} onOpenTerminals={ignore} />
+              <ActivityBody
+                view={popover}
+                onStep={ignore}
+                onOpenTicket={ignore}
+
+                onOpenTerminals={ignore}
+              />
             </div>
           </figure>
         ))}

@@ -86,6 +86,22 @@ impl SessionKind {
         )
     }
 
+    /// Whether a live session of this kind on a ticket in `status` is an agent at work, which Running counts and
+    /// Pause stops: the ticket's agent while the ticket is in an agent stage or an agent check (asking you
+    /// included), its checker during the check, a helper during the build stage, and a delivery or answer session
+    /// whenever it runs. A session kept for later, such as the build stage's while the ticket waits for your review,
+    /// isn't running.
+    pub fn at_work_on(self, status: crate::domain::Status) -> bool {
+        use crate::domain::StatusSet;
+        match self {
+            Self::Agent => matches!(status.set(), StatusSet::AgentStage | StatusSet::AgentCheck),
+            Self::Validator => status.set() == StatusSet::AgentCheck,
+            Self::Helper => status.set() == StatusSet::AgentStage,
+            Self::Delivery | Self::Answer => true,
+            Self::ProjectAgent | Self::Shell | Self::Project | Self::Run => false,
+        }
+    }
+
     /// Run, Shell and the Project terminal: the user's own processes, stopped by a restart and never restarted
     /// on their own.
     pub fn is_users_terminal(self) -> bool {

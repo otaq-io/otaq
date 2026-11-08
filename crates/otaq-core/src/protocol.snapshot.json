@@ -78,6 +78,9 @@
         "tools": {
           "ty": "Vec<ToolActivity>",
           "required": true
+        },
+        "working": {
+          "ty": "Vec<WorkingAgent>"
         }
       }
     },
@@ -12204,6 +12207,43 @@
           "omittable": true
         },
         "worktree": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
+    "WorkingAgent": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "key": {
+          "ty": "String",
+          "required": true
+        },
+        "project": {
+          "ty": "String",
+          "required": true
+        },
+        "project_name": {
+          "ty": "String",
+          "required": true
+        },
+        "since": {
+          "ty": "i64",
+          "required": true
+        },
+        "status": {
+          "ty": "Status",
+          "required": true
+        },
+        "title": {
+          "ty": "String",
+          "required": true
+        },
+        "tool": {
           "ty": "Option<String>",
           "omittable": true
         }

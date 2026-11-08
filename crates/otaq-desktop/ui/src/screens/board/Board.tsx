@@ -401,6 +401,23 @@ export function Board() {
     if (editingFlow && shownView !== undefined && shownView !== "board")
       changeView({ kind: "view", view: "board" });
   }, [editingFlow, shownView, changeView]);
+  // The editor is the board itself: a ticket left open (the first approve's sheet, opened again from a hint) closes
+  // as it opens, so the sheet never stays over the editor.
+  const wasEditing = useRef(editingFlow);
+  useEffect(() => {
+    if (editingFlow && !wasEditing.current) closeTicket();
+    wasEditing.current = editingFlow;
+  }, [editingFlow]);
+  // After the first approve the board shows what the ticket went through: the ticket's view closes as "That was your
+  // flow" comes up (once, as it appears; a ticket opened while it waits stays open).
+  const hintId = view === undefined ? undefined : (view.hint?.hint.id ?? null);
+  const lastHint = useRef<string | null | undefined>(undefined);
+  useEffect(() => {
+    if (hintId === undefined) return;
+    const before = lastHint.current;
+    lastHint.current = hintId;
+    if (before !== undefined && before !== hintId && hintId === "that_was_your_flow") closeTicket();
+  }, [hintId]);
   const filesShown = view?.prefs.view === "files";
   // The project's Settings page (the view switch's Settings): the board's place, under the same toolbar.
   const settingsShown = view?.prefs.view === "settings";
@@ -881,7 +898,8 @@ export function Board() {
       {view?.filter_strip && project !== null && !filesShown && (
         <FilterStrip strip={view.filter_strip} project={project} />
       )}
-      {project !== null && <UsageBanner seen={view} />}
+      {/* One thing asks at a time: the usage question waits until no first-run hint is up. */}
+      {project !== null && view !== undefined && view.hint === null && <UsageBanner seen={view} />}
       <NeedsYouStrip />
       <NotificationsNote />
       {filesShown && project !== null && <FilesView project={project} />}
@@ -920,18 +938,16 @@ export function Board() {
           />
         )}
         {list !== null ? (
-          <>
-            <List
-              list={list}
-              selected={selected}
-              lifted={drag?.key ?? null}
-              verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
-              handlers={listHandlers}
-              group={group$}
-              onView={changeView}
-            />
-            {editFlowButton}
-          </>
+          <List
+            list={list}
+            selected={selected}
+            lifted={drag?.key ?? null}
+            verdict={(target) => (drag ? verdictOf(drag.answer, target) : undefined)}
+            handlers={listHandlers}
+            group={group$}
+            onView={changeView}
+            footer={editFlowButton}
+          />
         ) : (
           <div className="board-columns">
             {view?.columns.map((column) => (
@@ -973,7 +989,8 @@ export function Board() {
             {covered > 0 && <div className="board-under-sheet" style={{ width: covered }} />}
           </div>
         )}
-        {view?.hint && project !== null && (
+        {/* A board hint only over the board itself: never over an open ticket, Files or the project's Settings. */}
+        {view?.hint && project !== null && selected === null && !filesShown && !settingsShown && (
           <BoardHintLayer
             hint={view.hint}
             project={project}

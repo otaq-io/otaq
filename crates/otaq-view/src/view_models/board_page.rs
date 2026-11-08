@@ -289,8 +289,8 @@ pub fn mark_changing(page: &mut BoardPage, wait: &otaq_core::flow::apply::Wait) 
 }
 
 /// A new user's first run on this board: "Your first ticket" in Backlog while the project has no tickets and the
-/// card was never answered, and the one first-run hint whose moment is here now. Off on the List and while the board
-/// is filtered, where the cards a hint points at may be hidden.
+/// card was never answered, and the one first-run hint whose moment is here now. Off while the board is filtered,
+/// where the cards a hint points at may be hidden; on the List only the hints at Edit flow and the box for new work.
 pub fn first_run(
     page: &mut BoardPage,
     facts: &hint::BoardFacts,
@@ -299,9 +299,10 @@ pub fn first_run(
     page.first_ticket = (empty_board::shows(facts.tickets.len(), facts.seen)
         && page.list.is_none())
     .then(|| empty_board::first_ticket(tool));
-    page.hint = (page.list.is_none() && page.filter_strip.is_none() && page.agent_filter.is_none())
+    page.hint = (page.filter_strip.is_none() && page.agent_filter.is_none())
         .then(|| hint::board(facts))
-        .flatten();
+        .flatten()
+        .filter(|h| page.list.is_none() || !matches!(h.anchor, hint::Anchor::Card { .. }));
 }
 
 /// The chip of a column scrolled down:`"{n} above"`, then `" · {n} need you"` when any of them need the user. The
@@ -1988,7 +1989,7 @@ mod tests {
         assert!(review.cards.is_empty());
         assert_eq!(
             review.empty_hint,
-            "Agents move their ticket here when they submit it for your review."
+            "Tickets wait here for you when their agent is done."
         );
     }
 

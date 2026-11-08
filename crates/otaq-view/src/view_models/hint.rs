@@ -5,8 +5,8 @@
 //! The ids are a closed set ([`Hint`], kept with the store); each hint's wording lives here. A new user's first run
 //! places its hints on the board ([`board`]): at the first permission prompt, the first agent question, the first time
 //! a checker sends a ticket back, the first ticket waiting for review, and, after the first approve, "That was your
-//! flow" at Edit flow. The box for new work shows its own ([`HintId::NewWork`]) when it first appears. One shows at a
-//! time on the board, the most urgent first; each waits for its moment and, once dismissed, never comes back.
+//! flow" at Edit flow, then "New work starts here" at the box for new work, which appears then. One shows at a time on
+//! the board, the most urgent first; each waits for its moment and, once dismissed, never comes back.
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status};
@@ -225,6 +225,8 @@ pub enum Anchor {
     Card { key: String },
     /// Edit flow at the end of the columns.
     EditFlow,
+    /// The box for new work, docked at the bottom of the board.
+    NewWork,
 }
 
 /// What the hint's button does besides dismissing it.
@@ -261,8 +263,8 @@ pub struct BoardFacts<'a> {
 }
 
 /// The first-run hint whose moment is on this board now, the most urgent first (a permission prompt, a question, a
-/// checker's fail, a review, then "That was your flow" after the first approve); `None` when no unseen hint has its
-/// moment here.
+/// checker's fail, a review, then "That was your flow" after the first approve and, once that one is dismissed, "New
+/// work starts here" at the box that appeared with it); `None` when no unseen hint has its moment here.
 pub fn board(facts: &BoardFacts) -> Option<BoardHint> {
     let unseen = |hint: Hint| !facts.seen.contains(&hint);
     let first = |pred: &dyn Fn(&Ticket) -> bool| facts.tickets.iter().find(|t| pred(t));
@@ -331,6 +333,13 @@ pub fn board(facts: &BoardFacts) -> Option<BoardHint> {
             hint: that_was_your_flow(&t.key.to_string(), facts.flow),
             anchor: Anchor::EditFlow,
             action: Action::EditFlow,
+        });
+    }
+    if facts.first_approve && unseen(Hint::NewWork) {
+        return Some(BoardHint {
+            hint: view(HintId::NewWork, facts.keys),
+            anchor: Anchor::NewWork,
+            action: Action::Dismiss,
         });
     }
     None
@@ -469,6 +478,30 @@ mod tests {
             ),
             "{}",
             hint.hint.text
+        );
+    }
+
+    #[test]
+    fn new_work_starts_here_follows_that_was_your_flow_one_at_a_time() {
+        let done = Ticket {
+            place: Place::Done,
+            ..ticket("SHOP-1", "Tidy the README", Status::Merged)
+        };
+        let first = hint_on(std::slice::from_ref(&done), &[], true).unwrap();
+        assert_eq!(first.hint.id, HintId::ThatWasYourFlow);
+        let next = hint_on(std::slice::from_ref(&done), &[Hint::ThatWasYourFlow], true).unwrap();
+        assert_eq!(next.hint.id, HintId::NewWork);
+        assert_eq!(next.anchor, Anchor::NewWork);
+        assert_eq!(next.action, Action::Dismiss);
+        assert_eq!(next.hint.title.as_deref(), Some("New work starts here"));
+        assert_eq!(
+            hint_on(&[done], &[Hint::ThatWasYourFlow, Hint::NewWork], true),
+            None
+        );
+        assert_eq!(
+            hint_on(&[], &[Hint::ThatWasYourFlow], false),
+            None,
+            "no box before the first approve"
         );
     }
 

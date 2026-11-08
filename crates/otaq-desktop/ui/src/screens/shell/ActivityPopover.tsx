@@ -141,6 +141,8 @@ export interface ActivityBodyProps {
   limitLines?: readonly LimitLine[];
   onStep: (field: LimitField, up: boolean) => void;
   onOpenTicket: (key: string) => void;
+  /** A row of AGENTS RUNNING: its ticket opens. */
+  onOpenAgent?: (key: string) => void;
   onOpenTerminals: () => void;
 }
 
@@ -150,6 +152,7 @@ export function ActivityBody({
   limitLines = [],
   onStep,
   onOpenTicket,
+  onOpenAgent,
   onOpenTerminals,
 }: ActivityBodyProps) {
   const { agents, usage, processes } = view;
@@ -173,6 +176,20 @@ export function ActivityBody({
       <section className="activity-section">
         <SectionHead title={agents.title} aside={agents.count} />
         {agents.empty !== null && <p className="activity-empty">{agents.empty}</p>}
+        {agents.tickets.map((row) => (
+          <button
+            key={row.key}
+            type="button"
+            className="activity-ticket"
+            onClick={() => {
+              onOpenAgent?.(row.key);
+            }}
+          >
+            <span className="activity-ticket-key">{row.key}</span>
+            <span className="activity-ticket-title">{row.title}</span>
+            <span className="activity-ticket-line">{row.line}</span>
+          </button>
+        ))}
         {agents.rows.map((row) => (
           <div key={row.name} className="activity-tool">
             {row.avatar && <ToolAvatar avatar={row.avatar} />}
@@ -248,6 +265,10 @@ export function ActivityOverlay({ close }: OverlayProps<"activity">) {
         onOpenTicket={(key) => {
           close();
           openTicket(key, "run");
+        }}
+        onOpenAgent={(key) => {
+          close();
+          openTicket(key);
         }}
         onOpenTerminals={() => {
           close();

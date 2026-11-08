@@ -93,8 +93,8 @@ pub struct ProjectPause {
     /// How it was paused; `None` while it runs. Resume all projects leaves an [`PauseKind::Own`] pause as it is.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub paused_by: Option<PauseKind>,
-    /// Agents working now: a ticket with live agent sessions counts once (its check, answer and delivery sessions
-    /// included), each Project agent once. Pause stops them.
+    /// Agents working now: a ticket with an agent at work counts once (its check, answer and delivery sessions
+    /// included; a session kept while it waits for your review isn't), each Project agent once. Pause stops them.
     pub working: u32,
     /// What Resume resumes: Interrupted tickets and Paused Project agents.
     pub paused: u32,
@@ -459,16 +459,21 @@ impl Pause {
         let mut projects = Vec::new();
         for key in keys {
             let project = self.inner.board.project(&key).await?;
-            // A ticket counts once, whatever sessions it runs; a Project agent once per session.
+            let tickets = self.inner.board.tickets(&key).await?;
+            // A ticket counts once while an agent is at work on it (a session kept while it waits for your review
+            // isn't); a Project agent once per session.
             let working: BTreeSet<String> = running
                 .iter()
                 .filter(|s| s.project == key)
-                .map(|s| match &s.ticket {
-                    Some(ticket) => ticket.to_string(),
-                    None => s.id.clone(),
+                .filter_map(|s| match &s.ticket {
+                    Some(ticket) => tickets
+                        .iter()
+                        .find(|t| &t.key == ticket)
+                        .is_some_and(|t| s.kind.at_work_on(t.status))
+                        .then(|| ticket.to_string()),
+                    None => Some(s.id.clone()),
                 })
                 .collect();
-            let tickets = self.inner.board.tickets(&key).await?;
             let paused = resume_all_eligible(&tickets).len()
                 + self.inner.project_agents.paused_of(&key).await?.len();
             projects.push(ProjectPause {

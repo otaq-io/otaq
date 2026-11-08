@@ -134,7 +134,7 @@ async fn rounds(w: &TestService, t: &Ticket) -> Vec<Option<String>> {
 }
 
 /// shop-web: SHOP-1 working, SHOP-2 asks a question, SHOP-3 checking (its agent and its checker), SHOP-4 waiting for
-/// review and a Project agent: 6 agent sessions, 5 agents. billing-api: BILL-1
+/// review (its session kept, not at work) and a Project agent: 6 agent sessions, 4 agents at work. billing-api: BILL-1
 /// working. SHOP-1 has a Run, a Shell and the Project terminal.
 struct World {
     w: TestService,
@@ -243,13 +243,14 @@ async fn pause_stops_the_projects_agents_survives_a_restart_and_resume_brings_ea
         conversations.push(sessions(&w, key).await[0].tool_session_id.clone().unwrap());
     }
 
-    // The counts of the menus: "shop-web · 5 working", "6 working in 2 projects".
+    // The counts of the menus: "shop-web · 4 working", "5 working in 2 projects". SHOP-4's session, kept while it
+    // waits for review, isn't an agent at work.
     let before = w.pause.counts(&PauseScope::All).await.unwrap();
     assert_eq!(
         counts(&before),
-        [("billing-api", false, 1, 0), ("shop-web", false, 5, 0)]
+        [("billing-api", false, 1, 0), ("shop-web", false, 4, 0)]
     );
-    assert_eq!((before.working, before.paused), (6, 0));
+    assert_eq!((before.working, before.paused), (5, 0));
 
     // Every end the pause causes finds the project paused already.
     let mut listener = w.events.listen();

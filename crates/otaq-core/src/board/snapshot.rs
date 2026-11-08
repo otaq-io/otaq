@@ -18,7 +18,8 @@ pub struct ProjectInfo {
     pub name: String,
     pub repo_path: String,
     pub base_branch: String,
-    /// Agents working right now (live agent sessions).
+    /// Agents working right now: tickets with an agent at work, once each
+    /// ([`crate::session::SessionKind::at_work_on`]).
     pub agents_working: u32,
     /// The project's needs-you items, the needs-you count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
@@ -114,13 +115,28 @@ impl Board {
         project: &Project,
         tickets: &[Ticket],
     ) -> Result<ProjectInfo, BoardError> {
-        let working: i64 = sqlx::query_scalar(
-            "SELECT COUNT(*) FROM sessions s JOIN tickets t ON t.id = s.ticket_id
-             WHERE t.project_id = ? AND s.kind = 'agent' AND s.ended_at IS NULL",
+        // Tickets with an agent at work, once each: a session kept while its ticket waits for review isn't running.
+        let live: Vec<(String, String, String)> = sqlx::query_as(
+            "SELECT t.id, t.state, s.kind FROM sessions s JOIN tickets t ON t.id = s.ticket_id
+             WHERE t.project_id = ? AND s.ended_at IS NULL",
         )
         .bind(&project.id)
-        .fetch_one(self.store.pool())
+        .fetch_all(self.store.pool())
         .await?;
+        let working = live
+            .iter()
+            .filter(|(_, state, kind)| {
+                match (
+                    state.parse::<crate::domain::Status>(),
+                    kind.parse::<crate::session::SessionKind>(),
+                ) {
+                    (Ok(status), Ok(kind)) => kind.at_work_on(status),
+                    _ => false,
+                }
+            })
+            .map(|(id, _, _)| id)
+            .collect::<std::collections::HashSet<_>>()
+            .len();
         // The project's needs-you count (ATT-10): the same items Needs you lists for it.
         let flow = self.effective_flow(&project.key).await?;
         let needs_you = needs_you_items_with(

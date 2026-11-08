@@ -5,7 +5,7 @@
 // edge. Every word is Rust's (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the
 // menu and the keys: a row is pressed, clicked and dragged as a card is (`board.drag` / `board.drop`), and every group
 // (and the Done line) registers its element as its column's drop target.
-import { type KeyboardEvent, memo, type PointerEvent, useLayoutEffect, useRef } from "react";
+import { type KeyboardEvent, memo, type PointerEvent, type ReactNode, useLayoutEffect, useRef } from "react";
 
 import { paletteInk, toneInk } from "../../cards/look";
 import { Button, CodeText, PriorityChip, Tooltip } from "../../components";
@@ -39,6 +39,8 @@ export interface ListProps {
   /** A group (or the Done line), as its column's drop target, measured when a drag starts. */
   group: (id: BoardDropTarget, el: HTMLElement | null) => void;
   onView: (change: ViewChange) => void;
+  /** What ends the rows, after the Done line (the board's Edit flow), scrolled with them. */
+  footer?: ReactNode;
 }
 
 export interface RowProps {
@@ -224,7 +226,7 @@ function DoneLine({
   );
 }
 
-export function List({ list, selected, lifted, verdict, handlers, group, onView }: ListProps) {
+export function List({ list, selected, lifted, verdict, handlers, group, onView, footer }: ListProps) {
   const body = useRef<HTMLDivElement>(null);
   const keys = rowKeys(list);
   // One tab stop: the selected row, else the first.
@@ -256,6 +258,7 @@ export function List({ list, selected, lifted, verdict, handlers, group, onView 
         {list.done !== null && (
           <DoneLine line={list.done} verdict={verdict(list.done.target)} element={group} onView={onView} />
         )}
+        {footer}
       </div>
     </div>
   );

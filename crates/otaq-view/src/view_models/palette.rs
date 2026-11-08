@@ -733,7 +733,8 @@ pub fn gallery() -> Vec<GalleryFrame> {
         name: name.into(),
         repo_path: format!("/code/{name}"),
         base_branch: "main".into(),
-        agents_working: 0,
+        // Agents at work, as drawn: Pause this project is offered.
+        agents_working: 1,
         needs_you: 0,
         flow_setup_since: None,
         paused_since: None,
@@ -1163,10 +1164,24 @@ mod tests {
                 "action New ticket",
                 "edit Edit flow",
                 "action Ask Noyan",
-                "pause Pause this project",
                 "action Settings",
                 "action Open a terminal",
             ]
+        );
+        // Pause this project only while an agent works there (a ticket waiting for review isn't one).
+        let mut running = projects.clone();
+        running[0].agents_working = 1;
+        let busy = view(
+            "",
+            &Inputs {
+                next_needs_you: Some("NOTE-1"),
+                ..inputs(&running, &tickets, &bindings, &[])
+            },
+        );
+        assert!(
+            words(&busy).contains(&"pause Pause this project".to_owned()),
+            "{:?}",
+            words(&busy)
         );
         assert_eq!(
             v.rows[2].item,
