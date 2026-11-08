@@ -224,6 +224,14 @@ export function ActivityBody({
   );
 }
 
+/**
+ * Whether the popover still has what it hangs from: Running (shown while something runs) or the usage chip. Once
+ * nothing runs any more and neither is in the title bar, it closes with them instead of staying up saying "0".
+ */
+export function activityAnchored(header: HeaderView | undefined): boolean {
+  return header === undefined || header.activity.shown || header.activity.warning !== null;
+}
+
 /** The `activity` overlay, asked again with each new header view. A step's answer shows at once, until the next one. */
 export function ActivityOverlay({ close }: OverlayProps<"activity">) {
   const header = useStore(headerStore);
@@ -238,7 +246,11 @@ export function ActivityOverlay({ close }: OverlayProps<"activity">) {
       () => undefined,
     );
   }, [header]);
-  if (!view) return null;
+  const anchored = activityAnchored(header);
+  useEffect(() => {
+    if (!anchored) close();
+  }, [anchored, close]);
+  if (!view || !anchored) return null;
   const shown: ActivityView =
     answer && answer.after === header && view.limits ? { ...view, limits: answer.limits } : view;
   const step = (field: LimitField, up: boolean) => {

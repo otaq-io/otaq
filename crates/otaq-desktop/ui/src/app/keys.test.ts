@@ -17,6 +17,7 @@ import {
   KEY_RECORDER,
   keyName,
   keysKeptBy,
+  keysKeptHere,
   type LetterHold,
   lettersKeptBy,
   logLine,
@@ -823,6 +824,19 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     expect(widgetOpen(page([]))).toBe(false);
     expect(widgetOpen(page([{ leaving: true }]))).toBe(false);
     expect(widgetOpen(page([{ leaving: true }, { leaving: false }]))).toBe(true);
+  });
+
+  it("leaves Esc to an open menu or popover even when it hasn't the focus, so one Esc closes only it", () => {
+    const page = (open: boolean) => ({
+      querySelectorAll: () => (open ? [{ closest: () => null }] : []),
+    });
+    const button = { tagName: "BUTTON", isContentEditable: false, getAttribute: () => null };
+    // The Approve menu over the ticket: Esc is the menu's, not Close the ticket's.
+    expect(keysKeptHere(button, page(true)).has("Escape")).toBe(true);
+    expect(keysKeptHere(null, page(true)).has("Escape")).toBe(true);
+    // Nothing open: Esc closes the ticket as before.
+    expect(keysKeptHere(button, page(false)).has("Escape")).toBe(false);
+    expect([...keysKeptHere(button, page(true))]).toEqual(["Enter", "Escape"]);
   });
 
   it("runs none with the letters switch off, built-in or custom", () => {

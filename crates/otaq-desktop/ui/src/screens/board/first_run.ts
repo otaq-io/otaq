@@ -100,3 +100,17 @@ export function pressHint(
   }
   return dismissed;
 }
+
+/** Got it (or Esc) on a hint whose button does more: it is dismissed for good and nothing else happens. */
+export function dismissHint(hint: BoardHint, ask: Ask = request): Promise<unknown> {
+  return ask("hints.dismiss", { hint: hint.hint.id });
+}
+
+/**
+ * The hint the user already answered by doing what it asks: "Your turn: review" once its ticket is open (it was seen,
+ * so it never comes up after the ticket closes). `null` while no hint is answered that way.
+ */
+export function answeredBySeeing(hint: BoardHint | null | undefined, open: string | null): BoardHint | null {
+  if (hint?.action.kind !== "open_ticket" || open === null) return null;
+  return hint.action.key === open ? hint : null;
+}

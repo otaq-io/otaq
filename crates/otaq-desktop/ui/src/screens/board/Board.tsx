@@ -84,6 +84,7 @@ import {
   verdictOf,
 } from "./drag";
 import { BoardHintLayer, FirstTicketCard, NotificationsNote, UsageBanner } from "./FirstRun";
+import { answeredBySeeing } from "./first_run";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { NoProjects } from "./NoProjects";
 import { FilterStrip } from "./FilterStrip";
@@ -416,8 +417,26 @@ export function Board() {
     if (hintId === undefined) return;
     const before = lastHint.current;
     lastHint.current = hintId;
-    if (before !== undefined && before !== hintId && hintId === "that_was_your_flow") closeTicket();
+    // Not when it follows "Your turn: review", which went because its ticket was just opened (and stays open).
+    if (
+      before !== undefined &&
+      before !== "first_review" &&
+      before !== hintId &&
+      hintId === "that_was_your_flow"
+    )
+      closeTicket();
   }, [hintId]);
+  // "Your turn: review" is answered once its ticket is open: it never comes up after the user reviewed it.
+  const seen = answeredBySeeing(view?.hint, selected)?.hint.id ?? null;
+  useEffect(() => {
+    if (seen === null) return;
+    request("hints.dismiss", { hint: seen }).then(
+      () => {
+        setViewVersion((v) => v + 1);
+      },
+      () => undefined,
+    );
+  }, [seen]);
   const filesShown = view?.prefs.view === "files";
   // The project's Settings page (the view switch's Settings): the board's place, under the same toolbar.
   const settingsShown = view?.prefs.view === "settings";

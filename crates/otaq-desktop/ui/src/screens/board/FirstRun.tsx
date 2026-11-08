@@ -5,8 +5,9 @@
 // it explains (the first question, the first permission prompt, the first checker fail, the first review, and "That
 // was your flow" after the first approve). After the first approve, the quiet usage-data banner. Every word and every
 // rule of when something shows is Rust's (`board.view`'s `first_ticket` and `hint`, `usage.dialog`).
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { useShortcut } from "../../app/registry";
 import { useStore } from "../../app/store";
 import { Banner, Button, HintPopover, TextArea, TextInput } from "../../components";
 import type { BoardHint } from "../../generated/BoardHint";
@@ -14,7 +15,14 @@ import type { FirstTicketView } from "../../generated/FirstTicketView";
 import type { UsageDataAsk } from "../../generated/UsageDataAsk";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
-import { answerFirstTicket, hintTarget, notificationsLine, pressHint, startFirstTicket } from "./first_run";
+import {
+  answerFirstTicket,
+  dismissHint,
+  hintTarget,
+  notificationsLine,
+  pressHint,
+  startFirstTicket,
+} from "./first_run";
 
 export function FirstTicketCard({
   view,
@@ -81,7 +89,8 @@ export function FirstTicketCard({
 }
 
 /** The first-run hint next to what it explains, while that is on screen (it follows it, and waits while it is
- * away: a card folded away, the box for new work not docked yet); its button dismisses it for good. */
+ * away: a card folded away, the box for new work not docked yet); its button dismisses it for good. One whose button
+ * does more ("That was your flow"'s Edit flow) has Got it beside it, and Esc dismisses it too. */
 export function BoardHintLayer({
   hint,
   project,
@@ -104,7 +113,22 @@ export function BoardHintLayer({
     }),
     [board, hint],
   );
-  if (board === null || gone === key) return null;
+  const shown = board !== null && gone !== key;
+  const quiet = hint.hint.dismiss !== null;
+  const dismissOnly = useCallback(() => {
+    setGone(key);
+    dismissHint(hint).then(onDismissed, () => undefined);
+  }, [hint, key, onDismissed]);
+  // Esc is the board's Close (no ticket is open while a board hint shows): it dismisses a hint that has Got it.
+  useShortcut(
+    "close_sheet",
+    useCallback(() => {
+      if (!shown || !quiet) return false;
+      dismissOnly();
+      return true;
+    }, [shown, quiet, dismissOnly]),
+  );
+  if (!shown) return null;
   return (
     <HintPopover
       key={key}
@@ -112,10 +136,12 @@ export function BoardHintLayer({
       title={hint.hint.title}
       text={hint.hint.text}
       button={hint.hint.button}
+      dismiss={hint.hint.dismiss}
       onDismiss={() => {
         setGone(key);
         pressHint(hint, project).then(onDismissed, () => undefined);
       }}
+      onDismissOnly={dismissOnly}
     />
   );
 }

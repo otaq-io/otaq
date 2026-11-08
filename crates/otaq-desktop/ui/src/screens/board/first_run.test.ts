@@ -8,7 +8,15 @@ import type { FirstTicketView } from "../../generated/FirstTicketView";
 import type { NotificationsLine } from "../../generated/NotificationsLine";
 import { openTicket, selection } from "../../app/selection";
 import { flowEditing } from "../flow_board/logic";
-import { answerFirstTicket, HINT_ROUTES, hintTarget, pressHint, startFirstTicket } from "./first_run";
+import {
+  answeredBySeeing,
+  answerFirstTicket,
+  dismissHint,
+  HINT_ROUTES,
+  hintTarget,
+  pressHint,
+  startFirstTicket,
+} from "./first_run";
 import { FirstTicketCard } from "./FirstRun";
 
 const LINE: NotificationsLine = {
@@ -99,7 +107,7 @@ describe("the first ticket", () => {
 
 describe("a first-run hint's button", () => {
   const hint = (action: BoardHint["action"]): BoardHint => ({
-    hint: { id: "first_review", title: "Your turn: review", text: "…", button: "Open SHOP-1" },
+    hint: { id: "first_review", title: "Your turn: review", text: "…", button: "Open SHOP-1", dismiss: null },
     anchor: { kind: "card", key: "SHOP-1" },
     action,
   });
@@ -120,6 +128,21 @@ describe("a first-run hint's button", () => {
       { hint: "first_review" },
       { hint: "first_review" },
     ]);
+  });
+
+  it("Got it beside Edit flow only dismisses it", async () => {
+    const { asked, ask } = door({});
+    await dismissHint(hint({ kind: "edit_flow" }), ask);
+    expect(asked.map((a) => [a.method, a.params])).toEqual([["hints.dismiss", { hint: "first_review" }]]);
+  });
+
+  it("Your turn: review is answered once its ticket is open, and only by that ticket", () => {
+    const review = hint({ kind: "open_ticket", key: "SHOP-1" });
+    expect(answeredBySeeing(review, "SHOP-1")).toBe(review);
+    expect(answeredBySeeing(review, "SHOP-2")).toBeNull();
+    expect(answeredBySeeing(review, null)).toBeNull();
+    expect(answeredBySeeing(hint({ kind: "edit_flow" }), "SHOP-1")).toBeNull();
+    expect(answeredBySeeing(null, "SHOP-1")).toBeNull();
   });
 });
 

@@ -1,6 +1,7 @@
 //! One-time hints: a concept is explained when it first matters, never behind a setting. A hint is a short note in a
 //! dark popover next to the element it explains, with one button; the button dismisses it for good (kept by the
-//! service per data folder, so a restart doesn't bring it back and a fresh data folder shows it again).
+//! service per data folder, so a restart doesn't bring it back and a fresh data folder shows it again). A hint whose
+//! button does more than dismiss ("That was your flow"'s Edit flow) has Got it beside it too, and Esc dismisses it.
 //!
 //! The ids are a closed set ([`Hint`], kept with the store); each hint's wording lives here. A new user's first run
 //! places its hints on the board ([`board`]): at the first permission prompt, the first agent question, the first time
@@ -75,7 +76,7 @@ impl From<Hint> for HintId {
     }
 }
 
-/// What the popover shows: its title (when it has one), its text and its one button.
+/// What the popover shows: its title (when it has one), its text and its button.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "HintView")]
 pub struct View {
@@ -83,6 +84,9 @@ pub struct View {
     pub title: Option<String>,
     pub text: String,
     pub button: String,
+    /// Got it beside a button that does more than dismiss (Edit flow): it only dismisses, as Esc does then, so the
+    /// hint never has to be followed to go away.
+    pub dismiss: Option<String>,
 }
 
 /// The button most hints have: it dismisses the hint for good.
@@ -108,6 +112,7 @@ fn titled(id: HintId, title: &str, text: String) -> View {
         title: Some(title.to_owned()),
         text,
         button: DISMISS.to_owned(),
+        dismiss: None,
     }
 }
 
@@ -157,10 +162,11 @@ pub fn first_review(key: &str) -> View {
         title: Some("Your turn: review".to_owned()),
         text: FIRST_REVIEW.to_owned(),
         button: format!("Open {key}"),
+        dismiss: None,
     }
 }
 
-/// After the first approve: the way `key` went is the project's flow; its button is Edit flow.
+/// After the first approve: the way `key` went is the project's flow; its button is Edit flow, with Got it beside it.
 pub fn that_was_your_flow(key: &str, flow: &Flow) -> View {
     let way: Vec<&str> = std::iter::once("Backlog")
         .chain(flow.stages.iter().map(|s| s.name.as_str()))
@@ -175,6 +181,7 @@ pub fn that_was_your_flow(key: &str, flow: &Flow) -> View {
             way.join(" \u{2192} ")
         ),
         button: super::board_page::EDIT_FLOW.to_owned(),
+        dismiss: Some(DISMISS.to_owned()),
     }
 }
 
@@ -185,6 +192,7 @@ pub fn view(id: HintId, keys: &KeyLabels) -> View {
         title: None,
         text: text.to_owned(),
         button: DISMISS.to_owned(),
+        dismiss: None,
     };
     match id {
         HintId::GallerySample => {
@@ -206,6 +214,7 @@ pub fn view(id: HintId, keys: &KeyLabels) -> View {
                    one, or pick other agents with Edit flow."
                 .to_owned(),
             button: super::board_page::EDIT_FLOW.to_owned(),
+            dismiss: Some(DISMISS.to_owned()),
         },
         HintId::NewWork => titled(HintId::NewWork, "New work starts here", NEW_WORK.to_owned()),
     }
@@ -472,6 +481,11 @@ mod tests {
         assert_eq!(hint.anchor, Anchor::EditFlow);
         assert_eq!(hint.action, Action::EditFlow);
         assert_eq!(hint.hint.button, "Edit flow");
+        assert_eq!(
+            hint.hint.dismiss.as_deref(),
+            Some("Got it"),
+            "it can be dismissed without opening the editor"
+        );
         assert!(
             hint.hint.text.starts_with(
                 "SHOP-1 went Backlog \u{2192} Dev \u{2192} Validate \u{2192} Review \u{2192} Done."

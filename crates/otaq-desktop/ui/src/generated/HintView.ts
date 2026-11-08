@@ -2,6 +2,11 @@
 import type { HintId } from "./HintId";
 
 /**
- * What the popover shows: its title (when it has one), its text and its one button.
+ * What the popover shows: its title (when it has one), its text and its button.
  */
-export type HintView = { id: HintId, title: string | null, text: string, button: string, };
+export type HintView = { id: HintId, title: string | null, text: string, button: string, 
+/**
+ * Got it beside a button that does more than dismiss (Edit flow): it only dismisses, as Esc does then, so the
+ * hint never has to be followed to go away.
+ */
+dismiss: string | null, };

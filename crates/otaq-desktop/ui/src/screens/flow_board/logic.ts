@@ -192,3 +192,21 @@ export const FLOW_BOARD_EVENTS = [
   "projects_changed",
   "settings_changed",
 ] as const;
+
+/** A box on screen, as `getBoundingClientRect` gives it. */
+export interface Box {
+  left: number;
+  top: number;
+  width: number;
+  height: number;
+}
+
+/**
+ * Where the first-time hint hangs: at Watch a ticket's right edge (it names it, and so never covers Backlog's column),
+ * but below every stage's header, so it covers no stage card. `null` before the headers are drawn.
+ */
+export function hintSpot(watch: Box | undefined, heads: readonly Box[]): Box | null {
+  if (watch === undefined || heads.length === 0) return null;
+  const bottom = Math.max(watch.top + watch.height, ...heads.map((h) => h.top + h.height));
+  return { left: watch.left, top: bottom + 8, width: watch.width, height: 0 };
+}

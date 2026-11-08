@@ -36,8 +36,7 @@ pub const WARN_AT_LEFT: f64 = 20.0;
 pub const WARNING_TOKEN: &str = "st-paused";
 
 /// The popover's line while no agent runs: what begins next.
-pub const NOTHING_RUNNING: &str =
-    "Nothing running. Started tickets begin when an agent is free and their parents are merged.";
+pub const NOTHING_RUNNING: &str = "Nothing running. A started ticket begins once an agent is free and the tickets it waits for are done.";
 
 /// A tool without limit windows now (an API-key login).
 pub const NO_PLAN: &str = "No plan limit · tokens only";
@@ -1253,7 +1252,7 @@ mod tests {
         assert_eq!(
             p.agents.empty.as_deref(),
             Some(
-                "Nothing running. Started tickets begin when an agent is free and their parents are merged."
+                "Nothing running. A started ticket begins once an agent is free and the tickets it waits for are done."
             )
         );
         assert_eq!(p.usage.today, "Today 0 tokens");

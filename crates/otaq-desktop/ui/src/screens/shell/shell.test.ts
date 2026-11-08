@@ -11,7 +11,7 @@ import type { HeaderView } from "../../generated/HeaderView";
 import type { QuickSwitcherView } from "../../generated/QuickSwitcherView";
 import type { RailItem } from "../../generated/RailItem";
 import type { RailView } from "../../generated/RailView";
-import { ActivityBody, LimitsBody } from "./ActivityPopover";
+import { ActivityBody, activityAnchored, LimitsBody } from "./ActivityPopover";
 import { activityAnchor, ActivityChip, HeaderBar, SwitcherBox } from "./Header";
 import { shell, switchToDigit } from ".";
 import { clampCursor, switcherKey } from "./logic";
@@ -313,6 +313,10 @@ describe("the header", () => {
     );
     expect(quiet).not.toContain("header-activity");
     expect(quiet).not.toContain("header-usage");
+    // The Running popover goes with them: it never stays up saying "0" under nothing.
+    expect(activityAnchored(HEADER)).toBe(true);
+    expect(activityAnchored(idle)).toBe(true);
+    expect(activityAnchored({ ...idle, activity: { ...idle.activity, warning: null } })).toBe(false);
   });
 
   it("the project switcher lists every project with a dot on one that needs you, a check on this one, then Add project", () => {
@@ -483,12 +487,13 @@ describe("the Activity popover", () => {
       agents: {
         ...POPOVER.agents,
         count: "0",
-        empty: "Nothing running. Started tickets begin when an agent is free and their parents are merged.",
+        empty:
+          "Nothing running. A started ticket begins once an agent is free and the tickets it waits for are done.",
       },
       processes: null,
     });
     expect(out.indexOf("Agent limits")).toBeLessThan(out.indexOf("AGENTS RUNNING"));
-    expect(out).toContain("Nothing running. Started tickets begin");
+    expect(out).toContain("Nothing running. A started ticket begins");
     expect(out).not.toContain("PROCESSES");
   });
 
