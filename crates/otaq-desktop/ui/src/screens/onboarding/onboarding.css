@@ -147,6 +147,9 @@
   min-width: 0;
   padding: 10px;
   border-radius: var(--r-lg);
+  /* The outline keeps the column visible in dark themes, where a column is barely darker than the card it sits on. */
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
   background: var(--bg-column);
 }
 

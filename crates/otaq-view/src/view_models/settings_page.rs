@@ -279,13 +279,14 @@ pub enum Control {
     /// The PR provider line, detected when the page opens (`project_settings.provider`).
     Provider,
     /// How work leaves the flow: the flow's own `delivery:` setting, shown on the project's page and changed through
-    /// the flow (`delivery.delivers`, `delivery.mode`; [`super::project_settings::deliver_as`]). `modes` is empty
-    /// for Either, which is chosen at your click; `either` then says so.
+    /// the flow (`delivery.delivers`, `delivery.mode`; [`super::project_settings::deliver_as`]). Either is chosen at
+    /// your click, so with Either the modes show On Approve, switched off (`modes_off`), and `either` says why.
     Delivery {
         delivers: Vec<Choice>,
         delivers_value: String,
         modes: Vec<Choice>,
         mode_value: String,
+        modes_off: bool,
         either: Option<String>,
         /// "This is the flow's setting: changing it here changes the flow, and the flow file."
         note: String,

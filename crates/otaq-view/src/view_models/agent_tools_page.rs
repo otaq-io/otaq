@@ -118,6 +118,18 @@ pub struct MenuItem {
     pub destructive: bool,
 }
 
+/// A row's state mark before its name: connected; something to do (sign in, update); missing while no tool is
+/// connected yet; quiet for the rest (an optional tool, a hidden one).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
+#[serde(rename_all = "snake_case")]
+#[ts(rename = "AgentToolMark")]
+pub enum Mark {
+    Connected,
+    Attention,
+    Missing,
+    Quiet,
+}
+
 /// One tool's row.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolRow")]
@@ -127,6 +139,8 @@ pub struct Row {
     pub avatar: ToolAvatarView,
     /// "Codex", "GitHub Copilot".
     pub name: String,
+    /// The row's state mark.
+    pub mark: Mark,
     /// Settings only; the onboarding rows say the state in [`Self::detail`].
     pub pill: Option<Pill>,
     /// "v0.157.1 · signed in with ChatGPT", "v1.0.2 · not signed in", "not installed · optional now".
@@ -137,7 +151,7 @@ pub struct Row {
     pub show: Option<String>,
     pub install: Option<CommandView>,
     /// **Install** (`agent_tools.install`): runs the tool's install command in a terminal under the row, on the user's
-    /// click. Every missing tool has it, also an optional one on onboarding whose [`Self::install`] isn't shown.
+    /// click. Every missing tool has it.
     pub install_button: Option<String>,
     /// Why there is no Install: "Needs Node.js (npm) first…".
     pub install_note: Option<String>,
@@ -191,7 +205,8 @@ pub fn page(statuses: &[ToolStatus], now: i64) -> Page {
         checked: checked.map(|at| format!("Checked {}", ago(now - at))),
         menu_label: "More actions".to_owned(),
         not_shown_title: "Not shown here".to_owned(),
-        not_shown: "git, gh and az stay under Tools: they aren\u{2019}t agents.".to_owned(),
+        not_shown: "git, gh and az are under Git & pull requests: they aren\u{2019}t agents."
+            .to_owned(),
         error: None,
         terminal: super::onboarding_page::tool_terminal_texts(),
     }
@@ -205,8 +220,8 @@ pub fn failed(error: String) -> Page {
     }
 }
 
-/// One tool's row. `none_connected`: onboarding's "none connected" card, where a missing tool shows its install
-/// command (with one connected, the others are "optional now").
+/// One tool's row. A missing tool shows its install command before its Install, also on onboarding, where
+/// with one tool connected the others are "optional now" (`none_connected`: none is).
 pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
     let tool = s.tool;
     let name = tool.display_name();
@@ -258,7 +273,7 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         ),
     };
     let connected = s.state.is_connected();
-    let install = (s.state == AgentToolState::NotInstalled && (settings || none_connected))
+    let install = (s.state == AgentToolState::NotInstalled)
         .then(|| s.install_command.clone())
         .flatten()
         .map(|command| CommandView {
@@ -266,7 +281,7 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
             command,
             copy: "Copy".to_owned(),
         });
-    // Install is offered for every missing tool, also an optional one on onboarding (where its command isn't shown).
+    // Install is offered for every missing tool, also an optional one on onboarding.
     let installable = s.state == AgentToolState::NotInstalled && s.install_command.is_some();
     let install_button = (installable && s.can_install).then(|| "Install".to_owned());
     let install_note = installable
@@ -293,10 +308,20 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         }
         notes.extend(s.notes.iter().map(|note| format!("{name}: {note}")));
     }
+    let mark = if connected {
+        Mark::Connected
+    } else if s.can_sign_in || update.is_some() {
+        Mark::Attention
+    } else if s.state == AgentToolState::NotInstalled && (settings || none_connected) {
+        Mark::Missing
+    } else {
+        Mark::Quiet
+    };
     Row {
         tool: tool.as_str().to_owned(),
         avatar: ToolAvatarView::of(tool, None),
         name: name.to_owned(),
+        mark,
         pill: settings.then(|| Pill {
             label: pill.to_owned(),
             look,
@@ -308,7 +333,8 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         install_button,
         install_note,
         update,
-        can_see: connected.then(|| can_see(s, place)),
+        // Onboarding's rows say only what the user needs to start: no "Otaq can see".
+        can_see: (settings && connected).then(|| can_see(s)),
         notes,
         added: (settings && connected)
             .then(|| added(&s.setup_entries))
@@ -346,13 +372,9 @@ fn os_name() -> &'static str {
     }
 }
 
-fn can_see(s: &ToolStatus, place: Place) -> CanSee {
-    let prompts = match place {
-        Place::Settings => "permission prompts",
-        Place::Onboarding => "prompts",
-    };
+fn can_see(s: &ToolStatus) -> CanSee {
     let limits_seen = s.limits != Some(WindowsSource::NotReported);
-    let mut chips: Vec<SeeChip> = [prompts, "questions", "idle", "tokens"]
+    let mut chips: Vec<SeeChip> = ["permission prompts", "questions", "idle", "tokens"]
         .into_iter()
         .map(|label| SeeChip {
             label: label.to_owned(),
@@ -853,9 +875,12 @@ mod tests {
             rows[0].can_see.as_ref().unwrap().label,
             format!("{PRODUCT_NAME} can see")
         );
-        // Onboarding's shorter chip.
-        let onboarding = row(&sample()[0], Place::Onboarding, false);
-        assert_eq!(onboarding.can_see.unwrap().chips[0].label, "prompts");
+        // Onboarding's rows don't list them.
+        assert!(
+            row(&sample()[0], Place::Onboarding, false)
+                .can_see
+                .is_none()
+        );
     }
 
     #[test]
@@ -952,7 +977,7 @@ mod tests {
         assert_eq!(p.rows[1].detail, "v0.157.1 · signed in with ChatGPT");
         assert_eq!(
             p.not_shown,
-            "git, gh and az stay under Tools: they aren’t agents."
+            "git, gh and az are under Git & pull requests: they aren’t agents."
         );
         // With one tool connected the page still lists every tool.
         let one: Vec<ToolStatus> = Tool::ALL
@@ -1036,7 +1061,12 @@ mod tests {
         let missing = status(Tool::Codex, AgentToolState::NotInstalled);
         let optional = row(&missing, Place::Onboarding, false);
         assert_eq!(optional.detail, "not installed · optional now");
-        assert!(optional.install.is_none());
+        assert_eq!(
+            optional.install.unwrap().command,
+            "brew install codex",
+            "its install command shows before Install"
+        );
+        assert_eq!(optional.mark, Mark::Quiet, "optional with a tool connected");
         assert_eq!(
             optional.install_button.as_deref(),
             Some("Install"),
@@ -1055,6 +1085,9 @@ mod tests {
         );
         let needed = row(&missing, Place::Onboarding, true);
         assert_eq!(needed.detail, "not installed");
+        assert_eq!(needed.mark, Mark::Missing);
+        assert_eq!(rows[2].mark, Mark::Attention);
+        assert_eq!(rows[0].mark, Mark::Connected);
         assert_eq!(needed.install.unwrap().command, "brew install codex");
         let hidden = row(
             &status(Tool::OpenCode, AgentToolState::Hidden { version: None }),

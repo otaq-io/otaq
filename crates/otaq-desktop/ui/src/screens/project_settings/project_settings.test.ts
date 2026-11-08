@@ -56,6 +56,7 @@ const card = (id: SettingsSection<"repository">["id"], title: string): SettingsS
           { id: "automatic", label: "Automatically" },
         ],
         mode_value: "click",
+        modes_off: false,
         either: null,
         note: "This is the flow’s setting: changing it here changes the flow, and the flow file.",
       },
@@ -71,7 +72,11 @@ const card = (id: SettingsSection<"repository">["id"], title: string): SettingsS
 function view(delivers = "local"): ProjectSettingsView {
   const repository = card("repository", "Repository");
   const row = repository.rows[0];
-  if (row?.control.kind === "delivery") row.control.delivers_value = delivers;
+  if (row?.control.kind === "delivery") {
+    row.control.delivers_value = delivers;
+    row.control.modes_off = delivers === "either";
+    row.control.either = delivers === "either" ? "With Either, you choose at Approve." : null;
+  }
   return {
     key: "SHOP",
     name: "shop-web",
@@ -200,6 +205,21 @@ describe("the project's Settings page", () => {
       value: "pr",
     });
     expect(button("Pull request")?.getAttribute("aria-checked")).toBe("true");
+  });
+
+  it("shows On Approve · Automatically, switched off with Either, which is chosen at your click", async () => {
+    await draw();
+    expect(button("On Approve")?.getAttribute("aria-checked")).toBe("true");
+    expect(button("Automatically")?.disabled).toBe(false);
+    act(() => {
+      button("Either")?.click();
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(button("On Approve")?.getAttribute("aria-checked")).toBe("true");
+    expect(button("Automatically")?.disabled).toBe(true);
+    expect(host.textContent).toContain("With Either, you choose at Approve.");
   });
 
   it("Remove project asks first, then removes", async () => {

@@ -1493,7 +1493,7 @@
 .settings-agents-setting {
   display: grid;
   grid-template-columns: minmax(0, 264px) minmax(0, 1fr);
-  column-gap: 8px;
+  column-gap: 16px;
   align-items: start;
 }
 
@@ -1502,10 +1502,13 @@
   font: 500 13px var(--font-ui);
 }
 
+/* The text keeps to its grid column: the settings row's fixed width would run its line under the dropdown. */
 .settings-agents-setting .settings-row-text {
   display: flex;
   flex-direction: column;
   gap: 1px;
+  width: auto;
+  min-width: 0;
 }
 
 .settings-agents-setting .settings-row-description {

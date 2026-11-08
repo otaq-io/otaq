@@ -360,7 +360,7 @@ impl Ctx<'_> {
     }
 
     /// The cells of the slots from `from` on, each recordable member by member (a numbered row's after its range:
-    /// the sheet's tabs `g o / s / f / a`).
+    /// the sheet's tabs `g o / s / c / h`).
     fn cells_from(&self, actions: &[KeyAction], from: usize) -> Vec<Cell> {
         let slots = actions
             .iter()
@@ -1340,7 +1340,7 @@ mod tests {
             ("Full page / back to the sheet", vec!["e"]),
             (
                 "Ticket tabs",
-                vec!["1–4", "g then o / g then s / g then f / g then a"],
+                vec!["1–4", "g then o / g then s / g then c / g then h"],
             ),
             ("Go to file", vec!["⌥⌘P"]),
             ("Next / previous ticket tab", vec!["⌃Tab / ⌃⇧Tab"]),

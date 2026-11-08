@@ -260,6 +260,7 @@ const toolRow = (tool: string, more: Partial<AgentToolRow>): AgentToolRow => ({
   tool,
   avatar: { tool: "codex", letters: "CX", background: "tool-cx", foreground: "tool-cx-fg", hover: "Codex" },
   name: "Codex",
+  mark: "quiet",
   pill: null,
   detail: "",
   sign_in: null,
@@ -284,6 +285,7 @@ const INSTALL = { label: "How to install (macOS)", command: "brew install codex"
 
 const ROWS = {
   connected: toolRow("codex", {
+    mark: "connected",
     pill: { label: "Connected", look: "connected" },
     detail: "v0.157.1 · signed in with ChatGPT",
     can_see: {
@@ -307,12 +309,14 @@ const ROWS = {
     menu: [HIDE, RECHECK, DISCONNECT],
   }),
   signed_out: toolRow("copilot", {
+    mark: "attention",
     pill: { label: "Found · not signed in", look: "not_signed_in" },
     detail: "v1.0.2 · not signed in",
     sign_in: "Sign in…",
     menu: [HIDE, RECHECK],
   }),
   update: toolRow("copilot", {
+    mark: "attention",
     pill: { label: "Found · update needed", look: "update_needed" },
     detail: "v0.0.404 · too old for this app",
     update: {
@@ -323,6 +327,7 @@ const ROWS = {
     menu: [HIDE, RECHECK],
   }),
   missing: toolRow("codex", {
+    mark: "missing",
     pill: { label: "Not installed", look: "not_installed" },
     detail: "not installed",
     install: INSTALL,
@@ -344,7 +349,7 @@ const toolsPage = (rows: AgentToolRow[]): AgentToolsPage => ({
   checked: "Checked 2 minutes ago",
   menu_label: "More actions",
   not_shown_title: "Not shown here",
-  not_shown: "git, gh and az stay under Tools: they aren’t agents.",
+  not_shown: "git, gh and az are under Git & pull requests: they aren’t agents.",
   error: null,
   terminal: {
     hide: "Hide",
@@ -398,7 +403,7 @@ describe("Settings → Agent tools", () => {
     const page = drawRow(ROWS.connected);
     expect(page).toContain("Re-check");
     expect(page).toContain("Checked 2 minutes ago");
-    expect(page).toContain("git, gh and az stay under Tools");
+    expect(page).toContain("git, gh and az are under Git &amp; pull requests");
   });
 
   it("no state is drawn turquoise: the warning, a failed setup and the found states are amber", () => {

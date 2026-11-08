@@ -62,7 +62,7 @@ describe("the sheet's tabs (SHT-02)", () => {
     expect(contentOf(checking, "agent")).toBe("agent");
   });
 
-  it("1–4 (g o / s / f / a) pick by number; ⌃Tab steps round the ends", () => {
+  it("1–4 (g o / s / c / h) pick by number; ⌃Tab steps round the ends", () => {
     expect(numberedSheetTab(TABS, 4)?.tab).toBe("activity");
     expect(numberedSheetTab(TABS, 5)).toBeUndefined();
     expect(steppedSheetTab(TABS, TABS[3], 1)?.tab).toBe("overview");

@@ -203,8 +203,10 @@ pub struct Template {
     pub title: String,
     pub line: String,
     pub icon: IconName,
-    /// "You don't have the skill `test-in-browser`": the usual missing-skill warning; it can still be added.
-    pub warning: Option<String>,
+    /// "Uses a skill you add: `test-in-browser`": a quiet line, not a warning, for a ready stage whose skill neither
+    /// Otaq ships nor the user has. Otaq never copies skills, so the user brings their own; it can still be added,
+    /// and the added stage carries the usual amber warning until the skill is found.
+    pub skill_note: Option<String>,
 }
 
 /// The palette **+** opens. `FlowBoardPalette` on the page.
@@ -710,16 +712,21 @@ fn palette(f: &Facts) -> Palette {
                 title: t.title.clone(),
                 line: t.line.clone(),
                 icon: template_icon(t.stage()),
-                warning: t
+                skill_note: t
                     .stage()
                     .skill
                     .as_deref()
                     .filter(|s| !has(s))
-                    .map(otaq_core::flow::proposal::unknown_skill_text),
+                    .map(skill_you_add),
             })
             .collect(),
         foot: "Each comes with a description, an agent and a skill; change any of them after.",
     }
+}
+
+/// A ready stage's skill the user brings: "Uses a skill you add: `security-check`".
+fn skill_you_add(skill: &str) -> String {
+    format!("Uses a skill you add: `{skill}`")
 }
 
 /// The agent Noyan uses, which drafts a suggestion: its name, else "Noyan".

@@ -70,7 +70,7 @@ pub struct ShortcutRow {
 }
 
 /// One key of a row, as Kbds: one ("⌘K", "⌘] / ⌘[", "1–4"), or a sequence's two ("g", "b") shown with "then" (a
-/// run's sequences share the "g": "g", "o / s / f / a").
+/// run's sequences share the "g": "g", "o / s / c / h").
 /// `ShortcutKey` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct ShortcutKey {
@@ -125,7 +125,7 @@ pub(crate) fn row_keys(members: &[KeyAction], bindings: &[&Binding]) -> Vec<RowK
             .collect();
         let kbds = match (&first.key, parts.len()) {
             (Key::Sequence { then }, 1) => vec!["g".to_owned(), then.clone()],
-            // The sheet's tabs: "g" then "o / s / f / a" (`s02-24`).
+            // The sheet's tabs: "g" then "o / s / c / h" (`s02-24`).
             _ if thens.len() == parts.len() => vec!["g".to_owned(), thens.join(" / ")],
             _ => vec![range(&parts, members.len()).unwrap_or_else(|| {
                 parts
@@ -351,7 +351,7 @@ mod tests {
                 ("Full page / back to the sheet", keys(&[&["e"]]), None),
                 (
                     "Ticket tabs",
-                    keys(&[&["1–4"], &["g", "o / s / f / a"]]),
+                    keys(&[&["1–4"], &["g", "o / s / c / h"]]),
                     None
                 ),
                 ("Go to file", keys(&[&["⌥⌘P"]]), None),
@@ -471,7 +471,7 @@ mod tests {
             ticket[3],
             (
                 "Ticket tabs",
-                keys(&[&["1–4"], &["g", "o / s / f / a"]]),
+                keys(&[&["1–4"], &["g", "o / s / c / h"]]),
                 Some("off")
             )
         );

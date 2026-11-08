@@ -1,6 +1,6 @@
 // The Tools step: connect an agent tool, only what's needed to start (d0021, d0011, d0086). The agent tools first
 // ("AGENT TOOLS", how many are ready, the blocking line said once at the top while none is, and the same rows as
-// Settings → Agent tools in their compact form: Sign in…, Install, Show, the install command, "Otaq can see", the
+// Settings → Agent tools in their compact form: Sign in…, Install, Show, the install command before Install, the
 // tool's own warning, the … menu without Disconnect…), then git ("ALSO NEEDED") with its version or why it is
 // missing, its command and Install button; each button runs its command in a short terminal under the row
 // (`RowTerminal`); Check again, Continue (off while no agent tool is ready), and where more tools are added later. All
@@ -16,7 +16,6 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import {
   type AgentToolAction,
-  CanSee,
   CommandBox,
   DetailLine,
   InstallLine,
@@ -74,7 +73,6 @@ function AgentRow({
       <InstallLine row={row} onAction={onAction} />
       {row.update !== null && <CommandBox command={row.update} />}
       {terminals && <RowTerminal row={row.tool} texts={texts} terminals={terminals} />}
-      <CanSee row={row} />
       <ToolWarning row={row} onAction={onAction} />
     </li>
   );

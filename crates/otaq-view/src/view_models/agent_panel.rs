@@ -61,12 +61,11 @@ pub const EXPAND: &str = "Expand";
 pub const COLLAPSE: &str = "Collapse";
 
 /// The example prompts: a fixed generic set, the same for every project (d0087, Q-E). A click fills the box and
-/// never sends.
-pub const EXAMPLES: [&str; 4] = [
+/// never sends. Each asks for what Noyan does, writing tickets to Backlog, and nothing more.
+pub const EXAMPLES: [&str; 3] = [
     "Turn this into tickets: \u{2026}",
-    "Why is a ticket stuck?",
     "Write a ticket for \u{2026}",
-    "Import issues from our tracker",
+    "Write a bug ticket: \u{2026}",
 ];
 
 /// Created and changed is folded to one line below this window width: the 1280 size class (Q-C splits the classes
@@ -1160,14 +1159,10 @@ mod tests {
                     "Turn this into tickets: \u{2026}",
                     "Turn this into tickets: "
                 ),
-                ("Why is a ticket stuck?", "Why is a ticket stuck?"),
                 ("Write a ticket for \u{2026}", "Write a ticket for "),
-                (
-                    "Import issues from our tracker",
-                    "Import issues from our tracker"
-                )
+                ("Write a bug ticket: \u{2026}", "Write a bug ticket: ")
             ],
-            "a click fills the box, leaving the \u{2026} to the user"
+            "a click fills the box, leaving the \u{2026} to the user; Noyan only writes tickets, so each asks for some"
         );
         assert_eq!(
             e.placeholder,

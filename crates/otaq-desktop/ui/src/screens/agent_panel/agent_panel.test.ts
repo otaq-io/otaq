@@ -83,7 +83,7 @@ const EMPTY: AgentPanelView = {
     text: "It reads and runs code in pocket-notes but never edits it. It writes tickets to Backlog, proposing two or more first, and you start them.",
     examples: [
       { label: "Turn this into tickets: …", fill: "Turn this into tickets: " },
-      { label: "Why is a ticket stuck?", fill: "Why is a ticket stuck?" },
+      { label: "Write a ticket for …", fill: "Write a ticket for " },
     ],
     recent_title: "RECENTLY ENDED",
     placeholder: "Ask about pocket-notes, or describe work…",
