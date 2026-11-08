@@ -166,6 +166,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::GitSetIdentity(_)
+        | Request::GitMissingIdentity(_)
         | Request::OnboardingState
         | Request::OnboardingSources(_)
         | Request::OnboardingAsk(_)

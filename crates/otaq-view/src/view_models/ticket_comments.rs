@@ -19,6 +19,7 @@
 //! - **A failed check's card** shows its verdict ([`verdict_line`]).
 
 use otaq_core::board::reports::{Attachment, size_label};
+use otaq_core::board::stage_runs::StageRun;
 use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use serde::Serialize;
 use ts_rs::TS;
@@ -354,6 +355,33 @@ pub struct Facts<'a> {
     pub working: Option<&'a str>,
     /// Tool avatars show (two or more tools connected, [`super::tool_avatar::shown`]).
     pub avatars: bool,
+    /// The comments Overview already shows above the thread ([`shown_in_review`]): left out of it, so nothing reads
+    /// twice.
+    pub shown_above: &'a [u32],
+}
+
+/// The comments Overview's review blocks already show while the ticket waits for you: the agent's hand-over that
+/// "What the agent did" reads and the checker's verdict under "Checker". `runs` are the ticket's stage runs, oldest
+/// first; each block is the latest run of its kind that ended with a comment, and the thread's newest agent comment
+/// with that text is the one it shows.
+pub fn shown_in_review(comments: &[TicketComment], runs: &[StageRun]) -> Vec<u32> {
+    let mut shown = Vec::new();
+    for kind in ["agent", "check"] {
+        let Some(said) = runs
+            .iter()
+            .rev()
+            .filter(|r| r.kind == kind)
+            .find_map(|r| r.summary.as_deref())
+        else {
+            continue;
+        };
+        if let Some(c) = comments.iter().rev().find(|c| {
+            matches!(c.author, CommentAuthor::Agent { .. }) && c.body.trim() == said.trim()
+        }) {
+            shown.push(c.n);
+        }
+    }
+    shown
 }
 
 /// "2:14 pm" in local time (0093).
@@ -362,7 +390,12 @@ pub fn local_clock(at: i64) -> String {
 }
 
 pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
-    let count = u32::try_from(facts.comments.len()).unwrap_or(u32::MAX);
+    let listed: Vec<&TicketComment> = facts
+        .comments
+        .iter()
+        .filter(|c| !facts.shown_above.contains(&c.n))
+        .collect();
+    let count = u32::try_from(listed.len()).unwrap_or(u32::MAX);
     ThreadView {
         key: facts.key.to_owned(),
         heading: match count {
@@ -371,9 +404,8 @@ pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
         },
         hint: HINT.to_owned(),
         count,
-        comments: facts
-            .comments
-            .iter()
+        comments: listed
+            .into_iter()
             .rev()
             .map(|c| row(c, facts.avatars, clock))
             .collect(),
@@ -669,6 +701,50 @@ mod tests {
         assert_eq!(images, ["shot.png"]);
     }
 
+    /// In review, Overview's "What the agent did" and "Checker" blocks show the hand-over and the verdict: the thread
+    /// leaves those two out, so nothing reads twice, and counts what it lists.
+    #[test]
+    fn in_review_the_thread_leaves_out_what_the_blocks_show() {
+        let run = |kind: &str, said: Option<&str>| StageRun {
+            stage: kind.into(),
+            kind: kind.into(),
+            session: None,
+            agent: None,
+            model: None,
+            round: None,
+            result: None,
+            summary: said.map(str::to_owned),
+            started_at: 0,
+            ended_at: None,
+        };
+        let comments = shop_34();
+        let runs = [
+            run("agent", Some(&comments[0].body)),
+            run("agent", Some(&comments[2].body)),
+            run("check", Some(&comments[3].body)),
+            run("you", None),
+        ];
+        let shown = shown_in_review(&comments, &runs);
+        assert_eq!(shown, [3, 4]);
+        let v = thread(
+            &Facts {
+                key: "SHOP-34",
+                comments: &comments,
+                working: None,
+                avatars: true,
+                shown_above: &shown,
+            },
+            &clock,
+        );
+        assert_eq!(v.heading, "Comments \u{b7} 2");
+        let listed: Vec<u32> = v.comments.iter().map(|c| c.n).collect();
+        assert_eq!(listed, [2, 1]);
+        // The user's own words are never taken for a block's.
+        let mut mine = comments.clone();
+        mine[2].author = CommentAuthor::User { name: "me".into() };
+        assert_eq!(shown_in_review(&mine, &runs), [4]);
+    }
+
     /// SHOP-34's four comments (`s05-41`): Product spec's hand-over, the user's, Dev's, and Validate's failed round 2
     /// with its 48 KB report.
     fn shop_34() -> Vec<TicketComment> {
@@ -713,6 +789,7 @@ mod tests {
                 comments,
                 working,
                 avatars: true,
+                shown_above: &[],
             },
             &clock,
         )

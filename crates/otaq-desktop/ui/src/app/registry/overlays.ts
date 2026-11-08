@@ -8,6 +8,7 @@ import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
+import type { GitIdentityForm } from "../../generated/GitIdentityForm";
 import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
@@ -94,6 +95,15 @@ export interface OverlayParams {
   open_pr: { ticket: string; approveAnyway?: boolean; intro?: boolean };
   /** Any other confirmation (Park, Reopen, Resume all, Restart now, Remove project…), drawn by T-0217's dialog. */
   confirm: Confirmation;
+  /** A start when git has no name and email: the two fields; `save` ("Save and start") saves them, then runs `then`
+   * (the start again). `onCancel` runs on Cancel and Esc. */
+  git_identity: {
+    form: GitIdentityForm;
+    save: string;
+    cancel: string;
+    then: () => unknown;
+    onCancel?: () => unknown;
+  };
   /** Restart now's confirmation, naming who gets interrupted (T-0231). */
   restart_service: undefined;
   /** Resume all's confirmation listing the sessions it resumes (T-0230): the Needs you strip's for its project
@@ -147,6 +157,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   done_not_merged: true,
   open_pr: true,
   confirm: true,
+  git_identity: true,
   restart_service: true,
   resume_all: true,
   shortcuts: true,

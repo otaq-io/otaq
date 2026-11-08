@@ -343,6 +343,9 @@ stored_enum! {
         /// Not a step: the Developer's tool doesn't have the skill its Agent stage names; nothing started. Set with
         /// the ticket's `agent_holds` row, which says which tool and skill.
         MissingSkill = "missing_skill",
+        /// Not a step: git has no name and email to sign the agent's commits with; nothing started. Lifted once the
+        /// user saves them (`tools.git_identity`): Otaq never writes git's settings without that click.
+        GitIdentity = "git_identity",
     }
 }
 
@@ -363,6 +366,7 @@ impl StartStep {
             Self::ToolUnavailable => "the tool isn't available",
             Self::ModelUnavailable => "Model unavailable",
             Self::MissingSkill => "the tool doesn't have the stage's skill",
+            Self::GitIdentity => "git doesn\u{2019}t know your name and email yet",
         }
     }
 }

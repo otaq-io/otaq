@@ -680,7 +680,7 @@ pub(crate) fn row(
 }
 
 /// The help under Merge check (d0120); the page shows `npm test` as code.
-pub const MERGE_CHECK_HELP: &str = "Runs on the merged result before Local merge moves the branch, when it has new commits. For example `npm test`.";
+pub const MERGE_CHECK_HELP: &str = "Runs on the merged result when you Approve & merge, before it lands, if the base has commits the agent\u{2019}s work didn\u{2019}t have. For example `npm test`.";
 
 /// "Merge check" (d0120), next to the setup command and built like it: a text field that saves as you type, empty by
 /// default (never guessed, d0023).
@@ -2586,8 +2586,8 @@ mod tests {
         assert_eq!(row.label, "Merge check \u{b7} optional");
         assert_eq!(
             row.description,
-            "Runs on the merged result before Local merge moves the branch, when it has new commits. For example \
-             `npm test`."
+            "Runs on the merged result when you Approve & merge, before it lands, if the base has commits the \
+             agent\u{2019}s work didn\u{2019}t have. For example `npm test`."
         );
         let Control::Text {
             value,

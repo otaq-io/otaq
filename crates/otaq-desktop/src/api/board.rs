@@ -509,6 +509,21 @@ pub async fn start(app: &App, params: StartParams) -> Result<DropOutcome, Reques
     .await
 }
 
+/// What git still needs to sign commits in `project`'s repository; `None` when it can, or when the service can't say
+/// (the start's own check holds it then).
+pub(super) async fn missing_identity(app: &App, project: &str) -> Option<otaq_core::git::Identity> {
+    match app
+        .service
+        .send(Request::GitMissingIdentity(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::GitIdentity(missing)) => missing,
+        _ => None,
+    }
+}
+
 /// Carries out a drop's step: sends the move, or answers with the dialog the page shows first.
 async fn carry_out(
     app: &App,
@@ -529,6 +544,13 @@ async fn carry_out(
             let Some(target) = board_page::core_target(flow, &target) else {
                 return Ok(DropOutcome::Nothing);
             };
+            // Starting from Backlog: an agent never commits under a borrowed name, so git's missing name and email
+            // are asked for first; nothing moves until the user saves them.
+            if ticket.status == Status::Backlog
+                && let Some(has) = missing_identity(app, ticket.key.project.as_str()).await
+            {
+                return Ok(board_page::identity_outcome(&has));
+            }
             app.service
                 .send(Request::TicketDrag(DragParams {
                     key: key.to_owned(),
@@ -794,6 +816,105 @@ mod tests {
             "into the first stage"
         );
         assert!(after[0].line.is_some(), "and what its card says there");
+        h.service.stop_all().await;
+    }
+
+    /// An agent never commits under a borrowed name: on a repository whose git has no name and email, Start asks for
+    /// them ("Save and start") and moves nothing; once the user saved them (`tools.git_identity`, only on that click)
+    /// the same Start puts the ticket into its first stage.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn start_asks_for_git_s_name_and_email_first_then_starts_after_save() {
+        let home = tempfile::tempdir().unwrap();
+        let global = home.path().join("gitconfig");
+        std::fs::write(&global, "").unwrap();
+        // SAFETY: set before the service starts; each test runs in its own process.
+        unsafe {
+            std::env::set_var("GIT_CONFIG_GLOBAL", &global);
+            std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+        }
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop-web", 1);
+        for args in [
+            &["config", "--unset", "user.name"][..],
+            &["config", "--unset", "user.email"],
+            &["config", "user.useConfigOnly", "true"],
+        ] {
+            otaq_core::git::testing::git(&path, args);
+        }
+        let Reply::ProjectAdded { project, .. } = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+                flow_setup: false,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let Reply::Ticket(t) = send(
+            &h,
+            Request::TicketCreate(NewTicketInput {
+                project: project.key.clone(),
+                title: "Tidy the README".into(),
+                ..Default::default()
+            }),
+        )
+        .await
+        else {
+            panic!("no ticket");
+        };
+        let key = t.key.to_string();
+        async fn place_of(app: &App, project: &str, key: &otaq_core::domain::TicketKey) -> String {
+            whereabouts(app, project, std::slice::from_ref(key))
+                .await
+                .unwrap()[0]
+                .place
+                .clone()
+        }
+
+        let asked = request(&h.app, "board.start", json!({ "key": key }))
+            .await
+            .unwrap();
+        assert_eq!(asked["kind"], "identity", "{asked}");
+        assert_eq!(asked["save"], "Save and start");
+        assert_eq!(asked["form"]["title"], "git doesn\u{2019}t know your name and email yet");
+        assert_eq!(place_of(&h.app, &project.key, &t.key).await, "Backlog", "nothing moved");
+        assert!(std::fs::read_to_string(&global).unwrap().is_empty(), "nothing written");
+        // Create & start asks the same way, before creating anything.
+        let create = request(
+            &h.app,
+            "editor.create_and_start",
+            json!({
+                "target": { "mode": "create", "project": project.key },
+                "form": { "title": "Another", "body": "", "priority": null, "base_branch": null,
+                          "attachments": [], "waits_for": [], "choices": [] },
+            }),
+        )
+        .await
+        .unwrap();
+        assert_eq!(create["outcome"], "needs_identity", "{create}");
+        assert_eq!(create["save"], "Save and start");
+
+        request(
+            &h.app,
+            "tools.git_identity",
+            json!({ "name": "Ada Lovelace", "email": "ada@example.com" }),
+        )
+        .await
+        .unwrap();
+        let saved = std::fs::read_to_string(&global).unwrap();
+        assert!(saved.contains("Ada Lovelace"), "{saved}");
+        let started = request(&h.app, "board.start", json!({ "key": key }))
+            .await
+            .unwrap();
+        assert_eq!(started["kind"], "moved", "{started}");
+        let flow = flow(&h.app, &project.key).await;
+        assert_eq!(place_of(&h.app, &project.key, &t.key).await, flow.first_agent_stage().unwrap().name, "into the first stage");
         h.service.stop_all().await;
     }
 

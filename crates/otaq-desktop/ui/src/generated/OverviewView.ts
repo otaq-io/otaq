@@ -4,6 +4,7 @@ import type { BeforeYouView } from "./BeforeYouView";
 import type { DescriptionLeaveDialog } from "./DescriptionLeaveDialog";
 import type { DescriptionSaveBar } from "./DescriptionSaveBar";
 import type { ManualChecksView } from "./ManualChecksView";
+import type { OverviewAnswered } from "./OverviewAnswered";
 import type { OverviewInReview } from "./OverviewInReview";
 import type { OverviewUsageLimit } from "./OverviewUsageLimit";
 import type { PlanSectionView } from "./PlanSectionView";
@@ -52,6 +53,11 @@ manual_checks: ManualChecksView | null,
  * decisions it made, then the ticket (`description` says "The ticket").
  */
 in_review: OverviewInReview | null, 
+/**
+ * The question you just answered and your answer, quietly where the question was, until the agent moves on; set
+ * by the service's facts ([`with_answered`]).
+ */
+answered: OverviewAnswered | null, 
 /**
  * "Attachments · 3"; "Attachments" with none.
  */

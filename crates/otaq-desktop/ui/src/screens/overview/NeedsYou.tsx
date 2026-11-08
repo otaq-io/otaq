@@ -6,13 +6,22 @@
 // actions are the sheet's (`sheet/actions`); everything it says comes from `sheet.view`; it keeps only the picked
 // answer. At Review, "Manual checks for you" (the Overview's, `aboveBar`) sits above Approve, and a build set aside to
 // save disk says so under the bar (d0125, `BuildAside`; the Run and Shell show the same line).
-import { type ReactNode, type Ref, useEffect, useEffectEvent, useId, useRef, useState } from "react";
+import {
+  type KeyboardEvent,
+  type ReactNode,
+  type Ref,
+  useEffect,
+  useEffectEvent,
+  useId,
+  useRef,
+  useState,
+} from "react";
 
 import { openOverlay } from "../../app/overlays";
 import { useRegistries } from "../../app/registry";
 import { SHEET_UNDER_TABS } from "../../app/registry/sheet";
 import { requestTerminalFocus, showTab } from "../../app/selection";
-import { Button, TextArea, ToolProblemCallout, Tooltip, PLAIN_TEXT } from "../../components";
+import { Button, PROSE_TEXT, TextArea, ToolProblemCallout, Tooltip } from "../../components";
 import type { BuildAsideLine } from "../../generated/BuildAsideLine";
 import type { SheetAnswer } from "../../generated/SheetAnswer";
 import type { SheetAnswerAgent } from "../../generated/SheetAnswerAgent";
@@ -147,9 +156,10 @@ export function AnswerChoices({
           </button>
         ))}
         {picksOther(pick, answer.rows) && (
-          <input
-            {...PLAIN_TEXT}
-            className="field-input sheet-answer-other"
+          <textarea
+            {...PROSE_TEXT}
+            className="text-input text-area sheet-answer-box"
+            rows={2}
             value={other}
             placeholder={answer.other_placeholder}
             aria-label={answer.other_placeholder}
@@ -160,10 +170,7 @@ export function AnswerChoices({
               onOther(e.target.value);
             }}
             onKeyDown={(e) => {
-              if (e.key === "Enter") {
-                e.preventDefault();
-                onSend();
-              }
+              sendOnEnter(e, onSend);
             }}
           />
         )}
@@ -172,7 +179,15 @@ export function AnswerChoices({
   );
 }
 
-/** An open question (no options): the question, then a box for the user's own words; ↵ sends. */
+/** An answer box's keys: ↵ sends, ⇧↵ starts a new line (and ↵ while an input method composes stays its own). */
+export function sendOnEnter(e: KeyboardEvent<HTMLTextAreaElement>, onSend: () => void): void {
+  if (e.key !== "Enter" || e.shiftKey || e.nativeEvent.isComposing) return;
+  e.preventDefault();
+  onSend();
+}
+
+/** An open question (no options): the question, then a few lines' box for the user's own words; ↵ sends, ⇧↵ a new
+ * line. */
 function OpenAnswer({
   answer,
   text,
@@ -190,9 +205,10 @@ function OpenAnswer({
         <Icon name="message-circle-question-mark" size={14} />
         <span>{answer.text}</span>
       </div>
-      <input
-        {...PLAIN_TEXT}
-        className="field-input sheet-answer-open"
+      <textarea
+        {...PROSE_TEXT}
+        className="text-input text-area sheet-answer-box"
+        rows={3}
         value={text}
         placeholder={answer.other_placeholder}
         aria-label={answer.other_placeholder}
@@ -200,10 +216,7 @@ function OpenAnswer({
           onText(e.target.value);
         }}
         onKeyDown={(e) => {
-          if (e.key === "Enter" && !e.nativeEvent.isComposing) {
-            e.preventDefault();
-            onSend();
-          }
+          sendOnEnter(e, onSend);
         }}
       />
     </div>

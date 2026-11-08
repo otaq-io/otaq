@@ -64,6 +64,7 @@ const EDITOR: EditorView = {
 const OVERVIEW: OverviewView = {
   key: KEY,
   in_review: null,
+  answered: null,
   description: "Description",
   click_to_edit: "Click to edit",
   editing: "Editing · Esc to discard, ⌘S to save",

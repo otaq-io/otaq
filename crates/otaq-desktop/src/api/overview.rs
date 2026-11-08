@@ -10,6 +10,7 @@
 use std::path::PathBuf;
 
 use otaq_core::board::reports::{AttachmentKind, open_report, size_label};
+use otaq_core::domain::Status;
 use otaq_core::protocol::{
     KeyParams, ManualCheckTickParams, ProjectParams, Reply, Request, SessionListParams,
 };
@@ -192,6 +193,27 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         ),
         plan,
     );
+    // The question you answered here stays, quietly, while the agent works on it in this stage's run.
+    if matches!(
+        ticket.status,
+        Status::Working | Status::WorkingInBackground | Status::Idle
+    ) {
+        let (answers, agents) = tokio::join!(
+            app.service.send(Request::TicketHumanAnswers(k())),
+            super::editor::agent_facts(app, super::editor::of_ticket(&params.key)),
+        );
+        if let Ok(Reply::HumanAnswers(answers)) = answers {
+            let stage = ticket.place.stage();
+            let run_started = agents.and_then(|a| {
+                a.runs
+                    .iter()
+                    .rev()
+                    .find(|r| r.ended_at.is_none() && Some(r.stage.as_str()) == stage)
+                    .map(|r| r.started_at)
+            });
+            view = vm::with_answered(view, vm::answered(ticket.status, &answers, run_started));
+        }
+    }
     // A check of planning: what each planning stage did, from its comment and its commits (d0129, `s30-02`).
     if let Some(p) = super::files::planning_facts(app, &ticket).await
         && let Some(did) = planning::did(

@@ -235,6 +235,13 @@ export function OverviewTab({ ticket }: TicketProps) {
             }
           />
         )}
+        {overview?.key === ticket && overview.answered !== null && (
+          <section className="sheet-answered" aria-label={overview.answered.label}>
+            <span>{overview.answered.label}</span>
+            <span className="sheet-answered-question">{overview.answered.question}</span>
+            <span className="sheet-answered-answer">{overview.answered.answer}</span>
+          </section>
+        )}
         {overview?.key === ticket && overview.usage_limit !== null && (
           <div className="overview-usage-limit">
             <Button

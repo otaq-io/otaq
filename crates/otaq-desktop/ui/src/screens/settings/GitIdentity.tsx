@@ -1,10 +1,12 @@
 // The name and email git signs commits with, when git has none (`GitIdentityForm`): two fields and where Save writes
 // them. The Tools step's git row and Settings → Git & pull requests show it with its own Save; the merge dialog shows
-// the fields and saves them with its "Save and merge". Save is `tools.git_identity`, which writes them into the
+// the fields and saves them with its "Save and merge", and a start asks with them first (`git_identity`'s "Save and
+// start": an agent never commits under a borrowed name). Save is `tools.git_identity`, which writes them into the
 // user's own git settings only on that click; a refusal ("Type your email first.") shows under the fields.
 import { useState } from "react";
 
-import { Button, Field, TextInput } from "../../components";
+import type { OverlayProps } from "../../app/registry";
+import { Button, Dialog, Field, TextInput } from "../../components";
 import type { GitIdentityForm } from "../../generated/GitIdentityForm";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
@@ -77,6 +79,44 @@ export function GitIdentityFields({ form, state }: { form: GitIdentityForm; stat
         <p className="git-identity-note">{form.note}</p>
       )}
     </div>
+  );
+}
+
+/** Before a start, when git has no name and email: "Save and start" saves them, then starts (`then`); Cancel and Esc
+ * start nothing. A refusal stays under the fields. */
+export function GitIdentityDialog({ params, close }: OverlayProps<"git_identity">) {
+  const state = useGitIdentity(params.form);
+  const cancel = () => {
+    close();
+    params.onCancel?.();
+  };
+  const saveAndStart = () => {
+    if (state.saving) return;
+    void state.save().then((saved) => {
+      if (!saved) return;
+      close();
+      params.then();
+    });
+  };
+  return (
+    <Dialog
+      title={params.form.title}
+      width={480}
+      onConfirm={saveAndStart}
+      keepOnOutsidePress
+      onCancel={cancel}
+      footer={
+        <>
+          <Button variant="ghost" label={params.cancel} onClick={cancel} />
+          <Button icon="play" label={params.save} loading={state.saving} onClick={saveAndStart} />
+        </>
+      }
+    >
+      <div className="git-identity-dialog">
+        <p className="git-identity-text">{params.form.text}</p>
+        <GitIdentityFields form={params.form} state={state} />
+      </div>
+    </Dialog>
   );
 }
 

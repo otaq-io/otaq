@@ -150,6 +150,7 @@ async fn comment_row(app: &App, key: &str, n: u32) -> Option<comments::CommentRo
             comments: &list.comments,
             working: None,
             avatars: tool_avatar::shown(),
+            shown_above: &[],
         },
         &comments::local_clock,
     );

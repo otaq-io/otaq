@@ -152,16 +152,29 @@ pub async fn thread(app: &App, params: ThreadParams) -> Result<ThreadView, Reque
         Ok(Reply::Sessions(list)) => list,
         _ => Vec::new(),
     };
-    let status = match ticket {
-        Ok(Reply::Ticket(ticket)) => Some(ticket.status),
+    let ticket = match ticket {
+        Ok(Reply::Ticket(ticket)) => Some(ticket),
         _ => None,
+    };
+    let status = ticket.as_ref().map(|t| t.status);
+    let list = list?;
+    // While it waits for you, Overview shows the agent's hand-over and the checker's verdict in their own blocks.
+    let shown_above = match &ticket {
+        Some(t) if otaq_view::view_models::files_tab::waits_for_you(t) => {
+            match super::editor::agent_facts(app, super::editor::of_ticket(&params.key)).await {
+                Some(agents) => vm::shown_in_review(&list, &agents.runs),
+                None => Vec::new(),
+            }
+        }
+        _ => Vec::new(),
     };
     Ok(vm::thread(
         &vm::Facts {
             key: &params.key,
-            comments: &list?,
+            comments: &list,
             working: working(status, &sessions),
             avatars: tool_avatar::shown(),
+            shown_above: &shown_above,
         },
         &vm::local_clock,
     ))

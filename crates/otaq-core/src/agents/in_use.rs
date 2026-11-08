@@ -85,7 +85,10 @@ fn join(items: &[String]) -> String {
     }
 }
 
-/// The uses of `agent` in a flow: its stages, and its delivery when the agent opens its PRs ("Delivery").
+/// How the delivery's use reads after the stage the ticket waits in while it is delivered: "Review · opens PRs".
+pub const DELIVERY_USE: &str = "opens PRs";
+
+/// The uses of `agent` in a flow: its stages, and its delivery when the agent opens its PRs ("Review · opens PRs").
 async fn uses_in(
     board: &Board,
     agent: &Agent,
@@ -104,7 +107,12 @@ async fn uses_in(
         .as_ref()
         .filter(|_| flow.delivery.can_open_pr())
     {
-        named.push((crate::agents::facts::DELIVERY_STEP.to_owned(), name.clone()));
+        // Delivery isn't a stage the user sees: it is named by where its PR shows, the flow's last stage.
+        let place = match flow.stages.last() {
+            Some(last) => format!("{} \u{b7} {DELIVERY_USE}", last.name),
+            None => DELIVERY_USE.to_owned(),
+        };
+        named.push((place, name.clone()));
     }
     let mut uses = Vec::new();
     for (stage, name) in named {

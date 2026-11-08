@@ -9,6 +9,7 @@ import type { Screen } from "../../app/registry";
 import { selection } from "../../app/selection";
 import { openNewWork } from "../new_work/logic";
 import { withNewerDatabase } from "../recovery/NewerDatabase";
+import { GitIdentityDialog } from "../settings/GitIdentity";
 import { Board } from "./Board";
 import "./board.css";
 import { DeleteDialog } from "./DeleteDialog";
@@ -21,6 +22,8 @@ export const board: Screen = (app) => {
   app.slots.register("header_search", { Component: SearchField });
   app.overlays.register("delete_ticket", { Component: DeleteDialog });
   app.overlays.register("drag_back", { Component: DragBackDialog });
+  // A start when git has no name and email (the board's Start and drop, Create & start, Noyan's created rows).
+  app.overlays.register("git_identity", { Component: GitIdentityDialog });
   app.shortcuts.on("new_ticket", () => {
     openNewWork(() => {
       openOverlay("new_ticket");

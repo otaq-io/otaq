@@ -93,6 +93,11 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
 /// The statuses a start can begin from: Queued, and Queued while waiting for a slot (d0016).
 pub const WAITING_TO_START: &[Status] = &[Status::Queued, Status::WaitingForSlot];
 
+/// Why a start waits while git has no name and email for the agent's commits: the card's "Held · git doesn't know
+/// your name and email yet", and where to give them.
+pub const NEEDS_IDENTITY: &str = "git doesn\u{2019}t know your name and email yet. Add them in Settings \u{2192} Git \
+                                  & pull requests, or press Start on a ticket to be asked.";
+
 /// The message of a start that the service stopping cut short.
 const CUT_SHORT: &str = "the background service stopped during this step";
 
@@ -340,10 +345,9 @@ impl Starter {
         let ticket = self.inner.board.ticket(key).await?;
         let retryable = ticket.status == Status::StartInterrupted
             || (ticket.status == Status::Held
-                && ticket
-                    .start_problem
-                    .as_ref()
-                    .is_some_and(|p| p.step == StartStep::SyncBase));
+                && ticket.start_problem.as_ref().is_some_and(|p| {
+                    matches!(p.step, StartStep::SyncBase | StartStep::GitIdentity)
+                }));
         if !retryable {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
@@ -359,6 +363,33 @@ impl Starter {
             json!({}),
         )
         .await
+    }
+
+    /// Once the user saved the name and email git signs commits with: every ticket held for them goes back to waiting
+    /// (Queued), its start problem cleared, for the scheduler to start as it was asked to. How many went back.
+    pub async fn lift_identity_holds(&self) -> Result<usize, BoardError> {
+        let board = &self.inner.board;
+        let ids: Vec<(String,)> =
+            sqlx::query_as("SELECT id FROM tickets WHERE state = ? AND start_problem_step = ?")
+                .bind(Status::Held.as_str())
+                .bind(StartStep::GitIdentity.as_str())
+                .fetch_all(board.store().pool())
+                .await?;
+        let mut lifted = 0;
+        for (id,) in ids {
+            let ticket = board.ticket_by_id(&id).await?;
+            self.set_state(
+                &ticket,
+                Status::Queued,
+                None,
+                &Actor::current_user(),
+                EventKind::Moved,
+                json!({ "from": Status::Held, "to": Status::Queued }),
+            )
+            .await?;
+            lifted += 1;
+        }
+        Ok(lifted)
     }
 
     /// The tool refused the Developer's model on its first turn (AGT-05, SDD §7.2 `[M22]`, d0088): the ticket
@@ -541,6 +572,20 @@ impl Starter {
                 tracing::info!(ticket = %key, "start kept at the launch: the project is paused");
                 Ok(StartOutcome::Kept)
             }
+            Ok(Done::NeedsIdentity) => {
+                let message = NEEDS_IDENTITY.to_owned();
+                self.set_state(
+                    ticket,
+                    Status::Held,
+                    Some((StartStep::GitIdentity, &message)),
+                    actor,
+                    EventKind::Held,
+                    json!({ "step": StartStep::GitIdentity, "message": message }),
+                )
+                .await?;
+                tracing::info!(ticket = %key, "start held: git has no name and email for commits");
+                Ok(StartOutcome::Held { message })
+            }
             Ok(Done::Held(message)) => {
                 self.set_state(
                     ticket,
@@ -636,6 +681,17 @@ impl Starter {
                 || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
                     && own.is_none()));
         let mut checked = None;
+        // An agent never commits under a borrowed name: a new conversation waits until git knows the user's name and
+        // email, which only the user's own Save writes ([`Starter::lift_identity_holds`]).
+        if new_conversation
+            && git
+                .missing_identity(repo)
+                .await
+                .map_err(|e| (StartStep::Base, e.into()))?
+                .is_some()
+        {
+            return Ok(Done::NeedsIdentity);
+        }
         if new_conversation {
             // The running agent of the Agent stage it starts (AGM-05).
             let agent = resolve::session_agent(board, ticket, SessionRole::Developer)
@@ -1250,6 +1306,8 @@ enum Done {
     AgentHeld(Box<Held>),
     /// The project was paused before the launch (an automatic start).
     Kept,
+    /// git has no name and email to sign the agent's commits with: nothing started.
+    NeedsIdentity,
 }
 
 /// A ticket coming back to Dev with its work: parked, sent back to its agent with a skill to run, or resumed
