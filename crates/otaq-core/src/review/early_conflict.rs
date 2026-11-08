@@ -1,6 +1,6 @@
 //! **The early conflict** (GIT-04; d0038, d0127): after every merge into a branch, a read-only test merge of each
 //! ticket waiting in Review that merges into it (no files touched, no tokens). A conflict is recorded on the ticket
-//! ("conflicts with `main`") and, for a ticket waiting in a human check or a click-mode Delivery, handed to its
+//! ("conflicts with `main`") and, for a ticket waiting in a human check or for its delivery click, handed to its
 //! nearest earlier Agent stage at once, as a Delivery's conflict is ([`Review::delivery_conflict`]): its session
 //! resumes with `restack`, no click, the card says "Conflicts with main · fixing", and it counts toward the same
 //! three in a row. The user's unsent line comments stay drafts.
@@ -108,8 +108,8 @@ impl Review {
         Ok(())
     }
 
-    /// Whether a ticket the test merge flagged goes back to its agent now (d0127): it waits in a human check or a
-    /// click-mode Delivery, its PR isn't open, and its project isn't paused.
+    /// Whether a ticket the test merge flagged goes back to its agent now (d0127): it waits in a human check or for
+    /// its delivery click (To deliver), its PR isn't open, and its project isn't paused.
     async fn hands_back(&self, ticket: &Ticket) -> Result<bool, BoardError> {
         let board = &self.inner.board;
         if ticket.flags.pr_number.is_some()

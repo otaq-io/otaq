@@ -1,5 +1,5 @@
 // @vitest-environment happy-dom
-// The box for new work's own rules (UX-22): closed it says "New ticket, or ask Noyan…" with ⌘N; open, the first line
+// The box for new work's own rules: closed it says "New ticket, or ask Noyan…" with ⌘N; open, the first line
 // is the title and the rest the description; ↵ creates in Backlog with no agent, ⌘↵ creates and starts, ⇧↵ hands the
 // words to Noyan and opens its panel, ⌥↵ is a new line, Esc closes and keeps the words; More options… opens the full
 // form with what was typed.

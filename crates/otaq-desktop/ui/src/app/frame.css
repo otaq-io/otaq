@@ -116,7 +116,7 @@ body {
 }
 
 /*
- * The box for new work's layer (UX-22): the bottom centre of the main area, over the board, the List and the ticket
+ * The box for new work's layer: the bottom centre of the main area, over the board, the List and the ticket
  * panel (same z-index, later in the page), under the main area's overlays. Only the box takes clicks.
  */
 .frame-new-work {

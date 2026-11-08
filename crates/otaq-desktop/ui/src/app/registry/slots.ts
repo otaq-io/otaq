@@ -23,7 +23,7 @@ export const SLOT_IDS = [
   "agent_panel",
   /** The board, filling the main area (T-0220, T-0328). */
   "board",
-  /** The box for new work at the main area's bottom centre, over the board and the List (UX-22). */
+  /** The box for new work at the main area's bottom centre, over the board and the List. */
   "new_work",
   /**
    * The ticket sheet over the main area while a ticket is open (SHT-01, T-0464); full page, it fills the main area.

@@ -429,7 +429,7 @@ export class DemoStore {
           st: "checking",
           col: "validate",
           ask: null,
-          agent: "Validator",
+          agent: "Checker",
           tool: "CX",
           ago: "now",
           adds: 80,

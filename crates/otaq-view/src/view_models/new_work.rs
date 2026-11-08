@@ -1,5 +1,5 @@
-//! The box for new work (UX-22, UX-48; *New ticket · one box for new work*): one field docked at the bottom centre of
-//! the board and the List, "New ticket, or ask Noyan…" with ⌘N. ⌘N, a click on it or the toolbar's New ticket opens
+//! The box for new work (*New ticket · one box for new work*): one field docked at the bottom centre of the board
+//! and the List only, "New ticket, or ask Noyan…" with ⌘N. ⌘N, a click on it or the toolbar's New ticket opens
 //! it: it grows upward over a light scrim. The first line typed is the ticket's title, the rest its description.
 //!
 //! - ↵ **Create**: the ticket exactly as typed, in Backlog, with no agent and no cost.

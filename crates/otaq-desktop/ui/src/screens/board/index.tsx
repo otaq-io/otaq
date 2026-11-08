@@ -1,4 +1,4 @@
-// Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: the box for new work opens, UX-22) and, inside the
+// Area 03 · Board (T-0220, T-0221): the board slot, New ticket (⌘N, `c`: the box for new work opens) and, inside the
 // board, ⌘D, Park and Esc during a drag; the header's search and filter field and `/`; the card's right-click menu, the
 // delete confirmation every place that deletes opens (`delete_ticket`) and the drag-back dialog (`drag_back`, T-0421).
 // What it says is Rust's (`src/api/board.rs`,
