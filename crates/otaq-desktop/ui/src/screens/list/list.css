@@ -26,6 +26,11 @@
   border-radius: 8px;
 }
 
+/* Edit flow ends the rows, inside the List, as it ends the columns on the board. */
+.list-body > .board-edit-flow {
+  margin: 12px 6px 0;
+}
+
 .list-group[data-verdict="allowed"],
 .list-done[data-verdict="allowed"] {
   background: var(--accent-soft);

@@ -5,7 +5,7 @@
 // it explains (the first question, the first permission prompt, the first checker fail, the first review, and "That
 // was your flow" after the first approve). After the first approve, the quiet usage-data banner. Every word and every
 // rule of when something shows is Rust's (`board.view`'s `first_ticket` and `hint`, `usage.dialog`).
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 
 import { useStore } from "../../app/store";
 import { Banner, Button, HintPopover, TextArea, TextInput } from "../../components";
@@ -80,7 +80,8 @@ export function FirstTicketCard({
   );
 }
 
-/** The first-run hint next to what it explains, while that is on screen; its button dismisses it for good. */
+/** The first-run hint next to what it explains, while that is on screen (it follows it, and waits while it is
+ * away: a card folded away, the box for new work not docked yet); its button dismisses it for good. */
 export function BoardHintLayer({
   hint,
   project,
@@ -92,16 +93,18 @@ export function BoardHintLayer({
   board: HTMLElement | null;
   onDismissed: () => void;
 }) {
-  const anchor = useRef<HTMLElement | null>(null);
-  const [found, setFound] = useState(false);
   const [gone, setGone] = useState<string | null>(null);
   const key = `${hint.hint.id}:${hint.anchor.kind === "card" ? hint.anchor.key : ""}`;
-  // Found again with each view of the board (a new `hint`): the card may have moved or been folded away.
-  useLayoutEffect(() => {
-    anchor.current = board ? hintTarget(hint.anchor, board) : null;
-    setFound(anchor.current !== null);
-  }, [board, hint]);
-  if (!found || gone === key) return null;
+  // Looked up each time it is placed: the card may move or fold away, the box may dock later.
+  const anchor = useMemo(
+    () => ({
+      get current(): HTMLElement | null {
+        return board ? hintTarget(hint.anchor, board) : null;
+      },
+    }),
+    [board, hint],
+  );
+  if (board === null || gone === key) return null;
   return (
     <HintPopover
       key={key}

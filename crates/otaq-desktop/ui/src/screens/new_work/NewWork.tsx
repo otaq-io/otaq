@@ -11,7 +11,7 @@ import { shellLayout } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Button, Kbd, OneTimeHint, PLAIN_TEXT } from "../../components";
+import { Button, Kbd, PLAIN_TEXT } from "../../components";
 import type { NewWorkView } from "../../generated/NewWorkView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
@@ -51,7 +51,7 @@ export interface NewWorkBodyProps {
   scrim?: boolean;
   /** Changes with each ask to open the box: the title line takes the keyboard again. */
   focusKey?: number;
-  /** The closed box's element, for a hint next to it. */
+  /** The closed box's element (`.new-work-closed` is where the board's "New work starts here" points). */
   closedRef?: RefObject<HTMLButtonElement | null>;
   onTyped?: (typed: Typed) => void;
   onOpen?: () => void;
@@ -282,8 +282,6 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
       boxOnScreen.set(false);
     };
   }, []);
-  // The box's one-time hint, the first time it appears (after the first approve), next to the closed box.
-  const closed = useRef<HTMLButtonElement | null>(null);
 
   const close = () => {
     setOpen(false);
@@ -305,56 +303,52 @@ function ProjectNewWork({ project, view }: { project: string; view: NewWorkView 
       });
   };
   return (
-    <>
-      <NewWorkBody
-        view={view}
-        typed={typed}
-        open={open}
-        closedRef={closed}
-        note={note}
-        sending={sending}
-        focusKey={asks}
-        onTyped={(next) => {
-          setTyped(next);
-          setNote(null);
-        }}
-        onOpen={() => {
-          setOpen(true);
-        }}
-        onClose={close}
-        onCreate={() => {
-          create(false);
-        }}
-        onStart={() => {
-          create(true);
-        }}
-        onAsk={() => {
-          if (sending !== null || !hasWords(typed)) return;
-          setSending("ask");
-          askNoyan(project, typed)
-            .then((sent) => {
-              if (!sent) return;
-              setTyped(EMPTY);
-              setOpen(false);
-              setNote(null);
-            }, ignore)
-            .finally(() => {
-              setSending(null);
-            });
-        }}
-        onMore={() => {
-          const form = formOf(typed);
-          // The box keeps what was typed until the form creates the ticket: a Cancel there hands it back.
-          close();
-          openOverlay("new_ticket", {
-            ...(form.title !== "" && { title: form.title }),
-            ...(form.body !== "" && { body: form.body }),
-            fromBox: true,
+    <NewWorkBody
+      view={view}
+      typed={typed}
+      open={open}
+      note={note}
+      sending={sending}
+      focusKey={asks}
+      onTyped={(next) => {
+        setTyped(next);
+        setNote(null);
+      }}
+      onOpen={() => {
+        setOpen(true);
+      }}
+      onClose={close}
+      onCreate={() => {
+        create(false);
+      }}
+      onStart={() => {
+        create(true);
+      }}
+      onAsk={() => {
+        if (sending !== null || !hasWords(typed)) return;
+        setSending("ask");
+        askNoyan(project, typed)
+          .then((sent) => {
+            if (!sent) return;
+            setTyped(EMPTY);
+            setOpen(false);
+            setNote(null);
+          }, ignore)
+          .finally(() => {
+            setSending(null);
           });
-        }}
-      />
-      {!open && <OneTimeHint hint="new_work" anchor={closed} align="end" />}
-    </>
+      }}
+      onMore={() => {
+        const form = formOf(typed);
+        // The box keeps what was typed until the form creates the ticket: a Cancel there hands it back.
+        close();
+        openOverlay("new_ticket", {
+          ...(form.title !== "" && { title: form.title }),
+          ...(form.body !== "" && { body: form.body }),
+          fromBox: true,
+        });
+      }}
+    />
   );
 }
 
