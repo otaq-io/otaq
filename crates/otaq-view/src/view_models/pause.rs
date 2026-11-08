@@ -291,21 +291,26 @@ pub fn banner(
     Some(Situation::Paused { title, text, state })
 }
 
-/// The palette's Pause and Resume rows (PAU-08): "Pause this project" or "Resume this project" for the open one,
-/// "Pause all projects" while any project runs, "Resume all projects" while an All projects pause holds any (one
+/// The palette's Pause and Resume rows (PAU-08): "Resume this project" for the open one while it is paused, "Pause
+/// this project" while an agent works there, "Pause all projects" while an agent works in any project that runs, "Resume all projects" while an All projects pause holds any (one
 /// paused on its own stays paused, d0112 2026-10-27). Each runs at once.
 pub fn palette(
     shown: Option<&str>,
     projects: &[otaq_core::board::snapshot::ProjectInfo],
 ) -> Vec<(Scope, bool, &'static str)> {
     let mut rows = Vec::new();
+    // Pause is offered only while something runs there, as the title bar's Pause.
+    let runs = |p: &otaq_core::board::snapshot::ProjectInfo| {
+        p.paused_since.is_none() && p.agents_working > 0
+    };
     if let Some(p) = shown.and_then(|s| projects.iter().find(|p| p.key == s)) {
-        rows.push(match p.paused_since {
-            Some(_) => (Scope::Project, true, "Resume this project"),
-            None => (Scope::Project, false, "Pause this project"),
-        });
+        if p.paused_since.is_some() {
+            rows.push((Scope::Project, true, "Resume this project"));
+        } else if runs(p) {
+            rows.push((Scope::Project, false, "Pause this project"));
+        }
     }
-    if projects.iter().any(|p| p.paused_since.is_none()) {
+    if projects.iter().any(runs) {
         rows.push((Scope::All, false, "Pause all projects"));
     }
     if projects
@@ -713,7 +718,7 @@ mod tests {
             name: key.to_lowercase(),
             repo_path: String::new(),
             base_branch: "main".to_owned(),
-            agents_working: 0,
+            agents_working: u32::from(!paused),
             needs_you: 0,
             flow_setup_since: None,
             paused_since: paused.then_some(1),
@@ -757,6 +762,17 @@ mod tests {
         assert_eq!(
             titles(Some("SHOP"), &[info("BILL", true), own("SHOP")]),
             ["Resume this project", "Resume all projects"]
+        );
+
+        // Nothing at work: no Pause anywhere (a kept session of a ticket waiting for review isn't at work).
+        let idle = |key: &str| ProjectInfo {
+            agents_working: 0,
+            ..info(key, false)
+        };
+        assert!(titles(Some("SHOP"), &[idle("BILL"), idle("SHOP")]).is_empty());
+        assert_eq!(
+            titles(Some("SHOP"), &[info("BILL", false), idle("SHOP")]),
+            ["Pause all projects"]
         );
     }
 
