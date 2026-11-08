@@ -142,6 +142,17 @@ export function widgetOpen(page: PageLike): boolean {
 }
 
 /**
+ * The keys the page leaves to what is open now: the focused element's (`keysKeptBy`), and Esc whenever a menu, popover
+ * or dialog is open anywhere, focused or not. One Esc closes only that topmost layer (its own Esc), never what lies
+ * under it too: the ticket under the Approve menu, the editor under the stage palette.
+ */
+export function keysKeptHere(focused: FocusLike | null, page: PageLike): ReadonlySet<string> {
+  const own = keysKeptBy(focused);
+  if (own.has("Escape") || !widgetOpen(page)) return own;
+  return new Set([...own, "Escape"]);
+}
+
+/**
  * Whether the focus is in the description editor's text (d0078, Q51): the one place ⌥⌘C / Ctrl+Alt+C is Code block.
  * Its link popover's URL, its Markdown source and its read mode don't toggle code blocks, so there ⌥⌘C stays swallowed.
  */

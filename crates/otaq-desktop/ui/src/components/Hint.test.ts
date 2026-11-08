@@ -17,6 +17,7 @@ const VIEW: HintView = {
   title: null,
   text: "A hint like this shows once, when something first matters, and never again.",
   button: "Got it",
+  dismiss: null,
 };
 
 beforeAll(() => {

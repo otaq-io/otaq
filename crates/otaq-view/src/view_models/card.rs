@@ -509,7 +509,8 @@ pub struct Tokens {
     pub tooltip: Option<String>,
 }
 
-/// The footer's last signal: "40s", amber once it is getting old. `CardSignal` on the page.
+/// The footer's time: how long it has been at it in its status ("26m", the same as Running's row), amber once its
+/// agent's last signal is getting old. `CardSignal` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardSignal")]
 pub struct Signal {
@@ -2437,7 +2438,8 @@ fn footer(
         .last_signal_at
         .filter(|_| running && shows_signal(status) && !stale)
         .map(|at| Signal {
-            text: age_label(now_ms - at),
+            // How long it has been at it, as Running counts it; the amber is about the agent's last signal.
+            text: age_label(now_ms - ticket.status_since.unwrap_or(at)),
             stale: now_ms - at >= SIGNAL_AMBER_MS,
         });
     let stacked = second.is_some()
@@ -4243,6 +4245,16 @@ mod tests {
                 Status::Working,
                 |t, _| t.flags.last_signal_at = Some(NOW - 40_000),
                 "40s",
+            ),
+            (
+                // The same time as Running's row: how long it has been at it, not since its last signal.
+                "time at it (running)",
+                Status::Working,
+                |t, _| {
+                    t.status_since = Some(NOW - 12_000);
+                    t.flags.last_signal_at = Some(NOW - 2_000);
+                },
+                "12s",
             ),
             (
                 "last signal (waiting)",

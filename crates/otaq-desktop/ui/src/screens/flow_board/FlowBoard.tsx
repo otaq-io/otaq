@@ -6,8 +6,9 @@
 // columns opens the palette of ready stages, and a click opens its details beside the columns. The first time, a
 // one-time hint says how it works. Everything it says is `flow_board.view`'s (`otaq-view`'s `flow_board.rs`); every
 // edit goes to the project's draft, and nothing changes on the board until Save flow.
-import { type PointerEvent, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
+import { useShortcut } from "../../app/registry";
 import { useStore } from "../../app/store";
 import { TicketCard } from "../../cards";
 import {
@@ -58,8 +59,10 @@ import {
   dropDraft,
   dropTo,
   exportFile,
+  type Box,
   FLOW_BOARD_EVENTS,
   type FlowBoardOpen,
+  hintSpot,
   importFile,
   keyMove,
   restore,
@@ -192,20 +195,26 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
     if (gap && button) setPalette({ after: gap.after, title: gap.title, anchor: button });
   }, [open.addAfter, view]);
 
-  // Esc closes what is open, then the details; the editor itself stays until Cancel or Save flow.
+  // Esc closes what is open, then the details; the editor itself stays until Cancel or Save flow. The palette and the
+  // other popovers close on their own Esc. Esc is the page's Close: it comes here as that key, or as a key a focused
+  // field in the details passed on.
+  const closeOne = useCallback(() => {
+    if (watching !== null) setWatching(null);
+    else if (selected !== null) setSelected(null);
+    else return false;
+    return true;
+  }, [selected, watching]);
+  useShortcut("close_sheet", closeOne);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
       if (e.key !== "Escape" || e.defaultPrevented) return;
-      if (watching !== null) setWatching(null);
-      else if (selected !== null) setSelected(null);
-      else return;
-      e.preventDefault();
+      if (closeOne()) e.preventDefault();
     };
     document.addEventListener("keydown", onKey);
     return () => {
       document.removeEventListener("keydown", onKey);
     };
-  }, [selected, watching]);
+  }, [closeOne]);
 
   // The SkillField's clicks, as the board's editor runs them: Ask the agent to write it opens a box for the user's
   // words (nothing is sent before), the other buttons go to the draft.
@@ -262,6 +271,31 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
     const to = onto === null ? null : dropTo(d.from, onto);
     if (to !== null) edit({ edit: "move", stage: column.id, to });
   };
+
+  // The first-time hint's place, measured once the stages are drawn and again as they change or the window resizes.
+  const [spot, setSpot] = useState<Box | null>(null);
+  useLayoutEffect(() => {
+    const place = () => {
+      const heads = [...document.querySelectorAll<HTMLElement>(".fb-head")].map((h) =>
+        h.getBoundingClientRect(),
+      );
+      const next = hintSpot(watchButton.current?.getBoundingClientRect(), heads);
+      setSpot((was) =>
+        was !== null &&
+        next !== null &&
+        was.left === next.left &&
+        was.top === next.top &&
+        was.width === next.width
+          ? was
+          : next,
+      );
+    };
+    place();
+    window.addEventListener("resize", place);
+    return () => {
+      window.removeEventListener("resize", place);
+    };
+  }, [view, selected, watching]);
 
   if (view === undefined) {
     return (
@@ -588,7 +622,15 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           <div className="fb-palette">
             <header className="fb-pop-head">
               <span>{palette.title}</span>
-              <span className="fb-muted">esc</span>
+              <button
+                type="button"
+                className="fb-pop-esc"
+                onClick={() => {
+                  setPalette(null);
+                }}
+              >
+                esc
+              </button>
             </header>
             {view.palette.templates.map((t) => (
               <button
@@ -748,7 +790,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
         />
       )}
-      <OneTimeHint hint={view.hint} anchor={watchButton} align="end" />
+      {spot !== null && <OneTimeHint hint={view.hint} anchor={spot} align="end" />}
     </div>
   );
 }

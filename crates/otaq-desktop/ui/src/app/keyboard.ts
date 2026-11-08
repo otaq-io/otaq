@@ -13,7 +13,7 @@ import {
   inEditorText,
   inKeyRecorder,
   isModifierKey,
-  keysKeptBy,
+  keysKeptHere,
   type LetterHold,
   lettersKeptBy,
   logLine,
@@ -182,7 +182,7 @@ export function installKeys(app: Registries, target: Window = window): () => voi
       event,
       {
         inTerminal: selection.get().focusedTerminal !== null,
-        focusKeeps: keysKeptBy(focused),
+        focusKeeps: keysKeptHere(focused, document),
         modal: modalOpen(overlays.store.get()),
         editorText: inEditorText(focused),
         letters: lettersHere(focused),

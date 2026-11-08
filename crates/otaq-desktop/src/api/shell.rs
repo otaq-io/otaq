@@ -663,7 +663,7 @@ mod tests {
         assert_eq!(popover["agents"]["count"], "0");
         assert_eq!(
             popover["agents"]["empty"],
-            "Nothing running. Started tickets begin when an agent is free and their parents are merged."
+            "Nothing running. A started ticket begins once an agent is free and the tickets it waits for are done."
         );
         assert_eq!(popover["usage"]["tools"][0]["name"], "Claude Code");
         assert_eq!(popover["usage"]["tools"][0]["avatar"], Value::Null);

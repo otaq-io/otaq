@@ -33,7 +33,9 @@ pub const SUGGESTED: &str = "Suggested";
 pub const NEXT_NEEDS_YOU: &str = "Next that needs you";
 pub const EDIT_FLOW: &str = "Edit flow";
 pub const OTHER_PROJECTS: &str = "Other projects";
-pub const NOTHING_HINT: &str = "Search a ticket by its key (SHOP-18) or title, a project by its name, or type > to list every action.";
+/// Where else to look when nothing matches; the ticket key it shows is the open project's ([`nothing_hint`]).
+pub const NOTHING_HINT: &str =
+    "Search a ticket by its key or title, a project by its name, or type > to list every action.";
 
 /// Why an action can't run now (the 0093 glossary's words). Only "no ticket in review" is drawn (`s02-22`).
 pub const NO_TICKET_IN_REVIEW: &str = "no ticket in review";
@@ -287,7 +289,7 @@ pub struct Row {
 pub struct Nothing {
     pub icon: IconName,
     pub title: String,
-    pub hint: &'static str,
+    pub hint: String,
 }
 
 /// The footer (`s02-20`): the keys inside the palette, and both ways to open it. `PaletteFooter` on the page.
@@ -586,6 +588,22 @@ fn recent_rows(inputs: &Inputs) -> Vec<Row> {
 }
 
 /// The palette for `query`.
+/// [`NOTHING_HINT`] with a key of the open project as its example: its newest ticket's, or its first number while it
+/// has none; no example with no project open.
+pub fn nothing_hint(inputs: &Inputs) -> String {
+    let Some(project) = inputs.project else {
+        return NOTHING_HINT.to_owned();
+    };
+    let newest = inputs
+        .tickets
+        .iter()
+        .filter(|t| t.key.project.to_string() == project)
+        .map(|t| t.key.number)
+        .max()
+        .unwrap_or(1);
+    NOTHING_HINT.replacen("by its key", &format!("by its key ({project}-{newest})"), 1)
+}
+
 pub fn view(query: &str, inputs: &Inputs) -> View {
     let actions_mode = query.trim_start().strip_prefix(ACTIONS_KEY);
     let needle = actions_mode.unwrap_or(query).trim().to_lowercase();
@@ -689,7 +707,7 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
     let nothing = (rows.is_empty() && !typed.is_empty()).then(|| Nothing {
         icon: IconName::SearchX,
         title: format!("Nothing matches \u{201c}{typed}\u{201d}"),
-        hint: NOTHING_HINT,
+        hint: nothing_hint(inputs),
     });
     View {
         placeholder: PLACEHOLDER,
@@ -1291,7 +1309,9 @@ mod tests {
             Some(Nothing {
                 icon: IconName::SearchX,
                 title: "Nothing matches \u{201c}zzq\u{201d}".into(),
-                hint: "Search a ticket by its key (SHOP-18) or title, a project by its name, or type > to list every action.",
+                hint: "Search a ticket by its key (NOTE-3) or title, a project by its name, or type > to list \
+                       every action."
+                    .into(),
             })
         );
         assert_eq!(
@@ -1299,6 +1319,21 @@ mod tests {
             "Nothing matches \u{201c}zzq\u{201d}"
         );
         assert_eq!(view("", &i).nothing, None);
+    }
+
+    #[test]
+    fn the_example_key_is_the_open_projects() {
+        let (projects, tickets, bindings) = example();
+        let mut i = inputs(&projects, &tickets, &bindings, &[]);
+        i.project = Some("API");
+        assert!(nothing_hint(&i).starts_with("Search a ticket by its key (API-1) or title"));
+        i.tickets = &[];
+        assert!(
+            nothing_hint(&i).starts_with("Search a ticket by its key (API-1) or title"),
+            "a project with no tickets yet: its first number"
+        );
+        i.project = None;
+        assert!(nothing_hint(&i).starts_with("Search a ticket by its key or title"));
     }
 
     #[test]

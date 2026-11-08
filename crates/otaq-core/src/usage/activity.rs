@@ -74,7 +74,8 @@ pub struct WorkingAgent {
     /// The named agent it runs ("Developer", "Checker").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub agent: Option<String>,
-    /// When that session started (Unix ms).
+    /// Since when it has been at it (Unix ms): since the ticket took its status, as its card counts, or the session's
+    /// start when the ticket has no such time.
     pub since: i64,
 }
 
@@ -99,7 +100,8 @@ type LiveRow = (
 /// session).
 pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
     let rows: Vec<LiveRow> = sqlx::query_as(
-        "SELECT p.key, p.name, t.id, t.number, t.title, t.state, s.kind, s.tool, s.agent_name, s.started_at
+        "SELECT p.key, p.name, t.id, t.number, t.title, t.state, s.kind, s.tool, s.agent_name,
+                COALESCE(t.state_since, s.started_at)
          FROM sessions s JOIN tickets t ON t.id = s.ticket_id JOIN projects p ON p.id = t.project_id
          WHERE s.ended_at IS NULL
          ORDER BY p.created_at, p.key, s.started_at DESC",

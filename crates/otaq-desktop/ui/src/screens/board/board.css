@@ -116,6 +116,9 @@
   overflow: hidden;
   border-radius: var(--r-lg);
   background: var(--bg-column);
+  /* A hairline edge: in the dark themes a column's fill is only a shade off the board's, so the edge is what tells
+     the columns apart. */
+  box-shadow: inset 0 0 0 1px var(--border);
 }
 
 .board-column[data-verdict="allowed"] {

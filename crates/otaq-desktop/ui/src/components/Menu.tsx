@@ -66,7 +66,17 @@ export function Menu({
   // A search list opens on the current row, and moves to the first match as the query changes.
   const [highlighted, setHighlighted] = useState<number | null>(() => (search ? firstMatch(all) : null));
   useEffect(() => {
-    (field.current ?? root.current)?.focus();
+    const target = field.current ?? root.current;
+    target?.focus();
+    if (target === null || target.ownerDocument.activeElement === target) return;
+    // A floating menu is hidden until it is placed, and a hidden element takes no focus: it takes it once shown, so
+    // its keys (↑/↓, Esc) are its own and not the page's (Esc closed the ticket under the Approve menu too).
+    const frame = requestAnimationFrame(() => {
+      target.focus();
+    });
+    return () => {
+      cancelAnimationFrame(frame);
+    };
   }, []);
   const row = (n: number) => `${id}-${String(n)}`;
   /** Highlights row `index`, scrolled into sight in a long list. */

@@ -13,6 +13,7 @@ import {
   editing,
   exportFile,
   type FlowBoardOpen,
+  hintSpot,
   importFile,
   keyMove,
   openFlowBoard,
@@ -114,6 +115,20 @@ describe("Watch a ticket", () => {
     ];
     expect(clampStep(5, steps)).toBe(1);
     expect(clampStep(-1, steps)).toBe(0);
+  });
+});
+
+describe("the first-time hint", () => {
+  it("hangs at Watch a ticket's right edge but below every stage's header, so it covers no stage card", () => {
+    const watch = { left: 1000, top: 60, width: 110, height: 30 };
+    const heads = [
+      { left: 90, top: 110, width: 140, height: 50 },
+      { left: 620, top: 110, width: 150, height: 110 },
+      { left: 890, top: 110, width: 110, height: 90 },
+    ];
+    expect(hintSpot(watch, heads)).toEqual({ left: 1000, top: 228, width: 110, height: 0 });
+    expect(hintSpot(undefined, heads)).toBeNull();
+    expect(hintSpot(watch, [])).toBeNull();
   });
 });
 

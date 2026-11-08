@@ -1,7 +1,9 @@
 // One-time hint: a concept explained at the moment it first matters, never behind a setting. A dark popover (dark in
 // every theme, like a tooltip) next to the element it explains, with one sentence and one button. Only that button
 // dismisses it, for good; Esc, a press elsewhere or a scroll leave it up (it follows its anchor), so a hint is never
-// lost to a stray click before it was read. The service keeps the dismissed hints per data folder.
+// lost to a stray click before it was read. A hint whose button does more than dismiss (Edit flow) has a quieter Got it
+// beside it, which only dismisses (and its owner lets Esc do the same). The service keeps the dismissed hints per data
+// folder.
 import { useEffect, useRef, useState } from "react";
 
 import type { HintId } from "../generated/HintId";
@@ -19,12 +21,25 @@ export interface HintPopoverProps {
   text: string;
   /** The one button's label ("Got it"). */
   button: string;
+  /** Got it beside a button that does more than dismiss: it only dismisses. */
+  dismiss?: string | null | undefined;
   align?: "start" | "end" | undefined;
   onDismiss: () => void;
+  /** With `dismiss`: its press. */
+  onDismissOnly?: (() => void) | undefined;
 }
 
 /** The popover itself, drawn from what a hint's view says. */
-export function HintPopover({ anchor, title, text, button, align, onDismiss }: HintPopoverProps) {
+export function HintPopover({
+  anchor,
+  title,
+  text,
+  button,
+  dismiss,
+  align,
+  onDismiss,
+  onDismissOnly,
+}: HintPopoverProps) {
   const floating = useRef<HTMLDivElement>(null);
   // No `onDismiss` here: nothing but the button closes it, and it follows its anchor.
   const style = useFloatingStyle(anchor, floating, align);
@@ -32,7 +47,16 @@ export function HintPopover({ anchor, title, text, button, align, onDismiss }: H
     <div ref={floating} className="hint" role="status" style={style}>
       {title !== null && title !== undefined && <p className="hint-title">{title}</p>}
       <p className="hint-text">{text}</p>
-      <Button variant="primary" compact label={button} onClick={onDismiss} />
+      {dismiss !== null && dismiss !== undefined ? (
+        <div className="hint-buttons">
+          <button type="button" className="hint-quiet" onClick={onDismissOnly}>
+            {dismiss}
+          </button>
+          <Button variant="primary" compact label={button} onClick={onDismiss} />
+        </div>
+      ) : (
+        <Button variant="primary" compact label={button} onClick={onDismiss} />
+      )}
     </div>
   );
 }
