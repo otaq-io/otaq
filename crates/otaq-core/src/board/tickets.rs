@@ -15,6 +15,7 @@ use crate::domain::{
     Actor, BuildState, Flags, MergeCheckState, Place, Priority, ProjectKey, RemoteWarning,
     ResourceState, SchemaOverlap, StartStep, Status, StatusSet, TicketKey, stored_enum,
 };
+use crate::flow::{Flow, Stage};
 use crate::store::projects::Project;
 use crate::store::tickets::TicketRow;
 use crate::store::{new_id, now_ms};
@@ -219,6 +220,38 @@ impl Ticket {
     /// Needs you's second group. Such cards float to the top of Dev and count in the project's needs-you number.
     pub fn needs_user(&self) -> bool {
         super::order::needs_user(self.status) && !self.flags.your_turn
+    }
+
+    /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
+    /// to begin, the first Agent stage). A stage the flow no longer has shows the ticket where its status belongs:
+    /// the user's check in the last check by you, a ticket being delivered in the last stage, else the first Agent
+    /// stage. `None` in Backlog and Done.
+    pub fn shown_stage<'f>(&self, flow: &'f Flow) -> Option<&'f Stage> {
+        let id = match &self.place {
+            Place::Backlog | Place::Done => return None,
+            Place::Waiting(None) => return flow.first_agent_stage(),
+            Place::Waiting(Some(id)) | Place::InStage(id) => id,
+        };
+        if let Some(stage) = flow.stage(id) {
+            return Some(stage);
+        }
+        match self.status.set() {
+            StatusSet::HumanCheck => crate::flow::engine::human_check_before_delivery(flow),
+            StatusSet::Delivery => flow.last_stage(),
+            _ => flow.first_agent_stage(),
+        }
+    }
+
+    /// Where the board shows the ticket on `flow`, by the name of its column: "Backlog", the stage's name ("Dev",
+    /// "Review"), "Done". A ticket being delivered is in the last stage's ("Review").
+    pub fn place_name(&self, flow: &Flow) -> String {
+        match &self.place {
+            Place::Done => "Done".to_owned(),
+            Place::Backlog => "Backlog".to_owned(),
+            Place::Waiting(_) | Place::InStage(_) => self
+                .shown_stage(flow)
+                .map_or_else(|| "Backlog".to_owned(), |s| s.name.clone()),
+        }
     }
 }
 

@@ -1,4 +1,4 @@
-// The box for new work's moment of interaction (UX-22): what a key does, the ticket as typed (first line its title,
+// The box for new work's moment of interaction: what a key does, the ticket as typed (first line its title,
 // the rest its description), and the three ways out: ↵ Create (`editor.save`, in Backlog with no agent), ⌘↵ Create &
 // start (`editor.create_and_start`, the user's own Start) and ⇧↵ Ask Noyan to shape it (a conversation on Noyan's
 // agent through `agent_panel.send`, its panel opened). What the box says is Rust's (`new_work.view`, `otaq-view`'s

@@ -99,8 +99,8 @@ impl DeliveryLink {
         let _ = self.0.set(hook);
     }
 
-    /// The ticket `ticket_id` may have entered its Delivery stage: an automatic Delivery runs now. Nothing happens
-    /// for a ticket elsewhere, in a click-mode Delivery, or before the service set the hook.
+    /// The ticket `ticket_id` may be ready to deliver: an automatic delivery runs now. Nothing happens for a ticket
+    /// elsewhere, one waiting for the user's delivery click, or before the service set the hook.
     pub async fn arrived(&self, ticket_id: &str) {
         if let Some(hook) = self.0.get() {
             hook(ticket_id.to_owned()).await;

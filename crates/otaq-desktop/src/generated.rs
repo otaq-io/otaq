@@ -98,7 +98,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::ToastId::export_all(&cfg)?;
     crate::api::HoldToast::export_all(&cfg)?;
     crate::api::NotificationOpen::export_all(&cfg)?;
-    // T-0364: Move waiting to… on the usage-limit banner's lines; their gallery.
+    // T-0364: the usage-limit banner's line per tool; their gallery.
     otaq_view::view_models::limit_banner::Gallery::export_all(&cfg)?;
     crate::notices::OpenTarget::export_all(&cfg)?;
     // Also writes the Ticket Card shapes it is made of.
@@ -138,7 +138,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentPanelResumeParams::export_all(&cfg)?;
     // The rail's Noyan button (T-0458): its view and requests.
     crate::api::export_noyan_button_types(&cfg)?;
-    // The box for new work (UX-22): its view and gallery.
+    // The box for new work: its view and gallery.
     crate::api::export_new_work_types(&cfg)?;
     // Pause in the title bar (T-0457, PAU-08).
     crate::api::export_pause_types(&cfg)?;

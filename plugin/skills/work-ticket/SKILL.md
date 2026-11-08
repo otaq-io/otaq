@@ -83,7 +83,7 @@ types a reminder into this session.
    "Long output"), then fix them, commit everything and run `otaq stage next` again. **If a finding repeats one from
    an earlier round** (the same behaviour or the same file and line), your last fix rested on a wrong idea: see
    "When a finding comes back" before you change any code. When it passes, the ticket
-   moves on (to Ready for Review on the default board) and the user reviews the diff.
+   moves on (to Review on the default flow) and the user reviews the diff.
 
    **Nothing to deliver?** Only when the ticket needs no change at all (for example it was already fixed in SHOP-31)
    and you committed nothing, end the ticket instead, with the reason on stdin. It goes to Done as "Done · nothing to

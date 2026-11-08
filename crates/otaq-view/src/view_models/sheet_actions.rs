@@ -570,7 +570,7 @@ mod tests {
         assert_eq!(all(Status::ClosedNotMerged), [(A::Reopen, Secondary)]);
     }
 
-    /// d0125: a ticket waiting in a human check or a click-mode Delivery offers Run next to Approve, as during Dev;
+    /// d0125: a ticket waiting in a human check or for its delivery click offers Run next to Approve, as during Dev;
     /// an open PR and a merged ticket don't.
     #[test]
     fn run_at_review() {

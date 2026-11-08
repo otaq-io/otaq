@@ -48,7 +48,7 @@ async fn show_reads_a_ticket_by_key_number_and_variable() {
         "{text}"
     );
     assert!(
-        text.contains("Depends on:  SHOP-18 (Ready for Review), SHOP-19 (Working)"),
+        text.contains("Depends on:  SHOP-18 (Ready for you), SHOP-19 (Working)"),
         "{text}"
     );
     assert_eq!(stdout(&cb(&w, &["view", "SHOP-20"])), text, "view is show");
@@ -106,8 +106,25 @@ async fn list_filters_and_readiness() {
         dev.as_array()
             .unwrap()
             .iter()
-            .all(|t| t["stage"] == "dev" || t["stage"] == "validate" || t["place"] == "waiting"),
+            .all(|t| t["stage"] == "dev" || t["place"] == "waiting"),
         "{dev}"
+    );
+    // The flow's stages by name; the user's check and a delivery are in Review, the last stage.
+    let review = json(&cb(
+        &w,
+        &["-P", "SHOP", "list", "--status", "review", "--json"],
+    ));
+    let review: Vec<&Value> = review.as_array().unwrap().iter().collect();
+    assert!(
+        review.iter().any(|t| t["key"] == "SHOP-18")
+            && review.iter().all(|t| t["stage"] == "review"),
+        "{review:?}"
+    );
+    let listed = stdout(&cb(&w, &["-P", "SHOP", "list"]));
+    let shop18 = listed.lines().find(|l| l.starts_with("SHOP-18 ")).unwrap();
+    assert!(
+        shop18.contains(" Review ") && shop18.contains(" Ready for you "),
+        "{listed}"
     );
 
     // Inside the repository, the project is found from the folder.

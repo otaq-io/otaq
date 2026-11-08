@@ -3,13 +3,13 @@
 //! confirmation and Recently ended. The agent panel itself is `agent_panel.rs`.
 
 use otaq_core::domain::Status;
-use otaq_core::domain::StatusSet;
-use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent};
+use otaq_core::project_agents::{AgentState, CreatedAndChanged, CreatedTicket, ProjectAgent};
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::theme::Status as Legend;
+use crate::view_models::agent_panel::Whereabouts;
 use crate::view_models::clock::local_hhmm;
 use crate::view_models::status::PillView;
 
@@ -72,17 +72,15 @@ pub fn resume_button(agent: &ProjectAgent) -> Option<ResumeButton> {
     }
 }
 
-/// What a column is called in the close confirmation and the agent panel's Created and changed.
-pub fn column_name(status: Status) -> &'static str {
-    // The default flow's names, by the status's set (an agent check's cards are in Dev).
-    match status.set() {
-        StatusSet::Backlog => "Backlog",
-        // A started ticket waits at the top of Dev until it can begin.
-        StatusSet::Waiting | StatusSet::AgentStage | StatusSet::AgentCheck => "Dev",
-        StatusSet::HumanCheck => "Ready for Review",
-        StatusSet::Delivery => "Approved",
-        StatusSet::Done => "Done",
-    }
+/// Where a created ticket is in the close confirmation: its column as the board names it ("Backlog", "Validate",
+/// "Review"), with "To deliver" or "PR open" while it waits there to be delivered. `None` when `places` doesn't have
+/// it.
+fn place_words(ticket: &CreatedTicket, places: &[Whereabouts]) -> Option<String> {
+    let place = &places.iter().find(|w| w.key == ticket.key)?.place;
+    Some(match ticket.status {
+        Status::ToDeliver | Status::PrOpen => format!("{place} \u{b7} {}", ticket.status.label()),
+        _ => place.clone(),
+    })
 }
 
 /// Close mid-turn's confirmation (*Close an agent mid-turn · confirm*). `AgentCloseDialog` on the page.
@@ -96,7 +94,12 @@ pub struct CloseDialog {
     pub confirm: &'static str,
 }
 
-pub fn close_dialog(agent: &ProjectAgent, created: &CreatedAndChanged) -> CloseDialog {
+/// `places` says where each created ticket is on the board ([`crate::view_models::agent_panel::whereabouts`]).
+pub fn close_dialog(
+    agent: &ProjectAgent,
+    created: &CreatedAndChanged,
+    places: &[Whereabouts],
+) -> CloseDialog {
     let resume = "You can resume the conversation from Recently ended.";
     let text = if created.created.is_empty() {
         resume.to_owned()
@@ -104,7 +107,10 @@ pub fn close_dialog(agent: &ProjectAgent, created: &CreatedAndChanged) -> CloseD
         let places: Vec<String> = created
             .created
             .iter()
-            .map(|t| format!("{} in {}", t.key, column_name(t.status)))
+            .map(|t| match place_words(t, places) {
+                Some(place) => format!("{} in {place}", t.key),
+                None => t.key.to_string(),
+            })
             .collect();
         format!(
             "The tickets it created stay where they are ({}). {resume}",
@@ -295,9 +301,18 @@ mod tests {
         );
     }
 
+    fn at(key: &str, place: &str) -> Whereabouts {
+        Whereabouts {
+            key: key.parse().unwrap(),
+            place: place.into(),
+            line: None,
+        }
+    }
+
     #[test]
     fn closing_mid_turn_says_what_stays() {
-        let d = close_dialog(&agent("Checkout slowness"), &changed());
+        let places = [at("SHOP-35", "Dev"), at("SHOP-36", "Backlog")];
+        let d = close_dialog(&agent("Checkout slowness"), &changed(), &places);
         assert_eq!(
             d.title,
             "End \u{201c}Checkout slowness\u{201d} while it\u{2019}s working?"
@@ -308,10 +323,34 @@ mod tests {
              resume the conversation from Recently ended."
         );
         assert_eq!(d.confirm, "Stop and end");
-        let bare = close_dialog(&agent("x"), &CreatedAndChanged::default());
+        let bare = close_dialog(&agent("x"), &CreatedAndChanged::default(), &[]);
         assert_eq!(
             bare.text,
             "You can resume the conversation from Recently ended."
+        );
+    }
+
+    /// The dialog names the stage the board shows each ticket in, never a fixed column: Validate, and Review while
+    /// it waits there to be delivered.
+    #[test]
+    fn closing_names_the_tickets_stages() {
+        let mut c = changed();
+        c.created[0].status = Status::Checking;
+        c.created[1].status = Status::PrOpen;
+        let places = [at("SHOP-35", "Validate"), at("SHOP-36", "Review")];
+        let d = close_dialog(&agent("Checkout slowness"), &c, &places);
+        assert!(
+            d.text
+                .contains("(SHOP-35 in Validate, SHOP-36 in Review \u{b7} PR open)"),
+            "{}",
+            d.text
+        );
+        // A ticket the board couldn't place is named alone.
+        let d = close_dialog(&agent("x"), &c, &places[..1]);
+        assert!(
+            d.text.contains("(SHOP-35 in Validate, SHOP-36)"),
+            "{}",
+            d.text
         );
     }
 

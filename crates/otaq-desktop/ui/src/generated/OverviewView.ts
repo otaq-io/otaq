@@ -44,7 +44,7 @@ plan: PlanSectionView | null,
  */
 planning: PlanningDid | null, 
 /**
- * "Manual checks for you" above Approve, while it waits in a human check or a click-mode Delivery (d0125).
+ * "Manual checks for you" above Approve, while it waits in a human check or for its delivery click (d0125).
  */
 manual_checks: ManualChecksView | null, 
 /**

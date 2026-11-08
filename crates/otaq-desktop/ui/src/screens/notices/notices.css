@@ -54,7 +54,7 @@
 }
 
 /* The usage limit with several tools (*11 → Row · Limit banner per tool (0086)*): one 36 px line per tool, the tool's
-   avatar in the icon's place; Move waiting to… ▾ opens the list of agents on other tools under it. */
+   avatar in the icon's place. Nothing moves to another tool: its agents wait for the reset. */
 .notices-lines {
   display: flex;
   flex-direction: column;
@@ -63,30 +63,4 @@
 /* The avatar's hover anchor keeps its own width; the banner's text takes the rest. */
 .notices-line > .tooltip-anchor {
   flex: none;
-}
-
-.notices-move > .icon:last-child {
-  margin-left: -2px;
-}
-
-.notices-move-list {
-  width: 360px;
-}
-
-.notices-move-item .menu-item-line {
-  min-width: 0;
-}
-
-.notices-move-name {
-  flex: none;
-  font: 500 13px var(--font-ui);
-}
-
-.notices-move-detail {
-  min-width: 0;
-  overflow: hidden;
-  color: var(--text-muted);
-  font: 400 12px var(--font-ui);
-  text-overflow: ellipsis;
-  white-space: nowrap;
 }
