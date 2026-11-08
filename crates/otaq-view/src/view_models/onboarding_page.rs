@@ -1373,7 +1373,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tools_gallery_has_the_four_frames() {
+    fn the_tools_gallery_has_the_four_frames_and_git_without_a_name() {
         let g = tools_gallery();
         let counts: Vec<&str> = g
             .cells
@@ -1382,11 +1382,18 @@ mod tests {
             .collect();
         assert_eq!(
             counts,
-            ["3 ready", "none ready", "1 ready", "2 ready · 1 hidden"]
+            [
+                "3 ready",
+                "none ready",
+                "1 ready",
+                "2 ready · 1 hidden",
+                "1 ready"
+            ]
         );
         let enabled: Vec<bool> = g.cells.iter().map(|c| c.tools.continue_enabled).collect();
-        assert_eq!(enabled, [true, false, true, true]);
+        assert_eq!(enabled, [true, false, true, true, true]);
         assert!(g.cells[1].tools.agent_tools.blocked.is_some());
+        assert!(g.cells[4].tools.rows[0].identity.is_some());
         assert!(g.cells[0].tools.agent_tools.rows[2].sign_in.is_some());
         assert!(g.cells[3].tools.agent_tools.rows[1].warning.is_some());
         assert_eq!(
