@@ -1,0 +1,56 @@
+/* The name-and-email form under git's row (the Tools step, Settings → Git & pull requests) and in the merge dialog. */
+.git-identity {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  box-sizing: border-box;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-paused-bg);
+}
+
+/* In Settings it sits on its own line, lined up with the tool's name. */
+.settings-tool > .git-identity {
+  flex-basis: calc(100% - 24px);
+  margin-left: 24px;
+}
+
+.git-identity-title {
+  margin: 0;
+  color: var(--text-primary);
+  font: 500 13px var(--font-ui);
+}
+
+.git-identity-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font: 400 12px/1.45 var(--font-ui);
+}
+
+.git-identity-fields {
+  display: grid;
+  grid-template-columns: repeat(auto-fit, minmax(180px, 1fr));
+  gap: 8px 12px;
+}
+
+.git-identity-note {
+  grid-column: 1 / -1;
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 11px/1.45 var(--font-ui);
+  overflow-wrap: anywhere;
+}
+
+.git-identity-note[data-error] {
+  color: var(--st-error);
+}
+
+.git-identity-foot {
+  display: flex;
+  justify-content: flex-end;
+}
+
+/* git found, but without a name and email yet: amber, as anything left to do. */
+.tool-row[data-identity] .tool-row-icon {
+  color: var(--st-paused);
+}

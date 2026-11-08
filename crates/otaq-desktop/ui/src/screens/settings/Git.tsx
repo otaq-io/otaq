@@ -13,6 +13,7 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { RowTerminal, type RowTerminals, useRowTerminals } from "../onboarding/RowTerminal";
+import { GitIdentityBox } from "./GitIdentity";
 
 /** A row's icon by its look; a missing git is an error, a missing provider only muted. */
 export function rowIcon(row: GitSettingsRow, required: boolean): IconName {
@@ -29,11 +30,14 @@ function GitRow({
   required,
   view,
   terminals,
+  onRecheck,
 }: {
   row: GitSettingsRow;
   required: boolean;
   view: GitSettingsView;
   terminals: RowTerminals;
+  /** After the name and email are saved. */
+  onRecheck: () => void;
 }) {
   const button = row.button;
   return (
@@ -75,6 +79,7 @@ function GitRow({
         </span>
       )}
       {row.note !== null && <span className="settings-tool-note">{row.note}</span>}
+      {row.identity !== null && <GitIdentityBox form={row.identity} onSaved={onRecheck} />}
       <span className="settings-tool-terminal">
         <RowTerminal row={row.tool} texts={view.terminal} terminals={terminals} />
       </span>
@@ -110,12 +115,21 @@ export function GitBody({
         />
       </div>
       <div className="settings-tools">
-        {view.git && <GitRow row={view.git} required view={view} terminals={terminals} />}
+        {view.git && (
+          <GitRow row={view.git} required view={view} terminals={terminals} onRecheck={onRecheck} />
+        )}
       </div>
       <h3 className="settings-section-title">{view.providers_title}</h3>
       <div className="settings-tools">
         {view.providers.map((row) => (
-          <GitRow key={row.tool} row={row} required={false} view={view} terminals={terminals} />
+          <GitRow
+            key={row.tool}
+            row={row}
+            required={false}
+            view={view}
+            terminals={terminals}
+            onRecheck={onRecheck}
+          />
         ))}
       </div>
       <p className="settings-git-footnote">{view.footnote}</p>

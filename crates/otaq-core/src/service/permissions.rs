@@ -459,6 +459,7 @@ async fn action_for(
         R::ShellOpen(_) | R::ProjectTerminalOpen(_) | R::ToolTerminalOpen(_) => {
             Action::UserOnly("open shells")
         }
+        R::GitSetIdentity(_) => Action::UserOnly("change your git settings"),
         R::ProjectTerminalClose(_) => Action::UserOnly("close terminals"),
         R::ProjectAgentOpen(_) | R::ProjectAgentResume(_) => {
             Action::UserOnly("open conversations with Noyan")

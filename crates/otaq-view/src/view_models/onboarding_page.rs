@@ -207,6 +207,8 @@ pub struct ToolRowView {
     pub button: Option<ToolButton>,
     /// "Needs Homebrew first (brew.sh)…".
     pub note: Option<String>,
+    /// git's row while it has no name and email for commits: the form that saves them.
+    pub identity: Option<crate::view_models::git_identity::Form>,
 }
 
 /// What a checklist row's button asks the service to run (`tools.terminal`).
@@ -336,13 +338,23 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
     if hidden > 0 {
         count.push_str(&format!(" \u{b7} {hidden} hidden"));
     }
+    let missing_identity = |tool: otaq_core::tools::Tool| {
+        model
+            .report
+            .as_ref()
+            .and_then(|r| r.tools.iter().find(|t| t.tool == tool))
+            .and_then(|t| t.missing_identity.as_ref())
+    };
     // git is the one tool besides an agent tool that's needed to start.
     let rows: Vec<ToolRowView> = model
         .rows()
         .into_iter()
         .filter(|r| r.required)
         .map(|r| {
+            let identity = missing_identity(r.tool);
             let (look, icon) = match r.icon {
+                // Found, but it can't commit yet: the form under the row says what's left (it doesn't block).
+                RowIcon::Found if identity.is_some() => (RowLook::Found, IconName::CircleAlert),
                 RowIcon::Found => (RowLook::Found, IconName::CircleCheck),
                 RowIcon::MissingRequired => (RowLook::MissingRequired, IconName::CircleX),
                 RowIcon::MissingOptional => (RowLook::MissingOptional, IconName::CircleMinus),
@@ -355,9 +367,17 @@ pub fn tools(model: &OnboardingModel, has_projects: bool) -> Tools {
                 badge: "required".to_owned(),
                 look,
                 icon,
-                status: r.status,
+                status: match identity {
+                    Some(_) => format!(
+                        "{} \u{b7} {}",
+                        r.status,
+                        crate::view_models::git_identity::STATE
+                    ),
+                    None => r.status,
+                },
                 explanation: r.explanation,
                 command: r.command,
+                identity: identity.map(crate::view_models::git_identity::form),
             }
         })
         .collect();
@@ -835,6 +855,7 @@ pub fn tools_gallery() -> ToolsGallery {
         missing_package_manager: None,
         path: None,
         account: None,
+        missing_identity: None,
     };
     let step = |statuses| {
         let mut m = OnboardingModel::new();
@@ -892,7 +913,21 @@ pub fn tools_gallery() -> ToolsGallery {
         name: name.replace("{}", naming::PRODUCT_NAME),
         tools: step(statuses),
     })
-    .collect();
+    .collect::<Vec<_>>();
+    // git found without a name and email for commits: the form under its row.
+    let mut cells = cells;
+    let mut no_identity = step(vec![claude_connected()]);
+    if let Some(row) = no_identity.rows.first_mut() {
+        row.icon = IconName::CircleAlert;
+        row.status = format!("{} \u{b7} {}", row.status, super::git_identity::STATE);
+        row.identity = Some(super::git_identity::form(
+            &otaq_core::git::Identity::default(),
+        ));
+    }
+    cells.push(ToolsGalleryCell {
+        name: "git without a name and email".to_owned(),
+        tools: no_identity,
+    });
     ToolsGallery { cells }
 }
 
@@ -962,6 +997,7 @@ mod tests {
             missing_package_manager: None,
             path: None,
             account: None,
+            missing_identity: None,
         }
     }
 
@@ -1039,6 +1075,27 @@ mod tests {
             w.foot
                 .starts_with("Next: connect an agent tool and add a project.")
         );
+    }
+
+    #[test]
+    fn git_without_a_name_and_email_asks_for_them_without_blocking_continue() {
+        let mut m = checked(true, PermissionVerdict::NotPrompting);
+        if let Some(report) = m.report.as_mut() {
+            report.tools[0].version = Some("2.46.0".into());
+            report.tools[0].missing_identity = Some(otaq_core::git::Identity::default());
+        }
+        let v = tools(&m, false);
+        let git = &v.rows[0];
+        assert_eq!(git.status, "2.46.0 \u{b7} Needs your name and email");
+        assert_eq!(git.icon, IconName::CircleAlert);
+        let form = git.identity.as_ref().unwrap();
+        assert_eq!(
+            (form.name_label.as_str(), form.email_label.as_str()),
+            ("Name", "Email")
+        );
+        assert!(v.continue_enabled, "the merge asks again if it's skipped");
+        let fine = tools(&checked(true, PermissionVerdict::NotPrompting), false);
+        assert!(fine.rows[0].identity.is_none());
     }
 
     #[test]
@@ -1316,7 +1373,7 @@ mod tests {
     }
 
     #[test]
-    fn the_tools_gallery_has_the_four_frames() {
+    fn the_tools_gallery_has_the_four_frames_and_git_without_a_name() {
         let g = tools_gallery();
         let counts: Vec<&str> = g
             .cells
@@ -1325,11 +1382,18 @@ mod tests {
             .collect();
         assert_eq!(
             counts,
-            ["3 ready", "none ready", "1 ready", "2 ready · 1 hidden"]
+            [
+                "3 ready",
+                "none ready",
+                "1 ready",
+                "2 ready · 1 hidden",
+                "1 ready"
+            ]
         );
         let enabled: Vec<bool> = g.cells.iter().map(|c| c.tools.continue_enabled).collect();
-        assert_eq!(enabled, [true, false, true, true]);
+        assert_eq!(enabled, [true, false, true, true, true]);
         assert!(g.cells[1].tools.agent_tools.blocked.is_some());
+        assert!(g.cells[4].tools.rows[0].identity.is_some());
         assert!(g.cells[0].tools.agent_tools.rows[2].sign_in.is_some());
         assert!(g.cells[3].tools.agent_tools.rows[1].warning.is_some());
         assert_eq!(

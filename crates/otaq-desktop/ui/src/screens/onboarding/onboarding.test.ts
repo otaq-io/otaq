@@ -57,6 +57,7 @@ const TOOLS: OnboardingTools = {
       command: "npm install -g @anthropic-ai/claude-code",
       button: null,
       note: null,
+      identity: null,
     },
   ],
   waiting: null,

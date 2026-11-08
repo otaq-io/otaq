@@ -207,6 +207,65 @@ impl Git {
             .collect())
     }
 
+    /// What git still needs to sign a commit made in `cwd`, as git itself works it out (its config, the environment,
+    /// or a guess from the account and the machine's name): `None` when it can commit; otherwise the name and email
+    /// it has so far, to fill in. A fresh Mac often has neither, and every commit then fails with "Author identity
+    /// unknown".
+    pub async fn missing_identity(&self, cwd: &Path) -> Result<Option<Identity>, GitError> {
+        let (author, _) = self
+            .run_with_code(cwd, &["var", "GIT_AUTHOR_IDENT"])
+            .await?;
+        let (committer, _) = self
+            .run_with_code(cwd, &["var", "GIT_COMMITTER_IDENT"])
+            .await?;
+        if author == 0 && committer == 0 {
+            return Ok(None);
+        }
+        Ok(Some(Identity {
+            name: self.config_value(cwd, "user.name").await,
+            email: self.config_value(cwd, "user.email").await,
+        }))
+    }
+
+    /// A config value as git reads it in `cwd`; `None` when unset or empty.
+    async fn config_value(&self, cwd: &Path, key: &str) -> Option<String> {
+        self.run(cwd, &["config", "--get", key])
+            .await
+            .ok()
+            .map(|v| v.trim().to_owned())
+            .filter(|v| !v.is_empty())
+    }
+
+    /// Writes the name and email every repository's commits carry into the user's own git settings, as
+    /// `git config --global user.name` and `user.email` do. Only ever on the user's click.
+    pub async fn set_global_identity(&self, name: &str, email: &str) -> Result<(), IdentityError> {
+        let (name, email) = (name.trim(), email.trim());
+        if name.is_empty() {
+            return Err(IdentityError::Invalid("Type your name first.".to_owned()));
+        }
+        if name.contains(['\n', '\r', '<', '>']) {
+            return Err(IdentityError::Invalid(
+                "A name can\u{2019}t contain line breaks or < >.".to_owned(),
+            ));
+        }
+        if email.is_empty() {
+            return Err(IdentityError::Invalid("Type your email first.".to_owned()));
+        }
+        if !email.contains('@') || email.contains(char::is_whitespace) || email.contains(['<', '>'])
+        {
+            return Err(IdentityError::Invalid(format!(
+                "\u{201c}{email}\u{201d} doesn\u{2019}t look like an email address."
+            )));
+        }
+        // Outside any repository, so only the user's own settings are read and written.
+        let cwd = std::env::temp_dir();
+        self.run(&cwd, &["config", "--global", "user.name", name])
+            .await?;
+        self.run(&cwd, &["config", "--global", "user.email", email])
+            .await?;
+        Ok(())
+    }
+
     async fn refs(&self, repo: &Path, prefix: &str) -> Result<Vec<String>, GitError> {
         let out = self
             .run(repo, &["for-each-ref", "--format=%(refname:short)", prefix])
@@ -217,6 +276,38 @@ impl Git {
 
 fn join(args: &[&str]) -> String {
     args.join(" ")
+}
+
+/// The name and email git has for commits, either possibly missing ([`Git::missing_identity`]).
+#[derive(Debug, Clone, Default, PartialEq, Eq, serde::Serialize, serde::Deserialize)]
+pub struct Identity {
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub name: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub email: Option<String>,
+}
+
+/// Why [`Git::set_global_identity`] wrote nothing.
+#[derive(Debug)]
+pub enum IdentityError {
+    /// What was typed can't be used; the words say what to fix.
+    Invalid(String),
+    Git(GitError),
+}
+
+impl From<GitError> for IdentityError {
+    fn from(e: GitError) -> Self {
+        Self::Git(e)
+    }
+}
+
+impl fmt::Display for IdentityError {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Self::Invalid(why) => f.write_str(why),
+            Self::Git(e) => write!(f, "git couldn\u{2019}t save your name and email: {e}"),
+        }
+    }
 }
 
 #[derive(Debug)]

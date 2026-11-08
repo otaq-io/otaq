@@ -99,6 +99,10 @@ export interface DialogProps {
   onCancel: () => void;
   /** The element focused when it opens; the first focusable one otherwise. */
   initialFocus?: RefObject<HTMLElement | null>;
+  /** A press outside the box leaves the dialog open (Esc and its buttons still close it): for a dialog holding what
+   * the user typed (Local merge's message), which a stray press, or one meant to move the window, must not throw
+   * away. */
+  keepOnOutsidePress?: boolean;
 }
 
 const DIALOG_BOX = { selector: ".dialog", preset: "dialog" } as const;
@@ -128,6 +132,7 @@ export function Dialog({
   onSubmit,
   onCancel,
   initialFocus,
+  keepOnOutsidePress = false,
 }: DialogProps) {
   const titleId = useId();
   const box = useRef<HTMLDivElement>(null);
@@ -151,7 +156,7 @@ export function Dialog({
       className="dialog-backdrop"
       role="presentation"
       onMouseDown={(e) => {
-        if (e.target === e.currentTarget) onCancel();
+        if (e.target === e.currentTarget && !keepOnOutsidePress) onCancel();
       }}
     >
       <div

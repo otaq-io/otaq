@@ -137,6 +137,9 @@ pub enum LocalMergeOutcome {
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
     Changed { check: ApproveCheck },
+    /// git doesn't know the user's name and email, so it can't make the merge's commits: nothing was done. `has` is
+    /// what git has so far, to fill in; the user sets them and merges again.
+    NeedsIdentity { has: crate::git::Identity },
 }
 
 /// Runs review actions. Cheap to clone.
@@ -305,7 +308,18 @@ impl Review {
         approve_anyway: bool,
         actor: &Actor,
     ) -> Result<LocalMergeOutcome, BoardError> {
-        let Merge { outcome, failed } = self.merge(key, message, approve_anyway, actor).await?;
+        // Every Local merge that doesn't go through says why in the service's log, a refusal too.
+        let Merge { outcome, failed } = match self.merge(key, message, approve_anyway, actor).await
+        {
+            Ok(merge) => merge,
+            Err(e) => {
+                tracing::warn!(ticket = %key, error = %e, "local merge failed");
+                return Err(e);
+            }
+        };
+        if !matches!(outcome, LocalMergeOutcome::Merged { .. }) {
+            tracing::info!(ticket = %key, outcome = ?outcome, "not merged");
+        }
         match (&outcome, failed) {
             (LocalMergeOutcome::Conflict { target, .. }, _) => {
                 let ticket = self.inner.board.ticket(key).await?;
@@ -378,6 +392,12 @@ impl Review {
             .unwrap_or_else(|| project.name.clone());
         // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
         let git = &board.project_git(&project.key).await?;
+        // The rebase and the squash commit both sign with the user's name and email: without them git fails half
+        // way with "Author identity unknown", so they are asked for first, in plain words.
+        if let Some(has) = git.missing_identity(&repo).await? {
+            tracing::warn!(ticket = %ticket.key, "not merged: git has no name and email for commits");
+            return Ok(LocalMergeOutcome::NeedsIdentity { has }.into());
+        }
         let settings = board.project_settings(&project.key).await?;
         let command = settings.merge_check().map(str::to_owned);
         let check = command.as_deref().map(|command| {

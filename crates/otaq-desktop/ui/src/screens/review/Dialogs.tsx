@@ -28,6 +28,7 @@ import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "../editor/CommentBox";
+import { GitIdentityFields, useGitIdentity } from "../settings/GitIdentity";
 import { type BoxValue, boxState, EMPTY_BOX, sentAttachments } from "../editor/commentRules";
 import {
   afterApproveAnyway,
@@ -409,6 +410,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           // The message has the keyboard whenever the confirmation shows: from the start (not the merge-check link
           // above it), and after the choice or Approve anyway (the same dialog, the focus given again).
           initialFocus={messageBox}
+          // The message may be edited: a press outside the box leaves it be (a stray one closed it with nothing
+          // merged, which read as Merge doing nothing).
+          keepOnOutsidePress
           onCancel={close}
           footer={
             <>
@@ -644,7 +648,48 @@ export function ResultDialog({
           </div>
         </Dialog>
       );
+    case "identity":
+      return <IdentityDialog result={result} close={close} retry={retry} />;
   }
+}
+
+/** git has no name and email for the user: the two fields, and "Save and merge" saves them, then merges again. */
+function IdentityDialog({
+  result,
+  close,
+  retry,
+}: {
+  result: Extract<LocalMergeResult, { kind: "identity" }>;
+  close: () => void;
+  retry: () => void;
+}) {
+  const state = useGitIdentity(result.form);
+  const saveAndMerge = () => {
+    if (state.saving) return;
+    void state.save().then((saved) => {
+      if (saved) retry();
+    });
+  };
+  return (
+    <Dialog
+      title={result.form.title}
+      width={480}
+      onConfirm={saveAndMerge}
+      keepOnOutsidePress
+      onCancel={close}
+      footer={
+        <>
+          <Button variant="ghost" label={result.cancel} onClick={close} />
+          <Button icon="git-merge" label={result.merge} loading={state.saving} onClick={saveAndMerge} />
+        </>
+      }
+    >
+      <div className="review-body">
+        <p className="review-text">{result.form.text}</p>
+        <GitIdentityFields form={result.form} state={state} />
+      </div>
+    </Dialog>
+  );
 }
 
 export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {

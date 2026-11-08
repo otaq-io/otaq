@@ -60,6 +60,7 @@ pub mod flow_columns;
 pub mod flow_editor;
 pub mod flow_settings;
 pub mod gallery;
+pub mod git_identity;
 pub mod git_settings;
 pub mod hint;
 pub mod history;

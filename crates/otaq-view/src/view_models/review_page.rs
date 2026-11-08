@@ -308,6 +308,14 @@ pub enum MergeResult {
     Changed {
         changed: ChangedView,
     },
+    /// git has no name and email for the user: nothing merged. The form asks for them; its button saves them and
+    /// merges again.
+    Identity {
+        form: crate::view_models::git_identity::Form,
+        /// "Save and merge".
+        merge: &'static str,
+        cancel: &'static str,
+    },
 }
 
 /// The toasts after a Local merge: "Local merge done · SHOP-18", "Couldn't update main from origin · merged into your
@@ -405,6 +413,36 @@ fn finished_toasts(key: &TicketKey, text: &str, started: &[TicketKey]) -> Vec<To
     toasts
 }
 
+/// The text of the toast for a Local merge that failed with an error (not an outcome the dialog shows): git's own
+/// failure ("git commit --quiet --allow-empty -F /var/folders/…/T/.tmpW7HFC2 failed (exit 128): Author identity
+/// unknown … fatal: unable to auto-detect email address …") becomes its step and git's last word, "git commit
+/// failed: unable to auto-detect email address …", without the temporary paths and git's own advice. The whole
+/// message stays in the service's log. Anything else is shown as it is.
+pub fn merge_failed_text(message: &str) -> String {
+    let Some(rest) = message.strip_prefix("git ") else {
+        return message.to_owned();
+    };
+    let Some((command, reason)) = rest.split_once(" failed") else {
+        return message.to_owned();
+    };
+    let step = command.split_whitespace().next().unwrap_or("");
+    let stderr = reason.split_once("): ").map_or("", |(_, s)| s);
+    let last = stderr
+        .lines()
+        .map(str::trim)
+        .rev()
+        .find(|l| !l.is_empty())
+        .map(|l| {
+            l.trim_start_matches("fatal: ")
+                .trim_start_matches("error: ")
+                .to_owned()
+        });
+    match last {
+        Some(last) => format!("git {step} failed: {last}"),
+        None => format!("git {step} failed"),
+    }
+}
+
 pub fn merge_result(
     ticket: &Ticket,
     target: &str,
@@ -460,6 +498,11 @@ pub fn merge_result(
             text: "Send it back so the agent commits them, or look at them first.",
             view: "View",
             send_back: crate::view_models::sheet_actions::SEND_BACK,
+            cancel: "Cancel",
+        },
+        MergeView::NeedsIdentity { has } => MergeResult::Identity {
+            form: crate::view_models::git_identity::form(&has),
+            merge: "Save and merge",
             cancel: "Cancel",
         },
         MergeView::Changed { .. } => match outcome {
@@ -576,6 +619,51 @@ mod tests {
 
     fn review_ticket() -> Ticket {
         ticket("SHOP-18", "Checkout API", Status::WaitingForYou)
+    }
+
+    #[test]
+    fn a_failed_git_step_reads_as_its_step_and_gits_last_word() {
+        let raw = "git commit --quiet --allow-empty -F /var/folders/63/h8cy/T/.tmpW7HFC2 failed (exit 128): Author \
+                   identity unknown\n\n*** Please tell me who you are.\n\nRun\n\n  git config --global user.email \
+                   \"you@example.com\"\n\nto set your account's default identity.\n\nfatal: unable to auto-detect \
+                   email address (got 'nt@Studio.(none)')";
+        assert_eq!(
+            merge_failed_text(raw),
+            "git commit failed: unable to auto-detect email address (got 'nt@Studio.(none)')"
+        );
+        assert_eq!(
+            merge_failed_text("git rev-parse refs/heads/main failed"),
+            "git rev-parse failed"
+        );
+        assert_eq!(
+            merge_failed_text("SHOP-18 is Done; Local merge works on a ticket in Ready for Review"),
+            "SHOP-18 is Done; Local merge works on a ticket in Ready for Review"
+        );
+    }
+
+    #[test]
+    fn a_merge_without_a_git_identity_asks_for_it_in_the_dialog() {
+        let t = review_ticket();
+        let outcome = LocalMergeOutcome::NeedsIdentity {
+            has: otaq_core::git::Identity {
+                name: Some("Ada".into()),
+                email: None,
+            },
+        };
+        let MergeResult::Identity {
+            form,
+            merge,
+            cancel,
+        } = merge_result(&t, "main", &outcome, &[])
+        else {
+            panic!("expected the identity form");
+        };
+        assert_eq!((merge, cancel), ("Save and merge", "Cancel"));
+        assert_eq!(
+            form.title,
+            "git doesn\u{2019}t know your name and email yet"
+        );
+        assert_eq!((form.name.as_str(), form.email.as_str()), ("Ada", ""));
     }
 
     fn facts<'a>(

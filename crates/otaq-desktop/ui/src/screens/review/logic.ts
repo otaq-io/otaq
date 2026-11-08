@@ -96,6 +96,7 @@ export function afterMerge(result: LocalMergeResult): Step {
     case "refused":
     case "stopped":
     case "uncommitted":
+    case "identity":
       return { kind: "result", result };
   }
 }

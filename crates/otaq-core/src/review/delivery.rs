@@ -43,6 +43,9 @@ use crate::flow::Delivers;
 use crate::pr::service::Prs;
 use crate::protocol::Event;
 use crate::session::hand_offs::HandOff;
+
+/// Why a merge waits for the user's name and email, and where they set them.
+pub const NO_IDENTITY: &str = "git doesn\u{2019}t know your name and email yet. Set them in Settings \u{2192} Git & pull requests, then retry.";
 use crate::session::{SessionKind, Start};
 use crate::start::StartOutcome;
 
@@ -158,6 +161,14 @@ impl Review {
                     .delivery_stopped(&ticket.id, AutoMergeStop::CheckoutDirty, &message, false)
                     .await?;
                 Delivered::Stopped(AutoMergeStop::CheckoutDirty)
+            }
+            // Stopped as a failed git step is, with what to do in plain words; Retry merge once it's set.
+            LocalMergeOutcome::NeedsIdentity { .. } => {
+                let message = crate::domain::validation::delivery_failed(NO_IDENTITY);
+                board
+                    .delivery_stopped(&ticket.id, AutoMergeStop::DeliveryFailed, &message, false)
+                    .await?;
+                Delivered::Stopped(AutoMergeStop::DeliveryFailed)
             }
             LocalMergeOutcome::RefusedUncommitted { message, .. } => {
                 tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");

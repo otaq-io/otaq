@@ -178,6 +178,10 @@ pub struct ToolStatus {
     /// gh and az, signed in: the account the tool says it uses (`nt`, `nt@example.com`), when it says one.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub account: Option<String>,
+    /// git only, found: git has no name and email to sign commits with (every commit and merge would fail with
+    /// "Author identity unknown"); what it has so far, to fill in. `None` when it can commit.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub missing_identity: Option<crate::git::Identity>,
 }
 
 impl ToolStatus {
@@ -532,6 +536,7 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
         missing_package_manager: None,
         path: None,
         account: None,
+        missing_identity: None,
     };
     let Some(program) = find_on_path(tool.command(), &env.path) else {
         status.missing_package_manager = package_manager_of(tool.install_command())
@@ -543,7 +548,20 @@ async fn check_tool(tool: Tool, env: &CheckEnv) -> ToolStatus {
     status.path = Some(program.to_string_lossy().into_owned());
     status.install_command = None;
     match tool {
-        Tool::Git | Tool::Claude | Tool::Gh => {
+        Tool::Git => {
+            if let Some(out) = run(&program, &["--version"], env).await {
+                status.version = parse_version(tool, &out.stdout);
+            }
+            // Outside any repository: the name and email every project's commits get unless it sets its own.
+            let git = crate::git::Git::find_on(&env.path).ok();
+            if let Some(git) = git {
+                match git.missing_identity(&std::env::temp_dir()).await {
+                    Ok(missing) => status.missing_identity = missing,
+                    Err(e) => tracing::warn!(error = %e, "can't ask git for its name and email"),
+                }
+            }
+        }
+        Tool::Claude | Tool::Gh => {
             if let Some(out) = run(&program, &["--version"], env).await {
                 status.version = parse_version(tool, &out.stdout);
             }

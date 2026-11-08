@@ -1628,6 +1628,19 @@ pub(super) async fn handle(
             board.set_project_view(&p.project, &p.view).await?;
             Ok(Reply::Ok)
         }),
+        Request::GitSetIdentity(p) => boxed(move || async move {
+            use crate::git::IdentityError;
+            match board.git()?.set_global_identity(&p.name, &p.email).await {
+                Ok(()) => {
+                    tracing::info!("the user saved the name and email git signs commits with");
+                    Ok(Reply::Ok)
+                }
+                Err(IdentityError::Invalid(why)) => {
+                    Err(BoardError::refused(Refusal::EmptyField, why))
+                }
+                Err(IdentityError::Git(e)) => Err(e.into()),
+            }
+        }),
         Request::ProjectSettingsSet(p) => boxed(move || async move {
             match board.save_project_settings(&p.project, &p.settings).await {
                 Ok(()) => {

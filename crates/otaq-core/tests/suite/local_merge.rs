@@ -401,3 +401,114 @@ async fn a_good_fetch_clears_the_warning() {
     assert_eq!(ticket.work.unwrap().remote_warning, None);
     w.stop().await;
 }
+
+/// The project's variables that point git at a throwaway global settings file, and the user's own `git` the same
+/// way: the machine's own settings are never read or written.
+fn throwaway_global(global: &Path) -> Vec<(String, String)> {
+    vec![
+        (
+            "GIT_CONFIG_GLOBAL".into(),
+            global.to_str().unwrap().to_owned(),
+        ),
+        ("GIT_CONFIG_NOSYSTEM".into(), "1".into()),
+    ]
+}
+
+/// A fresh machine often has no name and email for git: the merge says so in plain words before git fails half way,
+/// changes nothing, and goes through once the user has saved them (`tools.git_identity`).
+#[tokio::test]
+async fn a_merge_without_a_git_identity_asks_for_it_then_merges_once_it_is_saved() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let home = tempfile::tempdir().unwrap();
+    let global = home.path().join("gitconfig");
+    std::fs::write(&global, "").unwrap();
+    // No name or email anywhere git looks, and no guessing them from the machine's name.
+    git(&repo, &["config", "--unset", "user.name"]);
+    git(&repo, &["config", "--unset", "user.email"]);
+    git(&repo, &["config", "user.useConfigOnly", "true"]);
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.env_vars = throwaway_global(&global)
+        .iter()
+        .map(|(k, v)| otaq_core::board::settings::EnvVar::new(k, v))
+        .collect();
+    w.board
+        .save_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+    reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    let main = git(&repo, &["rev-parse", "main"]);
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome,
+        LocalMergeOutcome::NeedsIdentity {
+            has: otaq_core::git::Identity::default()
+        }
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "nothing merged");
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
+
+    // The user's one step: their name and email, saved where every repository reads them.
+    let theirs = otaq_core::git::Git::find()
+        .unwrap()
+        .with_env(throwaway_global(&global));
+    theirs
+        .set_global_identity(" Ada Lovelace ", "ada@example.com")
+        .await
+        .unwrap();
+    let saved = std::fs::read_to_string(&global).unwrap();
+    assert!(
+        saved.contains("Ada Lovelace") && saved.contains("ada@example.com"),
+        "{saved}"
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, LocalMergeOutcome::Merged { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%an <%ae>", "main"]),
+        "Ada Lovelace <ada@example.com>"
+    );
+    w.stop().await;
+}
+
+/// Saving the name and email refuses, in plain words, what git couldn't use, and writes nothing then.
+#[tokio::test]
+async fn saving_a_git_identity_refuses_what_git_cant_use() {
+    let home = tempfile::tempdir().unwrap();
+    let global = home.path().join("gitconfig");
+    std::fs::write(&global, "").unwrap();
+    let theirs = otaq_core::git::Git::find()
+        .unwrap()
+        .with_env(throwaway_global(&global));
+    for (name, email, why) in [
+        ("", "ada@example.com", "Type your name first."),
+        ("Ada", " ", "Type your email first."),
+        (
+            "Ada",
+            "ada",
+            "\u{201c}ada\u{201d} doesn\u{2019}t look like an email address.",
+        ),
+        (
+            "Ada\nB",
+            "ada@example.com",
+            "A name can\u{2019}t contain line breaks or < >.",
+        ),
+    ] {
+        let err = theirs.set_global_identity(name, email).await.unwrap_err();
+        assert_eq!(err.to_string(), why);
+    }
+    assert_eq!(std::fs::read_to_string(&global).unwrap(), "");
+}

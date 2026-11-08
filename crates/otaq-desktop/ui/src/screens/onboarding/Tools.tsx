@@ -24,6 +24,7 @@ import {
   RowMenu,
   ToolWarning,
 } from "../settings/AgentTools";
+import { GitIdentityBox } from "../settings/GitIdentity";
 import { RowTerminal, type RowTerminals } from "./RowTerminal";
 
 /** Whether the checklist rows still offer `key`'s action ("gh:login"): not, once it worked. */
@@ -129,15 +130,18 @@ function Row({
   copy,
   texts,
   terminals,
+  onRecheck,
 }: {
   row: ToolRowView;
   copy: string;
   texts: ToolTerminalTexts;
   terminals?: RowTerminals;
+  /** After the name and email are saved. */
+  onRecheck?: () => void;
 }) {
   const button = row.button;
   return (
-    <li className="tool-row" data-look={row.look}>
+    <li className="tool-row" data-look={row.look} data-identity={row.identity !== null || undefined}>
       <div className="tool-row-head">
         <span className="tool-row-icon">
           <Icon name={row.icon} size={16} />
@@ -177,6 +181,7 @@ function Row({
         </div>
       )}
       {row.note !== null && <p className="tool-row-note">{row.note}</p>}
+      {row.identity !== null && <GitIdentityBox form={row.identity} onSaved={() => onRecheck?.()} />}
       {terminals && <RowTerminal row={row.tool} texts={texts} terminals={terminals} />}
     </li>
   );
@@ -217,7 +222,14 @@ export function ToolsList({
       {tools.rows.length > 0 ? (
         <ul className="tool-rows">
           {tools.rows.map((row) => (
-            <Row key={row.name} row={row} copy={tools.copy} texts={tools.terminal} terminals={terminals} />
+            <Row
+              key={row.name}
+              row={row}
+              copy={tools.copy}
+              texts={tools.terminal}
+              terminals={terminals}
+              onRecheck={onRecheck}
+            />
           ))}
         </ul>
       ) : (
