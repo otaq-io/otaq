@@ -132,6 +132,6 @@ fn line(depth: usize, key: &TicketKey, status: Status, title: &str) -> String {
         "{}{:<10} {:<22} {title}",
         "  ".repeat(depth),
         key.to_string(),
-        status.label()
+        crate::read::status_words(status)
     )
 }

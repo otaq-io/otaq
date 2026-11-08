@@ -1607,13 +1607,13 @@ function AgentPanelSection() {
 
 const loadNewWork = () => request("gallery.new_work") as Promise<NewWorkGallery>;
 
-/** *New ticket · one box for new work* (UX-22): the box closed, typing a ticket, and words for Noyan. */
+/** *New ticket · one box for new work*: the box closed, typing a ticket, and words for Noyan. */
 function NewWorkSection() {
   const { view, error } = useServiceView(loadNewWork, []);
   if (error) return <p role="alert">{error.message}</p>;
   if (!view) return null;
   return (
-    <Section title="The box for new work (UX-22)">
+    <Section title="The box for new work">
       <div className="gallery-wrap gallery-wrap-wide" style={{ alignItems: "flex-end" }}>
         {view.states.map((state) => {
           const [title = "", ...rest] = state.typed.split("\n");

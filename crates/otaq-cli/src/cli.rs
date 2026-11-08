@@ -137,7 +137,7 @@ pub enum Command {
     Prime {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// What a validator works from: the ticket, the summary, the diff, earlier findings, linked tickets
+        /// What a checker works from: the ticket, the summary, the diff, earlier findings, linked tickets
         #[arg(long)]
         validate: bool,
     },
@@ -164,8 +164,8 @@ pub enum Command {
     },
     /// List the current project's tickets (-P to name the project)
     List {
-        /// Only this status (queued, working, asks_you, …) or column (backlog, dev, ready_for_review, approved,
-        /// done)
+        /// Only this stage of the flow (backlog, dev, validate, review, done) or state (working, checking,
+        /// "ready for you", to_deliver, pr_open, …)
         #[arg(long)]
         status: Option<String>,
         /// Only this priority: 1 Urgent, 2 High, 3 Normal, 4 Low

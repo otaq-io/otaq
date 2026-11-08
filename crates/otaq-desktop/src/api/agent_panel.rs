@@ -75,9 +75,10 @@ async fn created_of(app: &App, id: &str) -> Result<CreatedAndChanged, RequestErr
     }
 }
 
-/// The tickets it edited, with their titles and places (one that is gone is left out).
+/// The tickets it edited, with their titles and places as the board names them (one that is gone is left out).
 async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> {
     let mut edited = Vec::new();
+    let mut flows: Vec<(String, otaq_core::flow::Flow)> = Vec::new();
     for key in &created.edited {
         if let Ok(Reply::Ticket(t)) = app
             .service
@@ -86,10 +87,20 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
             }))
             .await
         {
+            let project = t.key.project.to_string();
+            if !flows.iter().any(|(p, _)| *p == project) {
+                let flow = super::board::flow(app, &project).await;
+                flows.push((project.clone(), flow));
+            }
+            let place = flows
+                .iter()
+                .find(|(p, _)| *p == project)
+                .map(|(_, flow)| t.place_name(flow))
+                .unwrap_or_default();
             edited.push(EditedTicket {
                 key: t.key,
                 title: t.title,
-                status: t.status,
+                place,
             });
         }
     }
@@ -300,8 +311,13 @@ pub async fn end(app: &App, params: EndParams) -> Result<Ended, RequestError> {
         Ok(_) => Ok(Ended::Done),
         Err(e) if e.refusal.as_deref() == Some("needs_confirmation") => {
             let agent = find_agent(app, &params.project, &params.id).await?;
+            let created = created_of(app, &params.id).await?;
+            let keys: Vec<_> = created.created.iter().map(|t| t.key.clone()).collect();
+            let places = super::board::whereabouts(app, &params.project, &keys)
+                .await
+                .unwrap_or_default();
             Ok(Ended::Ask {
-                dialog: agent_page::close_dialog(&agent, &created_of(app, &params.id).await?),
+                dialog: agent_page::close_dialog(&agent, &created, &places),
             })
         }
         Err(e) => {
