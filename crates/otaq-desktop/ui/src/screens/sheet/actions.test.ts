@@ -194,7 +194,7 @@ describe("answer options", () => {
     const page = new DOMParser().parseFromString(html, "text/html");
     const card = page.querySelector(".overview-main .sheet-question");
     expect(card?.textContent).toContain("Which greeting should it print?");
-    expect(card?.querySelector("input.sheet-answer-open")?.getAttribute("placeholder")).toBe(
+    expect(card?.querySelector("textarea.sheet-answer-box")?.getAttribute("placeholder")).toBe(
       "Type your answer",
     );
     expect(card?.querySelectorAll('[role="radio"]')).toHaveLength(0);

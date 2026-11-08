@@ -231,13 +231,12 @@ pub fn check_of(
             focused,
         })
         .collect();
-    let worktree = ticket.work.as_ref().and_then(|w| w.worktree.as_deref());
     Check {
         session: session.id.clone(),
         label: side.label(),
         agent: side.several.then(|| side.agent.clone()),
         terminal_label: format!("{} \u{b7} {} terminal", ticket.key, side.agent),
-        line: session_tab::agent_line(&side.agent, session.tool, model_of(session), worktree),
+        line: session_tab::agent_line(&side.agent, session.tool, chosen_model(session)),
         typing: side
             .running
             .then(|| session_tab::typing_goes_to(&side.agent, &ticket.key)),
@@ -245,6 +244,11 @@ pub fn check_of(
         strips,
         attach_command: session_tab::check_attach_command(&ticket.key, side),
     }
+}
+
+/// The model as the session's agent chose it ("opus", or none for the tool's default), for the line over its terminal.
+fn chosen_model(session: &SessionInfo) -> Option<&str> {
+    session.model.as_deref()
 }
 
 /// The model a session ran on: the exact one the tool reported, else the one passed.
@@ -418,7 +422,7 @@ pub fn view_with(
         ended,
         recovery: recovering.then(|| recovery_of(ticket, session.and_then(|s| s.tool), before)),
         line: session.zip(agent.as_deref()).map(|(s, agent)| {
-            session_tab::agent_line(agent, s.tool, model_of(s), work.worktree.as_deref())
+            session_tab::agent_line(agent, s.tool, chosen_model(s))
         }),
         typing: agent
             .filter(|_| running && !recovering)
@@ -760,7 +764,7 @@ mod tests {
         // The line over the terminal (SHT-04): who, on what, where; typing goes to it while it runs.
         assert_eq!(
             view.line.as_deref(),
-            Some("Agent \u{b7} /Users/me/.data/wt/shop-web/SHOP-19")
+            Some("Agent")
         );
         let typing = view.typing.as_ref().unwrap();
         assert_eq!(typing.focused, "Typing goes to Agent \u{b7} SHOP-19");
@@ -965,7 +969,7 @@ mod tests {
         assert_eq!(v.terminal_label, "SHOP-19 \u{b7} Validator terminal");
         assert_eq!(
             v.line,
-            "Validator \u{b7} Codex \u{b7} gpt-5.5 \u{b7} /Users/me/.data/wt/shop-web/SHOP-19"
+            "Validator \u{b7} Codex \u{b7} gpt-5.5"
         );
         assert_eq!(
             v.typing.as_ref().map(|t| t.focused.as_str()),

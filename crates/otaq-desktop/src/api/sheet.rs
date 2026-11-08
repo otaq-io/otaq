@@ -532,9 +532,7 @@ pub fn view_of(f: &Facts) -> View {
     // In your check the review bar under every tab holds Approve and Send back: Overview doesn't repeat them.
     let in_review = otaq_view::view_models::files_tab::waits_for_you(ticket);
     // Run shows once the project has a run command (or a Run is up).
-    let runnable = f
-        .run
-        .is_some_and(|r| !r.command.trim().is_empty() || r.state.is_live());
+    let runnable = session_tab::runnable(f.run);
     let buttons: Vec<Button> = actions::all_buttons_in(ticket, f.custom_flow, f.skippable_check)
         .into_iter()
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
@@ -2218,11 +2216,11 @@ mod tests {
         assert_eq!(view.sheet.tabs[1].mark, Some(Mark::Live));
         assert_eq!(view.sheet.tabs[3].mark, None, "no count on History");
         let parts: Vec<&str> = view.sheet.tabs[1].parts.iter().map(|p| p.label.as_str()).collect();
-        assert_eq!(parts, ["Agent", "Run", "Terminal"], "no check ran: no check side");
+        assert_eq!(parts, ["Agent", "Terminal"], "no check ran: no check side; no run command: no Run");
         assert_eq!(view.sheet.tabs[1].parts[0].dot, Some(Dot::Running));
         assert_eq!(
             view.sheet.tabs[1].contents,
-            [Content::Agent, Content::Run, Content::Shell]
+            [Content::Agent, Content::Shell]
         );
         assert_eq!(view.sheet.tabs[1].lands_on, Content::Agent);
         assert_eq!(view.sheet.tabs[0].contents, [Content::Overview]);
@@ -2419,12 +2417,17 @@ mod tests {
             ..facts(&review, &all, &[])
         });
         assert_eq!(labels(&view), ["Run"]);
+        let switch = |view: &View| -> Vec<String> {
+            view.sheet.tabs[1].parts.iter().map(|p| p.label.clone()).collect()
+        };
+        assert!(switch(&view).contains(&"Run".to_owned()), "Session's switch has Run too");
         run.command = String::new();
         let view = view_of(&Facts {
             run: Some(&run),
             ..facts(&review, &all, &[])
         });
         assert!(labels(&view).is_empty(), "no run command, no Run");
+        assert!(!switch(&view).contains(&"Run".to_owned()), "nor in Session's switch");
         // Its badge is the ticket's own status, in plain words.
         assert_eq!(view_of(&facts(&review, &all, &[])).pill.label, "Ready for you");
     }
@@ -2483,7 +2486,7 @@ mod tests {
         let parts: Vec<_> = session.parts.iter().map(|p| (p.label.as_str(), p.dot)).collect();
         assert_eq!(
             parts,
-            [("Agent", None), ("Validator", Some(Dot::Running)), ("Run", None), ("Terminal", None)]
+            [("Agent", None), ("Validator", Some(Dot::Running)), ("Terminal", None)]
         );
         assert_eq!(session.lands_on, Content::Check);
         assert_eq!(session.mark, Some(Mark::Live));

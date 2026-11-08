@@ -7,6 +7,7 @@
 // rule of when something shows is Rust's (`board.view`'s `first_ticket` and `hint`, `usage.dialog`).
 import { useCallback, useEffect, useMemo, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import { useShortcut } from "../../app/registry";
 import { useStore } from "../../app/store";
 import { Banner, Button, HintPopover, TextArea, TextInput } from "../../components";
@@ -48,6 +49,16 @@ export function FirstTicketCard({
     startFirstTicket(project, title, body).then(
       (saved) => {
         setStarting(false);
+        if (saved.outcome === "needs_identity") {
+          // Nothing was created: git's name and email first, then Create & start again; the card stays meanwhile.
+          openOverlay("git_identity", {
+            form: saved.form,
+            save: saved.save,
+            cancel: saved.cancel,
+            then: start,
+          });
+          return;
+        }
         if (saved.outcome === "refused") setNote(saved.refusal.message);
         if (saved.outcome === "title_missing") setNote(view.no_title);
         onAnswered();

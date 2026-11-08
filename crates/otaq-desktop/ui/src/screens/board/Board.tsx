@@ -207,8 +207,9 @@ export function confirmPark(dialog: ParkDialog, ask: typeof request = request): 
   });
 }
 
-/** What happens after a drop, as Rust answered it. */
-export function afterDrop(outcome: DropOutcome, ask: typeof request = request): void {
+/** What happens after a drop, as Rust answered it; `again` sends the same drop or Start once git's name and email are
+ * saved. */
+export function afterDrop(outcome: DropOutcome, ask: typeof request = request, again?: () => unknown): void {
   switch (outcome.kind) {
     case "nothing":
     case "moved":
@@ -218,6 +219,14 @@ export function afterDrop(outcome: DropOutcome, ask: typeof request = request): 
       return;
     case "drag_back":
       openOverlay("drag_back", outcome.dialog);
+      return;
+    case "identity":
+      openOverlay("git_identity", {
+        form: outcome.form,
+        save: outcome.save,
+        cancel: outcome.cancel,
+        then: () => again?.(),
+      });
       return;
     case "not_yet": {
       const notice: NewToast = {
@@ -238,7 +247,7 @@ export function dropCard(key: string, target: BoardDropTarget, ask: typeof reque
   const params: BoardDropParams = { key, target };
   return ask("board.drop", params).then(
     (outcome) => {
-      afterDrop(outcome as DropOutcome, ask);
+      afterDrop(outcome as DropOutcome, ask, () => dropCard(key, target, ask));
     },
     (error: unknown) => {
       toast(error, ask);
@@ -251,7 +260,7 @@ export function dropCard(key: string, target: BoardDropTarget, ask: typeof reque
 export function startTicket(key: string, ask: typeof request = request): Promise<void> {
   return ask("board.start", { key }).then(
     (outcome) => {
-      afterDrop(outcome as DropOutcome, ask);
+      afterDrop(outcome as DropOutcome, ask, () => startTicket(key, ask));
     },
     (error: unknown) => {
       toast(error, ask);

@@ -208,7 +208,11 @@ pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
                 None => "1\u{2013}4 pick \u{b7} \u{21b5} sends",
             },
         ),
-        None => (Vec::new(), "\u{21b5} sends"),
+        // An open question's box takes a few lines.
+        None => (
+            Vec::new(),
+            "\u{21b5} sends \u{b7} \u{21e7}\u{21b5} new line",
+        ),
     };
     Some(Answer {
         question: question.id.clone(),
@@ -330,7 +334,7 @@ mod tests {
         let q = question(&[], None);
         let bar = question_bar(&q).expect("an open question shows too");
         assert!(bar.rows.is_empty());
-        assert_eq!(bar.hint, "\u{21b5} sends");
+        assert_eq!(bar.hint, "\u{21b5} sends \u{b7} \u{21e7}\u{21b5} new line");
         assert_eq!(bar.other_placeholder, "Type your answer");
         assert_eq!(
             choice_for(&q, Some(1), " Hello from the README "),

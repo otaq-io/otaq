@@ -7791,6 +7791,9 @@
         "folder_probe": {
           "newtype": "FolderProbe"
         },
+        "git_identity": {
+          "newtype": "Option<Identity>"
+        },
         "global_settings": {
           "newtype": "GlobalSettingsReply"
         },
@@ -8290,6 +8293,9 @@
         },
         "flow.write_skill": {
           "newtype": "WriteSkillParams"
+        },
+        "git.missing_identity": {
+          "newtype": "ProjectParams"
         },
         "helper.answer": {
           "newtype": "HelperNoteParams"
@@ -10328,6 +10334,7 @@
       "values": [
         "base",
         "env_files",
+        "git_identity",
         "launch",
         "missing_skill",
         "model",

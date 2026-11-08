@@ -1624,6 +1624,14 @@ pub(super) async fn handle(
             }
             Ok(Reply::AppliedNow(Box::new(answer)))
         }),
+        Request::GitMissingIdentity(p) => boxed(move || async move {
+            let project = board.project(&p.project).await?;
+            let git = board.project_git(&project.key).await?;
+            let missing = git
+                .missing_identity(std::path::Path::new(&project.repo_path))
+                .await?;
+            Ok(Reply::GitIdentity(missing))
+        }),
         Request::ProjectViewSet(p) => boxed(move || async move {
             board.set_project_view(&p.project, &p.view).await?;
             Ok(Reply::Ok)
@@ -1633,6 +1641,20 @@ pub(super) async fn handle(
             match board.git()?.set_global_identity(&p.name, &p.email).await {
                 Ok(()) => {
                     tracing::info!("the user saved the name and email git signs commits with");
+                    // What waited for them starts now, as it was asked to.
+                    match shared.starter.lift_identity_holds().await {
+                        Ok(0) => {}
+                        Ok(n) => {
+                            tracing::info!(
+                                tickets = n,
+                                "starts held for git's name and email go on"
+                            );
+                            shared.scheduler.wake();
+                        }
+                        Err(e) => {
+                            tracing::warn!(error = %e, "can't lift the starts held for git's name and email")
+                        }
+                    }
                     Ok(Reply::Ok)
                 }
                 Err(IdentityError::Invalid(why)) => {

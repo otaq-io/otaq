@@ -306,6 +306,9 @@ pub struct OverviewView {
     /// While the ticket waits in your check, Overview reads as a review: what the agent did, the checker, the
     /// decisions it made, then the ticket (`description` says "The ticket").
     pub in_review: Option<InReview>,
+    /// The question you just answered and your answer, quietly where the question was, until the agent moves on; set
+    /// by the service's facts ([`with_answered`]).
+    pub answered: Option<Answered>,
     /// "Attachments · 3"; "Attachments" with none.
     pub attachments_heading: String,
     pub attachments: Vec<AttachmentRow>,
@@ -361,6 +364,46 @@ pub fn with_planning(
     view
 }
 
+/// A question you answered on Overview, shown quietly where it was: "You answered", the question, your words.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "OverviewAnswered")]
+pub struct Answered {
+    pub label: &'static str,
+    pub question: String,
+    pub answer: String,
+}
+
+/// The question to show as answered, if any: the latest answered one (`answers`, oldest first), while the agent that
+/// asked it is still at work on that answer in the same stage. It goes once the agent moves on: it asks again
+/// (`status` Asks you), its stage ends, or it was asked before the stage's current run began (`run_started`).
+pub fn answered(
+    status: Status,
+    answers: &[otaq_core::board::questions::HumanAnswer],
+    run_started: Option<i64>,
+) -> Option<Answered> {
+    if !matches!(
+        status,
+        Status::Working | Status::WorkingInBackground | Status::Idle
+    ) {
+        return None;
+    }
+    let last = answers.last()?;
+    if run_started.is_none_or(|started| last.asked_at < started) {
+        return None;
+    }
+    Some(Answered {
+        label: "You answered",
+        question: last.question.clone(),
+        answer: last.answer.clone(),
+    })
+}
+
+/// The view with the question you just answered ([`answered`]).
+pub fn with_answered(mut view: OverviewView, answered: Option<Answered>) -> OverviewView {
+    view.answered = answered;
+    view
+}
+
 /// The review's headings on Overview (`ticket-01` *The ticket in Review*); what they show is `files.review`'s.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OverviewInReview")]
@@ -396,6 +439,7 @@ pub fn view(
             None => DESCRIPTION.to_owned(),
         },
         in_review: in_review(status),
+        answered: None,
         click_to_edit: label_hint(DescriptionState::Reading, platform),
         editing: label_hint(DescriptionState::Editing, platform),
         placeholder: BLOCKS_HINT.to_owned(),
@@ -532,6 +576,53 @@ pub mod fixtures {
 
 #[cfg(test)]
 mod tests {
+    /// After you answer on Overview, the question and your words stay, quietly, while the agent works on them; they go
+    /// once it asks again, once its stage ends, and an answer from an earlier run of the stage doesn't show.
+    #[test]
+    fn an_answered_question_stays_until_the_agent_moves_on() {
+        use otaq_core::board::questions::HumanAnswer;
+        let answers = [
+            HumanAnswer {
+                question: "Which tagline?".into(),
+                answer: "Old one".into(),
+                asked_at: 10,
+                answered_at: 20,
+            },
+            HumanAnswer {
+                question: "Which one-line tagline should the README start with?".into(),
+                answer: "Count words fast.".into(),
+                asked_at: 110,
+                answered_at: 120,
+            },
+        ];
+        let shown = super::answered(Status::Working, &answers, Some(100)).unwrap();
+        assert_eq!(shown.label, "You answered");
+        assert_eq!(
+            (shown.question.as_str(), shown.answer.as_str()),
+            (
+                "Which one-line tagline should the README start with?",
+                "Count words fast."
+            )
+        );
+        assert!(super::answered(Status::Idle, &answers, Some(100)).is_some());
+        assert_eq!(
+            super::answered(Status::AsksYou, &answers, Some(100)),
+            None,
+            "it asks again"
+        );
+        assert_eq!(
+            super::answered(Status::WaitingForYou, &answers, Some(100)),
+            None,
+            "its stage ended"
+        );
+        assert_eq!(
+            super::answered(Status::Working, &answers, Some(200)),
+            None,
+            "asked in an earlier run"
+        );
+        assert_eq!(super::answered(Status::Working, &[], Some(100)), None);
+    }
+
     use super::*;
 
     /// `s25-03` / `s25-05`: SHOP-22's Overview, its three reports newest first.

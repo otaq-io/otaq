@@ -180,9 +180,12 @@ export function OnboardingOverlay({ params, close }: OverlayProps<"onboarding">)
     if (first === "tools") void runCheck();
   }, [first, runCheck]);
 
-  // Each step's first button takes the keyboard.
+  // Each step's first button takes the keyboard without scrolling to it: a step opens at its top (Tools' "Connect an
+  // agent tool", not git's row at its foot).
   useEffect(() => {
-    focusRef.current?.querySelector<HTMLElement>(".onboarding-card .button[data-variant='primary']")?.focus();
+    focusRef.current
+      ?.querySelector<HTMLElement>(".onboarding-card .button[data-variant='primary']")
+      ?.focus({ preventScroll: true });
   }, [step, texts, tools]);
 
   const check = () => {

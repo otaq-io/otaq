@@ -189,6 +189,11 @@ pub enum Request {
     /// that click. Answered with [`Reply::Ok`]; refused, in plain words, when one can't be used. The user's only.
     #[serde(rename = "tools.git_identity")]
     GitSetIdentity(GitIdentityParams),
+    /// `{"project": "SHOP"}`: whether git can sign commits in the project's repository, as an agent's would be. Answered
+    /// with [`Reply::GitIdentity`]: `null` when it can, else what git has so far. Start asks for the name and email
+    /// first when they are missing.
+    #[serde(rename = "git.missing_identity")]
+    GitMissingIdentity(ProjectParams),
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
@@ -2070,6 +2075,7 @@ impl Request {
             Self::ToolsCheck => "tools.check",
             Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::GitSetIdentity(_) => "tools.git_identity",
+            Self::GitMissingIdentity(_) => "git.missing_identity",
             Self::OnboardingState => "onboarding.state",
             Self::OnboardingSources(_) => "onboarding.sources",
             Self::OnboardingAsk(_) => "onboarding.ask",
@@ -2349,6 +2355,8 @@ pub enum Reply {
     Message(Box<crate::messages::Message>),
     Messages(Vec<crate::messages::Message>),
     HumanAnswers(Vec<crate::board::questions::HumanAnswer>),
+    /// What git still needs to sign commits in a project's repository; `None` when it can.
+    GitIdentity(Option<crate::git::Identity>),
     Decision(Box<crate::decisions::Decision>),
     Decisions(Vec<crate::decisions::Decision>),
     DecisionChanged(crate::decisions::ChangeOutcome),
@@ -2938,6 +2946,19 @@ mod tests {
                     name: "Ada Lovelace".into(),
                     email: "ada@example.com".into(),
                 }),
+            ),
+            Message::request(
+                9,
+                Request::GitMissingIdentity(ProjectParams {
+                    project: "SHOP".into(),
+                }),
+            ),
+            Message::reply(
+                9,
+                Reply::GitIdentity(Some(crate::git::Identity {
+                    name: Some("Ada Lovelace".into()),
+                    email: None,
+                })),
             ),
             Message::reply(
                 8,

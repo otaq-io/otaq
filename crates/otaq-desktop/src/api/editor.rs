@@ -673,6 +673,13 @@ pub enum SaveOutcome {
         refusal: Refusal,
         created: Option<String>,
     },
+    /// Create & start when git has no name and email: nothing was saved. The page asks for them; its "Save and
+    /// start" saves them and sends Create & start again.
+    NeedsIdentity {
+        form: otaq_view::view_models::git_identity::Form,
+        save: &'static str,
+        cancel: &'static str,
+    },
 }
 
 /// The model the form stands for, with the page's values on top of the target's.
@@ -795,6 +802,25 @@ pub async fn create_and_start(app: &App, params: SaveParams) -> Result<SaveOutco
             "Only a new ticket, or the one the editor created, starts from the editor.",
         ));
     }
+    // An agent never commits under a borrowed name: git's missing name and email are asked for before anything is
+    // created.
+    let project = match &params.target {
+        Target::Create { project, .. } => project.clone(),
+        Target::Edit { key } => key
+            .parse::<otaq_core::domain::TicketKey>()
+            .ok()
+            .map(|k| k.project.to_string()),
+        _ => None,
+    };
+    if let Some(project) = project
+        && let Some(has) = super::board::missing_identity(app, &project).await
+    {
+        return Ok(SaveOutcome::NeedsIdentity {
+            form: otaq_view::view_models::git_identity::form(&has),
+            save: otaq_view::view_models::board_page::SAVE_AND_START,
+            cancel: "Cancel",
+        });
+    }
     let saved = save(app, params).await?;
     let SaveOutcome::Saved { key, .. } = saved else {
         return Ok(saved);
@@ -812,6 +838,7 @@ pub fn started_outcome(key: String, started: Result<DropOutcome, RequestError>) 
         Ok(DropOutcome::Nothing | DropOutcome::Park { .. } | DropOutcome::DragBack { .. }) => {
             CANNOT_START_HERE.to_owned()
         }
+        Ok(DropOutcome::Identity { form, .. }) => form.title,
         Err(e) => e.message,
     };
     SaveOutcome::Refused {

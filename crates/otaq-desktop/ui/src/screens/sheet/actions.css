@@ -541,6 +541,31 @@
   background: none;
 }
 
-.sheet-answer-open {
+/* The answer box: a few lines of normal text, growing by hand; ↵ sends, ⇧↵ a new line. */
+.sheet-answer-box {
   width: 100%;
+  min-height: 0;
+  font: 400 13px/1.5 var(--font-ui);
+}
+
+/* The question you answered, quiet where it was until the agent moves on. */
+.sheet-answered {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 10px 14px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-lg);
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.sheet-answered-question {
+  color: var(--text-secondary);
+}
+
+.sheet-answered-answer {
+  color: var(--text-primary);
+  font: 400 13px/1.5 var(--font-ui);
+  white-space: pre-wrap;
 }

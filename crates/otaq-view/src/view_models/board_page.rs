@@ -1183,7 +1183,27 @@ pub enum DropOutcome {
     DragBack { dialog: Box<DragBackDialog> },
     /// Allowed by the rules, but not built yet: shown as a toast.
     NotYet { message: String },
+    /// git has no name and email to sign the agent's commits with: nothing started. The page asks for them; its
+    /// "Save and start" saves them (`tools.git_identity`) and starts again.
+    Identity {
+        form: crate::view_models::git_identity::Form,
+        /// "Save and start".
+        save: &'static str,
+        cancel: &'static str,
+    },
 }
+
+/// The question before a start when git has no name and email (an agent never commits under a borrowed name).
+pub fn identity_outcome(has: &otaq_core::git::Identity) -> DropOutcome {
+    DropOutcome::Identity {
+        form: crate::view_models::git_identity::form(has),
+        save: SAVE_AND_START,
+        cancel: "Cancel",
+    }
+}
+
+/// The identity question's button: saves the name and email, then starts.
+pub const SAVE_AND_START: &str = "Save and start";
 
 /// Where a card is, as the board names it: its column ("Dev", "Review").
 pub fn place_label(columns: &Columns, ticket: &Ticket) -> String {

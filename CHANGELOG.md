@@ -25,6 +25,16 @@ before Publish (`scripts/README.md`, "Making a release").
   "Author identity unknown": **Save and merge** saves them in your git settings (`git config --global`, only on
   that click) and merges. A merge that fails says why in a short line, and long toasts wrap inside the window. A
   press outside the merge confirmation no longer closes it with your message.
+- **Agents never commit under a borrowed name.** Start, a drop from Backlog and Create & start ask for git's name
+  and email the same way before the first agent starts (**Save and start**), and create or start nothing until you
+  save them. A start that happens by itself waits instead ("Held · git doesn't know your name and email yet") and
+  goes on once you save them anywhere.
+- **Smaller fixes from the second walk.** The Tools step opens at its top; Overview's answer box is a few lines of
+  normal text (↵ sends, ⇧↵ a new line), and the question and your answer stay quietly on Overview while the agent
+  works on them; in Review, "What the agent did" and the checker's verdict show once (not again as comments); the
+  Session tab shows Run only when the project has a run command (or a Run is up) and its line reads "Developer ·
+  Claude Code · tool default" without a model id or worktree path; Settings → Agents says "Review · opens PRs"
+  instead of a Delivery stage; the Merge check's help says "Approve & merge".
 - **Edit flow on the board.** **Edit flow** at the end of the board turns the board into the flow's editor in place:
   each column header is its stage (what happens, its agent and skill, a check's rounds and where its fails go), the
   cards stay where they are, dimmed, and Backlog and Done are fixed at the ends. Drag a header to reorder it, × to

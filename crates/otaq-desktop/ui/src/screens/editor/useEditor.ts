@@ -3,6 +3,7 @@
 // Waits for is in the form; an existing ticket's dependencies are Overview's (DPV-04).
 import { useCallback, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorRefusal } from "../../generated/EditorRefusal";
 import type { EditorSaved } from "../../generated/EditorSaved";
@@ -74,7 +75,17 @@ export function useEditor(view: EditorView, target: EditorTarget, initial?: Edit
     sent
       .then((out) => {
         if (out.outcome === "saved") done(out);
-        else if (out.outcome === "refused") {
+        else if (out.outcome === "needs_identity") {
+          // Nothing was created: git's name and email first, then Create & start again.
+          openOverlay("git_identity", {
+            form: out.form,
+            save: out.save,
+            cancel: out.cancel,
+            then: () => {
+              send(what, done);
+            },
+          });
+        } else if (out.outcome === "refused") {
           setRefusal(out.refusal);
           if (out.created !== null) setCreated(out.created);
         }

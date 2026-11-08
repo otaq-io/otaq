@@ -45,6 +45,13 @@
   color: var(--st-error);
 }
 
+/* The start's question: why, then the fields. */
+.git-identity-dialog {
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+}
+
 .git-identity-foot {
   display: flex;
   justify-content: flex-end;

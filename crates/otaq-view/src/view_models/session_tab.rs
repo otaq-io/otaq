@@ -223,7 +223,14 @@ pub fn run_dot(run: Option<&RunInfo>) -> Option<Dot> {
     }
 }
 
-/// The switch (SHT-04): Agent, the check's agent once a check ran, Run, Shell, each with its dot.
+/// Whether the ticket can be run: the project has a run command, or a Run is up. Overview's Run and the switch's Run
+/// show only then.
+pub fn runnable(run: Option<&RunInfo>) -> bool {
+    run.is_some_and(|r| !r.command.trim().is_empty() || r.state.is_live())
+}
+
+/// The switch (SHT-04): Agent, the check's agent once a check ran, Run (once the ticket can be run), Shell, each with
+/// its dot.
 pub fn parts(f: &Facts) -> Vec<PartView> {
     let ticket = f.ticket;
     let checking = checking(ticket.status);
@@ -261,20 +268,18 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
     }]
     .into_iter()
     .chain(check)
-    .chain([
-        PartView {
-            content: Content::Run,
-            label: "Run".to_owned(),
-            dot: run_dot(f.run),
-            agent: None,
-        },
-        PartView {
-            content: Content::Shell,
-            label: "Terminal".to_owned(),
-            dot: shell_dot,
-            agent: None,
-        },
-    ])
+    .chain(runnable(f.run).then(|| PartView {
+        content: Content::Run,
+        label: "Run".to_owned(),
+        dot: run_dot(f.run),
+        agent: None,
+    }))
+    .chain([PartView {
+        content: Content::Shell,
+        label: "Terminal".to_owned(),
+        dot: shell_dot,
+        agent: None,
+    }])
     .collect()
 }
 
@@ -291,24 +296,16 @@ pub fn tab_dot(parts: &[PartView]) -> Option<Dot> {
         .or_else(|| dots().find(|d| *d == Dot::Running))
 }
 
-/// "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22": who the terminal is, on what, where.
-pub fn agent_line(
-    agent: &str,
-    tool: Option<Tool>,
-    model: Option<&str>,
-    worktree: Option<&str>,
-) -> String {
+/// "Rust developer · Codex · gpt-5.5", "Strong · Claude Code · opus": who the terminal is and what it runs on, in the
+/// words the agent was set up with (the model as chosen, not the exact id the tool reported, and no worktree path).
+pub fn agent_line(agent: &str, tool: Option<Tool>, model: Option<&str>) -> String {
     let model = model.filter(|m| !m.is_empty()).unwrap_or(TOOL_DEFAULT);
     let tool = tool.map(|t| format!("{} \u{b7} {model}", t.display_name()));
-    [
-        Some(agent.to_owned()),
-        tool,
-        worktree.map(crate::shell::tilde),
-    ]
-    .into_iter()
-    .flatten()
-    .collect::<Vec<_>>()
-    .join(" \u{b7} ")
+    [Some(agent.to_owned()), tool]
+        .into_iter()
+        .flatten()
+        .collect::<Vec<_>>()
+        .join(" \u{b7} ")
 }
 
 /// The command that attaches to a check's terminal while it runs: `otaq attach SHOP-19 --stage security` (a check has
@@ -446,7 +443,6 @@ mod tests {
             [
                 ("Agent", None),
                 ("Validate", Some(Dot::Running)),
-                ("Run", None),
                 ("Terminal", None)
             ]
         );
@@ -525,7 +521,6 @@ mod tests {
                 ("Agent", None),
                 ("Security reviewer \u{2713}", None),
                 ("Performance reviewer", Some(Dot::Running)),
-                ("Run", None),
                 ("Terminal", None)
             ]
         );
@@ -566,7 +561,7 @@ mod tests {
         });
         assert_eq!(
             parts.iter().map(|p| p.label.as_str()).collect::<Vec<_>>(),
-            ["Agent", "Security", "Run", "Terminal"]
+            ["Agent", "Security", "Terminal"]
         );
     }
 
@@ -612,11 +607,7 @@ mod tests {
         });
         assert_eq!(
             labels(&parts),
-            [
-                ("Agent", Some(Dot::Waiting)),
-                ("Run", None),
-                ("Terminal", None)
-            ]
+            [("Agent", Some(Dot::Waiting)), ("Terminal", None)]
         );
     }
 
@@ -697,21 +688,16 @@ mod tests {
     }
 
     #[test]
-    fn the_line_names_the_agent_its_tool_model_and_worktree() {
+    fn the_line_names_the_agent_its_tool_and_model_in_plain_words() {
         assert_eq!(
-            agent_line(
-                "Rust developer",
-                Some(Tool::Codex),
-                Some("gpt-5.5"),
-                Some("/data/wt/shop-web/SHOP-22")
-            ),
-            "Rust developer \u{b7} Codex \u{b7} gpt-5.5 \u{b7} /data/wt/shop-web/SHOP-22"
+            agent_line("Rust developer", Some(Tool::Codex), Some("gpt-5.5")),
+            "Rust developer \u{b7} Codex \u{b7} gpt-5.5"
         );
         assert_eq!(
-            agent_line("Validator", Some(Tool::Claude), None, None),
+            agent_line("Validator", Some(Tool::Claude), None),
             "Validator \u{b7} Claude Code \u{b7} tool default"
         );
-        assert_eq!(agent_line("Spec writer", None, None, None), "Spec writer");
+        assert_eq!(agent_line("Spec writer", None, None), "Spec writer");
     }
 
     /// Finding 55: the label names the ticket, and says "Typing goes to" only while that terminal has the keyboard.

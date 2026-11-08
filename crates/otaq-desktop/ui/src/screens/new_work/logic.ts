@@ -3,6 +3,7 @@
 // start (`editor.create_and_start`, the user's own Start) and ⇧↵ Ask Noyan to shape it (a conversation on Noyan's
 // agent through `agent_panel.send`, its panel opened). What the box says is Rust's (`new_work.view`, `otaq-view`'s
 // `new_work.rs`); every rule of a ticket (a title is needed, where it lands) is the editor's in Rust.
+import { openOverlay } from "../../app/overlays";
 import { createStore, type Store } from "../../app/store";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorSaved } from "../../generated/EditorSaved";
@@ -107,6 +108,24 @@ export async function createTicket(
     : ((await ask("editor.save", { target, form })) as EditorSaved);
   if (saved.outcome === "saved") return { clear: true, note: null };
   if (saved.outcome === "title_missing") return { clear: false, note: null };
+  if (saved.outcome === "needs_identity") {
+    // Nothing was created: git's name and email first ("Save and start" creates and starts it then); Cancel keeps
+    // what was typed.
+    const asked = saved;
+    return new Promise((resolve) => {
+      openOverlay("git_identity", {
+        form: asked.form,
+        save: asked.save,
+        cancel: asked.cancel,
+        then: () => {
+          void createTicket(project, typed, start, ask).then(resolve);
+        },
+        onCancel: () => {
+          resolve({ clear: false, note: null });
+        },
+      });
+    });
+  }
   return { clear: saved.created !== null, note: saved.refusal.message };
 }
 

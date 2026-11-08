@@ -479,7 +479,7 @@ describe("the board screen", () => {
   it("fills the board and search slots, the delete dialog; ⌘N opens the box for new work, else the full form", () => {
     const app = registerScreens({ board });
     expect(registered(app).slots).toEqual(["header_search", "board"]);
-    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back"]);
+    expect(registered(app).overlays).toEqual(["delete_ticket", "drag_back", "git_identity"]);
     // The box on screen: it opens, and no form does.
     boxOnScreen.set(true);
     const asked = openRequests.get();
