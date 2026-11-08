@@ -6,7 +6,9 @@ import { createStore } from "../../app/store";
 import type { BoardHint } from "../../generated/BoardHint";
 import type { FirstTicketView } from "../../generated/FirstTicketView";
 import type { NotificationsLine } from "../../generated/NotificationsLine";
-import { answerFirstTicket, pressHint, startFirstTicket } from "./first_run";
+import { openTicket, selection } from "../../app/selection";
+import { flowEditing } from "../flow_board/logic";
+import { answerFirstTicket, HINT_ROUTES, hintTarget, pressHint, startFirstTicket } from "./first_run";
 import { FirstTicketCard } from "./FirstRun";
 
 const LINE: NotificationsLine = {
@@ -118,5 +120,32 @@ describe("a first-run hint's button", () => {
       { hint: "first_review" },
       { hint: "first_review" },
     ]);
+  });
+});
+
+describe("where a first-run hint points", () => {
+  /** A stand-in for an element to search: it answers its own name for each selector. */
+  const within = (name: string) =>
+    ({ querySelector: (selector: string) => ({ name, selector }) }) as unknown as ParentNode;
+
+  it("finds Edit flow on the board, and the box for new work over it", () => {
+    const board = within("board");
+    const page = within("page");
+    expect(hintTarget({ kind: "edit_flow" }, board, page)).toEqual({
+      name: "board",
+      selector: ".board-edit-flow",
+    });
+    expect(hintTarget({ kind: "new_work" }, board, page)).toEqual({
+      name: "page",
+      selector: ".new-work-closed",
+    });
+  });
+
+  it("Edit flow from a hint closes the open ticket, so its sheet doesn't stay over the editor", () => {
+    openTicket("SHOP-1");
+    HINT_ROUTES.editFlow("SHOP");
+    expect(selection.get().ticket).toBeNull();
+    expect(flowEditing.get()).toEqual({ project: "SHOP" });
+    flowEditing.set(null);
   });
 });

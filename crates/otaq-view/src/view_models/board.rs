@@ -128,7 +128,7 @@ pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str)
             } else {
                 IconName::Activity
             },
-            "Tickets move here when their agent starts. Each agent works in its own worktree.",
+            "Tickets come here when they start, and an agent works on each one.",
         ),
         ColumnKind::HumanCheck => (
             if quiet {
@@ -136,7 +136,7 @@ pub fn column_look(column: &FlowColumn, quiet: bool) -> (IconName, &'static str)
             } else {
                 IconName::Eye
             },
-            "Agents move their ticket here when they submit it for your review.",
+            "Tickets wait here for you when their agent is done.",
         ),
         ColumnKind::Done => (
             IconName::CircleCheck,

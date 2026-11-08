@@ -351,6 +351,47 @@ button.header-activity[data-open] {
   font-size: 13px;
 }
 
+/* AGENTS RUNNING: one row per ticket with an agent at work; a click opens it. */
+.activity-ticket {
+  display: grid;
+  grid-template-columns: auto 1fr;
+  column-gap: 8px;
+  width: calc(100% + 12px);
+  margin: 0 -6px;
+  padding: 4px 6px;
+  border: 0;
+  border-radius: 6px;
+  background: none;
+  color: var(--text-primary);
+  font: inherit;
+  font-size: 13px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.activity-ticket:hover {
+  background: var(--bg-hover);
+}
+
+.activity-ticket-key {
+  color: var(--text-muted);
+  font: 400 11px var(--font-mono);
+  line-height: 18px;
+}
+
+.activity-ticket-title {
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.activity-ticket-line {
+  grid-column: 2;
+  color: var(--text-secondary);
+  font-size: 11px;
+}
+
 .activity-tool-name {
   flex: 1;
   min-width: 0;
@@ -573,6 +614,12 @@ button.rail-item {
   background: var(--bg-column);
   color: var(--text-secondary);
   font: 600 10px/13px var(--font-mono);
+}
+
+/* The working badge sits over the tile's bottom-left corner: the key moves up out of its way (a four-letter key
+   fills the tile's width). */
+.rail-tile:has(> .rail-working) {
+  padding-bottom: 9px;
 }
 
 .rail-item[data-idle] .rail-tile {

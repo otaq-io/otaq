@@ -9,11 +9,16 @@ use serde::{Deserialize, Serialize};
 use super::plan::{self, ActiveLimit};
 use super::{DayRow, local_day, tokens};
 use crate::agent_tools::{Adapters, LimitWindow, Tool, WindowsSource};
+use crate::domain::Status;
+use crate::session::SessionKind;
 use crate::store::{Store, StoreError, now_ms};
 
 /// The answer to `usage.activity`.
 #[derive(Debug, Clone, PartialEq, Serialize, Deserialize)]
 pub struct Activity {
+    /// The tickets with an agent at work now, one each ([`working`]): what Running counts and lists.
+    #[serde(default)]
+    pub working: Vec<WorkingAgent>,
     /// Today, as `YYYY-MM-DD` in local time.
     pub day: String,
     /// Every tool, in [`Tool::ALL`] order.
@@ -51,6 +56,91 @@ pub struct ToolActivity {
     /// The tool's active usage limit, while its banner is up (USG-03).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub limit: Option<ActiveLimit>,
+}
+
+/// A ticket with an agent at work ([`SessionKind::at_work_on`]): one row of Running.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct WorkingAgent {
+    /// The project's key and name.
+    pub project: String,
+    pub project_name: String,
+    /// "SHOP-27".
+    pub key: String,
+    pub title: String,
+    pub status: Status,
+    /// The tool of the session at work, as stored (`None`: the tool a new session runs on).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tool: Option<String>,
+    /// The named agent it runs ("Developer", "Checker").
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub agent: Option<String>,
+    /// When that session started (Unix ms).
+    pub since: i64,
+}
+
+/// One live session of a ticket: project key and name, ticket id, number and title, its status, the session's
+/// kind, tool, agent name and start.
+type LiveRow = (
+    String,
+    String,
+    String,
+    i64,
+    String,
+    String,
+    String,
+    Option<String>,
+    Option<String>,
+    i64,
+);
+
+/// The tickets with an agent at work now, oldest project first, then the agent that started first: a live session
+/// that is at work for the ticket's status ([`SessionKind::at_work_on`]; a session kept while the ticket waits for
+/// your review isn't). A ticket counts once, by its newest session at work (a check's checker, not the kept build
+/// session).
+pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
+    let rows: Vec<LiveRow> = sqlx::query_as(
+        "SELECT p.key, p.name, t.id, t.number, t.title, t.state, s.kind, s.tool, s.agent_name, s.started_at
+         FROM sessions s JOIN tickets t ON t.id = s.ticket_id JOIN projects p ON p.id = t.project_id
+         WHERE s.ended_at IS NULL
+         ORDER BY p.created_at, p.key, s.started_at DESC",
+    )
+    .fetch_all(store.pool())
+    .await?;
+    let mut seen = std::collections::HashSet::new();
+    let mut projects: Vec<String> = Vec::new();
+    let mut working = Vec::new();
+    for (project, project_name, id, number, title, state, kind, tool, agent, since) in rows {
+        let (Ok(status), Ok(kind)) = (state.parse::<Status>(), kind.parse::<SessionKind>()) else {
+            continue;
+        };
+        if !kind.at_work_on(status) || !seen.insert(id) {
+            continue;
+        }
+        if projects.last() != Some(&project) {
+            projects.push(project.clone());
+        }
+        working.push(WorkingAgent {
+            key: format!("{project}-{number}"),
+            project,
+            project_name,
+            title,
+            status,
+            tool,
+            agent,
+            since,
+        });
+    }
+    // The query's project order, then by start (the sort is stable).
+    working.sort_by_key(|w| {
+        (
+            projects
+                .iter()
+                .position(|p| *p == w.project)
+                .unwrap_or(usize::MAX),
+            w.since,
+        )
+    });
+    Ok(working)
 }
 
 /// A project's running agents of one tool.
@@ -94,26 +184,18 @@ pub async fn activity(store: &Store, adapters: &Adapters) -> Result<Activity, St
             .tool()
     };
 
-    // The header's count (`ProjectInfo::agents_working`), split by tool.
-    let rows: Vec<(String, String, Option<String>, i64)> = sqlx::query_as(
-        "SELECT p.key, p.name, s.tool, COUNT(*)
-         FROM sessions s JOIN tickets t ON t.id = s.ticket_id JOIN projects p ON p.id = t.project_id
-         WHERE s.kind = 'agent' AND s.ended_at IS NULL
-         GROUP BY p.id, s.tool
-         ORDER BY p.created_at, p.key",
-    )
-    .fetch_all(store.pool())
-    .await?;
+    // The header's count (`ProjectInfo::agents_working`): each ticket with an agent at work counts once, on the
+    // tool of its session at work; split by tool.
+    let working = working(store).await?;
     let mut running: BTreeMap<Tool, Vec<ProjectRunning>> = BTreeMap::new();
-    for (key, name, tool, count) in rows {
-        let projects = running.entry(tool_of(tool)).or_default();
-        let count = u32::try_from(count).unwrap_or(0);
-        match projects.iter_mut().find(|p| p.key == key) {
-            Some(p) => p.running += count,
+    for agent in &working {
+        let projects = running.entry(tool_of(agent.tool.clone())).or_default();
+        match projects.iter_mut().find(|p| p.key == agent.project) {
+            Some(p) => p.running += 1,
             None => projects.push(ProjectRunning {
-                key,
-                name,
-                running: count,
+                key: agent.project.clone(),
+                name: agent.project_name.clone(),
+                running: 1,
             }),
         }
     }
@@ -157,6 +239,7 @@ pub async fn activity(store: &Store, adapters: &Adapters) -> Result<Activity, St
         });
     }
     Ok(Activity {
+        working,
         day,
         tokens_today: tools.iter().map(|t| t.tokens_today).sum(),
         tools,

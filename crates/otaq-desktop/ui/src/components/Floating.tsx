@@ -98,7 +98,27 @@ export function useFloatingStyle(
     window.addEventListener("resize", place);
     // Capturing: a scroll doesn't bubble, so this is how a scroll in any scrolling parent reaches the document.
     document.addEventListener("scroll", onScroll, true);
+    // A layer that can't close (a hint, a tooltip) follows its element as it moves or appears without a scroll or a
+    // resize of the window (the box for new work re-centres when the ticket sheet closes), and hides while the
+    // element is gone or hidden.
+    let frame = 0;
+    let last: string | null = null;
+    const follow = () => {
+      const box = ref?.current?.getBoundingClientRect();
+      const shown = box !== undefined && (box.width > 0 || box.height > 0);
+      const key = shown
+        ? `${String(box.left)},${String(box.top)},${String(box.width)},${String(box.height)}`
+        : "";
+      if (key !== last) {
+        last = key;
+        if (shown) place();
+        else setPosition(undefined);
+      }
+      frame = requestAnimationFrame(follow);
+    };
+    if (ref && !dismiss.current) frame = requestAnimationFrame(follow);
     return () => {
+      cancelAnimationFrame(frame);
       window.removeEventListener("resize", place);
       document.removeEventListener("scroll", onScroll, true);
     };

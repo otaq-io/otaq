@@ -121,6 +121,8 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   const agent = agents[project] ?? null;
   const bar = useRef<HTMLDivElement>(null);
   const startButton = useRef<HTMLButtonElement>(null);
+  // The first-time hint sits under Watch a ticket, which it names, so it never covers Backlog's column.
+  const watchButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
   const askButton = useRef<HTMLButtonElement>(null);
 
@@ -330,6 +332,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         ) : (
           <>
             <Button
+              ref={watchButton}
               compact
               variant="ghost"
               icon="play"
@@ -745,7 +748,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
         />
       )}
-      <OneTimeHint hint={view.hint} anchor={bar} />
+      <OneTimeHint hint={view.hint} anchor={watchButton} align="end" />
     </div>
   );
 }

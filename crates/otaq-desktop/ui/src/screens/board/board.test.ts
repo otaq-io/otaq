@@ -501,7 +501,7 @@ describe("the board screen", () => {
     quiet_icon: false,
     tooltip: null,
     who_acts: "",
-    empty_hint: "Agents move their ticket here when they submit it for your review.",
+    empty_hint: "Tickets wait here for you when their agent is done.",
     collapsed: false,
     rail: null,
     menu: [],
@@ -556,7 +556,7 @@ describe("the board screen", () => {
 
   it("draws an empty column with its hint and its ⋯; folded Done draws nothing of its own", () => {
     const empty = renderToStaticMarkup(createElement(Column, props(column({ menu: FOLD_MENU }))));
-    expect(empty).toContain("Agents move their ticket here");
+    expect(empty).toContain("Tickets wait here for you");
     expect(empty).toContain('data-column="review"');
     expect(empty).toContain('aria-label="Column menu"');
     // Done folded is the board's "Done 4 →" line under the last column (BRD-02).
@@ -699,7 +699,7 @@ describe("the Review column (T-0328, d0087)", () => {
     quiet_icon: false,
     tooltip: null,
     who_acts: "",
-    empty_hint: "Agents move their ticket here when they submit it for your review.",
+    empty_hint: "Tickets wait here for you when their agent is done.",
     collapsed: false,
     rail: null,
     menu: [],
@@ -750,7 +750,7 @@ describe("the Review column (T-0328, d0087)", () => {
     const drawn = renderToStaticMarkup(
       createElement(Column, { ...props, column: { ...review, cards: [], count: "0" } }),
     );
-    expect(drawn).toContain("Agents move their ticket here when they submit it for your review.");
+    expect(drawn).toContain("Tickets wait here for you when their agent is done.");
   });
 });
 

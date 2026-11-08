@@ -3,4 +3,4 @@
 /**
  * Where a board hint points.
  */
-export type BoardHintAnchor = { "kind": "card", key: string, } | { "kind": "edit_flow" };
+export type BoardHintAnchor = { "kind": "card", key: string, } | { "kind": "edit_flow" } | { "kind": "new_work" };

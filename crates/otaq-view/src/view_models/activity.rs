@@ -15,12 +15,12 @@ use otaq_core::agent_tools::LimitWindow;
 use otaq_core::board::settings::AgentLimits;
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::terminals::run::RunInfo;
-use otaq_core::usage::activity::{Activity, ToolActivity, ToolLimits};
+use otaq_core::usage::activity::{Activity, ToolActivity, ToolLimits, WorkingAgent};
 use otaq_core::usage::limit::LimitKind;
 use serde::Serialize;
 use ts_rs::TS;
 
-use super::card::tokens_label;
+use super::card::{age_label, tokens_label};
 use super::clock::reset_label;
 use super::limits::{self, AgentsChip};
 use super::processes;
@@ -81,6 +81,8 @@ pub struct Inputs<'a> {
     pub limits: &'a AgentLimits,
     pub scheduler: Option<&'a SchedulerStatus>,
     pub runs: &'a [RunInfo],
+    /// The tickets with an agent at work, one row each in the popover.
+    pub working: &'a [WorkingAgent],
     pub now: i64,
 }
 
@@ -334,15 +336,42 @@ fn resets(at: Option<i64>, now: i64) -> Option<String> {
     at.map(|at| format!("resets {}", reset_label(at, now)))
 }
 
-/// AGENTS RUNNING: the count, and one row per tool only when more than one is connected.
+/// AGENTS RUNNING: the count, one row per ticket it counts, and one row per tool only when more than one is
+/// connected.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityAgents")]
 pub struct Agents {
     pub title: &'static str,
     pub count: String,
+    /// One row per ticket with an agent at work; a click opens it.
+    pub tickets: Vec<TicketRow>,
     pub rows: Vec<ToolCount>,
     /// [`NOTHING_RUNNING`] at 0.
     pub empty: Option<String>,
+}
+
+/// A ticket with an agent at work: "SHOP-27 Wishlist share link · Developer · 26m", or "· asks you" while it waits
+/// for you.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "ActivityTicketRow")]
+pub struct TicketRow {
+    pub key: String,
+    pub title: String,
+    /// "Developer · 26m", "Checker · asks you".
+    pub line: String,
+}
+
+/// "Developer · 26m"; "Developer · asks you" while the agent waits for you.
+fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
+    let what = if agent.status.is_needs_you_family() {
+        agent.status.label().to_lowercase()
+    } else {
+        age_label(now - agent.since)
+    };
+    match &agent.agent {
+        Some(name) => format!("{name} \u{b7} {what}"),
+        None => what,
+    }
 }
 
 /// One tool's running agents.
@@ -442,6 +471,15 @@ pub fn popover(inputs: &Inputs<'_>, keys: &KeyLabels) -> Popover {
     let agents = Agents {
         title: "AGENTS RUNNING",
         count: running.to_string(),
+        tickets: inputs
+            .working
+            .iter()
+            .map(|w| TicketRow {
+                key: w.key.clone(),
+                title: w.title.clone(),
+                line: ticket_line(w, inputs.now),
+            })
+            .collect(),
         rows: if inputs.names_tools() && running > 0 {
             inputs
                 .tools
@@ -692,6 +730,7 @@ pub mod fixtures {
                 limits: &self.limits,
                 scheduler: None,
                 runs: &self.runs,
+                working: &[],
                 now: NOW,
             }
         }
@@ -1260,6 +1299,7 @@ mod tests {
     #[test]
     fn only_connected_tools_are_listed() {
         let activity = Activity {
+            working: Vec::new(),
             day: "2026-10-08".into(),
             tools: vec![fixtures::tool(
                 &[("pocket-notes", 1)],
