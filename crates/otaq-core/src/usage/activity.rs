@@ -92,6 +92,7 @@ type LiveRow = (
     Option<String>,
     Option<String>,
     i64,
+    bool,
 );
 
 /// The tickets with an agent at work now, oldest project first, then the agent that started first: a live session
@@ -101,7 +102,8 @@ type LiveRow = (
 pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
     let rows: Vec<LiveRow> = sqlx::query_as(
         "SELECT p.key, p.name, t.id, t.number, t.title, t.state, s.kind, s.tool, s.agent_name,
-                COALESCE(t.state_since, s.started_at)
+                COALESCE(t.state_since, s.started_at),
+                EXISTS (SELECT 1 FROM pr_flows f WHERE f.ticket_id = t.id)
          FROM sessions s JOIN tickets t ON t.id = s.ticket_id JOIN projects p ON p.id = t.project_id
          WHERE s.ended_at IS NULL
          ORDER BY p.created_at, p.key, s.started_at DESC",
@@ -111,11 +113,13 @@ pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
     let mut seen = std::collections::HashSet::new();
     let mut projects: Vec<String> = Vec::new();
     let mut working = Vec::new();
-    for (project, project_name, id, number, title, state, kind, tool, agent, since) in rows {
+    for (project, project_name, id, number, title, state, kind, tool, agent, since, delivering) in
+        rows
+    {
         let (Ok(status), Ok(kind)) = (state.parse::<Status>(), kind.parse::<SessionKind>()) else {
             continue;
         };
-        if !kind.at_work_on(status) || !seen.insert(id) {
+        if !kind.at_work_on(status, delivering) || !seen.insert(id) {
             continue;
         }
         if projects.last() != Some(&project) {

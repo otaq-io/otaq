@@ -112,8 +112,9 @@ impl Board {
         tickets: &[Ticket],
     ) -> Result<ProjectInfo, BoardError> {
         // Tickets with an agent at work, once each: a session kept while its ticket waits for review isn't running.
-        let live: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT t.id, t.state, s.kind FROM sessions s JOIN tickets t ON t.id = s.ticket_id
+        let live: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT t.id, t.state, s.kind, EXISTS (SELECT 1 FROM pr_flows f WHERE f.ticket_id = t.id)
+             FROM sessions s JOIN tickets t ON t.id = s.ticket_id
              WHERE t.project_id = ? AND s.ended_at IS NULL",
         )
         .bind(&project.id)
@@ -121,16 +122,16 @@ impl Board {
         .await?;
         let working = live
             .iter()
-            .filter(|(_, state, kind)| {
+            .filter(|(_, state, kind, delivering)| {
                 match (
                     state.parse::<crate::domain::Status>(),
                     kind.parse::<crate::session::SessionKind>(),
                 ) {
-                    (Ok(status), Ok(kind)) => kind.at_work_on(status),
+                    (Ok(status), Ok(kind)) => kind.at_work_on(status, *delivering),
                     _ => false,
                 }
             })
-            .map(|(id, _, _)| id)
+            .map(|(id, _, _, _)| id)
             .collect::<std::collections::HashSet<_>>()
             .len();
         // The project's needs-you count (ATT-10): the same items Needs you lists for it.
