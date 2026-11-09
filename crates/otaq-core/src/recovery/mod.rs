@@ -841,6 +841,9 @@ impl Recovery {
                     if let Err(e) = self.validator_session_ended(&session).await {
                         tracing::warn!(session = session.id, error = %e, "can't record a validator's exit");
                     }
+                    if let Err(e) = self.message_writer_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't drop an unwritten message");
+                    }
                 }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
@@ -849,6 +852,35 @@ impl Recovery {
                 Err(broadcast::error::RecvError::Closed) => return,
             }
         }
+    }
+
+    /// The session that could write the ticket's delivery message ended (its agent's or the delivery's own) and none
+    /// of those runs any more: a message still being written never comes, so it is dropped and Approve's
+    /// confirmation starts from the plain message.
+    async fn message_writer_ended(&self, info: &SessionInfo) -> Result<(), BoardError> {
+        if !matches!(info.kind, SessionKind::Agent | SessionKind::Delivery) || info.is_running() {
+            return Ok(());
+        }
+        let Some(key) = &info.ticket else {
+            return Ok(());
+        };
+        let ticket = match self.inner.board.ticket(&key.to_string()).await {
+            Ok(ticket) => ticket,
+            Err(BoardError::NotFound(_)) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let sessions = &self.inner.sessions;
+        if [SessionKind::Agent, SessionKind::Delivery]
+            .into_iter()
+            .any(|kind| sessions.running_of(&ticket.id, kind).is_some())
+        {
+            return Ok(());
+        }
+        if self.inner.board.drop_unwritten_message(&ticket.id).await? {
+            tracing::info!(key = %ticket.key, "the message's session ended before it was written: the plain one stays");
+            self.publish(&ticket.id, &ticket.key, None);
+        }
+        Ok(())
     }
 
     /// Sets a ticket at work to Interrupted, if it still is in `before`. A needs-you ticket keeps its label (the

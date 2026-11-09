@@ -171,3 +171,42 @@ async fn a_delivery_without_an_agent_asks_nobody() {
     assert_eq!((plain.writing, plain.prepared_by), (None, None));
     s.w.stop().await;
 }
+
+/// The session asked for the message ends before its agent sends it: the message never comes, so the confirmation
+/// stops saying the agent still writes and starts from the plain message.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_whose_session_ends_unwritten_falls_back_to_the_plain_one() {
+    let s = setup().await;
+    let w = &s.w;
+    w.board.delivery().arrived(&s.ticket.id).await;
+    let writing = w.board.merge_proposal("SHOP-1").await.unwrap();
+    assert_eq!(writing.writing.as_deref(), Some("Developer"));
+
+    w.sessions.stop(&s.agent.session).await.unwrap();
+    let gone = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            if w.board
+                .delivery_message(&s.ticket.id)
+                .await
+                .unwrap()
+                .is_none()
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        gone.is_ok(),
+        "the unwritten message is dropped when its session ends"
+    );
+    let plain = w.board.merge_proposal("SHOP-1").await.unwrap();
+    assert_eq!((plain.writing, plain.prepared_by), (None, None));
+    assert!(
+        plain.message.starts_with("SHOP-1: Checkout timeout"),
+        "{}",
+        plain.message
+    );
+    s.w.stop().await;
+}

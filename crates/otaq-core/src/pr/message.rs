@@ -200,6 +200,17 @@ impl Board {
         Ok(())
     }
 
+    /// The session asked for the message ended before the agent sent it: the confirmation starts from the plain
+    /// message, and nothing says the agent is still writing. A message it sent stays. Whether one was dropped.
+    pub(crate) async fn drop_unwritten_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        let done =
+            sqlx::query("DELETE FROM delivery_messages WHERE ticket_id = ? AND state = 'writing'")
+                .bind(ticket_id)
+                .execute(self.store().pool())
+                .await?;
+        Ok(done.rows_affected() > 0)
+    }
+
     /// `otaq pr message --stdin`: the agent's message, stored for Approve's confirmation. Refused once the ticket no
     /// longer waits to be delivered.
     pub async fn store_delivery_message(
