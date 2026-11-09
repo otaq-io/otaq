@@ -1387,6 +1387,11 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
+        Request::SettingsOsDark(p) => boxed(move || async move {
+            board.set_os_dark(p.dark).await?;
+            shared.events.publish(Event::SettingsChanged);
+            global_settings(board).await
+        }),
         Request::ProjectSettingsGet(p) => {
             boxed(move || async move { project_settings(board, &p.project).await })
         }

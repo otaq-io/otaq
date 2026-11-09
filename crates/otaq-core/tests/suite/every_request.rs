@@ -313,6 +313,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::UsageMarkLimit(_)
         | Request::SettingsGet
         | Request::SettingsSet(_)
+        | Request::SettingsOsDark(_)
         | Request::ProjectSettingsGet(_)
         | Request::ProjectSettingsSet(_)
         | Request::ProjectViewSet(_)

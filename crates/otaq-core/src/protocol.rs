@@ -759,8 +759,13 @@ pub enum Request {
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
     SettingsGet,
+    /// The whole settings, as the Settings page saves them; the OS appearance is left as stored.
     #[serde(rename = "settings.set")]
     SettingsSet(GlobalSettings),
+    /// `{"dark": true}`: the OS appearance the app sees now, while the theme matches the system; the other settings
+    /// stay. Answered with [`Reply::GlobalSettings`].
+    #[serde(rename = "settings.os_dark")]
+    SettingsOsDark(OsDarkParams),
     #[serde(rename = "project_settings.get")]
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
@@ -1813,6 +1818,12 @@ pub struct TicketTerminal {
     pub text: String,
 }
 
+/// `{"dark": true}`: whether the OS is dark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsDarkParams {
+    pub dark: bool,
+}
+
 /// `{"project": "SHOP"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectParams {
@@ -2195,6 +2206,7 @@ impl Request {
             Self::UsageMarkLimit(_) => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
+            Self::SettingsOsDark(_) => "settings.os_dark",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
             Self::ProjectViewSet(_) => "project_view.set",

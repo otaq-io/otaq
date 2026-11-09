@@ -3,7 +3,7 @@
 //! and on every change of the OS appearance, so Match system follows the OS live.
 
 use otaq_core::board::settings::{GlobalSettings, Theme, ThemeMode};
-use otaq_core::protocol::{Reply, Request};
+use otaq_core::protocol::{OsDarkParams, Reply, Request};
 use otaq_view::theme::{Appearance, Mode, ThemeId};
 use otaq_view::view_models::theme_picker;
 use serde::{Deserialize, Serialize};
@@ -83,12 +83,17 @@ async fn settings(app: &App) -> Result<GlobalSettings, RequestError> {
 /// `settings_changed`, on which every window asks again. In Light or Dark mode the window's own appearance is fixed
 /// (the page then reads that, not the OS's), so nothing is stored.
 async fn seen(app: &App, params: ThemeParams) -> Result<GlobalSettings, RequestError> {
-    let mut settings = settings(app).await?;
+    let settings = settings(app).await?;
     if settings.theme.mode == ThemeMode::System && settings.os_dark != params.os_dark {
-        settings.os_dark = params.os_dark;
-        app.service
-            .send(Request::SettingsSet(settings.clone()))
-            .await?;
+        let dark = OsDarkParams {
+            dark: params.os_dark,
+        };
+        return match app.service.send(Request::SettingsOsDark(dark)).await? {
+            Reply::GlobalSettings(reply) => Ok(reply.settings),
+            other => Err(RequestError::plain(format!(
+                "unexpected answer to settings.os_dark: {other:?}"
+            ))),
+        };
     }
     Ok(settings)
 }
@@ -177,6 +182,33 @@ mod tests {
         assert!(!settings.os_dark);
         assert_eq!(settings.theme, ThemeSetting::default());
         settings_changed(&h).await;
+        h.service.stop_all().await;
+    }
+
+    /// A whole-settings save from a page that read the settings before the OS turned dark never puts the old
+    /// appearance back: only the app's own look at the OS writes it.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_whole_settings_save_keeps_the_os_appearance() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        request(&h.app, "theme.active", json!({ "os_dark": false }))
+            .await
+            .unwrap();
+        let mut older = stored(&h).await;
+        assert!(!older.os_dark);
+        request(&h.app, "theme.active", json!({ "os_dark": true }))
+            .await
+            .unwrap();
+        assert!(stored(&h).await.os_dark);
+        older.terminal_font_size = 15;
+        h.app
+            .service
+            .send(Request::SettingsSet(older))
+            .await
+            .unwrap();
+        let after = stored(&h).await;
+        assert_eq!(after.terminal_font_size, 15, "the save is taken");
+        assert!(after.os_dark, "the OS appearance stays as the app last saw it");
         h.service.stop_all().await;
     }
 

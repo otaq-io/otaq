@@ -5579,6 +5579,15 @@
         }
       }
     },
+    "OsDarkParams": {
+      "kind": "struct",
+      "fields": {
+        "dark": {
+          "ty": "bool",
+          "required": true
+        }
+      }
+    },
     "OtherSkill": {
       "kind": "struct",
       "fields": {
@@ -8375,6 +8384,9 @@
           "newtype": "DeliverNowParams"
         },
         "settings.get": {},
+        "settings.os_dark": {
+          "newtype": "OsDarkParams"
+        },
         "settings.set": {
           "newtype": "GlobalSettings"
         },
