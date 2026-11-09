@@ -819,8 +819,8 @@ pub enum Request {
     #[serde(rename = "flow.show")]
     FlowShow(ProjectParams),
     /// `otaq flow propose` (FLW-03, FED-02), from a Project agent's session or the user: a document or another
-    /// project's stages, checked, then put in the project's draft with the agent's changes marked (during Flow setup
-    /// it replaces only the open one from the same tool, ASK-03). Answered with [`Reply::FlowProposal`].
+    /// project's stages, checked, then put in the project's draft with the agent's changes marked. Answered with
+    /// [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose")]
     FlowPropose(crate::flow::propose::ProposeParams),
     /// Ask for more changes in the flow editor (FLW-04): closes the open proposal; the text goes to the Project agent

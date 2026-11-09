@@ -89,11 +89,6 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
 };
 
-/// The size a flow agent ("Flow setup · Claude Code") starts with: about what its terminal on the Flow setup page
-/// shows (420 px wide, `.flow-at-work-terminals`, at the 13 px monospace font), so the output it draws before the
-/// page attaches isn't redrawn for a narrower terminal.
-const FLOW_AGENT_SIZE: TerminalSize = TerminalSize { rows: 30, cols: 52 };
-
 stored_enum! {
     /// Where a Project agent's name came from (`project_agents.name_source`).
     pub enum NameSource ("name source") {
@@ -416,17 +411,16 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
-        self.start(&project, message, &runs_on, None).await
+        self.start(&project, message, &runs_on).await
     }
 
-    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first `message`;
-    /// `name` names it from the start (a flow agent, "Flow setup · OpenCode"), as the user's name would.
+    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first
+    /// `message`.
     async fn start(
         &self,
         project: &Project,
         message: &str,
         runs_on: &RunsOn,
-        name: Option<&str>,
     ) -> Result<ProjectAgent, BoardError> {
         let id = new_id();
         // Otaq writes no skill into the project's folder (T2); `/flow` runs the flow skill (FLW-11).
@@ -451,8 +445,8 @@ impl ProjectAgents {
         )?;
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
-                                         state, first_request, created_at, name, name_source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                         state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -465,19 +459,11 @@ impl ProjectAgents {
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
-        .bind(name)
-        .bind(name.map(|_| NameSource::User.as_str()))
         .execute(self.inner.board.store().pool())
         .await?;
-        // Only flow agents are named from the start.
-        let size = if name.is_some() {
-            FLOW_AGENT_SIZE
-        } else {
-            INITIAL_SIZE
-        };
         if let Err(e) = self
-            // The user's first message (or Ask each tool): it starts while paused too (PAU-05).
-            .spawn(project, launched, &id, size, runs_on, Start::User)
+            // The user's first message: it starts while paused too (PAU-05).
+            .spawn(project, launched, &id, INITIAL_SIZE, runs_on, Start::User)
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")

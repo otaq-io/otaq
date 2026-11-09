@@ -1,8 +1,8 @@
 //! The draft (FED-02, FED-08; d0115 "The user edits stages directly", "Both edit the same draft"): the flow a project
 //! is being changed to, in the flow editor, before the user applies it.
 //!
-//! **Where it lives**: the project's open proposal (`flow_proposals`), so nothing new is stored: one per project, or
-//! during Flow setup the user's own beside one entry per asked tool (ASK-03, FED-03). What it remembers besides its
+//! **Where it lives**: the project's open proposal (`flow_proposals`), so nothing new is stored: one per project.
+//! What it remembers besides its
 //! document ([`DraftMemory`]: the marks, the draft before the agent's changes, whether it is a swap) is kept in the
 //! row's `source_json`. With no open proposal the draft is the flow as it will be, unchanged, and nothing is stored
 //! until something changes.
@@ -191,7 +191,7 @@ pub enum DraftEdit {
     UndoAll,
     /// Start from a preset, another project, an earlier flow or a file (Import a flow…): copied in, a swap.
     StartFrom { source: ProposeFrom },
-    /// Start from a tool's proposal under Made for <project> (Flow setup, FED-03): copied in, a swap.
+    /// Start from another open proposal of the project (FED-03): copied in, a swap.
     Entry { proposal: u32 },
     /// Start from the flow in use: the draft goes back to it.
     FlowInUse,
@@ -482,7 +482,7 @@ impl Board {
         self.draft(&key, models).await
     }
 
-    /// A proposal from `otaq flow propose` outside Flow setup (FED-02): it replaces the draft's content instead of
+    /// A proposal from `otaq flow propose` (FED-02): it replaces the draft's content instead of
     /// opening a separate preview. A Project agent's marks each stage it changed against the draft before its first
     /// change still marked, and becomes the one the answer goes to; the user's own (their terminal) keeps a mark only
     /// where that stage still differs. `--from` another project copies another flow in: a swap. `file` was checked.

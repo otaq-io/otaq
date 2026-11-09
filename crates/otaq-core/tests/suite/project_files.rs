@@ -433,7 +433,6 @@ async fn a_project_on_develop_reads_develop_whatever_the_checkout() {
             path: repo.display().to_string(),
             key: Some("BILL".into()),
             base_branch: Some("develop".into()),
-            ..Default::default()
         })
         .await
         .unwrap();
