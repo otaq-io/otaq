@@ -67,7 +67,8 @@ impl Review {
     /// tickets merged into it (see the module), even when its own cleanup failed.
     pub async fn finish(&self, ticket: &Ticket) -> Result<Cleanup, BoardError> {
         if ticket.status == Status::Merged {
-            // The first ticket approved into Done closes a new user's first run: the box for new work shows from now.
+            // The first ticket approved into Done closes a new user's first run: the box for new work shows from now. (Approve
+            // & open PR counts too, at its confirm.)
             if let Err(e) = self.inner.board.store().reach_first_approve().await {
                 tracing::warn!(error = %e, "couldn't remember the first approve");
             }

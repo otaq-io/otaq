@@ -2,9 +2,9 @@
 //! project with its status, priority and dependencies; for each started ticket its worktree and branch (it
 //! may read and run code there); **the flow**: every stage with what it is for (its description); the **stage
 //! choices** it may set on the tickets it creates (AGM-06, AGM-08; none on the default flow); the rules of what it may
-//! change; and what it is told to follow: the agent Noyan uses: its **instructions**, then the project's notes (AGM-06;
-//! d0068, d0108). Concise Markdown ([`render`]); `--json`
-//! prints the [`ProjectPrime`] itself.
+//! change; and what it is told to follow: the agent the conversation runs on (else the agent Noyan uses): its
+//! **instructions**, then the project's notes (AGM-06; d0068, d0108). Concise Markdown ([`render`]); `--json` prints
+//! the [`ProjectPrime`] itself.
 
 use serde::{Deserialize, Serialize};
 
@@ -73,13 +73,31 @@ impl PrimeTicket {
 }
 
 impl Board {
-    /// The prime context of a project's Project agents.
-    pub async fn project_prime(&self, project: &str) -> Result<ProjectPrime, BoardError> {
+    /// The prime context of a project's Noyan conversation `conversation` (its id; `None` for someone running
+    /// `prime --project` by hand).
+    pub async fn project_prime(
+        &self,
+        project: &str,
+        conversation: Option<&str>,
+    ) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        // The instructions of the agent Noyan uses (AGM-02: the Project agent instructions moved there), then the
-        // project's notes (AGM-06).
-        let agent = self.store().noyan_agent().await?;
+        // The instructions of the agent the conversation runs on (the user may switch Noyan's agent when starting
+        // one), else of the agent Noyan uses; then the project's notes.
+        let mut agent = None;
+        if let Some(id) = conversation {
+            let picked: Option<Option<String>> =
+                sqlx::query_scalar("SELECT agent_id FROM project_agents WHERE id = ?")
+                    .bind(id)
+                    .fetch_optional(self.store().pool())
+                    .await?;
+            if let Some(agent_id) = picked.flatten() {
+                agent = self.store().agent(&agent_id).await?;
+            }
+        }
+        if agent.is_none() {
+            agent = self.store().noyan_agent().await?;
+        }
         let instructions = self.instructions(&p.key, agent.as_ref()).await?;
         let flow = flow_stages(&self.effective_flow(&p.key).await?, None, &[]);
         Ok(ProjectPrime {

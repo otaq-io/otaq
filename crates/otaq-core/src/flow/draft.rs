@@ -217,13 +217,15 @@ pub struct DraftUpdateParams {
 }
 
 /// The marks of the changes from `before` to `now` (one per stage: Added, New and Removed first, then Changed over
-/// Moved), by the agent `by`; `keep`, when given, limits them to those stages.
+/// Moved), by the agent `by`; `keep`, when given, limits them to those stages. Each mark's why is the proposal's reason
+/// for that stage (`whys`, by its id or name), else the stage's description.
 fn marks_between(
     before: &FlowFile,
     now: &FlowFile,
     by: &str,
     stored: &[Agent],
     keep: Option<&HashSet<String>>,
+    whys: &yaml::Whys,
 ) -> Vec<StageMark> {
     let mut marks: Vec<StageMark> = Vec::new();
     for change in stage_changes(&before.flow, &now.flow, false) {
@@ -244,12 +246,21 @@ fn marks_between(
             }
             continue;
         }
+        let why = whys
+            .get(&change.stage_id)
+            .or_else(|| {
+                whys.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&change.stage))
+                    .map(|(_, v)| v)
+            })
+            .cloned()
+            .or_else(|| stage.and_then(|s| s.description.clone()));
         marks.push(StageMark {
             stage_id: change.stage_id,
             stage: change.stage,
             mark,
             by: by.to_owned(),
-            why: stage.and_then(|s| s.description.clone()),
+            why,
         });
     }
     marks
@@ -492,6 +503,7 @@ impl Board {
         file: FlowFile,
         source: &Source,
         by: &ProposedBy,
+        whys: &yaml::Whys,
         models: &dyn ModelCatalog,
     ) -> Result<Proposal, BoardError> {
         let existing = self.draft_row(key).await?;
@@ -507,7 +519,8 @@ impl Board {
                     (Some(before), false) => before.clone(),
                     _ => row.yaml.clone(),
                 };
-                row.draft.marks = marks_between(&read(&before)?, &file, name, &stored_agents, None);
+                row.draft.marks =
+                    marks_between(&read(&before)?, &file, name, &stored_agents, None, whys);
                 row.draft.before = Some(before);
                 row.proposed_by = by.clone();
             }
@@ -694,10 +707,19 @@ fn kept_marks(
         .map(|m| m.stage_id.clone())
         .filter(|id| Some(id.as_str()) != undone)
         .collect();
-    let mut marks = marks_between(&read(before)?, now, "", stored, Some(&keep));
+    let mut marks = marks_between(
+        &read(before)?,
+        now,
+        "",
+        stored,
+        Some(&keep),
+        &yaml::Whys::new(),
+    );
     for mark in &mut marks {
         if let Some(earlier) = memory.marks.iter().find(|m| m.stage_id == mark.stage_id) {
             mark.by.clone_from(&earlier.by);
+            // The agent's reason stays with its mark.
+            mark.why.clone_from(&earlier.why);
         }
     }
     Ok(marks)
@@ -730,7 +752,14 @@ mod tests {
         let ids =
             |f: &FlowFile| -> Vec<String> { f.flow.stages.iter().map(|s| s.id.clone()).collect() };
         assert_eq!(ids(&now), ["plan", "validate", "dev"]);
-        let marks = marks_between(&before, &now, "Checkout slowness", &[], None);
+        let marks = marks_between(
+            &before,
+            &now,
+            "Checkout slowness",
+            &[],
+            None,
+            &yaml::Whys::new(),
+        );
         let tags: Vec<(&str, Mark)> = marks
             .iter()
             .map(|m| (m.stage_id.as_str(), m.mark))
@@ -752,6 +781,41 @@ mod tests {
         let dev_back = undo_stage(&before, &now, "dev");
         assert_eq!(ids(&dev_back), ["dev", "plan", "validate"]);
         assert_eq!(dev_back.flow.stage("dev"), before.flow.stage("dev"));
+    }
+
+    /// A proposal's reason for a stage (by its id or name) is the mark's why, shown under Why these changes; a stage it
+    /// gives no reason for falls back to its description. The proposed document's `why:` never reaches the flow.
+    #[test]
+    fn a_proposals_why_is_its_marks_reason() {
+        let before = file(default_flow());
+        let text = "\
+flow:
+  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: work-ticket, description: Builds it.}
+  - {id: security, name: Security, kind: check, by: agent, agent: Checker, rounds: 2, description: Settles whether it is safe.}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Checker, skill: validate, rounds: 2}
+  - {id: review, name: Review, kind: check, by: you}
+delivery: {delivers: local, mode: click}
+why:
+  Security: From 41 /security-review runs in shop-web (Claude Code).
+  validate: \"  \"
+";
+        let (now, _, whys) = yaml::read_proposal(text).unwrap();
+        assert_eq!(whys.len(), 1, "an empty reason is dropped: {whys:?}");
+        assert!(!yaml::write(&now).contains("why"));
+        let marks = marks_between(&before, &now, "Checkout slowness", &[], None, &whys);
+        let why = |id: &str| {
+            marks
+                .iter()
+                .find(|m| m.stage_id == id)
+                .and_then(|m| m.why.clone())
+        };
+        assert_eq!(
+            why("security").as_deref(),
+            Some("From 41 /security-review runs in shop-web (Claude Code).")
+        );
+        // No reason given: the stage's description, as before.
+        assert_eq!(why("validate"), None);
+        assert_eq!(why("dev").as_deref(), Some("Builds it."));
     }
 
     /// The memory reads back from a row's `source_json`, beside the source's own fields.

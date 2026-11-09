@@ -1,6 +1,6 @@
 ---
 name: flow
-description: Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it is for, ending with its source when you add or change it, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
+description: Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it settles and when it matters, put the reason for each stage you add or change (with its source) in the proposal's `why:`, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.
 disable-model-invocation: true
 ---
 
@@ -33,7 +33,8 @@ editor as the draft, each stage you changed marked, and nothing changes until th
 4. **Write the whole file**: every agent the stages name, and every stage, in the format below. Keep the stages and
    agents you aren't asked to change exactly as `flow show` printed them, and keep each stage's `id`: Otaq matches
    stages by id, name or position, so renaming Review to QA stays a rename.
-5. **Propose it**, with a `description:` on each stage (see "Descriptions" below), on stdin:
+5. **Propose it**, with a `description:` on each stage and a `why:` for each stage you add or change (see
+   "Descriptions" below), on stdin:
 
    ```sh
    otaq flow propose --stdin <<'FLOW'
@@ -57,8 +58,10 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        by: agent
        agent: Security reviewer
        skill: team-security-review
-       description: "Checks the change for unescaped SQL and leaked secrets: matters when it touches queries, auth or config. The user asked for it in this conversation."
+       description: "Checks the change for unescaped SQL and leaked secrets: matters when it touches queries, auth or config."
      …
+   why:
+     security: The user asked for a security check in this conversation.
    FLOW
    ```
 
@@ -98,11 +101,11 @@ two things:
 **Nothing else.** Not GitHub or GitLab (no `gh`, no other host's CLI, no website), not the skills, plugins or
 instruction files in the home folder, not other repos on this Mac.
 
-Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Every stage's
-description ends with a sentence that names its source **and your tool**, with a count you actually found:
-"From 41 /security-review runs in billing-api
-(Claude Code)", "`CONTRIBUTING.md` in this repo asks for a review before merging (Claude Code)". With nothing behind
-a stage, that sentence says "No evidence found" (see "Descriptions"); never guess a count. Don't add `skip` options,
+Then **start from the closest preset** (`otaq flow presets`) and change it to fit what you found. Each stage you add
+or change gets a reason in the proposal's `why:` that names its source **and your tool**, with a count you actually
+found: "From 41 /security-review runs in billing-api (Claude Code)", "`CONTRIBUTING.md` in this repo asks for a
+review before merging (Claude Code)". With nothing behind a stage, its reason says "No evidence found" (see
+"Descriptions"); never guess a count. The stage's `description:` still says only what it settles. Don't add `skip` options,
 or an automatic delivery with no check before it, unless the user asks (see "What you add only when the user asks").
 Then propose it with `otaq flow propose --stdin` and **end your turn** (steps 5 and 6): the user picks **Use this
 flow**, **Ask for changes** or **Use the default**, and their answer is your next message (if they pick another
@@ -307,15 +310,21 @@ Every stage has a `description:`: **what the stage settles and when it matters**
 it's built: needed when the change touches several parts or its approach isn't obvious"). Every agent working a
 ticket reads every stage's description, so a stage's agent can tell when its stage has nothing to add for a ticket
 (it then finishes at once, with a short note), and any agent can tell which stage a problem belongs to. Write it for
-those agents and for the user: plain words, no source counts in the first sentence.
+those agents and for the user: plain words, and **only what the stage settles and when it matters**: never where
+the idea came from, no counts and no sources. It stays in the flow for as long as the stage does.
 
-Keep the description of a stage you don't change exactly as `flow show` printed it. On a stage **you add or change**,
-end the description with a short sentence that **names its source**: what you read that led to it, with the numbers
-you actually counted (an agent you add or change carries its source on its own `why:`):
+Keep the description of a stage you don't change exactly as `flow show` printed it. For each stage **you add or
+change**, give your reason in the proposal's top-level `why:`, keyed by the stage's `id` (or its name): one short line
+that **names its source**, what you read that led to it, with the numbers you actually counted. The user reads it
+under **Why these changes** beside your proposal; it is never stored in the flow. (An agent you add or change carries
+its source on its own `why:`.)
 
-- "The user asked for it in this conversation."
-- "From 41 /security-review runs in shop-web and api (Claude Code)." (from your tool's history: name the tool)
-- "`CONTRIBUTING.md` asks for a review before merging."
+```yaml
+why:
+  security: The user asked for it in this conversation.
+  security-review: From 41 /security-review runs in shop-web and api (Claude Code).
+  review: "`CONTRIBUTING.md` asks for a review before merging."
+```
 
 **With no evidence, say so** ("No evidence found"); never guess a count or invent a source.
 

@@ -1,6 +1,6 @@
 //! The List: the board as rows. Board and List are two layouts of the same board, so the List shows the board's
-//! groups in the board's places: each stage of the flow in flow order, then Backlog, then Done; a stage folded on the
-//! board (its ⋯, or Fold empty columns while it is empty) is folded here too, and Done folded is one line at the end,
+//! groups in the board's places, the flow's order with its fixed ends: Backlog, each stage of the flow, then Done; a
+//! stage folded on the board (its ⋯, or Fold empty columns while it is empty) is folded here too, and Done folded is one line at the end,
 //! "Done · 3". A row says what the card says ([`board::ticket_card`]: key, title, the status line, who, time and the
 //! one action), and what needs you stands out only by the card's coloured edge.
 //!
@@ -196,22 +196,19 @@ pub fn view(input: &BoardInput, prefs: &ViewPrefs) -> ListView {
             },
         }
     };
-    let mut groups: Vec<Group> = columns
-        .iter()
-        .filter(|c| c.stage.is_some())
-        .map(|c| {
-            group(
-                &c.id,
-                &c.title,
-                stage_order(columns.order(&c.id, &keys, all), all),
-            )
-        })
-        .collect();
-    groups.push(group(
+    // Every flow starts at Backlog and ends at Done, so Backlog is the first group, before the stages.
+    let mut groups: Vec<Group> = vec![group(
         flow_columns::BACKLOG,
         BACKLOG,
         columns.order(flow_columns::BACKLOG, &keys, all),
-    ));
+    )];
+    groups.extend(columns.iter().filter(|c| c.stage.is_some()).map(|c| {
+        group(
+            &c.id,
+            &c.title,
+            stage_order(columns.order(&c.id, &keys, all), all),
+        )
+    }));
     let done = group(
         flow_columns::DONE,
         DONE,
@@ -501,16 +498,22 @@ mod tests {
         list.iter().map(|k| (*k).to_owned()).collect()
     }
 
-    /// The stages in flow order, then Backlog, then Done folded to its line; inside each stage the board's order
+    /// Backlog first, then the stages in flow order, then Done folded to its line; inside each stage the board's order
     /// with a started ticket waiting to begin at the top.
     #[test]
-    fn groups_are_the_stages_in_flow_order_then_backlog_then_done() {
+    fn groups_are_backlog_then_the_stages_in_flow_order_then_done() {
         let flow = shop_web();
         let tickets = tickets();
         let list = view(&input(&flow, &tickets), &prefs());
         assert_eq!(
             outline(&list),
             [
+                (
+                    "Backlog".into(),
+                    "3".into(),
+                    false,
+                    keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
+                ),
                 (
                     "Product spec".into(),
                     "4".into(),
@@ -536,12 +539,6 @@ mod tests {
                     false,
                     keys(&["SHOP-18", "SHOP-26"])
                 ),
-                (
-                    "Backlog".into(),
-                    "3".into(),
-                    false,
-                    keys(&["SHOP-24", "SHOP-31", "SHOP-41"])
-                ),
             ]
         );
         assert_eq!(
@@ -560,12 +557,12 @@ mod tests {
         assert_eq!(
             targets,
             [
+                "backlog",
                 "product-spec",
                 "dev",
                 "validate",
                 "security",
                 "review",
-                "backlog"
             ]
         );
     }
@@ -580,7 +577,7 @@ mod tests {
             let r = row(&list, key);
             (
                 r.card.status.as_ref().map(|l| l.text.clone()),
-                r.card.action.as_ref().map(|a| a.label.to_owned()),
+                r.card.action.as_ref().map(|a| a.label.to_string()),
                 r.card.edge,
             )
         };

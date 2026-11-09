@@ -118,7 +118,7 @@ impl Action {
             Self::RetryResume => "Retry",
             Self::StartFromScratch => "Start from scratch",
             Self::RetryStart => "Retry start",
-            Self::Approve => "Approve · Local merge",
+            Self::Approve => "Approve & merge",
             Self::SendBack => SEND_BACK,
             Self::Pass => APPROVE,
             Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,

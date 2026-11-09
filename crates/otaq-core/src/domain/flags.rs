@@ -140,7 +140,8 @@ pub struct Flags {
     /// (d0041). Once resubmitted, Approve offers Push to PR.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_rework: bool,
-    /// "PR provider not detected" (d0050).
+    /// An automatic PR delivery waits To deliver because no PR provider matches the remote: its card says so, with
+    /// Set up…; the user's click (Approve & open PR) still works with their own Open PR skill.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_provider_not_detected: bool,
     /// In Review because the user submitted it (d0052): the note, possibly empty ("Submitted by you · “…”").

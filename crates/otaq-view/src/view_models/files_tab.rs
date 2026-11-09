@@ -122,7 +122,7 @@ pub enum SourceKind {
     Base,
 }
 
-/// The card on top of the tree: "SHOP-22’s worktree" over "otaq/SHOP-22 · from main".
+/// The card on top of the tree: "SHOP-22’s copy" over "otaq/SHOP-22 · from main".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesSourceView")]
 pub struct SourceView {
@@ -151,7 +151,7 @@ pub fn source_view(source: &FilesSource) -> SourceView {
     match source.from {
         FilesFrom::Worktree => SourceView {
             kind: SourceKind::Worktree,
-            title: format!("{key}\u{2019}s worktree"),
+            title: format!("{key}\u{2019}s copy"),
             subtitle: format!("{} \u{b7} from {}", source.branch, source.base_branch),
             legend: Vec::new(),
             stages: Vec::new(),
@@ -173,10 +173,10 @@ pub fn source_view(source: &FilesSource) -> SourceView {
     }
 }
 
-/// Where a file is read: "in SHOP-22’s worktree", "on otaq/SHOP-22", "on main".
+/// Where a file is read: "in SHOP-22’s copy", "on otaq/SHOP-22", "on main".
 fn read_in(source: &FilesSource) -> String {
     match source.from {
-        FilesFrom::Worktree => format!("in {}\u{2019}s worktree", source.key),
+        FilesFrom::Worktree => format!("in {}\u{2019}s copy", source.key),
         FilesFrom::Branch | FilesFrom::Base => format!("on {}", source.branch),
     }
 }
@@ -854,7 +854,7 @@ pub struct CodeLine {
     pub spans: Vec<SpanView>,
 }
 
-/// A file opened from the tree (FTB-03): "src/middleware.ts" over "in SHOP-22’s worktree · +4 −1 against main", File ·
+/// A file opened from the tree (FTB-03): "src/middleware.ts" over "in SHOP-22’s copy · +4 −1 against main", File ·
 /// Diff, New ticket from this file, and its lines as it is (the Diff's come from `files.diff`).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FilesFilePage")]
@@ -1706,7 +1706,7 @@ mod tests {
             3,
             Some("\u{2325}\u{2318}P".into()),
         );
-        assert_eq!(tab.source.title, "SHOP-22\u{2019}s worktree");
+        assert_eq!(tab.source.title, "SHOP-22\u{2019}s copy");
         assert_eq!(
             tab.source.subtitle,
             format!("{} \u{b7} from main", otaq_core::naming::branch("SHOP-22"))
@@ -2048,7 +2048,7 @@ mod tests {
     #[test]
     fn the_gallery_draws_the_frames() {
         let g = gallery();
-        assert_eq!(g.tab.source.title, "SHOP-22\u{2019}s worktree");
+        assert_eq!(g.tab.source.title, "SHOP-22\u{2019}s copy");
         assert_eq!(g.src[3].name, "middleware.ts");
         assert_eq!(g.file.opens_in, FileMode::Diff);
         assert_eq!(g.search.rows.len(), 2);
@@ -2202,7 +2202,7 @@ mod tests {
         assert!(deleted_page(&content.source, "src/old.ts", None, &split).side_by_side);
         assert_eq!(
             page.subtitle,
-            "in SHOP-22\u{2019}s worktree \u{b7} +4 \u{2212}1 against main"
+            "in SHOP-22\u{2019}s copy \u{b7} +4 \u{2212}1 against main"
         );
         assert_eq!((page.opens_in, page.can_diff), (FileMode::Diff, true));
         assert_eq!(page.lines.len(), 3);
@@ -2215,10 +2215,7 @@ mod tests {
             ..content.clone()
         };
         let page = file_page(&readme, &ReviewMemory::default());
-        assert_eq!(
-            page.subtitle,
-            "in SHOP-22\u{2019}s worktree \u{b7} not changed"
-        );
+        assert_eq!(page.subtitle, "in SHOP-22\u{2019}s copy \u{b7} not changed");
         assert_eq!((page.opens_in, page.can_diff), (FileMode::File, false));
 
         let logo = FileContent {
@@ -2246,7 +2243,7 @@ mod tests {
             None,
             &ReviewMemory::default(),
         );
-        assert_eq!(gone.subtitle, "in SHOP-22\u{2019}s worktree \u{b7} deleted");
+        assert_eq!(gone.subtitle, "in SHOP-22\u{2019}s copy \u{b7} deleted");
         assert!(!gone.can_file && gone.opens_in == FileMode::Diff);
     }
 }

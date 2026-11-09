@@ -10,8 +10,7 @@ export type FlowBoardTemplate = {
  */
 id: string, title: string, line: string, icon: IconName, 
 /**
- * "Uses a skill you add: `test-in-browser`": a quiet line, not a warning, for a ready stage whose skill neither
- * Otaq ships nor the user has. Otaq never copies skills, so the user brings their own; it can still be added,
- * and the added stage carries the usual amber warning until the skill is found.
+ * "You don't have the skill `test-in-browser`": the usual missing-skill warning, amber, for a ready stage whose
+ * skill neither Otaq ships nor the user has; it can still be added.
  */
-skill_note: string | null, };
+warning: string | null, };

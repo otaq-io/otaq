@@ -93,7 +93,13 @@ pub async fn run_automatic(
         Delivers::Pr => match prs.open_automatically(&key, now.without_checks).await {
             Ok(()) => Ok(Delivered::PrStarted),
             Err(e) => {
-                // Left for the user's Open PR click, with the reason in the log (the card offers the click).
+                // Left for the user's click. With no PR provider for the remote the card says so and offers Set up…
+                // (delivery problems say what to do); any other reason is in the log and the card offers the click.
+                if e.refusal() == Some(crate::board::Refusal::NotAllowed)
+                    && e.to_string().contains(crate::pr::provider::NO_PROVIDER)
+                {
+                    board.mark_no_pr_provider(&ticket.id, true).await?;
+                }
                 tracing::warn!(ticket = %ticket.key, error = %e, "the automatic PR didn't start");
                 Ok(Delivered::Left)
             }

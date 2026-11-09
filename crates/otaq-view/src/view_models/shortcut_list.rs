@@ -500,7 +500,7 @@ mod tests {
             for title in [
                 "Park",
                 "Close ticket",
-                "Open PR",
+                "Approve & open PR",
                 "Re-run validation",
                 "Open diff",
             ] {

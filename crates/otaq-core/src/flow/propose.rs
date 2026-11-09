@@ -210,11 +210,11 @@ impl Board {
     ) -> Result<Proposal, BoardError> {
         let refuse = |message: String| BoardError::refused(Refusal::BadFlow, message);
         let key = self.project(project).await?.key;
-        let (file, written, source) = match proposed {
+        let (file, written, source, whys) = match proposed {
             Proposed::Document { yaml: text, file } => {
-                let (read, written) = yaml::read_with_written_ids(text)
+                let (read, written, whys) = yaml::read_proposal(text)
                     .map_err(|e| refuse(format!("The flow doesn't read: {e}")))?;
-                (read, written, Source::Document { file: file.clone() })
+                (read, written, Source::Document { file: file.clone() }, whys)
             }
             Proposed::Project { project: other } => {
                 let other = self.project_named(other).await?;
@@ -234,7 +234,7 @@ impl Board {
                     key: other.key,
                     name: other.name,
                 };
-                (file, written, source)
+                (file, written, source, yaml::Whys::new())
             }
         };
         // Looked at before it is stored, so a refusal leaves the open proposal as it was.
@@ -262,7 +262,7 @@ impl Board {
         // Outside Flow setup it lands in the draft (FED-02); during it each tool's is its own entry (ASK-03, FED-03).
         if self.project(&key).await?.flow_setup_since.is_none() {
             return self
-                .propose_into_draft(&key, matched, &source, by, models)
+                .propose_into_draft(&key, matched, &source, by, &whys, models)
                 .await;
         }
         self.open_read_proposal(

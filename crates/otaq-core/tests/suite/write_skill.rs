@@ -1,5 +1,5 @@
-//! A stage's skill the Project agent writes (T-0472; FED-06; d0115): a new Plan stage with no skill keeps Apply off
-//! ("Plan needs a skill"). "Ask the agent to write it" saves into the project (T6): `flow.write_skill` with the
+//! A stage's skill the Project agent writes (T-0472; FED-06; d0115): a new Plan stage with no skill has no problem
+//! (Otaq's own skill for the stage runs). "Ask the agent to write it" saves into the project (T6): `flow.write_skill` with the
 //! skill's name gives the agent a folder inside the project's checkout, `.agents/skills/<name>/` for a Codex agent and
 //! `.claude/skills/<name>/` otherwise, and refuses one that is already there; handing it in names the skill on the
 //! stage, with nothing copied, imported or committed. Undo and Stop delete the folder only while git says it is
@@ -79,7 +79,7 @@ async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
     )
     .await;
 
-    // A new Agent stage with no skill: the draft holds it, Apply stays off with the reason.
+    // A new Agent stage with no skill: the draft holds it with no problem, since Otaq's own skill for it runs.
     with_plan(&w, &key).await;
     let draft = w.board.draft(&key, &models()).await.unwrap();
     let messages: Vec<&str> = draft
@@ -88,7 +88,7 @@ async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
         .iter()
         .map(|p| p.message.as_str())
         .collect();
-    assert_eq!(messages, ["Plan needs a skill"]);
+    assert!(messages.is_empty(), "{messages:?}");
 
     // Ask the agent to write it: being written, by the agent the user asked.
     let draft = w
@@ -331,7 +331,11 @@ async fn undo_deletes_an_untracked_folder_and_keeps_a_committed_one() {
     );
     let file = yaml::read(&draft.proposal.yaml).unwrap();
     assert_eq!(file.flow.stage("plan").unwrap().skill, None);
-    assert_eq!(draft.proposal.problems[0].message, "Plan needs a skill");
+    assert!(
+        draft.proposal.problems.is_empty(),
+        "{:?}",
+        draft.proposal.problems
+    );
 
     // Committed: Undo only clears the field.
     let given = w

@@ -39,12 +39,13 @@ pub enum ToastLink {
     },
     /// "What’s new" after "Updated to Otaq 0.2.0" (page 32 item 4): opens that version's release page.
     ReleaseNotes { label: String, version: String },
-    /// "Set the Delivery stage’s skill": opens the project's flow editor on `stage`'s Skill field (the user's own
-    /// Open PR skill goes there).
+    /// "Set the delivery’s PR skill": opens the project's flow editor on `stage`'s Skill field, or with no stage on
+    /// Done's panel, How work leaves the flow, where the delivery's PR skill is (the user's own Open PR skill goes
+    /// there).
     StageSkill {
         label: String,
         project: String,
-        stage: String,
+        stage: Option<String>,
     },
 }
 

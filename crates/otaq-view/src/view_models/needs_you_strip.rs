@@ -60,8 +60,9 @@ impl Item {
             Self::Ticket(i) => Target::Ticket {
                 project: i.project.clone(),
                 key: i.key.to_string(),
+                // A ticket waiting for your review opens on Overview: what the agent did, then the checker.
                 tab: if i.group == NeedsYouGroup::Review {
-                    Content::Files
+                    Content::Overview
                 } else if i.status == otaq_core::domain::Status::AsksYou
                     && i.question.is_some()
                     && i.piece.is_none()
@@ -991,12 +992,13 @@ mod tests {
         // Your review sits in the strip too, each chip "ready".
         assert_eq!(v.groups[1].title, "Your review \u{b7} 1");
         assert_eq!(chips(&v.groups[1]), ["SHOP-18 ready"]);
+        // A ticket in Review opens on Overview, not on Changes.
         assert_eq!(
             v.groups[1].chips[0].target,
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-18".into(),
-                tab: Content::Files,
+                tab: Content::Overview,
                 piece: None,
             }
         );

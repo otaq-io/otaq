@@ -479,6 +479,11 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
         format!("{cmd} flow propose --stdin"),
         format!("{cmd} flow presets"),
         "names its source".to_owned(),
+        // A stage's description says what it settles; the reason for a change, with its evidence, goes in the
+        // proposal's `why:`, shown under Why these changes and never stored in the flow.
+        "only what the stage settles and when it matters".to_owned(),
+        "**Why these changes**".to_owned(),
+        "never stored in the flow".to_owned(),
         "next message".to_owned(),
         "Ask for more changes".to_owned(),
     ] {
@@ -638,7 +643,8 @@ fn flow_reads_its_own_history_and_the_repo_for_a_first_flow() {
         "closest preset".to_owned(),
         format!("{cmd} flow presets"),
         "names its source **and your tool**".to_owned(),
-        "\"From 41 /security-review runs in billing-api\n(Claude Code)\"".to_owned(),
+        "\"From 41 /security-review runs in billing-api (Claude Code)\"".to_owned(),
+        "the proposal's `why:`".to_owned(),
         "\"No evidence found\"".to_owned(),
         "`skip` options".to_owned(),
         "an automatic delivery with no check before it".to_owned(),

@@ -82,10 +82,13 @@ describe("where Edit flow opens", () => {
       "close settings",
       JSON.stringify({ project: "SHOP", select: "validate", focusSkill: true }),
     ]);
-    // No stage named: How work leaves the flow.
+    // No stage named: How work leaves the flow, on its PR skill.
     calls.length = 0;
     openStageSkill("SHOP", null, routes);
-    expect(calls).toEqual(["close settings", JSON.stringify({ project: "SHOP", select: "done" })]);
+    expect(calls).toEqual([
+      "close settings",
+      JSON.stringify({ project: "SHOP", select: "done", focusSkill: true }),
+    ]);
   });
 });
 

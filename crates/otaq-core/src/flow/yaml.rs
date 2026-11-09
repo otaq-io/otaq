@@ -28,7 +28,9 @@
 //! Fields come in a fixed order (stages: `id name kind by agent skill options rounds fail_to description`; the delivery:
 //! `delivers mode agent skill`; agents: `name instructions model why`); a field with nothing in it is left out.
 //! `agents:` is left out when the file defines none. Every flow says how its work is delivered after the last stage
-//! (`delivery:`): it is a setting of the flow, not a stage. Every stage is its own column.
+//! (`delivery:`): it is a setting of the flow, not a stage. Every stage is its own column. A proposal may add a
+//! top-level `why:` (stage id or name → its reason, shown under Why these changes); it is read only by `flow propose`
+//! ([`read_proposal`]) and never written, so the flow keeps its descriptions and no reasons.
 //!
 //! Older files still read: their Delivery stage (`kind: delivery` with `mode` and `delivers`) reads as the flow's
 //! `delivery:`, and a stage's `column:` (`own`, `with-previous`) is read and ignored. An agent check names its one
@@ -65,6 +67,10 @@ struct RawFile {
     agents: Vec<RawAgent>,
     flow: Vec<RawStage>,
     delivery: Option<RawDelivery>,
+    /// A proposal's reasons, by stage (its id or name): "Why these changes". Never part of the flow: read only by
+    /// `flow propose` ([`read_proposal`]) and never written.
+    #[serde(default)]
+    why: std::collections::BTreeMap<String, String>,
 }
 
 /// The flow's `delivery:`.
@@ -228,6 +234,16 @@ pub fn read_with_written_ids(text: &str) -> Result<(FlowFile, Vec<bool>), Format
     read_all(text).map(|read| (read.file, read.written))
 }
 
+/// A proposed document as `flow propose` reads it: [`read_with_written_ids`], plus its top-level `why:`, the reason for
+/// each change by stage id or name ("security: From 41 /security-review runs in shop-web (Claude Code)."), which the
+/// draft shows under Why these changes. The flow itself never holds them.
+pub fn read_proposal(text: &str) -> Result<(FlowFile, Vec<bool>, Whys), FormatError> {
+    read_all(text).map(|read| (read.file, read.written, read.whys))
+}
+
+/// A proposal's reasons, by stage id or name, trimmed; empty lines dropped.
+pub type Whys = std::collections::BTreeMap<String, String>;
+
 /// [`read`], also saying which check stages were split because they listed several agents ([`Split`]).
 pub fn read_split(text: &str) -> Result<(FlowFile, Vec<Split>), FormatError> {
     read_all(text).map(|read| (read.file, read.splits))
@@ -250,6 +266,8 @@ struct Read {
     splits: Vec<Split>,
     /// It has a Delivery stage or a stage's `column:` ([`upgraded`]).
     old_form: bool,
+    /// A proposal's reasons ([`read_proposal`]).
+    whys: Whys,
 }
 
 /// An older flow's agent check that listed several agents (`agents: [Security reviewer, Validator]`), as read: one
@@ -313,6 +331,14 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
         }
     };
     let splits = split(&mut stages, &mut written, others);
+    let whys = raw
+        .why
+        .into_iter()
+        .filter_map(|(stage, why)| {
+            let why = why.trim();
+            (!why.is_empty()).then(|| (stage.trim().to_owned(), why.to_owned()))
+        })
+        .collect();
     Ok(Read {
         file: FlowFile {
             agents,
@@ -321,6 +347,7 @@ fn read_all(text: &str) -> Result<Read, FormatError> {
         written,
         splits,
         old_form,
+        whys,
     })
 }
 
@@ -600,9 +627,8 @@ fn stage(raw: RawStage) -> Result<(Stage, Vec<String>), FormatError> {
         StageKind::Agent | StageKind::Check { by: CheckBy::Agent } => true,
         StageKind::Check { by: CheckBy::You } => false,
     };
-    // An Agent stage or an agent check with no `skill:` reads (the editor's draft holds one until its skill is
-    // picked or written, FED-06); the checks refuse it ("Plan needs a skill", [`super::check`]). So does an agent
-    // check with no agent yet (Rule::NoCheckAgent).
+    // An Agent stage or an agent check with no `skill:` reads and passes the checks: Otaq's own skill for that stage
+    // runs. An agent check with no agent yet reads too; the checks refuse it (Rule::NoCheckAgent).
     if runs_agent {
         if agent.is_none() && !agent_check {
             return Err(FormatError(format!(

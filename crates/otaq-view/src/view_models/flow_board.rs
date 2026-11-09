@@ -39,7 +39,10 @@ use crate::view_models::flow_editor::{
     MarkView, Pick, SkillField,
 };
 use crate::view_models::hint::HintId;
-use crate::view_models::project_settings::{DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD};
+use crate::view_models::menu::MenuItem;
+use crate::view_models::project_settings::{
+    AGENT_FIELD, DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD,
+};
 use crate::view_models::tool_avatar::ToolAvatarView;
 
 /// The kinds of stage, as the editor names them.
@@ -188,10 +191,47 @@ pub struct DeliveryPanel {
     pub delivers_note: Option<String>,
     pub mode_label: &'static str,
     pub mode_field: &'static str,
-    /// On Approve · Automatically; empty for Either, which is chosen at your click.
+    /// On Approve · Automatically, always shown, as on the project's Repository card.
     pub modes: Vec<Choice>,
+    /// Either is chosen at your click: the modes stay on On Approve, switched off ([`EITHER_NOTE`] says why).
+    pub modes_off: bool,
     pub mode_note: Option<&'static str>,
+    /// The delivery's agent, which writes the message and opens the PR.
+    pub agent: DeliveryAgent,
+    /// The skill it opens a PR with; `None` for a local merge, which opens none.
+    pub skill: Option<DeliverySkill>,
     pub note: &'static str,
+}
+
+/// Done panel's Agent: who writes the merge message (and the PR's) when a ticket reaches Review, and opens the PR.
+/// `FlowBoardDeliveryAgent` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowBoardDeliveryAgent")]
+pub struct DeliveryAgent {
+    pub label: &'static str,
+    /// The field `delivery.agent`; an item's id is what picking it sends (`""`: none).
+    pub field: &'static str,
+    /// The agent's name, or "None" for a local merge with none.
+    pub value: String,
+    /// The stored agents, then those the draft brings ("new"); "None" first for a local merge.
+    pub items: Vec<MenuItem>,
+    pub hint: &'static str,
+}
+
+/// Done panel's PR skill: the user's own Open PR skill by name, or empty for Otaq's own. `FlowBoardDeliverySkill` on
+/// the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowBoardDeliverySkill")]
+pub struct DeliverySkill {
+    pub label: &'static str,
+    /// The field `delivery.skill`; an empty value sends Otaq's own.
+    pub field: &'static str,
+    pub value: String,
+    /// "open-pr": Otaq's own, which runs while the field is empty.
+    pub placeholder: &'static str,
+    pub hint: &'static str,
+    /// "You don't have the skill `my-pr`", amber; it still saves.
+    pub warning: Option<String>,
 }
 
 /// One ready stage of the palette. `FlowBoardTemplate` on the page.
@@ -203,10 +243,9 @@ pub struct Template {
     pub title: String,
     pub line: String,
     pub icon: IconName,
-    /// "Uses a skill you add: `test-in-browser`": a quiet line, not a warning, for a ready stage whose skill neither
-    /// Otaq ships nor the user has. Otaq never copies skills, so the user brings their own; it can still be added,
-    /// and the added stage carries the usual amber warning until the skill is found.
-    pub skill_note: Option<String>,
+    /// "You don't have the skill `test-in-browser`": the usual missing-skill warning, amber, for a ready stage whose
+    /// skill neither Otaq ships nor the user has; it can still be added.
+    pub warning: Option<String>,
 }
 
 /// The palette **+** opens. `FlowBoardPalette` on the page.
@@ -666,28 +705,85 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
             choice("pr", "Pull request".to_owned(), d.delivers == Delivers::Pr),
             choice("either", "Either".to_owned(), either),
         ],
-        delivers_note: either.then(|| {
-            format!("{EITHER_NOTE} Approve offers both, Approve & merge and Approve & open PR.")
-        }),
+        // The same words and switches as the project's Repository card: with Either the modes show On Approve,
+        // switched off, and the line says why.
+        delivers_note: either.then(|| EITHER_NOTE.to_owned()),
         mode_label: "When",
         mode_field: MODE_FIELD,
-        modes: if either {
-            Vec::new()
-        } else {
-            vec![
-                choice("click", "On Approve".to_owned(), d.mode == DeliveryMode::Click),
-                choice(
-                    "automatic",
-                    "Automatically".to_owned(),
-                    d.mode == DeliveryMode::Automatic,
-                ),
-            ]
-        },
+        modes: vec![
+            choice(
+                "click",
+                "On Approve".to_owned(),
+                either || d.mode == DeliveryMode::Click,
+            ),
+            choice(
+                "automatic",
+                "Automatically".to_owned(),
+                !either && d.mode == DeliveryMode::Automatic,
+            ),
+        ],
+        modes_off: either,
+        agent: delivery_agent(f),
+        skill: d.can_open_pr().then(|| delivery_skill(f)),
         mode_note: (!either && d.mode == DeliveryMode::Automatic).then_some(
             "Automatically: delivered as soon as the last stage passes, without Approve. Solo autopilot merges this \
              way; Team PR opens a PR this way.",
         ),
         note: DELIVERY_NOTE,
+    }
+}
+
+/// Done panel's Agent field: the delivery's agent among the stored agents and those the draft brings.
+fn delivery_agent(f: &Facts) -> DeliveryAgent {
+    let d = &f.file.flow.delivery;
+    let current = d.agent.as_deref().unwrap_or_default();
+    let is = |name: &str| name.eq_ignore_ascii_case(current);
+    let mut items = Vec::new();
+    if !d.can_open_pr() {
+        items.push(MenuItem::new("", "None").checked(d.agent.is_none()));
+    }
+    items.extend(
+        f.stored
+            .iter()
+            .map(|a| MenuItem::new(a.name.clone(), a.name.clone()).checked(is(&a.name))),
+    );
+    items.extend(
+        f.file
+            .agents
+            .iter()
+            .filter(|a| {
+                !f.stored
+                    .iter()
+                    .any(|s| s.name.eq_ignore_ascii_case(&a.name))
+            })
+            .map(|a| {
+                MenuItem::new(a.name.clone(), a.name.clone())
+                    .hint("new")
+                    .checked(is(&a.name))
+            }),
+    );
+    DeliveryAgent {
+        label: "Agent",
+        field: AGENT_FIELD,
+        value: d.agent.clone().unwrap_or_else(|| "None".to_owned()),
+        items,
+        hint: "Writes the merge message when a ticket reaches Review, and opens the PR.",
+    }
+}
+
+/// Done panel's PR skill: where the user's own Open PR skill goes.
+fn delivery_skill(f: &Facts) -> DeliverySkill {
+    let skill = f.file.flow.delivery.skill.clone().unwrap_or_default();
+    let has =
+        otaq_core::skills::found::is_shipped(&skill) || f.skills.iter().any(|s| s.name == skill);
+    DeliverySkill {
+        label: "PR skill",
+        field: SKILL_FIELD,
+        warning: (!skill.is_empty() && !has)
+            .then(|| otaq_core::flow::proposal::unknown_skill_text(&skill)),
+        value: skill,
+        placeholder: otaq_core::board::settings::WorkflowStep::OpenPr.own_skill(),
+        hint: "Your own Open PR skill, by name. Empty: the built-in open-pr runs.",
     }
 }
 
@@ -712,21 +808,16 @@ fn palette(f: &Facts) -> Palette {
                 title: t.title.clone(),
                 line: t.line.clone(),
                 icon: template_icon(t.stage()),
-                skill_note: t
+                warning: t
                     .stage()
                     .skill
                     .as_deref()
                     .filter(|s| !has(s))
-                    .map(skill_you_add),
+                    .map(otaq_core::flow::proposal::unknown_skill_text),
             })
             .collect(),
         foot: "Each comes with a description, an agent and a skill; change any of them after.",
     }
-}
-
-/// A ready stage's skill the user brings: "Uses a skill you add: `security-check`".
-fn skill_you_add(skill: &str) -> String {
-    format!("Uses a skill you add: `{skill}`")
 }
 
 /// The agent Noyan uses, which drafts a suggestion: its name, else "Noyan".

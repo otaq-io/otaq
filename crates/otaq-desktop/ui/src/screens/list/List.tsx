@@ -1,5 +1,5 @@
 // The List: the board as rows. Board and List are two layouts of the same board, so the groups are the board's
-// columns in its places (each stage in flow order, then Backlog, then Done, folded to one "Done · 3" line as on the
+// columns in its places (Backlog, each stage in flow order, then Done, folded to one "Done · 3" line as on the
 // board) and a head's chevron folds a group as the column's ⋯ folds the column. A row says what the card says: key,
 // title, the status line with its dot, who, time and the one action; only what needs you has the card's coloured
 // edge. Every word is Rust's (`list_view.rs`, inside `board.view`). The Board (`board/Board.tsx`) owns the drag, the

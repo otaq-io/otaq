@@ -948,12 +948,18 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
     assert!(!flow.automatic, "the click's flow keeps its dialog");
     // The dialog opened at once; the skill runs on the Delivery's agent once the user confirms.
+    assert!(
+        !w.board.store().first_approve().await.unwrap(),
+        "nothing approved yet"
+    );
     let outcome = w
         .prs
         .confirm(&key, &flow.proposal.unwrap(), false, &me())
         .await
         .unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    // Approve & open PR counts as the first approve, as a merge does.
+    assert!(w.board.store().first_approve().await.unwrap());
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Delivery)
@@ -1084,5 +1090,61 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
         (Status::PrOpen, &Place::stage_of(VALIDATE))
     );
     assert_eq!(open.interrupted_from, None);
+    w.stop().await;
+}
+
+/// Delivery problems say what to do: an automatic PR delivery on a remote no PR provider matches (and with Otaq's own
+/// Open PR skill, which needs one) starts nothing and waits To deliver, its card saying there is no PR provider. The
+/// mark goes once the user's own Open PR skill lets the PR start.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_automatic_pr_with_no_provider_says_so_on_the_card() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    // origin is a local folder: no GitHub or Azure DevOps repository, and the flow uses Otaq's own Open PR skill.
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_pr_delivery)
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    w.agent_shell(&t).await;
+
+    let left = pass(&w, &t).await;
+    assert_eq!(left.status, Status::ToDeliver);
+    assert!(!left.flags.delivering_automatically);
+    assert!(left.flags.pr_provider_not_detected, "{:?}", left.flags);
+    assert!(
+        w.board.pr_flow(&t.id).await.unwrap().is_none(),
+        "nothing started"
+    );
+
+    // With the user's own Open PR skill the click starts it, and the card no longer says there is no provider.
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.prs.open(&key, true, false, &me()).await.unwrap();
+    assert!(
+        !w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .pr_provider_not_detected
+    );
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
     w.stop().await;
 }

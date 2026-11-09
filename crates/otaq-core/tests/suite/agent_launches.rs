@@ -903,3 +903,52 @@ async fn a_project_agents_model_that_ran_is_on_its_row() {
     );
     world.w.stop().await;
 }
+
+/// A Noyan conversation started on another agent than the one Noyan uses reads that agent's instructions in its
+/// `prime --project`; read by hand (no conversation), the prime gives the instructions of the agent Noyan uses.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_conversations_prime_gives_its_own_agents_instructions() {
+    let world = world().await;
+    let w = &world.w;
+    let strong = world.agent("Strong").await;
+    w.edit_agent(&strong.name, |a| {
+        a.instructions = "Strong's own rules.".into()
+    })
+    .await;
+    let noyan = w.board.store().noyan_agent().await.unwrap().unwrap();
+    w.edit_agent(&noyan.name, |a| {
+        a.instructions = "Noyan's own rules.".into()
+    })
+    .await;
+    let conversation = w
+        .project_agents
+        .open_on("SHOP", "Why is checkout slow?", Some(&strong.id))
+        .await
+        .unwrap();
+    let told = |prime: otaq_core::project_agents::prime::ProjectPrime| {
+        let i = prime.instructions.unwrap();
+        (i.agent, i.own)
+    };
+    assert_eq!(
+        told(
+            w.board
+                .project_prime("SHOP", Some(&conversation.id))
+                .await
+                .unwrap()
+        ),
+        (Some(strong.name.clone()), "Strong's own rules.".to_owned())
+    );
+    assert_eq!(
+        told(w.board.project_prime("SHOP", None).await.unwrap()),
+        (Some(noyan.name.clone()), "Noyan's own rules.".to_owned())
+    );
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    world.w.stop().await;
+}

@@ -201,7 +201,7 @@ async fn the_agent_noyan_uses_reads_what_its_launch_gives() {
     })
     .await;
     let planner = w.board.store().noyan_agent().await.unwrap().unwrap();
-    let prime = w.board.project_prime("SHOP").await.unwrap();
+    let prime = w.board.project_prime("SHOP", None).await.unwrap();
     let told = prime.instructions.unwrap();
     let r = reads(&w, &planner, "SHOP").await;
     assert_eq!(

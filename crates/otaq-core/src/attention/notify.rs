@@ -112,7 +112,7 @@ pub enum Target {
     Ticket { key: TicketKey },
     /// The ticket's validator terminal, focused.
     Validator { key: TicketKey },
-    /// The ticket's Files tab, to review it (the status icon's "your check" line, d0139 TRY-06).
+    /// The ticket waiting for your review, opened on its Overview (the status icon's "your check" line).
     Review { key: TicketKey },
     /// The ticket's sheet on the tab it opens on, nothing started or resumed (the status icon's Interrupted and Start
     /// failed lines, d0139 TRY-06).
@@ -408,7 +408,7 @@ fn one(item: &NeedsYouItem, facts: ItemText, choices: &Choices) -> OsNotificatio
             decide,
             Target::Ticket { key: key.clone() },
         ),
-        // "SHOP-18 is ready for your review" · "Waits for your check in Review."; a click opens its Files tab.
+        // "SHOP-18 is ready for your review" · "Waits for your check in Review."; a click opens its Overview.
         Status::WaitingForYou => {
             let stage = item
                 .waiting_in
@@ -1260,7 +1260,7 @@ mod tests {
     }
 
     /// A ticket reaching a check the user does: off by default, nothing notifies, and turning it on later doesn't
-    /// bring up tickets already waiting; turned on, one notification per ticket that opens its Files tab to review,
+    /// bring up tickets already waiting; turned on, one notification per ticket that opens its Overview to review,
     /// however many times Needs you looks again. A later arrival in the check (after another round) notifies again.
     /// Agent checks raise no review item, so they never notify this way.
     #[test]

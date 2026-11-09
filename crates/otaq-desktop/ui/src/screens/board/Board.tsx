@@ -678,6 +678,11 @@ export function Board() {
           openDecide(key, kind);
           return;
         }
+        // No PR provider for an automatic PR: app Settings, Git & pull requests, where providers are set up.
+        if (kind === "set_up_provider") {
+          openOverlay("settings", { section: "git" });
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },
@@ -763,6 +768,11 @@ export function Board() {
         }
         if (kind === "decide") {
           openDecide(key, kind);
+          return;
+        }
+        // No PR provider for an automatic PR: app Settings, Git & pull requests, where providers are set up.
+        if (kind === "set_up_provider") {
+          openOverlay("settings", { section: "git" });
           return;
         }
         openTicket(key);

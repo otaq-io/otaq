@@ -755,25 +755,25 @@ mod tests {
             [
                 (
                     default.as_str(),
-                    "Local merge or PR \u{b7} click",
+                    "Merge or PR \u{b7} on Approve",
                     "Today\u{2019}s board",
                     DEFAULT_FLOW_FILE
                 ),
                 (
                     "Solo autopilot",
-                    "Local merge \u{b7} automatic",
+                    "Merge \u{b7} automatically",
                     "Solo projects that trust the checks",
                     "solo-autopilot.yaml"
                 ),
                 (
                     "Spec first",
-                    "Local merge or PR \u{b7} click",
+                    "Merge or PR \u{b7} on Approve",
                     "Plan on the board, then build",
                     "spec-first.yaml"
                 ),
                 (
                     "Team PR",
-                    "PR \u{b7} automatic",
+                    "PR \u{b7} automatically",
                     "Teams that review on GitHub or GitLab: the PR is the review",
                     "team-pr.yaml"
                 ),

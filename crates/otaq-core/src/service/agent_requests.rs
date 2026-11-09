@@ -91,7 +91,7 @@ pub(super) async fn handle(
             .await
             .map(Reply::Delivery)
             .map_err(|e| error_body(&e)),
-        Request::ProjectAgentPrime(p) => project_prime(shared, &p.project)
+        Request::ProjectAgentPrime(p) => project_prime(shared, &p.project, caller)
             .await
             .map(|c| Reply::ProjectPrime(Box::new(c)))
             .map_err(|e| error_body(&e)),
@@ -119,11 +119,17 @@ fn own(caller: &Caller) -> Result<&str, ErrorBody> {
 }
 
 /// `otaq prime --project` (PAG-03): the project's context with the stage choices it may set (AGM-06, AGM-08).
+/// A Noyan conversation reads the instructions of the agent it runs on.
 async fn project_prime(
     shared: &Shared,
     project: &str,
+    caller: &Caller,
 ) -> Result<crate::project_agents::prime::ProjectPrime, BoardError> {
-    let mut context = shared.board.project_prime(project).await?;
+    let conversation = match caller {
+        Caller::ProjectAgent { agent, .. } => Some(agent.as_str()),
+        _ => None,
+    };
+    let mut context = shared.board.project_prime(project, conversation).await?;
     context.choices =
         crate::prime::reader_choices(&shared.board, &context.project, &shared.models).await?;
     Ok(context)

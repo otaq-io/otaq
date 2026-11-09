@@ -584,7 +584,7 @@ pub struct Picker {
     /// SHOW FILES FROM (the base branch, then each ticket's copy) and YOUR WORKTREES · COMMITTED ONLY (when there
     /// are any).
     pub sections: Vec<PickerSection>,
-    /// "No worktree yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its worktree when it reaches
+    /// "No copy yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its copy when it reaches
     /// Dev."
     pub no_worktree: Option<String>,
 }
@@ -664,7 +664,7 @@ pub fn no_worktree_line(tickets: &[NoWorktree], first_stage: &str) -> Option<Str
         (false, n) => format!("{named} and {n} in Backlog"),
     };
     Some(format!(
-        "No worktree yet: {list}. A ticket gets its worktree when it reaches {first_stage}."
+        "No copy yet: {list}. A ticket gets its copy when it reaches {first_stage}."
     ))
 }
 
@@ -694,7 +694,7 @@ pub fn picker(sources: &ProjectSources, first_stage: &str) -> Picker {
     }
 }
 
-/// A ticket picked in the picker (`s28-04`, "One ticket’s worktree"): its own Files tab, read-only, with
+/// A ticket picked in the picker (`s28-04`, "One ticket’s copy"): its own Files tab, read-only, with
 /// the back link to the base and "Open SHOP-29". `FilesViewPicked` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FilesViewPicked")]
@@ -1935,7 +1935,7 @@ pub mod example {
             key: k.to_owned(),
             source: tab::SourceView {
                 kind: tab::SourceKind::Worktree,
-                title: format!("{k}\u{2019}s worktree"),
+                title: format!("{k}\u{2019}s copy"),
                 subtitle: format!("{} \u{b7} from main", otaq_core::naming::branch(k)),
                 legend: Vec::new(),
                 stages: Vec::new(),
@@ -2577,8 +2577,8 @@ mod tests {
         assert_eq!(
             p.no_worktree.as_deref(),
             Some(
-                "No worktree yet: SHOP-12, SHOP-44 (Product spec), SHOP-35, SHOP-20 (Ready) and 3 in Backlog. A ticket \
-                 gets its worktree when it reaches Dev."
+                "No copy yet: SHOP-12, SHOP-44 (Product spec), SHOP-35, SHOP-20 (Ready) and 3 in Backlog. A ticket \
+                 gets its copy when it reaches Dev."
             )
         );
         assert_eq!(
@@ -2590,7 +2590,7 @@ mod tests {
         assert_eq!(p.sections[0].rows[0].pick, Pick::Base);
         assert_eq!(
             no_worktree_line(&sources.no_worktree[4..], "Dev").as_deref(),
-            Some("No worktree yet: 3 in Backlog. A ticket gets its worktree when it reaches Dev.")
+            Some("No copy yet: 3 in Backlog. A ticket gets its copy when it reaches Dev.")
         );
     }
 
@@ -2655,7 +2655,7 @@ mod tests {
     fn one_ticket_is_its_tab_with_the_back_link() {
         let p = picked("main", tab_of("SHOP-29"));
         assert_eq!(p.back, "main \u{b7} every ticket\u{2019}s changes");
-        assert_eq!(p.tab.source.title, "SHOP-29\u{2019}s worktree");
+        assert_eq!(p.tab.source.title, "SHOP-29\u{2019}s copy");
         assert_eq!(
             p.tab.source.subtitle,
             format!(

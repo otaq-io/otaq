@@ -57,9 +57,15 @@ function group(id: string, title: string, rows: ListRow[], extra: Partial<ListGr
   };
 }
 
-/** `list_view.rs`'s words for a small shop-web: the stages, then Backlog, then Done folded. */
+/** `list_view.rs`'s words for a small shop-web: Backlog, the stages, then Done folded. */
 const LIST: ListView = {
   groups: [
+    group("backlog", "Backlog", [
+      row("SHOP-41", "Fix README typo", {
+        status: { text: "Not started", dot: "queued", tone: "secondary", icon: null },
+        action: { kind: "start", label: "Start", icon: null, primary: false },
+      }),
+    ]),
     group("product-spec", "Product spec", [
       row("SHOP-12", "Add dark mode toggle", {
         status: {
@@ -80,12 +86,6 @@ const LIST: ListView = {
       }),
     ]),
     group("validate", "Validate", [], { folded: true, toggle: null, empty: null }),
-    group("backlog", "Backlog", [
-      row("SHOP-41", "Fix README typo", {
-        status: { text: "Not started", dot: "queued", tone: "secondary", icon: null },
-        action: { kind: "start", label: "Start", icon: null, primary: false },
-      }),
-    ]),
   ],
   done: {
     text: "Done · 4",
@@ -105,17 +105,17 @@ function handlers() {
 
 describe("the List's rows", () => {
   it("walks the rows top to bottom and finds a row's group", () => {
-    expect(rowKeys(LIST)).toEqual(["SHOP-12", "SHOP-35", "SHOP-41"]);
-    expect(nextRow(rowKeys(LIST), "SHOP-35", 1)).toBe("SHOP-41");
-    expect(nextRow(rowKeys(LIST), "SHOP-12", -1)).toBeNull();
+    expect(rowKeys(LIST)).toEqual(["SHOP-41", "SHOP-12", "SHOP-35"]);
+    expect(nextRow(rowKeys(LIST), "SHOP-12", 1)).toBe("SHOP-35");
+    expect(nextRow(rowKeys(LIST), "SHOP-41", -1)).toBeNull();
     expect(nextRow(rowKeys(LIST), "SHOP-99", 1)).toBeNull();
     expect(findRow(LIST, "SHOP-12")?.group.title).toBe("Product spec");
     expect(findRow(LIST, "SHOP-99")).toBeNull();
   });
 
   it("takes drops on every group and the Done line, from head to last row", () => {
-    expect(listTargets(LIST)).toEqual(["product-spec", "dev", "validate", "backlog", "done"]);
-    expect(listTargets({ ...LIST, done: null })).toEqual(["product-spec", "dev", "validate", "backlog"]);
+    expect(listTargets(LIST)).toEqual(["backlog", "product-spec", "dev", "validate", "done"]);
+    expect(listTargets({ ...LIST, done: null })).toEqual(["backlog", "product-spec", "dev", "validate"]);
     const el = {
       getBoundingClientRect: () => ({ left: 80, right: 1200, top: 300, bottom: 420 }),
     } as HTMLElement;

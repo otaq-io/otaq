@@ -277,6 +277,26 @@ mod tests {
         let v = load(&h, None).await;
         let names: Vec<&str> = v.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Backlog", "Dev", "Validate", "Review", "Done"]);
+        // The palette's ready stages whose skill nobody here has carry the usual missing-skill warning; Otaq ships no
+        // skill for them.
+        let warning = |id: &str| {
+            v.palette
+                .templates
+                .iter()
+                .find(|t| t.id == id)
+                .unwrap_or_else(|| panic!("no ready stage {id}"))
+                .warning
+                .clone()
+        };
+        assert_eq!(
+            warning("security-review").as_deref(),
+            Some("You don't have the skill `security-check`")
+        );
+        assert_eq!(
+            warning("test-in-browser").as_deref(),
+            Some("You don't have the skill `test-in-browser`")
+        );
+        assert_eq!(warning("product-spec"), None, "a shipped skill");
         assert_eq!(v.bar.changes, None);
         assert!(!v.bar.save_enabled);
         assert_eq!(
@@ -362,7 +382,8 @@ mod tests {
         let panel = v.delivery.unwrap();
         assert!(panel.delivers.iter().any(|c| c.id == "pr" && c.selected));
         assert!(panel.modes.iter().any(|c| c.id == "automatic" && c.selected));
-        // Either is chosen at your click: picking it sets On Approve, and Automatically isn't offered with it.
+        // Either is chosen at your click: picking it sets On Approve, and the modes stay, switched off, as on the
+        // project's Repository card.
         request(
             &h.app,
             "flow_editor.edit",
@@ -371,7 +392,58 @@ mod tests {
         .await
         .unwrap();
         let v = load(&h, Some("done")).await;
-        assert!(v.delivery.unwrap().modes.is_empty());
+        let panel = v.delivery.unwrap();
+        assert!(panel.modes_off);
+        let modes: Vec<(&str, bool)> = panel.modes.iter().map(|c| (c.id.as_str(), c.selected)).collect();
+        assert_eq!(modes, [("click", true), ("automatic", false)]);
+        assert_eq!(
+            panel.delivers_note.as_deref(),
+            Some(otaq_view::view_models::project_settings::EITHER_NOTE)
+        );
+    }
+
+    /// Done's panel names the delivery's agent and, for a PR, its PR skill: the user's own Open PR skill goes there
+    /// (empty: Otaq's own `open-pr`); a local merge has no PR skill and may name no agent.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dones_panel_sets_the_deliverys_agent_and_pr_skill() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let edit = async |field: &str, value: &str| {
+            request(
+                &h.app,
+                "flow_editor.edit",
+                json!({ "project": "SHOP", "edit": { "edit": "delivery", "field": field, "value": value } }),
+            )
+            .await
+        };
+        edit("delivery.delivers", "pr").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        let skill = panel.skill.expect("a PR has a PR skill");
+        // The default flow names Otaq's own, which never warns.
+        assert_eq!((skill.value.as_str(), skill.placeholder), ("open-pr", "open-pr"));
+        assert_eq!(skill.warning, None);
+        assert!(panel.agent.items.iter().all(|i| !i.id.is_empty()), "a PR needs an agent");
+
+        edit("delivery.skill", " /my-pr ").await.unwrap();
+        edit("delivery.agent", "Checker").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        assert_eq!(panel.agent.value, "Checker");
+        let skill = panel.skill.unwrap();
+        assert_eq!(skill.value, "my-pr");
+        assert_eq!(skill.warning.as_deref(), Some("You don't have the skill `my-pr`"));
+        assert!(edit("delivery.agent", "").await.is_err(), "a PR keeps an agent");
+        // Emptied, Otaq's own runs.
+        edit("delivery.skill", "").await.unwrap();
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().skill.unwrap().value, "");
+
+        edit("delivery.delivers", "local").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        assert_eq!(panel.skill, None);
+        assert_eq!(panel.agent.items[0].id, "", "None, for the plain message");
+        edit("delivery.agent", "").await.unwrap();
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().agent.value, "None");
     }
 
     /// Import a flow file…, then Export flow file…: the same file comes back.

@@ -33,8 +33,6 @@ pub enum Rule {
     Duplicate,
     /// A stage or the delivery names an agent that isn't one of the agents (AGM-01).
     UnknownAgent,
-    /// An Agent stage or an agent check with no skill (FED-06: "Plan needs a skill").
-    NeedsSkill,
     /// A check's fails go to a stage that isn't an Agent stage before it (d0131).
     FailTo,
     /// An agent check with no agent (it has one).
@@ -50,11 +48,6 @@ pub struct Problem {
     /// The id of the stage it is about, when it is about one.
     pub stage: Option<String>,
     pub message: String,
-}
-
-/// "Plan needs a skill" (FED-06): the editor's reason Apply stays off.
-pub fn needs_skill_message(stage: &Stage) -> String {
-    format!("{} needs a skill", stage.name)
 }
 
 /// "Dev names the agent Rust developer, which isn't one of your agents".
@@ -190,9 +183,7 @@ pub fn check(flow: &Flow) -> Result<(), Vec<Problem>> {
         }
     }
 
-    for stage in stages.iter().filter(|s| s.needs_skill()) {
-        add(Rule::NeedsSkill, Some(stage), needs_skill_message(stage));
-    }
+    // A stage an agent runs may name no skill: Otaq's own skill for that stage runs ([`Stage::own_skill`]).
 
     // At least one Agent stage, and no human check before the first one.
     let first_agent = stages.iter().position(Stage::is_agent_stage);

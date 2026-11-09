@@ -1349,7 +1349,7 @@ mod tests {
             ("Start / move to Dev", vec!["⌘D"]),
             ("Park", vec!["no key"]),
             ("Close ticket", vec!["no key"]),
-            ("Open PR", vec!["no key"]),
+            ("Approve & open PR", vec!["no key"]),
             ("Re-run validation", vec!["no key"]),
             ("Open diff", vec!["no key"]),
             (

@@ -3,7 +3,7 @@ import type { FilesCodeLine } from "./FilesCodeLine";
 import type { FilesFileMode } from "./FilesFileMode";
 
 /**
- * A file opened from the tree (FTB-03): "src/middleware.ts" over "in SHOP-22’s worktree · +4 −1 against main", File ·
+ * A file opened from the tree (FTB-03): "src/middleware.ts" over "in SHOP-22’s copy · +4 −1 against main", File ·
  * Diff, New ticket from this file, and its lines as it is (the Diff's come from `files.diff`).
  */
 export type FilesFilePage = { path: string, child: string | null, subtitle: string, modes: [string, string], 

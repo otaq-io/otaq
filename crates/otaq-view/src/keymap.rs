@@ -210,7 +210,7 @@ impl KeyAction {
             Self::StartDev => "Start / move to Dev",
             Self::Park => "Park",
             Self::CloseTicket => "Close ticket",
-            Self::OpenPr => "Open PR",
+            Self::OpenPr => "Approve & open PR",
             Self::RerunValidation => "Re-run validation",
             Self::OpenDiff => "Open diff",
             Self::Terminals => "Terminal: open, close, leave the terminal",
@@ -2222,7 +2222,7 @@ mod tests {
                         "Start / move to Dev",
                         "Park",
                         "Close ticket",
-                        "Open PR",
+                        "Approve & open PR",
                         "Re-run validation",
                         "Open diff",
                     ]

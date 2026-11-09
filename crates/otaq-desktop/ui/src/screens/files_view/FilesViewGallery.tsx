@@ -186,7 +186,7 @@ export function FilesViewGallery() {
       </figure>
       <figure className="gallery-stack-tight">
         <figcaption className="gallery-caption">
-          SHOP-29’s worktree · the back link, the source and the note
+          SHOP-29’s copy · the back link, the source and the note
         </figcaption>
         <div className="files-side" style={{ width: 300 }}>
           <button type="button" className="files-view-back">

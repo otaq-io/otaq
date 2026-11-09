@@ -672,8 +672,8 @@ mod tests {
         assert_eq!(agent.name, "Developer");
     }
 
-    /// FED-05, FED-06: a Blank stage keeps Save off ("New stage needs a skill"); a skill typed for it turns Save on,
-    /// and it applies.
+    /// A Blank stage with no skill saves: Otaq's own skill for the stage runs; a skill typed for it is kept, and it
+    /// applies.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_new_stage_waits_for_a_skill_and_takes_a_picked_one() {
         let h = Harness::new(None);
@@ -693,8 +693,7 @@ mod tests {
             details.skill.as_ref().map(|s| &s.state),
             Some(vm::SkillState::Empty { .. })
         ));
-        assert!(!v.bar.save_enabled);
-        assert_eq!(v.bar.reason.as_deref(), Some("New stage needs a skill"));
+        assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
         let picker = &details.skill.as_ref().unwrap().picker;
         assert!(picker.items.iter().any(|i| i.id == "validate"));

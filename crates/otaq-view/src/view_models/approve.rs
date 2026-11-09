@@ -376,17 +376,17 @@ pub fn merge_into_view(key: &TicketKey, outcome: &MergeIntoOutcome) -> MergeInto
     }
 }
 
-/// "Open PR on GitHub", or plain "Open PR" when no provider is detected (a custom skill decides).
+/// "Approve & open PR on GitHub", or plain "Approve & open PR" when no provider is detected (a custom skill decides).
 pub fn open_pr_title(pr: Option<&PrProvider>) -> String {
     match pr.and_then(|p| p.provider) {
-        Some(provider) => format!("Open PR on {}", provider.name()),
-        None => "Open PR".to_owned(),
+        Some(provider) => format!("Approve & open PR on {}", provider.name()),
+        None => "Approve & open PR".to_owned(),
     }
 }
 
-/// "Local merge SHOP-18 Checkout API".
+/// "Approve & merge SHOP-18 Checkout API".
 pub fn confirm_title(ticket: &Ticket) -> String {
-    format!("Local merge {} {}", ticket.key, ticket.title)
+    format!("Approve & merge {} {}", ticket.key, ticket.title)
 }
 
 /// "Into (SHOP-18’s base branch)".
@@ -493,6 +493,16 @@ pub fn started_label(count: usize) -> Option<String> {
     }
 }
 
+/// The merged toast's title: "SHOP-1 merged into main".
+pub fn merged_title(key: &TicketKey, target: &str) -> String {
+    format!("{key} merged into {target}")
+}
+
+/// The merged toast's text: "Squashed as 9f3e2c1".
+pub fn squashed_as(commit: &str) -> String {
+    format!("Squashed as {}", short(commit))
+}
+
 pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
     match outcome {
         LocalMergeOutcome::Merged {
@@ -501,8 +511,8 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             started,
             ..
         } => MergeView::Merged {
-            title: format!("Local merge done \u{b7} {key}"),
-            text: format!("Squashed into {target} as {}", short(commit)),
+            title: merged_title(key, target),
+            text: squashed_as(commit),
             started: started_label(started.len()),
         },
         LocalMergeOutcome::Conflict { target, files } => MergeView::Conflict {
@@ -932,7 +942,10 @@ mod tests {
     #[test]
     fn the_confirmation_names_the_target_and_who_keeps_waiting() {
         let (shop18, tickets) = sample();
-        assert_eq!(confirm_title(&shop18), "Local merge SHOP-18 Checkout API");
+        assert_eq!(
+            confirm_title(&shop18),
+            "Approve & merge SHOP-18 Checkout API"
+        );
         assert_eq!(into_label(&shop18), "Into (SHOP-18\u{2019}s base branch)");
         assert_eq!(
             confirm_note(&shop18, "main", &tickets),
@@ -974,8 +987,8 @@ mod tests {
                 }
             ),
             MergeView::Merged {
-                title: "Local merge done \u{b7} SHOP-18".into(),
-                text: "Squashed into main as 9f3e2c1".into(),
+                title: "SHOP-18 merged into main".into(),
+                text: "Squashed as 9f3e2c1".into(),
                 started: Some("2 waiting tickets started".into()),
             }
         );

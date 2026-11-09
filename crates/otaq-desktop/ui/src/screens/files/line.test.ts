@@ -19,7 +19,7 @@ vi.mock("../../tauri", () => ({
 const page: FilesFilePage = {
   path: "src/pricing.ts",
   child: null,
-  subtitle: "in SHOP-22’s worktree",
+  subtitle: "in SHOP-22’s copy",
   modes: ["File", "Diff"],
   opens_in: "diff",
   split_modes: ["Unified", "Split"],
