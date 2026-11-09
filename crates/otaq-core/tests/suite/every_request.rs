@@ -117,6 +117,9 @@ fn sample(method: &str, unit: bool) -> Request {
             params["n"] = json!(1);
             params["ticked"] = json!(true);
         }
+        if method == "settings.os_dark" {
+            params["dark"] = json!(true);
+        }
         if method == "hints.dismiss" {
             params["hint"] = json!("gallery_sample");
         }
