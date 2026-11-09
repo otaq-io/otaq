@@ -159,3 +159,37 @@ async fn an_existing_branch_is_reused_not_recreated() {
         .unwrap_err();
     assert!(err.to_string().contains("not-a-commit"), "{err}");
 }
+
+/// A repository that already has `otaq/SHOP-1` (left by a project added before, or the user's own) keeps it: the new
+/// ticket SHOP-1 takes the next free name, a remote's branch counting too, and keeps that one on every start after.
+#[tokio::test]
+async fn a_branch_the_ticket_didnt_make_is_never_taken_over() {
+    let f = Fixture::shop().await;
+    let repo = repo(&f);
+    let main = git(&repo, &["rev-parse", "main"]);
+    git(&repo, &["branch", "otaq/SHOP-1", &main]);
+    commit(&repo, "theirs.txt", "someone else's work\n");
+    git(
+        &repo,
+        &["update-ref", "refs/remotes/origin/otaq/SHOP-1-2", "main"],
+    );
+    let theirs = git(&repo, &["rev-parse", "main"]);
+    git(&repo, &["update-ref", "refs/heads/otaq/SHOP-1", &theirs]);
+
+    let t = f.create("Checkout API").await;
+    let key = t.key.to_string();
+    let wt = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
+    assert_eq!(wt.branch, "otaq/SHOP-1-3");
+    assert_eq!(
+        git(&repo, &["rev-parse", "otaq/SHOP-1"]),
+        theirs,
+        "the other branch is left as it was"
+    );
+    let row = f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.branch_name.as_deref(), Some("otaq/SHOP-1-3"));
+    // A start after keeps the ticket's own branch.
+    assert_eq!(
+        prepare_worktree(&f.board, &data(&f), &key).await.unwrap(),
+        wt
+    );
+}
