@@ -1,5 +1,5 @@
 {
-  "protocol_version": 11,
+  "protocol_version": 12,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -93,10 +93,6 @@
       "fields": {
         "base_branch": {
           "ty": "Option<String>",
-          "omittable": true
-        },
-        "flow_setup": {
-          "ty": "bool",
           "omittable": true
         },
         "key": {
@@ -2687,14 +2683,6 @@
             }
           }
         },
-        "flow_setup_changed": {
-          "fields": {
-            "project": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
         "merged_automatically": {
           "fields": {
             "key": {
@@ -3415,10 +3403,6 @@
         "body": {
           "ty": "String",
           "required": true
-        },
-        "report": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         }
       }
     },
@@ -3748,100 +3732,6 @@
         "open",
         "push"
       ]
-    },
-    "FlowSetup": {
-      "kind": "struct",
-      "fields": {
-        "project": {
-          "ty": "String",
-          "required": true
-        },
-        "project_name": {
-          "ty": "String",
-          "required": true
-        },
-        "proposals": {
-          "ty": "Vec<crate::flow::proposal::Proposal>",
-          "required": true
-        },
-        "since": {
-          "ty": "Option<i64>",
-          "omittable": true
-        },
-        "tools": {
-          "ty": "Vec<FlowSetupTool>",
-          "required": true
-        }
-      }
-    },
-    "FlowSetupRow": {
-      "kind": "enum",
-      "attrs": [
-        "tag=row"
-      ],
-      "variants": {
-        "ended": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
-        "not_asked": {},
-        "not_signed_in": {},
-        "plan_limit": {
-          "fields": {
-            "agent": {
-              "ty": "Option<String>",
-              "omittable": true
-            },
-            "resets_at": {
-              "ty": "Option<i64>",
-              "omittable": true
-            }
-          }
-        },
-        "proposed": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            },
-            "proposal": {
-              "ty": "u32",
-              "required": true
-            }
-          }
-        },
-        "working": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            },
-            "since": {
-              "ty": "i64",
-              "required": true
-            }
-          }
-        }
-      }
-    },
-    "FlowSetupTool": {
-      "kind": "struct",
-      "fields": {
-        "..row": {
-          "ty": "FlowSetupRow",
-          "attrs": [
-            "flatten"
-          ]
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
     },
     "FlowStage": {
       "kind": "struct",
@@ -5636,19 +5526,6 @@
         }
       }
     },
-    "OnboardingAskParams": {
-      "kind": "struct",
-      "fields": {
-        "project": {
-          "ty": "String",
-          "required": true
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
     "OnboardingState": {
       "kind": "struct",
       "fields": {
@@ -5656,10 +5533,6 @@
           "ty": "bool"
         },
         "has_projects": {
-          "ty": "bool",
-          "required": true
-        },
-        "permission_warning_dismissed": {
           "ty": "bool",
           "required": true
         },
@@ -6920,10 +6793,6 @@
           "ty": "String",
           "required": true
         },
-        "flow_setup_since": {
-          "ty": "Option<i64>",
-          "omittable": true
-        },
         "key": {
           "ty": "String",
           "required": true
@@ -7776,9 +7645,6 @@
         "flow_proposal": {
           "newtype": "Option<crate::flow::proposal::Proposal>"
         },
-        "flow_setup": {
-          "newtype": "FlowSetup"
-        },
         "flow_version": {
           "newtype": "FlowVersion"
         },
@@ -7855,9 +7721,6 @@
           "newtype": "NotificationsState"
         },
         "ok": {},
-        "onboarding_sources": {
-          "newtype": "Sources"
-        },
         "onboarding_state": {
           "newtype": "OnboardingState"
         },
@@ -8352,20 +8215,7 @@
         "notifications.ask_answered": {},
         "notifications.dismiss_blocked": {},
         "notifications.state": {},
-        "onboarding.ask": {
-          "newtype": "OnboardingAskParams"
-        },
-        "onboarding.dismiss_permission_warning": {},
-        "onboarding.flow_setup": {
-          "newtype": "ProjectParams"
-        },
-        "onboarding.sources": {
-          "newtype": "ProjectParams"
-        },
         "onboarding.state": {},
-        "onboarding.use_default": {
-          "newtype": "ProjectParams"
-        },
         "ping": {},
         "project.add": {
           "newtype": "AddProject"
@@ -10033,19 +9883,6 @@
               "required": true
             }
           }
-        }
-      }
-    },
-    "Sources": {
-      "kind": "struct",
-      "fields": {
-        "project_name": {
-          "ty": "String",
-          "required": true
-        },
-        "tools": {
-          "ty": "Vec<crate::agent_tools::Tool>",
-          "required": true
         }
       }
     },

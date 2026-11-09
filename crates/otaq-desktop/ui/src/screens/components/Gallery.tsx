@@ -739,9 +739,9 @@ function Banners() {
       />
       <Banner
         tone="warning"
-        icon="shield-alert"
-        title="Permission prompts are on"
-        text="With 5–10 agents, permission prompts will stop agents often. Read about allowlists and auto mode →"
+        icon="hourglass"
+        title="Saved · waiting"
+        text="QA after Security · 8 tickets still working. It applies when they’re through; until then no new ticket starts."
         onDismiss={noop}
       />
       <Banner

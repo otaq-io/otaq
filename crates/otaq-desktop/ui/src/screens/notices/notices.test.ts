@@ -126,14 +126,13 @@ describe("banner buttons", () => {
     expect(r.ask).toHaveBeenCalledWith("notices.restart");
   });
 
-  it("the limit's Resume and Read the docs are requests", async () => {
+  it("the limit's Resume is a request", async () => {
     const r = routes();
     await pressBanner("usage_limit", "resume", r.routes);
-    await pressBanner("permission_warning", "action", r.routes);
     await pressBanner("reconnecting", "action", r.routes);
     await pressBanner("trust_failed", "action", r.routes);
     await pressBanner("trust_note", "action", r.routes);
-    expect(r.ask.mock.calls.map((c) => c[0])).toEqual(["notices.resume_after_limit", "notices.open_docs"]);
+    expect(r.ask.mock.calls.map((c) => c[0])).toEqual(["notices.resume_after_limit"]);
   });
 
   it("the notifications ask's Allow and Not now, and the blocked banner's Open System Settings, are requests", async () => {

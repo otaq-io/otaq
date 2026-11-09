@@ -383,6 +383,8 @@ impl Notices {
         self.publish();
     }
 
+    /// Raises a banner by hand (tests).
+    #[cfg(test)]
     pub fn raise(&self, situation: Situation) {
         self.lock().banners.raise(situation);
         self.publish();
@@ -1105,7 +1107,6 @@ mod tests {
                 })
                 .collect(),
             has_projects: true,
-            permission_warning_dismissed: false,
             first_approve: true,
         };
         n.on_trust(&state(true, &["NOTE"]));
@@ -1466,7 +1467,10 @@ mod tests {
             true
         }));
         let n = Notices::new(hub, OPENED, None);
-        n.raise(Situation::PermissionWarning);
+        n.raise(Situation::ServiceUpdateReady {
+            working: 0,
+            waiting: 0,
+        });
         n.publish();
         n.tick();
         let seen = seen.lock().unwrap();
@@ -1474,7 +1478,7 @@ mod tests {
         assert_eq!(seen[0]["kind"], "notices");
         assert_eq!(
             seen[0]["notices"]["banners"][0]["title"],
-            "Permission prompts are on"
+            "Service update ready"
         );
     }
 

@@ -4,7 +4,6 @@
 
 mod agent;
 mod ask;
-mod ask_each_tool;
 mod attach;
 mod cli;
 mod client_start;
@@ -24,7 +23,6 @@ mod limit;
 mod m24_example;
 mod m38_example;
 mod notify_check;
-mod onboarding;
 mod open_pr;
 mod open_questions;
 mod opencode_hook;

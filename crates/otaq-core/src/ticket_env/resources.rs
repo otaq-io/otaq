@@ -481,7 +481,6 @@ mod tests {
             next_ticket_number: 1,
             settings_json: "{}".into(),
             created_at: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }

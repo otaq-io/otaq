@@ -1237,15 +1237,11 @@ impl Board {
         }
         let tool = proposed_by.tool().map(Tool::as_str);
         let mut tx = self.store().begin_write().await?;
-        // Outside Flow setup one proposal per project (FLW-03); during it one per tool, and the user's (ASK-03).
-        let replaced = if project.flow_setup_since.is_some() {
-            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ? AND tool IS ?")
-                .bind(&project.id)
-                .bind(tool)
-        } else {
-            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?").bind(&project.id)
-        };
-        replaced.execute(&mut *tx).await?;
+        // One proposal per project (FLW-03).
+        sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?")
+            .bind(&project.id)
+            .execute(&mut *tx)
+            .await?;
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO flow_proposals (project_id, tool, yaml, source_json, proposed_by_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?) RETURNING id",

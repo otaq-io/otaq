@@ -613,9 +613,6 @@ mod tests {
             warm["rows"][0]["confirm"]["confirm"],
             format!("Clear up to {}", cleanup::size(9000))
         );
-        // The rail's broom counts the leftover only.
-        let broom = table(&h.app, "shell.cleanup", Value::Null).await.unwrap();
-        assert_eq!(broom["count"], 1);
         // Delete selected… never takes a warm build.
         table(&h.app, "recovery.cleanup_toggle_group", json!({ "group": "worktrees" }))
             .await

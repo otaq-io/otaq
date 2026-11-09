@@ -3,4 +3,4 @@
 /**
  * The situations a banner can stand for. The order of the variants is the stacking order (first = top).
  */
-export type BannerKind = "paused" | "service_stopped" | "restart_required" | "usage_limit" | "trust_failed" | "notifications_blocked" | "permission_warning" | "flow_waiting" | "trust_note" | "notifications_ask" | "service_update_ready" | "reconnecting";
+export type BannerKind = "paused" | "service_stopped" | "restart_required" | "usage_limit" | "trust_failed" | "notifications_blocked" | "flow_waiting" | "trust_note" | "notifications_ask" | "service_update_ready" | "reconnecting";

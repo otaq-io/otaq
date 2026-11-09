@@ -592,8 +592,7 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
         title: "Fix flaky login redirect".into(),
         first_comment: Some(FirstComment {
             body: line.into(),
-            report: Some(report),
-            ..Default::default()
+            attachments: vec![report],
         }),
         ..Default::default()
     };
@@ -673,7 +672,6 @@ async fn a_ticket_created_with_a_report_has_it_as_its_first_comment() {
                 title: "Cart badge count".into(),
                 first_comment: Some(FirstComment {
                     body: String::new(),
-                    report: None,
                     attachments: vec![
                         ReportSource::Path(shot.clone()),
                         ReportSource::Path(run.clone()),

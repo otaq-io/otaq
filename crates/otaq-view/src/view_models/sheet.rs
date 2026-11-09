@@ -1,16 +1,16 @@
 //! The ticket sheet (SHT-01, SHT-02; d0087, d0095, d0097; canvas `s25-02`, `s25-03`, `s25-10`): a 1040 px sheet over
 //! the board (920 px beside the agent panel), or the whole content area at full page (⤢, "← Board"). Its header is
-//! the breadcrumb (project / key), the title and status, **Move…** and ⋯; under it the **details line** (Assignee,
-//! Model, Working, Priority, Branch) and the flow path; then the tabs **Overview · Session · Changes ·
+//! the breadcrumb (project / key), the title and status, **Move…** and ⋯; under it one line (where it is and who works
+//! on it) and the flow path; then the tabs **Overview · Session · Changes ·
 //! History**, `1`–`4` and `g o` / `g s` / `g f` / `g a`. Changes carries its count ("Changes 3", Q421, [`FilesCounts`]).
 //!
 //! What the sheet shows is a [`Content`]: a tab, or one side of Session's switch (Agent, the check's agent, Run, Shell;
 //! `session_tab.rs`, T-0466). Each tab's screen registers its body: Overview (`overview.rs`, T-0465), Session, Files
 //! (`files_tab.rs`, T-0468) and Activity (`history.rs`, T-0466).
 
+use otaq_core::agents::SessionRole;
 use otaq_core::agents::facts::{PathKind, PathStage, TicketAgents};
 use otaq_core::agents::store::SessionAgentRun;
-use otaq_core::agents::{Agent, SessionRole};
 use std::collections::{HashMap, HashSet};
 
 use otaq_core::board::files::{FilesChanges, FilesFrom};
@@ -24,12 +24,8 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::agents::TOOL_DEFAULT;
 use crate::view_models::board_page::{DragAnswer, Verdict};
-use crate::view_models::card::tokens_label;
 use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
-use crate::view_models::priority;
-use crate::view_models::stage_choices;
-use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
 
 /// The sheet's width over the board (SHT-01).
@@ -164,49 +160,6 @@ pub fn breadcrumb(ticket: &Ticket, project: &str) -> Vec<Crumb> {
     ]
 }
 
-/// What a click on a detail does.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-#[ts(rename = "SheetDetailChange")]
-pub enum DetailChange {
-    /// Priority's menu (`sheet.priority`).
-    Priority { items: Vec<MenuItem> },
-    /// The stage's agent before it starts (`sheet.set_choice`, AGM-08).
-    Choice { stage: String, items: Vec<MenuItem> },
-}
-
-/// One item of the details line: "Assignee  CX Rust developer", "Branch  otaq/SHOP-22 from main".
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "SheetDetail")]
-pub struct Detail {
-    pub label: &'static str,
-    pub value: String,
-    /// The tool's avatar, with several tools connected (SHL-08).
-    pub avatar: Option<ToolAvatarView>,
-    /// The working dot before the value.
-    pub working: bool,
-    /// The value in the mono font (the branch).
-    pub mono: bool,
-    /// Muted text after the value: "from main".
-    pub note: Option<String>,
-    /// Clickable where the value may be changed.
-    pub change: Option<DetailChange>,
-}
-
-impl Detail {
-    fn new(label: &'static str, value: impl Into<String>) -> Self {
-        Self {
-            label,
-            value: value.into(),
-            avatar: None,
-            working: false,
-            mono: false,
-            note: None,
-            change: None,
-        }
-    }
-}
-
 /// What the details line is made of.
 pub struct DetailFacts<'a> {
     pub ticket: &'a Ticket,
@@ -221,8 +174,6 @@ pub struct DetailFacts<'a> {
     /// The ticket's tokens with the helpers' and the checks' shares (`usage.summary`).
     pub usage: Option<&'a otaq_core::usage::TicketUsage>,
 }
-
-const DASH: &str = "\u{2014}";
 
 /// "3 min", "1 h 5 min": how long, in whole minutes (at least one).
 pub fn minutes_label(ms: i64) -> String {
@@ -262,179 +213,23 @@ fn next_stage<'a>(ticket: &Ticket, path: &'a [PathStage]) -> Option<&'a PathStag
     }
 }
 
-/// Assignee and Model: the agent on it now (its running session), else the agent its next stage runs (changeable
-/// until that stage starts), else the last one that ran.
-fn assignee(f: &DetailFacts) -> (Detail, Detail) {
-    let ticket = f.ticket;
-    let empty = || (Detail::new("Assignee", DASH), Detail::new("Model", DASH));
-    let Some(agents) = f.agents else {
-        return empty();
-    };
+/// Who is on the ticket: the agent on it now (its running session), else the agent its next stage runs, else the last
+/// one that ran; `None` when no one can be named.
+fn assignee(f: &DetailFacts) -> Option<String> {
+    let agents = f.agents?;
     if let Some(session) = running(agents) {
-        let model = session.model_ran.as_deref().or(session.model.as_deref());
-        return (
-            Detail {
-                avatar: session.tool.and_then(|t| f.tools.avatar(t, model)),
-                ..Detail::new(
-                    "Assignee",
-                    session
-                        .agent_name
-                        .clone()
-                        .unwrap_or_else(|| DASH.to_owned()),
-                )
-            },
-            Detail::new(
-                "Model",
-                session
-                    .tool
-                    .map_or_else(|| DASH.to_owned(), |t| model_text(t, model)),
-            ),
-        );
+        return session.agent_name.clone();
     }
-    let of_agent = |agent: &Agent, change: Option<DetailChange>| {
-        let on = agent.model.on(f.tools.default_model.as_ref());
-        (
-            Detail {
-                avatar: on
-                    .as_ref()
-                    .and_then(|m| f.tools.avatar(m.tool, m.model.as_deref())),
-                change,
-                ..Detail::new("Assignee", agent.name.clone())
-            },
-            Detail::new(
-                "Model",
-                on.map_or_else(
-                    || DASH.to_owned(),
-                    |m| model_text(m.tool, m.model.as_deref()),
-                ),
-            ),
-        )
-    };
-    if let Some(stage) = next_stage(ticket, &agents.path)
+    if let Some(stage) = next_stage(f.ticket, &agents.path)
         && stage.kind != PathKind::HumanCheck
         && let Some(agent) = &stage.agent
     {
-        // Its agent may be changed until the stage starts (AGM-08): the stage's choice, as the Choices picker.
-        let change = stage_choices::sheet_choices(agents)
-            .and_then(|c| c.rows.into_iter().find(|r| r.stage_id == stage.stage_id))
-            .filter(|r| !r.items.is_empty() && r.lock.is_none())
-            .map(|r| DetailChange::Choice {
-                stage: r.stage_id,
-                items: r.items,
-            });
-        return of_agent(agent, change);
+        return Some(agent.name.clone());
     }
-    match agents.sessions.last() {
-        Some(last) => {
-            let model = last.model_ran.as_deref().or(last.model.as_deref());
-            (
-                Detail {
-                    avatar: last.tool.and_then(|t| f.tools.avatar(t, model)),
-                    ..Detail::new(
-                        "Assignee",
-                        last.agent_name.clone().unwrap_or_else(|| DASH.to_owned()),
-                    )
-                },
-                Detail::new(
-                    "Model",
-                    last.tool
-                        .map_or_else(|| DASH.to_owned(), |t| model_text(t, model)),
-                ),
-            )
-        }
-        None => empty(),
-    }
-}
-
-/// Working: "3 min · 64k tokens" while its agent runs, "Sent back · waiting for the agent to pick it up" while it hasn't
-/// picked up a hand-off (d0118), "waiting for you · 12 min" in your check; nothing otherwise.
-fn working(f: &DetailFacts) -> Option<Detail> {
-    let ticket = f.ticket;
-    if ticket.status.set() == StatusSet::HumanCheck {
-        let since = ticket.status_since.unwrap_or(ticket.updated_at);
-        return Some(Detail::new(
-            "Working",
-            format!("waiting for you \u{b7} {}", minutes_label(f.now - since)),
-        ));
-    }
-    // A hand-off the agent hasn't picked up: the card's words, without the working dot (d0118).
-    if let Some(kind) = super::card::pending_hand_off(ticket, ticket.status) {
-        return Some(Detail::new("Working", super::card::hand_off_line(kind)));
-    }
-    let session = f.agents.and_then(running)?;
-    let time = minutes_label(f.now - session.started_at);
-    let value = match ticket.flags.tokens {
-        Some(tokens) => format!("{time} \u{b7} {} tokens", tokens_label(tokens)),
-        None => time,
-    };
-    Some(Detail {
-        working: true,
-        ..Detail::new("Working", value)
-    })
-}
-
-/// Branch: "otaq/SHOP-22 from main".
-fn branch(ticket: &Ticket) -> Detail {
-    Detail {
-        mono: true,
-        note: Some(format!("from {}", ticket.base.branch())),
-        ..Detail::new("Branch", branch_name(ticket).unwrap_or_default())
-    }
-}
-
-/// The details line (SHT-01): Assignee, Model (not once it is Done), Working (while it works or waits for you),
-/// Priority and Branch.
-pub fn details(f: &DetailFacts) -> Vec<Detail> {
-    let ticket = f.ticket;
-    let priority = Detail {
-        change: Some(DetailChange::Priority {
-            items: priority::menu_items(ticket.priority),
-        }),
-        ..Detail::new("Priority", priority::view(ticket.priority).short)
-    };
-    // A finished ticket has no one on it: no Assignee (nor its Model), not the last agent that ran (#36).
-    let (who, model) = if ticket.place == Place::Done {
-        (None, None)
-    } else if ticket.status.set() == StatusSet::HumanCheck {
-        // Your check has no agent on it (d0108, `s30-02`): "In charge · You", no model.
-        (
-            Some(Detail::new(
-                crate::view_models::pieces::IN_CHARGE_LABEL,
-                "You",
-            )),
-            None,
-        )
-    } else {
-        let (who, model) = assignee(f);
-        (Some(who), Some(model))
-    };
-    // A ticket whose build stage split its work (d0133, `s30-03`): "In charge", its pieces and its tokens split.
-    let pieces = crate::view_models::pieces::Facts::new(ticket, f.helpers);
-    let who = who.map(|who| match pieces.split() {
-        true => Detail {
-            label: crate::view_models::pieces::IN_CHARGE_LABEL,
-            ..who
-        },
-        false => who,
-    });
-    let split = crate::view_models::pieces::pieces_detail(&pieces)
-        .map(|merged| Detail::new("Pieces", merged))
-        .into_iter()
-        .chain(
-            f.usage
-                .filter(|_| pieces.split())
-                .and_then(|u| Some((u.tokens?, crate::view_models::pieces::tokens_split(u)?)))
-                .map(|(total, split)| Detail {
-                    note: Some(split),
-                    ..Detail::new("Tokens", tokens_label(total.shown()))
-                }),
-        );
-    who.into_iter()
-        .chain(model)
-        .chain(working(f))
-        .chain([priority, branch(ticket)])
-        .chain(split)
-        .collect()
+    agents
+        .sessions
+        .last()
+        .and_then(|last| last.agent_name.clone())
 }
 
 /// "Dev and Validate by Claude Code" for a ticket in your check: the stages its agents did, and their tools.
@@ -509,9 +304,8 @@ pub fn subtitle(f: &DetailFacts) -> String {
     if let Some(stage) = stage {
         parts.push(format!("In {stage}"));
     }
-    let (who, _) = assignee(f);
-    if who.value != DASH {
-        parts.push(who.value);
+    if let Some(who) = assignee(f) {
+        parts.push(who);
     }
     parts.push(match started {
         Some(at) => format!("started by you {}", ago(at)),
@@ -775,7 +569,7 @@ mod tests {
     use super::*;
     use crate::view_models::card_fixtures::ticket;
     use crate::view_models::stage_choices::fixtures::{
-        CLAUDE, CODEX, session, shop_options, shop_path, tools,
+        CODEX, session, shop_options, shop_path, tools,
     };
     use otaq_core::domain::{Priority, Status};
 
@@ -793,19 +587,6 @@ mod tests {
         )
     }
 
-    fn several_tools() -> Tools {
-        let mut tools = tools();
-        tools.connected = vec![CLAUDE, CODEX];
-        tools
-    }
-
-    fn shown(details: &[Detail]) -> Vec<(&str, String, Option<&str>)> {
-        details
-            .iter()
-            .map(|d| (d.label, d.value.clone(), d.note.as_deref()))
-            .collect()
-    }
-
     /// SHOP-22 "Fix flaky login redirect" asks to run a command in Dev, Rust developer on Codex · gpt-5.5 for 3
     /// minutes and 64k tokens (`s25-03`).
     fn shop_22() -> Ticket {
@@ -821,180 +602,12 @@ mod tests {
     }
 
     #[test]
-    fn the_header_and_details_line_for_shop_22() {
+    fn the_breadcrumb_for_shop_22() {
         let t = shop_22();
-        let mut dev = session(
-            "s1",
-            SessionRole::Developer,
-            "Rust developer",
-            CODEX,
-            None,
-            Some("gpt-5.5"),
-        );
-        dev.running = true;
-        dev.started_at = 100 * MIN;
-        dev.ended_at = None;
-        let agents = agents_of(&t, vec![dev]);
-        let several = several_tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: Some(&agents),
-            tools: &several,
-            tickets: &[],
-            now: 103 * MIN + 20_000,
-            helpers: &[],
-            usage: None,
-        });
-        assert_eq!(
-            shown(&details),
-            [
-                ("Assignee", "Rust developer".into(), None),
-                ("Model", "Codex \u{b7} gpt-5.5".into(), None),
-                ("Working", "3 min \u{b7} 64k tokens".into(), None),
-                ("Priority", "P2".into(), None),
-                (
-                    "Branch",
-                    otaq_core::naming::branch("SHOP-22"),
-                    Some("from main")
-                ),
-            ]
-        );
-        assert_eq!(
-            details[0].avatar.as_ref().map(|a| a.letters.as_str()),
-            Some("CX")
-        );
-        assert!(details[2].working);
-        assert!(details[4].mono);
-        assert!(matches!(
-            details[3].change,
-            Some(DetailChange::Priority { .. })
-        ));
-        assert_eq!(details[0].change, None, "Dev has started");
         let crumbs = breadcrumb(&t, "shop-web");
         let texts: Vec<_> = crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(texts, ["shop-web", "SHOP-22"]);
         assert!(crumbs[1].key && !crumbs[0].key);
-        // One tool connected: no avatar (SHL-08).
-        let one = tools();
-        let plain = super::details(&DetailFacts {
-            ticket: &t,
-            agents: Some(&agents),
-            tools: &one,
-            tickets: &[],
-            now: 103 * MIN,
-            helpers: &[],
-            usage: None,
-        });
-        assert_eq!(plain[0].avatar, None);
-    }
-
-    /// #36: after the merge nobody is on the ticket, so the line has no Assignee (it said "Validator", the last agent
-    /// that ran).
-    #[test]
-    fn a_done_ticket_has_no_assignee() {
-        let mut t = shop_22();
-        t.status = Status::Merged;
-        t.place = Place::Done;
-        let mut validator = session(
-            "s2",
-            SessionRole::Validator,
-            "Validator",
-            CODEX,
-            None,
-            Some("gpt-5.5"),
-        );
-        validator.running = false;
-        let agents = agents_of(&t, vec![validator]);
-        let tools = tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: Some(&agents),
-            tools: &tools,
-            tickets: &[],
-            now: 0,
-            helpers: &[],
-            usage: None,
-        });
-        let labels: Vec<&str> = details.iter().map(|d| d.label).collect();
-        assert_eq!(labels, ["Priority", "Branch"]);
-    }
-
-    /// While a hand-off waits for the agent (d0118) the Working detail says so, without the working dot.
-    #[test]
-    fn working_says_a_hand_off_waits_for_the_agent() {
-        let mut t = ticket("SHOP-18", "Login redirect", Status::Working);
-        t.flags.hand_off = Some(otaq_core::domain::HandOffKind::SendBack);
-        let tools = tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: None,
-            tools: &tools,
-            tickets: &[],
-            now: 0,
-            helpers: &[],
-            usage: None,
-        });
-        let working = details.iter().find(|d| d.label == "Working").unwrap();
-        assert_eq!(
-            working.value,
-            "Sent back \u{b7} waiting for the agent to pick it up"
-        );
-        assert!(!working.working);
-    }
-
-    /// A ticket in Backlog: its first stage's agent, changeable before it starts; no working time, no branch yet.
-    #[test]
-    fn a_ticket_in_backlog() {
-        let t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
-        let agents = agents_of(&t, Vec::new());
-        let tools = tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: Some(&agents),
-            tools: &tools,
-            tickets: &[],
-            now: 0,
-            helpers: &[],
-            usage: None,
-        });
-        assert_eq!(
-            shown(&details),
-            [
-                ("Assignee", "Spec writer".into(), None),
-                ("Model", "Claude Code \u{b7} sonnet".into(), None),
-                ("Priority", "P3".into(), None),
-                ("Branch", String::new(), Some("from main")),
-            ]
-        );
-        let Some(DetailChange::Choice { stage, items }) = &details[0].change else {
-            panic!("Product spec's agent can change: {:?}", details[0].change);
-        };
-        assert_eq!(stage, "product-spec");
-        assert!(items.iter().any(|i| i.checked));
-    }
-
-    /// In your check (`s25-09`, `s30-02`): In charge You, no model, and how long it waits for you.
-    #[test]
-    fn in_your_check() {
-        let mut t = ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
-        t.status_since = Some(10 * MIN);
-        let tools = tools();
-        let details = details(&DetailFacts {
-            ticket: &t,
-            agents: None,
-            tools: &tools,
-            tickets: &[],
-            now: 22 * MIN,
-            helpers: &[],
-            usage: None,
-        });
-        assert_eq!(
-            &shown(&details)[..2],
-            [
-                ("In charge", "You".into(), None),
-                ("Working", "waiting for you \u{b7} 12 min".into(), None),
-            ]
-        );
     }
 
     /// The one line under the title, in the board's words: where it is, who works on it, since when; in your check,

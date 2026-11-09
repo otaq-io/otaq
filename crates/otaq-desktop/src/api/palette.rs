@@ -187,7 +187,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: Some(key.into()),
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap();

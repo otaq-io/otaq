@@ -25,24 +25,6 @@ pub(super) async fn handle(
                 .open_on(&p.project, &p.message, p.agent.as_deref())
                 .await,
         ),
-        Request::OnboardingAsk(p) => {
-            let state = shared.connected.status(p.tool).state;
-            agent(agents.ask_for_flow(&p.project, p.tool, &state).await)
-        }
-        Request::OnboardingFlowSetup(p) => agents
-            .flow_setup(
-                &p.project,
-                &shared.connected.list().tools,
-                shared.agents.models(),
-            )
-            .await
-            .map(|s| Reply::FlowSetup(Box::new(s)))
-            .map_err(|e| error_body(&e)),
-        Request::OnboardingUseDefault(p) => agents
-            .settle_flow_setup(&p.project, None)
-            .await
-            .map(|_| Reply::Ok)
-            .map_err(|e| error_body(&e)),
         Request::ProjectAgentList(p) => agents
             .list(&p.project)
             .await

@@ -143,8 +143,8 @@ pub use sheet::{
 };
 #[cfg(test)]
 pub use shell::{
-    Broom as CleanupBroom, DigitParams, Header as HeaderView, Params as ShellParams,
-    Quick as QuickSwitcherView, QuickParams, Rail as RailView, StepParams,
+    DigitParams, Header as HeaderView, Params as ShellParams, Quick as QuickSwitcherView,
+    QuickParams, Rail as RailView, StepParams,
 };
 #[cfg(test)]
 pub use strip::export_types as export_strip_types;

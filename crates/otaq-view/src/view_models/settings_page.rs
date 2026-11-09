@@ -1392,24 +1392,16 @@ pub fn notifications_gallery() -> NotificationsGallery {
         }]
     }
     type Raise = fn(&mut BannerModel);
-    let banner_cells: [(&str, Raise); 6] = [
+    let banner_cells: [(&str, Raise); 5] = [
         ("the ask · the first agent started, macOS not asked", |m| {
             m.set_notifications(true, false)
         }),
         ("macOS blocked a notification", |m| {
             m.set_notifications(false, true)
         }),
-        (
-            "stacking · blocked below the folder trust warning, above the permission warning",
-            |m| {
-                m.raise(Situation::PermissionWarning);
-                m.set_trust(false, Vec::new(), failed());
-                m.set_notifications(false, true);
-            },
-        ),
-        ("stacking · blocked above the permission warning", |m| {
-            m.raise(Situation::PermissionWarning);
-            m.set_notifications(true, true);
+        ("stacking · blocked below the folder trust warning", |m| {
+            m.set_trust(false, Vec::new(), failed());
+            m.set_notifications(false, true);
         }),
         ("stacking · the usage limit on top, reconnecting", |m| {
             m.raise(limit());
@@ -1594,7 +1586,6 @@ pub fn warm_switch_gallery() -> WarmSwitchGallery {
                     base_branch: "main".into(),
                     agents_working: 0,
                     needs_you: 0,
-                    flow_setup_since: None,
                     paused_since: None,
                     paused_by: None,
                 };
@@ -2096,7 +2087,6 @@ mod tests {
             base_branch: "develop".into(),
             agents_working: 1,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }

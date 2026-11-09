@@ -9,7 +9,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::attention::notify::PermissionState;
 use otaq_view::view_models::banners::{
-    NotificationsLine, PERMISSION_DOCS_URL, Situation, SituationKind, notifications_line,
+    NotificationsLine, SituationKind, notifications_line,
 };
 use otaq_view::view_models::limit_banner::{
     RESUME_ALL_FAILED, RESUME_FAILED, resumed,
@@ -46,16 +46,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "notices.resume_after_limit" => resume_after_limit(app).await,
         "notices.resume_paused" => resume_paused(app).await,
         "notices.resume_all" => resume_all(app).await,
-        "notices.open_docs" => {
-            open::that_detached(PERMISSION_DOCS_URL).map_err(|e| {
-                RequestError::plain(format!("couldn't open {PERMISSION_DOCS_URL}: {e}"))
-            })?;
-            Ok(Value::Null)
-        }
-        "notices.permission_warning" => {
-            app.notices.raise(Situation::PermissionWarning);
-            Ok(Value::Null)
-        }
         "notices.open_at_start" => reply(&app.notices.take_open_at_start()),
         "notices.open_target" => open_target(parse(params)?),
         "notices.notifications_allow" => allow_notifications(app).await,
@@ -88,7 +78,7 @@ fn parse<T: for<'de> Deserialize<'de>>(params: Value) -> Result<T, RequestError>
     serde_json::from_value(params).map_err(|e| RequestError::plain(e.to_string()))
 }
 
-/// `{"kind": "permission_warning"}`: the banner the user closed.
+/// `{"kind": "trust_note"}`: the banner the user closed.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "BannerDismiss")]
 pub struct DismissBanner {
@@ -124,14 +114,10 @@ pub struct NotificationOpen {
     pub target: otaq_core::attention::notify::Target,
 }
 
-/// Closing the permission-mode warning is remembered in the app's database (SET-01), and so is closing the folder
-/// trust note (PRJ-08: never shown again).
+/// Closing the folder trust note is remembered in the app's database (PRJ-08: never shown again).
 async fn dismiss_banner(app: &App, params: DismissBanner) -> Result<Value, RequestError> {
     app.notices.dismiss_banner(params.kind);
     match params.kind {
-        SituationKind::PermissionWarning => {
-            app.service.send(Request::DismissPermissionWarning).await?;
-        }
         SituationKind::TrustNote => {
             app.service.send(Request::DismissTrustNote).await?;
         }
@@ -417,27 +403,6 @@ mod tests {
                 .iter()
                 .all(|t| t["id"] != id)
         );
-
-        // The permission-mode warning: raised after the first run, closed for good.
-        request(&h.app, "notices.permission_warning", Value::Null)
-            .await
-            .unwrap();
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        assert_eq!(view["banners"][0]["kind"], "permission_warning");
-        assert_eq!(view["banners"][0]["buttons"][0]["label"], "Read the docs");
-        request(
-            &h.app,
-            "notices.dismiss_banner",
-            json!({"kind": "permission_warning"}),
-        )
-        .await
-        .unwrap();
-        let view = request(&h.app, "notices.view", Value::Null).await.unwrap();
-        assert_eq!(view["banners"], json!([]));
-        match h.app.service.send(Request::OnboardingState).await.unwrap() {
-            Reply::OnboardingState(state) => assert!(state.permission_warning_dismissed),
-            other => panic!("{other:?}"),
-        }
 
         let dialog = request(&h.app, "notices.restart_dialog", Value::Null)
             .await

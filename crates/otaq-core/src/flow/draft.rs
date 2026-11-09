@@ -528,28 +528,15 @@ impl Board {
         Ok(proposal)
     }
 
-    /// The row holding the draft: the open proposal; during Flow setup the user's own (no tool), beside the tools'
-    /// entries.
+    /// The row holding the draft: the open proposal.
     pub(crate) async fn draft_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
         let project = self.project(project).await?;
-        let id: Option<i64> = match project.flow_setup_since {
-            Some(_) => {
-                sqlx::query_scalar(
-                    "SELECT id FROM flow_proposals WHERE project_id = ? AND tool IS NULL ORDER BY id DESC LIMIT 1",
-                )
-                .bind(&project.id)
-                .fetch_optional(self.store().pool())
-                .await?
-            }
-            None => {
-                sqlx::query_scalar(
-                    "SELECT id FROM flow_proposals WHERE project_id = ? ORDER BY id DESC LIMIT 1",
-                )
-                .bind(&project.id)
-                .fetch_optional(self.store().pool())
-                .await?
-            }
-        };
+        let id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM flow_proposals WHERE project_id = ? ORDER BY id DESC LIMIT 1",
+        )
+        .bind(&project.id)
+        .fetch_optional(self.store().pool())
+        .await?;
         match id {
             Some(id) => {
                 self.proposal_row_by_id(&project.key, u32::try_from(id).unwrap_or(0))
@@ -574,8 +561,8 @@ impl Board {
         })
     }
 
-    /// Stores `row` as the draft: in place of the row `existing`, else as a new open proposal (outside Flow setup it
-    /// replaces any other, FLW-03). Its id.
+    /// Stores `row` as the draft: in place of the row `existing`, else as a new open proposal that replaces any other
+    /// (FLW-03). Its id.
     pub(super) async fn write_draft(
         &self,
         project: &str,
@@ -598,11 +585,7 @@ impl Board {
                 id
             }
             None => {
-                let replaced = match project.flow_setup_since {
-                    Some(_) => "DELETE FROM flow_proposals WHERE project_id = ? AND tool IS NULL",
-                    None => "DELETE FROM flow_proposals WHERE project_id = ?",
-                };
-                sqlx::query(replaced)
+                sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?")
                     .bind(&project.id)
                     .execute(&mut *tx)
                     .await?;

@@ -2,6 +2,6 @@
 import type { BannerKind } from "./BannerKind";
 
 /**
- * `{"kind": "permission_warning"}`: the banner the user closed.
+ * `{"kind": "trust_note"}`: the banner the user closed.
  */
 export type BannerDismiss = { kind: BannerKind, };

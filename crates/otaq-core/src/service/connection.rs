@@ -25,7 +25,6 @@ use crate::protocol::{
 };
 use crate::session::{Answering, OutputChunk};
 use crate::store::StoreError;
-use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
 
 /// Numbers the connections, so focus can be kept per client (ATT-03).
@@ -442,14 +441,6 @@ async fn respond(
             Ok(state) => (Reply::OnboardingState(state), Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
-        Request::DismissPermissionWarning => match shared
-            .store
-            .set_setting(PERMISSION_WARNING_DISMISSED, "true")
-            .await
-        {
-            Ok(()) => (Reply::Ok, Then::Continue),
-            Err(e) => return (store_error(id, &e), Then::Continue),
-        },
         Request::DismissTrustNote => match setup::dismiss_note(&shared.store).await {
             Ok(()) => {
                 shared.events.publish(Event::TrustChanged);
@@ -519,9 +510,6 @@ async fn respond(
             }
         }
         request @ (Request::ProjectAgentOpen(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
@@ -600,11 +588,6 @@ async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError
     trust_failed.retain(|f| projects.iter().any(|p| p.key == f.project_key));
     Ok(OnboardingState {
         has_projects: !projects.is_empty(),
-        permission_warning_dismissed: shared
-            .store
-            .setting(PERMISSION_WARNING_DISMISSED)
-            .await?
-            .is_some_and(|v| v == "true"),
         trust_note: setup::note_pending(&shared.store).await?,
         trust_note_tools: setup::note_tools(&shared.store).await?,
         trust_failed,

@@ -259,22 +259,9 @@ impl Board {
         if view.diff.same {
             return Err(refuse(SAME.to_owned()));
         }
-        // Outside Flow setup it lands in the draft (FED-02); during it each tool's is its own entry (ASK-03, FED-03).
-        if self.project(&key).await?.flow_setup_since.is_none() {
-            return self
-                .propose_into_draft(&key, matched, &source, by, models)
-                .await;
-        }
-        self.open_read_proposal(
-            &key,
-            file,
-            &written,
-            &source,
-            by,
-            &super::draft::DraftMemory::default(),
-            models,
-        )
-        .await
+        // It lands in the draft (FED-02).
+        self.propose_into_draft(&key, matched, &source, by, models)
+            .await
     }
 
     /// Who proposed `project`'s open proposal `id`; `None` when it isn't open (any more).

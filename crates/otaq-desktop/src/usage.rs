@@ -338,7 +338,6 @@ const FEATURES: &[&str] = &[
     "recovery.start_from_scratch",
     "recovery.cleanup_delete",
     "recovery.warm_clear",
-    "shell.cleanup",
     "notices.resume_all",
     "notices.resume_after_limit",
     "notices.restart",

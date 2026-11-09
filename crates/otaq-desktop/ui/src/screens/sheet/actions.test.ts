@@ -282,17 +282,15 @@ describe("what it needs from you, at the top of Overview", () => {
     expect(html).not.toContain("View the setup log");
   });
 
-  it("the M12 extras: Auto-merge stop message and the Approve caret; no token split (History has the tokens)", () => {
+  it("the M12 extras: Auto-merge stop message and the Approve caret", () => {
     const html = render({
       ...VIEW,
-      token_split: "agent 58k · validation 9k (1 round)",
       stop_message: "Keeps conflicting with otaq/SHOP-40 (3 tries in a row).",
       buttons: [
         { action: "approve", label: "Approve · Local merge", tooltip: null, icon: null, look: "primary" },
       ],
       approve_more: "Approve choices",
     });
-    expect(html).not.toContain("agent 58k · validation 9k (1 round)");
     expect(html).toContain("Keeps conflicting with otaq/SHOP-40");
     expect(html).toContain("▾");
     expect(render(VIEW)).not.toContain("▾");

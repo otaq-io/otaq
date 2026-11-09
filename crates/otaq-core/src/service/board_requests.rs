@@ -101,11 +101,6 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::PrProvider)
         }),
-        Request::OnboardingSources(p) => boxed(move || async move {
-            crate::onboarding::sources(board, &shared.connected, &p.project)
-                .await
-                .map(Reply::OnboardingSources)
-        }),
         Request::BoardSnapshot(p) => {
             boxed(move || async move { board.board_snapshot(&p.project).await.map(Reply::Board) })
         }
@@ -1460,13 +1455,6 @@ pub(super) async fn handle(
                     },
                 );
             }
-            // Use this flow, or a preset applied, settles a Flow setup: the other proposals close and their agents
-            // are told and end; the chosen agent stays (ASK-03, ASK-04).
-            let keep = match &by {
-                Some(ProposedBy::ProjectAgent { agent, .. }) => Some(agent.as_str()),
-                _ => None,
-            };
-            shared.project_agents.settle_flow_setup(&key, keep).await?;
             shared.scheduler.wake();
             Ok(Reply::FlowApplied(Box::new(applied)))
         }),
@@ -1516,18 +1504,12 @@ pub(super) async fn handle(
                 }
                 _ => ProposedBy::User,
             };
-            // Outside Flow setup it lands in the draft, and no preview opens (FED-02).
-            let setup = board.project(&p.project).await?.flow_setup_since.is_some();
+            // It lands in the draft, and no preview opens (FED-02).
             let proposal = board
                 .propose(&p.project, &p.source, &by, shared.agents.models())
                 .await?;
-            let change = match setup {
-                true => FlowEvent::Proposed {
-                    proposal: proposal.id,
-                },
-                false => FlowEvent::DraftChanged {
-                    proposal: proposal.id,
-                },
+            let change = FlowEvent::DraftChanged {
+                proposal: proposal.id,
             };
             flow_event(shared, &proposal.project, change);
             Ok(Reply::FlowProposal(Some(Box::new(proposal))))
@@ -1687,7 +1669,6 @@ pub(super) async fn handle(
         | Request::Subscribe(_)
         | Request::ToolsCheck
         | Request::OnboardingState
-        | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::SessionList(_)
         | Request::SessionAttach(_)
@@ -1718,9 +1699,6 @@ pub(super) async fn handle(
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)
         | Request::ProjectAgentOpen(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)

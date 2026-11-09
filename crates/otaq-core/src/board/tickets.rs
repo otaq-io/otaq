@@ -556,7 +556,6 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let project = self.project(&input.project).await?;
-        super::projects::refuse_in_flow_setup(&project)?;
         let title = required_title(&input.title)?;
         let base_branch = match &input.base_branch {
             Some(b) if !b.trim().is_empty() => b.trim().to_owned(),
@@ -571,7 +570,7 @@ impl Board {
         // are copied once the key is known.
         let first_comment = match &input.first_comment {
             Some(c) => {
-                let sources = c.sources();
+                let sources = c.attachments.clone();
                 Some((
                     super::ticket_comments::check_comment(&c.body, sources.len())?,
                     sources,

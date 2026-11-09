@@ -1373,12 +1373,6 @@ impl Service {
         let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
         let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
-        let flow_setup = tokio::spawn(
-            shared
-                .project_agents
-                .clone()
-                .relay_flow_setup(shared.stop.subscribe()),
-        );
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1411,7 +1405,6 @@ impl Service {
         let _ = ticket_env.await;
         let _ = models.await;
         let _ = gate.await;
-        let _ = flow_setup.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

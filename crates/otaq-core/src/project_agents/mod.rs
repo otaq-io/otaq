@@ -20,7 +20,6 @@
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
 //!   conversations are never deleted.
 
-pub mod first_flow;
 pub mod prime;
 
 use std::collections::HashMap;
@@ -263,9 +262,6 @@ struct Inner {
     turn_ends: Mutex<HashMap<String, i64>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
-    /// How long an unchosen flow agent may take to read its answer before it ends anyway, in milliseconds
-    /// ([`first_flow::ANSWER_GRACE`]; tests shorten it).
-    answer_grace_ms: std::sync::atomic::AtomicU64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -322,9 +318,6 @@ impl ProjectAgents {
                 waiting: Mutex::new(HashMap::new()),
                 turn_ends: Mutex::new(HashMap::new()),
                 gate: std::sync::OnceLock::new(),
-                answer_grace_ms: std::sync::atomic::AtomicU64::new(
-                    u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
-                ),
             }),
         }
     }

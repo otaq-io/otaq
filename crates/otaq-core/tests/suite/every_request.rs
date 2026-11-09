@@ -92,10 +92,7 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("agents.pause") || method == "agents.resume" {
             params["scope"] = json!("project");
         }
-        if method.starts_with("agent_tools.")
-            || method.starts_with("limits.")
-            || method == "onboarding.ask"
-        {
+        if method.starts_with("agent_tools.") || method.starts_with("limits.") {
             params["tool"] = json!("codex");
         }
         // git has no login: refused, so the sample never runs an install or login command.
@@ -168,11 +165,6 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::GitSetIdentity(_)
         | Request::GitMissingIdentity(_)
         | Request::OnboardingState
-        | Request::OnboardingSources(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
-        | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::NotificationsState
         | Request::NotificationsAskAnswered

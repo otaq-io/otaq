@@ -878,8 +878,7 @@ async fn prime_lists_the_users_reports_first() {
                 title: "Fix flaky login redirect".into(),
                 first_comment: Some(FirstComment {
                     body: "Fails 2 in 20 on Safari.\nThe full run is attached.".into(),
-                    report: Some(ReportSource::Path(mine)),
-                    ..Default::default()
+                    attachments: vec![ReportSource::Path(mine)],
                 }),
                 ..Default::default()
             },

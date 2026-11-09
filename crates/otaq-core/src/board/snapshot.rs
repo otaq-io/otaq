@@ -24,10 +24,6 @@ pub struct ProjectInfo {
     /// The project's needs-you items, the needs-you count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
-    /// Since when it is in Flow setup (ASK-04): it shows no board ("pocket-api · Flow setup"); `None` once its flow
-    /// is settled.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub flow_setup_since: Option<i64>,
     /// Since when it is paused (PAU-01, d0112): nothing starts an agent there on its own until the user's Resume.
     /// `None` while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -157,7 +153,6 @@ impl Board {
             base_branch: project.base_branch.clone(),
             agents_working: u32::try_from(working).unwrap_or(0),
             needs_you: u32::try_from(needs_you).unwrap_or(u32::MAX),
-            flow_setup_since: project.flow_setup_since,
             paused_since: project.paused_since,
             paused_by: project.paused_by,
         })

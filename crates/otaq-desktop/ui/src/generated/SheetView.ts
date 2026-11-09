@@ -17,19 +17,12 @@ import type { SheetRunPill } from "./SheetRunPill";
 import type { SheetSignal } from "./SheetSignal";
 import type { SheetStartProblem } from "./SheetStartProblem";
 import type { SheetTokens } from "./SheetTokens";
-import type { StageChoicesView } from "./StageChoicesView";
-import type { TicketPathView } from "./TicketPathView";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
  * The open ticket's sheet.
  */
 export type SheetView = { key: string, title: string, priority: PriorityView, priority_hint: string, priority_menu: Array<MenuItem>, pill: PillView, branch: SheetBranch | null, copy_branch: string, base: string, signal: SheetSignal | null, tokens: SheetTokens | null, 
-/**
- * The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
- * round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
- */
-token_split: string | null, 
 /**
  * The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
  */
@@ -72,25 +65,13 @@ holds: Array<ToolProblemCallout>, mark_closed: SheetConfirm | null,
  */
 run: SheetRunPill | null, 
 /**
- * The sheet's header, details line and tabs (SHT-01, SHT-02).
+ * The sheet's header and tabs (SHT-01, SHT-02).
  */
 sheet: SheetFrame, 
 /**
  * The ticket's agent session runs.
  */
 live_agent: boolean, 
-/**
- * The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
- */
-choices: StageChoicesView | null, 
-/**
- * The ticket's path (AGM-09): every stage with its agent and model.
- */
-path: TicketPathView | null, 
-/**
- * "Stages": the label over the choices and the path in Overview's right column.
- */
-stages_heading: string, 
 /**
  * The agent Open agent… opens (a held session's, or the one whose model the tool refused).
  */

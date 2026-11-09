@@ -414,13 +414,6 @@ async fn action_for(
         },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::ServiceStopAgents => Action::UserOnly("stop every agent and the background service"),
-        R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
-        // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
-        R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {
-            Action::UserOnly("look at a project's Flow setup")
-        }
-        R::OnboardingAsk(_) => Action::UserOnly("ask an agent tool for a flow"),
-        R::OnboardingUseDefault(_) => Action::UserOnly("settle a project's flow"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
