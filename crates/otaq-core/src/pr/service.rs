@@ -754,11 +754,12 @@ impl Prs {
         runs_on: &RunsOn,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
-        let project = self
-            .inner
-            .board
-            .project(ticket.key.project.as_str())
+        let board = &self.inner.board;
+        // The delivery's agent commits and pushes: never under a borrowed name, new session or resumed.
+        board
+            .refuse_without_identity(ticket.key.project.as_str())
             .await?;
+        let project = board.project(ticket.key.project.as_str()).await?;
         let session = self
             .inner
             .sessions

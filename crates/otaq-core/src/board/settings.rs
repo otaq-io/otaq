@@ -952,6 +952,24 @@ impl Board {
     /// The user's `git` with the project's variables set in every command it runs (ENV-02), for the git
     /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them. Otaq sets
     /// none of its own variables there, so a `${…}` naming one becomes empty ([`crate::session::env::substitute`]).
+    /// Refuses an agent session about to launch in `project` while git has no name and email to sign its commits
+    /// with: an agent never commits under a borrowed name. The refusal says where to give them.
+    pub async fn refuse_without_identity(&self, project: &str) -> Result<(), BoardError> {
+        let repo = self.project(project).await?.repo_path;
+        match self
+            .project_git(project)
+            .await?
+            .missing_identity(Path::new(&repo))
+            .await?
+        {
+            None => Ok(()),
+            Some(_) => Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("Not started: {}", crate::start::sequence::NEEDS_IDENTITY),
+            )),
+        }
+    }
+
     pub async fn project_git(&self, project: &str) -> Result<crate::git::Git, BoardError> {
         let git = self.git()?;
         let settings = self.project_settings(project).await?;
