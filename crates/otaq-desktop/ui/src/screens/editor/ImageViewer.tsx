@@ -7,6 +7,7 @@ import { type KeyboardEvent, useEffect, useRef, useState } from "react";
 import { openOverlay } from "../../app/overlays";
 import type { OverlayProps } from "../../app/registry";
 import { Tooltip } from "../../components";
+import { useEscapeLayer } from "../../components/escape";
 import { useEnterExit } from "../../components/motion";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import { attachmentImage } from "../../tauri";
@@ -106,7 +107,10 @@ export function ImageViewer({ params, close }: OverlayProps<"image">) {
   const { ticket, n, thumbnail } = params;
   const backdrop = useRef<HTMLDivElement>(null);
   const closeButton = useRef<HTMLButtonElement>(null);
+  const view = useRef<HTMLDivElement>(null);
   useEnterExit(backdrop, "backdrop", { selector: ".image-view", preset: "dialog" });
+  // The topmost layer while it shows: Esc closes it wherever the focus went.
+  useEscapeLayer(close, view, true);
   useEffect(() => {
     closeButton.current?.focus();
   }, [params]);
@@ -127,6 +131,7 @@ export function ImageViewer({ params, close }: OverlayProps<"image">) {
     >
       {/* eslint-disable-next-line jsx-a11y/no-noninteractive-element-interactions -- the view's own key: Esc */}
       <div
+        ref={view}
         className="image-view"
         role="dialog"
         aria-modal="true"
