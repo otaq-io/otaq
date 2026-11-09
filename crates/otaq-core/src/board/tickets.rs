@@ -897,7 +897,11 @@ impl Board {
         let project_id = record.row.project_id.clone();
         // Boxed: assembling is a large future, and nearly every request awaits it (keeps callers' frames small).
         let mut tickets = Box::pin(self.assemble(vec![record], &project_id)).await?;
-        Ok(tickets.remove(0))
+        let mut ticket = tickets.remove(0);
+        if ticket.status == Status::WaitingForSlot {
+            ticket.flags.in_line = self.slot_line().await?.get(&ticket.id).copied();
+        }
+        Ok(ticket)
     }
 
     /// Every ticket of a project, by key.
@@ -916,6 +920,13 @@ impl Board {
             .collect();
         for (ticket, ready) in tickets.iter_mut().zip(ready) {
             ticket.flags.ready_to_start = ready;
+        }
+        // A ticket waiting for a free agent is in line with every project's (the agent limit counts across them).
+        if tickets.iter().any(|t| t.status == Status::WaitingForSlot) {
+            let line = self.slot_line().await?;
+            for ticket in &mut tickets {
+                ticket.flags.in_line = line.get(&ticket.id).copied();
+            }
         }
         Ok(tickets)
     }

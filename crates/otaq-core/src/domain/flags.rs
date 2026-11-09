@@ -212,6 +212,10 @@ pub struct Flags {
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ready_to_start: bool,
+    /// Waits for a free agent: its place among every project's tickets waiting for one, in the start order the agent
+    /// limit takes them (1 is next): "Waits for a free agent · 2nd in line". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_line: Option<u32>,
     /// A needs-you status while the user's terminal for the waiting session has focus (ATT-03, d0042; per session,
     /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no Needs you
     /// item, no notification; the terminal strip shows "your turn".
@@ -383,6 +387,7 @@ mod tests {
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             merge_check: Some(MergeCheckState::Failed),
             ready_to_start: true,
+            in_line: Some(2),
             your_turn: true,
             open_decisions: 1,
             piece_wait: Some(PieceWait {
