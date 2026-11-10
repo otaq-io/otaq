@@ -199,6 +199,7 @@ const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): Agen
   pill: null,
   detail: "",
   sign_in: null,
+  recheck: null,
   show: null,
   install: null,
   install_button: null,

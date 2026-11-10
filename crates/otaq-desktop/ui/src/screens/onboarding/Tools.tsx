@@ -22,6 +22,7 @@ import {
   InstallLine,
   MARK_ICONS,
   markOf,
+  RecheckButton,
   RowMenu,
 } from "../settings/AgentTools";
 import { GitIdentityBox } from "../settings/GitIdentity";
@@ -68,6 +69,7 @@ function AgentRow({
             }}
           />
         )}
+        <RecheckButton row={row} onAction={onAction} compact />
         <RowMenu row={row} label={menuLabel} onAction={onAction} />
       </div>
       {row.install !== null && <CommandBox command={row.install} label={false} />}

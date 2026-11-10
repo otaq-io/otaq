@@ -40,7 +40,7 @@ use crate::terminals::shell::ProjectTerminal;
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(tag = "state", rename_all = "snake_case")]
 pub enum AgentToolState {
-    /// Installed, runs, signed in (or can't say: Claude Code). Counts.
+    /// Installed, runs, and its own sign-in answer says signed in. Counts.
     Connected {
         version: Option<String>,
         /// How it is signed in, where the tool says ("signed in with ChatGPT").
@@ -48,6 +48,9 @@ pub enum AgentToolState {
     },
     /// Found, but signed out: **Sign in…**.
     FoundNotSignedIn { version: Option<String> },
+    /// Found, but its sign-in answer couldn't be read (the status command failed, took too long or printed
+    /// something else): **Re-check**. Doesn't count, as a tool that may be signed out must not start agents.
+    CouldNotCheck { version: Option<String> },
     /// Found, but older than Otaq can run (Copilot before 1.0.98): never launched.
     UpdateNeeded { version: Option<String> },
     /// Not on PATH: **How to install**.
@@ -58,19 +61,21 @@ pub enum AgentToolState {
 
 impl AgentToolState {
     /// The state detect's answer gives, before Hidden: not found → Not installed; update needed; signed in
-    /// `Some(false)` → Found · not signed in; signed in or can't say → Connected.
+    /// `Some(false)` → Found · not signed in; no answer (`None`) → Couldn't check; signed in → Connected.
     pub fn from_detection(detection: &Detection) -> Self {
         let version = detection.version.clone();
         if !detection.installed {
             Self::NotInstalled
         } else if detection.update_needed {
             Self::UpdateNeeded { version }
-        } else if detection.signed_in == Some(false) {
-            Self::FoundNotSignedIn { version }
         } else {
-            Self::Connected {
-                version,
-                account: detection.account.clone(),
+            match detection.signed_in {
+                Some(false) => Self::FoundNotSignedIn { version },
+                None => Self::CouldNotCheck { version },
+                Some(true) => Self::Connected {
+                    version,
+                    account: detection.account.clone(),
+                },
             }
         }
     }
@@ -80,6 +85,7 @@ impl AgentToolState {
         match self {
             Self::Connected { version, .. }
             | Self::FoundNotSignedIn { version }
+            | Self::CouldNotCheck { version }
             | Self::UpdateNeeded { version }
             | Self::Hidden { version } => version.as_deref(),
             Self::NotInstalled => None,
@@ -96,6 +102,7 @@ impl AgentToolState {
         match self {
             Self::Connected { .. } => None,
             Self::FoundNotSignedIn { .. } => Some("signed out"),
+            Self::CouldNotCheck { .. } => Some("couldn\u{2019}t check its sign-in"),
             Self::UpdateNeeded { .. } => Some("update needed"),
             Self::NotInstalled => Some("not installed"),
             Self::Hidden { .. } => Some("hidden in Settings"),
@@ -654,8 +661,8 @@ impl ConnectedTools {
     }
 
     /// What follows a check: a tool that counts now and didn't before becomes Connected, once; with no default
-    /// model yet, the first connected tool's becomes it. The tools that count are stored for the next check, keeping the earlier answer for a
-    /// tool not checked yet.
+    /// model yet, the first connected tool's becomes it. The tools that count are stored for the next check, keeping
+    /// the earlier answer for a tool not checked yet or that couldn't be checked.
     async fn settle(&self, w: &Wiring) {
         let known = match stored_tools(&w.store, AGENT_TOOLS_CONNECTED).await {
             Ok(known) => known,
@@ -665,12 +672,19 @@ impl ConnectedTools {
             }
         };
         let connected = self.connected();
+        // Not checked yet, or its sign-in answer couldn't be read: the earlier answer stands, so a tool that only
+        // couldn't be checked this time isn't set up again once it can be.
         let unchecked: Vec<Tool> = {
             let found = self.lock();
             Tool::ALL
                 .iter()
                 .copied()
-                .filter(|tool| !found.states.contains_key(tool))
+                .filter(|tool| {
+                    !matches!(
+                        found.states.get(tool),
+                        Some((state, _)) if !matches!(state, AgentToolState::CouldNotCheck { .. })
+                    )
+                })
                 .collect()
         };
         if let Err(e) = crate::agents::shipped::ensure_default_model(&w.store, &connected).await {
@@ -888,15 +902,26 @@ mod tests {
                 version: Some("0.157.1".into())
             }
         );
-        for signed_in in [Some(true), None] {
-            assert_eq!(
-                AgentToolState::from_detection(&found(signed_in, false)),
-                AgentToolState::Connected {
-                    version: Some("0.157.1".into()),
-                    account: Some("signed in with ChatGPT".into())
-                }
-            );
-        }
+        assert_eq!(
+            AgentToolState::from_detection(&found(Some(true), false)),
+            AgentToolState::Connected {
+                version: Some("0.157.1".into()),
+                account: Some("signed in with ChatGPT".into())
+            }
+        );
+        // No sign-in answer (a slow or failing status command) is never signed in, and doesn't count.
+        let unchecked = AgentToolState::from_detection(&found(None, false));
+        assert_eq!(
+            unchecked,
+            AgentToolState::CouldNotCheck {
+                version: Some("0.157.1".into())
+            }
+        );
+        assert!(!unchecked.is_connected());
+        assert_eq!(
+            unchecked.unavailable_reason(),
+            Some("couldn\u{2019}t check its sign-in")
+        );
     }
 
     #[test]

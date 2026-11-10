@@ -1,18 +1,20 @@
 //! Detect (ADP-10): `copilot` found on PATH, its version, and "update needed" before [`OLDEST`] (Q-G; T-0347);
-//! signed in from its `config.json` or a token variable, and Sign in… (T-0353).
+//! signed in from Copilot's own answer, and Sign in… (T-0353).
 //!
-//! Signed in, without a model call: Copilot keeps its token in the OS keychain and the accounts it signed in to in
-//! `config.json` (`loggedInUsers`, `lastLoggedInUser`; `logged_in_users`, `last_logged_in_user` as 0.0.x wrote
-//! them, which 1.0.98 still reads). A token variable takes precedence over them (`copilot help environment`,
-//! 1.0.98: `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, in that order). An account whose keychain entry is
-//! gone still reads as signed in; its first launch then asks to sign in.
+//! Signed in, without a model call: the `session/new` of `copilot --acp` ([`models::session_answer`], the request the
+//! model list makes) answers with the account's models signed in, and `Authentication required` signed out, also
+//! when `config.json` still names an account whose keychain entry is gone. Its config file is never taken as the
+//! answer: offline, or any other failure, is no answer ("couldn't check"). Signed in, the account line comes from
+//! `config.json` (`loggedInUsers`, `lastLoggedInUser`; `logged_in_users`, `last_logged_in_user` as 0.0.x wrote them,
+//! which 1.0.98 still reads) or the token variable Copilot takes first (`copilot help environment`, 1.0.98:
+//! `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, in that order).
 
 use std::ffi::OsString;
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{COMMAND_NAME, CopilotContext, trust};
+use super::{COMMAND_NAME, CopilotContext, models, trust};
 use crate::agent_tools::{Detection, version_output};
 
 /// The variables Copilot takes a token from, in its order.
@@ -73,36 +75,54 @@ fn numbers(version: &str) -> Option<[u32; 3]> {
     parts.next().is_none().then_some(found)
 }
 
-/// Whether Copilot is signed in, and as whom ("signed in as octo-me"). `None` without Copilot's home folder (tests,
-/// parts of the service built on their own): nothing is read.
+/// Whether Copilot is signed in, from its own `session/new` answer in a temporary folder, and, signed in, as whom
+/// ("signed in as octo-me", [`account_from`]; none without Copilot's home folder, as in tests).
 pub(super) async fn signed_in(context: &CopilotContext) -> (Option<bool>, Option<String>) {
-    let Some(home) = context.copilot_home.as_deref() else {
+    let Some(program) = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path) else {
         return (None, None);
     };
-    signed_in_from(home, |name| std::env::var_os(name))
+    let Ok(folder) = tempfile::tempdir() else {
+        return (None, None);
+    };
+    let signed_in = match models::session_answer(
+        program.as_os_str(),
+        &context.tool.path,
+        folder.path(),
+    )
+    .await
+    {
+        Ok(answer) => models::signed_in_from_answer(&answer),
+        Err(e) => {
+            tracing::warn!(error = %e, "can't ask GitHub Copilot whether it is signed in");
+            None
+        }
+    };
+    let account = (signed_in == Some(true))
+        .then(|| {
+            context
+                .copilot_home
+                .as_deref()
+                .and_then(|home| account_from(home, |name| std::env::var_os(name)))
+        })
+        .flatten();
+    (signed_in, account)
 }
 
-/// [`signed_in`] from the `config.json` in `home` and the variables `var` answers. An account in the file names the
-/// login; else a token variable that is set ("signed in with GH_TOKEN"); else not signed in. A file that can't be
-/// read or parsed counts as no account.
-pub(super) fn signed_in_from(
-    home: &Path,
-    var: impl Fn(&str) -> Option<OsString>,
-) -> (Option<bool>, Option<String>) {
+/// The account line of a signed-in Copilot, from the `config.json` in `home` and the variables `var` answers: an
+/// account in the file names the login; else a token variable that is set ("signed in with GH_TOKEN"); else none. A
+/// file that can't be read or parsed counts as no account. Never whether it is signed in ([`signed_in`]).
+pub(super) fn account_from(home: &Path, var: impl Fn(&str) -> Option<OsString>) -> Option<String> {
     let config = std::fs::read_to_string(trust::config_file(home))
         .ok()
         .and_then(|text| trust::parse(&text))
         .map(|(_, config)| config);
     if let Some(login) = config.as_ref().and_then(signed_in_login) {
-        return (Some(true), Some(format!("signed in as {login}")));
+        return Some(format!("signed in as {login}"));
     }
-    let token = TOKEN_VARIABLES
+    TOKEN_VARIABLES
         .into_iter()
-        .find(|name| var(name).is_some_and(|value| !value.is_empty()));
-    match token {
-        Some(name) => (Some(true), Some(format!("signed in with {name}"))),
-        None => (Some(false), None),
-    }
+        .find(|name| var(name).is_some_and(|value| !value.is_empty()))
+        .map(|name| format!("signed in with {name}"))
 }
 
 /// The login of the last account signed in to, else of the first account listed.
@@ -140,13 +160,13 @@ mod tests {
     #[cfg(unix)]
     use crate::agent_tools::test_support::{context, stand_in};
 
-    fn fixture(name: &str) -> String {
+    fn fixture(dir: &str, name: &str) -> String {
         let path: PathBuf = [
             env!("CARGO_MANIFEST_DIR"),
             "tests",
             "fixtures",
             "copilot",
-            "config",
+            dir,
             name,
         ]
         .iter()
@@ -160,13 +180,13 @@ mod tests {
 
     /// The accounts in `config.json`, in 1.0.98's spelling and 0.0.x's, name the login.
     #[test]
-    fn signed_in_from_the_config_file() {
+    fn the_account_from_the_config_file() {
         for file in ["config.json", "config-0.0.x.json"] {
             let home = tempfile::tempdir().unwrap();
-            std::fs::write(home.path().join("config.json"), fixture(file)).unwrap();
+            std::fs::write(home.path().join("config.json"), fixture("config", file)).unwrap();
             assert_eq!(
-                signed_in_from(home.path(), no_variables),
-                (Some(true), Some("signed in as octo-me".into())),
+                account_from(home.path(), no_variables).as_deref(),
+                Some("signed in as octo-me"),
                 "{file}"
             );
         }
@@ -178,66 +198,125 @@ mod tests {
         )
         .unwrap();
         assert_eq!(
-            signed_in_from(home.path(), no_variables).1.as_deref(),
+            account_from(home.path(), no_variables).as_deref(),
             Some("signed in as octo-work")
         );
     }
 
-    /// No account (a new home, an empty list, no file, a broken file) and no token: not signed in. A token variable
-    /// counts, in Copilot's order; an empty one doesn't.
+    /// No account (a new home, an empty list, no file, a broken file) and no token: no account line. A token
+    /// variable names it, in Copilot's order; an empty one doesn't.
     #[test]
-    fn not_signed_in_without_an_account_or_a_token() {
+    fn no_account_without_an_account_or_a_token() {
         let home = tempfile::tempdir().unwrap();
-        assert_eq!(
-            signed_in_from(home.path(), no_variables),
-            (Some(false), None)
-        );
+        assert_eq!(account_from(home.path(), no_variables), None);
         for text in [
             "// User settings belong in settings.json.\n// This file is managed automatically.\n{\n  \"firstLaunchAt\": \"2026-10-17T21:40:12.066Z\"\n}\n",
             r#"{"loggedInUsers": [], "trustedFolders": ["/r"]}"#,
             "{ not json",
         ] {
             std::fs::write(home.path().join("config.json"), text).unwrap();
-            assert_eq!(
-                signed_in_from(home.path(), no_variables),
-                (Some(false), None),
-                "{text}"
-            );
+            assert_eq!(account_from(home.path(), no_variables), None, "{text}");
         }
         let both = |name: &str| {
             matches!(name, "GH_TOKEN" | "GITHUB_TOKEN").then(|| OsString::from("ghp_x"))
         };
         assert_eq!(
-            signed_in_from(home.path(), both),
-            (Some(true), Some("signed in with GH_TOKEN".into()))
+            account_from(home.path(), both).as_deref(),
+            Some("signed in with GH_TOKEN")
         );
         let empty = |name: &str| (name == "COPILOT_GITHUB_TOKEN").then(OsString::new);
-        assert_eq!(signed_in_from(home.path(), empty), (Some(false), None));
+        assert_eq!(account_from(home.path(), empty), None);
     }
 
-    /// Detect reads the home folder's file once the version runs; Sign in… is `copilot login`.
+    /// Signed in, signed out and offline as Copilot answers `session/new` (the saved answers).
+    #[test]
+    fn signed_in_from_the_session_answer() {
+        let answer = |name: &str| -> serde_json::Value {
+            serde_json::from_str(&fixture("acp", name)).unwrap()
+        };
+        assert_eq!(
+            models::signed_in_from_answer(&answer("session_new-free.json")),
+            Some(true)
+        );
+        assert_eq!(
+            models::signed_in_from_answer(&answer("session_new-signed_out.json")),
+            Some(false)
+        );
+        assert_eq!(
+            models::signed_in_from_answer(&answer("session_new-offline.json")),
+            None,
+            "offline: no answer, never signed in"
+        );
+    }
+
+    /// A stand-in `copilot` in `bin`: `--version` prints 1.0.98; `--acp` answers `initialize`, then `session/new`
+    /// with `session` (a saved answer), or ends without answering when `session` is `None`. Shell builtins only: the
+    /// test PATH is `bin`.
+    #[cfg(unix)]
+    fn acp_stand_in(bin: &std::path::Path, session: Option<&str>) {
+        use std::os::unix::fs::PermissionsExt;
+        let line = |name: &str| {
+            let text = fixture("acp", name);
+            assert!(!text.contains('\''), "{name}");
+            format!("printf '%s\\n' '{}'", text.trim())
+        };
+        let answer = match session {
+            Some(name) => format!("read b; {}; read c", line(name)),
+            None => "exit 1".to_owned(),
+        };
+        let script = format!(
+            "#!/bin/sh\ncase \"$1\" in\n--version) echo 'GitHub Copilot CLI 1.0.98.' ;;\n--acp) read a; {}; {answer} ;;\nesac\n",
+            line("initialize.json")
+        );
+        let file = bin.join("copilot");
+        std::fs::write(&file, script).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    /// Detect asks Copilot itself: signed in names the account from the home folder's file; signed out is signed
+    /// out even with an account in the file; no answer is "couldn't check" (`None`). Sign in… is `copilot login`.
     // Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
     #[cfg(unix)]
     #[tokio::test]
-    async fn detect_says_who_is_signed_in_and_how_to_sign_in() {
+    async fn detect_asks_copilot_whether_it_is_signed_in() {
         let bin = tempfile::tempdir().unwrap();
         let home = tempfile::tempdir().unwrap();
-        stand_in(bin.path(), "copilot", "GitHub Copilot CLI 1.0.98.\n");
-        std::fs::write(home.path().join("config.json"), fixture("config.json")).unwrap();
+        std::fs::write(
+            home.path().join("config.json"),
+            fixture("config", "config.json"),
+        )
+        .unwrap();
         let adapter = Copilot::with_context(CopilotContext {
             tool: context(bin.path(), None),
             copilot_home: Some(home.path().to_path_buf()),
         });
+
+        acp_stand_in(bin.path(), Some("session_new-free.json"));
         let found = adapter.detect().await;
         assert_eq!(found.signed_in, Some(true));
         assert_eq!(found.account.as_deref(), Some("signed in as octo-me"));
+
+        acp_stand_in(bin.path(), Some("session_new-signed_out.json"));
+        let found = adapter.detect().await;
+        assert_eq!(
+            (found.signed_in, found.account),
+            (Some(false), None),
+            "its config file still names an account"
+        );
+
+        acp_stand_in(bin.path(), Some("session_new-offline.json"));
+        assert_eq!(adapter.detect().await.signed_in, None);
+
+        acp_stand_in(bin.path(), None);
+        assert_eq!(adapter.detect().await.signed_in, None);
+
+        // Only a version: it never answers `session/new`.
+        stand_in(bin.path(), "copilot", "GitHub Copilot CLI 1.0.98.\n");
+        assert_eq!(adapter.detect().await.signed_in, None);
+
         assert_eq!(
             adapter.login_command(),
             Some(vec!["copilot".to_owned(), "login".to_owned()])
         );
-
-        // No home folder known: not asked.
-        let none = Copilot::new(context(bin.path(), None));
-        assert_eq!(none.detect().await.signed_in, None);
     }
 }

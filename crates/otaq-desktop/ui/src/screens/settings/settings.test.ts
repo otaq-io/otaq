@@ -20,7 +20,15 @@ vi.mock("../../tauri", async (original) => ({
 }));
 import type { AgentToolRow } from "../../generated/AgentToolRow";
 import type { AgentToolsPage } from "../../generated/AgentToolsPage";
-import { agentToolMenu, AgentToolsPageBody, DisconnectDialogView, markOf, stepOf } from "./AgentTools";
+import {
+  type AgentToolAction,
+  agentToolMenu,
+  AgentToolsPageBody,
+  DisconnectDialogView,
+  markOf,
+  RecheckButton,
+  stepOf,
+} from "./AgentTools";
 
 const html = (element: ReactElement) => renderToStaticMarkup(element);
 
@@ -264,6 +272,7 @@ const toolRow = (tool: string, more: Partial<AgentToolRow>): AgentToolRow => ({
   pill: null,
   detail: "",
   sign_in: null,
+  recheck: null,
   show: null,
   install: null,
   install_button: null,
@@ -313,6 +322,13 @@ const ROWS = {
     pill: { label: "Found · not signed in", look: "not_signed_in" },
     detail: "v1.0.2 · not signed in",
     sign_in: "Sign in…",
+    menu: [HIDE, RECHECK],
+  }),
+  could_not_check: toolRow("claude", {
+    mark: "attention",
+    pill: { label: "Found · couldn’t check", look: "could_not_check" },
+    detail: "v2.1.319 · couldn’t check sign-in",
+    recheck: "Re-check",
     menu: [HIDE, RECHECK],
   }),
   update: toolRow("copilot", {
@@ -387,6 +403,19 @@ describe("Settings → Agent tools", () => {
     expect(signedOut).toContain('data-look="not_signed_in"');
     expect(signedOut).toContain("Sign in…");
 
+    // A tool whose own sign-in answer couldn't be read: never "signed in", Re-check on the row, no Sign in….
+    const unchecked = drawRow(ROWS.could_not_check);
+    expect(unchecked).toContain('data-look="could_not_check"');
+    expect(unchecked).toContain("v2.1.319 · couldn’t check sign-in");
+    expect(unchecked).not.toContain("signed in");
+    expect(unchecked).not.toContain("Sign in…");
+    // The row's own actions (the page's Re-check is under the list).
+    const rowActions = (drawn: string) =>
+      /agent-tool-actions">(.*?)<span class="agent-tool-more">/.exec(drawn)?.[1] ?? "";
+    expect(rowActions(unchecked)).toContain("<span>Re-check</span></button>");
+    expect(rowActions(signedOut)).not.toContain("Re-check");
+    expect(rowActions(signedOut)).toContain("Sign in…");
+
     const update = drawRow(ROWS.update);
     expect(update).toContain("Update GitHub Copilot to a version Otaq runs");
     expect(update).toContain("npm install -g @github/copilot");
@@ -411,9 +440,27 @@ describe("Settings → Agent tools", () => {
     expect(all).not.toMatch(/needs-you|attention-bg|--st-needs/);
     expect(markOf(ROWS.signed_out)).toBe("attention");
     expect(markOf(ROWS.update)).toBe("attention");
+    expect(markOf(ROWS.could_not_check)).toBe("attention");
     expect(markOf(ROWS.connected)).toBe("connected");
     expect(markOf(ROWS.missing)).toBe("missing");
     expect(markOf(ROWS.hidden)).toBe("quiet");
+  });
+
+  it("a row's Re-check checks that tool again", () => {
+    const actions: AgentToolAction[] = [];
+    const button = RecheckButton({
+      row: ROWS.could_not_check,
+      onAction: (action) => actions.push(action),
+    }) as ReactElement<{ label: string; onClick: () => void }>;
+    expect(button.props.label).toBe("Re-check");
+    button.props.onClick();
+    expect(actions).toEqual([{ kind: "menu", action: "recheck" }]);
+    expect(stepOf("claude", { kind: "menu", action: "recheck" })).toEqual({
+      kind: "page",
+      method: "agent_tools.recheck",
+      params: { tool: "claude" },
+    });
+    expect(RecheckButton({ row: ROWS.signed_out, onAction: () => undefined })).toBeNull();
   });
 
   it("each action sends its request; Disconnect asks first", () => {

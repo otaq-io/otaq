@@ -98,6 +98,7 @@ export function agentToolMenu(items: readonly AgentToolMenuItem[]): MenuItem[] {
 const PILL_ICONS: Record<AgentToolPillLook, IconName> = {
   connected: "circle-check",
   not_signed_in: "circle-alert",
+  could_not_check: "circle-alert",
   update_needed: "circle-alert",
   not_installed: "circle-dashed",
   hidden: "eye-off",
@@ -114,6 +115,30 @@ export const MARK_ICONS: Record<AgentToolMark, IconName> = {
   missing: "circle-x",
   quiet: "circle-dashed",
 };
+
+/** Re-check on a row whose sign-in couldn't be checked: checks that tool again (`agent_tools.recheck {tool}`). */
+export function RecheckButton({
+  row,
+  onAction,
+  compact = false,
+}: {
+  row: AgentToolRow;
+  onAction: (action: AgentToolAction) => void;
+  compact?: boolean;
+}) {
+  if (row.recheck === null) return null;
+  return (
+    <Button
+      label={row.recheck}
+      variant="secondary"
+      icon="rotate-ccw"
+      compact={compact}
+      onClick={() => {
+        onAction({ kind: "menu", action: "recheck" });
+      }}
+    />
+  );
+}
 
 /** How to install or the update command: its label, the command and Copy. Otaq never runs it. */
 export function CommandBox({ command, label = true }: { command: AgentToolCommand; label?: boolean }) {
@@ -363,6 +388,7 @@ export function AgentToolRowView({
               }}
             />
           )}
+          <RecheckButton row={row} onAction={onAction} />
           <RowMenu row={row} label={menuLabel} onAction={onAction} />
         </div>
       </div>
