@@ -133,6 +133,14 @@ export function dropDraft(view: FlowBoardView, ask: Ask = request): Promise<unkn
   return ask("flow_editor.cancel", { project: view.project, proposal: view.proposal });
 }
 
+/**
+ * Discard the draft when the editor can't draw it: there is no view to name it, so whatever draft the project has
+ * open goes, and the next view is the flow in use.
+ */
+export function discardDraft(project: string, ask: Ask = request): Promise<unknown> {
+  return ask("flow_editor.cancel", { project });
+}
+
 /** Import a flow file…: the open dialog, then its flow in the draft. Cancelling the dialog does nothing. */
 export async function importFile(
   project: string,

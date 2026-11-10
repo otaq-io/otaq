@@ -1,0 +1,605 @@
+{
+  "project": "SHOP",
+  "proposal": 1,
+  "yaml": "agents:\n  - name: Developer\n    model: default\n  - name: Checker\n    model: default\nflow:\n  - id: validate\n    name: Validate\n    kind: check\n    by: agent\n    agent: Checker\n    skill: validate\n    rounds: 3\n    fail_to: Dev\n    description: \"Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.\"\n  - id: dev\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n    description: \"Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.\"\n  - id: review\n    name: Review\n    kind: check\n    by: you\n    description: \"The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.\"\ndelivery:\n  delivers: either\n  mode: click\n  agent: Developer\n  skill: open-pr\n",
+  "bar": {
+    "title": "Editing shop-web’s flow",
+    "line": "Drag to reorder · click a stage for details · + to add",
+    "changes": "2 changes",
+    "change_words": "changed Validate, moved Dev",
+    "undo": "Undo",
+    "start_from": "Start from…",
+    "more": "More",
+    "cancel": "Cancel",
+    "save": "Save flow",
+    "save_enabled": false,
+    "reason": "Validate's fails go to Dev, which isn't an Agent stage before it",
+    "applies": "Dev moved before Review. No ticket is between Dev and Review now, so it applies at once."
+  },
+  "columns": [
+    {
+      "id": "backlog",
+      "kind": "backlog",
+      "name": "Backlog",
+      "icon": "circle-dashed",
+      "what": "Every flow starts here",
+      "avatar": null,
+      "who": null,
+      "skill": null,
+      "check_line": null,
+      "delivery": null,
+      "description": "Every flow starts here. Start a ticket and it goes into the first stage.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": false,
+      "index": null,
+      "add": {
+        "after": null,
+        "title": "Add a stage between Backlog and Validate"
+      }
+    },
+    {
+      "id": "validate",
+      "kind": "stage",
+      "name": "Validate",
+      "icon": "shield-check",
+      "what": "An agent checks it",
+      "avatar": null,
+      "who": "Checker",
+      "skill": "validate",
+      "check_line": "3 rounds · fails go to Dev",
+      "delivery": null,
+      "description": "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
+      "mark": null,
+      "warning": null,
+      "problem": "Validate's fails go to Dev, which isn't an Agent stage before it",
+      "selected": true,
+      "movable": true,
+      "index": 0,
+      "add": {
+        "after": "validate",
+        "title": "Add a stage between Validate and Dev"
+      }
+    },
+    {
+      "id": "dev",
+      "kind": "stage",
+      "name": "Dev",
+      "icon": "bot",
+      "what": "An agent does the work",
+      "avatar": null,
+      "who": "Developer",
+      "skill": "work-ticket",
+      "check_line": null,
+      "delivery": null,
+      "description": "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": true,
+      "index": 1,
+      "add": {
+        "after": "dev",
+        "title": "Add a stage between Dev and Review"
+      }
+    },
+    {
+      "id": "review",
+      "kind": "stage",
+      "name": "Review",
+      "icon": "user-check",
+      "what": "You check it",
+      "avatar": null,
+      "who": "You",
+      "skill": null,
+      "check_line": "Fails go to Dev",
+      "delivery": null,
+      "description": "The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": true,
+      "index": 2,
+      "add": {
+        "after": "review",
+        "title": "Add a stage between Review and Done"
+      }
+    },
+    {
+      "id": "done",
+      "kind": "done",
+      "name": "Done",
+      "icon": "circle-check",
+      "what": "Every flow ends here",
+      "avatar": null,
+      "who": null,
+      "skill": null,
+      "check_line": null,
+      "delivery": "Merge or PR · on Approve",
+      "description": "Part of the flow, so it travels in the flow file. The project’s Repository card shows the same setting.",
+      "mark": null,
+      "warning": null,
+      "problem": null,
+      "selected": false,
+      "movable": false,
+      "index": null,
+      "add": null
+    }
+  ],
+  "details": {
+    "stage": "validate",
+    "title": "Validate",
+    "name_label": "Name",
+    "name": "Validate",
+    "kind_label": "What happens",
+    "kinds": [
+      {
+        "kind": "works",
+        "label": "An agent does the work"
+      },
+      {
+        "kind": "agent_checks",
+        "label": "An agent checks it"
+      },
+      {
+        "kind": "you_check",
+        "label": "You check it"
+      }
+    ],
+    "kind": "agent_checks",
+    "description_label": "What it’s for",
+    "description": "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
+    "description_hint": "One or two sentences: what this stage settles, and when it matters. Agents read it to understand the flow; people see it on the column header and when skipping.",
+    "agent": {
+      "label": "Agent",
+      "avatar": null,
+      "name": "Checker",
+      "note": "default for An agent checks",
+      "items": [
+        {
+          "id": "Noyan",
+          "label": "Noyan",
+          "icon": null,
+          "shortcut": null,
+          "danger": false,
+          "disabled": false,
+          "hint": null,
+          "separated": false,
+          "checked": false,
+          "header": false
+        },
+        {
+          "id": "Developer",
+          "label": "Developer",
+          "icon": null,
+          "shortcut": null,
+          "danger": false,
+          "disabled": false,
+          "hint": null,
+          "separated": false,
+          "checked": false,
+          "header": false
+        },
+        {
+          "id": "Checker",
+          "label": "Checker",
+          "icon": null,
+          "shortcut": null,
+          "danger": false,
+          "disabled": false,
+          "hint": null,
+          "separated": false,
+          "checked": true,
+          "header": false
+        }
+      ],
+      "warning": null,
+      "hint": "Any of your agents. A ticket may pick another."
+    },
+    "skill": {
+      "label": "Skill",
+      "state": {
+        "state": "set",
+        "skill": "validate",
+        "warning": null
+      },
+      "picker": {
+        "title": "Pick a skill…",
+        "search": {
+          "placeholder": "Search your skills…",
+          "empty": "No matching skills"
+        },
+        "items": [
+          {
+            "id": "address-review",
+            "label": "address-review",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context and the user's comment with `otaq prime`, read the line comments with `otaq review feedback`, fix them, commit everything, then end your stage again with a short comment through `otaq stage next`.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "answer-question",
+            "label": "answer-question",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Answer a linked Otaq ticket's question from this finished ticket's conversation - get the context with `otaq prime`, answer only (change nothing), and reply with `otaq answer <ID> --stdin`.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "commit",
+            "label": "commit",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Otaq's default Commit workflow skill - commit every change in this worktree (messages as the Agent instructions say, else \"<KEY>: <what changed>\"), before `otaq stage next`.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "flow",
+            "label": "flow",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it is for, ending with its source when you add or change it, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "milestone-plan",
+            "label": "milestone-plan",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · An agent writes the ticket’s plan: the pieces, their order and what each waits for.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "noyan",
+            "label": "noyan",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Work as Noyan, an Otaq project's coordinator - read `otaq prime --project`, name this conversation after the first request, take a light look at the code without editing or committing, write tickets whose notes hand on where the code lives, what you saw and the open questions, file several tickets only for separate deliverables, pass on only the stage choices the user names, and file them in Backlog with the otaq CLI.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "open-pr",
+            "label": "open-pr",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · A pull request opens on GitHub; your team reviews it there.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "product-spec",
+            "label": "product-spec",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · An agent asks you what to build, for whom and why, then writes down what you agreed.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "push",
+            "label": "push",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Otaq's default Push workflow skill - get the context with `otaq prime`, propose messages for the commits not yet on the PR's branch with `otaq pr propose --stdin`, and only once Otaq says they are confirmed (by the user, or at once in automatic mode) push them to the existing PR, then report it with `otaq pr opened <url>`.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "restack",
+            "label": "restack",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with a short comment through `otaq stage next`.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "tech-spec",
+            "label": "tech-spec",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · An agent works out how to build it, asking you where a choice matters, and writes it down.",
+            "separated": false,
+            "checked": false,
+            "header": false
+          },
+          {
+            "id": "validate",
+            "label": "validate",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · A checking agent runs the tests and lint. If something fails, the ticket goes back to the stage before.",
+            "separated": false,
+            "checked": true,
+            "header": false
+          },
+          {
+            "id": "work-ticket",
+            "label": "work-ticket",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "Otaq’s · An agent writes the code in the ticket’s own copy of the repo (a worktree).",
+            "separated": false,
+            "checked": false,
+            "header": false
+          }
+        ],
+        "use_typed": "Use `{name}`"
+      }
+    },
+    "skill_tag": "Otaq’s own",
+    "skill_hint": "How the agent does it.",
+    "fail_to": null,
+    "rounds": {
+      "label": "Rounds",
+      "value": 3,
+      "min": 1,
+      "max": 5,
+      "note": "fails in a row, then it waits for you"
+    },
+    "skip": {
+      "label": "Tickets may skip this stage",
+      "note": "· chosen per ticket",
+      "on": false
+    },
+    "problem": "Validate's fails go to Dev, which isn't an Agent stage before it",
+    "fixes": [],
+    "mark": null,
+    "remove": "Remove stage",
+    "remove_note": "Removing waits until no ticket is in it"
+  },
+  "delivery": null,
+  "palette": {
+    "templates": [
+      {
+        "id": "security-review",
+        "title": "Security review",
+        "line": "An agent checks for secrets, injection and risky packages",
+        "icon": "shield-check",
+        "skill_note": "Uses a skill you add: `security-check`"
+      },
+      {
+        "id": "test-in-browser",
+        "title": "Test in the browser",
+        "line": "An agent clicks through the change in the running app",
+        "icon": "shield-check",
+        "skill_note": "Uses a skill you add: `test-in-browser`"
+      },
+      {
+        "id": "update-docs",
+        "title": "Update the docs",
+        "line": "An agent updates the docs for what changed",
+        "icon": "bot",
+        "skill_note": "Uses a skill you add: `update-docs`"
+      },
+      {
+        "id": "design-review",
+        "title": "Design review",
+        "line": "You check how it looks before it's built further",
+        "icon": "user-check",
+        "skill_note": null
+      },
+      {
+        "id": "product-spec",
+        "title": "Product spec",
+        "line": "An agent writes what to build, before any code",
+        "icon": "bot",
+        "skill_note": null
+      },
+      {
+        "id": "tech-spec",
+        "title": "Tech spec",
+        "line": "An agent plans how to build it",
+        "icon": "bot",
+        "skill_note": null
+      },
+      {
+        "id": "new-stage",
+        "title": "Blank stage",
+        "line": "Name it and choose what happens",
+        "icon": "square-dashed",
+        "skill_note": null
+      }
+    ],
+    "foot": "Each comes with a description, an agent and a skill; change any of them after."
+  },
+  "start_from": {
+    "suggest": {
+      "label": "Suggest a flow for shop-web…",
+      "text": "Noyan reads the project and drafts a flow for it. Its changes come marked; you keep them, ask for others, or discard.",
+      "message": "Suggest a flow for shop-web. Read this repository and how the project works, then propose a whole flow that fits it, with a short why on each change.",
+      "off": null
+    },
+    "shipped_label": "SHIPPED WITH OTAQ",
+    "presets": [
+      {
+        "key": "otaq-default.yaml",
+        "name": "Otaq default",
+        "line": "Dev → Validate → Review · merge or PR on Approve",
+        "pick": {
+          "pick": "preset",
+          "file": "otaq-default.yaml"
+        }
+      },
+      {
+        "key": "solo-autopilot.yaml",
+        "name": "Solo autopilot",
+        "line": "Dev → Validate · merges by itself",
+        "pick": {
+          "pick": "preset",
+          "file": "solo-autopilot.yaml"
+        }
+      },
+      {
+        "key": "spec-first.yaml",
+        "name": "Spec first",
+        "line": "Product spec → Tech spec → Milestone plan → Spec review → Dev → Validate → Code review · merge or PR on Approve",
+        "pick": {
+          "pick": "preset",
+          "file": "spec-first.yaml"
+        }
+      },
+      {
+        "key": "team-pr.yaml",
+        "name": "Team PR",
+        "line": "Dev → Validate · opens a PR by itself",
+        "pick": {
+          "pick": "preset",
+          "file": "team-pr.yaml"
+        }
+      }
+    ],
+    "more_label": "MORE",
+    "others": [],
+    "import": "Import a flow file…",
+    "import_line": "A .flow.yaml someone shared",
+    "foot": "Replaces the stages between Backlog and Done, and how work is delivered. Nothing changes until you save."
+  },
+  "more": {
+    "export": "Export flow file…",
+    "export_line": "shop-web.flow.yaml · stages, agents, skills, delivery",
+    "export_file": "shop-web.flow.yaml",
+    "export_title": "Export shop-web’s flow",
+    "import": "Import a flow file…",
+    "import_line": "Opens as a draft; nothing changes until you save",
+    "import_title": "Import a flow file",
+    "copy": "Copy from another project…",
+    "previous": null,
+    "previous_line": "Opens as a draft"
+  },
+  "suggestion": null,
+  "drafting": null,
+  "watch": {
+    "label": "Watch a ticket",
+    "title": "Watch a ticket go through",
+    "subtitle": "the draft, not the saved flow",
+    "passes_label": "It passes",
+    "fails_label": "A check fails",
+    "passes": [
+      {
+        "column": "backlog",
+        "name": "Backlog",
+        "state": "Not started",
+        "text": "It waits in Backlog until you start it; Start puts it into the first stage."
+      },
+      {
+        "column": "validate",
+        "name": "Validate",
+        "state": "Checking · round 1 of 3",
+        "text": "Checker checks it in Validate and passes it."
+      },
+      {
+        "column": "dev",
+        "name": "Dev",
+        "state": "Working · Developer",
+        "text": "Developer works on it in Dev with work-ticket."
+      },
+      {
+        "column": "review",
+        "name": "Review",
+        "state": "Ready for you",
+        "text": "It waits in Review for you: you pass it, or send it back to Dev with a note."
+      },
+      {
+        "column": "done",
+        "name": "Done",
+        "state": "Merged into main",
+        "text": "You approve it, merging into main or opening a pull request."
+      }
+    ],
+    "fails": [
+      {
+        "column": "backlog",
+        "name": "Backlog",
+        "state": "Not started",
+        "text": "It waits in Backlog until you start it; Start puts it into the first stage."
+      },
+      {
+        "column": "validate",
+        "name": "Validate",
+        "state": "Checking · round 1 of 3",
+        "text": "Checker checks it in Validate and passes it."
+      },
+      {
+        "column": "dev",
+        "name": "Dev",
+        "state": "Working · Developer",
+        "text": "Developer works on it in Dev with work-ticket."
+      },
+      {
+        "column": "review",
+        "name": "Review",
+        "state": "Ready for you",
+        "text": "It waits in Review for you: you pass it, or send it back to Dev with a note."
+      },
+      {
+        "column": "done",
+        "name": "Done",
+        "state": "Merged into main",
+        "text": "You approve it, merging into main or opening a pull request."
+      }
+    ],
+    "ticket_label": "YOUR TICKET",
+    "ticket_title": "A ticket like yours",
+    "step_of": "Step {n} of {m}",
+    "back": "Back",
+    "next": "Next",
+    "close": "Close"
+  },
+  "saved": {
+    "title": "Flow saved",
+    "text": "Applied now: no ticket was in the stages it changes."
+  },
+  "hint": "flow_columns",
+  "choices": {
+    "clashes": {},
+    "models": {}
+  }
+}

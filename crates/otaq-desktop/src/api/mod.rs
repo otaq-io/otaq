@@ -254,6 +254,43 @@ pub async fn usage_loop(app: std::sync::Arc<App>) {
     }
 }
 
+/// The door's request: [`request`] on its own task, so a handler that panics still answers. A panic would otherwise
+/// leave the page's call waiting for ever, and a screen waiting on its view draws nothing at all; answered as an
+/// error, the screen says what went wrong instead.
+pub async fn answer(
+    app: std::sync::Arc<App>,
+    method: String,
+    params: Value,
+) -> Result<Value, RequestError> {
+    let name = method.clone();
+    caught(&name, async move { request(&app, &method, params).await }).await
+}
+
+/// `work` on its own task: its answer, or, when it panics, an error naming the request and what went wrong.
+async fn caught(
+    method: &str,
+    work: impl std::future::Future<Output = Result<Value, RequestError>> + Send + 'static,
+) -> Result<Value, RequestError> {
+    match tokio::spawn(work).await {
+        Ok(answer) => answer,
+        Err(e) => {
+            let what = if e.is_panic() {
+                let payload = e.into_panic();
+                payload
+                    .downcast_ref::<String>()
+                    .cloned()
+                    .or_else(|| payload.downcast_ref::<&str>().map(|s| (*s).to_owned()))
+                    .unwrap_or_else(|| "it stopped unexpectedly".to_owned())
+            } else {
+                "it was stopped".to_owned()
+            };
+            Err(RequestError::plain(format!(
+                "Otaq couldn\u{2019}t answer {method}: {what}. This is a bug in Otaq; please report it."
+            )))
+        }
+    }
+}
+
 /// The answer to a method no area knows.
 pub fn unknown(method: &str) -> RequestError {
     RequestError::plain(format!("unknown request: {method}"))
@@ -270,6 +307,28 @@ mod tests {
 
     use super::*;
     use crate::service::testing::{Harness, connected};
+
+    /// A handler that panics still answers the page, with an error that says so, instead of leaving it waiting.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_handler_that_panics_answers_with_an_error() {
+        let answer = caught("flow_board.view", async {
+            let stages: Vec<u32> = Vec::new();
+            let at = stages.len() + 2;
+            Ok(json!(stages[at..].len()))
+        })
+        .await;
+        let e = answer.unwrap_err();
+        assert!(
+            e.message
+                .starts_with("Otaq couldn\u{2019}t answer flow_board.view: "),
+            "{}",
+            e.message
+        );
+        assert!(e.message.contains("out of range"), "{}", e.message);
+
+        let fine = caught("service.status", async { Ok(json!(1)) }).await;
+        assert_eq!(fine.unwrap(), json!(1));
+    }
 
     #[tokio::test(flavor = "multi_thread")]
     async fn the_table_dispatches_by_method_name_to_the_real_service() {

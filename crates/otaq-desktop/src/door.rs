@@ -25,7 +25,7 @@ type AppState<'a> = State<'a, Arc<App>>;
 
 #[tauri::command]
 async fn request(app: AppState<'_>, method: String, params: Value) -> Result<Value, RequestError> {
-    crate::api::request(&app, &method, params).await
+    crate::api::answer(Arc::clone(&app), method, params).await
 }
 
 #[tauri::command]
