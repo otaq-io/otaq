@@ -131,6 +131,9 @@ pub enum LocalMergeOutcome {
         target: String,
         command: String,
         exit: Option<i32>,
+        /// The end of what the check printed, for the dialog; the whole output stays attached to the comment.
+        #[serde(default)]
+        output: String,
     },
     /// The user stopped the Merge check (Q475): nothing was merged and the ticket stays where it was.
     CheckStopped { target: String },
@@ -535,6 +538,7 @@ impl Review {
                     )
                     .await?;
                 let command = command.unwrap_or_default();
+                let tail = merge_check::output_tail(&output);
                 failed = Some(CheckFailure {
                     target: target.target.clone(),
                     command: command.clone(),
@@ -545,6 +549,7 @@ impl Review {
                     target: target.target,
                     command,
                     exit,
+                    output: tail,
                 }
             }
             MergeOutcome::CheckStopped => LocalMergeOutcome::CheckStopped {

@@ -280,6 +280,20 @@
   background: var(--st-error-bg);
 }
 
+.review-output {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
+}
+
 .review-file {
   display: flex;
   align-items: center;

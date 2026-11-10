@@ -114,6 +114,7 @@ describe("the review screen", () => {
           title: "Rebase onto main stopped — conflict",
           text: "main moved since SHOP-18 was built.",
           files: ["src/lib/stripe/session.ts", "package.json"],
+          output: null,
           help: "SHOP-18 went back to its agent",
           worktree: "~/.otaq/wt/shop-web/SHOP-18",
           close: "Close",
@@ -131,6 +132,30 @@ describe("the review screen", () => {
     ]) {
       expect(conflict).toContain(text);
     }
+    expect(conflict).not.toContain("review-output");
+    // A failed Merge check: its output in the box, no empty files list.
+    const checkFailed = renderToStaticMarkup(
+      createElement(ResultDialog, {
+        ticket: "SHOP-14",
+        result: {
+          kind: "conflict",
+          title: "Merge check failed on main",
+          text: "Merge check `npm test` failed on the result rebased onto main (exit 1).",
+          files: [],
+          output: "FAIL src/cart.test.ts\n  expected 2, got 3",
+          help: "Nothing was merged into main.",
+          worktree: null,
+          close: "Close",
+        },
+        close: () => undefined,
+        retry: () => undefined,
+        toSendBack: () => undefined,
+      }),
+    );
+    expect(checkFailed).toContain(
+      '<pre class="review-output" data-tone="error">FAIL src/cart.test.ts\n  expected 2, got 3</pre>',
+    );
+    expect(checkFailed).not.toContain("review-files");
     const uncommitted = renderToStaticMarkup(
       createElement(ResultDialog, {
         ticket: "SHOP-19",
