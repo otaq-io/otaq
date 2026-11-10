@@ -267,8 +267,8 @@ async fn open_pr_and_push_run_in_the_live_session() {
 }
 
 /// A skill runs only on a tool that has it: Open PR into the live Dev session, with a Delivery naming a skill nobody
-/// has, types nothing. The click is refused with "<tool> doesn't have the skill `/team-pr-0`", no PR flow is under
-/// way, and the session never sees the skill's name, on every tool.
+/// has, types nothing. The click is refused with "<tool> doesn't have the skill `/team-pr-0`" (`$team-pr-0` on
+/// Codex), no PR flow is under way, and the session never sees the skill's name, on every tool.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_skill_the_sessions_tool_doesnt_have_is_never_typed() {
     let World { w, _dir, .. } = world().await;

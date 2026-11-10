@@ -375,11 +375,12 @@ pub fn not_skippable(stage: &str) -> String {
 }
 
 /// The refusal of an agent whose tool lacks the stage's skill: "Strong runs on Codex, which doesn't have the skill
-/// `/team-validate` for Validate".
+/// `$team-validate` for Validate", the skill named as the tool calls it.
 pub fn lacks_skill(agent: &str, tool: Tool, skill: &str, stage: &str) -> String {
     format!(
-        "{agent} runs on {}, which doesn't have the skill `/{skill}` for {stage}",
-        tool.display_name()
+        "{agent} runs on {}, which doesn't have the skill `{}` for {stage}",
+        tool.display_name(),
+        tool.skill_reference(skill)
     )
 }
 
@@ -1157,7 +1158,7 @@ mod tests {
         assert_eq!(Choice::Usual.label(&dev), "Rust developer");
         assert_eq!(
             lacks_skill("Strong", Tool::Codex, "team-validate", "Validate"),
-            "Strong runs on Codex, which doesn't have the skill `/team-validate` for Validate"
+            "Strong runs on Codex, which doesn't have the skill `$team-validate` for Validate"
         );
     }
 

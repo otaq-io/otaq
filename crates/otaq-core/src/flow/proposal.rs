@@ -11,8 +11,8 @@
 //!
 //! **A stage naming a skill the user doesn't have** isn't a problem: the flow still applies, and the stage carries
 //! the warning "You don't have the skill `<name>`" in the diff's warnings ([`Board::skill_warnings`]). Nor is a stage
-//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `/<name>`", and the stage is
-//! held when it is due to start on that tool. Otaq's own skills never warn.
+//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `$<name>`" (the skill as the
+//! tool calls it), and the stage is held when it is due to start on that tool. Otaq's own skills never warn.
 //!
 //! **The draft** ([`super::draft`], FED-02): the open proposal is the project's draft, which the flow editor and a
 //! Project agent's `flow propose` both edit.
@@ -985,11 +985,13 @@ pub fn unknown_skill_text(skill: &str) -> String {
 }
 
 /// The warning on a stage whose agent's tool doesn't have the stage's skill, and Settings → Agents' "What this agent
-/// reads" for such a skill: "Copilot doesn’t have the skill `/team-validate`".
+/// reads" for such a skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
+/// "Codex doesn’t have the skill `$team-validate`".
 pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
     format!(
-        "{} doesn\u{2019}t have the skill `/{skill}`",
-        tool.display_name()
+        "{} doesn\u{2019}t have the skill `{}`",
+        tool.display_name(),
+        tool.skill_reference(skill)
     )
 }
 
@@ -1678,6 +1680,27 @@ fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stage's warning names the skill the way the stage's tool calls it, each tool its own form.
+    #[test]
+    fn a_missing_skill_is_named_as_the_tool_calls_it() {
+        assert_eq!(
+            missing_skill_text(Tool::Codex, "retest-docs"),
+            "Codex doesn\u{2019}t have the skill `$retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::Claude, "retest-docs"),
+            "Claude Code doesn\u{2019}t have the skill `/retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::Copilot, "retest-docs"),
+            "GitHub Copilot doesn\u{2019}t have the skill `/retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::OpenCode, "retest-docs"),
+            "OpenCode doesn\u{2019}t have the skill `retest-docs`"
+        );
+    }
 
     /// The shipped default flow without its stages' descriptions, as the documents these tests write have none.
     fn default_flow() -> Flow {

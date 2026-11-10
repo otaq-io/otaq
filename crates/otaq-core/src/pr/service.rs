@@ -698,7 +698,7 @@ impl Prs {
     }
 
     /// A skill runs only on a tool that has it: refused, nothing started or typed, when `tool` doesn't have the skill
-    /// `prompt` names for the ticket ("Codex doesn't have the skill `/my-pr`"). The user's click gets the refusal; an
+    /// `prompt` names for the ticket ("Codex doesn't have the skill `$my-pr`"). The user's click gets the refusal; an
     /// automatic Delivery's card waits for the click, as for a tool that can't run.
     async fn refuse_missing_skill(
         &self,

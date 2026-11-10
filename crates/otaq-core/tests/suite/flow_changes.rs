@@ -67,7 +67,7 @@ fn stages_only(file: &FlowFile) -> String {
         + "\n"
 }
 
-/// A stage whose agent's tool doesn't have its skill only warns: "Codex doesn’t have the skill `/team-validate`" on the
+/// A stage whose agent's tool doesn't have its skill only warns: "Codex doesn’t have the skill `$team-validate`" on the
 /// stage, and the flow applies (the stage is held when due to start on that tool). The same skill on an agent whose
 /// tool has it doesn't warn.
 #[tokio::test(flavor = "multi_thread")]
@@ -105,7 +105,7 @@ async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
         warned(&on_codex),
         [(
             Some("Validate".to_owned()),
-            "Codex doesn\u{2019}t have the skill `/team-validate`".to_owned()
+            "Codex doesn\u{2019}t have the skill `$team-validate`".to_owned()
         )]
     );
     w.board

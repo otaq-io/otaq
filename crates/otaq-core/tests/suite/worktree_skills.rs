@@ -494,7 +494,7 @@ async fn needs_you_line(w: &TestService, t: &Ticket) -> Option<String> {
 
 /// A stage runs only on a tool that has its skill: a Validate stage naming `team-validate`, run on a Codex agent with
 /// the skill only in `~/.claude/skills` (Claude Code's, not Codex's), doesn't start. Its hold says why, the ticket waits
-/// in Needs you with "Codex doesn't have the skill `/team-validate`", and nothing is typed into any session. Check
+/// in Needs you with "Codex doesn't have the skill `$team-validate`", and nothing is typed into any session. Check
 /// again before the skill reaches Codex keeps it held; once it is linked into `~/.codex/skills`, Check again starts
 /// the check on Codex with the skill by its own name.
 #[cfg(unix)]
@@ -539,7 +539,7 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
         skill: "team-validate".into(),
     };
     assert_eq!(ticket.flags.missing_skill.as_ref(), Some(&missing));
-    let text = "Codex doesn\u{2019}t have the skill `/team-validate`";
+    let text = "Codex doesn\u{2019}t have the skill `$team-validate`";
     assert_eq!(missing.text(), text);
     assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
     let typed_nowhere = |w: &TestService| {

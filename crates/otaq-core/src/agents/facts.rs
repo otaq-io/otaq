@@ -261,7 +261,7 @@ pub struct CardHold {
     /// A limit's hold: when the tool's limit resets, when known ("Claude Code limit · resets 3:45 pm", Q154).
     #[serde(default)]
     pub resets_at: Option<i64>,
-    /// A hold for its skill: the skill its tool doesn't have ("Codex doesn't have the skill `/team-validate`").
+    /// A hold for its skill: the skill its tool doesn't have ("Codex doesn't have the skill `$team-validate`").
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub skill: Option<String>,
 }

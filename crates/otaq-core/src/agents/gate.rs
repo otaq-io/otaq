@@ -16,7 +16,7 @@
 //!
 //! 4. **the stage's skill had?** (a ticket's new session only, [`LaunchGate::skill_blocked`]): a stage runs only on a
 //!    tool that has the skill it names, as Otaq's finder answers for the ticket's worktree — no: `missing_skill`,
-//!    "Codex doesn't have the skill `/team-validate`" ([`crate::board::missing_skill`]). Otaq's own skills always
+//!    "Codex doesn't have the skill `$team-validate`" ([`crate::board::missing_skill`]). Otaq's own skills always
 //!    pass.
 //!
 //! A session that can't start is **held** ([`super::AgentHold`]): **its agent waits for its tool**. Otaq never moves

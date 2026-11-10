@@ -39,6 +39,11 @@ use crate::agent_tools::events::LimitWindow;
 use crate::usage::limit::LimitKind;
 pub use plugins::plugin_skills;
 
+/// A skill as Codex calls it: `$team-validate`, Otaq's own `$otaq:commit`.
+pub(super) fn skill_reference(skill: &str) -> String {
+    super::namespaced_reference("$", skill)
+}
+
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Codex";
 
@@ -310,7 +315,7 @@ impl AgentTool for Codex {
     /// mentions a skill with `$` (its skills page, learn.chatgpt.com/docs/build-skills, formerly
     /// developers.openai.com/codex/skills).
     fn skill_reference(&self, skill: &str) -> String {
-        super::namespaced_reference("$", skill)
+        skill_reference(skill)
     }
 
     /// Codex's ids are models.dev's `openai` ids exactly (d0086).
