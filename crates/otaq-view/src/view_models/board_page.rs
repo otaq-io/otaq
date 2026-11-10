@@ -12,7 +12,7 @@
 
 use std::borrow::Cow;
 
-use otaq_core::board::moves::{DropOn, MoveAction, check_move_in};
+use otaq_core::board::moves::{DropOn, MoveAction, STARTS_BY_ITSELF, check_move_in};
 use otaq_core::board::stage_choices::{Choice, StageOptions};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Status, TicketKey};
@@ -803,8 +803,9 @@ fn verdict(
 ) -> Verdict {
     match drag::feedback_in(flow, ticket, tickets, &column) {
         DropFeedback::Home => Verdict::Home,
-        DropFeedback::Forbidden { .. }
-            if let Some(waits) = waits_ahead(flow, ticket, tickets, &column) =>
+        DropFeedback::Forbidden { title, .. }
+            if title == STARTS_BY_ITSELF
+                && let Some(waits) = waits_ahead(flow, ticket, tickets, &column) =>
         {
             waits
         }
@@ -824,9 +825,10 @@ fn verdict(
     }
 }
 
-/// A ticket that waits for others to merge, dragged ahead to a stage: refused with the reason, which the board shows
-/// in a toast once it is dropped ("SHOP-30 can't go to Validate yet" · "It waits for SHOP-27 to merge, then starts by
-/// itself."). `None` for any other refusal.
+/// A started ticket still waiting to begin, dragged ahead to a stage: refused, and the toast says what it waits for
+/// ("SHOP-30 can't go to Validate yet" · "It waits for SHOP-27 to merge, then starts by itself."; "It waits for a free
+/// agent, then starts by itself."). Only for the core's "starts by itself" refusal: a Backlog ticket is never started
+/// by itself, and Review is only ever reached through an agent, so their own refusals stand.
 fn waits_ahead(
     flow: &Flow,
     ticket: &Ticket,
@@ -837,16 +839,20 @@ fn waits_ahead(
         return None;
     };
     let parents = crate::view_models::dependencies::waiting_for(ticket, tickets);
-    if parents.is_empty() || ticket.place.is_done() {
-        return None;
-    }
-    let names: Vec<String> = parents.iter().map(|p| p.key.to_string()).collect();
-    Some(Verdict::Forbidden {
-        title: format!("{} can\u{2019}t go to {} yet", ticket.key, stage.name),
-        detail: Some(format!(
+    let detail = if !parents.is_empty() {
+        let names: Vec<String> = parents.iter().map(|p| p.key.to_string()).collect();
+        format!(
             "It waits for {} to merge, then starts by itself.",
             crate::view_models::dependencies::and_list(&names)
-        )),
+        )
+    } else if ticket.status == Status::WaitingForSlot {
+        "It waits for a free agent, then starts by itself.".to_owned()
+    } else {
+        format!("{STARTS_BY_ITSELF}.")
+    };
+    Some(Verdict::Forbidden {
+        title: format!("{} can\u{2019}t go to {} yet", ticket.key, stage.name),
+        detail: Some(detail),
     })
 }
 
@@ -1448,6 +1454,58 @@ mod tests {
             .unwrap_or_else(|| panic!("no verdict for {target}"))
             .verdict
             .clone()
+    }
+
+    /// A started ticket waiting to begin, dragged ahead, is refused with what it waits for: the tickets it waits for
+    /// to merge, else a free agent, else the plain "starts by itself".
+    #[test]
+    fn a_waiting_ticket_dragged_ahead_says_what_it_waits_for() {
+        use otaq_core::domain::Place;
+        let flow = &otaq_core::flow::default_file().flow;
+        let mut parent = ticket("SHOP-27", "Price table", Status::WaitingForYou);
+        parent.place = Place::stage_of("review");
+        let mut waits = ticket("SHOP-30", "Checkout", Status::Queued);
+        waits.place = Place::Waiting(None);
+        waits.depends_on = vec!["SHOP-27".parse().unwrap()];
+        let tickets = vec![parent, waits.clone()];
+        let answer = drag_answer_in(flow, &waits, &tickets, None);
+        assert_eq!(
+            verdict_of(&answer, "validate"),
+            Verdict::Forbidden {
+                title: "SHOP-30 can\u{2019}t go to Validate yet".to_owned(),
+                detail: Some("It waits for SHOP-27 to merge, then starts by itself.".to_owned()),
+            }
+        );
+
+        let mut slot = ticket("SHOP-31", "Footer", Status::WaitingForSlot);
+        slot.place = Place::Waiting(None);
+        let answer = drag_answer_in(flow, &slot, std::slice::from_ref(&slot), None);
+        assert_eq!(
+            verdict_of(&answer, "validate"),
+            Verdict::Forbidden {
+                title: "SHOP-31 can\u{2019}t go to Validate yet".to_owned(),
+                detail: Some("It waits for a free agent, then starts by itself.".to_owned()),
+            }
+        );
+
+        let mut queued = ticket("SHOP-32", "Header", Status::Queued);
+        queued.place = Place::Waiting(None);
+        let answer = drag_answer_in(flow, &queued, std::slice::from_ref(&queued), None);
+        assert!(matches!(
+            verdict_of(&answer, "validate"),
+            Verdict::Forbidden { title, detail: Some(detail) }
+                if title == "SHOP-32 can\u{2019}t go to Validate yet" && *detail == format!("{STARTS_BY_ITSELF}.")
+        ));
+
+        // A Backlog ticket that waits keeps its own refusal: Backlog never starts by itself.
+        let mut backlog = ticket("SHOP-33", "Banner", Status::Backlog);
+        backlog.place = Place::Backlog;
+        backlog.depends_on = vec!["SHOP-27".parse().unwrap()];
+        let answer = drag_answer_in(flow, &backlog, &tickets, None);
+        assert!(matches!(
+            verdict_of(&answer, "validate"),
+            Verdict::Forbidden { title, .. } if !title.contains("yet")
+        ));
     }
 
     /// FLW-18, Q271: every stage of the test flow takes a drop; "Moving a card here isn't available yet" is gone.

@@ -112,9 +112,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-3 can’t go to Validate yet"
             }
           },
           {
@@ -156,9 +156,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It waits for a free agent, then starts by itself.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-4 can’t go to Validate yet"
             }
           },
           {
@@ -200,9 +200,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-5 can’t go to Validate yet"
             }
           },
           {
@@ -244,9 +244,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-6 can’t go to Validate yet"
             }
           },
           {
@@ -288,9 +288,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-7 can’t go to Validate yet"
             }
           },
           {
@@ -7308,9 +7308,9 @@
           {
             "target": "review",
             "verdict": {
-              "detail": "It waits for NOTE-1 to merge, then starts by itself.",
+              "detail": null,
               "kind": "forbidden",
-              "title": "NOTE-2 can’t go to Review yet"
+              "title": "Only agents move tickets to your review"
             }
           },
           {

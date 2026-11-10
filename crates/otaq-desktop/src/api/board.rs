@@ -407,7 +407,8 @@ pub(crate) async fn whereabouts(
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let project = ticket.key.project.to_string();
-    let tickets: Vec<Ticket> = Vec::new();
+    // The project's tickets: a waiting ticket dragged ahead names the tickets it waits for to merge.
+    let tickets: Vec<Ticket> = snapshot(app, &project).await?.tickets().cloned().collect();
     let flow = flow(app, &project).await;
     let left = match ticket.status {
         Status::Parked => parked_from(app, &ticket, &flow).await,
@@ -1038,6 +1039,74 @@ mod tests {
         assert_eq!(outcome["kind"], "moved");
         let view = request(&h.app, "board.view", params).await.unwrap();
         assert_eq!(view["columns"][0]["count"], "2");
+        h.service.stop_all().await;
+    }
+
+    /// A started ticket that waits for another to merge, dragged ahead, is refused naming the ticket it waits for.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_waiting_ticket_dragged_ahead_names_what_it_waits_for() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::ProjectAdded { project, .. } = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let mut keys = Vec::new();
+        for title in ["Price table", "Checkout"] {
+            let Reply::Ticket(t) = send(
+                &h,
+                Request::TicketCreate(NewTicketInput {
+                    project: project.key.clone(),
+                    title: title.into(),
+                    ..Default::default()
+                }),
+            )
+            .await
+            else {
+                panic!("no ticket");
+            };
+            keys.push(t.key.to_string());
+        }
+        send(
+            &h,
+            Request::DepAdd(otaq_core::protocol::DepParams {
+                child: keys[1].clone(),
+                parent: keys[0].clone(),
+            }),
+        )
+        .await;
+        let started = request(&h.app, "board.start", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        assert_eq!(started["kind"], "moved", "{started}");
+
+        let drag = request(&h.app, "board.drag", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        let validate = drag["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["target"] == "validate")
+            .unwrap();
+        assert_eq!(validate["verdict"]["kind"], "forbidden", "{validate}");
+        assert_eq!(
+            validate["verdict"]["title"],
+            format!("{} can\u{2019}t go to Validate yet", keys[1])
+        );
+        assert_eq!(
+            validate["verdict"]["detail"],
+            format!("It waits for {} to merge, then starts by itself.", keys[0])
+        );
         h.service.stop_all().await;
     }
 
