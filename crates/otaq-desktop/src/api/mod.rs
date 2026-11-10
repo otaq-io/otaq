@@ -284,8 +284,9 @@ async fn caught(
             } else {
                 "it was stopped".to_owned()
             };
+            let name = otaq_core::naming::PRODUCT_NAME;
             Err(RequestError::plain(format!(
-                "Otaq couldn\u{2019}t answer {method}: {what}. This is a bug in Otaq; please report it."
+                "{name} couldn\u{2019}t answer {method}: {what}. This is a bug in {name}; please report it."
             )))
         }
     }
@@ -319,8 +320,10 @@ mod tests {
         .await;
         let e = answer.unwrap_err();
         assert!(
-            e.message
-                .starts_with("Otaq couldn\u{2019}t answer flow_board.view: "),
+            e.message.starts_with(&format!(
+                "{} couldn\u{2019}t answer flow_board.view: ",
+                otaq_core::naming::PRODUCT_NAME
+            )),
             "{}",
             e.message
         );

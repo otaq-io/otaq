@@ -588,7 +588,7 @@ mod tests {
         assert!(v.bar.reason.is_some());
         assert!(!v.watch.fails.is_empty());
         // The page's test draws this view (flow_board.test.ts); `OTAQ_WRITE_FIXTURES=1` writes it again.
-        if std::env::var_os("OTAQ_WRITE_FIXTURES").is_some() {
+        if std::env::var_os(otaq_core::naming::env_var("WRITE_FIXTURES")).is_some() {
             let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
                 .join("ui/src/screens/flow_board/check_first.view.json");
             std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
