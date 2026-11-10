@@ -12,6 +12,7 @@ use std::time::Duration;
 use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::questions::Choice;
+use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use otaq_core::board::tickets::{EventKind, Ticket};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::{Place, Status};
@@ -111,6 +112,37 @@ async fn send(w: &TestService, shell: &AgentShell, method: &str, params: Value) 
         .unwrap_or_else(|e| panic!("{e}: {ran:?}"))
 }
 
+/// Names the agent `session` runs, as a real launch records it.
+async fn runs_agent(w: &TestService, session: &str, id: &str, name: &str) {
+    sqlx::query("UPDATE sessions SET agent_id = ?, agent_name = ? WHERE id = ?")
+        .bind(id)
+        .bind(name)
+        .bind(session)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+}
+
+/// The ticket's latest comment, which must be the asking agent's: by `name`, written from `stage`.
+async fn agents_reason(w: &TestService, key: &str, name: &str, stage: &str) -> TicketComment {
+    let comment = crate::common::last_comment(&w.board, key).await.unwrap();
+    match &comment.author {
+        CommentAuthor::Agent {
+            name: by,
+            stage: from,
+            ..
+        } => {
+            assert_eq!(by.as_deref(), Some(name), "{comment:?}");
+            assert_eq!(from.as_deref(), Some(stage), "{comment:?}");
+        }
+        CommentAuthor::User { .. } => panic!("the reason is posted as the user's: {comment:?}"),
+    }
+    assert_eq!(comment.author_label(), name);
+    assert!(comment.heading().starts_with(name), "{}", comment.heading());
+    assert!(comment.body.contains(REASON), "{}", comment.body);
+    comment
+}
+
 /// The agent asks to send `t` back to `stage`; the service's answer.
 async fn asks_back(w: &TestService, shell: &AgentShell, t: &Ticket, stage: &str) -> Value {
     send(
@@ -182,12 +214,13 @@ async fn last_answer(w: &TestService, t: &Ticket) -> (Option<String>, Option<Str
 }
 
 /// Dev's agent finds a product gap: its question shows as Needs you, naming Product spec; Send back moves the ticket
-/// there, clears the skip, stops the asking session and starts Product spec fresh with the reason as the user's
-/// comment; History records the reason and the answer.
+/// there, clears the skip, stops the asking session and starts Product spec fresh with the reason as the asking
+/// agent's comment, by its name; History records the reason and the answer.
 #[tokio::test(flavor = "multi_thread")]
 async fn send_back_moves_the_ticket_to_the_named_stage_and_clears_its_skip() {
     let w = world().await;
     let (t, shell) = in_dev(&w, "Refunds").await;
+    runs_agent(&w, &shell.session, "rust-dev", "Rust developer").await;
     assert_eq!(skips(&w, "SHOP-1").await, ["product-spec"]);
 
     let asked = asks_back(&w, &shell, &t, "Product spec").await;
@@ -231,11 +264,9 @@ async fn send_back_moves_the_ticket_to_the_named_stage_and_clears_its_skip() {
     assert_ne!(running.id, shell.session, "the asking session stopped");
     let out = w.wait_for_output(&running.id, "ARGS").await;
     assert!(out.contains("/otaq:product-spec"), "{out}");
-    let comment = crate::common::last_comment(&w.board, "SHOP-1")
+    let comment = agents_reason(&w, "SHOP-1", "Rust developer", "dev")
         .await
-        .unwrap()
         .body;
-    assert!(comment.contains(REASON), "{comment}");
     assert!(
         comment.starts_with("Dev asked to send SHOP-1 back to Product spec"),
         "{comment}"
@@ -382,6 +413,7 @@ async fn a_checker_asks_and_the_ticket_goes_back_from_its_check() {
     place_in(&w, &t, "dev", Status::Working).await;
     w.record_ended_agent(&t, "refunds-dev").await;
     let checker = w.shell(&t, SessionKind::Validator).await;
+    runs_agent(&w, &checker.session, "reviewer", "Reviewer").await;
     w.validating_with(&t, &checker.session).await;
     place_in(&w, &t, "validate", Status::Checking).await;
 
@@ -404,5 +436,6 @@ async fn a_checker_asks_and_the_ticket_goes_back_from_its_check() {
             .is_none(),
         "the checker stopped"
     );
+    agents_reason(&w, "SHOP-1", "Reviewer", "validate").await;
     w.stop().await;
 }
