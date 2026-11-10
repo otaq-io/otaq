@@ -1499,6 +1499,58 @@ mod tests {
         assert_eq!(line(&a), (None, None), "nor does an ended one");
     }
 
+    /// Once the agent has written a stage's skill, the stage's column no longer says the user doesn't have it: it
+    /// warns that the skill is written but not committed yet (Apply doesn't commit it), still only a warning.
+    #[test]
+    fn a_written_skill_warns_it_is_not_committed_yet() {
+        use crate::view_models::flow_editor::fixtures::{plan_draft, stored, written_plan};
+        use otaq_core::flow::proposal::{Level, Warning};
+
+        let (file, mut draft) = plan_draft(Some("plan-ticket"));
+        draft.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-ticket`".into(),
+        }];
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let written = [written_plan()];
+        let plan_warning = |written: &[otaq_core::flow::draft::WrittenSkill]| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::AtOnce,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written,
+                selected: None,
+                agent: None,
+                new_agent: None,
+                choices: &choices,
+            };
+            columns(&f)
+                .into_iter()
+                .find(|c| c.id == "plan")
+                .and_then(|c| c.warning)
+        };
+        assert_eq!(
+            plan_warning(&[]).as_deref(),
+            Some("You don't have the skill `plan-ticket`")
+        );
+        assert_eq!(
+            plan_warning(&written).as_deref(),
+            Some("`plan-ticket` is written but not committed yet: commit it so agents get it")
+        );
+    }
+
     #[test]
     fn the_export_file_is_named_after_the_project() {
         assert_eq!(export_file("shop-web"), "shop-web.flow.yaml");
