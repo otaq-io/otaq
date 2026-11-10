@@ -216,6 +216,11 @@
   min-width: 0;
 }
 
+/* "Pick one, or Ask the agent to write it." under a missing skill: links inside the sentence, at its size. */
+.fe-skill-fix .fe-link {
+  font-size: inherit;
+}
+
 .fe-fix-line {
   display: flex;
   align-items: center;
