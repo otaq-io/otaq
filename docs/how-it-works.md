@@ -103,8 +103,9 @@ a new model needs no Otaq update.
   agent. A ticket's own agent never picks or skips: only you do. A card waiting for its tool offers **Change
   agent…**, the same choice for the waiting stage.
 - **Nothing is skipped on its own.** A stage runs unless you skip it for that ticket, even when every stage before
-  it was skipped. **Skip this check** and **Move on anyway** show only on checks the flow marks skippable; on other
-  checks you wait, pick another agent, or send the ticket back. A skipped or moved-past check doesn't change the
+  it was skipped. **Skip this check** shows only on checks the flow marks skippable; on other checks you wait, pick
+  another agent, or send the ticket back. A check that fails all its rounds can always be sent on to the next stage
+  (**Send it on**), with the checker's last report, so you judge it at Review. A skipped or moved-past check doesn't change the
   Delivery: it does what the flow says, so an automatic one still delivers on its own, and its card says
   "Delivered without all checks".
 - **Limits per tool.** When one tool hits its usage limit, is logged out, not installed, hidden or needs an update,

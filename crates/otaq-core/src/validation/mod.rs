@@ -19,8 +19,9 @@
 //! **Any agent check of any flow** runs this way (FLW-13, d0108 second gap review rule 9): each counts its own fails
 //! in a row ([`crate::board::validation::CheckCounts`]) against its own rounds; a pass into another agent check opens
 //! that check's round and starts its checker; 0063's rules (VAL-02, VAL-07, VAL-08) and Stop this check hold
-//! whatever the check's skill. **Move on anyway** and **Skip this check**, only on a check the flow marks skippable
-//! (`options: [skip]`; refused on any other), take the card to the engine's next stage,
+//! whatever the check's skill. **Move on anyway** after the last failed round, on every check, and **Skip this
+//! check** (and Move on anyway after no result) only on a check the flow marks skippable (`options: [skip]`; refused
+//! on any other), take the card to the engine's next stage,
 //! and its Delivery then does what the flow says (automatic stays automatic); Skip this check is also offered on a check
 //! held for the plan limit (Q277), never on a held Agent stage.
 //!

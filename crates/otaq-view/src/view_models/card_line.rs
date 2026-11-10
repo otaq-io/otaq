@@ -271,11 +271,14 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             ),
         }),
         Status::Checking => plain(CHECKING, Palette::Working),
-        Status::CheckFailed => asks(format!(
-            "{} failed {} times \u{b7} decide",
-            check_name(ticket),
-            ticket.validation_round.max(1)
-        )),
+        Status::CheckFailed => {
+            let rounds = ticket.validation_round.max(1);
+            let times = if rounds == 1 { "time" } else { "times" };
+            asks(format!(
+                "{} failed {rounds} {times} \u{b7} decide",
+                check_name(ticket)
+            ))
+        }
         Status::CheckNoResult => asks(format!(
             "{} gave no result \u{b7} decide",
             check_name(ticket)

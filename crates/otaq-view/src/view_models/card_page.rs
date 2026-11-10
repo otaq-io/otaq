@@ -373,6 +373,19 @@ mod tests {
         assert_eq!(line(card).0, "Validate failed 3 times \u{b7} decide");
     }
 
+    /// With rounds 1 the check failed once: "failed 1 time", not "1 times".
+    #[test]
+    fn a_check_out_of_one_round_says_one_time() {
+        let v = card_fixtures::variants()
+            .into_iter()
+            .find(|v| v.name == "Validation failed 3 times (0063)")
+            .unwrap();
+        let mut ticket = v.ticket;
+        ticket.validation_round = 1;
+        let card = TicketCardView::of(&ticket, &v.extras, NOW);
+        assert_eq!(line(&card).0, "Validate failed 1 time \u{b7} decide");
+    }
+
     #[test]
     fn your_review_has_the_review_edge_and_review() {
         let g = gallery();

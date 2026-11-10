@@ -239,8 +239,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 /// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): a human
 /// check's Approve is its Pass there (FLW-14), which moves it on; on the default flow it opens the delivery choices.
 /// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR (FLW-16).
-/// Move on anyway only on a check the flow marks skippable (`skippable`,
-/// [`otaq_core::flow::engine::user_may_move_past`]).
+/// Move on anyway after no result only on a check the flow marks skippable (`skippable`,
+/// [`otaq_core::flow::engine::user_may_move_past`]); a check that ran out of rounds can always be sent on.
 pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
@@ -313,12 +313,11 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
         Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
-        Status::CheckFailed if skippable => vec![
+        Status::CheckFailed => vec![
             (A::MoveOnAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
-        Status::CheckFailed => vec![(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)],
         // No result on the validator's model: Open agent… first, then today's two.
         Status::CheckNoResult if card::validator_refusal(ticket).is_some() => {
             let mut bar = vec![(A::OpenAgent, Primary), (A::RetryValidation, Secondary)];
@@ -727,21 +726,17 @@ mod tests {
             all(Status::CheckerNeedsYou),
             [(A::AnswerValidator, Attention)]
         );
-        // Move on anyway only on a check the flow marks skippable (not the default flow's Validate).
-        assert_eq!(
-            all(Status::CheckFailed),
-            [(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)]
-        );
+        // A check out of rounds is sent on whether or not the flow marks it skippable; after no result, Move on
+        // anyway only on a skippable one (not the default flow's Validate).
+        let failed = [
+            (A::MoveOnAnyway, Primary),
+            (A::AnotherRound, Secondary),
+            (A::AnswerAgent, Secondary),
+        ];
+        assert_eq!(all(Status::CheckFailed), failed);
         assert_eq!(all(Status::CheckNoResult), [(A::RetryValidation, Primary)]);
         let skippable = |status| all_buttons_in(&ticket("SHOP-1", "t", status), false, true);
-        assert_eq!(
-            skippable(Status::CheckFailed),
-            [
-                (A::MoveOnAnyway, Primary),
-                (A::AnotherRound, Secondary),
-                (A::AnswerAgent, Secondary)
-            ]
-        );
+        assert_eq!(skippable(Status::CheckFailed), failed);
         assert_eq!(
             skippable(Status::CheckNoResult),
             [(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]

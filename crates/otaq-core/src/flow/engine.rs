@@ -510,8 +510,9 @@ fn checking(status: Status) -> bool {
     matches!(status, Status::Checking | Status::CheckerNeedsYou)
 }
 
-/// The user may move a card past the check it stands in (Skip this check, Move on anyway) only when the flow marks
-/// that check skippable (`options: [skip]`); elsewhere the user waits, picks another agent or sends the ticket back.
+/// The user may move a card past the check it stands in (Skip this check, Move on anyway after no result) only when
+/// the flow marks that check skippable (`options: [skip]`); elsewhere the user waits, picks another agent or sends the
+/// ticket back. A check that ran out of rounds can be sent on whatever this says.
 pub fn user_may_move_past(flow: &Flow, place: &Place) -> bool {
     place
         .stage()
@@ -544,8 +545,9 @@ pub fn step<'f>(at: At<'f, '_>, mv: Move) -> Result<Step<'f>, NotNow> {
         let (skipped, next) = walk(at.flow, at.skips, at.index(), also_skip);
         move_on(&at, skipped, next)
     };
-    // Skip this check and Move on anyway take the card past its check: only one the flow marks skippable.
-    if matches!(mv, Move::SkipCheck | Move::MoveOnAnyway)
+    // Skip this check, and Move on anyway after a check that gave no result, take the card past its check only on one
+    // the flow marks skippable. A check that ran out of rounds can always be sent on: the user judges it at Review.
+    if (mv == Move::SkipCheck || (mv == Move::MoveOnAnyway && at.status != Status::CheckFailed))
         && agent_check
         && let Some(stage) = current
         && !stage.can_skip()

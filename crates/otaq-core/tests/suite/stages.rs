@@ -219,16 +219,30 @@ fn from_validating() {
             Some(RunResult::Passed)
         )
     );
-    // Skip this check and Move on anyway only on a check the flow marks skippable: not the default's Validate.
+    // Skip this check, and Move on anyway after no result, only on a check the flow marks skippable: not the default's
+    // Validate. A check out of rounds is sent on there all the same.
     assert!(refused(
         &flow,
         &stage(VALIDATE),
         Status::Checking,
         Move::SkipCheck
     ));
-    for status in [Status::CheckFailed, Status::CheckNoResult] {
-        assert!(refused(&flow, &stage(VALIDATE), status, Move::MoveOnAnyway));
-    }
+    assert!(refused(
+        &flow,
+        &stage(VALIDATE),
+        Status::CheckNoResult,
+        Move::MoveOnAnyway
+    ));
+    let sent_on = go(
+        &flow,
+        &stage(VALIDATE),
+        Status::CheckFailed,
+        Move::MoveOnAnyway,
+    );
+    assert_eq!(
+        (sent_on.place, sent_on.status),
+        (stage(REVIEW), Status::WaitingForYou)
+    );
     let marked = skippable_validate();
     let skip = go(&marked, &stage(VALIDATE), Status::Checking, Move::SkipCheck);
     assert_eq!(
