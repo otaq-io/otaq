@@ -494,6 +494,189 @@ async fn y_at_a_codex_project_agents_prompt_answers_it() {
     w.stop().await;
 }
 
+/// An interactive `sh` as `ticket`'s session of `kind` on `tool`: its id.
+async fn sh_of_kind(w: &TestService, ticket: &Ticket, kind: SessionKind, tool: Tool) -> String {
+    let project = w.board.project("SHOP").await.unwrap();
+    w.sessions
+        .spawn(SpawnSpec {
+            kind,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: Some(SessionTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            }),
+            program: "sh".into(),
+            args: Vec::new(),
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PS1".into(), String::new())],
+            size: TerminalSize::default(),
+            tool: Some(tool),
+            tool_session_id: Some("conversation-1".into()),
+            model: None,
+            agent: None,
+            effort: None,
+            theme: None,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+/// The user's key in `session`'s terminal, as the app's terminal sends it.
+async fn key_in(client: &Client, session: &str, bytes: &[u8]) {
+    client
+        .request(Request::SessionInput(InputParams {
+            session: session.to_owned(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        }))
+        .await
+        .unwrap();
+}
+
+fn permission_prompt() -> Signal {
+    Signal::NeedsYou {
+        prompt: "Run command: npm test".into(),
+    }
+}
+
+/// Codex's "y" at a checker's prompt answers it: the ticket is Validating… again while the approved command runs. On
+/// Claude Code a key alone changes nothing and Enter answers it. A key at a checker with no prompt open changes
+/// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_validators_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    for (tool, title, answer) in [
+        (Tool::Codex, "Coupon field", &b"y"[..]),
+        (Tool::Claude, "Gift cards", &b"\r"[..]),
+    ] {
+        let ticket = w.create("SHOP", title).await;
+        let key = ticket.key.to_string();
+        let validator = sh_of_kind(&w, &ticket, SessionKind::Validator, tool).await;
+        w.validating_with(&ticket, &validator).await;
+        key_in(&client, &validator, b"y").await;
+        assert_eq!(
+            w.status(&key).await,
+            Status::Checking,
+            "{tool:?}: no prompt"
+        );
+        w.validation
+            .validator_signal(&ticket.id, &validator, &permission_prompt())
+            .await
+            .unwrap();
+        assert_eq!(w.status(&key).await, Status::CheckerNeedsYou, "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &validator, b"1").await;
+            assert_eq!(
+                w.status(&key).await,
+                Status::CheckerNeedsYou,
+                "a key alone on Claude Code"
+            );
+        }
+        key_in(&client, &validator, answer).await;
+        assert_eq!(w.status(&key).await, Status::Checking, "{tool:?}: answered");
+    }
+    w.stop().await;
+}
+
+/// Codex's "y" at a helper's prompt answers it: the helper no longer waits and the ticket is Working again. On Claude
+/// Code a key alone changes nothing and Enter answers it. A key at a helper with no prompt open changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_helpers_prompt_answers_it() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let prompt_of = async |piece: u32| {
+        w.helpers
+            .of_ticket(&ticket.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|h| h.piece == piece)
+            .unwrap()
+            .prompt
+    };
+    for (piece, tool, answer) in [(1, Tool::Codex, &b"y"[..]), (2, Tool::Claude, &b"\r"[..])] {
+        let session = sh_of_kind(&w, &ticket, SessionKind::Helper, tool).await;
+        sqlx::query(
+            "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, session_id, status, started_at,
+                                  updated_at)
+             VALUES (?, ?, ?, 'A piece', 'otaq/SHOP-1-piece', '/nonexistent', ?, 'working', 1, 1)",
+        )
+        .bind(format!("helper-{piece}"))
+        .bind(&ticket.id)
+        .bind(piece)
+        .bind(&session)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+        let caller = Caller::Helper {
+            ticket: ticket.key.clone(),
+            ticket_id: ticket.id.clone(),
+            session: session.clone(),
+        };
+        key_in(&client, &session, b"y").await;
+        assert_eq!(card(&w).await.0, Status::Working, "{tool:?}: no prompt");
+        w.helpers
+            .after_signals(&caller, &[permission_prompt()])
+            .await
+            .unwrap();
+        assert_eq!(card(&w).await.0, Status::NeedsYou, "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &session, b"1").await;
+            assert!(
+                prompt_of(piece).await.is_some(),
+                "a key alone on Claude Code"
+            );
+            assert_eq!(card(&w).await.0, Status::NeedsYou);
+        }
+        key_in(&client, &session, answer).await;
+        assert_eq!(prompt_of(piece).await, None, "{tool:?}: answered");
+        assert_eq!(card(&w).await.0, Status::Working, "{tool:?}");
+    }
+    w.stop().await;
+}
+
+/// Codex's "y" at the prompt of a finished ticket's answer session answers it: the session no longer waits. On Claude
+/// Code a key alone changes nothing and Enter answers it.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_answer_sessions_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    for (tool, title, answer) in [
+        (Tool::Codex, "Coupon field", &b"y"[..]),
+        (Tool::Claude, "Gift cards", &b"\r"[..]),
+    ] {
+        let ticket = w.create("SHOP", title).await;
+        w.force_status(&ticket, Status::Merged).await;
+        let session = sh_of_kind(&w, &ticket, SessionKind::Answer, tool).await;
+        let caller = Caller::Agent {
+            ticket: ticket.key.clone(),
+            ticket_id: ticket.id.clone(),
+            session: session.clone(),
+        };
+        let prompt = ToolEvent::NeedsYou {
+            prompt: "Run command: git log".into(),
+            helper_agent: false,
+        };
+        event(&w, &caller, tool, prompt).await;
+        assert!(w.signals.open_prompt(&session).is_some(), "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &session, b"1").await;
+            assert!(
+                w.signals.open_prompt(&session).is_some(),
+                "a key alone on Claude Code"
+            );
+        }
+        key_in(&client, &session, answer).await;
+        assert_eq!(w.signals.open_prompt(&session), None, "{tool:?}: answered");
+    }
+    w.stop().await;
+}
+
 /// Something running under Copilot after the key (the command it was allowed to run): the card stays Working until
 /// it ends.
 #[tokio::test(flavor = "multi_thread")]

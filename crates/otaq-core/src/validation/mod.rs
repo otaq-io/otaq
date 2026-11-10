@@ -926,6 +926,17 @@ impl Validation {
         Ok(())
     }
 
+    /// The user answered the checker `session`'s permission prompt in its terminal (Enter, or Codex's "y" alone, after
+    /// which its tool sends nothing until its turn ends or asks again): as when its turn goes on, the ticket is
+    /// Validating… again once no checker waits on one. A checker with no prompt open is left as it is.
+    pub async fn prompt_answered(&self, ticket_id: &str, session: &str) -> Result<(), BoardError> {
+        if !self.asking_of(ticket_id, |asking| asking.contains(session)) {
+            return Ok(());
+        }
+        self.validator_signal(ticket_id, session, &Signal::Working { prompt: None })
+            .await
+    }
+
     /// The tool refused the validator's model (AGT-05, SDD §7.2 `[M22]` "No result: validator's model", VAL-07): the
     /// round ends as No result with the tool's message and **doesn't count** (the round number stays; the ticket
     /// stays in Dev and doesn't go back to its developer). Change validator, Retry validation and Move to Review

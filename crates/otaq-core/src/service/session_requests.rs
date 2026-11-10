@@ -7,11 +7,11 @@ use super::Shared;
 use super::board_requests::error_body;
 use super::connection::Then;
 use crate::attention::ClientId;
-use crate::board::Refusal;
+use crate::board::{BoardError, Refusal};
 use crate::protocol::{
     ErrorBody, ErrorKind, Reply, Request, SessionAttach, SessionTarget, decode_bytes, encode_bytes,
 };
-use crate::session::{SessionError, SessionKind, SessionTicket};
+use crate::session::{SessionError, SessionInfo, SessionKind, SessionTicket};
 
 pub(super) async fn handle(
     request: Request,
@@ -120,36 +120,20 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't clear the prompt");
             }
-            // Enter in a helper's terminal answers its permission prompt there, or its passed-on question (d0133 audit
-            // 3, d0119).
-            if effect.enters > 0
-                && info
-                    .as_ref()
-                    .is_some_and(|i| i.kind == crate::session::SessionKind::Helper)
-                && let Err(e) = shared.helpers.enter(&p.session, line).await
-            {
-                tracing::warn!(session = p.session, error = %e, "can't clear the helper's wait");
-            }
-            // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068), or its open question
-            // (d0119).
-            if effect.enters > 0
-                && info
-                    .as_ref()
-                    .is_some_and(|i| i.kind == crate::session::SessionKind::ProjectAgent)
-                && let Err(e) = shared.project_agents.enter(&p.session, line).await
-            {
-                tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
-            }
-            // A key alone in a Project agent's terminal answers its permission prompt on a tool that takes one (Codex's
-            // "y"), as Enter does above. Escape sequences and pastes don't.
-            if effect.enters == 0
+            // The user's answer in any other agent session's terminal (ATT-02): Enter, or a key alone on a tool whose
+            // permission prompt takes one (Codex's "y", after which it sends nothing until its turn ends or asks
+            // again). Escape sequences and pastes don't count.
+            let key_alone = effect.enters == 0
                 && bytes.len() == 1
                 && info
                     .as_ref()
-                    .is_some_and(|i| i.kind == SessionKind::ProjectAgent)
-                && let Err(e) = shared.project_agents.key(&p.session).await
+                    .and_then(|i| i.tool)
+                    .is_some_and(|tool| shared.adapters.get(tool).key_alone_approves_prompt());
+            if (effect.enters > 0 || key_alone)
+                && let Some(info) = &info
+                && let Err(e) = answered(shared, info, line.filter(|_| !key_alone)).await
             {
-                tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
+                tracing::warn!(session = p.session, error = %e, "can't clear the agent's wait");
             }
             // Any key may answer a tool's own prompt without a signal (Copilot's Esc, ADP-08).
             if !bytes.is_empty()
@@ -205,6 +189,46 @@ pub(super) async fn handle(
             ErrorKind::BadRequest,
             format!("{} isn't a session request", other.method()),
         )),
+    }
+}
+
+/// The user answered in `info`'s terminal (Enter, with `line` its first line that isn't empty, or a key alone that
+/// answers its tool's prompt): its open permission prompt closes, wherever the session keeps it. A session with none
+/// open is left as it is. The ticket's agent and delivery sessions are answered in [`handle`], with the ticket's status.
+async fn answered(
+    shared: &Shared,
+    info: &SessionInfo,
+    line: Option<&str>,
+) -> Result<(), BoardError> {
+    let session = info.id.as_str();
+    match info.kind {
+        // Or its passed-on question (d0133 audit 3, d0119).
+        SessionKind::Helper => shared.helpers.enter(session, line).await,
+        // Or its open question (d0068, d0119).
+        SessionKind::ProjectAgent => shared.project_agents.enter(session, line).await,
+        // A checker's: the ticket is Validating… again.
+        SessionKind::Validator => match &info.ticket {
+            Some(key) => {
+                let id = shared.board.ticket_id(&key.to_string()).await?;
+                shared.validation.prompt_answered(&id, session).await
+            }
+            None => Ok(()),
+        },
+        // A finished ticket's answer session: only the session shows its prompt.
+        SessionKind::Answer => {
+            if let Some(key) = &info.ticket
+                && shared.signals.open_prompt(session).is_some()
+            {
+                let id = shared.board.ticket_id(&key.to_string()).await?;
+                shared.signals.prompt_answered(key, &id, session);
+            }
+            Ok(())
+        }
+        SessionKind::Agent
+        | SessionKind::Delivery
+        | SessionKind::Shell
+        | SessionKind::Project
+        | SessionKind::Run => Ok(()),
     }
 }
 
