@@ -423,6 +423,20 @@ button.overview-attachment:hover {
   display: flex;
 }
 
+/* The ticket's own agent for a stage, one muted line as on its card ("Dev: Light instead of Strong"). */
+.overview-own-agent {
+  display: flex;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  color: var(--text-muted);
+  font: var(--text-meta);
+}
+
+.overview-own-agent svg {
+  flex: none;
+}
+
 /* "Manual checks for you" above Approve (d0125): one tick box per item, where it came from under its text. */
 .manual-checks {
   display: flex;

@@ -39,7 +39,9 @@
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
-use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
+use otaq_core::agents::facts::{
+    BoardAgents, CardAgents, CardHold, CardStart, OwnAgent, RunsOnTool,
+};
 use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
@@ -182,10 +184,10 @@ pub struct AgentFacts {
     pub starts: Option<CardStart>,
     /// The agent whose model the tool refused (Open agent…).
     pub refused_agent: Option<String>,
-    /// The agent of the stage the ticket is in or waits before, and that stage's own agent when the ticket chose
-    /// `stage_agent` instead.
+    /// The agent of the stage the ticket is in or waits before.
     pub stage_agent: Option<String>,
-    pub instead_of: Option<String>,
+    /// The agent the ticket chose for a stage instead of the stage's own, from the moment it is set (Backlog on).
+    pub own_agent: Option<OwnAgent>,
     /// The stages the user chose to skip for the ticket, by name.
     pub skips: Vec<String>,
 }
@@ -203,7 +205,7 @@ impl AgentFacts {
             starts: card.starts.clone(),
             refused_agent: card.refused_agent.clone(),
             stage_agent: card.stage_agent.clone(),
-            instead_of: card.instead_of.clone(),
+            own_agent: card.own_agent.clone(),
             skips: card.skips.clone(),
         }
     }
@@ -5707,6 +5709,7 @@ mod tests {
             refused_agent: None,
             stage_agent: None,
             instead_of: None,
+            own_agent: None,
             skips: Vec::new(),
         };
         let board = |connected: Vec<Tool>| BoardAgents {

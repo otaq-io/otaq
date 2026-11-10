@@ -1126,6 +1126,7 @@ mod tests {
         ];
         let card = |key: &str, starts: Option<&str>| CardAgents {
             instead_of: None,
+            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,
