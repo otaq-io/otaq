@@ -219,10 +219,11 @@ pub struct AgentNeedsYou {
 pub struct CreatedAndChanged {
     /// The tickets it created that still exist, in creation order.
     pub created: Vec<CreatedTicket>,
-    /// The tickets it changed, in key order: other tickets it edited, and every ticket whose dependencies it added or
-    /// removed (one it created included): the tickets of [`Self::changes`].
+    /// The tickets it changed, in key order: the tickets of [`Self::changes`]. A ticket it created isn't one: what it
+    /// gave that ticket is part of making it ([`CreatedTicket::waits_for`]).
     pub edited: Vec<TicketKey>,
-    /// What it changed on them, one entry per part of a ticket (a field, one wait, one stage's choice), in key order
+    /// What it changed on tickets it didn't create, one entry per part of a ticket (a field, one wait, one stage's
+    /// choice), in key order
     /// and then in the order it first changed them, each part as it left it against how it found it. A part it put
     /// back as it found it is left out. What the CHANGED rows say ("SHOP-7 · now waits for SHOP-6").
     #[serde(default)]
@@ -280,6 +281,10 @@ pub struct CreatedTicket {
     pub status: Status,
     /// Never started: **Delete** removes it (TKT-08, the 0060 confirmation in the app).
     pub deletable: bool,
+    /// The tickets it made this one wait for, in the order it added them, those it took back again left out. Its
+    /// CREATED row says them ("SHOP-16 · waits for SHOP-15"); they are no CHANGED rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waits_for: Vec<TicketKey>,
 }
 
 /// Opens and tracks Project agents. Cheap to clone.
@@ -943,6 +948,7 @@ impl ProjectAgents {
                             title: t.title.clone(),
                             status: t.status,
                             deletable: t.board_group() == StatusSet::Backlog && !t.has_started(),
+                            waits_for: Vec::new(),
                         });
                     }
                 }
@@ -951,11 +957,13 @@ impl ProjectAgents {
             }
         }
         let mut changes = Changes::default();
+        // The waits it gave the tickets it created, folded as the changes are.
+        let mut given = Changes::default();
         for (ticket, kind, payload, at) in &events {
             let Some(t) = by_id(ticket) else { continue };
             let payload: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
-            // A field or stage choice it set on a ticket it created is part of making it; a dependency it added or
-            // removed is a change to that ticket either way, so it is listed under Changed too.
+            // Whatever it set on a ticket it created is part of making it: its CREATED row says it, and it gets no
+            // CHANGED row.
             let made_it = created_ids.contains(&ticket.as_str());
             match kind.as_str() {
                 "updated" if !made_it => {
@@ -973,10 +981,18 @@ impl ProjectAgents {
                         .get("parent")
                         .and_then(|p| serde_json::from_value::<TicketKey>(p.clone()).ok())
                     {
-                        changes.wait(&t.key, parent, kind == "dependency_added", *at);
+                        let to = if made_it { &mut given } else { &mut changes };
+                        to.wait(&t.key, parent, kind == "dependency_added", *at);
                     }
                 }
                 _ => {}
+            }
+        }
+        for g in given.0 {
+            if let (WhatChanged::WaitsFor { parent }, Some(t)) =
+                (g.change, out.created.iter_mut().find(|t| t.key == g.ticket))
+            {
+                t.waits_for.push(parent);
             }
         }
         out.changes = changes.made();
@@ -1686,6 +1702,7 @@ mod tests {
             title: "t".into(),
             status: Status::Backlog,
             deletable: true,
+            waits_for: Vec::new(),
         };
         let mut c = CreatedAndChanged::default();
         assert_eq!(summary(&c), "Nothing created or changed yet");

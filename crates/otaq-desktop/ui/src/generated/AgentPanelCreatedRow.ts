@@ -22,7 +22,8 @@ line: string | null,
 icon: IconName, edited: boolean, 
 /**
  * A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
- * for the tooltip. None on a created row.
+ * for the tooltip. A created row: what Noyan gave it as it made it ("waits for SHOP-15"), shown the same way;
+ * None when it gave it nothing.
  */
 change: string | null, 
 /**

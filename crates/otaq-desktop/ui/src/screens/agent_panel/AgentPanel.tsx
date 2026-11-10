@@ -307,7 +307,8 @@ function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key
       </button>
       <span className="agent-panel-created-text">
         {row.change !== null ? (
-          // A changed row says what changed: "SHOP-7 · now waits for SHOP-6"; the title is its tooltip.
+          // A changed row says what changed ("SHOP-7 · now waits for SHOP-6"), a created one what it was given
+          // ("SHOP-16 · waits for SHOP-15"); the title is its tooltip.
           <span className="agent-panel-created-title" title={row.title || undefined}>
             {`· ${row.change}`}
           </span>
