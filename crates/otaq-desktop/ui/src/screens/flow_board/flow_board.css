@@ -246,10 +246,15 @@
   font: 400 11.5px/1.35 var(--font-ui);
 }
 
-/* A header inside its description's tooltip anchor (a row) may shrink to the column's width, so a long line in it
-   wraps instead of running past the column's edge; the skill's name breaks onto the next line. */
+/* A header inside its description's tooltip anchor fills the column's width, as the cards under it do, and may shrink
+   to it, so a long line in it wraps instead of running past the column's edge; the skill's name breaks onto the next
+   line. */
+.fb-column > .tooltip-anchor {
+  display: flex;
+}
+
 .tooltip-anchor > .fb-head {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -376,7 +381,7 @@
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
-  width: 340px;
+  width: 400px;
   padding: 14px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -420,12 +425,19 @@
   text-align: center;
 }
 
+/* Remove stage sits at the panel's foot, whatever the panel holds: its note on the left, the button on the right. It
+   stays in view while the panel scrolls (the negative bottom covers the panel's padding). */
 .fb-remove-row {
+  position: sticky;
+  bottom: -14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-top: 4px;
+  justify-content: space-between;
+  gap: 12px;
+  margin: auto -14px -14px;
+  padding: 10px 14px;
   border-top: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .fb-path {

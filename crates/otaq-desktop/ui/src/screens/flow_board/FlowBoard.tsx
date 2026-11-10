@@ -1158,6 +1158,7 @@ function StagePanel({
         </p>
       )}
       <div className="fb-remove-row">
+        <span className="fe-muted">{details.remove_note}</span>
         <Button
           compact
           variant="ghost"
@@ -1168,7 +1169,6 @@ function StagePanel({
             onEdit({ edit: "remove", stage });
           }}
         />
-        {details.remove_note !== null && <span className="fe-muted">{details.remove_note}</span>}
       </div>
     </aside>
   );

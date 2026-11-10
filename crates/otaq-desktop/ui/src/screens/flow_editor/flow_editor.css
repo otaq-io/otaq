@@ -25,7 +25,7 @@
 
 .fe-details {
   display: flex;
-  flex: 1;
+  flex: none;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
