@@ -227,3 +227,52 @@ async fn each_card_names_the_agent_of_its_stage() {
     assert_eq!(agent("SHOP-4"), None, "Backlog");
     w.stop().await;
 }
+
+/// A ticket's own agent for a stage shows from the moment it is set: in Backlog, before Dev starts, the card already
+/// has "Dev: Quick developer instead of Rust developer"; once Dev has passed, it goes; a ticket that chose nothing has none.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tickets_own_agent_shows_from_backlog_on() {
+    use otaq_core::agents::facts::OwnAgent;
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let chose = w.create("SHOP", "Fix README typo").await;
+    w.create("SHOP", "Wishlist").await;
+    choose(
+        &w,
+        "SHOP-1",
+        &[pick("Dev", "Quick developer", None)],
+        &Chooser::User,
+    )
+    .await;
+    let own = |board: &otaq_core::agents::facts::BoardAgents, key: &str| {
+        board
+            .cards
+            .iter()
+            .find(|c| c.key.to_string() == key)
+            .unwrap()
+            .own_agent
+            .clone()
+    };
+    let board = board_agents(&w.board, "SHOP").await.unwrap();
+    assert_eq!(
+        own(&board, "SHOP-1"),
+        Some(OwnAgent {
+            stage: "Dev".into(),
+            agent: "Quick developer".into(),
+            instead_of: "Rust developer".into(),
+        }),
+        "in Backlog"
+    );
+    assert_eq!(own(&board, "SHOP-2"), None, "chose nothing");
+
+    // Past Dev, its choice there no longer applies.
+    sqlx::query("UPDATE tickets SET state = 'validating', stage_id = 'validate' WHERE id = ?")
+        .bind(&chose.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    let board = board_agents(&w.board, "SHOP").await.unwrap();
+    assert_eq!(own(&board, "SHOP-1"), None, "past Dev");
+    w.stop().await;
+}

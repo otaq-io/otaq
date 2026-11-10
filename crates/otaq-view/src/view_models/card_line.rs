@@ -8,6 +8,7 @@
 //! [`words`] words the states the board draws; a state it doesn't word keeps the line the card's parts build
 //! ([`super::card::status_line`]), so every state the app has keeps a card.
 
+use otaq_core::agents::facts::OwnAgent;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{AutoMergeStop, MergeCheckState, ReviewEntry, Status};
@@ -375,22 +376,23 @@ pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Op
     }
 }
 
-/// The muted note under the line, only when set: the ticket's own agent for the stage it is in or waits before
-/// ("Dev: Light instead of Strong"), else the stages the user chose to skip ("Skips Product spec"). Never on a finished
-/// card.
+/// The ticket's own agent for a stage as one line, on its card and on Overview: "Dev: Light instead of Strong".
+pub fn own_agent_line(own: &OwnAgent) -> String {
+    format!("{}: {} instead of {}", own.stage, own.agent, own.instead_of)
+}
+
+/// The muted note under the line, only when set: the ticket's own agent for a stage, from the moment it is set, Backlog
+/// included ("Dev: Light instead of Strong"), else the stages the user chose to skip ("Skips Product spec"). Never on a
+/// finished card.
 pub fn note(ticket: &Ticket, x: &CardExtras) -> Option<Note> {
     if ticket.place.is_done() {
         return None;
     }
     let a = &x.agents;
-    let stage = x
-        .stage_name
-        .as_deref()
-        .or_else(|| a.starts.as_ref().map(|s| s.stage.as_str()));
-    if let (Some(chosen), Some(own), Some(stage)) = (&a.stage_agent, &a.instead_of, stage) {
+    if let Some(own) = &a.own_agent {
         return Some(Note {
             icon: IconName::User,
-            text: format!("{stage}: {chosen} instead of {own}"),
+            text: own_agent_line(own),
         });
     }
     (!a.skips.is_empty()).then(|| Note {

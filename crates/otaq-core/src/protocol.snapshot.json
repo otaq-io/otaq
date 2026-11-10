@@ -1230,6 +1230,10 @@
           "ty": "TicketKey",
           "required": true
         },
+        "own_agent": {
+          "ty": "Option<OwnAgent>",
+          "omittable": true
+        },
         "refused_agent": {
           "ty": "Option<String>",
           "omittable": true
@@ -5631,6 +5635,23 @@
         "kept",
         "open"
       ]
+    },
+    "OwnAgent": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "String",
+          "required": true
+        },
+        "instead_of": {
+          "ty": "String",
+          "required": true
+        },
+        "stage": {
+          "ty": "String",
+          "required": true
+        }
+      }
     },
     "OwnerLines": {
       "kind": "struct",

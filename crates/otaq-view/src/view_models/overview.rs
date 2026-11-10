@@ -309,6 +309,9 @@ pub struct OverviewView {
     /// The question you just answered and your answer, quietly where the question was, until the agent moves on; set
     /// by the service's facts ([`with_answered`]).
     pub answered: Option<Answered>,
+    /// The ticket's own agent for a stage, from the moment it is set (Backlog on), as the card says it: "Dev: Light
+    /// instead of Strong"; set by the service's facts ([`with_own_agent`]).
+    pub own_agent: Option<String>,
     /// "Attachments · 3"; "Attachments" with none.
     pub attachments_heading: String,
     pub attachments: Vec<AttachmentRow>,
@@ -404,6 +407,18 @@ pub fn with_answered(mut view: OverviewView, answered: Option<Answered>) -> Over
     view
 }
 
+/// The view with the ticket's own agent line, unless it is done (as its card: never on a finished ticket).
+pub fn with_own_agent(
+    mut view: OverviewView,
+    ticket: &otaq_core::board::tickets::Ticket,
+    own: Option<&otaq_core::agents::facts::OwnAgent>,
+) -> OverviewView {
+    view.own_agent = own
+        .filter(|_| !ticket.place.is_done())
+        .map(crate::view_models::card_line::own_agent_line);
+    view
+}
+
 /// The review's headings on Overview (`ticket-01` *The ticket in Review*); what they show is `files.review`'s.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "OverviewInReview")]
@@ -440,6 +455,7 @@ pub fn view(
         },
         in_review: in_review(status),
         answered: None,
+        own_agent: None,
         click_to_edit: label_hint(DescriptionState::Reading, platform),
         editing: label_hint(DescriptionState::Editing, platform),
         placeholder: BLOCKS_HINT.to_owned(),
@@ -772,6 +788,30 @@ mod tests {
         assert!(v.attachments.is_empty());
         assert_eq!(v.bar.keys, "Ctrl+S");
         assert_eq!(v.editing, "Editing \u{b7} Esc to discard, Ctrl+S to save");
+    }
+
+    /// A ticket's own agent shows on Overview from the moment it is set, Backlog included, as its card says it; never
+    /// once the ticket is done, and not at all when it chose nothing.
+    #[test]
+    fn overview_shows_the_own_agent_from_backlog_on() {
+        use crate::view_models::card_fixtures::ticket;
+        use otaq_core::agents::facts::OwnAgent;
+        let own = OwnAgent {
+            stage: "Dev".into(),
+            agent: "Checker".into(),
+            instead_of: "Developer".into(),
+        };
+        let backlog = ticket("SHOP-5", "Fix the word tiny in README", Status::Backlog);
+        let v = || view("SHOP-5", Status::Backlog, &[], None, true, Platform::Mac);
+        assert_eq!(
+            with_own_agent(v(), &backlog, Some(&own))
+                .own_agent
+                .as_deref(),
+            Some("Dev: Checker instead of Developer")
+        );
+        assert_eq!(with_own_agent(v(), &backlog, None).own_agent, None);
+        let done = ticket("SHOP-5", "Fix the word tiny in README", Status::Merged);
+        assert_eq!(with_own_agent(v(), &done, Some(&own)).own_agent, None);
     }
 
     /// USG-07: only a live Idle agent offers "Mark as usage limit", as the Inbox's row did.

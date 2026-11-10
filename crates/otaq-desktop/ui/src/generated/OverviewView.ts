@@ -59,6 +59,11 @@ in_review: OverviewInReview | null,
  */
 answered: OverviewAnswered | null, 
 /**
+ * The ticket's own agent for a stage, from the moment it is set (Backlog on), as the card says it: "Dev: Light
+ * instead of Strong"; set by the service's facts ([`with_own_agent`]).
+ */
+own_agent: string | null, 
+/**
  * "Attachments · 3"; "Attachments" with none.
  */
 attachments_heading: string, attachments: Array<AttachmentRow>, add: string, pick_title: string, drop: string, note: string, };
