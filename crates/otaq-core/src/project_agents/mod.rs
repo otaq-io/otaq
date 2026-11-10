@@ -1016,8 +1016,9 @@ impl ProjectAgents {
         Ok(())
     }
 
-    /// Enter in a session's terminal: if it is a Project agent's, it is active. `line` (the first line sent that
-    /// isn't empty) answers its open question unless a permission prompt shows on top of it (d0119).
+    /// Enter in a session's terminal, or a key alone that answers its tool's prompt (Codex's "y"): if it is a Project
+    /// agent's, it is active. `line` (Enter's first line sent that isn't empty) answers its open question unless a
+    /// permission prompt shows on top of it (d0119).
     pub async fn enter(&self, session: &str, line: Option<&str>) -> Result<(), BoardError> {
         let agent: Option<(Option<String>,)> =
             sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
@@ -1037,31 +1038,6 @@ impl ProjectAgents {
                 }
                 self.active(&agent).await
             }
-            _ => Ok(()),
-        }
-    }
-
-    /// A single key in a session's terminal: if it is a Project agent's at a permission prompt, on a tool whose prompt
-    /// takes a key alone (Codex's "y", [`crate::agent_tools::AgentTool::key_alone_approves_prompt`]), the key answered
-    /// it. Nothing else says so until the turn ends or asks again, so it is active now, as after Enter: a drafting
-    /// line that gave way to Needs you comes back while the approved command runs.
-    pub async fn key(&self, session: &str) -> Result<(), BoardError> {
-        let Ok(info) = self.inner.sessions.info(session) else {
-            return Ok(());
-        };
-        let alone = info
-            .tool
-            .is_some_and(|tool| self.inner.adapters.get(tool).key_alone_approves_prompt());
-        if !alone || info.kind != crate::session::SessionKind::ProjectAgent {
-            return Ok(());
-        }
-        let agent: Option<(Option<String>,)> =
-            sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
-                .bind(session)
-                .fetch_optional(self.inner.board.store().pool())
-                .await?;
-        match agent {
-            Some((Some(agent),)) => self.active(&agent).await,
             _ => Ok(()),
         }
     }

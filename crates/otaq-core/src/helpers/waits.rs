@@ -4,8 +4,9 @@
 //!   grant it: it is stored on the helper (`helpers.prompt`) and the ticket is Needs you with "40.3 needs you: allow …"
 //!   ([`crate::signals::state`] holds it while it is open), its chip "SHOP-40 · 40.3 needs you". ⌘J and the chip open
 //!   the helper's terminal ([`crate::domain::PieceWait::session`]), where the user answers in the tool's own prompt:
-//!   Otaq never answers it (d0011, d0016). It closes on the helper's next hook that says its turn moved on, or Enter
-//!   in its terminal ([`Helpers::enter`]); a prompt of a helper whose session ended never shows.
+//!   Otaq never answers it (d0011, d0016). It closes on the helper's next hook that says its turn moved on, or the
+//!   user's answer in its terminal ([`Helpers::enter`]: Enter, or Codex's "y" alone); a prompt of a helper whose
+//!   session ended never shows.
 //! - **Idle** (a Stop with nothing asked or handed back, [`Signal::Idle`]) is reported to the agent in charge as a
 //!   note ("Piece 3's helper stopped without handing back; its last line: …"), never to the user.
 
@@ -133,8 +134,9 @@ impl Helpers {
         Ok(())
     }
 
-    /// Enter in a helper's terminal (`line`: the line sent): the user answered its prompt in the tool, so it closes
-    /// (ATT-02); else a line that isn't empty answers its passed-on question (d0119), logged as the user's answer.
+    /// Enter in a helper's terminal (`line`: the line sent), or a key alone that answers its tool's prompt (Codex's "y",
+    /// no line): the user answered its prompt in the tool, so it closes (ATT-02); else a line that isn't empty answers
+    /// its passed-on question (d0119), logged as the user's answer.
     pub async fn enter(&self, session: &str, line: Option<&str>) -> Result<(), BoardError> {
         let pool = self.inner.board.store().pool();
         let Some(helper) = store::of_session(pool, session).await? else {
