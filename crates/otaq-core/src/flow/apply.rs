@@ -43,7 +43,7 @@ use crate::agents::{CameFrom, ModelCatalog, shipped};
 use crate::board::moves::DropOn;
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Place, StatusSet, TicketKey};
+use crate::domain::{Place, Status, StatusSet, TicketKey};
 use crate::store::{Store, now_ms};
 
 /// Why a ticket waiting to begin doesn't start while its project's flow change waits (the card's footer, FLW-06).
@@ -322,7 +322,11 @@ pub enum FlowEvent {
 /// a stage the change removes, block it"). `delivering`: the ids of
 /// tickets a Delivery session works on now (an automatic PR Delivery's `open-pr`), which hold it.
 pub fn is_quiet(ticket: &Ticket, new: &Flow, delivering: &HashSet<String>) -> bool {
-    match &ticket.place {
+    quiet_at(ticket, &ticket.place, new, delivering)
+}
+
+fn quiet_at(ticket: &Ticket, place: &Place, new: &Flow, delivering: &HashSet<String>) -> bool {
+    match place {
         Place::Backlog | Place::Waiting(None) | Place::Done => true,
         Place::InStage(id) => match ticket.status.set() {
             StatusSet::HumanCheck => new.stage(id).is_some_and(Stage::is_human_check),
@@ -333,17 +337,37 @@ pub fn is_quiet(ticket: &Ticket, new: &Flow, delivering: &HashSet<String>) -> bo
     }
 }
 
-/// The tickets a change to `new` waits for, in `tickets`' order: those `wait` covers that aren't quiet
-/// ([`is_quiet`]).
+/// Where `ticket` stands for a change of `old` (the flow in use) into `new`. A ticket held before a stage (a missing
+/// skill, a tool that can't run) counts as in that stage, waiting to begin the first Agent stage of `old` included:
+/// its start already began there. A ticket waiting before a stage `new` doesn't have counts as in it too. Either way
+/// the change waits for it, and Apply now asks where it goes, instead of the card being left with a stage that went.
+pub fn standing(ticket: &Ticket, old: &Flow, new: &Flow) -> Place {
+    match &ticket.place {
+        Place::Waiting(None) if ticket.status == Status::Held => old
+            .first_agent_stage()
+            .map_or(Place::Waiting(None), |s| Place::stage_of(&s.id)),
+        Place::Waiting(Some(id)) if ticket.status == Status::Held || new.stage(id).is_none() => {
+            Place::stage_of(id)
+        }
+        place => place.clone(),
+    }
+}
+
+/// The tickets a change of `old` into `new` waits for, in `tickets`' order: those `wait` covers that aren't quiet
+/// ([`is_quiet`]), each where it stands for the change ([`standing`]).
 pub fn still_working<'t>(
     tickets: &'t [Ticket],
+    old: &Flow,
     new: &Flow,
     delivering: &HashSet<String>,
     wait: &Wait,
 ) -> Vec<&'t Ticket> {
     tickets
         .iter()
-        .filter(|t| wait.covers(&t.place) && !is_quiet(t, new, delivering))
+        .filter(|t| {
+            let place = standing(t, old, new);
+            wait.covers(&place) && !quiet_at(t, &place, new, delivering)
+        })
         .collect()
 }
 
@@ -384,10 +408,11 @@ impl Board {
         let wait = wait_of(&old, &new, memo.whole_board);
         let tickets = self.tickets(&project.key).await?;
         let delivering = self.delivering().await?;
-        let mut waiting_for: Vec<TicketKey> = still_working(&tickets, &new, &delivering, &wait)
-            .into_iter()
-            .map(|t| t.key.clone())
-            .collect();
+        let mut waiting_for: Vec<TicketKey> =
+            still_working(&tickets, &old, &new, &delivering, &wait)
+                .into_iter()
+                .map(|t| t.key.clone())
+                .collect();
         waiting_for.sort();
         Ok(Some(WaitingChange {
             project: project.key,
@@ -419,9 +444,10 @@ impl Board {
         new: &Flow,
         wait: &Wait,
     ) -> Result<bool, BoardError> {
+        let old = self.effective_flow(project).await?;
         let tickets = self.tickets(project).await?;
         let delivering = self.delivering().await?;
-        Ok(still_working(&tickets, new, &delivering, wait).is_empty())
+        Ok(still_working(&tickets, &old, new, &delivering, wait).is_empty())
     }
 
     /// Where a drop of `ticket` on `target` lands while its project's change waits for a span (FED-08): a forward drag

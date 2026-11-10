@@ -715,3 +715,102 @@ async fn a_failure_in_a_move_leaves_nothing_half_done() {
     );
     w.stop().await;
 }
+
+/// Started from Backlog, SHOP-1 is held before Product spec, the flow's first stage, because its tool doesn't have
+/// Product spec's skill. A ticket held in a stage counts as in it: removing Product spec waits for it instead of
+/// applying at once, Apply now asks where it goes (in Product spec, waiting, "held"; Dev by default), and once moved
+/// it no longer carries Product spec's hold.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_the_stage_a_ticket_is_held_in_waits_and_the_move_drops_the_hold() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
+
+    let w = world().await;
+    let held = w.create("SHOP", "Price table").await;
+    w.start_worktree(&held).await;
+    sqlx::query(
+        "UPDATE tickets SET stage_id = NULL, state = ?, state_since = ?, start_problem_step = 'missing_skill',
+                            start_problem_message = 'Codex doesn''t have the skill /product-spec' WHERE id = ?",
+    )
+    .bind(Status::Held.as_str())
+    .bind(otaq_core::store::now_ms())
+    .bind(&held.id)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    w.board
+        .store()
+        .set_agent_hold(&AgentHold {
+            id: "hold-1".into(),
+            ticket_id: Some(held.id.clone()),
+            project_id: None,
+            role: SessionRole::Developer,
+            reason: HoldReason::MissingSkill,
+            tool: Tool::Codex,
+            model: None,
+            agent_id: None,
+            skill: Some("product-spec".into()),
+            since: 1,
+        })
+        .await
+        .unwrap();
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        (ticket.place.clone(), ticket.status),
+        (Place::Waiting(None), Status::Held)
+    );
+    assert!(ticket.flags.missing_skill.is_some(), "{ticket:?}");
+
+    // The change waits for SHOP-1 rather than applying at once.
+    remove(&w, &["product-spec"]).await;
+    let waiting = w.board.waiting_change("SHOP").await.unwrap().unwrap();
+    assert_eq!(
+        waiting
+            .waiting_for
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["SHOP-1"]
+    );
+    assert!(
+        w.board
+            .effective_flow("SHOP")
+            .await
+            .unwrap()
+            .stage("product-spec")
+            .is_some(),
+        "Product spec stays until the change applies"
+    );
+
+    // Apply now asks where SHOP-1 goes.
+    let plan = plan(&w).await;
+    let m = move_of(&plan, "SHOP-1");
+    assert_eq!(
+        (m.stage.as_str(), m.waiting, m.state.as_deref()),
+        ("product-spec", true, Some("held"))
+    );
+    assert_eq!(m.default, DropOn::stage("dev"));
+    assert!(!m.agent_will_stop);
+
+    let ApplyNowAnswer::Applied { moved, .. } = apply(&w, &plan.stamp, Vec::new()).await else {
+        panic!("applied");
+    };
+    assert_eq!(
+        moved.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        ["SHOP-1"]
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_ne!(ticket.status, Status::Held, "{ticket:?}");
+    assert_eq!(ticket.start_problem, None);
+    assert_eq!(ticket.flags.missing_skill, None);
+    assert!(
+        w.board
+            .store()
+            .ticket_holds(&held.id)
+            .await
+            .unwrap()
+            .is_empty(),
+        "Product spec's hold went with the move"
+    );
+    w.stop().await;
+}

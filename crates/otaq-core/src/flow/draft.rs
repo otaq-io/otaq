@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::apply::{ProposeFrom, Span, Wait, affected_span, still_working};
+use super::apply::{ProposeFrom, Span, Wait, affected_span, standing, still_working};
 use super::model::{Flow, FlowFile, Stage};
 use super::proposal::{
     ApplyChoices, Change, Proposal, ProposedBy, Row, Source, applied_now, edits_only,
@@ -658,13 +658,17 @@ impl Board {
         };
         let tickets = self.tickets(&row.project).await?;
         let delivering = self.delivering().await?;
-        let mut inside: Vec<Inside> = still_working(&tickets, &file.flow, &delivering, &wait)
-            .into_iter()
-            .map(|t| Inside {
-                ticket: t.key.clone(),
-                stage: t.place.stage_id().unwrap_or_default().to_owned(),
-            })
-            .collect();
+        let mut inside: Vec<Inside> =
+            still_working(&tickets, &base.flow, &file.flow, &delivering, &wait)
+                .into_iter()
+                .map(|t| Inside {
+                    ticket: t.key.clone(),
+                    stage: standing(t, &base.flow, &file.flow)
+                        .stage_id()
+                        .unwrap_or_default()
+                        .to_owned(),
+                })
+                .collect();
         inside.sort_by(|a, b| a.ticket.cmp(&b.ticket));
         Ok(match wait {
             Wait::WholeBoard => DraftApplies::WholeBoard { inside },
