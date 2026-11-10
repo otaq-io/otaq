@@ -24,8 +24,9 @@
 //! its notification API under the bundle's ID ([`macos`]), and a click reaches the service's delegate, which opens
 //! the target ([`Opener::open`]). Outside the bundle the macOS notifier runs `osascript`, whose notifications belong
 //! to Script Editor (a click can't open a ticket that way, Q22). On Linux `notify-send` posts through the desktop's
-//! notification service and reports a click (T-0159, Q34). On Windows a toast is shown under Windows PowerShell's
-//! identity; Windows hands its click only to a registered app, so there a click doesn't reach Otaq.
+//! notification service and reports a click (T-0159, Q34). On Windows a toast is shown under the installed app's
+//! identity (its name and icon), or Windows PowerShell's when the app isn't installed; Windows hands a click only to
+//! an app registered to be started by it, so there a click doesn't reach Otaq.
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -777,15 +778,56 @@ impl Notifier for NotifySendNotifier {
     }
 }
 
-/// Windows: a toast through the Windows notification platform, attributed to Windows PowerShell's app identity,
-/// which ships with every Windows (no identity of Otaq's own is registered, Q34). Windows hands a toast's
-/// click only to an app registered for its identity, so a click can't reach Otaq: like macOS (Q22), the toast
+/// Windows: a toast through the Windows notification platform, under the app identity [`toast_app_id`] picks.
+/// Windows shows a toast with the name and icon of the identity it is posted under, whichever process posts it (the
+/// background service posts them), and drops a toast whose identity nothing registered. Windows hands a toast's
+/// click only to an app registered to be started by it, so a click can't reach Otaq: like macOS (Q22), the toast
 /// tells, the app opens the ticket. It therefore carries no "Open terminal" button.
 pub struct ToastNotifier;
 
 /// The AppUserModelID of Windows PowerShell, registered by Windows itself.
 pub const POWERSHELL_APP_ID: &str =
     r"{1AC14E77-02E7-4E5D-B744-2EB1AE5198B7}\WindowsPowerShell\v1.0\powershell.exe";
+
+/// The Start-menu shortcuts the installer may have made: `Otaq.lnk` in the user's Start menu (`%APPDATA%`, the
+/// per-user install) or everyone's (`%ProgramData%`). The installer gives that shortcut the app's identifier as its
+/// AppUserModelID, which registers that identity with Otaq's name and icon.
+pub fn start_menu_shortcuts(
+    appdata: Option<&std::path::Path>,
+    program_data: Option<&std::path::Path>,
+) -> Vec<std::path::PathBuf> {
+    let programs = std::path::Path::new("Microsoft")
+        .join("Windows")
+        .join("Start Menu")
+        .join("Programs")
+        .join(format!("{PRODUCT_NAME}.lnk"));
+    [appdata, program_data]
+        .into_iter()
+        .flatten()
+        .map(|base| base.join(&programs))
+        .collect()
+}
+
+/// The identity a toast is posted under: the installed app's ([`naming::BUNDLE_ID`], registered by its Start-menu
+/// shortcut), so it shows Otaq's name and icon; without that shortcut (a build that wasn't installed) nothing
+/// registered Otaq's identity and Windows would drop the toast, so it goes under Windows PowerShell's.
+pub fn toast_app_id(installed: bool) -> &'static str {
+    if installed {
+        naming::BUNDLE_ID
+    } else {
+        POWERSHELL_APP_ID
+    }
+}
+
+/// Whether one of [`start_menu_shortcuts`] is there, looked up at each toast (an install while the service runs
+/// counts from the next toast).
+#[cfg(windows)]
+fn installed() -> bool {
+    let var = |name: &str| std::env::var_os(name).map(std::path::PathBuf::from);
+    start_menu_shortcuts(var("APPDATA").as_deref(), var("ProgramData").as_deref())
+        .iter()
+        .any(|shortcut| shortcut.is_file())
+}
 
 /// The toast's XML (frame *11 → OS notifications → Windows 11*, d0090): the title, the body, and the subtitle as the
 /// attribution line.
@@ -833,7 +875,7 @@ mod toast {
     use windows::Win32::System::WinRT::{RO_INIT_MULTITHREADED, RoInitialize};
     use windows::core::HSTRING;
 
-    use super::POWERSHELL_APP_ID;
+    use super::{installed, toast_app_id};
 
     /// Hands the toast to the one notification thread, started on the first toast. Every toast goes through that
     /// thread, which initialises the Windows Runtime once and never ends: with a thread per toast, the second toast
@@ -871,8 +913,10 @@ mod toast {
         let document = XmlDocument::new()?;
         document.LoadXml(&HSTRING::from(xml))?;
         let toast = ToastNotification::CreateToastNotification(&document)?;
-        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(POWERSHELL_APP_ID))?
-            .Show(&toast)
+        ToastNotificationManager::CreateToastNotifierWithId(&HSTRING::from(toast_app_id(
+            installed(),
+        )))?
+        .Show(&toast)
     }
 }
 
@@ -922,7 +966,7 @@ fn watch_for_click(
 }
 
 /// The notifier of this platform: macOS's notification API inside `Otaq.app` (`osascript` outside it), `notify-send`
-/// on Linux, a PowerShell toast on Windows.
+/// on Linux, a toast on Windows.
 pub fn platform_notifier() -> std::sync::Arc<dyn Notifier> {
     #[cfg(target_os = "macos")]
     {
@@ -1781,6 +1825,25 @@ mod tests {
         );
         n.subtitle.clear();
         assert!(!toast_xml(&n).contains("attribution"));
+    }
+
+    /// A Windows toast goes under the installed app's identity, so it shows Otaq's name and icon; a build that
+    /// wasn't installed keeps PowerShell's, which Windows always shows.
+    #[test]
+    fn a_toast_carries_the_installed_apps_identity() {
+        assert_eq!(toast_app_id(true), naming::BUNDLE_ID);
+        assert_eq!(toast_app_id(false), POWERSHELL_APP_ID);
+        let appdata = std::path::Path::new("C:/Users/me/AppData/Roaming");
+        let everyone = std::path::Path::new("C:/ProgramData");
+        let programs = std::path::Path::new("Microsoft/Windows/Start Menu/Programs");
+        assert_eq!(
+            start_menu_shortcuts(Some(appdata), Some(everyone)),
+            vec![
+                appdata.join(programs).join(format!("{PRODUCT_NAME}.lnk")),
+                everyone.join(programs).join(format!("{PRODUCT_NAME}.lnk")),
+            ]
+        );
+        assert!(start_menu_shortcuts(None, None).is_empty());
     }
 
     /// d0090: Linux has no subtitle; it is the body's last line.
