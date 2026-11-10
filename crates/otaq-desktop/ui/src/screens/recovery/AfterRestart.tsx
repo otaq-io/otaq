@@ -1,6 +1,7 @@
 // The after-restart dialog (REC-01, REC-06, d0045, d0022): opened by itself once per service start that stopped agents,
 // "3 agents were stopped by a restart". One row per stopped ticket and per conversation with Noyan, ticked; a row whose
-// tool can't run now says why in amber and can't be ticked, so nothing resumes on a tool that can't run. Resume 3
+// tool can't run now says why in amber and can't be ticked, so nothing resumes on a tool that can't run; a row whose tool
+// the service hasn't checked yet says "Checking Codex…" until the check answers, then updates. Resume 3
 // resumes the ticked rows; each row then says what its Resume did (resumed, or couldn't, with Retry and Start from
 // scratch). Not now (or Esc) closes it: the stopped tickets wait in Needs you, red with Resume. Nothing resumes without
 // a click. What it says is `recovery.summary`'s (`after_restart.rs`).
@@ -81,14 +82,19 @@ function Row({ row, view, resuming, onCheck, onRetry }: { row: AfterRestartRow }
         className="checkbox"
         aria-label={`${row.tag} ${row.title}`}
         checked={row.checked && stopped}
-        disabled={!stopped || row.problem !== null}
+        disabled={!stopped || row.problem !== null || row.checking !== null}
         onChange={(e) => {
           onCheck(row.id, e.target.checked);
         }}
       />
       <span className="summary-key">{row.tag}</span>
       <span className="summary-title">{row.title}</span>
-      {stopped ? (
+      {stopped && row.checking !== null ? (
+        <span className="summary-detail" data-state="checking">
+          <Icon name="loader-circle" size={13} />
+          <span>{row.checking}</span>
+        </span>
+      ) : stopped ? (
         <span className="summary-detail" data-problem={row.problem !== null || undefined}>
           {row.problem ?? row.detail}
         </span>
@@ -120,6 +126,10 @@ export function SummaryBody(props: SummaryBodyProps) {
   );
 }
 
+/** What draws the dialog again: a ticket or a conversation that changed, and the tools' states, so a row waiting for
+ * its tool's check ("Checking Codex…") updates when the check answers. */
+export const SUMMARY_EVENTS = ["ticket_changed", "project_agent_changed", "agent_tools_changed"];
+
 export function AfterRestart({ close }: OverlayProps<"after_restart">) {
   const [unchecked, setUncheckedIds] = useState<ReadonlySet<string>>(new Set());
   const [resuming, setResuming] = useState<ReadonlySet<string>>(new Set());
@@ -127,7 +137,7 @@ export function AfterRestart({ close }: OverlayProps<"after_restart">) {
     const params: AfterRestartParams = { unchecked: [...unchecked] };
     return request("recovery.summary", params) as Promise<AfterRestartSummary | null>;
   }, [unchecked]);
-  const { view } = useServiceView(load, ["ticket_changed", "project_agent_changed"]);
+  const { view } = useServiceView(load, SUMMARY_EVENTS);
   useEffect(() => {
     if (view === null) close();
   }, [view, close]);
