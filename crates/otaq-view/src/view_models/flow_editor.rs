@@ -14,7 +14,9 @@
 //! the agent to write it** (Noyan's agent writes it into the project's checkout, which Otaq doesn't commit); while it
 //! writes the field says so with Stop, then shows the skill tinted, where it was saved, with Open and Undo
 //! ([`SkillState`]). A stage whose skill nobody has shows "You don't have the skill `<name>`" as a warning (the
-//! draft's); it never keeps Save off. A stage's Agent field offers only the agents whose tool has the stage's skill
+//! draft's), with "Pick one, or Ask the agent to write it." under it ([`SkillFix`]); it never keeps Save off. Pick a
+//! skill… always ends with Ask the agent to write it…, so a stage that already names a skill can have one written
+//! too, and shows it being written. A stage's Agent field offers only the agents whose tool has the stage's skill
 //! (every agent for one of Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the
 //! skill `/<name>`", only a warning too. A stage with no skill saves: Otaq's own skill for that stage runs
 //! (`work-ticket`, `validate`), and the field says so. **Ask
@@ -350,10 +352,11 @@ pub struct FailToField {
 #[ts(rename = "FlowEditorSkillState")]
 pub enum SkillState {
     /// The stage's skill (clicking it picks another); `warning` "You don't have the skill `<name>`" when nobody has it
-    /// (amber, Apply still works).
+    /// (amber, Apply still works), with `fix` under it: "Pick one, or Ask the agent to write it."
     Set {
         skill: String,
         warning: Option<String>,
+        fix: Option<SkillFix>,
     },
     /// "No skill of yours: Plan runs Otaq’s `work-ticket`.", with Pick a skill… and Ask the agent to write it, which
     /// puts `prefill` in the agent's box ([`write_skill_prefill`], Q441).
@@ -395,7 +398,37 @@ pub struct SkillPicker {
     pub items: Vec<MenuItem>,
     /// The last item while searching, for a name typed by hand: "Use `{name}`", `{name}` the typed text (its id).
     pub use_typed: &'static str,
+    /// Always the very last row, searching or not: "Ask the agent to write it…" (id [`ASK_TO_WRITE`]), which puts
+    /// `prefill` in the agent's box ([`write_skill_prefill`]); nothing is sent before the user sends.
+    pub ask: MenuItem,
+    pub prefill: String,
 }
+
+/// The line under "You don't have the skill `<name>`": "**Pick one**, or **Ask the agent to write it**." Pick one
+/// opens Pick a skill…; Ask the agent to write it puts the picker's `prefill` in the agent's box, as the empty
+/// field's button does. `FlowEditorSkillFix` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorSkillFix")]
+pub struct SkillFix {
+    pub pick: &'static str,
+    /// Between the two: ", or ".
+    pub or: &'static str,
+    pub ask: &'static str,
+    /// After the second: ".".
+    pub end: &'static str,
+}
+
+/// The fix line under a missing skill's warning.
+pub const SKILL_FIX: SkillFix = SkillFix {
+    pick: "Pick one",
+    or: ", or ",
+    ask: "Ask the agent to write it",
+    end: ".",
+};
+
+/// Pick a skill…'s "Ask the agent to write it…" row's id, which no skill can have (a skill's name is letters, digits
+/// and dashes).
+pub const ASK_TO_WRITE: &str = ":ask-the-agent";
 
 /// The Skill field (FED-06).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -1050,15 +1083,19 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             open: (!written.folder.is_empty()).then_some("Open"),
             undo: "Undo",
         }
-    } else if stage.skill.is_none() && writing(f, &stage.id) {
+    } else if writing(f, &stage.id) {
+        // A stage that already names a skill (one nobody has, say) shows it being written too: Ask the agent to write
+        // it is offered there, and the written skill takes that name's place.
         SkillState::Writing {
             text: "Being written by Noyan\u{2026}",
             stop: "Stop",
         }
     } else if let Some(skill) = &stage.skill {
+        let warning = unknown_skill(f, stage);
         SkillState::Set {
             skill: skill.clone(),
-            warning: unknown_skill(f, stage),
+            fix: warning.is_some().then_some(SKILL_FIX),
+            warning,
         }
     } else {
         SkillState::Empty {
@@ -1085,6 +1122,11 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             },
             items: skill_choices(f, stage),
             use_typed: "Use `{name}`",
+            ask: MenuItem::new(ASK_TO_WRITE, "Ask the agent to write it\u{2026}")
+                .icon(IconName::Sparkles)
+                .hint("Starts Noyan on the right and uses tokens.")
+                .separated(),
+            prefill: write_skill_prefill(f.file, &stage.id),
         },
     })
 }
@@ -1225,7 +1267,7 @@ pub(crate) fn footer(f: &Facts) -> Footer {
                 .flow
                 .stages
                 .iter()
-                .find(|s| s.skill.is_none() && writing(f, &s.id))
+                .find(|s| writing(f, &s.id))
                 .map(|s| format!("{}\u{2019}s skill is being written", s.name))
         });
     if f.proposal.diff.same {
@@ -2035,6 +2077,7 @@ mod tests {
             Some(SkillState::Set {
                 skill: "work-ticket".into(),
                 warning: None,
+                fix: None,
             })
         );
         let v = render(&e, &d, &file, &file, Some("review"));
@@ -2633,6 +2676,7 @@ mod tests {
             SkillState::Set {
                 skill: "team-validate".into(),
                 warning: Some("You don't have the skill `team-validate`".into()),
+                fix: Some(SKILL_FIX),
             }
         );
         assert_eq!(
@@ -2661,6 +2705,7 @@ mod tests {
             SkillState::Set {
                 skill: "validate".into(),
                 warning: None,
+                fix: None,
             }
         );
         assert!(v.warnings.iter().all(|(_, w)| w.is_none()));
@@ -2752,7 +2797,70 @@ mod tests {
             SkillState::Set {
                 skill: "security-review".into(),
                 warning: None,
+                fix: None,
             }
+        );
+    }
+
+    /// Ask the agent to write it is offered on a stage that already has a skill too: as Pick a skill…'s last row
+    /// (searching or not, it puts "Write a skill for the Plan stage: " in the agent's box), and under a missing skill's
+    /// warning ("Pick one, or Ask the agent to write it."). Once the user sends, the stage shows it being written in
+    /// place of the name nobody has, and Apply waits for it.
+    #[test]
+    fn a_stage_with_a_skill_nobody_has_can_ask_the_agent_to_write_it() {
+        let mut e = env();
+        let shop = shop_web();
+        let (file, p) = plan_draft(Some("plan-steps"));
+        let mut d = Draft {
+            proposal: p,
+            ..draft(&file, false)
+        };
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-steps`".into(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        let field = plan_details(&v).skill.clone().unwrap();
+        assert_eq!(
+            field.state,
+            SkillState::Set {
+                skill: "plan-steps".into(),
+                warning: Some("You don't have the skill `plan-steps`".into()),
+                fix: Some(SkillFix {
+                    pick: "Pick one",
+                    or: ", or ",
+                    ask: "Ask the agent to write it",
+                    end: ".",
+                }),
+            }
+        );
+        assert_eq!(field.picker.ask.id, ASK_TO_WRITE);
+        assert_eq!(field.picker.ask.label, "Ask the agent to write it\u{2026}");
+        assert!(field.picker.ask.separated);
+        assert_eq!(field.picker.prefill, "Write a skill for the Plan stage: ");
+        // No skill can be named like the row's id, so choosing it never sets a skill.
+        assert!(field.picker.items.iter().all(|i| i.id != ASK_TO_WRITE));
+
+        // The user's send starts the writer: the field says it is being written, and Apply waits for it.
+        e.writing = vec![SkillWriting {
+            folder: None,
+            stage_id: "plan".into(),
+            agent: Some("pa-1".into()),
+            made: Vec::new(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        assert_eq!(
+            plan_details(&v).skill.as_ref().unwrap().state,
+            SkillState::Writing {
+                text: "Being written by Noyan\u{2026}",
+                stop: "Stop",
+            }
+        );
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(
+            v.footer.reason.as_deref(),
+            Some("Plan\u{2019}s skill is being written")
         );
     }
 

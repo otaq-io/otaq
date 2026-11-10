@@ -11,4 +11,9 @@ export type FlowEditorSkillPicker = { title: string, search: MenuSearch, items: 
 /**
  * The last item while searching, for a name typed by hand: "Use `{name}`", `{name}` the typed text (its id).
  */
-use_typed: string, };
+use_typed: string, 
+/**
+ * Always the very last row, searching or not: "Ask the agent to write it…" (id [`ASK_TO_WRITE`]), which puts
+ * `prefill` in the agent's box ([`write_skill_prefill`]); nothing is sent before the user sends.
+ */
+ask: MenuItem, prefill: string, };

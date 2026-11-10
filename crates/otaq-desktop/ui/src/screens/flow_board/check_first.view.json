@@ -205,7 +205,8 @@
       "state": {
         "state": "set",
         "skill": "validate",
-        "warning": null
+        "warning": null,
+        "fix": null
       },
       "picker": {
         "title": "Pick a skill…",
@@ -257,7 +258,7 @@
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it is for, ending with its source when you add or change it, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.",
+            "hint": "Otaq’s · Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it settles and when it matters, put the reason for each stage you add or change (with its source) in the proposal's `why:`, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.",
             "separated": false,
             "checked": false,
             "header": false
@@ -371,7 +372,20 @@
             "header": false
           }
         ],
-        "use_typed": "Use `{name}`"
+        "use_typed": "Use `{name}`",
+        "ask": {
+          "id": ":ask-the-agent",
+          "label": "Ask the agent to write it…",
+          "icon": "sparkles",
+          "shortcut": null,
+          "danger": false,
+          "disabled": false,
+          "hint": "Starts Noyan on the right and uses tokens.",
+          "separated": true,
+          "checked": false,
+          "header": false
+        },
+        "prefill": "Write a skill for the Validate stage: "
       }
     },
     "skill_tag": "Otaq’s own",
@@ -403,49 +417,49 @@
         "title": "Security review",
         "line": "An agent checks for secrets, injection and risky packages",
         "icon": "shield-check",
-        "skill_note": "Uses a skill you add: `security-check`"
+        "warning": "You don't have the skill `security-check`"
       },
       {
         "id": "test-in-browser",
         "title": "Test in the browser",
         "line": "An agent clicks through the change in the running app",
         "icon": "shield-check",
-        "skill_note": "Uses a skill you add: `test-in-browser`"
+        "warning": "You don't have the skill `test-in-browser`"
       },
       {
         "id": "update-docs",
         "title": "Update the docs",
         "line": "An agent updates the docs for what changed",
         "icon": "bot",
-        "skill_note": "Uses a skill you add: `update-docs`"
+        "warning": "You don't have the skill `update-docs`"
       },
       {
         "id": "design-review",
         "title": "Design review",
         "line": "You check how it looks before it's built further",
         "icon": "user-check",
-        "skill_note": null
+        "warning": null
       },
       {
         "id": "product-spec",
         "title": "Product spec",
         "line": "An agent writes what to build, before any code",
         "icon": "bot",
-        "skill_note": null
+        "warning": null
       },
       {
         "id": "tech-spec",
         "title": "Tech spec",
         "line": "An agent plans how to build it",
         "icon": "bot",
-        "skill_note": null
+        "warning": null
       },
       {
         "id": "new-stage",
         "title": "Blank stage",
         "line": "Name it and choose what happens",
         "icon": "square-dashed",
-        "skill_note": null
+        "warning": null
       }
     ],
     "foot": "Each comes with a description, an agent and a skill; change any of them after."
