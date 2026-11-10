@@ -43,7 +43,7 @@ use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark
 use otaq_core::flow::model::{CheckBy, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
-    ProposalProblem, Source, missing_skill_text, unknown_skill_text,
+    ProposalProblem, Source, missing_skill_text, skipped_skill_text, unknown_skill_text,
 };
 use otaq_core::flow::write_skill::saved_text;
 use otaq_core::project_agents::ProjectAgent;
@@ -352,7 +352,8 @@ pub struct FailToField {
 #[ts(rename = "FlowEditorSkillState")]
 pub enum SkillState {
     /// The stage's skill (clicking it picks another); `warning` "You don't have the skill `<name>`" when nobody has it
-    /// (amber, Apply still works), with `fix` under it: "Pick one, or Ask the agent to write it."
+    /// (amber, Apply still works), or why a tool that finds it doesn't load it (a byte order mark), with `fix` under it:
+    /// "Pick one, or Ask the agent to write it."
     Set {
         skill: String,
         warning: Option<String>,
@@ -886,7 +887,45 @@ pub(crate) fn missing_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let tools = skill_holders(f, stage)?;
     let tool = agent_tool(f, the_agent(stage)?)?;
     let skill = stage.skill.as_deref()?.trim();
+    // A tool that finds the skill but skips it says why on the Skill field ([`skipped_skill`]) instead.
+    if found_skill(f, skill).is_some_and(|s| s.skipped.contains(&tool)) {
+        return None;
+    }
     (!tools.contains(&tool)).then(|| missing_skill_text(tool, skill))
+}
+
+/// The user's own skill `skill` from `skills.list`, if they have it.
+fn found_skill<'f>(f: &'f Facts, skill: &str) -> Option<&'f FoundSkill> {
+    f.skills.iter().find(|s| !s.otaq && s.name == skill)
+}
+
+/// "Codex doesn’t load the skill `retest-docs`: its SKILL.md starts with a byte order mark" on a stage whose
+/// skill a tool finds but doesn't load: when no tool loads it, or when the stage's agent's tool is one that skips it.
+/// Only a warning, the flow still applies; a ticket reaching the stage is held.
+pub(crate) fn skipped_skill(f: &Facts, stage: &Stage) -> Option<String> {
+    let skill = stage.skill.as_deref()?.trim();
+    if skill.is_empty() || otaq_core::skills::found::is_shipped(skill) {
+        return None;
+    }
+    let found = found_skill(f, skill)?;
+    if found.skipped.is_empty() {
+        return None;
+    }
+    if found.tools.is_empty() {
+        return Some(skipped_skill_text(&found.skipped, skill));
+    }
+    let tool = agent_tool(f, the_agent(stage)?)?;
+    found
+        .skipped
+        .contains(&tool)
+        .then(|| skipped_skill_text(&[tool], skill))
+}
+
+/// The warning on a stage's card for its skill: one nobody has, one a tool skips, or one its agent's tool lacks.
+pub(crate) fn stage_skill_warning(f: &Facts, stage: &Stage) -> Option<String> {
+    unknown_skill(f, stage)
+        .or_else(|| skipped_skill(f, stage))
+        .or_else(|| missing_skill(f, stage))
 }
 
 pub(crate) fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
@@ -1092,7 +1131,7 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             stop: "Stop",
         }
     } else if let Some(skill) = &stage.skill {
-        let warning = unknown_skill(f, stage);
+        let warning = unknown_skill(f, stage).or_else(|| skipped_skill(f, stage));
         SkillState::Set {
             skill: skill.clone(),
             fix: warning.is_some().then_some(SKILL_FIX),
@@ -2004,12 +2043,7 @@ mod tests {
                 .flow
                 .stages
                 .iter()
-                .map(|s| {
-                    (
-                        s.id.clone(),
-                        unknown_skill(&f, s).or_else(|| missing_skill(&f, s)),
-                    )
-                })
+                .map(|s| (s.id.clone(), stage_skill_warning(&f, s)))
                 .collect(),
         }
     }

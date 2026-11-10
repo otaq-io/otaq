@@ -587,7 +587,7 @@ fn columns(f: &Facts) -> Vec<Column> {
             delivery: None,
             description: stage.description.clone(),
             mark,
-            warning: editor::unknown_skill(f, stage).or_else(|| editor::missing_skill(f, stage)),
+            warning: editor::stage_skill_warning(f, stage),
             problem: editor::step_problem(f, stage),
             selected: f.selected == Some(stage.id.as_str()),
             movable: true,
@@ -1358,6 +1358,87 @@ mod tests {
         let mut flow = default_flow();
         flow.stages.retain(|s| s.is_agent_stage());
         assert!(walk(&flow, "main", true).is_empty());
+    }
+
+    /// A stage whose Codex skill's SKILL.md starts with a byte order mark warns on its card and its panel, as a
+    /// missing skill does: Codex finds the skill but doesn't load it. Without the mark, neither warns.
+    #[test]
+    fn a_stage_whose_skill_has_a_byte_order_mark_warns() {
+        use crate::view_models::flow_editor::SkillState;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored, users_skill};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::AgentModel;
+        use otaq_core::skills::found::{FoundSkill, SkillScope};
+
+        let mut file = shop_web();
+        file.flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == "validate")
+            .expect("Validate")
+            .skill = Some("retest-docs".into());
+        let draft = proposal(&file, true);
+        let mut stored = stored();
+        for a in &mut stored {
+            a.model = AgentModel::Tool {
+                tool: Tool::Codex,
+                model: None,
+            };
+        }
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let warnings = |skill: &FoundSkill| {
+            let skills = [skill.clone()];
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &skills,
+                writing: &[],
+                written: &[],
+                selected: Some("validate"),
+                agent: None,
+                new_agent: None,
+                choices: &choices,
+            };
+            let card = columns(&f)
+                .into_iter()
+                .find(|c| c.id == "validate")
+                .expect("Validate's card")
+                .warning;
+            let stage = file.flow.stage("validate").expect("Validate");
+            let panel = match details(&f, stage).skill.expect("a Skill field").state {
+                SkillState::Set { warning, .. } => warning,
+                other => panic!("the skill is set: {other:?}"),
+            };
+            (card, panel)
+        };
+
+        let mut docs = users_skill(
+            "retest-docs",
+            "Writes the docs.",
+            SkillScope::Personal,
+            "~/.codex/skills",
+            &[],
+        );
+        docs.skipped = vec![Tool::Codex];
+        let text = "Codex doesn\u{2019}t load the skill `retest-docs`: its SKILL.md starts with a byte order mark";
+        let (card, panel) = warnings(&docs);
+        assert_eq!(card.as_deref(), Some(text), "the card warns");
+        assert_eq!(panel.as_deref(), Some(text), "the panel warns");
+
+        // Without the mark Codex has it: no warning.
+        docs.skipped.clear();
+        docs.tools = vec![Tool::Codex];
+        docs.places[0].tools = vec![Tool::Codex];
+        assert_eq!(warnings(&docs), (None, None));
     }
 
     /// The "drafting a flow" line shows only while Noyan's agent works on the draft. After Discard or Save the draft
