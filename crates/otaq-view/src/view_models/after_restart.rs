@@ -358,15 +358,10 @@ pub fn summary(
     };
     let selected = ticked(RowKind::Ticket);
     let selected_agents = ticked(RowKind::Conversation);
-    // The title counts the agents that can resume, as the button counts the ticked ones; the ones that can't are
-    // counted only when none can, so it never says "0 agents were stopped".
-    let can_resume = rows.iter().filter(|r| r.problem.is_none()).count();
+    // The title says what happened: every agent the restart stopped, whether or not it can resume. The button says
+    // what will happen: only the ticked rows. The two can differ.
     Some(SummaryPage {
-        title: title(if can_resume == 0 {
-            rows.len() + kept.len()
-        } else {
-            can_resume
-        }),
+        title: title(rows.len() + kept.len()),
         text: "Each can continue its same conversation, in its own copy. Resuming uses tokens.",
         notes,
         retry: "Retry",
@@ -531,8 +526,8 @@ mod tests {
                 ),
             ]
         );
-        // As drawn: the title counts the three that can resume, not the row that can't nor the asking note.
-        assert_eq!(page.title, "3 agents were stopped by a restart");
+        // The title counts every stopped agent: the three that can resume, the row that can't and the asking note.
+        assert_eq!(page.title, "5 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 3");
         assert_eq!(page.selected, ["SHOP-27", "SHOP-26"]);
         assert_eq!(page.selected_agents, ["a1"]);
@@ -553,6 +548,8 @@ mod tests {
         assert_eq!(page.selected, ["SHOP-26"]);
         assert!(page.selected_agents.is_empty());
         assert_eq!(page.resume_selected, "Resume 1");
+        // Unticking moves the button, never the title.
+        assert_eq!(page.title, "5 agents were stopped by a restart");
     }
 
     fn claude_as(state: AgentToolState) -> Tools {
@@ -570,10 +567,10 @@ mod tests {
     }
 
     /// The release test: one agent that can resume and one that was waiting for you on a signed-out Claude Code. Each
-    /// has a row (the signed-out one unticked with why, not hidden in the "still waits for your answer" note), and
-    /// the title and the button both count the one that can resume.
+    /// has a row (the signed-out one unticked with why, not hidden in the "still waits for your answer" note); the
+    /// title counts both, the button only the ticked one.
     #[test]
-    fn an_agent_on_a_signed_out_tool_gets_an_unticked_row_and_isnt_counted() {
+    fn an_agent_on_a_signed_out_tool_gets_an_unticked_row_counted_in_the_title() {
         let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
         let mut idle = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
         idle.interrupted_from = Some(Status::Idle);
@@ -600,7 +597,7 @@ mod tests {
         );
         assert_eq!(page.rows[1].detail, "was waiting for you");
         assert!(page.notes.is_empty());
-        assert_eq!(page.title, "1 agent was stopped by a restart");
+        assert_eq!(page.title, "2 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 1");
         assert_eq!(page.selected, ["SHOP-9"]);
 
@@ -611,7 +608,41 @@ mod tests {
         let page = summary(&r, &[working, working_cc], &[], &BTreeSet::new(), &runs).unwrap();
         assert_eq!(rows_of(&page).len(), 2);
         assert!(!page.rows[1].checked && page.rows[1].problem.is_some());
-        assert_eq!(page.title, "1 agent was stopped by a restart");
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+    }
+
+    /// Two agents that can resume and one on a signed-out tool: the title counts all three, the button the two ticked;
+    /// unticking one moves the button to "Resume 1" and leaves the title.
+    #[test]
+    fn the_title_counts_every_stopped_agent_and_the_button_the_ticked_ones() {
+        let tickets = [
+            card_fixtures::ticket("SHOP-1", "One", Status::Interrupted),
+            card_fixtures::ticket("SHOP-2", "Two", Status::Interrupted),
+            card_fixtures::ticket("BILL-3", "Three", Status::Interrupted),
+        ];
+        let r = report(&["SHOP-1", "SHOP-2", "BILL-3"]);
+        let runs = Runs {
+            tools: tf::codex_logged_out(),
+            tickets: BTreeMap::from([
+                ("SHOP-1".to_owned(), ran(CLAUDE)),
+                ("SHOP-2".to_owned(), ran(CLAUDE)),
+                ("BILL-3".to_owned(), ran(CODEX)),
+            ]),
+            ..Runs::default()
+        };
+        let page = summary(&r, &tickets, &[], &BTreeSet::new(), &runs).unwrap();
+        assert_eq!(page.title, "3 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 2");
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::from(["SHOP-1".to_owned()]),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(page.title, "3 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 1");
     }
 
@@ -635,12 +666,12 @@ mod tests {
             rows_of(&page),
             [("NOTE-4", Some(why), false), ("Noyan", Some(why), false)]
         );
-        // None can resume: the title counts every stopped agent, never "0 agents".
+        // None can resume: the title still counts every stopped agent.
         assert_eq!(page.title, "2 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 0");
     }
 
-    /// A ticket that was asking on a tool that can run keeps the note, as drawn, and isn't counted as a row.
+    /// A ticket that was asking on a tool that can run keeps the note, as drawn, not a row; the title still counts it.
     #[test]
     fn a_ticket_asking_on_a_tool_that_can_run_stays_the_note() {
         let working = card_fixtures::ticket("SHOP-27", "Wishlist share link", Status::Interrupted);
@@ -663,7 +694,8 @@ mod tests {
             page.notes,
             ["SHOP-22 still waits for your answer; answering resumes it."]
         );
-        assert_eq!(page.title, "1 agent was stopped by a restart");
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
     }
 
     /// A conversation with Noyan on a tool at its limit stays unticked too: nothing resumes on a tool that can't run.
