@@ -277,6 +277,26 @@ impl Board {
         !path.exists()
     }
 
+    /// Cancel on the draft `row`: the folders of the skills the agent wrote for it go as Undo deletes them, and those
+    /// it was still writing as Stop does.
+    pub(super) async fn remove_draft_skills(&self, row: &Row) {
+        for written in &row.draft.written {
+            self.remove_written_folder(
+                &row.project,
+                &written.folder,
+                Some(&written.fingerprint),
+                &written.made,
+            )
+            .await;
+        }
+        for writing in &row.draft.writing {
+            if let Some(folder) = &writing.folder {
+                self.remove_written_folder(&row.project, folder, None, &writing.made)
+                    .await;
+            }
+        }
+    }
+
     /// `file` without the skill `written`: its stage's skill as it was before.
     pub(super) fn without_written(mut file: FlowFile, written: &WrittenSkill) -> FlowFile {
         if let Some(stage) = file
@@ -291,7 +311,8 @@ impl Board {
     }
 
     /// After a change to the draft `row`: the skills being written for stages it no longer has are forgotten, and so
-    /// are written ones their stage no longer names. Their folders stay in the checkout: only Undo and Stop delete one.
+    /// are written ones their stage no longer names. Their folders stay in the checkout: only Undo, Stop and Cancel
+    /// delete one.
     pub(super) fn keep_skills(row: &mut Row) -> Result<(), BoardError> {
         if row.draft.writing.is_empty() && row.draft.written.is_empty() {
             return Ok(());
