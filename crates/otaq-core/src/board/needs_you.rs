@@ -458,27 +458,19 @@ pub struct RunningItem {
     pub stage: Option<String>,
 }
 
-/// Whether an agent works on a ticket in `status`: an Agent stage's agent at work (in the background too, or fixing
-/// a Delivery's conflict) or a check's checker.
-pub fn agent_at_work(status: Status) -> bool {
-    matches!(
-        status,
-        Status::Working
-            | Status::WorkingInBackground
-            | Status::MergeConflictFixing
-            | Status::Checking
-    )
-}
-
-/// The tickets an agent works on now, every project's, in project order and then key order.
-pub fn running_items(projects: &[ProjectTickets<'_>]) -> Vec<RunningItem> {
+/// The tickets an agent works on now (`working`: their ids, [`crate::store::Store::working_tickets`]), every
+/// project's, in project order and then key order.
+pub fn running_items(
+    projects: &[ProjectTickets<'_>],
+    working: &std::collections::HashSet<String>,
+) -> Vec<RunningItem> {
     projects
         .iter()
         .flat_map(|project| {
             let mut tickets: Vec<&Ticket> = project
                 .tickets
                 .iter()
-                .filter(|t| agent_at_work(t.status))
+                .filter(|t| working.contains(&t.id))
                 .collect();
             tickets.sort_by_key(|t| t.key.number);
             tickets.into_iter().map(move |t| RunningItem {
@@ -581,7 +573,8 @@ impl Board {
             }
         }
         items.sort_by(needs_you_order);
-        Ok((items, running_items(&views)))
+        let working = self.store().working_tickets().await?;
+        Ok((items, running_items(&views, &working)))
     }
 }
 

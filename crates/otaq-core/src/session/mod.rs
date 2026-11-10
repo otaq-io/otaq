@@ -87,8 +87,16 @@ impl SessionKind {
         )
     }
 
-    /// Whether a live session of this kind on a ticket in `status` is an agent at work, which Running counts and
-    /// Pause stops: the ticket's agent while the ticket is in an agent stage or an agent check (asking you
+    /// Whether a live session of this kind on a ticket in `status` is an agent working now: the one count of
+    /// Running in the title bar, the rail, the tray's "1 agent running" and Quit Otaq's "1 agent is working". It is
+    /// an agent at work on the ticket ([`Self::at_work_on`]) that isn't waiting for you: an agent idle at its prompt,
+    /// asking you or a checker that needs you shows under Needs you instead, not as running.
+    pub fn works_now(self, status: crate::domain::Status, delivering: bool) -> bool {
+        self.at_work_on(status, delivering) && !status.is_needs_you_family()
+    }
+
+    /// Whether a live session of this kind on a ticket in `status` is an agent at work, which Pause stops (Running
+    /// counts those of them that aren't waiting for you, [`Self::works_now`]): the ticket's agent while the ticket is in an agent stage or an agent check (asking you
     /// included) or while it delivers the ticket (`delivering`: a PR is being opened or pushed, as a delivery
     /// session would), its checker during the check, a helper during the build stage, and a delivery or answer
     /// session whenever it runs. A session kept for later, such as the build stage's while the ticket waits for your
