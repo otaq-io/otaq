@@ -1891,6 +1891,9 @@
     "CreatedAndChanged": {
       "kind": "struct",
       "fields": {
+        "changes": {
+          "ty": "Vec<TicketChange>"
+        },
         "created": {
           "ty": "Vec<CreatedTicket>",
           "required": true
@@ -10825,6 +10828,23 @@
         }
       }
     },
+    "TicketChange": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "change": {
+          "ty": "WhatChanged",
+          "required": true
+        },
+        "ticket": {
+          "ty": "TicketKey",
+          "required": true
+        }
+      }
+    },
     "TicketChoices": {
       "kind": "struct",
       "fields": {
@@ -12098,6 +12118,66 @@
       "variants": {
         "merged": {},
         "started": {}
+      }
+    },
+    "WhatChanged": {
+      "kind": "enum",
+      "attrs": [
+        "tag=kind"
+      ],
+      "variants": {
+        "field": {
+          "fields": {
+            "after": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "before": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "field": {
+              "ty": "Field",
+              "required": true
+            }
+          }
+        },
+        "no_longer_waits_for": {
+          "fields": {
+            "parent": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        },
+        "stage_choice": {
+          "fields": {
+            "after": {
+              "ty": "String",
+              "required": true
+            },
+            "before": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "stage": {
+              "ty": "String",
+              "required": true
+            },
+            "stage_id": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
+        "waits_for": {
+          "fields": {
+            "parent": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        }
       }
     },
     "WhyLine": {

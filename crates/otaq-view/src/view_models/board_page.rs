@@ -2242,6 +2242,7 @@ mod tests {
                 deletable: true,
             }],
             edited: vec!["SHOP-22".parse().unwrap(), "SHOP-18".parse().unwrap()],
+            changes: Vec::new(),
             dependencies: 0,
             summary: String::new(),
         };

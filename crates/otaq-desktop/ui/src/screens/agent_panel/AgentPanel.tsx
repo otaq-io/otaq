@@ -306,7 +306,14 @@ function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key
         {row.key}
       </button>
       <span className="agent-panel-created-text">
-        <span className="agent-panel-created-title">{row.title}</span>
+        {row.change !== null ? (
+          // A changed row says what changed: "SHOP-7 · now waits for SHOP-6"; the title is its tooltip.
+          <span className="agent-panel-created-title" title={row.title || undefined}>
+            {`· ${row.change}`}
+          </span>
+        ) : (
+          <span className="agent-panel-created-title">{row.title}</span>
+        )}
         {row.line !== null && <span className="agent-panel-created-line">{row.line}</span>}
       </span>
       {row.place !== "" && <span className="agent-panel-created-place">{row.place}</span>}
@@ -376,7 +383,8 @@ function CreatedBox({
           ))}
           {changedTitle !== null && <span className="agent-panel-caps">{changedTitle}</span>}
           {created.changed.map((row) => (
-            <CreatedRow key={`${row.key}-changed`} row={row} onStart={onStart} />
+            // One row per change: a ticket can have several, each saying something else.
+            <CreatedRow key={`${row.key}-changed-${row.change ?? ""}`} row={row} onStart={onStart} />
           ))}
         </>
       )}

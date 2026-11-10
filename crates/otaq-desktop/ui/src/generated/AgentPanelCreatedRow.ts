@@ -4,7 +4,8 @@ import type { IconName } from "./IconName";
 /**
  * One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
  * still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
- * created ticket that never went to Dev (TKT-08, the 0060 confirmation).
+ * created ticket that never went to Dev (TKT-08, the 0060 confirmation). A changed row is one change: the key, then
+ * what changed ("SHOP-7 · now waits for SHOP-6").
  */
 export type AgentPanelCreatedRow = { key: string, title: string, 
 /**
@@ -19,6 +20,11 @@ line: string | null,
  * Created (square-plus) or changed (pencil).
  */
 icon: IconName, edited: boolean, 
+/**
+ * A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
+ * for the tooltip. None on a created row.
+ */
+change: string | null, 
 /**
  * "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
  */

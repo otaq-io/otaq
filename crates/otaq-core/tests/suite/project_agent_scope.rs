@@ -390,6 +390,77 @@ async fn a_dependency_it_adds_between_tickets_it_created_is_listed_as_changed() 
     w.stop().await;
 }
 
+/// Created and changed says what it changed (the CHANGED rows): one entry per part of a ticket, how it found the
+/// part and how it left it; a wait it added and took back again is no change.
+#[tokio::test(flavor = "multi_thread")]
+async fn created_and_changed_says_what_it_changed_on_each_ticket() {
+    use otaq_core::board::tickets::Field;
+    use otaq_core::project_agents::WhatChanged;
+
+    let w = world().await;
+    let (agent, shell) = open(&w).await;
+    for (method, params) in [
+        ("dep.add", json!({"child": "SHOP-14", "parent": "SHOP-13"})),
+        ("dep.add", json!({"child": "SHOP-16", "parent": "SHOP-13"})),
+        (
+            "dep.remove",
+            json!({"child": "SHOP-16", "parent": "SHOP-13"}),
+        ),
+        (
+            "ticket.update",
+            json!({"key": "SHOP-16", "title": "Coupon codes at checkout"}),
+        ),
+        ("ticket.update", json!({"key": "SHOP-16", "priority": 2})),
+        ("ticket.update", json!({"key": "SHOP-16", "priority": 1})),
+    ] {
+        let reply = send(&w, &shell, method, params).await;
+        assert!(reply.get("error").is_none(), "{method}: {reply}");
+    }
+
+    let c = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    let changes: Vec<(String, WhatChanged)> = c
+        .changes
+        .iter()
+        .map(|c| (c.ticket.to_string(), c.change.clone()))
+        .collect();
+    assert_eq!(
+        changes,
+        [
+            (
+                "SHOP-14".to_owned(),
+                WhatChanged::WaitsFor {
+                    parent: "SHOP-13".parse().unwrap()
+                }
+            ),
+            (
+                "SHOP-16".to_owned(),
+                WhatChanged::Field {
+                    field: Field::Title,
+                    before: Some("Coupon codes".into()),
+                    after: Some("Coupon codes at checkout".into()),
+                }
+            ),
+            (
+                "SHOP-16".to_owned(),
+                WhatChanged::Field {
+                    field: Field::Priority,
+                    before: Some("P3 \u{b7} Normal".into()),
+                    after: Some("P1 \u{b7} Urgent".into()),
+                }
+            ),
+        ]
+    );
+    assert_eq!(
+        c.edited.iter().map(ToString::to_string).collect::<Vec<_>>(),
+        ["SHOP-14", "SHOP-16"]
+    );
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     let w = world().await;
