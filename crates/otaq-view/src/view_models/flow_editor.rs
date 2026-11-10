@@ -1003,17 +1003,18 @@ fn skill_place(skill: &FoundSkill) -> String {
 }
 
 /// The tools that have one of the user's skills, for Pick a skill…'s second line (S6): "Claude Code, Codex"; a
-/// project skill no tool reads until it is committed says so.
+/// project skill no tool reads until it is committed says so, and one the only tools that find it skip says why.
 fn skill_tools(skill: &FoundSkill) -> String {
     if skill.tools.is_empty() {
+        if !skill.skipped.is_empty() {
+            return format!(
+                "{} doesn\u{2019}t load it: its SKILL.md starts with a byte order mark",
+                otaq_core::flow::proposal::tool_names(&skill.skipped)
+            );
+        }
         return "Not committed yet: no tool has it".to_owned();
     }
-    skill
-        .tools
-        .iter()
-        .map(|tool| tool.display_name())
-        .collect::<Vec<_>>()
-        .join(", ")
+    otaq_core::flow::proposal::tool_names(&skill.tools)
 }
 
 /// Pick a skill…'s items: the user's own skills (personal ones, then the project's, each by name), then Otaq's own
@@ -1653,6 +1654,7 @@ pub(crate) mod fixtures {
                 tools: tools.to_vec(),
             }],
             tools: tools.to_vec(),
+            skipped: Vec::new(),
         }
     }
 
@@ -2642,6 +2644,51 @@ mod tests {
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
         assert_eq!(picker.items.len(), shipped::SKILLS.len());
         assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
+    }
+
+    /// A personal Codex skill says Codex has it; one Codex finds but skips (its SKILL.md starts with a byte order
+    /// mark) says why, not "Not committed yet".
+    #[test]
+    fn pick_a_skill_says_codex_has_or_skips_a_personal_skill() {
+        let mut e = env();
+        let codex = "/Users/me/.codex/skills";
+        let mut skipped = users_skill("bommed", "B.", SkillScope::Personal, codex, &[]);
+        skipped.skipped = vec![Tool::Codex];
+        e.skills = vec![
+            users_skill(
+                "reltest-docs",
+                "R.",
+                SkillScope::Personal,
+                codex,
+                &[Tool::Codex],
+            ),
+            skipped,
+        ];
+        let shop = shop_web();
+        let (file, d) = plan_draft(None);
+        let d = Draft {
+            proposal: d,
+            ..draft(&file, false)
+        };
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
+        let hint = |id: &str| {
+            picker
+                .items
+                .iter()
+                .find(|i| i.id == id)
+                .and_then(|i| i.hint.clone())
+        };
+        assert_eq!(
+            hint("reltest-docs").as_deref(),
+            Some("Personal \u{b7} Codex \u{b7} R.")
+        );
+        assert_eq!(
+            hint("bommed").as_deref(),
+            Some(
+                "Personal \u{b7} Codex doesn\u{2019}t load it: its SKILL.md starts with a byte order mark \u{b7} B."
+            )
+        );
     }
 
     /// A name typed by hand is the stage's skill as it is, with nothing imported or copied; a skill nobody has shows

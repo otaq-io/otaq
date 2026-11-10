@@ -3866,6 +3866,10 @@
         "places": {
           "ty": "Vec<SkillPlace>"
         },
+        "skipped": {
+          "ty": "Vec<crate::agent_tools::Tool>",
+          "omittable": true
+        },
         "tools": {
           "ty": "Vec<crate::agent_tools::Tool>"
         }

@@ -506,6 +506,36 @@ fn a_skill_starting_with_a_byte_order_mark_is_not_codexs() {
     let listed = find(&skills, "codex-only").expect("still listed");
     assert!(listed.tools.is_empty());
     assert_eq!(listed.description.as_deref(), Some("C."));
+    // Codex finds them but skips them, so the user can be told why.
+    assert_eq!(listed.skipped, [Tool::Codex]);
+    assert_eq!(find(&skills, "bommed").unwrap().skipped, [Tool::Codex]);
+    assert!(find(&skills, "plain").unwrap().skipped.is_empty());
+}
+
+/// A personal Codex skill in Codex's own folder (`~/.codex/skills`, `CODEX_HOME` unset or empty) is Codex's, and
+/// only Codex's, on every platform: the folder is built with the platform's separators.
+#[test]
+fn a_personal_codex_skill_is_codexs() {
+    let home = TempDir::new().unwrap();
+    let h = home.path();
+    skill(
+        &h.join(".codex").join("skills"),
+        "reltest-docs",
+        &named("reltest-docs", "Release-test skill."),
+    );
+    let unset = env(&[]);
+    let empty = |name: &str| (name == "CODEX_HOME").then(OsString::new);
+    for homes in [
+        Homes::with_env(Some(h), &unset),
+        Homes::with_env(Some(h), &empty),
+    ] {
+        let skills = list(&homes, None);
+        let docs = find(&skills, "reltest-docs").unwrap();
+        assert_eq!(docs.tools, [Tool::Codex]);
+        assert!(docs.skipped.is_empty());
+        assert_eq!(docs.places[0].scope, SkillScope::Personal);
+        assert_eq!(docs.places[0].folder, h.join(".codex").join("skills"));
+    }
 }
 
 /// Which tool has a skill (S6): the project's skills count for a tool when it reads their folder in the ticket's

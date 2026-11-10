@@ -993,6 +993,25 @@ pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
     )
 }
 
+/// The warning on a stage whose skill `tools` find but don't load, because its `SKILL.md` starts with a UTF-8 byte
+/// order mark: "Codex doesn’t load the skill `team-validate`: its SKILL.md starts with a byte order mark".
+pub fn skipped_skill_text(tools: &[Tool], skill: &str) -> String {
+    format!(
+        "{} doesn\u{2019}t load the skill `{skill}`: its {} starts with a byte order mark",
+        tool_names(tools),
+        crate::skills::found::SKILL_FILE
+    )
+}
+
+/// The tools by their names: "Codex", or "Codex, GitHub Copilot".
+pub fn tool_names(tools: &[Tool]) -> String {
+    tools
+        .iter()
+        .map(|tool| tool.display_name())
+        .collect::<Vec<_>>()
+        .join(", ")
+}
+
 impl Board {
     /// One amber warning per stage of `file` whose `skill:` the stage can't run with: a skill neither Otaq ships nor
     /// the user has in `project` ([`unknown_skill_text`]), or one the tool of the stage's agent doesn't have
@@ -1037,15 +1056,27 @@ impl Board {
             if skill.is_empty() {
                 continue;
             }
-            let tools = self.skill_tools(project, None, skill).await;
+            let (tools, skipped) = match self.found_skill(project, None, skill).await {
+                Some(found) => (found.tools, found.skipped),
+                None => (Vec::new(), Vec::new()),
+            };
             // A built-in command nobody has as a skill is a problem already ([`super::check_skills`]).
-            if tools.is_empty() && !Tool::with_built_in_command(skill).is_empty() {
+            if tools.is_empty()
+                && skipped.is_empty()
+                && !Tool::with_built_in_command(skill).is_empty()
+            {
                 continue;
             }
+            // A skill a tool finds but skips says why, not that the user doesn't have it.
             let text = if tools.is_empty() {
-                unknown_skill_text(skill)
+                if skipped.is_empty() {
+                    unknown_skill_text(skill)
+                } else {
+                    skipped_skill_text(&skipped, skill)
+                }
             } else {
                 match agent.and_then(tool_of) {
+                    Some(tool) if skipped.contains(&tool) => skipped_skill_text(&[tool], skill),
                     Some(tool) if !tools.contains(&tool) => missing_skill_text(tool, skill),
                     _ => continue,
                 }
