@@ -58,7 +58,7 @@ pub struct ToolActivity {
     pub limit: Option<ActiveLimit>,
 }
 
-/// A ticket with an agent at work ([`SessionKind::at_work_on`]): one row of Running.
+/// A ticket with an agent working ([`SessionKind::works_now`]): one row of Running.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WorkingAgent {
     /// The project's key and name.
@@ -95,9 +95,9 @@ type LiveRow = (
     bool,
 );
 
-/// The tickets with an agent at work now, oldest project first, then the agent that started first: a live session
-/// that is at work for the ticket's status ([`SessionKind::at_work_on`]; a session kept while the ticket waits for
-/// your review isn't). A ticket counts once, by its newest session at work (a check's checker, not the kept build
+/// The tickets with an agent working now, oldest project first, then the agent that started first: a live session
+/// that works for the ticket's status ([`SessionKind::works_now`]; a session kept while the ticket waits for your
+/// review isn't, nor an agent idle at its prompt or asking you, which Needs you lists). A ticket counts once, by its newest session at work (a check's checker, not the kept build
 /// session).
 pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
     let rows: Vec<LiveRow> = sqlx::query_as(
@@ -119,7 +119,7 @@ pub async fn working(store: &Store) -> Result<Vec<WorkingAgent>, StoreError> {
         let (Ok(status), Ok(kind)) = (state.parse::<Status>(), kind.parse::<SessionKind>()) else {
             continue;
         };
-        if !kind.at_work_on(status, delivering) || !seen.insert(id) {
+        if !kind.works_now(status, delivering) || !seen.insert(id) {
             continue;
         }
         if projects.last() != Some(&project) {

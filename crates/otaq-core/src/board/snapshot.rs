@@ -18,8 +18,8 @@ pub struct ProjectInfo {
     pub name: String,
     pub repo_path: String,
     pub base_branch: String,
-    /// Agents working right now: tickets with an agent at work, once each
-    /// ([`crate::session::SessionKind::at_work_on`]).
+    /// Agents working right now: tickets with an agent working, once each
+    /// ([`crate::session::SessionKind::works_now`]).
     pub agents_working: u32,
     /// The project's needs-you items, the needs-you count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
@@ -111,7 +111,8 @@ impl Board {
         project: &Project,
         tickets: &[Ticket],
     ) -> Result<ProjectInfo, BoardError> {
-        // Tickets with an agent at work, once each: a session kept while its ticket waits for review isn't running.
+        // Tickets with an agent working, once each: a session kept while its ticket waits for review isn't running, nor an
+        // agent waiting for you.
         let live: Vec<(String, String, String, bool)> = sqlx::query_as(
             "SELECT t.id, t.state, s.kind, EXISTS (SELECT 1 FROM pr_flows f WHERE f.ticket_id = t.id)
              FROM sessions s JOIN tickets t ON t.id = s.ticket_id
@@ -127,7 +128,7 @@ impl Board {
                     state.parse::<crate::domain::Status>(),
                     kind.parse::<crate::session::SessionKind>(),
                 ) {
-                    (Ok(status), Ok(kind)) => kind.at_work_on(status, *delivering),
+                    (Ok(status), Ok(kind)) => kind.works_now(status, *delivering),
                     _ => false,
                 }
             })

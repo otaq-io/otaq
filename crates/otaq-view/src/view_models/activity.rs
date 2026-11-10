@@ -373,27 +373,22 @@ pub struct Agents {
     pub empty: Option<String>,
 }
 
-/// A ticket with an agent at work: "SHOP-27 Wishlist share link · Developer · 26m", or "· asks you" while it waits
-/// for you.
+/// A ticket with an agent working: "SHOP-27 Wishlist share link · Developer · 26m".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityTicketRow")]
 pub struct TicketRow {
     pub key: String,
     pub title: String,
-    /// "Developer · 26m", "Checker · asks you".
+    /// "Developer · 26m", "Checker · 3m".
     pub line: String,
 }
 
-/// "Developer · 26m"; "Developer · asks you" while the agent waits for you.
+/// "Developer · 26m". An agent waiting for you isn't in Running (Needs you lists it).
 fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
-    let what = if agent.status.is_needs_you_family() {
-        agent.status.label().to_lowercase()
-    } else {
-        age_label(now - agent.since)
-    };
+    let age = age_label(now - agent.since);
     match &agent.agent {
-        Some(name) => format!("{name} \u{b7} {what}"),
-        None => what,
+        Some(name) => format!("{name} \u{b7} {age}"),
+        None => age,
     }
 }
 

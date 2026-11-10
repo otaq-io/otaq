@@ -290,6 +290,30 @@ async fn the_list_carries_the_running_tickets_of_every_project() {
     w.force_status(&web1, Status::Checking).await;
     w.force_status(&web2, Status::AsksYou).await;
     w.force_status(&web3, Status::WorkingInBackground).await;
+    // Each with its agent's live session (a checker's for WEB-1): Running lists the agents working now, as the
+    // title bar's Running and Quit Otaq count them, so WEB-2's, waiting for you, and BILL-2's, kept for its
+    // review, aren't listed.
+    for (ticket, kind) in [
+        (&bill1, "agent"),
+        (&bill2, "agent"),
+        (&web1, "validator"),
+        (&web2, "agent"),
+        (&web3, "agent"),
+    ] {
+        let project = w.board.project(ticket.key.project.as_str()).await.unwrap();
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at)
+             VALUES (?, ?, ?, ?, 'running', ?)",
+        )
+        .bind(otaq_core::store::new_id())
+        .bind(&project.id)
+        .bind(&ticket.id)
+        .bind(kind)
+        .bind(otaq_core::store::now_ms())
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    }
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
 
     let needs_you = list(&client).await;
