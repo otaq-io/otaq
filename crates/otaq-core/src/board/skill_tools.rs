@@ -50,6 +50,21 @@ impl Board {
         if found::is_shipped(name) {
             return Tool::ALL.to_vec();
         }
+        self.found_skill(project, ticket, name)
+            .await
+            .map(|skill| skill.tools)
+            .unwrap_or_default()
+    }
+
+    /// The skill `name` as the tools find it for `ticket` (a key) of `project`, or for the project as a whole without
+    /// one ([`found::find`]): who has it, and who finds it but skips it. A project that isn't found has only the
+    /// personal folders and plugins.
+    pub async fn found_skill(
+        &self,
+        project: &str,
+        ticket: Option<&str>,
+        name: &str,
+    ) -> Option<FoundSkill> {
         let (homes, folders) = match self.skill_folders(project, ticket).await {
             Ok(found) => found,
             Err(e) => {
@@ -58,9 +73,10 @@ impl Board {
             }
         };
         let name = name.to_owned();
-        tokio::task::spawn_blocking(move || found::tools_with(&homes, &folders, &name))
+        tokio::task::spawn_blocking(move || found::find(&homes, &folders, &name))
             .await
-            .unwrap_or_default()
+            .ok()
+            .flatten()
     }
 
     /// Whether `tool` has the skill `name` for `ticket` (a key) of `project` ([`Self::skill_tools`]).

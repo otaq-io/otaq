@@ -290,6 +290,21 @@ fn model_text(hold: &AgentHold, tools: &Tools) -> String {
     model_label(hold.model.as_deref(), tools.list(hold.tool))
 }
 
+/// What to do about a stage held because `tool` doesn't have its skill. A tool that skips a `SKILL.md` starting with
+/// a byte order mark (Codex) is told so too, since such a skill is already in its folder.
+fn missing_skill_hint(tool: Tool) -> String {
+    let saved = if tool.reads_skill_with_bom() {
+        ""
+    } else {
+        " (a SKILL.md saved without a byte order mark: Windows PowerShell 5 writes one)"
+    };
+    format!(
+        "Nothing started. Link the skill into {}\u{2019}s skills folder{saved} or commit it to the project, then \
+         Check again; or give the stage an agent whose tool has it.",
+        tool_word(tool)
+    )
+}
+
 /// The callout of a held role (§7.2, SCH-04 `[M23]`, AGT-08; *05 → Model unavailable (SHOP-49)*): `agents` is every
 /// agent (the held one). It waits for its own tool; Open agent… leads, and a ticket's waiting stage offers Change
 /// agent… (it hasn't started, so its agent can still change).
@@ -305,11 +320,7 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
             tone: Tone::Amber,
             avatar: tools.avatar(tool, hold.model.as_deref()),
             heading: otaq_core::flow::proposal::missing_skill_text(tool, skill),
-            text: Some(format!(
-                "Nothing started. Link the skill into {}\u{2019}s skills folder or commit it to the project, then \
-                 Check again; or give the stage an agent whose tool has it.",
-                tool_word(tool)
-            )),
+            text: Some(missing_skill_hint(tool)),
             model: None,
             buttons: [
                 Some(Button {
@@ -717,6 +728,24 @@ mod tests {
         assert_eq!(labels(&c), [CHECK_AGAIN, CHANGE_AGENT]);
         assert_eq!(c.buttons[0].action, Action::CheckAgain);
         assert!(c.buttons[0].primary);
+        // Codex skips a SKILL.md with a byte order mark, so a skill already in its folder may still be missing.
+        assert_eq!(
+            c.text.as_deref(),
+            Some(
+                "Nothing started. Link the skill into Codex\u{2019}s skills folder (a SKILL.md saved without a byte \
+                 order mark: Windows PowerShell 5 writes one) or commit it to the project, then Check again; or give \
+                 the stage an agent whose tool has it."
+            )
+        );
+        held.tool = CLAUDE;
+        let c = hold_callout(&held, &agents(), &several());
+        assert_eq!(
+            c.text.as_deref(),
+            Some(
+                "Nothing started. Link the skill into Claude Code\u{2019}s skills folder or commit it to the project, \
+                 then Check again; or give the stage an agent whose tool has it."
+            )
+        );
     }
 
     /// *SHOP-49 · Model unavailable*: amber, the model on hover, Open agent… on the held agent's page, for any held session (d0108 second gap review rule 7).
