@@ -28,6 +28,7 @@ import type { SheetAnswerAgent } from "../../generated/SheetAnswerAgent";
 import type { SheetButton } from "../../generated/SheetButton";
 import type { SheetButtonLook } from "../../generated/SheetButtonLook";
 import type { SheetNotice } from "../../generated/SheetNotice";
+import type { SheetPermissionPrompt } from "../../generated/SheetPermissionPrompt";
 import type { SheetSent } from "../../generated/SheetSent";
 import type { SheetRefusal } from "../../generated/SheetRefusal";
 import type { SheetStartProblem } from "../../generated/SheetStartProblem";
@@ -405,6 +406,29 @@ function Notice({ view, notice }: { view: SheetView; notice: SheetNotice }) {
   );
 }
 
+/** A permission prompt above Answer in terminal: who waits and where, then the command (`$ npm install`) or the
+ * tool's own words. Otaq doesn't answer it: the answer goes in the terminal. */
+function PermissionPrompt({ prompt }: { prompt: SheetPermissionPrompt }) {
+  return (
+    <div className="sheet-permission">
+      <div className="sheet-permission-heading">
+        <Icon name="hand" size={14} />
+        <span>{prompt.heading}</span>
+      </div>
+      {prompt.command ? (
+        <code className="sheet-permission-command">
+          <span className="sheet-permission-dollar" aria-hidden>
+            $
+          </span>
+          {prompt.text}
+        </code>
+      ) : (
+        <p className="sheet-permission-text">{prompt.text}</p>
+      )}
+    </div>
+  );
+}
+
 /** A refused model above the bar (AGT-05, *05 → Start failed on the model*, *No result: the validator's model*): what
  * couldn't run (red for Start failed) and the tool's message in quotes. */
 function Refusal({ refusal }: { refusal: SheetRefusal }) {
@@ -541,6 +565,7 @@ export function NeedsYou({
           />
         ) : (
           <>
+            {view.permission_prompt && <PermissionPrompt prompt={view.permission_prompt} />}
             {view.refusal && <Refusal refusal={view.refusal} />}
             <Holds view={view} />
             {aboveBar}

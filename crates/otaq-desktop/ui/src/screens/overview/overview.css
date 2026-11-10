@@ -641,3 +641,51 @@ button.overview-attachment:hover {
 .in-review-spacer {
   flex: 1;
 }
+
+/* A permission prompt above Answer in terminal: who waits and where, then the command or the tool's words. */
+.sheet-permission {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 1px 0 1px 10px;
+  border-left: 2px solid var(--st-attn);
+}
+
+.sheet-permission-heading {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  color: var(--text-primary);
+  font: 500 12px var(--font-ui);
+}
+
+.sheet-permission-heading .icon {
+  flex: none;
+  color: var(--st-attn);
+}
+
+.sheet-permission-command {
+  display: block;
+  padding: 6px 8px;
+  border-radius: 6px;
+  background: var(--bg-hover);
+  color: var(--text-primary);
+  font: 400 12px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.sheet-permission-dollar {
+  margin-right: 6px;
+  color: var(--text-muted);
+  user-select: none;
+}
+
+.sheet-permission-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+  overflow-wrap: anywhere;
+}

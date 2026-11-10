@@ -90,6 +90,7 @@ pub mod onboarding_page;
 pub mod overview;
 pub mod palette;
 pub mod pause;
+pub mod permission_prompt;
 pub mod pieces;
 pub mod plan;
 pub mod planning;

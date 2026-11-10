@@ -110,6 +110,7 @@ export const VIEW: SheetView = {
   menu: [],
   ask_noyan: "About SHOP-19: ",
   answer: null,
+  permission_prompt: null,
   notice: null,
   conflict: null,
   start_problem: null,

@@ -12,6 +12,7 @@ import type { SheetConflict } from "./SheetConflict";
 import type { SheetFrame } from "./SheetFrame";
 import type { SheetHint } from "./SheetHint";
 import type { SheetNotice } from "./SheetNotice";
+import type { SheetPermissionPrompt } from "./SheetPermissionPrompt";
 import type { SheetRefusal } from "./SheetRefusal";
 import type { SheetRunPill } from "./SheetRunPill";
 import type { SheetSignal } from "./SheetSignal";
@@ -50,7 +51,11 @@ parent: string | null, menu: Array<MenuItem>,
 /**
  * What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
  */
-ask_noyan: string, answer: SheetAnswer | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
+ask_noyan: string, answer: SheetAnswer | null, 
+/**
+ * A permission prompt the agent (or its checker) waits at: the command, above Answer in terminal.
+ */
+permission_prompt: SheetPermissionPrompt | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
 /**
  * The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
  */
