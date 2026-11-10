@@ -37,6 +37,10 @@ struct Setup {
 }
 
 async fn setup() -> Setup {
+    setup_with("cat", vec![], TerminalSize::default()).await
+}
+
+async fn setup_with(program: &str, args: Vec<String>, size: TerminalSize) -> Setup {
     let f = Fixture::shop().await;
     let t = f.create("Split user full name").await;
     let bus = EventBus::new(256);
@@ -61,11 +65,11 @@ async fn setup() -> Setup {
                 id: t.id.clone(),
                 key: t.key.clone(),
             }),
-            program: "cat".into(),
-            args: vec![],
+            program: program.into(),
+            args,
             cwd: f.repos.root(),
             env: vec![],
-            size: TerminalSize::default(),
+            size,
             tool: None,
             tool_session_id: None,
             model: None,
@@ -206,6 +210,71 @@ async fn held_while_the_line_has_unsent_text() {
     s.sessions.input(&s.session, b"\r").unwrap();
     assert_eq!(s.deliveries.deliver_if_ready(&s.session).await.unwrap(), 1);
     s.output_with("from SHOP-18\r\n").await;
+    s.sessions.shutdown().await;
+}
+
+/// A session that shows a tool's screen as it was captured in Windows' ConPTY (`tests/fixtures/input-line`) and
+/// then reads nothing and echoes nothing, at the capture's size.
+async fn showing(capture: &str, shown: &str) -> Setup {
+    let path = format!(
+        "{}/tests/fixtures/input-line/{capture}.bin",
+        env!("CARGO_MANIFEST_DIR")
+    );
+    let script = r#"stty -echo 2>/dev/null; cat "$1"; exec sleep 60"#;
+    let s = setup_with(
+        "sh",
+        vec!["-c".into(), script.into(), "sh".into(), path],
+        TerminalSize {
+            cols: 120,
+            rows: 30,
+        },
+    )
+    .await;
+    s.output_with(shown).await;
+    s
+}
+
+/// The release test's case: Codex asked "Would you like to run the following command?", the user pressed `y` in
+/// its terminal, and Codex went back to its empty input line ("› Ask Codex to do anything", dim). The key counts as
+/// typed, but the screen shows only the placeholder, so a told comment reaches the idle agent by itself.
+#[tokio::test]
+async fn a_told_comment_reaches_an_idle_codex_after_a_key_its_menu_took() {
+    let s = showing("codex-after-approval", "Ask Codex to do anything").await;
+    s.sessions.input(&s.session, b"y").unwrap();
+    assert!(
+        s.sessions.has_unsent_input(&s.session).unwrap(),
+        "just typed: the screen may not show the key yet"
+    );
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(!s.sessions.has_unsent_input(&s.session).unwrap());
+    assert!(!s.sessions.has_multi_line_input(&s.session).unwrap());
+
+    s.idle.0.store(true, Ordering::SeqCst);
+    s.deliveries
+        .queue_delivery(
+            &s.session,
+            DeliveryKind::AgentMessage,
+            "The user added comment 3. Run 'otaq prime' to read it.",
+        )
+        .await
+        .unwrap();
+    assert_eq!(s.waiting().await, 0, "delivered without Deliver now");
+    s.sessions.shutdown().await;
+}
+
+/// Text the screen shows in the input line still holds the note.
+#[tokio::test]
+async fn text_codex_shows_in_its_input_line_still_holds_the_note() {
+    let s = showing("codex-typed", "abc").await;
+    s.sessions.input(&s.session, b"abc").unwrap();
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(s.sessions.has_unsent_input(&s.session).unwrap());
+    s.idle.0.store(true, Ordering::SeqCst);
+    s.deliveries
+        .queue_delivery(&s.session, DeliveryKind::AgentMessage, "from SHOP-18")
+        .await
+        .unwrap();
+    assert_eq!(s.waiting().await, 1, "held: the user's text is there");
     s.sessions.shutdown().await;
 }
 

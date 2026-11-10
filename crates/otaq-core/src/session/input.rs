@@ -2,7 +2,9 @@
 //! sent. Every keystroke from the app or `otaq attach` passes through [`InputTracker::feed`]; Otaq's own
 //! typing doesn't. The flag is what keeps Otaq from mixing its text with the user's (P7).
 //!
-//! The tracker sees only bytes, not the program's screen, so it errs on the side of "there is text":
+//! The tracker sees only bytes, not the program's screen, so it errs on the side of "there is text". When it
+//! says there is text, the session also reads its screen ([`super::input_line`]): a key a tool's own menu took
+//! leaves an input line that shows only the tool's placeholder, and that counts as empty.
 //!
 //! - Printable characters (and pasted text) set the flag and count one character each.
 //! - **Enter** (`\r`) sends the line: the flag clears and an "Enter pressed" is reported (ATT-02). A line break
@@ -73,6 +75,9 @@ pub struct InputTracker {
     text: Vec<u8>,
     /// The line came from history: its text is unknown until it is sent or cleared.
     recalled: bool,
+    /// When a person last typed: until the program has had time to draw the key, its screen is no guide to the
+    /// line ([`super::input_line`]).
+    last_key: Option<std::time::Instant>,
 }
 
 impl Default for InputTracker {
@@ -89,6 +94,7 @@ impl InputTracker {
             params: Vec::new(),
             text: Vec::new(),
             recalled: false,
+            last_key: None,
         }
     }
 
@@ -108,6 +114,11 @@ impl InputTracker {
         )
     }
 
+    /// Whether a person typed within `window`.
+    pub fn typed_within(&self, window: std::time::Duration) -> bool {
+        self.last_key.is_some_and(|at| at.elapsed() < window)
+    }
+
     /// Otaq cleared the line itself (with the bytes of the session's agent tool, ADP-06).
     pub fn clear_line(&mut self) {
         self.line = Line::Empty;
@@ -118,6 +129,9 @@ impl InputTracker {
     /// Takes keystrokes typed by a person.
     pub fn feed(&mut self, bytes: &[u8]) -> InputEffect {
         let mut effect = InputEffect::default();
+        if !bytes.is_empty() {
+            self.last_key = Some(std::time::Instant::now());
+        }
         for &b in bytes {
             self.byte(b, &mut effect);
         }

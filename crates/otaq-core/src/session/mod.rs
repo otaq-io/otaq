@@ -21,6 +21,7 @@ pub mod deliveries;
 pub mod env;
 pub mod hand_offs;
 pub mod input;
+pub mod input_line;
 pub mod screen;
 pub mod scrollback;
 
@@ -630,6 +631,9 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 const TOOL_ID_POLL: Duration = Duration::from_millis(50);
 /// How long the waiter lets the reader drain the last output after the program exited.
 const DRAIN_WAIT: Duration = Duration::from_millis(500);
+/// How long after a person's key the program's screen isn't read for the input line ([`input_line`]): it may not
+/// have drawn the key yet.
+pub const KEY_SETTLE: Duration = Duration::from_millis(500);
 
 /// Owns every live session. Cheap to clone.
 #[derive(Clone)]
@@ -677,6 +681,8 @@ struct Live {
     output: Mutex<Output>,
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
+    /// The last read of the input line on screen ([`input_line`]), for the output and size it was read at.
+    input_line: Mutex<Option<(u64, TerminalSize, input_line::InputLine)>>,
     /// Set when Otaq stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -989,6 +995,7 @@ impl Sessions {
                 answering: 0,
             }),
             input: Mutex::new(InputTracker::new()),
+            input_line: Mutex::new(None),
             stop_reason: Mutex::new(None),
             ended,
             colors: theme.terminal_colors(),
@@ -1140,23 +1147,38 @@ impl Sessions {
     }
 
     /// Whether the session's input line may hold text the user hasn't sent (d0048).
+    /// The typed keys say so, unless the program's screen shows the input line empty: only the tool's placeholder
+    /// after its prompt marker ([`input_line`]), as after a key its own menu took.
     pub fn has_unsent_input(&self, id: &str) -> Result<bool, SessionError> {
-        Ok(self
-            .live(id)?
-            .input
-            .lock()
-            .expect("session input")
-            .has_unsent_text())
+        let live = self.live(id)?;
+        let (unsent, multi_line, settled) = {
+            let input = live.input.lock().expect("session input");
+            (
+                input.has_unsent_text(),
+                input.has_multi_line_text(),
+                !input.typed_within(KEY_SETTLE),
+            )
+        };
+        if !unsent || !settled {
+            return Ok(unsent);
+        }
+        Ok(match live.input_line() {
+            input_line::InputLine::Placeholder => false,
+            // Lines of a draft may sit above a bare marker row.
+            input_line::InputLine::Blank => multi_line,
+            input_line::InputLine::Text => true,
+        })
     }
 
     /// Whether the unsent text may run over several lines (SES-07, ADP-06).
     pub fn has_multi_line_input(&self, id: &str) -> Result<bool, SessionError> {
-        Ok(self
-            .live(id)?
-            .input
-            .lock()
-            .expect("session input")
-            .has_multi_line_text())
+        Ok(self.has_unsent_input(id)?
+            && self
+                .live(id)?
+                .input
+                .lock()
+                .expect("session input")
+                .has_multi_line_text())
     }
 
     /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
@@ -1715,6 +1737,25 @@ impl Drop for Inner {
 }
 
 impl Live {
+    /// The input line as the program's screen shows it now ([`input_line::read`]), read again only after new
+    /// output or a resize.
+    fn input_line(&self) -> input_line::InputLine {
+        let (bytes, end, size) = {
+            let output = self.output.lock().expect("session output");
+            let (end, size) = (output.scrollback.end(), output.size);
+            if let Some((at, at_size, line)) = *self.input_line.lock().expect("session input line")
+                && at == end
+                && at_size == size
+            {
+                return line;
+            }
+            (output.scrollback.contents().0, end, size)
+        };
+        let line = input_line::read(&bytes, size, self.colors);
+        *self.input_line.lock().expect("session input line") = Some((end, size, line));
+        line
+    }
+
     /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a
     /// ticket, the agent it acts for (an agent's Run, agents run the app), else none (the user's).
     fn agent_root(&self, info: &SessionInfo) -> Option<AgentRoot> {

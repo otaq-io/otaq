@@ -129,16 +129,23 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't check the typed key");
             }
-            // An Enter or a backspace may have emptied the line: waiting messages may go now.
-            if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
-                let deliveries = shared.deliveries.clone();
-                let session = p.session.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = deliveries.deliver_if_ready(&session).await {
-                        tracing::warn!(session, error = %e, "delivery failed");
+            // An Enter or a backspace may have emptied the line: waiting messages may go now. A key a tool's own
+            // menu took leaves the line empty on screen, which counts once the program has drawn it: look again
+            // then.
+            let deliveries = shared.deliveries.clone();
+            let sessions = sessions.clone();
+            let session = p.session.clone();
+            tokio::spawn(async move {
+                if sessions.has_unsent_input(&session).unwrap_or(true) {
+                    tokio::time::sleep(crate::session::KEY_SETTLE).await;
+                    if sessions.has_unsent_input(&session).unwrap_or(true) {
+                        return;
                     }
-                });
-            }
+                }
+                if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                    tracing::warn!(session, error = %e, "delivery failed");
+                }
+            });
             Ok((Reply::Ok, Then::Continue))
         }
         Request::SessionSendAgain(p) => {
