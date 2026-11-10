@@ -14,9 +14,10 @@
 //! the agent to write it** (Noyan's agent writes it into the project's checkout, which Otaq doesn't commit); while it
 //! writes the field says so with Stop, then shows the skill tinted, where it was saved, with Open and Undo
 //! ([`SkillState`]). A stage whose skill nobody has shows "You don't have the skill `<name>`" as a warning (the
-//! draft's), with "Pick one, or Ask the agent to write it." under it ([`SkillFix`]); it never keeps Save off. Pick a
-//! skill… always ends with Ask the agent to write it…, so a stage that already names a skill can have one written
-//! too, and shows it being written. A stage's Agent field offers only the agents whose tool has the stage's skill
+//! draft's), with "Pick one, or Ask the agent to write it." under it ([`SkillFix`]); once the agent has written it,
+//! the warning says "`<name>` is written but not committed yet: commit it so agents get it". It never keeps Save
+//! off. Pick a skill… always ends with Ask the agent to write it…, so a stage that already names a skill can have one
+//! written too, and shows it being written. A stage's Agent field offers only the agents whose tool has the stage's skill
 //! (every agent for one of Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the
 //! skill `/<name>`", only a warning too. A stage with no skill saves: Otaq's own skill for that stage runs
 //! (`work-ticket`, `validate`), and the field says so. **Ask
@@ -921,7 +922,8 @@ pub(crate) fn skipped_skill(f: &Facts, stage: &Stage) -> Option<String> {
         .then(|| skipped_skill_text(&[tool], skill))
 }
 
-/// The warning on a stage's card for its skill: one nobody has, one a tool skips, or one its agent's tool lacks.
+/// The warning on a stage's card for its skill: one nobody has (or the agent wrote and nobody has committed yet), one
+/// a tool skips, or one its agent's tool lacks.
 pub(crate) fn stage_skill_warning(f: &Facts, stage: &Stage) -> Option<String> {
     unknown_skill(f, stage)
         .or_else(|| skipped_skill(f, stage))
@@ -1093,7 +1095,9 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
 }
 
 /// "You don't have the skill `<name>`" on `stage`: the draft's warning for its skill, which neither Otaq ships nor
-/// the user has. Only a warning: Apply still works.
+/// the user has. Only a warning: Apply still works. A skill the agent wrote for the stage is in the project's checkout,
+/// but no tool reads it until the user commits it, which Apply doesn't do: the warning says so instead
+/// ([`uncommitted_skill_text`]).
 pub(crate) fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let skill = stage.skill.as_deref()?.trim();
     // Otaq's own skills never warn.
@@ -1101,12 +1105,23 @@ pub(crate) fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
         return None;
     }
     let text = unknown_skill_text(skill);
-    f.proposal
+    let warned = f
+        .proposal
         .diff
         .warnings
         .iter()
-        .find(|w| w.stage.as_deref() == Some(stage.name.as_str()) && w.text == text)
-        .map(|w| w.text.clone())
+        .any(|w| w.stage.as_deref() == Some(stage.name.as_str()) && w.text == text);
+    match (warned, written_of(f, stage)) {
+        (false, _) => None,
+        (true, Some(_)) => Some(uncommitted_skill_text(skill)),
+        (true, None) => Some(text),
+    }
+}
+
+/// The warning on a stage whose skill the agent wrote into the project's checkout, which Otaq doesn't commit:
+/// "`update-docs` is written but not committed yet: commit it so agents get it".
+pub(crate) fn uncommitted_skill_text(skill: &str) -> String {
+    format!("`{skill}` is written but not committed yet: commit it so agents get it")
 }
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
@@ -2903,6 +2918,20 @@ mod tests {
         assert_eq!(v.problem("plan"), None);
         assert!(v.footer.apply_enabled);
         assert_eq!(v.footer.reason, None);
+        // No tool reads it until it is committed, so the draft warns the user doesn't have it: the stage's warning
+        // says it is written but not committed yet instead, and stays only a warning.
+        let mut d = d;
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-ticket`".into(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        assert_eq!(
+            v.warning("plan").as_deref(),
+            Some("`plan-ticket` is written but not committed yet: commit it so agents get it")
+        );
+        assert!(v.footer.apply_enabled);
         // One an older Otaq wrote has no folder in the project: no saved line, and no Open.
         let mut old = e.written.clone();
         old[0].folder.clear();
