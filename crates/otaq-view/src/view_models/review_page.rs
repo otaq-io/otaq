@@ -41,6 +41,8 @@ pub struct ConfirmView {
     pub prepared: Option<String>,
     /// "Strong is still writing the message. Merge now with this one, …": the message is the plain one meanwhile.
     pub writing: Option<String>,
+    /// The writer waits for permission: Answer in terminal opens its terminal, beside the plain message.
+    pub asks: Option<WriterAsks>,
     /// "Into (SHOP-18’s base branch)"
     pub into: String,
     pub target: String,
@@ -183,6 +185,34 @@ pub struct ApproveFacts<'a> {
     pub prepared_by: Option<&'a str>,
     /// The delivery's agent still writing it.
     pub writing: Option<&'a str>,
+    /// The writer's session, when it waits for permission.
+    pub asks_in: Option<&'a str>,
+}
+
+/// The message's writer waits for permission (its tool asks before a command): the dialog says so and offers its
+/// terminal to answer in, beside the plain message. The ticket in Review stays calm meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WriterAsks")]
+pub struct WriterAsks {
+    /// The writer's session: its terminal answers the prompt.
+    pub session: String,
+    /// "Answer in terminal"
+    pub answer: &'static str,
+    /// "Developer · SHOP-5's message": the terminal's title.
+    pub terminal_title: String,
+}
+
+/// Answer in terminal, beside the plain message.
+pub const ANSWER_IN_TERMINAL: &str = "Answer in terminal";
+
+impl WriterAsks {
+    pub fn new(session: &str, agent: &str, key: &str) -> Self {
+        Self {
+            session: session.to_owned(),
+            answer: ANSWER_IN_TERMINAL,
+            terminal_title: format!("{agent} \u{b7} {key}\u{2019}s message"),
+        }
+    }
 }
 
 /// "Strong is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready unless
@@ -191,6 +221,15 @@ pub fn still_writing(agent: &str) -> String {
     format!(
         "{agent} is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready \
          unless you\u{2019}ve typed."
+    )
+}
+
+/// "Strong wants to run a command to write the message. Merge now with this one, edit it, or wait: …": the writer
+/// waits for permission.
+pub fn wants_to_run(agent: &str) -> String {
+    format!(
+        "{agent} wants to run a command to write the message. Merge now with this one, edit it, or wait: it fills \
+         in once you answer, unless you\u{2019}ve typed."
     )
 }
 
@@ -213,7 +252,14 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
                     ticket.key
                 )
             }),
-            writing: f.writing.map(still_writing),
+            writing: f.writing.map(|agent| match f.asks_in {
+                Some(_) => wants_to_run(agent),
+                None => still_writing(agent),
+            }),
+            asks: f
+                .writing
+                .zip(f.asks_in)
+                .map(|(agent, session)| WriterAsks::new(session, agent, &ticket.key.to_string())),
             into: ap::into_label(ticket),
             target: f.target.to_owned(),
             repo: crate::shell::tilde(f.repo),
@@ -692,6 +738,7 @@ mod tests {
             manual_unticked: 0,
             prepared_by: None,
             writing: None,
+            asks_in: None,
         }
     }
 
@@ -814,6 +861,39 @@ mod tests {
             )
         );
         assert_eq!(writing.confirm.prepared, None);
+        assert_eq!(writing.confirm.asks, None);
+    }
+
+    /// The writer waits for permission: the line says so in plain words, and Answer in terminal opens its session's
+    /// terminal beside the plain message, which can still be merged now.
+    #[test]
+    fn a_writer_waiting_for_permission_offers_answer_in_terminal() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let asks = approve_view(ApproveFacts {
+            writing: Some("Developer"),
+            asks_in: Some("s-writer"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        let c = &asks.confirm;
+        assert_eq!(
+            c.writing.as_deref(),
+            Some(
+                "Developer wants to run a command to write the message. Merge now with this one, edit it, or wait: \
+                 it fills in once you answer, unless you\u{2019}ve typed."
+            )
+        );
+        let a = c.asks.as_ref().expect("Answer in terminal");
+        assert_eq!(a.answer, "Answer in terminal");
+        assert_eq!(a.session, "s-writer");
+        assert_eq!(
+            a.terminal_title,
+            "Developer \u{b7} SHOP-18\u{2019}s message"
+        );
+        assert_eq!(
+            c.message, "SHOP-18: Checkout API",
+            "the plain message stays"
+        );
     }
 
     /// d0120, Q475: a failed check reads as a conflict does (the agent fixes it, no click); a stopped one says nothing

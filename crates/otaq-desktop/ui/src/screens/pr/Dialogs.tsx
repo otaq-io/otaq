@@ -16,6 +16,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ChangedBody, ResultDialog } from "../review/Dialogs";
+import { AnswerInTerminal } from "../review/WriterAsks";
 import {
   checkDue,
   type Fields,
@@ -164,8 +165,9 @@ export function Proposed({
           </Field>
           {view.writing !== null ? (
             <p className="pr-muted pr-writing">
-              <Icon name="loader-circle" size={12} />
+              <Icon name={view.asks === null ? "loader-circle" : "square-terminal"} size={12} />
               <span>{view.writing}</span>
+              {view.asks !== null && <AnswerInTerminal asks={view.asks} />}
             </p>
           ) : (
             view.prepared !== null && <p className="pr-muted">{view.prepared}</p>

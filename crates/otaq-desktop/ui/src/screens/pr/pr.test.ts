@@ -38,6 +38,7 @@ const VIEW: PrDialogView = {
   hint: "cancel",
   prepared: null,
   writing: null,
+  asks: null,
   set_up: null,
   merge_instead: null,
   filled: 1,
@@ -114,6 +115,31 @@ describe("the PR screen", () => {
     expect(polls(writing)).toBe(true);
     // The agent's message filled the fields again: the page takes them.
     expect(proposalArrived(VIEW, { ...VIEW, filled: 2 })).toBe(true);
+  });
+
+  it("says when the writer waits for permission, with Answer in terminal beside the plain text", () => {
+    const asks: PrDialogView = {
+      ...VIEW,
+      writing: "Developer wants to run a command to write the title and description.",
+      asks: {
+        session: "s-writer",
+        answer: "Answer in terminal",
+        terminal_title: "Developer · SHOP-18’s message",
+      },
+    };
+    const html = renderToStaticMarkup(
+      createElement(Proposed, { view: asks, fields: fieldsOf(asks), onEdit: () => undefined }),
+    );
+    expect(html).toContain("Developer wants to run a command to write the title and description.");
+    expect(html).toContain("Answer in terminal");
+    const still = renderToStaticMarkup(
+      createElement(Proposed, {
+        view: { ...asks, writing: "Developer is still writing the title and description.", asks: null },
+        fields: fieldsOf(asks),
+        onEdit: () => undefined,
+      }),
+    );
+    expect(still).not.toContain("Answer in terminal");
   });
 
   it("locks the branch and drops title and description on Push to PR", () => {

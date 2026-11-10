@@ -47,6 +47,7 @@ const VIEW: ApproveView = {
     lead: "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean.",
     prepared: null,
     writing: null,
+    asks: null,
     into: "Into (SHOP-18’s base branch)",
     target: "main",
     repo: "~/code/shop-web",

@@ -3,6 +3,7 @@ import type { PrBranchHint } from "./PrBranchHint";
 import type { PrCommitField } from "./PrCommitField";
 import type { PrSetUp } from "./PrSetUp";
 import type { PrStage } from "./PrStage";
+import type { WriterAsks } from "./WriterAsks";
 
 /**
  * What `pr.view` answers: the dialog for its stage, with every text worded.
@@ -44,6 +45,10 @@ prepared: string | null,
  * "Strong is still writing the title and description. …": the fields hold the plain text meanwhile.
  */
 writing: string | null, 
+/**
+ * The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
+ */
+asks: WriterAsks | null, 
 /**
  * The provider isn't set up on this machine.
  */

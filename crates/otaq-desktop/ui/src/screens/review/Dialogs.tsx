@@ -39,6 +39,7 @@ import {
   messageAfter,
   type Step,
 } from "./logic";
+import { AnswerInTerminal } from "./WriterAsks";
 
 const ignore = () => undefined;
 
@@ -487,8 +488,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
             />
             {c.writing !== null ? (
               <p className="review-muted review-writing">
-                <Icon name="loader-circle" size={13} />
+                <Icon name={c.asks === null ? "loader-circle" : "square-terminal"} size={13} />
                 <span>{c.writing}</span>
+                {c.asks !== null && <AnswerInTerminal asks={c.asks} />}
               </p>
             ) : (
               c.prepared !== null && <p className="review-muted review-prepared">{c.prepared}</p>

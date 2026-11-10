@@ -134,6 +134,10 @@ pub struct MergeProposal {
     /// The delivery's agent still writing it: `message` is the plain one until it arrives.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub writing: Option<String>,
+    /// The agent still writing it waits for permission: its session, whose terminal answers the prompt (the service
+    /// fills it in; the ticket in Review stays calm meanwhile).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_in: Option<String>,
 }
 
 impl Board {
@@ -182,6 +186,7 @@ impl Board {
             commits,
             prepared_by,
             writing,
+            asks_in: None,
         })
     }
 

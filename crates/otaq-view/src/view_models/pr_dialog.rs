@@ -101,6 +101,8 @@ pub struct PrDialog {
     pub prepared_by: Option<String>,
     /// The delivery's agent still writing them: the fields hold the plain text until it arrives.
     pub writing: Option<String>,
+    /// The agent still writing them waits for permission: its session, whose terminal answers the prompt.
+    pub asks_in: Option<String>,
     /// The user typed in the title, description or branch: a message arriving later doesn't replace them.
     pub typed: bool,
     /// Counts each time the fields were filled for the user (the proposal, then the agent's message): the page takes
@@ -168,6 +170,7 @@ impl PrDialog {
             merge_instead: None,
             prepared_by: None,
             writing: None,
+            asks_in: None,
             typed: false,
             filled: 0,
         }
@@ -183,6 +186,7 @@ impl PrDialog {
         self.target = view.target.clone();
         self.branch_locked = view.branch_locked;
         self.pr_number = view.pr_number;
+        self.asks_in = view.asks_in.clone();
         let Some(flow) = &view.flow else {
             return;
         };
@@ -249,6 +253,7 @@ impl PrDialog {
             return;
         };
         self.writing = None;
+        self.asks_in = None;
         if self.typed {
             return;
         }
@@ -479,6 +484,7 @@ mod tests {
             pr_url: None,
             skill: "open-pr".to_owned(),
             message: None,
+            asks_in: None,
         }
     }
 
