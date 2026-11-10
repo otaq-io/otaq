@@ -343,8 +343,10 @@ async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
 }
 
 /// Cancel drops the draft.
+/// Cancel drops the draft the page showed (`proposal`; `0`: none was stored, so nothing to drop). With no
+/// `proposal` the page had no view to say which (the draft doesn't draw): whatever draft is open goes.
 async fn cancel(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
-    if params.proposal.unwrap_or(0) == 0 {
+    if params.proposal == Some(0) {
         return Ok(());
     }
     match app

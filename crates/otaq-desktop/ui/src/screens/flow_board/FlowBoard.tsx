@@ -56,6 +56,7 @@ import {
   askForChanges,
   clampStep,
   closeFlowBoard,
+  discardDraft,
   dropDraft,
   dropTo,
   exportFile,
@@ -300,11 +301,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   if (view === undefined) {
     return (
       <div className="fb-screen">
-        {state.error !== undefined && (
-          <p className="fb-problem" role="alert">
-            {state.error.message}
-          </p>
-        )}
+        {state.error !== undefined && <FlowBoardProblem project={project} message={state.error.message} />}
       </div>
     );
   }
@@ -437,6 +434,12 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         <p className="fb-applies">
           <Icon name="info" size={13} />
           <span>{view.bar.applies}</span>
+        </p>
+      )}
+      {state.error !== undefined && (
+        // The view didn't reload (a stage clicked, an edit made): what went wrong, over the editor as it last drew.
+        <p className="fb-problem" role="alert">
+          {state.error.message}
         </p>
       )}
       <div className="fb-board">
@@ -796,6 +799,37 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
 }
 
 /** ⋯ in the bar: Export, Import, Copy from another project (each project), Go back to the previous flow. */
+/**
+ * The editor when its view doesn't come: what went wrong, and the ways out, so the editor never stays blank. Discard
+ * the draft drops whatever draft the project has open (the flow in use draws next); Close leaves the editor.
+ */
+export function FlowBoardProblem({ project, message }: { project: string; message: string }) {
+  return (
+    <div className="fb-problem-box" role="alert">
+      <p className="fb-problem-title">The flow editor can’t draw this flow</p>
+      <p className="fb-problem">{message}</p>
+      <div className="fb-problem-actions">
+        <Button
+          compact
+          variant="secondary"
+          label="Discard the draft"
+          onClick={() => {
+            discardDraft(project).catch(toast);
+          }}
+        />
+        <Button
+          compact
+          variant="ghost"
+          label="Close"
+          onClick={() => {
+            closeFlowBoard();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function moreItems(view: FlowBoardView): MenuItem[] {
   const item = (id: string, label: string, hint: string | null, separated = false): MenuItem => ({
     id,

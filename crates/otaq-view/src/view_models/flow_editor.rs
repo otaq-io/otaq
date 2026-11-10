@@ -1370,6 +1370,40 @@ fn bring_named<'n>(
     }
 }
 
+/// A reorder that leaves a check with no stage where an agent works before it is refused, in words the user reads
+/// on the toast: a check sends its fails back to such a stage, so it can't come first. Only a check that had one
+/// before the move counts, so a flow already like that can still be put right by dragging.
+fn refuse_stranded_check(before: &Flow, after: &Flow, moved: &str) -> Result<(), String> {
+    let agent_before = |flow: &Flow, id: &str| {
+        flow.position(id)
+            .is_some_and(|at| flow.stages[..at].iter().any(Stage::is_agent_stage))
+    };
+    let stranded = after.stages.iter().find(|s| {
+        matches!(s.kind, StageKind::Check { .. })
+            && agent_before(before, &s.id)
+            && !agent_before(after, &s.id)
+    });
+    let Some(check) = stranded else {
+        return Ok(());
+    };
+    let why = "a check sends its fails back to a stage where an agent works, so one has to come before it";
+    if check.id == moved {
+        let first = after
+            .first_agent_stage()
+            .map_or("the stages where an agent works", |s| s.name.as_str());
+        Err(format!(
+            "{} can\u{2019}t go before {first}: {why}",
+            check.name
+        ))
+    } else {
+        let name = after.stage(moved).map_or(moved, |s| s.name.as_str());
+        Err(format!(
+            "{name} can\u{2019}t go after {}: {why}",
+            check.name
+        ))
+    }
+}
+
 /// The draft's document after `edit`, and the stage to select after it (a new one). Refused with why when the edit
 /// doesn't fit the flow (a stage that isn't there). `stored` are the user's agents: a picked skill's stage agent, and
 /// a preset template's agents the user doesn't have.
@@ -1420,9 +1454,11 @@ pub fn edited(
         }
         StageEdit::Move { stage, to } => {
             let i = at(stage)?;
+            let before = out.flow.clone();
             let moved = out.flow.stages.remove(i);
             let end = out.flow.stages.len();
             out.flow.stages.insert((*to).min(end), moved);
+            refuse_stranded_check(&before, &out.flow, stage)?;
         }
         StageEdit::Remove { stage } => {
             let i = at(stage)?;
@@ -2267,6 +2303,38 @@ mod tests {
         let sent = v.choices.apply_choices();
         assert_eq!(sent.clashes.get("Checker"), Some(&ClashChoice::AddAs));
         assert_eq!(sent.models.len(), 2);
+    }
+
+    /// Dragging a check in front of every stage where an agent works, or the last such stage after a check, is
+    /// refused with why; a move that keeps an Agent stage before every check goes.
+    #[test]
+    fn a_reorder_that_leaves_a_check_first_is_refused_with_why() {
+        let file = otaq_default();
+        let mv = |f: &FlowFile, stage: &str, to: usize| {
+            edited(
+                f,
+                &StageEdit::Move {
+                    stage: stage.into(),
+                    to,
+                },
+            )
+        };
+        assert_eq!(
+            mv(&file, "validate", 0).unwrap_err(),
+            "Validate can\u{2019}t go before Dev: a check sends its fails back to a stage where an agent works, \
+             so one has to come before it"
+        );
+        assert_eq!(
+            mv(&file, "dev", 2).unwrap_err(),
+            "Dev can\u{2019}t go after Validate: a check sends its fails back to a stage where an agent works, so \
+             one has to come before it"
+        );
+
+        // With a second Agent stage in front, Validate may go before Dev.
+        let (added, _) = edited(&file, &add_blank(None)).unwrap();
+        let (moved, _) = mv(&added, "validate", 1).unwrap();
+        let ids: Vec<&str> = moved.flow.stages.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["new-stage", "validate", "dev", "review"]);
     }
 
     #[test]

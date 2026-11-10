@@ -1043,7 +1043,9 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
     for (i, stage) in flow.stages.iter().enumerate() {
         if fail && Some(i) == check {
             let back = editor::fails_to(flow, stage);
-            let back_at = back.and_then(|b| flow.position(&b.id));
+            // Fails go back to a stage before the check; a draft naming one after it (the flow check says so on the
+            // stage) walks on as if it passed, so the editor always draws.
+            let back_at = back.and_then(|b| flow.position(&b.id)).filter(|&at| at < i);
             let (Some(back), Some(back_at)) = (back, back_at) else {
                 steps.push(pass_step(flow, stage, 1));
                 continue;
@@ -1226,6 +1228,20 @@ mod tests {
                 .contains("After 3 fails in a row it would wait for you")
         );
         assert_eq!(steps[4].state, "Checking \u{b7} round 2 of 3");
+    }
+
+    /// A draft whose check sends its fails to a stage after it (Validate dragged in front of Dev with its fails set
+    /// to Dev) still walks: the check passes it on, and nothing goes back.
+    #[test]
+    fn a_check_whose_fails_go_to_a_later_stage_still_walks() {
+        let mut flow = default_flow();
+        let validate = flow.position("validate").unwrap();
+        flow.stages[validate].fail_to = Some("dev".to_owned());
+        let moved = flow.stages.remove(validate);
+        flow.stages.insert(0, moved);
+        let steps = walk(&flow, "main", true);
+        let path: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(path, ["Backlog", "Validate", "Dev", "Review", "Done"]);
     }
 
     #[test]

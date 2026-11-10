@@ -454,4 +454,84 @@ mod tests {
         assert_eq!(v.columns.len(), 5);
         assert_eq!(v.bar.changes, None);
     }
+
+    /// The release test's refused reorder on shop: Validate's fails were set to go to Dev while another Agent stage
+    /// sat between them, that stage went again, then Validate was dragged in front of Dev. The drag is refused with
+    /// why, and the editor's view still builds after it; a draft stored that way before (Validate first, its fails to
+    /// Dev) draws too, its problem on Validate, instead of leaving the editor blank.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_editor_still_draws_after_a_check_is_dragged_before_dev() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        for edit in [
+            json!({ "edit": "add_template", "after": "dev", "template": "new-stage" }),
+            json!({ "edit": "fail_to", "stage": "validate", "to": "dev" }),
+            json!({ "edit": "remove", "stage": "new-stage" }),
+        ] {
+            request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
+                .await
+                .unwrap();
+        }
+        let refused = request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "move", "stage": "validate", "to": 0 } }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            refused.message,
+            "Validate can\u{2019}t go before Dev: a check sends its fails back to a stage where an agent works, so \
+             one has to come before it"
+        );
+        // The page's drag shows it as the toast the refusal raised.
+        let toast = h.app.notices.view().toasts.last().cloned().unwrap();
+        assert_eq!(toast.title, "The flow didn\u{2019}t change");
+        assert_eq!(toast.text.as_deref(), Some(refused.message.as_str()));
+        let v = load(&h, Some("validate")).await;
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "dev", "validate", "review", "done"]);
+        assert!(v.details.is_some());
+
+        // The draft the release test was left with, stored as it was: it draws.
+        let mut file = otaq_core::flow::yaml::read(&v.yaml).unwrap();
+        let validate = file.flow.position("validate").unwrap();
+        assert_eq!(file.flow.stages[validate].fail_to.as_deref(), Some("dev"));
+        let moved = file.flow.stages.remove(validate);
+        file.flow.stages.insert(0, moved);
+        request(
+            &h.app,
+            "flow_board.restore",
+            json!({ "project": "SHOP", "yaml": otaq_core::flow::yaml::write(&file) }),
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("validate")).await;
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "validate", "dev", "review", "done"]);
+        assert!(v.details.is_some());
+        assert!(!v.bar.save_enabled, "a check first can't be saved");
+        assert!(v.bar.reason.is_some());
+        assert!(!v.watch.fails.is_empty());
+        // The page's test draws this view (flow_board.test.ts); `OTAQ_WRITE_FIXTURES=1` writes it again.
+        if std::env::var_os("OTAQ_WRITE_FIXTURES").is_some() {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("ui/src/screens/flow_board/check_first.view.json");
+            std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+
+        // The page's Discard the draft, when it has no view to name the draft: whatever is open goes, and again with
+        // nothing open is fine.
+        for _ in 0..2 {
+            request(&h.app, "flow_editor.cancel", json!({ "project": "SHOP" }))
+                .await
+                .unwrap();
+        }
+        let v = load(&h, None).await;
+        assert_eq!(v.proposal, 0);
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "dev", "validate", "review", "done"]);
+    }
 }
