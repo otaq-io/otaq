@@ -406,8 +406,9 @@ function Notice({ view, notice }: { view: SheetView; notice: SheetNotice }) {
   );
 }
 
-/** A permission prompt above Answer in terminal: who waits and where, then the command (`$ npm install`) or the
- * tool's own words. Otaq doesn't answer it: the answer goes in the terminal. */
+/** A permission prompt above Answer in terminal: "Developer wants to run a command" and the command (`$ npm
+ * install`), or "Developer wants your permission" and the tool's own words. Otaq doesn't answer it: the answer goes
+ * in the terminal. */
 function PermissionPrompt({ prompt }: { prompt: SheetPermissionPrompt }) {
   return (
     <div className="sheet-permission">

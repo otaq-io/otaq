@@ -288,7 +288,7 @@ describe("what it needs from you, at the top of Overview", () => {
     const atPrompt: SheetView = {
       ...VIEW,
       permission_prompt: {
-        heading: "Codex is waiting for your answer in its terminal",
+        heading: "Developer wants to run a command",
         text: "npm install",
         command: true,
       },
@@ -303,7 +303,7 @@ describe("what it needs from you, at the top of Overview", () => {
       ],
     };
     const html = render(atPrompt);
-    expect(html).toContain("Codex is waiting for your answer in its terminal");
+    expect(html).toContain("Developer wants to run a command");
     expect(html).toContain("npm install");
     expect(html).toContain("sheet-permission-command");
     expect(html.indexOf("npm install")).toBeLessThan(html.indexOf("Answer in terminal"));
@@ -311,7 +311,7 @@ describe("what it needs from you, at the top of Overview", () => {
     const words = render({
       ...atPrompt,
       permission_prompt: {
-        heading: "Claude Code is waiting for your answer in its terminal",
+        heading: "Developer wants your permission",
         text: "Claude needs your permission to use Bash",
         command: false,
       },

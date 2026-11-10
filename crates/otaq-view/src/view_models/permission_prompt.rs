@@ -1,8 +1,7 @@
 //! A permission prompt on the sheet's Overview: what the agent waits to be allowed to do, above Answer in terminal.
-//! Otaq doesn't answer permission prompts itself (they are answered in the tool's terminal), so the Overview shows
-//! the tool's own prompt (the command when it is one) and says where the answer goes.
+//! Otaq doesn't answer permission prompts itself (they are answered in the tool's terminal), so the Overview names
+//! the agent that asks and shows the tool's own prompt: the command when it is one.
 
-use otaq_core::agent_tools::Tool;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
 use otaq_core::signals::HELPER_PROMPT_PREFIX;
@@ -12,8 +11,8 @@ use ts_rs::TS;
 /// The tools' prefix for a shell command ("Run command: npm install").
 const RUN_COMMAND: &str = "Run command: ";
 
-/// "Codex is waiting for your answer in its terminal" and its prompt: the command (`$ npm install`) or the tool's
-/// words ("Claude needs your permission to use Bash").
+/// "Developer wants to run a command" with `$ npm install` under it, or "Developer wants your permission" with the
+/// tool's words ("Claude needs your permission to use Bash").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetPermissionPrompt")]
 pub struct PermissionPrompt {
@@ -24,9 +23,9 @@ pub struct PermissionPrompt {
     pub command: bool,
 }
 
-/// The permission prompt of a ticket whose agent (or checker) waits at one, as its latest session's `tool` asked it;
-/// `None` for any other ticket, or when the tool gave no prompt text.
-pub fn of(ticket: &Ticket, tool: Option<Tool>) -> Option<PermissionPrompt> {
+/// The permission prompt of a ticket whose agent (or checker) waits at one, named by the asking session's `agent`
+/// ("Developer", "Checker"); `None` for any other ticket, or when the tool gave no prompt text.
+pub fn of(ticket: &Ticket, agent: Option<&str>) -> Option<PermissionPrompt> {
     if !matches!(ticket.status, Status::NeedsYou | Status::CheckerNeedsYou) {
         return None;
     }
@@ -42,14 +41,20 @@ pub fn of(ticket: &Ticket, tool: Option<Tool>) -> Option<PermissionPrompt> {
         Some(c) if !c.is_empty() => (c, true),
         _ => (prompt, false),
     };
-    let who = match (tool, helper) {
-        (Some(tool), false) => tool.display_name().to_owned(),
-        (Some(tool), true) => format!("A helper agent of {}", tool.display_name()),
+    let agent = agent.map(str::trim).filter(|a| !a.is_empty());
+    let who = match (agent, helper) {
+        (Some(name), false) => name.to_owned(),
+        (Some(name), true) => format!("{name}\u{2019}s helper agent"),
         (None, false) => "The agent".to_owned(),
         (None, true) => "A helper agent".to_owned(),
     };
+    let wants = if command {
+        "wants to run a command"
+    } else {
+        "wants your permission"
+    };
     Some(PermissionPrompt {
-        heading: format!("{who} is waiting for your answer in its terminal"),
+        heading: format!("{who} {wants}"),
         text: text.to_owned(),
         command,
     })
@@ -71,12 +76,12 @@ mod tests {
     }
 
     #[test]
-    fn a_command_shows_as_a_command_with_where_to_answer() {
+    fn a_command_shows_as_a_command_under_the_agents_name() {
         let t = at_prompt(Status::NeedsYou, Some("Run command: npm install"));
         assert_eq!(
-            of(&t, Some(Tool::Codex)),
+            of(&t, Some("Developer")),
             Some(PermissionPrompt {
-                heading: "Codex is waiting for your answer in its terminal".into(),
+                heading: "Developer wants to run a command".into(),
                 text: "npm install".into(),
                 command: true,
             })
@@ -89,31 +94,46 @@ mod tests {
             Status::NeedsYou,
             Some("Claude needs your permission to use Bash"),
         );
-        let p = of(&t, Some(Tool::Claude)).unwrap();
+        let p = of(&t, Some("Strong")).unwrap();
+        assert_eq!(p.heading, "Strong wants your permission");
         assert_eq!(p.text, "Claude needs your permission to use Bash");
         assert!(!p.command);
-        assert_eq!(
-            p.heading,
-            "Claude Code is waiting for your answer in its terminal"
-        );
     }
 
     #[test]
     fn a_helpers_prompt_says_a_helper_asks() {
         let t = at_prompt(Status::NeedsYou, Some("helper agent asks: Run command: ls"));
-        let p = of(&t, None).unwrap();
+        let p = of(&t, Some("Developer")).unwrap();
         assert_eq!(
             p.heading,
-            "A helper agent is waiting for your answer in its terminal"
+            "Developer\u{2019}s helper agent wants to run a command"
         );
-        assert_eq!(p.text, "ls");
-        assert!(p.command);
+        assert_eq!((p.text.as_str(), p.command), ("ls", true));
+        assert_eq!(
+            of(&t, None).unwrap().heading,
+            "A helper agent wants to run a command"
+        );
     }
 
     #[test]
     fn the_checkers_prompt_shows_too() {
         let t = at_prompt(Status::CheckerNeedsYou, Some("Run command: cargo test"));
-        assert_eq!(of(&t, None).unwrap().text, "cargo test");
+        let p = of(&t, Some("Checker")).unwrap();
+        assert_eq!(p.heading, "Checker wants to run a command");
+        assert_eq!(p.text, "cargo test");
+    }
+
+    #[test]
+    fn an_unnamed_agent_is_the_agent() {
+        let t = at_prompt(Status::NeedsYou, Some("Use apply_patch"));
+        assert_eq!(
+            of(&t, None).unwrap().heading,
+            "The agent wants your permission"
+        );
+        assert_eq!(
+            of(&t, Some(" ")).unwrap().heading,
+            "The agent wants your permission"
+        );
     }
 
     #[test]

@@ -642,7 +642,7 @@ button.overview-attachment:hover {
   flex: 1;
 }
 
-/* A permission prompt above Answer in terminal: who waits and where, then the command or the tool's words. */
+/* A permission prompt above Answer in terminal: the agent that asks, then the command or the tool's words. */
 .sheet-permission {
   display: flex;
   flex-direction: column;
