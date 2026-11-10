@@ -12,7 +12,7 @@ import type { CleanupWarmSection } from "../../generated/CleanupWarmSection";
 import type { Notices } from "../../generated/Notices";
 import type { ScratchConfirm } from "../../generated/ScratchConfirm";
 import { recovery } from ".";
-import { SUMMARY_EVENTS, SummaryBody } from "./AfterRestart";
+import { SUMMARY_EVENTS, SummaryBody, signInKey } from "./AfterRestart";
 import { CleanupBody, CleanupConfirmDialog, WarmConfirmDialog } from "./Cleanup";
 import { setUnchecked, startFolded, summaryToOpen, toggleFold } from "./logic";
 import { ScratchBody } from "./StartFromScratch";
@@ -39,6 +39,8 @@ function row(id: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow 
     state: "stopped",
     detail: "was working in Dev",
     problem: null,
+    sign_in: null,
+    tool: "claude",
     checking: null,
     checked: true,
     ...extra,
@@ -57,7 +59,13 @@ const SUMMARY: AfterRestartSummary = {
       detail: "Couldn’t resume: Claude has no saved conversation",
       checked: false,
     }),
-    row("BILL-4", { problem: "Codex isn’t signed in · sign in first", checked: false }),
+    row("BILL-4", {
+      problem: "Codex isn’t signed in · sign in first",
+      sign_in: "Sign in…",
+      tool: "codex",
+      checked: false,
+    }),
+    row("BILL-5", { problem: "Codex limit reached", tool: "codex", checked: false }),
   ],
   notes: ["SHOP-22 still waits for your answer; answering resumes it."],
   retry: "Retry",
@@ -68,6 +76,14 @@ const SUMMARY: AfterRestartSummary = {
   resume_selected: "Resume 2",
   selected: ["SHOP-27"],
   selected_agents: ["a1"],
+  terminal: {
+    hide: "Hide",
+    close: "Close",
+    retry: "Retry",
+    checking: "Ended · checking again…",
+    not_done: "Not done yet — see the output above",
+    done: "Done",
+  },
 };
 
 const CLEANUP: CleanupPage = {
@@ -203,7 +219,23 @@ describe("the after-restart sheet", () => {
     );
     const bill = html.slice(html.lastIndexOf("<input", html.indexOf("BILL-4")));
     expect(bill.slice(0, bill.indexOf(">"))).toContain("disabled");
-    expect(html).toContain('data-problem="true">Codex isn’t signed in · sign in first');
+    expect(html).toContain('data-problem="true"><span>Codex isn’t signed in · sign in first');
+  });
+
+  it("offers Sign in… on a signed-out row only, sending that row's tool", () => {
+    const html = renderToStaticMarkup(
+      createElement(SummaryBody, {
+        view: SUMMARY,
+        resuming: new Set<string>(),
+        onCheck: nothing,
+        onRetry: nothing,
+      }),
+    );
+    expect(html.split("Sign in…").length - 1).toBe(1);
+    const bill = html.slice(html.indexOf("BILL-4"), html.indexOf("BILL-5"));
+    expect(bill).toContain("Sign in…");
+    // The terminal waits on the key Settings → Agents uses for the same sign-in.
+    expect(signInKey(row("BILL-4", { tool: "codex" }))).toBe("codex:sign_in");
   });
 
   it("shows a row whose tool is still being checked as waiting, never as not installed, and redraws on the check", () => {
