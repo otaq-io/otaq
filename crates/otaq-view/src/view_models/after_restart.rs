@@ -12,6 +12,7 @@
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
 use otaq_core::project_agents::{AgentState, ProjectAgent};
@@ -47,11 +48,25 @@ impl Runs {
     }
 }
 
-/// Why `tool` can't resume anything now, as a row says it: "Codex isn’t signed in · sign in first", "Codex isn’t
-/// available (not installed)", "Claude Code limit reached · resets 3:45 pm". `None` while it can run.
+/// Why `tool` can't resume anything now, as a row says it: "Codex isn’t signed in · sign in first", "Couldn’t check
+/// Claude Code’s sign-in · Re-check first", "Codex isn’t available (not installed)", "Claude Code limit reached ·
+/// resets 3:45 pm". `None` while it can run.
 pub fn cannot_resume(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> Option<String> {
-    match tools.problem(tool)? {
-        Problem::Unavailable { sign_in: true, .. } => Some(format!(
+    let problem = tools.problem(tool)?;
+    // The tool's own sign-in answer decides: no answer is not signed in either, so nothing resumes on it until a
+    // Re-check reads one.
+    if let Some(AgentToolState::CouldNotCheck { .. }) = tools.status(tool).map(|s| &s.state) {
+        return Some(format!(
+            "Couldn\u{2019}t check {}\u{2019}s sign-in \u{b7} Re-check first",
+            tool_word(tool)
+        ));
+    }
+    let signed_out = matches!(
+        tools.status(tool).map(|s| &s.state),
+        Some(AgentToolState::FoundNotSignedIn { .. })
+    );
+    match problem {
+        Problem::Unavailable { sign_in, .. } if sign_in || signed_out => Some(format!(
             "{} isn\u{2019}t signed in \u{b7} sign in first",
             tool_word(tool)
         )),
@@ -234,6 +249,21 @@ fn ticket_row(
     }
 }
 
+/// A ticket that was asking you, on a tool that can't run now: unticked with why.
+fn asking_row(ticket: &Ticket, runs: &Runs) -> SummaryRow {
+    let key = ticket.key.to_string();
+    SummaryRow {
+        problem: cannot_resume(runs.tool(&key), &runs.tools),
+        id: key.clone(),
+        kind: RowKind::Ticket,
+        tag: key,
+        title: ticket.title.clone(),
+        state: RowState::Stopped,
+        detail: "was waiting for you".to_owned(),
+        checked: false,
+    }
+}
+
 fn conversation_row(agent: &ProjectAgent, unchecked: &BTreeSet<String>, runs: &Runs) -> SummaryRow {
     let stopped = agent.state == AgentState::EndedByRestart;
     let problem = stopped
@@ -293,13 +323,19 @@ pub fn summary(
     let stopped: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
     // A ticket that was asking kept its question: answering it from Needs you resumes and delivers it (d0045). A
     // stopped check is a row: its Resume starts the check again (d0063).
-    let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = stopped.iter().partition(|t| {
+    let (asking, listed): (Vec<&Ticket>, Vec<&Ticket>) = stopped.iter().partition(|t| {
         t.status == Status::Interrupted
             && t.interrupted_from.is_some_and(|s| s.is_needs_you_family())
     });
+    // Every stopped agent is in the dialog: one that was asking on a tool that can't run now can't be resumed by an
+    // answer either, so it is a row, unticked with why, rather than the note.
+    let (blocked, kept): (Vec<&Ticket>, Vec<&Ticket>) = asking
+        .into_iter()
+        .partition(|t| cannot_resume(runs.tool(&t.key.to_string()), &runs.tools).is_some());
     let mut rows: Vec<SummaryRow> = listed
         .iter()
         .map(|t| ticket_row(t, report.was_validating.contains(&t.key), unchecked, runs))
+        .chain(blocked.iter().map(|t| asking_row(t, runs)))
         .chain(
             report
                 .project_agents_ended
@@ -322,8 +358,15 @@ pub fn summary(
     };
     let selected = ticked(RowKind::Ticket);
     let selected_agents = ticked(RowKind::Conversation);
+    // The title counts the agents that can resume, as the button counts the ticked ones; the ones that can't are
+    // counted only when none can, so it never says "0 agents were stopped".
+    let can_resume = rows.iter().filter(|r| r.problem.is_none()).count();
     Some(SummaryPage {
-        title: title(rows.len() + kept.len()),
+        title: title(if can_resume == 0 {
+            rows.len() + kept.len()
+        } else {
+            can_resume
+        }),
         text: "Each can continue its same conversation, in its own copy. Resuming uses tokens.",
         notes,
         retry: "Retry",
@@ -488,7 +531,8 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(page.title, "5 agents were stopped by a restart");
+        // As drawn: the title counts the three that can resume, not the row that can't nor the asking note.
+        assert_eq!(page.title, "3 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 3");
         assert_eq!(page.selected, ["SHOP-27", "SHOP-26"]);
         assert_eq!(page.selected_agents, ["a1"]);
@@ -509,6 +553,117 @@ mod tests {
         assert_eq!(page.selected, ["SHOP-26"]);
         assert!(page.selected_agents.is_empty());
         assert_eq!(page.resume_selected, "Resume 1");
+    }
+
+    fn claude_as(state: AgentToolState) -> Tools {
+        let mut tools = tf::several();
+        tools.statuses[0] = tf::status(CLAUDE, state);
+        tools.connected.retain(|t| *t != CLAUDE);
+        tools
+    }
+
+    fn rows_of(page: &SummaryPage) -> Vec<(&str, Option<&str>, bool)> {
+        page.rows
+            .iter()
+            .map(|r| (r.tag.as_str(), r.problem.as_deref(), r.checked))
+            .collect()
+    }
+
+    /// The release test: one agent that can resume and one that was waiting for you on a signed-out Claude Code. Each
+    /// has a row (the signed-out one unticked with why, not hidden in the "still waits for your answer" note), and
+    /// the title and the button both count the one that can resume.
+    #[test]
+    fn an_agent_on_a_signed_out_tool_gets_an_unticked_row_and_isnt_counted() {
+        let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
+        let mut idle = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        idle.interrupted_from = Some(Status::Idle);
+        let r = report(&["SHOP-9", "NOTE-4"]);
+        let runs = Runs {
+            tools: claude_as(AgentToolState::FoundNotSignedIn { version: None }),
+            tickets: BTreeMap::from([
+                ("SHOP-9".to_owned(), ran(CODEX)),
+                ("NOTE-4".to_owned(), ran(CLAUDE)),
+            ]),
+            ..Runs::default()
+        };
+        let page = summary(&r, &[working, idle], &[], &BTreeSet::new(), &runs).unwrap();
+        assert_eq!(
+            rows_of(&page),
+            [
+                ("SHOP-9", None, true),
+                (
+                    "NOTE-4",
+                    Some("Claude Code isn\u{2019}t signed in \u{b7} sign in first"),
+                    false
+                ),
+            ]
+        );
+        assert_eq!(page.rows[1].detail, "was waiting for you");
+        assert!(page.notes.is_empty());
+        assert_eq!(page.title, "1 agent was stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+        assert_eq!(page.selected, ["SHOP-9"]);
+
+        // The same with a ticket that was working on the signed-out tool.
+        let mut working_cc = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        working_cc.interrupted_from = Some(Status::Working);
+        let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
+        let page = summary(&r, &[working, working_cc], &[], &BTreeSet::new(), &runs).unwrap();
+        assert_eq!(rows_of(&page).len(), 2);
+        assert!(!page.rows[1].checked && page.rows[1].problem.is_some());
+        assert_eq!(page.title, "1 agent was stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+    }
+
+    /// A tool whose sign-in answer couldn't be read can't resume anything either: its row says so and points at
+    /// Re-check.
+    #[test]
+    fn a_tool_whose_sign_in_couldnt_be_checked_gets_an_unticked_row() {
+        let mut asking = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        asking.interrupted_from = Some(Status::AsksYou);
+        let mut r = report(&["NOTE-4"]);
+        r.project_agents_ended = vec!["a1".into()];
+        let runs = Runs {
+            tools: claude_as(AgentToolState::CouldNotCheck { version: None }),
+            tickets: BTreeMap::from([("NOTE-4".to_owned(), ran(CLAUDE))]),
+            ..Runs::default()
+        };
+        let agents = [ended_agent("a1", "Import issues", CLAUDE)];
+        let page = summary(&r, &[asking], &agents, &BTreeSet::new(), &runs).unwrap();
+        let why = "Couldn\u{2019}t check Claude Code\u{2019}s sign-in \u{b7} Re-check first";
+        assert_eq!(
+            rows_of(&page),
+            [("NOTE-4", Some(why), false), ("Noyan", Some(why), false)]
+        );
+        // None can resume: the title counts every stopped agent, never "0 agents".
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 0");
+    }
+
+    /// A ticket that was asking on a tool that can run keeps the note, as drawn, and isn't counted as a row.
+    #[test]
+    fn a_ticket_asking_on_a_tool_that_can_run_stays_the_note() {
+        let working = card_fixtures::ticket("SHOP-27", "Wishlist share link", Status::Interrupted);
+        let mut asking = card_fixtures::ticket("SHOP-22", "Fix flaky login", Status::Interrupted);
+        asking.interrupted_from = Some(Status::AsksYou);
+        let runs = Runs {
+            tools: tf::several(),
+            ..Runs::default()
+        };
+        let page = summary(
+            &report(&["SHOP-27", "SHOP-22"]),
+            &[working, asking],
+            &[],
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(rows_of(&page), [("SHOP-27", None, true)]);
+        assert_eq!(
+            page.notes,
+            ["SHOP-22 still waits for your answer; answering resumes it."]
+        );
+        assert_eq!(page.title, "1 agent was stopped by a restart");
     }
 
     /// A conversation with Noyan on a tool at its limit stays unticked too: nothing resumes on a tool that can't run.
