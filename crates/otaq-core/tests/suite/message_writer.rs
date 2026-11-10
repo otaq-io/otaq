@@ -348,3 +348,103 @@ async fn closing_the_ticket_ends_the_writer() {
     s.writer_ends().await;
     s.w.stop().await;
 }
+
+impl Setup {
+    /// The writer was asked for the branch's head by an earlier run of Otaq (an update with the ticket in Review):
+    /// the request is recorded, "writing", and no session writes it.
+    async fn leftover_request(&self) {
+        self.w.sessions.stop(&self.writer.id).await.unwrap();
+        self.writer_ends().await;
+        let head = otaq_core::git::testing::git(&self.worktree(), &["rev-parse", "HEAD"]);
+        let head = head.trim().to_owned();
+        sqlx::query(
+            "INSERT OR REPLACE INTO delivery_messages
+                 (ticket_id, state, agent, head, title, description, branch, updated_at)
+             VALUES (?, 'writing', 'Checker', ?, '', '', NULL, 0)",
+        )
+        .bind(&self.ticket.id)
+        .bind(head)
+        .execute(self.w.board.store().pool())
+        .await
+        .unwrap();
+        assert!(
+            [SessionKind::Delivery, SessionKind::Agent]
+                .into_iter()
+                .all(|kind| self.w.sessions.running_of(&self.ticket.id, kind).is_none())
+        );
+    }
+
+    fn worktree(&self) -> std::path::PathBuf {
+        self.ticket
+            .work
+            .as_ref()
+            .unwrap()
+            .worktree
+            .clone()
+            .unwrap()
+            .into()
+    }
+}
+
+/// A writer asked by an earlier run of Otaq, with no session writing any more: opening Approve & merge asks it again,
+/// though the branch head is the same, so the dialog never says it writes when no one does. A writer that runs is
+/// left alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn approve_asks_a_writer_that_no_longer_runs_again() {
+    let s = setup().await;
+    s.leftover_request().await;
+
+    let proposal = s.proposal().await;
+    assert_eq!(proposal.writing.as_deref(), Some("Checker"));
+    let again =
+        s.w.sessions
+            .running_of(&s.ticket.id, SessionKind::Delivery)
+            .expect("the writer is asked again in a new session");
+    assert_ne!(again.id, s.writer.id);
+    let message =
+        s.w.board
+            .delivery_message(&s.ticket.id)
+            .await
+            .unwrap()
+            .unwrap();
+    assert_eq!(message.state, MessageState::Writing);
+
+    // Approve & open PR on the running writer asks nobody new.
+    assert_eq!(
+        s.pr_flow().await.message.map(|m| m.state),
+        Some(MessageState::Writing)
+    );
+    assert_eq!(
+        s.w.sessions
+            .running_of(&s.ticket.id, SessionKind::Delivery)
+            .unwrap()
+            .id,
+        again.id
+    );
+    s.w.stop().await;
+}
+
+/// A writer asked by an earlier run that can't be asked again (here its project is paused): the dialogs open on the
+/// plain message and say nobody is writing it.
+#[tokio::test(flavor = "multi_thread")]
+async fn approve_offers_the_plain_message_when_the_writer_cant_be_asked_again() {
+    let s = setup().await;
+    s.w.pause
+        .pause(&otaq_core::agents::pause::PauseScope::Project {
+            project: "SHOP".into(),
+        })
+        .await
+        .unwrap();
+    s.leftover_request().await;
+
+    let proposal = s.proposal().await;
+    assert_eq!((proposal.writing, proposal.prepared_by), (None, None));
+    assert!(proposal.message.starts_with("SHOP-1: Checkout timeout"));
+    assert_eq!(s.pr_flow().await.message, None);
+    assert!(
+        s.w.sessions
+            .running_of(&s.ticket.id, SessionKind::Delivery)
+            .is_none()
+    );
+    s.w.stop().await;
+}
