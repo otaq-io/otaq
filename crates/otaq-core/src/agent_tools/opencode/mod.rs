@@ -35,6 +35,11 @@ use crate::agent_tools::catalog::FamilySource;
 use crate::agent_tools::events::LimitWindow;
 use crate::usage::limit::LimitKind;
 
+/// A skill as the tool calls it ([`launch::skill_reference`]).
+pub(super) fn skill_reference(skill: &str) -> String {
+    launch::skill_reference(skill)
+}
+
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "OpenCode";
 
@@ -298,7 +303,7 @@ impl AgentTool for OpenCode {
     }
 
     fn skill_reference(&self, skill: &str) -> String {
-        launch::skill_reference(skill)
+        skill_reference(skill)
     }
 
     /// "Load the skill `work-ticket` with your skill tool and follow it. …" ([`launch::skill_prompt`]).

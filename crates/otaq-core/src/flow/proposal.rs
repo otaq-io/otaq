@@ -11,8 +11,8 @@
 //!
 //! **A stage naming a skill the user doesn't have** isn't a problem: the flow still applies, and the stage carries
 //! the warning "You don't have the skill `<name>`" in the diff's warnings ([`Board::skill_warnings`]). Nor is a stage
-//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `/<name>`", and the stage is
-//! held when it is due to start on that tool. Otaq's own skills never warn.
+//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `$<name>`" (the skill as the
+//! tool calls it), and the stage is held when it is due to start on that tool. Otaq's own skills never warn.
 //!
 //! **The draft** ([`super::draft`], FED-02): the open proposal is the project's draft, which the flow editor and a
 //! Project agent's `flow propose` both edit.
@@ -985,19 +985,37 @@ pub fn unknown_skill_text(skill: &str) -> String {
 }
 
 /// The warning on a stage whose agent's tool doesn't have the stage's skill, and Settings → Agents' "What this agent
-/// reads" for such a skill: "Copilot doesn’t have the skill `/team-validate`".
+/// reads" for such a skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
+/// "Codex doesn’t have the skill `$team-validate`".
 pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
     format!(
-        "{} doesn\u{2019}t have the skill `/{skill}`",
-        tool.display_name()
+        "{} doesn\u{2019}t have the skill `{}`",
+        tool.display_name(),
+        tool.skill_reference(skill)
     )
 }
 
 /// The warning on a stage whose skill `tools` find but don't load, because its `SKILL.md` starts with a UTF-8 byte
-/// order mark: "Codex doesn’t load the skill `team-validate`: its SKILL.md starts with a byte order mark".
+/// order mark: "Codex doesn’t load the skill `$team-validate`: its SKILL.md starts with a byte order mark", the skill
+/// named as those tools call it (each form once, "`$team-validate` or `/team-validate`" when they call it differently).
 pub fn skipped_skill_text(tools: &[Tool], skill: &str) -> String {
+    let mut forms: Vec<String> = Vec::new();
+    for tool in tools {
+        let form = tool.skill_reference(skill);
+        if !forms.contains(&form) {
+            forms.push(form);
+        }
+    }
+    if forms.is_empty() {
+        forms.push(skill.to_owned());
+    }
+    let named = forms
+        .iter()
+        .map(|form| format!("`{form}`"))
+        .collect::<Vec<_>>()
+        .join(" or ");
     format!(
-        "{} doesn\u{2019}t load the skill `{skill}`: its {} starts with a byte order mark",
+        "{} doesn\u{2019}t load the skill {named}: its {} starts with a byte order mark",
         tool_names(tools),
         crate::skills::found::SKILL_FILE
     )
@@ -1681,6 +1699,36 @@ fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalP
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// A stage's warning names the skill the way the stage's tool calls it, each tool its own form.
+    #[test]
+    fn a_missing_skill_is_named_as_the_tool_calls_it() {
+        assert_eq!(
+            missing_skill_text(Tool::Codex, "retest-docs"),
+            "Codex doesn\u{2019}t have the skill `$retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::Claude, "retest-docs"),
+            "Claude Code doesn\u{2019}t have the skill `/retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::Copilot, "retest-docs"),
+            "GitHub Copilot doesn\u{2019}t have the skill `/retest-docs`"
+        );
+        assert_eq!(
+            missing_skill_text(Tool::OpenCode, "retest-docs"),
+            "OpenCode doesn\u{2019}t have the skill `retest-docs`"
+        );
+        assert_eq!(
+            skipped_skill_text(&[Tool::Codex], "retest-docs"),
+            "Codex doesn\u{2019}t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark"
+        );
+        assert_eq!(
+            skipped_skill_text(&[Tool::Codex, Tool::Copilot], "retest-docs"),
+            "Codex, GitHub Copilot doesn\u{2019}t load the skill `$retest-docs` or `/retest-docs`: its SKILL.md starts \
+             with a byte order mark"
+        );
+    }
 
     /// The shipped default flow without its stages' descriptions, as the documents these tests write have none.
     fn default_flow() -> Flow {

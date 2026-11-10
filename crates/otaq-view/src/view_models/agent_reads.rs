@@ -603,7 +603,7 @@ mod tests {
         assert_eq!(v.parts[2].text, None);
         assert_eq!(
             v.parts[2].empty.as_deref(),
-            Some("Codex doesn\u{2019}t have the skill `/team-validate`")
+            Some("Codex doesn\u{2019}t have the skill `$team-validate`")
         );
     }
 }

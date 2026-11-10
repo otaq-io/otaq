@@ -308,7 +308,7 @@ fn since(ticket: &Ticket) -> i64 {
 
 /// The item's line in Needs you (brief 10); `waiting_in` names a group 3 ticket's human check.
 fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
-    // A stage held for its skill: "Codex doesn't have the skill `/team-validate`".
+    // A stage held for its skill: "Codex doesn't have the skill `$team-validate`".
     if let Some(missing) = &ticket.flags.missing_skill {
         return missing.text();
     }

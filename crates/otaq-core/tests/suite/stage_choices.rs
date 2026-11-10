@@ -268,7 +268,7 @@ async fn who_may_set_what() {
         ),
         (
             Refusal::NotAnOption,
-            "Quick developer runs on Codex, which doesn't have the skill `/team-security-review` for Security".into()
+            "Quick developer runs on Codex, which doesn't have the skill `$team-security-review` for Security".into()
         )
     );
     // Not a choice of the stage: refused naming them; a stage that runs no agent offers only its own; Dev isn't

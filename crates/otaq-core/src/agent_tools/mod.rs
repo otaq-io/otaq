@@ -126,6 +126,17 @@ impl Tool {
 }
 
 impl Tool {
+    /// [`AgentTool::skill_reference`]: a skill as the tool calls it, `/team-validate` (Claude Code, Copilot),
+    /// `$team-validate` (Codex), `team-validate` (OpenCode); the form every message about a stage names its skill in.
+    pub fn skill_reference(self, skill: &str) -> String {
+        match self {
+            Self::Claude => claude::skill_reference(skill),
+            Self::Codex => codex::skill_reference(skill),
+            Self::Copilot => copilot::skill_reference(skill),
+            Self::OpenCode => opencode::skill_reference(skill),
+        }
+    }
+
     /// [`AgentTool::display_name`]: "Claude Code", "GitHub Copilot".
     pub fn display_name(self) -> &'static str {
         match self {

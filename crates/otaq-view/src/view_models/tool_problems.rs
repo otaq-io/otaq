@@ -722,7 +722,7 @@ mod tests {
         let c = hold_callout(&held, &agents(), &several());
         assert_eq!(
             c.heading,
-            "Codex doesn\u{2019}t have the skill `/team-validate`"
+            "Codex doesn\u{2019}t have the skill `$team-validate`"
         );
         assert_eq!(c.tone, Tone::Amber);
         assert_eq!(labels(&c), [CHECK_AGAIN, CHANGE_AGENT]);
@@ -745,6 +745,31 @@ mod tests {
                 "Nothing started. Link the skill into Claude Code\u{2019}s skills folder or commit it to the project, \
                  then Check again; or give the stage an agent whose tool has it."
             )
+        );
+    }
+
+    /// The held message names the skill the way the stage's tool calls it, so it can be copied into that tool:
+    /// `$retest-docs` on Codex, `/retest-docs` on Claude Code.
+    #[test]
+    fn a_held_stage_names_its_skill_as_its_tool_calls_it() {
+        let mut held = hold(
+            SessionRole::Developer,
+            HoldReason::MissingSkill,
+            CODEX,
+            "standard",
+            None,
+        );
+        held.skill = Some("retest-docs".into());
+        let c = hold_callout(&held, &agents(), &several());
+        assert_eq!(
+            c.heading,
+            "Codex doesn\u{2019}t have the skill `$retest-docs`"
+        );
+        held.tool = CLAUDE;
+        let c = hold_callout(&held, &agents(), &several());
+        assert_eq!(
+            c.heading,
+            "Claude Code doesn\u{2019}t have the skill `/retest-docs`"
         );
     }
 

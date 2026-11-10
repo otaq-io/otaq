@@ -244,7 +244,7 @@ mod tests {
     }
 
     /// A stage held because its tool doesn't have its skill is red: the line says, word for word, "Codex doesn't
-    /// have the skill `/team-validate`".
+    /// have the skill `$team-validate`".
     #[test]
     fn a_stage_held_for_its_skill_says_which_on_its_line() {
         use crate::view_models::card_fixtures::{NOW, ticket};
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(
             line(&card),
             (
-                "Codex doesn\u{2019}t have the skill `/team-validate`",
+                "Codex doesn\u{2019}t have the skill `$team-validate`",
                 Palette::Error,
                 Tone::Error
             )

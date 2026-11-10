@@ -157,7 +157,7 @@ and you can also type a name. A stage that names no skill runs Otaq's own skill 
 that runs the command and name that skill instead.
 
 **A stage runs only on a tool that has its skill.** A stage due to start on a tool that doesn't have the skill it
-names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `/team-validate`", **Check
+names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `$team-validate`", **Check
 again** (Otaq looks for the skill again and starts the stage if it is found) and **Change agent…** (only agents
 whose tool has the skill). A tool has a skill when it finds it in the ticket's worktree: in its own personal
 folder, in the project's folders when the skill is committed, or, for Claude Code, in the checkout's

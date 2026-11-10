@@ -2191,7 +2191,7 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
             Some(cant_run(format!("{tool} isn\u{2019}t available"))),
             Tone::Error,
         ),
-        // "Can't start · Codex doesn't have the skill `/team-validate`" (the sentence also under the line).
+        // "Can't start · Codex doesn't have the skill `$team-validate`" (the sentence also under the line).
         HoldReason::MissingSkill => {
             let why = match &h.skill {
                 Some(skill) => otaq_core::flow::proposal::missing_skill_text(h.tool, skill),

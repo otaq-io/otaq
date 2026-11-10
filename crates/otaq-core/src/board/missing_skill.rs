@@ -3,7 +3,7 @@
 //! A stage due to start on a tool that doesn't have the skill it names (Otaq's finder, [`Board::skill_tools`], for
 //! the ticket's worktree) doesn't start: the check before every launch ([`crate::agents::gate`]) holds it like a
 //! tool that can't run, with the hold reason [`crate::agents::HoldReason::MissingSkill`] and the skill's name. The
-//! ticket waits in Needs you, "Codex doesn't have the skill `/team-validate`", with **Check again** (the finder is
+//! ticket waits in Needs you, "Codex doesn't have the skill `$team-validate`", with **Check again** (the finder is
 //! asked again and the stage starts if the skill is found) and **Change agent…** (only agents whose tool has the
 //! skill). The same check runs when a skill is typed into a session already running (Open PR into the live Dev
 //! session, a queued return): there nothing is typed.

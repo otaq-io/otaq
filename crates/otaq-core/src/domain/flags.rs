@@ -240,7 +240,7 @@ pub struct Flags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_into: Option<TicketKey>,
     /// A stage held because its tool doesn't have the skill it names (a stage runs only on a tool that has its
-    /// skill): the ticket waits in Needs you, "Codex doesn't have the skill `/team-validate`". Set while the held
+    /// skill): the ticket waits in Needs you, "Codex doesn't have the skill `$team-validate`". Set while the held
     /// stage still waits; not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_skill: Option<MissingSkill>,
@@ -254,7 +254,7 @@ pub struct MissingSkill {
 }
 
 impl MissingSkill {
-    /// "Codex doesn't have the skill `/team-validate`".
+    /// "Codex doesn't have the skill `$team-validate`".
     pub fn text(&self) -> String {
         crate::flow::proposal::missing_skill_text(self.tool, &self.skill)
     }
