@@ -707,7 +707,7 @@ pub(super) async fn handle(
         }),
         Request::TicketConflict(p) => boxed(move || async move {
             match board.ticket(&p.key).await {
-                Ok(t) => board.conflict(&t.id).await.map(Reply::Conflict),
+                Ok(t) => board.conflict_details(&t).await.map(Reply::Conflict),
                 Err(e) => Err(e),
             }
         }),

@@ -594,6 +594,46 @@ pub fn conflict_line(conflict: &otaq_core::board::conflicts::Conflict) -> String
     line
 }
 
+/// What moved on the target, under the strip: "SHOP-6 changed README.md", "SHOP-6 changed a.ts and b.ts · 4fa97d6
+/// changed c.ts". `None` when git couldn't say.
+pub fn moved_line(conflict: &otaq_core::board::conflicts::Conflict) -> Option<String> {
+    if conflict.moved.is_empty() {
+        return None;
+    }
+    Some(
+        conflict
+            .moved
+            .iter()
+            .map(|m| {
+                format!(
+                    "{} changed {}",
+                    m.by,
+                    crate::view_models::dependencies::and_list(&m.files)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" \u{b7} "),
+    )
+}
+
+/// A delivery problem the agent fixes on its own merges nothing, and the ticket comes back to its human check once
+/// fixed: "Nothing was merged into main. SHOP-5 returns to Review when it's fixed."
+pub fn nothing_merged_line(key: &TicketKey, target: &str) -> String {
+    format!("Nothing was merged into {target}. {key} returns to Review when it\u{2019}s fixed.")
+}
+
+/// Where the problem stands among the ones in a row that stop the ticket: "1 of 3".
+pub fn in_a_row(count: u32) -> String {
+    format!(
+        "{count} of {}",
+        otaq_core::board::merge::DELIVERY_CONFLICT_LIMIT
+    )
+}
+
+/// What the count means, on hover.
+pub const IN_A_ROW_HINT: &str =
+    "Conflicts and failed merge checks in a row. After the third, it stops and waits for you.";
+
 /// What happens after the conflict (FLW-17, no click): the agent fixes it, or the user does by hand.
 pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     format!(
@@ -965,11 +1005,43 @@ mod tests {
                 "src/lib/cart/validate.ts".into(),
             ],
             reason: ConflictReason::Merge,
+            moved: Vec::new(),
         };
         assert_eq!(
             conflict_line(&c),
             "Conflicts with main \u{b7} 2 files (src/lib/stripe/session.ts, src/lib/cart/validate.ts)"
         );
+        assert_eq!(moved_line(&c), None, "git said nothing: no line");
+    }
+
+    #[test]
+    fn the_conflict_says_what_moved_and_where_it_stands() {
+        use otaq_core::board::conflicts::{Conflict, ConflictReason, Moved};
+        let c = Conflict {
+            target: "main".into(),
+            files: vec!["README.md".into(), "a.ts".into(), "b.ts".into()],
+            reason: ConflictReason::TestMerge,
+            moved: vec![
+                Moved {
+                    by: "SHOP-6".into(),
+                    files: vec!["README.md".into()],
+                },
+                Moved {
+                    by: "4fa97d6".into(),
+                    files: vec!["a.ts".into(), "b.ts".into()],
+                },
+            ],
+        };
+        assert_eq!(
+            moved_line(&c).as_deref(),
+            Some("SHOP-6 changed README.md \u{b7} 4fa97d6 changed a.ts and b.ts")
+        );
+        let key: TicketKey = "SHOP-5".parse().unwrap();
+        assert_eq!(
+            nothing_merged_line(&key, "main"),
+            "Nothing was merged into main. SHOP-5 returns to Review when it\u{2019}s fixed."
+        );
+        assert_eq!(in_a_row(1), "1 of 3");
     }
 
     #[test]

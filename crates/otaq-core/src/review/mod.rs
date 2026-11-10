@@ -512,6 +512,7 @@ impl Review {
                             target: target.target.clone(),
                             files: files.clone(),
                             reason: ConflictReason::Merge,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;
@@ -529,6 +530,7 @@ impl Review {
                             target: target.target.clone(),
                             files: Vec::new(),
                             reason: ConflictReason::MergeCheck,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;

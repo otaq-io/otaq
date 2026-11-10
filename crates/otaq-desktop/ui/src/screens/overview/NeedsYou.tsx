@@ -553,7 +553,20 @@ export function NeedsYou({
         {view.conflict && (
           <div className="sheet-conflict">
             <Icon name="triangle-alert" size={13} />
-            <span className="sheet-conflict-line">{view.conflict.line}</span>
+            <div className="sheet-conflict-text">
+              <span className="sheet-conflict-line">{view.conflict.line}</span>
+              {view.conflict.moved !== null && (
+                <span className="sheet-conflict-more">{view.conflict.moved}</span>
+              )}
+              {view.conflict.outcome !== null && (
+                <span className="sheet-conflict-more">{view.conflict.outcome}</span>
+              )}
+            </div>
+            {view.conflict.count !== null && (
+              <Tooltip text={view.conflict.count_hint}>
+                <span className="sheet-conflict-count">{view.conflict.count}</span>
+              </Tooltip>
+            )}
           </div>
         )}
         {view.answer ? (
