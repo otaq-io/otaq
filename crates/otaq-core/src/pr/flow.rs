@@ -128,6 +128,10 @@ pub struct PrFlowView {
     /// fills in with it when it arrives, unless the user typed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<super::message::DeliveryMessage>,
+    /// The agent still writing `message` waits for permission: its session, whose terminal answers the prompt (the
+    /// service fills it in).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_in: Option<String>,
 }
 
 /// The answer to a live branch-name check (REV-10).
@@ -253,6 +257,7 @@ impl Board {
             pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
             pr_url: row.pr_url,
             message: self.delivery_message(&ticket.id).await?,
+            asks_in: None,
             key: ticket.key,
         })
     }

@@ -4956,6 +4956,10 @@
     "MergeProposal": {
       "kind": "struct",
       "fields": {
+        "asks_in": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "commits": {
           "ty": "u32"
         },
@@ -6119,6 +6123,10 @@
     "PrFlowView": {
       "kind": "struct",
       "fields": {
+        "asks_in": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "branch": {
           "ty": "String",
           "required": true

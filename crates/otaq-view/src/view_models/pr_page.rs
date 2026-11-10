@@ -148,6 +148,8 @@ pub struct DialogView {
     pub prepared: Option<String>,
     /// "Strong is still writing the title and description. …": the fields hold the plain text meanwhile.
     pub writing: Option<String>,
+    /// The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
+    pub asks: Option<super::review_page::WriterAsks>,
     /// The provider isn't set up on this machine.
     pub set_up: Option<SetUpView>,
     /// "Or merge into main instead", when the flow delivers either way.
@@ -270,12 +272,21 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .as_deref()
             .filter(|_| d.writing.is_none())
             .map(|agent| format!("Prepared by {agent} while {} waited in Review.", d.key)),
-        writing: d.writing.as_deref().map(|agent| {
-            format!(
+        writing: d.writing.as_deref().map(|agent| match d.asks_in {
+            Some(_) => format!(
+                "{agent} wants to run a command to write the title and description. Push now with these, edit them, \
+                 or wait: they fill in once you answer, unless you\u{2019}ve typed."
+            ),
+            None => format!(
                 "{agent} is still writing the title and description. Push now with these, edit them, or wait: they \
                  fill in when ready unless you\u{2019}ve typed."
-            )
+            ),
         }),
+        asks: d
+            .writing
+            .as_deref()
+            .zip(d.asks_in.as_deref())
+            .map(|(agent, session)| super::review_page::WriterAsks::new(session, agent, &d.key)),
         set_up: d
             .not_set_up
             .as_deref()
@@ -510,6 +521,7 @@ mod tests {
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
             skill: "open-pr".to_owned(),
             message: None,
+            asks_in: None,
         }
     }
 
@@ -614,6 +626,48 @@ mod tests {
             Some("Or merge into main instead")
         );
         assert!(!v.can_confirm);
+    }
+
+    /// The writer of the title and description waits for permission: the line says so, Answer in terminal opens its
+    /// session's terminal, and the plain text stays pushable; once its prompt closes the line says it still writes.
+    #[test]
+    fn a_writer_waiting_for_permission_offers_answer_in_terminal() {
+        use otaq_core::pr::message::{DeliveryMessage, MessageState};
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let writing = PrFlowView {
+            message: Some(DeliveryMessage {
+                state: MessageState::Writing,
+                agent: "Developer".into(),
+                head: None,
+                title: String::new(),
+                description: String::new(),
+                branch: None,
+            }),
+            asks_in: Some("s-writer".into()),
+            ..flow(FlowState::Proposed, None)
+        };
+        d.update(&writing);
+        let v = dialog_view(&d);
+        assert_eq!(
+            v.writing.as_deref(),
+            Some(
+                "Developer wants to run a command to write the title and description. Push now with these, edit \
+                 them, or wait: they fill in once you answer, unless you\u{2019}ve typed."
+            )
+        );
+        let asks = v.asks.expect("Answer in terminal");
+        assert_eq!(
+            (asks.answer, asks.session.as_str()),
+            ("Answer in terminal", "s-writer")
+        );
+
+        d.update(&PrFlowView {
+            asks_in: None,
+            ..writing
+        });
+        let v = dialog_view(&d);
+        assert!(v.writing.unwrap().starts_with("Developer is still writing"));
+        assert_eq!(v.asks, None);
     }
 
     #[test]

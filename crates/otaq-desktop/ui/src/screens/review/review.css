@@ -49,9 +49,22 @@
   gap: 6px;
 }
 
-.review-writing .icon {
+.review-writing > .icon {
   flex: none;
   margin-top: 2px;
+}
+
+/* Answer in terminal, at the end of the writer's line (Approve & merge, Approve & open PR). */
+.writer-asks {
+  flex: none;
+  margin-left: auto;
+}
+
+.writer-terminal {
+  height: 380px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--term-bg);
 }
 
 .review-link {

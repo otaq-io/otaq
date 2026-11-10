@@ -18,6 +18,7 @@
 //!
 //! Hook status changes are not written to the History tab (they come several times per turn).
 
+pub mod asks;
 pub mod background;
 pub mod hooks;
 pub mod model_refused;
@@ -92,6 +93,8 @@ struct Inner {
     quiet_timing: Mutex<quiet::QuietTiming>,
     /// One reminder before Idle (d0042 2026-10-28).
     reminders: reminder::Reminders,
+    /// Each ticket session's open permission prompt, whatever its ticket's status ([`asks`]).
+    asks: Mutex<HashMap<String, String>>,
 }
 
 /// One session's current turn.
@@ -119,6 +122,7 @@ impl Signals {
                 quiet: Mutex::new(HashMap::new()),
                 quiet_timing: Mutex::new(quiet::QuietTiming::default()),
                 reminders: reminder::Reminders::default(),
+                asks: Mutex::new(HashMap::new()),
             }),
         }
     }
@@ -336,13 +340,16 @@ impl Signals {
             return Ok(signal);
         }
         let Caller::Agent {
-            ticket_id, session, ..
+            ticket,
+            ticket_id,
+            session,
         } = caller
         else {
             tracing::info!("hook from outside an agent session ignored");
             return Ok(Signal::Ignored);
         };
         self.track_turn(session, &signal);
+        self.track_prompt(ticket, ticket_id, session, &signal);
         // Helpers still at their pieces: the agent in charge waits for them, Working in background (d0133).
         let signal = self.with_helpers_at_work(ticket_id, signal).await?;
         // A stage still open at the turn's end: one reminder first, Idle only if it is ignored (d0042 2026-10-28).
@@ -538,7 +545,13 @@ impl Signals {
     /// The agent ran an `otaq` command that acts ([`crate::service::AgentActivity::Acts`]): it is active, so Needs
     /// you and Idle clear (ATT-02, never an open question, d0119) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
-        if let Caller::Agent { ticket_id, .. } = caller {
+        if let Caller::Agent {
+            ticket,
+            ticket_id,
+            session,
+        } = caller
+        {
+            self.prompt_answered(ticket, ticket_id, session);
             self.inner.board.first_prompt_delivered(ticket_id).await?;
             self.apply(ticket_id, &Input::Command).await?;
         }

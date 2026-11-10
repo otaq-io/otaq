@@ -714,11 +714,13 @@ pub(super) async fn handle(
         Request::TicketApproveCheck(p) => {
             boxed(move || async move { board.approve_check(&p.key).await.map(Reply::ApproveCheck) })
         }
-        Request::TicketMergeProposal(p) => {
-            boxed(
-                move || async move { board.merge_proposal(&p.key).await.map(Reply::MergeProposal) },
-            )
-        }
+        Request::TicketMergeProposal(p) => boxed(move || async move {
+            let mut proposal = board.merge_proposal(&p.key).await?;
+            if proposal.writing.is_some() {
+                proposal.asks_in = writer_asks_in(shared, &p.key).await;
+            }
+            Ok(Reply::MergeProposal(proposal))
+        }),
         Request::TicketLocalMerge(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -1042,10 +1044,11 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketPrFlow(p) => boxed(move || async move {
-            board
-                .pr_flow_view(&p.key)
-                .await
-                .map(|v| Reply::PrFlow(Box::new(v)))
+            let mut view = board.pr_flow_view(&p.key).await?;
+            if view.message.as_ref().is_some_and(|m| !m.is_ready()) {
+                view.asks_in = writer_asks_in(shared, &p.key).await;
+            }
+            Ok(Reply::PrFlow(Box::new(view)))
         }),
         Request::TicketPrBranchCheck(p) => boxed(move || async move {
             board
@@ -1752,6 +1755,17 @@ fn flow_event(shared: &Shared, project: &str, change: FlowEvent) {
         project: project.to_owned(),
         change,
     });
+}
+
+/// The session of the agent writing the ticket's delivery message, when it waits at a permission prompt: its delivery
+/// session, else the ticket's own agent's. Approve's dialogs say so and open its terminal to answer.
+async fn writer_asks_in(shared: &Shared, key: &str) -> Option<String> {
+    let id = shared.board.ticket_id(key).await.ok()?;
+    [SessionKind::Delivery, SessionKind::Agent]
+        .into_iter()
+        .filter_map(|kind| shared.sessions.running_of(&id, kind))
+        .find(|s| shared.signals.open_prompt(&s.id).is_some())
+        .map(|s| s.id)
 }
 
 fn boxed<'a, F>(make: impl FnOnce() -> F) -> Answer<'a>

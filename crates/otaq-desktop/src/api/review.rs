@@ -195,6 +195,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         },
         prepared_by: proposal.prepared_by.as_deref(),
         writing: proposal.writing.as_deref(),
+        asks_in: proposal.asks_in.as_deref(),
     }))
 }
 

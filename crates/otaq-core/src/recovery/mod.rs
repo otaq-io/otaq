@@ -41,6 +41,10 @@ use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, ResumeAs, StageAt, reconcile, resume_as};
 
+/// The statuses a ticket's delivery session works in: waiting in Review or at its Delivery (the message writer, Open
+/// PR), and with its PR open (Push to PR).
+pub const DELIVERS_IN: &[Status] = &[Status::WaitingForYou, Status::ToDeliver, Status::PrOpen];
+
 /// What History records about a session that ended by itself.
 fn ended_payload(info: &SessionInfo) -> serde_json::Value {
     let reason = info.end_reason.as_deref().unwrap_or_default();
@@ -845,6 +849,11 @@ impl Recovery {
                         tracing::warn!(session = session.id, error = %e, "can't drop an unwritten message");
                     }
                 }
+                Ok(Event::CardStatusChanged { id, status, .. })
+                    if !DELIVERS_IN.contains(&status) =>
+                {
+                    self.delivery_outlived(&id);
+                }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     tracing::warn!(missed, "recovery fell behind on session events");
@@ -852,6 +861,29 @@ impl Recovery {
                 Err(broadcast::error::RecvError::Closed) => return,
             }
         }
+    }
+
+    /// The ticket left the statuses a delivery session works in (sent back, parked, closed, delivered): its
+    /// delivery session, the message writer's or a PR step's, has nothing left to do and stops, so nothing keeps
+    /// running for it (the Running list no longer names it) and nothing holds its worktree.
+    fn delivery_outlived(&self, ticket_id: &str) {
+        let Some(session) = self
+            .inner
+            .sessions
+            .running_of(ticket_id, SessionKind::Delivery)
+        else {
+            return;
+        };
+        let sessions = self.inner.sessions.clone();
+        tokio::spawn(async move {
+            tracing::info!(
+                session = session.id,
+                "the ticket left its delivery: its delivery session stops"
+            );
+            if let Err(e) = sessions.stop(&session.id).await {
+                tracing::warn!(session = session.id, error = %e, "can't stop the delivery session");
+            }
+        });
     }
 
     /// The session that could write the ticket's delivery message ended (its agent's or the delivery's own) and none
