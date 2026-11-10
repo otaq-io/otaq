@@ -715,6 +715,7 @@ pub(super) async fn handle(
             boxed(move || async move { board.approve_check(&p.key).await.map(Reply::ApproveCheck) })
         }
         Request::TicketMergeProposal(p) => boxed(move || async move {
+            ask_again_without_writer(shared, &p.key).await;
             let mut proposal = board.merge_proposal(&p.key).await?;
             if proposal.writing.is_some() {
                 proposal.asks_in = writer_asks_in(shared, &p.key).await;
@@ -1044,6 +1045,7 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketPrFlow(p) => boxed(move || async move {
+            ask_again_without_writer(shared, &p.key).await;
             let mut view = board.pr_flow_view(&p.key).await?;
             if view.message.as_ref().is_some_and(|m| !m.is_ready()) {
                 view.asks_in = writer_asks_in(shared, &p.key).await;
@@ -1755,6 +1757,17 @@ fn flow_event(shared: &Shared, project: &str, change: FlowEvent) {
         project: project.to_owned(),
         change,
     });
+}
+
+/// Approve's dialogs never say someone is writing the message when no session runs to write it: the writer is asked
+/// again, or the dialog opens on the plain message ([`crate::pr::service::Prs::ask_again_for_message`]).
+async fn ask_again_without_writer(shared: &Shared, key: &str) {
+    let Ok(id) = shared.board.ticket_id(key).await else {
+        return;
+    };
+    if let Err(e) = shared.prs.ask_again_for_message(&id).await {
+        tracing::warn!(key, error = %e, "can't check the delivery message's writer");
+    }
 }
 
 /// The session of the agent writing the ticket's delivery message, when it waits at a permission prompt: its delivery

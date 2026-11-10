@@ -943,6 +943,39 @@ impl Prs {
     /// open or a PR dialog under way, with no commits, while the project is paused, or when the agent can't start now
     /// (the confirmation then starts from the plain message). Returns whether it asked.
     pub async fn prepare_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        self.ask_for_message(ticket_id, false).await
+    }
+
+    /// Approve's dialogs are opening on a message still being written: when no session of the ticket runs to write
+    /// it (it ended, or an older Otaq asked and was closed), the delivery's agent is asked again, though the branch
+    /// head is the same; when it can't be, the request is dropped and the dialog opens on the plain message. A writer
+    /// that still runs is left alone. Returns whether it asked again.
+    pub async fn ask_again_for_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        if !board
+            .delivery_message(ticket_id)
+            .await?
+            .is_some_and(|m| !m.is_ready())
+        {
+            return Ok(false);
+        }
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        let writer_runs = [SessionKind::Delivery, SessionKind::Agent]
+            .into_iter()
+            .any(|kind| self.live_of(&ticket, kind).is_some());
+        if writer_runs {
+            return Ok(false);
+        }
+        tracing::info!(key = %ticket.key, "no session writes the delivery's message: asking again");
+        if self.ask_for_message(ticket_id, true).await? {
+            return Ok(true);
+        }
+        board.forget_delivery_message(ticket_id).await?;
+        Ok(false)
+    }
+
+    /// [`Self::prepare_message`]; `again` asks even for the head already asked for.
+    async fn ask_for_message(&self, ticket_id: &str, again: bool) -> Result<bool, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
         if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
@@ -969,7 +1002,8 @@ impl Prs {
             return Ok(false);
         }
         let head = board.branch_head(&ticket).await;
-        if head.is_some()
+        if !again
+            && head.is_some()
             && board
                 .delivery_message(&ticket.id)
                 .await?
