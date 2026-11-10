@@ -166,6 +166,11 @@ impl ActivityData {
                 .as_ref()
                 .map(|a| activity::connected_among(a, connected))
                 .unwrap_or_default(),
+            others: self
+                .activity
+                .as_ref()
+                .map(|a| activity::others_running(a, connected))
+                .unwrap_or_default(),
             tokens_today: self.activity.as_ref().map_or(0, |a| a.tokens_today),
             limits: &self.limits,
             scheduler: self.scheduler.as_ref(),
