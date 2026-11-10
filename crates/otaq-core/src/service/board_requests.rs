@@ -1893,8 +1893,9 @@ async fn ask_human(
 /// The user's Send back on an agent's send-back question ([`crate::board::send_back_question`]): the skip on the
 /// named stage is cleared, then the ticket goes back there as the user's own drag would take it (the asking agent's
 /// session stops, its conversation kept for when the ticket returns to its stage; the stage sent back to resumes its
-/// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the user's
-/// comment. The question closes with the answer, and History's row names the stage that asked and its reason.
+/// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the asking agent's
+/// comment, by its name: the reason is the agent's, only the send back is the user's. The question closes with the
+/// answer, and History's row names the stage that asked and its reason.
 async fn send_back_on_request(
     shared: &Shared,
     key: &str,
@@ -1924,11 +1925,9 @@ async fn send_back_on_request(
         return Err(BoardError::refused(Refusal::MoveRefused, reason));
     }
     let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-    let asked_by = ticket
-        .place
-        .stage()
-        .and_then(|id| flow.stage(id))
-        .map(|s| s.name.clone());
+    let here = ticket.place.stage().and_then(|id| flow.stage(id));
+    let asked_by = here.map(|s| s.name.clone());
+    let author = asking_agent(shared, &ticket, here).await;
     let cleared = board.clear_skip(&ticket, &to.stage_id).await?;
     let skip_cleared = cleared.is_some();
     let reason = question.text.trim();
@@ -1939,8 +1938,14 @@ async fn send_back_on_request(
         ),
         None => format!("Sent back to {}: {reason}", to.stage),
     };
-    let asked =
-        crate::board::send_back_question::asked_payload(asked_by.as_deref(), reason, skip_cleared);
+    let asked = crate::review::drag::Asked {
+        event: crate::board::send_back_question::asked_payload(
+            asked_by.as_deref(),
+            reason,
+            skip_cleared,
+        ),
+        author,
+    };
     let answers = crate::review::drag::DragAnswers {
         note: &note,
         attachments: &[],
@@ -1989,6 +1994,56 @@ async fn send_back_on_request(
             undo().await;
             Err(e)
         }
+    }
+}
+
+/// Who asked to send `ticket` back: the agent of the session working its stage `here` (a checker in a check, the
+/// ticket's agent in an Agent stage), else an unnamed agent of that stage.
+async fn asking_agent(
+    shared: &Shared,
+    ticket: &crate::board::tickets::Ticket,
+    here: Option<&crate::flow::Stage>,
+) -> crate::board::ticket_comments::CommentAuthor {
+    let kind = match here.is_some_and(crate::flow::Stage::is_agent_stage) {
+        true => SessionKind::Agent,
+        false => SessionKind::Validator,
+    };
+    use crate::board::ticket_comments::CommentAuthor;
+    let here_id = || here.map(|s| s.id.clone());
+    let session = shared.sessions.latest_of(&ticket.id, kind);
+    let author = match session {
+        Some(session) => shared
+            .board
+            .session_author(&session.id)
+            .await
+            .inspect_err(|e| {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't name the agent that asked to send it back");
+            })
+            .ok(),
+        None => None,
+    };
+    match author {
+        // The comment is headed by the stage it asked from, also when its session has no stage run of its own.
+        Some(CommentAuthor::Agent {
+            id,
+            name,
+            tool,
+            stage,
+            round,
+        }) => CommentAuthor::Agent {
+            id,
+            name,
+            tool,
+            stage: stage.or_else(here_id),
+            round,
+        },
+        _ => CommentAuthor::Agent {
+            id: None,
+            name: None,
+            tool: None,
+            stage: here_id(),
+            round: None,
+        },
     }
 }
 
