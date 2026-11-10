@@ -322,7 +322,7 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-44, SHOP-45 · edited SHOP-13 · 1 dependency"
+        "Created SHOP-44, SHOP-45 · edited SHOP-13, SHOP-44 · 1 dependency"
     );
     assert!(summary.created.iter().all(|t| t.deletable));
 
@@ -335,8 +335,58 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-44 · edited SHOP-13 · 1 dependency"
+        "Created SHOP-44 · edited SHOP-13, SHOP-44 · 1 dependency"
     );
+    w.stop().await;
+}
+
+#[tokio::test(flavor = "multi_thread")]
+async fn a_dependency_it_adds_between_tickets_it_created_is_listed_as_changed() {
+    let w = world().await;
+    let (agent, shell) = open(&w).await;
+    for title in [
+        "Return 0 for an empty list",
+        "Check total for an empty list",
+    ] {
+        let created = send(
+            &w,
+            &shell,
+            "ticket.create",
+            json!({"project": "SHOP", "title": title}),
+        )
+        .await;
+        assert!(created.get("error").is_none(), "{created}");
+    }
+    let summary = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    assert!(summary.edited.is_empty(), "{summary:?}");
+
+    let added = send(
+        &w,
+        &shell,
+        "dep.add",
+        json!({"child": "SHOP-45", "parent": "SHOP-44"}),
+    )
+    .await;
+    assert!(added.get("error").is_none(), "{added}");
+    let summary = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    assert_eq!(summary.created.len(), 2);
+    assert_eq!(
+        summary
+            .edited
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["SHOP-45"]
+    );
+    assert_eq!(summary.dependencies, 1);
     w.stop().await;
 }
 

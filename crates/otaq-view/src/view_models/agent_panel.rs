@@ -1604,6 +1604,49 @@ mod tests {
     }
 
     #[test]
+    fn a_created_ticket_it_made_wait_is_listed_under_changed_too() {
+        let a = agent("a1", "README And Empty Total", 1);
+        let c = CreatedAndChanged {
+            created: vec![
+                CreatedTicket {
+                    key: "SHOP-6".parse().unwrap(),
+                    title: "Return 0 for an empty list".into(),
+                    status: Status::Backlog,
+                    deletable: true,
+                },
+                CreatedTicket {
+                    key: "SHOP-7".parse().unwrap(),
+                    title: "Check total for an empty list".into(),
+                    status: Status::Backlog,
+                    deletable: true,
+                },
+            ],
+            edited: vec!["SHOP-7".parse().unwrap()],
+            dependencies: 1,
+            summary: String::new(),
+        };
+        let edited = [EditedTicket {
+            key: "SHOP-7".parse().unwrap(),
+            title: "Check total for an empty list".into(),
+            place: "Backlog".into(),
+        }];
+        let panel = created(&a, &c, &edited, &[], None).unwrap();
+        assert_eq!(panel.line, "CREATED 2 \u{b7} CHANGED 1");
+        assert_eq!(panel.title.as_deref(), Some("CREATED 2 \u{b7} IN BACKLOG"));
+        assert_eq!(panel.changed_title.as_deref(), Some("CHANGED 1"));
+        assert_eq!(
+            row_parts(&panel.changed),
+            [(
+                "SHOP-7",
+                "Check total for an empty list",
+                "Backlog",
+                None,
+                None
+            )]
+        );
+    }
+
+    #[test]
     fn the_switcher_lists_newest_first_with_states() {
         let mut waits = agent("a2", "Import GitHub issues", 2);
         waits.needs_you = Some("Allow gh issue list?".into());
