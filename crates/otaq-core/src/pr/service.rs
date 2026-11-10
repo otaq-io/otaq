@@ -1029,13 +1029,16 @@ impl Prs {
             .await?;
         let kind = self.session_kind_for(&ticket).await;
         let sent = match self.live_of(&ticket, kind) {
+            // It may wait behind a busy turn or unsent text: once the ticket no longer waits in Review, To deliver or
+            // PR open (sent back to Dev, merged, closed) it is dropped, never typed.
             Some(session) => self
                 .inner
                 .deliveries
-                .queue_delivery(
+                .queue_while(
                     &session.id,
                     crate::session::deliveries::DeliveryKind::AgentMessage,
                     &text,
+                    self.still_waits_to_deliver(&ticket.id),
                 )
                 .await
                 .map_err(other),
@@ -1065,6 +1068,28 @@ impl Prs {
         }
         tracing::info!(key = %ticket.key, %agent, "the delivery's agent writes the message");
         Ok(true)
+    }
+
+    /// Whether the ticket still waits in Review, To deliver or PR open, asked when its queued request for the message
+    /// comes to be typed. When it no longer does, the request is dropped and counts as never made: the ticket isn't
+    /// recorded as being written, so its next arrival in Review asks again, even on the same branch head.
+    fn still_waits_to_deliver(&self, ticket_id: &str) -> crate::session::deliveries::StillWanted {
+        let (board, id) = (self.inner.board.clone(), ticket_id.to_owned());
+        Arc::new(move || {
+            let (board, id) = (board.clone(), id.clone());
+            Box::pin(async move {
+                let waits = board.ticket_by_id(&id).await.is_ok_and(|t| {
+                    matches!(
+                        t.status,
+                        Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
+                    )
+                });
+                if !waits && let Err(e) = board.drop_unwritten_message(&id).await {
+                    tracing::warn!(ticket = id, error = %e, "can't forget the dropped request for the message");
+                }
+                waits
+            })
+        })
     }
 
     /// Open PR or Push, by the step's skill or, for Otaq's own words, by the PR flow under way.

@@ -23,6 +23,8 @@
 //! [`Deliveries::send_again`] types it once more (d0118, [`super::hand_offs`]).
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
@@ -104,6 +106,9 @@ pub struct PendingDelivery {
     pub message_part: Option<String>,
 }
 
+/// Whether a queued delivery is still wanted when its turn to be typed comes (see [`Deliveries::queue_while`]).
+pub type StillWanted = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
 /// Lets the program take a typed message in before Enter submits it (a tool may ask for a longer pause), and
 /// a cleared line settle before the text.
 const SUBMIT_PAUSE: Duration = Duration::from_millis(80);
@@ -122,6 +127,8 @@ pub struct Deliveries {
     /// One sender at a time per session: a caller that waited for another finds the queue empty, so two at once (a
     /// hook's delivery and a queued one's) never type a message twice.
     senders: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// By `pending_deliveries.id`: the deliveries typed only if still wanted then ([`Self::queue_while`]).
+    conditions: Arc<Mutex<HashMap<String, StillWanted>>>,
 }
 
 impl Deliveries {
@@ -140,6 +147,7 @@ impl Deliveries {
             adapters,
             hand_offs: HandOffs::default(),
             senders: Arc::default(),
+            conditions: Arc::default(),
         }
     }
 
@@ -163,6 +171,25 @@ impl Deliveries {
         text: &str,
     ) -> Result<(), SessionError> {
         self.hold_delivery(session, kind, text).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// Like [`queue_delivery`](Self::queue_delivery), for a request that only makes sense while something holds: when
+    /// its turn comes (the agent idle, the input line empty, or Deliver now) `still_wanted` is asked, and if the answer
+    /// is no it is dropped and never typed. The delivery's agent's request for the message is one: it waits behind
+    /// unsent text or a busy turn, and once its ticket was sent back to Dev it is no longer typed there.
+    pub async fn queue_while(
+        &self,
+        session: &str,
+        kind: DeliveryKind,
+        text: &str,
+        still_wanted: StillWanted,
+    ) -> Result<(), SessionError> {
+        let id = self.hold(session, kind, text).await?;
+        self.conditions
+            .lock()
+            .expect("delivery conditions")
+            .insert(id, still_wanted);
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
@@ -409,7 +436,26 @@ impl Deliveries {
             .clone();
         let _sending = sender.lock().await;
         let pending = self.pending(session).await?;
+        let mut typed = 0;
         for delivery in &pending {
+            // A request no longer wanted is dropped, not typed.
+            let condition = self
+                .conditions
+                .lock()
+                .expect("delivery conditions")
+                .get(&delivery.id)
+                .cloned();
+            if let Some(still_wanted) = condition
+                && !still_wanted().await
+            {
+                sqlx::query("DELETE FROM pending_deliveries WHERE id = ?")
+                    .bind(&delivery.id)
+                    .execute(self.store.pool())
+                    .await
+                    .map_err(store_error)?;
+                self.forget_condition(&delivery.id);
+                continue;
+            }
             // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).
             if let Some(hand_off) = self.hand_offs.take_queued(&delivery.id) {
                 self.typed_hand_off(session, hand_off);
@@ -420,6 +466,8 @@ impl Deliveries {
                 .execute(self.store.pool())
                 .await
                 .map_err(store_error)?;
+            self.forget_condition(&delivery.id);
+            typed += 1;
             // A question or answer between agents: it reached the other agent now.
             if let (Some(message), Some(part)) = (&delivery.message_id, &delivery.message_part) {
                 let column = if part == crate::messages::PART_ANSWER {
@@ -446,11 +494,20 @@ impl Deliveries {
                 }
             }
         }
-        if !pending.is_empty() {
+        if typed > 0 {
             self.idle.delivered(session);
+        }
+        if !pending.is_empty() {
             self.publish_waiting(session).await?;
         }
-        Ok(pending.len())
+        Ok(typed)
+    }
+
+    fn forget_condition(&self, delivery: &str) {
+        self.conditions
+            .lock()
+            .expect("delivery conditions")
+            .remove(delivery);
     }
 
     /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message), then the tool's
