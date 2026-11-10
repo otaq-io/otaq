@@ -322,9 +322,19 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-44, SHOP-45 · edited SHOP-13, SHOP-44 · 1 dependency"
+        "Created SHOP-44, SHOP-45 · edited SHOP-13 · 1 dependency"
     );
     assert!(summary.created.iter().all(|t| t.deletable));
+    let shop44 = &summary.created[0];
+    assert_eq!(
+        shop44
+            .waits_for
+            .iter()
+            .map(ToString::to_string)
+            .collect::<Vec<_>>(),
+        ["SHOP-19"],
+        "what it gave a ticket it created is part of making it"
+    );
 
     // Delete (the user's, after the 0060 confirmation) removes a never-started created ticket.
     w.board.delete_ticket("SHOP-45").await.unwrap();
@@ -335,13 +345,15 @@ async fn created_and_changed_lists_its_work_and_delete_removes_a_created_ticket(
         .unwrap();
     assert_eq!(
         summary.summary,
-        "Created SHOP-44 · edited SHOP-13, SHOP-44 · 1 dependency"
+        "Created SHOP-44 · edited SHOP-13 · 1 dependency"
     );
     w.stop().await;
 }
 
+/// A ticket it created and then made wait shows once, under Created, with the wait it was given: it is no change
+/// (no Changed row, not in `edited`). A wait it gave and took back again is left out.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_dependency_it_adds_between_tickets_it_created_is_listed_as_changed() {
+async fn a_ticket_it_created_and_made_wait_is_created_with_its_wait_not_changed() {
     let w = world().await;
     let (agent, shell) = open(&w).await;
     for title in [
@@ -357,36 +369,39 @@ async fn a_dependency_it_adds_between_tickets_it_created_is_listed_as_changed() 
         .await;
         assert!(created.get("error").is_none(), "{created}");
     }
+    for (method, params) in [
+        ("dep.add", json!({"child": "SHOP-45", "parent": "SHOP-44"})),
+        ("dep.add", json!({"child": "SHOP-45", "parent": "SHOP-13"})),
+        (
+            "dep.remove",
+            json!({"child": "SHOP-45", "parent": "SHOP-13"}),
+        ),
+    ] {
+        let reply = send(&w, &shell, method, params).await;
+        assert!(reply.get("error").is_none(), "{method}: {reply}");
+    }
     let summary = w
         .project_agents
         .created_and_changed(&agent.id)
         .await
         .unwrap();
-    assert!(summary.edited.is_empty(), "{summary:?}");
-
-    let added = send(
-        &w,
-        &shell,
-        "dep.add",
-        json!({"child": "SHOP-45", "parent": "SHOP-44"}),
-    )
-    .await;
-    assert!(added.get("error").is_none(), "{added}");
-    let summary = w
-        .project_agents
-        .created_and_changed(&agent.id)
-        .await
-        .unwrap();
-    assert_eq!(summary.created.len(), 2);
+    let keys = |keys: &[otaq_core::domain::TicketKey]| {
+        keys.iter().map(ToString::to_string).collect::<Vec<_>>()
+    };
     assert_eq!(
         summary
-            .edited
+            .created
             .iter()
-            .map(ToString::to_string)
+            .map(|t| (t.key.to_string(), keys(&t.waits_for)))
             .collect::<Vec<_>>(),
-        ["SHOP-45"]
+        [
+            ("SHOP-44".to_owned(), Vec::<String>::new()),
+            ("SHOP-45".to_owned(), vec!["SHOP-44".to_owned()]),
+        ]
     );
-    assert_eq!(summary.dependencies, 1);
+    assert!(summary.edited.is_empty(), "{summary:?}");
+    assert!(summary.changes.is_empty(), "{summary:?}");
+    assert_eq!(summary.summary, "Created SHOP-44, SHOP-45 · 2 dependencies");
     w.stop().await;
 }
 

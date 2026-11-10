@@ -2240,6 +2240,7 @@ mod tests {
                 title: "Update footer links".into(),
                 status: Status::Backlog,
                 deletable: true,
+                waits_for: Vec::new(),
             }],
             edited: vec!["SHOP-22".parse().unwrap(), "SHOP-18".parse().unwrap()],
             changes: Vec::new(),

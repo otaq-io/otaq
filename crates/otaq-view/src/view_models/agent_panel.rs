@@ -31,7 +31,7 @@ use otaq_core::board::stage_choices::SKIP;
 use otaq_core::board::tickets::Field;
 use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
 use otaq_core::project_agents::{
-    AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList, WhatChanged,
+    AgentState, CreatedAndChanged, CreatedTicket, ProjectAgent, ProjectAgentList, WhatChanged,
 };
 use serde::Serialize;
 use ts_rs::TS;
@@ -323,7 +323,8 @@ pub struct CreatedRow {
     pub icon: IconName,
     pub edited: bool,
     /// A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
-    /// for the tooltip. None on a created row.
+    /// for the tooltip. A created row: what Noyan gave it as it made it ("waits for SHOP-15"), shown the same way;
+    /// None when it gave it nothing.
     pub change: Option<String>,
     /// "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
     pub start: Option<&'static str>,
@@ -409,6 +410,18 @@ pub fn what_changed(change: &WhatChanged) -> String {
     }
 }
 
+/// What a CREATED row says Noyan gave the ticket as it made it, after its key: "waits for SHOP-15", "waits for SHOP-14
+/// and SHOP-15"; `None` when it gave it nothing.
+pub fn what_it_was_given(t: &CreatedTicket) -> Option<String> {
+    let keys: Vec<String> = t.waits_for.iter().map(ToString::to_string).collect();
+    let (last, rest) = keys.split_last()?;
+    Some(if rest.is_empty() {
+        format!("waits for {last}")
+    } else {
+        format!("waits for {} and {last}", rest.join(", "))
+    })
+}
+
 /// `None` while the agent created and changed nothing. `places` says where each started ticket is.
 pub fn created(
     agent: &ProjectAgent,
@@ -438,7 +451,7 @@ pub fn created(
                 line: now.and_then(|w| w.line.clone()),
                 icon: IconName::SquarePlus,
                 edited: false,
-                change: None,
+                change: what_it_was_given(t),
                 start: waiting.then_some("Start"),
                 delete: t.deletable.then_some("Delete"),
             }
@@ -837,7 +850,7 @@ pub struct Gallery {
 }
 
 pub fn gallery() -> Gallery {
-    use otaq_core::project_agents::{CreatedTicket, NameSource, TicketChange};
+    use otaq_core::project_agents::{NameSource, TicketChange};
 
     const NOW: i64 = 1_791_600_000_000;
     let agent = |id: &str, name: &str, at: i64| ProjectAgent {
@@ -894,12 +907,14 @@ pub fn gallery() -> Gallery {
                 title: "Slow search query".into(),
                 status: Status::Queued,
                 deletable: false,
+                waits_for: Vec::new(),
             },
             CreatedTicket {
                 key: "NOTE-12".parse().expect("a key"),
                 title: "Cache note previews".into(),
                 status: Status::Backlog,
                 deletable: true,
+                waits_for: Vec::new(),
             },
         ],
         edited: vec!["NOTE-5".parse().expect("a key")],
@@ -1182,12 +1197,14 @@ mod tests {
                     title: "Slow search query".into(),
                     status: Status::Queued,
                     deletable: false,
+                    waits_for: Vec::new(),
                 },
                 CreatedTicket {
                     key: "NOTE-12".parse().unwrap(),
                     title: "Cache note previews".into(),
                     status: Status::Backlog,
                     deletable: true,
+                    waits_for: Vec::new(),
                 },
             ],
             edited: vec!["NOTE-5".parse().unwrap()],
@@ -1694,43 +1711,53 @@ mod tests {
         );
     }
 
+    /// A ticket Noyan created and made wait shows once, under CREATED, with what it was given; no CHANGED row.
     #[test]
-    fn a_created_ticket_it_made_wait_is_listed_under_changed_too() {
+    fn a_created_ticket_it_made_wait_shows_under_created_only_with_its_wait() {
         let a = agent("a1", "README And Empty Total", 1);
+        let made = |key: &str, title: &str, waits_for: &[&str]| CreatedTicket {
+            key: key.parse().unwrap(),
+            title: title.into(),
+            status: Status::Backlog,
+            deletable: true,
+            waits_for: waits_for.iter().map(|k| k.parse().unwrap()).collect(),
+        };
         let c = CreatedAndChanged {
             created: vec![
-                CreatedTicket {
-                    key: "SHOP-6".parse().unwrap(),
-                    title: "Return 0 for an empty list".into(),
-                    status: Status::Backlog,
-                    deletable: true,
-                },
-                CreatedTicket {
-                    key: "SHOP-7".parse().unwrap(),
-                    title: "Check total for an empty list".into(),
-                    status: Status::Backlog,
-                    deletable: true,
-                },
+                made("SHOP-15", "Return 0 for an empty list", &[]),
+                made("SHOP-16", "Check total for an empty list", &["SHOP-15"]),
+                made(
+                    "SHOP-17",
+                    "Document the empty total",
+                    &["SHOP-14", "SHOP-15", "SHOP-16"],
+                ),
             ],
-            edited: vec!["SHOP-7".parse().unwrap()],
-            changes: vec![waits("SHOP-7", "SHOP-6")],
-            dependencies: 1,
+            edited: Vec::new(),
+            changes: Vec::new(),
+            dependencies: 4,
             summary: String::new(),
         };
-        let edited = [EditedTicket {
-            key: "SHOP-7".parse().unwrap(),
-            title: "Check total for an empty list".into(),
-            place: "Backlog".into(),
-        }];
-        let panel = created(&a, &c, &edited, &[], None).unwrap();
-        assert_eq!(panel.line, "CREATED 2 \u{b7} CHANGED 1");
-        assert_eq!(panel.title.as_deref(), Some("CREATED 2 \u{b7} IN BACKLOG"));
-        assert_eq!(panel.changed_title.as_deref(), Some("CHANGED 1"));
+        let panel = created(&a, &c, &[], &[], None).unwrap();
+        assert_eq!(panel.line, "CREATED 3 \u{b7} CHANGED 0");
+        assert_eq!(panel.title.as_deref(), Some("CREATED 3 \u{b7} IN BACKLOG"));
+        assert_eq!((panel.changed_title, panel.changed), (None, Vec::new()));
         assert_eq!(
-            changed_parts(&panel.changed),
-            [("SHOP-7", "now waits for SHOP-6")]
+            panel
+                .rows
+                .iter()
+                .map(|r| (r.key.as_str(), r.change.as_deref()))
+                .collect::<Vec<_>>(),
+            [
+                ("SHOP-15", None),
+                ("SHOP-16", Some("waits for SHOP-15")),
+                ("SHOP-17", Some("waits for SHOP-14, SHOP-15 and SHOP-16")),
+            ]
         );
-        assert_eq!(panel.changed[0].title, "Check total for an empty list");
+        assert_eq!(
+            panel.rows[1].title, "Check total for an empty list",
+            "the tooltip"
+        );
+        assert_eq!(panel.rows[1].start, Some("Start"));
     }
 
     fn waits(ticket: &str, parent: &str) -> TicketChange {

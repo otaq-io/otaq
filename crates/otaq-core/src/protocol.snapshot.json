@@ -1943,6 +1943,10 @@
         "title": {
           "ty": "String",
           "required": true
+        },
+        "waits_for": {
+          "ty": "Vec<TicketKey>",
+          "omittable": true
         }
       }
     },
