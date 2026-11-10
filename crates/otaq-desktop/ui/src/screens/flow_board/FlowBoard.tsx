@@ -417,8 +417,15 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         </Tooltip>
       </div>
       {view.drafting !== null && (
-        <div className="fb-drafting" role="status">
-          <Icon name="loader-circle" size={14} />
+        <div
+          className="fb-drafting"
+          role="status"
+          data-needs-you={view.drafting.needs_you !== null || undefined}
+        >
+          <Icon name={view.drafting.needs_you !== null ? "hand" : "loader-circle"} size={14} />
+          {view.drafting.needs_you !== null && (
+            <strong className="fb-needs-you">{view.drafting.needs_you}</strong>
+          )}
           <span>{view.drafting.text}</span>
           <button
             type="button"
