@@ -3,8 +3,9 @@
 //! - **Background work.** Codex, Copilot and OpenCode end a turn without saying what it left running
 //!   ([`crate::agent_tools::AgentTool::turn_end_reports_background`] is false). At such a turn end Otaq looks at the
 //!   agent's process tree ([`crate::process::tree`]): what still runs there and wasn't there when the turn started
-//!   (the tool's own helpers, Q-M) is background work, and the card shows Working in background naming the command
-//!   ("background: `npm test`"). Otaq looks again every [`QuietTiming::recheck`] (the card changes only when what
+//!   (the tool's own helpers, Q-M, and the programs it names as its own whenever they start,
+//!   [`crate::agent_tools::AgentTool::own_helper_programs`]) is background work, and the card shows Working in
+//!   background naming the command ("background: `npm test`"). Otaq looks again every [`QuietTiming::recheck`] (the card changes only when what
 //!   runs does); once nothing is left the turn ends
 //!   as any other (Idle, or as a submit left it), unless a new turn started first.
 //! - **A key at the tool's own prompt.** Copilot sends nothing when its prompt is cancelled with Esc
@@ -383,6 +384,15 @@ impl Signals {
             return BackgroundWork::default();
         }
         let processes = self.inner.sessions.process_tree(session);
+        let own = self
+            .inner
+            .sessions
+            .info(session)
+            .ok()
+            .and_then(|i| i.tool)
+            .map_or(&[][..], |tool| {
+                self.inner.adapters.get(tool).own_helper_programs()
+            });
         let (before, helpers) = {
             let mut all = self.inner.quiet.lock().expect("quiet");
             match all.get_mut(session) {
@@ -399,7 +409,7 @@ impl Signals {
             }
         };
         BackgroundWork {
-            tasks: started_in_turn(&processes, &before, &helpers)
+            tasks: started_in_turn(&processes, &before, &helpers, own)
                 .into_iter()
                 .map(|p| BackgroundTask {
                     kind: "shell".to_owned(),
@@ -438,18 +448,21 @@ fn adopt_execs(processes: &[TreeProcess], quiet: &mut Quiet) {
 }
 
 /// The processes the turn started, without their own children: not running before the turn, not one of the
-/// tool's own programs (a process of a program the agent ran as a direct child before the turn), and not a Windows
+/// tool's own programs (a process of a program the agent ran as a direct child before the turn, or one the tool names
+/// as its own in `own`, by file name without `.exe`), and not a Windows
 /// console host (`conhost.exe`, which Windows starts for a console program run without a console: it is that
 /// program's, never work of its own).
 fn started_in_turn<'a>(
     processes: &'a [TreeProcess],
     before: &HashSet<u32>,
     helpers: &HashSet<PathBuf>,
+    own: &[&str],
 ) -> Vec<&'a TreeProcess> {
     let new: HashMap<u32, &TreeProcess> = processes
         .iter()
         .filter(|p| !before.contains(&p.pid))
         .filter(|p| !console_host(p))
+        .filter(|p| !own_helper(p, own))
         .filter(|p| {
             p.program
                 .as_ref()
@@ -467,11 +480,28 @@ fn started_in_turn<'a>(
 }
 
 fn console_host(process: &TreeProcess) -> bool {
+    file_name(process).is_some_and(|n| n.eq_ignore_ascii_case("conhost.exe"))
+}
+
+/// Whether the process runs one of the programs the tool names as its own (`own`, without `.exe`).
+fn own_helper(process: &TreeProcess, own: &[&str]) -> bool {
+    file_name(process).is_some_and(|name| {
+        let stem = match name.len().checked_sub(4) {
+            Some(at) if name.is_char_boundary(at) && name[at..].eq_ignore_ascii_case(".exe") => {
+                &name[..at]
+            }
+            _ => name,
+        };
+        own.iter().any(|o| stem.eq_ignore_ascii_case(o))
+    })
+}
+
+/// The program's file name, on any system's separators.
+fn file_name(process: &TreeProcess) -> Option<&str> {
     process
         .program
         .as_ref()
         .and_then(|p| p.to_str()?.rsplit(['/', '\\']).next())
-        .is_some_and(|n| n.eq_ignore_ascii_case("conhost.exe"))
 }
 
 /// The command as a card names it: "sleep 30", "npm test" (a shell's `-c` text rather than the shell), at most
@@ -614,21 +644,47 @@ mod tests {
         ];
         let before = HashSet::from([10, 11]);
         let helpers = HashSet::from([PathBuf::from("/opt/codex/codex-code-mode-host")]);
-        let started: Vec<u32> = started_in_turn(&processes, &before, &helpers)
+        let started: Vec<u32> = started_in_turn(&processes, &before, &helpers, &[])
             .iter()
             .map(|p| p.pid)
             .collect();
         assert_eq!(started, [20]);
-        assert!(started_in_turn(&processes[..3], &before, &helpers).is_empty());
+        assert!(started_in_turn(&processes[..3], &before, &helpers, &[]).is_empty());
         // A console host Windows started for the command is the command's, not work of its own.
         let hosted = [
             process(20, 1, "/bin/sh", &["/bin/sh", "-c", "npm test"]),
             process(22, 1, r"C:\Windows\System32\conhost.exe", &["conhost.exe"]),
         ];
-        let started: Vec<u32> = started_in_turn(&hosted, &before, &helpers)
+        let started: Vec<u32> = started_in_turn(&hosted, &before, &helpers, &[])
             .iter()
             .map(|p| p.pid)
             .collect();
+        assert_eq!(started, [20]);
+        // A program the tool names as its own, first started in the turn (Codex's host on Windows, or elsewhere).
+        let own = [
+            process(20, 1, "/bin/sh", &["/bin/sh", "-c", "npm test"]),
+            process(
+                24,
+                1,
+                r"C:\codex\bin\Codex-Code-Mode-Host.EXE",
+                &["codex-code-mode-host.exe"],
+            ),
+            process(
+                25,
+                1,
+                "/opt/codex/codex-code-mode-host",
+                &["codex-code-mode-host"],
+            ),
+        ];
+        let started: Vec<u32> = started_in_turn(
+            &own,
+            &HashSet::new(),
+            &HashSet::new(),
+            &["codex-code-mode-host"],
+        )
+        .iter()
+        .map(|p| p.pid)
+        .collect();
         assert_eq!(started, [20]);
     }
 
@@ -667,6 +723,7 @@ mod tests {
             &processes,
             quiet.before.as_ref().unwrap(),
             &quiet.helper_programs,
+            &[],
         )
         .iter()
         .map(|p| p.pid)
