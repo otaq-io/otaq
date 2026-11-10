@@ -267,7 +267,13 @@ describe("what it needs from you, at the top of Overview", () => {
     const html = render({
       ...VIEW,
       notice: { text: "Waits for SHOP-18 to merge.", parent_closed: false, choices: [] },
-      conflict: { line: "Conflicts with main · 1 file (a.ts)" },
+      conflict: {
+        line: "Conflicts with main · 1 file (a.ts)",
+        moved: null,
+        outcome: null,
+        count: null,
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
       start_problem: {
         heading: "Start failed",
         message: "SHOP-19 stopped before its agent session started.",
@@ -282,6 +288,40 @@ describe("what it needs from you, at the top of Overview", () => {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");
+  });
+
+  it("the conflict strip says what moved, that nothing was merged, and the count", () => {
+    const html = render({
+      ...VIEW,
+      conflict: {
+        line: "Conflicts with main · 1 file (README.md)",
+        moved: "SHOP-6 changed README.md",
+        outcome: "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+        count: "1 of 3",
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
+    });
+    for (const text of [
+      "Conflicts with main · 1 file (README.md)",
+      "SHOP-6 changed README.md",
+      "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+      "1 of 3",
+    ]) {
+      expect(html).toContain(text);
+    }
+    const failed = render({
+      ...VIEW,
+      conflict: {
+        line: "Merge check failed on main",
+        moved: null,
+        outcome: "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+        count: "2 of 3",
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
+    });
+    expect(failed).toContain("Merge check failed on main");
+    expect(failed).not.toContain("Conflicts with");
+    expect(failed).toContain("2 of 3");
   });
 
   it("the M12 extras: Auto-merge stop message and the Approve caret", () => {

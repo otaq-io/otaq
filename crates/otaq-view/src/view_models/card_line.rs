@@ -64,6 +64,22 @@ pub struct Note {
     pub text: String,
 }
 
+/// What a delivery problem's agent is fixing, in the card's words and the sheet badge's: "Merge check failed ·
+/// fixing" after a failed merge check, else "Conflicts with main · fixing". `base` names the branch when the
+/// conflict didn't record one.
+pub fn fixing_line(flags: &otaq_core::domain::Flags, base: Option<&str>) -> String {
+    if flags.merge_check == Some(MergeCheckState::Failed) {
+        return otaq_core::domain::validation::MERGE_CHECK_FAILED_FIXING.to_owned();
+    }
+    otaq_core::domain::validation::conflicts_fixing(
+        flags
+            .conflicts_with
+            .as_deref()
+            .or(base)
+            .unwrap_or("its base"),
+    )
+}
+
 fn plain(text: impl Into<String>, dot: Palette) -> Option<Words> {
     Some(Words {
         line: StatusLine {
@@ -229,18 +245,8 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Palette::Working,
         ),
         Status::MergeConflictFixing if flags.hand_off.is_some() => None,
-        Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
-            plain("Merge check failed \u{b7} fixing", Palette::Working)
-        }
         Status::MergeConflictFixing => plain(
-            format!(
-                "Conflicts with {} \u{b7} fixing",
-                flags
-                    .conflicts_with
-                    .as_deref()
-                    .or(x.project_base.as_deref())
-                    .unwrap_or("its base")
-            ),
+            fixing_line(flags, x.project_base.as_deref()),
             Palette::Working,
         ),
         Status::AsksYou => asks(match question() {

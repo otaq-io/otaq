@@ -1163,6 +1163,7 @@ impl Starter {
                             target: worktree.base_branch.clone(),
                             files: files.clone(),
                             reason: ConflictReason::Reopen,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;

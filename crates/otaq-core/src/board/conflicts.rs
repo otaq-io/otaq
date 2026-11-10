@@ -8,8 +8,22 @@
 
 use serde::{Deserialize, Serialize};
 
+use std::path::Path;
+
+use super::tickets::Ticket;
 use super::{Board, BoardError};
 use crate::domain::stored_enum;
+
+/// `git log --format=%x00%H --name-only`: each commit's id and the files it lists.
+fn parse_log(log: &str) -> Vec<(String, Vec<String>)> {
+    log.split('\0')
+        .filter_map(|chunk| {
+            let mut lines = chunk.lines().map(str::trim).filter(|l| !l.is_empty());
+            let sha = lines.next()?.to_owned();
+            Some((sha, lines.map(str::to_owned).collect()))
+        })
+        .collect()
+}
 
 stored_enum! {
     /// Where a conflict was found.
@@ -35,6 +49,19 @@ pub struct Conflict {
     pub target: String,
     pub files: Vec<String>,
     pub reason: ConflictReason,
+    /// What moved on `target` since the ticket's branch left it, in the conflicting files: "SHOP-6 changed
+    /// README.md". Read from git when the sheet asks ([`Board::conflict_details`]); never stored.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub moved: Vec<Moved>,
+}
+
+/// Who changed which conflicting files on the target: the ticket whose merge made the commit, or the commit itself
+/// when no ticket did (a commit made by hand).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct Moved {
+    /// "SHOP-6", or the commit's short id ("4fa97d6").
+    pub by: String,
+    pub files: Vec<String>,
 }
 
 impl Board {
@@ -103,7 +130,88 @@ impl Board {
                     .conflict_reason
                     .and_then(|r| r.parse().ok())
                     .unwrap_or(ConflictReason::Merge),
+                moved: Vec::new(),
             })
         }))
+    }
+
+    /// The ticket's recorded conflict with what moved on its target ([`Conflict::moved`]), for the sheet's banner.
+    /// git failing to say leaves `moved` empty: the banner still has the rest.
+    pub async fn conflict_details(&self, ticket: &Ticket) -> Result<Option<Conflict>, BoardError> {
+        let Some(mut conflict) = self.conflict(&ticket.id).await? else {
+            return Ok(None);
+        };
+        match self.conflict_moves(ticket, &conflict).await {
+            Ok(moved) => conflict.moved = moved,
+            Err(e) => {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't tell what moved on the target");
+            }
+        }
+        Ok(Some(conflict))
+    }
+
+    /// The commits on the target since its merge base with the ticket's branch that touch the conflicting files,
+    /// oldest first, grouped by the ticket whose merge made each one.
+    async fn conflict_moves(
+        &self,
+        ticket: &Ticket,
+        conflict: &Conflict,
+    ) -> Result<Vec<Moved>, BoardError> {
+        if conflict.files.is_empty() {
+            return Ok(Vec::new());
+        }
+        let Some(branch) = ticket.work.as_ref().and_then(|w| w.branch.clone()) else {
+            return Ok(Vec::new());
+        };
+        let Some(row) = self.store.ticket(&ticket.id).await? else {
+            return Ok(Vec::new());
+        };
+        let project = self.project(ticket.key.project.as_str()).await?;
+        let repo = Path::new(&project.repo_path);
+        let git = self.git()?;
+        let base = git
+            .run(repo, &["merge-base", &conflict.target, &branch])
+            .await?;
+        let range = format!("{}..{}", base.trim(), conflict.target);
+        let mut args = vec![
+            "log",
+            "--reverse",
+            "--format=%x00%H",
+            "--name-only",
+            range.as_str(),
+            "--",
+        ];
+        args.extend(conflict.files.iter().map(String::as_str));
+        let log = git.run(repo, &args).await?;
+        let mut moved: Vec<Moved> = Vec::new();
+        for (sha, files) in parse_log(&log) {
+            let merged: Option<(i64,)> = sqlx::query_as(
+                "SELECT number FROM tickets WHERE project_id = ? AND merge_commit_sha = ?",
+            )
+            .bind(&row.project_id)
+            .bind(&sha)
+            .fetch_optional(self.store.pool())
+            .await?;
+            let by = match merged {
+                Some((number,)) => format!("{}-{number}", ticket.key.project),
+                None => sha.chars().take(7).collect(),
+            };
+            let i = match moved.iter().position(|m| m.by == by) {
+                Some(i) => i,
+                None => {
+                    moved.push(Moved {
+                        by,
+                        files: Vec::new(),
+                    });
+                    moved.len() - 1
+                }
+            };
+            for file in files {
+                if !moved[i].files.contains(&file) {
+                    moved[i].files.push(file);
+                }
+            }
+        }
+        Ok(moved)
     }
 }

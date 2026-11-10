@@ -1854,6 +1854,10 @@
           "ty": "Vec<String>",
           "required": true
         },
+        "moved": {
+          "ty": "Vec<Moved>",
+          "omittable": true
+        },
         "reason": {
           "ty": "ConflictReason",
           "required": true
@@ -5190,6 +5194,19 @@
         },
         "target": {
           "ty": "DropTarget",
+          "required": true
+        }
+      }
+    },
+    "Moved": {
+      "kind": "struct",
+      "fields": {
+        "by": {
+          "ty": "String",
+          "required": true
+        },
+        "files": {
+          "ty": "Vec<String>",
           "required": true
         }
       }

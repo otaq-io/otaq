@@ -182,7 +182,7 @@
 
 .sheet-conflict {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 10px;
   border-radius: var(--r-md);
@@ -190,11 +190,36 @@
   color: var(--st-paused);
 }
 
-.sheet-conflict-line {
+.sheet-conflict > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.sheet-conflict-text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+
+.sheet-conflict-line {
   color: var(--text-primary);
   font-size: 12px;
+}
+
+/* What moved, and that nothing was merged. */
+.sheet-conflict-more {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* "1 of 3": where it stands among the ones in a row that stop it. */
+.sheet-conflict-count {
+  flex: none;
+  color: var(--st-paused);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
 }
 
 /* *SHOP-21 · Asks you · answer options*. */

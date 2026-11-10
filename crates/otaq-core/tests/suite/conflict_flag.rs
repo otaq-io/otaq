@@ -171,6 +171,46 @@ async fn merging_one_ticket_hands_back_the_one_that_would_conflict() {
     w.stop().await;
 }
 
+/// The sheet's banner says what moved on the target: the ticket whose merge changed the conflicting file, by its
+/// key, and a commit made by hand by its short id.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_conflict_says_what_moved_on_the_target() {
+    use otaq_core::board::conflicts::Moved;
+    let w = world().await;
+    let (_, shop2, _) = three_in_review(&w).await;
+    merge(&w, "SHOP-1").await;
+    let back = ticket(&w, &shop2).await;
+    let conflict = w.board.conflict_details(&back).await.unwrap().unwrap();
+    assert_eq!(
+        conflict.moved,
+        [Moved {
+            by: "SHOP-1".into(),
+            files: vec!["lib/pricing.ts".into()],
+        }]
+    );
+    // A commit made on main by hand names itself.
+    let project = w.board.project("SHOP").await.unwrap();
+    let repo = PathBuf::from(&project.repo_path);
+    commit(&repo, "lib/pricing.ts", "by hand\n");
+    let by_hand = git(&repo, &["rev-parse", "--short=7", "HEAD"]);
+    let conflict = w.board.conflict_details(&back).await.unwrap().unwrap();
+    assert_eq!(conflict.moved.len(), 2, "{:?}", conflict.moved);
+    assert_eq!(conflict.moved[0].by, "SHOP-1");
+    assert_eq!(conflict.moved[1].by, by_hand.trim());
+    assert_eq!(conflict.moved[1].files, ["lib/pricing.ts"]);
+    // The stored conflict never carries it.
+    assert!(
+        w.board
+            .conflict(&back.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .moved
+            .is_empty()
+    );
+    w.stop().await;
+}
+
 /// d0127: a ticket whose PR is open keeps only the flag (its conflicts are the PR's).
 #[tokio::test(flavor = "multi_thread")]
 async fn a_ticket_whose_pr_is_open_keeps_only_the_flag() {

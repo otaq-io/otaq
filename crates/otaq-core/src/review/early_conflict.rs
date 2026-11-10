@@ -93,6 +93,7 @@ impl Review {
                     target: target.to_owned(),
                     files,
                     reason: ConflictReason::TestMerge,
+                    moved: Vec::new(),
                 },
             )
             .await?;

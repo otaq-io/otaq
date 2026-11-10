@@ -289,12 +289,20 @@ pub struct Notice {
     pub choices: Vec<ParentChoice>,
 }
 
-/// "Conflicts with main · 2 files (…)" in the header (GIT-04). A Delivery's conflict goes to the agent with no click
-/// (FLW-17), so the strip only says it.
+/// "Conflicts with main · 2 files (…)" in the header (GIT-04), or "Merge check failed on main". A Delivery's problem
+/// goes to the agent with no click (FLW-17), so the strip only says it: what moved, that nothing was merged, and
+/// where it stands among the ones in a row that stop it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetConflict")]
 pub struct ConflictStrip {
     pub line: String,
+    /// "SHOP-6 changed README.md", when git could say.
+    pub moved: Option<String>,
+    /// "Nothing was merged into main. SHOP-5 returns to Review when it's fixed.", once it went back to its agent.
+    pub outcome: Option<String>,
+    /// "1 of 3", once it went back to its agent.
+    pub count: Option<String>,
+    pub count_hint: &'static str,
 }
 
 /// A refused model's callout above the bar (AGT-05; T-0345): "Claude Code couldn't run claude-fable-5-1" and the
@@ -679,12 +687,7 @@ pub fn view_of(f: &Facts) -> View {
         ask_noyan: actions::ask_noyan_draft(&ticket.key),
         answer: answer_of(ticket),
         notice: notice_of(ticket, f.tickets),
-        conflict: f
-            .conflict
-            .filter(|_| ticket.flags.conflicts_with.is_some())
-            .map(|c| ConflictStrip {
-                line: approve::conflict_line(c),
-            }),
+        conflict: conflict_strip(ticket, f.conflict),
         start_problem,
         refusal,
         holds: stopped_callout(f)
@@ -925,6 +928,33 @@ fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
     shown
 }
 
+/// The conflict strip on Overview: a conflict says what conflicts and what moved, a failed merge check says so in its
+/// own words. Once it went back to its agent (it counts in a row), it also says nothing was merged and the count.
+fn conflict_strip(ticket: &Ticket, conflict: Option<&Conflict>) -> Option<ConflictStrip> {
+    let check_failed = ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Failed);
+    let target = conflict.map_or_else(|| ticket.base.branch().to_owned(), |c| c.target.clone());
+    let (line, moved) = if check_failed {
+        (format!("Merge check failed on {target}"), None)
+    } else {
+        let c = conflict.filter(|_| ticket.flags.conflicts_with.is_some())?;
+        (approve::conflict_line(c), approve::moved_line(c))
+    };
+    let went_back = ticket.auto_merge_conflicts > 0
+        && !matches!(
+            ticket.status,
+            otaq_core::domain::Status::WaitingForYou
+                | otaq_core::domain::Status::ToDeliver
+                | otaq_core::domain::Status::PrOpen
+        );
+    Some(ConflictStrip {
+        line,
+        moved,
+        outcome: went_back.then(|| approve::nothing_merged_line(&ticket.key, &target)),
+        count: went_back.then(|| approve::in_a_row(ticket.auto_merge_conflicts)),
+        count_hint: approve::IN_A_ROW_HINT,
+    })
+}
+
 pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let gone = format!("{} is gone.", params.key);
     let Some(ticket) = ticket(app, &params.key).await? else {
@@ -932,7 +962,9 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     };
     let all = tickets(app, &ticket.key.project.to_string()).await?;
     let sessions = sessions(app, &params.key).await?;
-    let conflict = if ticket.flags.conflicts_with.is_some() {
+    let conflict = if ticket.flags.conflicts_with.is_some()
+        || ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Failed)
+    {
         match app
             .service
             .send(Request::TicketConflict(KeyParams {
@@ -2359,6 +2391,7 @@ mod tests {
             target: "main".into(),
             files: vec!["a.ts".into(), "b.ts".into()],
             reason: otaq_core::board::conflicts::ConflictReason::Merge,
+            moved: Vec::new(),
         };
         let all = vec![review.clone()];
         let with = |t: &Ticket| {
@@ -2371,6 +2404,68 @@ mod tests {
         review.flags.conflicts_with = Some("main".into());
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
+        assert_eq!(strip.outcome, None, "still waiting in Review: nothing went back");
+        assert_eq!(strip.count, None);
+    }
+
+    /// A failed merge check and a conflict each show their own words on the badge and on Overview.
+    #[test]
+    fn a_failed_merge_check_and_a_conflict_read_as_themselves() {
+        use otaq_core::board::conflicts::{ConflictReason, Moved};
+        // The conflict the test merge found after SHOP-6 merged, back with SHOP-5's agent, the first in a row.
+        let mut shop5 = fixture("SHOP-5", "Fix the word", Status::MergeConflictFixing);
+        shop5.flags.conflicts_with = Some("main".into());
+        shop5.flags.conflict_in_review = true;
+        shop5.flags.conflict_files = vec!["README.md".into()];
+        shop5.auto_merge_conflicts = 1;
+        let conflict = Conflict {
+            target: "main".into(),
+            files: vec!["README.md".into()],
+            reason: ConflictReason::TestMerge,
+            moved: vec![Moved {
+                by: "SHOP-6".into(),
+                files: vec!["README.md".into()],
+            }],
+        };
+        let all = vec![shop5.clone()];
+        let view = view_of(&Facts {
+            conflict: Some(&conflict),
+            ..facts(&shop5, &all, &[])
+        });
+        assert_eq!(view.pill.label, "Conflicts with main \u{b7} fixing");
+        let strip = view.conflict.unwrap();
+        assert_eq!(strip.line, "Conflicts with main \u{b7} 1 file (README.md)");
+        assert_eq!(strip.moved.as_deref(), Some("SHOP-6 changed README.md"));
+        assert_eq!(
+            strip.outcome.as_deref(),
+            Some("Nothing was merged into main. SHOP-5 returns to Review when it\u{2019}s fixed.")
+        );
+        assert_eq!(strip.count.as_deref(), Some("1 of 3"));
+
+        // The merge check failed on the rebased result: no conflict, its own words.
+        let mut note1 = fixture("NOTE-1", "Fix the typo", Status::MergeConflictFixing);
+        note1.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
+        note1.auto_merge_conflicts = 2;
+        let failed = Conflict {
+            target: "main".into(),
+            files: Vec::new(),
+            reason: ConflictReason::MergeCheck,
+            moved: Vec::new(),
+        };
+        let all = vec![note1.clone()];
+        let view = view_of(&Facts {
+            conflict: Some(&failed),
+            ..facts(&note1, &all, &[])
+        });
+        assert_eq!(view.pill.label, "Merge check failed \u{b7} fixing");
+        let strip = view.conflict.unwrap();
+        assert_eq!(strip.line, "Merge check failed on main");
+        assert_eq!(strip.moved, None);
+        assert_eq!(
+            strip.outcome.as_deref(),
+            Some("Nothing was merged into main. NOTE-1 returns to Review when it\u{2019}s fixed.")
+        );
+        assert_eq!(strip.count.as_deref(), Some("2 of 3"));
     }
 
     #[test]
