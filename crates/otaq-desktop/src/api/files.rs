@@ -359,10 +359,10 @@ pub async fn review(app: &App, params: Params) -> Result<ReviewNotes, RequestErr
         Ok(Reply::History(events)) => events,
         _ => Vec::new(),
     };
-    // The agent's last word when its stage finished (`prime`'s review summary).
+    // The agent's last word when its stage last finished (`prime`'s review summary). History is newest first, so
+    // after a send back or a conflict fix this is the latest round's handoff, never the first one's.
     let summary = events
         .iter()
-        .rev()
         .find(|e| matches!(e.kind, EventKind::ReviewSubmitted | EventKind::StageFinished))
         .and_then(|e| e.payload.get("summary")?.as_str().map(str::to_owned));
     let review = match ticket.flags.review_entry {
