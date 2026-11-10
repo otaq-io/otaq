@@ -135,6 +135,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentPanelEnded::export_all(&cfg)?;
     crate::api::AgentPanelProjectParams::export_all(&cfg)?;
     crate::api::AgentPanelResumeParams::export_all(&cfg)?;
+    crate::api::AgentPanelUndoParams::export_all(&cfg)?;
     // The rail's Noyan button (T-0458): its view and requests.
     crate::api::export_noyan_button_types(&cfg)?;
     // The box for new work: its view and gallery.

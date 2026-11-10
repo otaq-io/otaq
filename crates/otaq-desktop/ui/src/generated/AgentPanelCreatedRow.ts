@@ -29,4 +29,9 @@ change: string | null,
 /**
  * "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
  */
-start: string | null, delete: string | null, };
+start: string | null, delete: string | null, 
+/**
+ * "Undo" on a changed row while that part of the ticket still reads as Noyan left it: `agent_panel.undo` takes
+ * the change back. Gone once someone changed that part again, so Undo never overwrites a later edit.
+ */
+undo: string | null, };
