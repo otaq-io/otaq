@@ -218,7 +218,8 @@ pub struct AgentNeedsYou {
 pub struct CreatedAndChanged {
     /// The tickets it created that still exist, in creation order.
     pub created: Vec<CreatedTicket>,
-    /// Other tickets it edited, in key order.
+    /// The tickets it changed, in key order: other tickets it edited, and every ticket whose dependencies it added or
+    /// removed (one it created included).
     pub edited: Vec<TicketKey>,
     /// Dependencies it added.
     pub dependencies: u32,
@@ -904,8 +905,14 @@ impl ProjectAgents {
             }
         }
         for (ticket, kind) in &events {
-            if kind == "updated"
-                && !created_ids.contains(&ticket.as_str())
+            // A field it set on a ticket it created is part of making it; a dependency it added or removed is a
+            // change to that ticket either way, so it is listed under Changed too.
+            let change = match kind.as_str() {
+                "updated" => !created_ids.contains(&ticket.as_str()),
+                "dependency_added" | "dependency_removed" => true,
+                _ => false,
+            };
+            if change
                 && let Some(t) = by_id(ticket)
                 && !out.edited.contains(&t.key)
             {
