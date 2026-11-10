@@ -10,4 +10,4 @@ export type PaletteItem = { "kind": "action", action: KeyAction, icon: IconName,
 /**
  * The ticket's project key: picking it switches there first when it isn't the current one.
  */
-project: string, other_project: string | null, place: string, } | { "kind": "project", project: string, title: string, keys: Array<string>, } | { "kind": "pause", scope: PauseScopeKind, resume: boolean, project: string | null, icon: IconName, title: string, } | { "kind": "next_needs_you", icon: IconName, title: string, label: string, keys: Array<string>, } | { "kind": "edit_flow", project: string, icon: IconName, title: string, } | { "kind": "divider", label: string, };
+project: string, other_project: string | null, place: string, } | { "kind": "project", project: string, title: string, keys: Array<string>, } | { "kind": "pause", scope: PauseScopeKind, resume: boolean, project: string | null, icon: IconName, title: string, keys: Array<string>, } | { "kind": "next_needs_you", icon: IconName, title: string, label: string, keys: Array<string>, } | { "kind": "edit_flow", project: string, icon: IconName, title: string, } | { "kind": "divider", label: string, };

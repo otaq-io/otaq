@@ -291,13 +291,14 @@ pub fn banner(
     Some(Situation::Paused { title, text, state })
 }
 
-/// The palette's Pause and Resume rows (PAU-08): "Resume this project" for the open one while it is paused, "Pause
-/// this project" while an agent works there, "Pause all projects" while an agent works in any project that runs, "Resume all projects" while an All projects pause holds any (one
-/// paused on its own stays paused, d0112 2026-10-27). Each runs at once.
+/// The palette's Pause and Resume rows (PAU-08): "Resume shop-web" for the open project while it is paused, "Pause
+/// shop-web" while an agent works there (named as the title bar's menu names it), "Pause all projects" while an agent
+/// works in any project that runs, "Resume all projects" while an All projects pause holds any (one paused on its own
+/// stays paused, d0112 2026-10-27). Each runs at once.
 pub fn palette(
     shown: Option<&str>,
     projects: &[otaq_core::board::snapshot::ProjectInfo],
-) -> Vec<(Scope, bool, &'static str)> {
+) -> Vec<(Scope, bool, String)> {
     let mut rows = Vec::new();
     // Pause is offered only while something runs there, as the title bar's Pause.
     let runs = |p: &otaq_core::board::snapshot::ProjectInfo| {
@@ -305,19 +306,19 @@ pub fn palette(
     };
     if let Some(p) = shown.and_then(|s| projects.iter().find(|p| p.key == s)) {
         if p.paused_since.is_some() {
-            rows.push((Scope::Project, true, "Resume this project"));
+            rows.push((Scope::Project, true, format!("{RESUME} {}", p.name)));
         } else if runs(p) {
-            rows.push((Scope::Project, false, "Pause this project"));
+            rows.push((Scope::Project, false, format!("{PAUSE} {}", p.name)));
         }
     }
     if projects.iter().any(runs) {
-        rows.push((Scope::All, false, "Pause all projects"));
+        rows.push((Scope::All, false, PAUSE_ALL_PROJECTS.to_owned()));
     }
     if projects
         .iter()
         .any(|p| p.paused_since.is_some() && p.paused_by != Some(PauseKind::Own))
     {
-        rows.push((Scope::All, true, "Resume all projects"));
+        rows.push((Scope::All, true, "Resume all projects".to_owned()));
     }
     rows
 }
@@ -711,11 +712,11 @@ mod tests {
     }
 
     #[test]
-    fn the_palette_offers_this_project_and_all_projects() {
+    fn the_palette_offers_open_project_by_name_and_all_projects() {
         use otaq_core::board::snapshot::ProjectInfo;
         let info = |key: &str, paused: bool| ProjectInfo {
             key: key.to_owned(),
-            name: key.to_lowercase(),
+            name: format!("{}-web", key.to_lowercase()),
             repo_path: String::new(),
             base_branch: "main".to_owned(),
             agents_working: u32::from(!paused),
@@ -723,7 +724,7 @@ mod tests {
             paused_since: paused.then_some(1),
             paused_by: paused.then_some(PauseKind::All),
         };
-        let titles = |shown, projects: &[ProjectInfo]| -> Vec<&'static str> {
+        let titles = |shown, projects: &[ProjectInfo]| -> Vec<String> {
             palette(shown, projects)
                 .into_iter()
                 .map(|(_, _, t)| t)
@@ -732,20 +733,20 @@ mod tests {
         let both = [info("BILL", false), info("SHOP", false)];
         assert_eq!(
             titles(Some("SHOP"), &both),
-            ["Pause this project", "Pause all projects"]
+            ["Pause shop-web", "Pause all projects"]
         );
         let one = [info("BILL", false), info("SHOP", true)];
         assert_eq!(
             titles(Some("SHOP"), &one),
             [
-                "Resume this project",
+                "Resume shop-web",
                 "Pause all projects",
                 "Resume all projects"
             ]
         );
         assert_eq!(
             palette(Some("SHOP"), &one)[0],
-            (Scope::Project, true, "Resume this project")
+            (Scope::Project, true, "Resume shop-web".to_owned())
         );
         assert_eq!(titles(None, &[info("SHOP", true)]), ["Resume all projects"]);
 
@@ -756,11 +757,11 @@ mod tests {
         };
         assert_eq!(
             titles(Some("SHOP"), &[info("BILL", false), own("SHOP")]),
-            ["Resume this project", "Pause all projects"]
+            ["Resume shop-web", "Pause all projects"]
         );
         assert_eq!(
             titles(Some("SHOP"), &[info("BILL", true), own("SHOP")]),
-            ["Resume this project", "Resume all projects"]
+            ["Resume shop-web", "Resume all projects"]
         );
 
         // Nothing at work: no Pause anywhere (a kept session of a ticket waiting for review isn't at work).

@@ -247,14 +247,16 @@ pub enum Item {
         title: String,
         keys: Vec<String>,
     },
-    /// "Pause this project", "Resume all projects" (PAU-08, d0112): runs at once, no confirmation. `project` is the
-    /// open project's key for This project.
+    /// "Pause shop-web  ⇧⌘.", "Resume all projects" (PAU-08, d0112): runs at once, no confirmation. `project` is the
+    /// open project's key for This project. `keys`: Pause / Resume agents' keys on the open project's Pause, as the
+    /// title bar's menu shows them there; none on the other rows.
     Pause {
         scope: pause::Scope,
         resume: bool,
         project: Option<String>,
         icon: IconName,
-        title: &'static str,
+        title: String,
+        keys: Vec<String>,
     },
     /// "Next that needs you  SHOP-22  ⌘J": what ⌘J opens now (`label`: the ticket's key, or the Noyan conversation's
     /// name); picking it runs ⌘J.
@@ -360,10 +362,15 @@ pub fn keys_of(action: KeyAction, inputs: &Inputs) -> Vec<String> {
 }
 
 /// The Pause and Resume rows for the open project and for all projects ([`pause::palette`]), with their titles.
-fn pause_rows(inputs: &Inputs) -> Vec<(&'static str, Row)> {
+fn pause_rows(inputs: &Inputs) -> Vec<(String, Row)> {
     pause::palette(inputs.project, inputs.projects)
         .into_iter()
         .map(|(scope, resume, title)| {
+            let keys = if scope == pause::Scope::Project && !resume {
+                keys_of(KeyAction::Pause, inputs)
+            } else {
+                Vec::new()
+            };
             let row = Row {
                 pickable: true,
                 item: Item::Pause {
@@ -377,7 +384,8 @@ fn pause_rows(inputs: &Inputs) -> Vec<(&'static str, Row)> {
                     } else {
                         IconName::Pause
                     },
-                    title,
+                    title: title.clone(),
+                    keys,
                 },
             };
             (title, row)
@@ -507,7 +515,7 @@ fn edit_flow_row(project: &str) -> Row {
     }
 }
 
-/// The actions an empty field suggests after Next that needs you, in order; Edit flow and Pause this project go
+/// The actions an empty field suggests after Next that needs you, in order; Edit flow and Pause shop-web go
 /// between them.
 const SUGGESTED_ACTIONS: [KeyAction; 4] = [
     KeyAction::NewTicket,
@@ -517,7 +525,7 @@ const SUGGESTED_ACTIONS: [KeyAction; 4] = [
 ];
 
 /// An empty field's suggestions: Next that needs you first (only while something needs the user), then New ticket,
-/// Edit flow, Ask Noyan, Pause (or Resume) this project, Settings and Open a terminal.
+/// Edit flow, Ask Noyan, Pause (or Resume) shop-web, Settings and Open a terminal.
 fn suggested_rows(inputs: &Inputs) -> Vec<Row> {
     let mut rows = Vec::new();
     if let Some(label) = inputs.next_needs_you {
@@ -623,7 +631,7 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             let s = if needle.is_empty() {
                 Some(0)
             } else {
-                score(&needle, title)
+                score(&needle, &title)
             };
             ranked.extend(s.map(|s| (s, row)));
         }
@@ -671,7 +679,7 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             }
         }
         for (title, row) in pause_rows(inputs) {
-            if let Some(s) = score(&needle, title) {
+            if let Some(s) = score(&needle, &title) {
                 here.push((s, row));
             }
         }
@@ -751,7 +759,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
         name: name.into(),
         repo_path: format!("/code/{name}"),
         base_branch: "main".into(),
-        // Agents at work, as drawn: Pause this project is offered.
+        // Agents at work, as drawn: Pause shop-web is offered.
         agents_working: 1,
         needs_you: 0,
         paused_since: None,
@@ -1184,7 +1192,7 @@ mod tests {
                 "action Open a terminal",
             ]
         );
-        // Pause this project only while an agent works there (a ticket waiting for review isn't one).
+        // Pause <the open project> only while an agent works there (a ticket waiting for review isn't one).
         let mut running = projects.clone();
         running[0].agents_working = 1;
         let busy = view(
@@ -1194,10 +1202,66 @@ mod tests {
                 ..inputs(&running, &tickets, &bindings, &[])
             },
         );
-        assert!(
-            words(&busy).contains(&"pause Pause this project".to_owned()),
+        // Named and keyed as drawn ("Pause shop-web ⇧⌘."), as the title bar's menu names it.
+        let pause_row = busy
+            .rows
+            .iter()
+            .find(|r| matches!(r.item, Item::Pause { .. }))
+            .map(|r| r.item.clone());
+        assert_eq!(
+            pause_row,
+            Some(Item::Pause {
+                scope: pause::Scope::Project,
+                resume: false,
+                project: Some("NOTE".into()),
+                icon: IconName::Pause,
+                title: "Pause pocket-notes".into(),
+                keys: vec!["⇧⌘.".into()],
+            }),
             "{:?}",
             words(&busy)
+        );
+        // Windows' keys.
+        let windows = keymap::user_keys(Platform::WinLinux, &CustomKeys::default());
+        let on_windows = view("", &inputs(&running, &tickets, &windows, &[]));
+        assert!(
+            on_windows.rows.iter().any(|r| matches!(
+                &r.item,
+                Item::Pause { title, keys, .. }
+                    if title == "Pause pocket-notes" && *keys == ["Ctrl+Shift+."]
+            )),
+            "{:?}",
+            words(&on_windows)
+        );
+        // Typing the project's name finds it.
+        assert_eq!(
+            words(&view(
+                "pause pocket",
+                &inputs(&running, &tickets, &bindings, &[])
+            ))[0],
+            "pause Pause pocket-notes"
+        );
+        // Resume (from the paused banner) and the All projects rows carry no keys: ⇧⌘. opens the menu, whose
+        // keyed row is the open project's Pause.
+        let mut paused = running.clone();
+        paused[0].paused_since = Some(1);
+        paused[1].agents_working = 1;
+        let resumable = view(">", &inputs(&paused, &tickets, &bindings, &[]));
+        let pause_rows: Vec<(String, Vec<String>)> = resumable
+            .rows
+            .iter()
+            .filter_map(|r| match &r.item {
+                Item::Pause { title, keys, .. } => Some((title.clone(), keys.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pause_rows,
+            [
+                ("Resume pocket-notes".to_owned(), vec![]),
+                ("Pause all projects".to_owned(), vec![]),
+                ("Resume all projects".to_owned(), vec![]),
+            ]
         );
         assert_eq!(
             v.rows[2].item,

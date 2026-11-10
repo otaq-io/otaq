@@ -66,6 +66,14 @@ function RowContent({ row }: { row: PaletteRow }) {
         </>
       );
     case "pause":
+      return (
+        <>
+          <Icon name={item.icon} size={14} />
+          <span className="palette-title">{item.title}</span>
+          <span className="palette-fill" />
+          <Keys keys={item.keys} dim={false} />
+        </>
+      );
     case "edit_flow":
       return (
         <>
