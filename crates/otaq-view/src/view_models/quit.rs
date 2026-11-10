@@ -2,9 +2,10 @@
 //! says when Quit and stop agents didn't quit. The steps themselves (the service's `service.stop_agents`, waiting for
 //! it to exit) are the app's.
 //!
-//! - **⌘Q, or the menu bar's Quit Otaq, with agents working** asks "Quit Otaq?": **Keep them running** (the default:
-//!   the agents keep working in the background), **Quit and stop agents** (the clear second choice), **Cancel**. With
-//!   nothing working, or no service to ask, it quits at once.
+//! - **⌘Q, the menu bar's or the tray's Quit Otaq, with agents working** (as Running counts them: a checker at work
+//!   too) asks "Quit Otaq?", on the window, brought up first when it was closed to the tray: **Keep them running**
+//!   (the default: the agents keep working in the background), **Quit and stop agents** (the clear second choice),
+//!   **Cancel**. With nothing working, or no service to ask, it quits at once.
 //! - **A failed stop** brings the window back with "Otaq didn't quit": the service couldn't be reached (nothing was
 //!   stopped), or it hadn't exited within [`STOP_WAIT_SECS`] (the pause is stored; the ticket whose agent was still
 //!   running is named, and "may still be working" is said only then, since the service couldn't confirm the end).

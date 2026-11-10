@@ -802,3 +802,65 @@ async fn agent_counts_come_from_live_agent_sessions() {
         }
     );
 }
+
+/// The working count is Running's (and the tray's "1 agent running"): a checker at work counts, so Quit Otaq asks
+/// while only a checker works; a session kept while its ticket waits for your review doesn't; a ticket counts once.
+#[tokio::test]
+async fn agent_counts_follow_running() {
+    use otaq_core::store::agents::AgentCounts;
+    let (_tmp, store) = temp_store().await;
+    let project = store.insert_project(&shop_web()).await.unwrap();
+    let at = now_ms();
+    let ticket_in = async |number: i64, state: &str| {
+        store
+            .insert_ticket(&NewTicket {
+                stage_id: Some("dev".into()),
+                state: state.into(),
+                ..ticket(&project.id, number, "t")
+            })
+            .await
+            .unwrap()
+            .id
+    };
+    let session = async |ticket: &str, kind: &str| {
+        sqlx::query(
+            "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at) \
+             VALUES (?, ?, ?, ?, 'running', ?)",
+        )
+        .bind(new_id())
+        .bind(&project.id)
+        .bind(ticket)
+        .bind(kind)
+        .bind(at)
+        .execute(store.pool())
+        .await
+        .unwrap();
+    };
+    // Only the checker of SHOP-8 works: the quit question's case.
+    let checked = ticket_in(8, "validating").await;
+    session(&checked, "validator").await;
+    assert_eq!(
+        store.agent_counts().await.unwrap(),
+        AgentCounts {
+            working: 1,
+            waiting: 0
+        }
+    );
+    // The ticket's own agent session kept beside its checker: still one ticket.
+    session(&checked, "agent").await;
+    // A session kept while its ticket waits for review isn't running.
+    let review = ticket_in(9, "ready_for_review").await;
+    session(&review, "agent").await;
+    // A delivery session works; a checker asking you waits.
+    let delivering = ticket_in(10, "to_deliver").await;
+    session(&delivering, "delivery").await;
+    let asking = ticket_in(11, "validator_needs_you").await;
+    session(&asking, "validator").await;
+    assert_eq!(
+        store.agent_counts().await.unwrap(),
+        AgentCounts {
+            working: 2,
+            waiting: 1
+        }
+    );
+}
