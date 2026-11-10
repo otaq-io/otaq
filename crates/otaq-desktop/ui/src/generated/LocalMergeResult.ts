@@ -6,7 +6,11 @@ import type { ReviewToast } from "./ReviewToast";
 /**
  * How a Local merge ended, as the dialog shows it. A merge that went through closes the dialog (the toasts say it).
  */
-export type LocalMergeResult = { "kind": "merged", toasts: Array<ReviewToast>, } | { "kind": "conflict", title: string, text: string, files: Array<string>, help: string, worktree: string | null, close: string, } | { "kind": "stopped", title: string, message: string, close: string, } | { "kind": "refused", title: string, message: string, retry: string, close: string, } | { "kind": "uncommitted", title: string, files: Array<string>, text: string, view: string, send_back: string, cancel: string, } | { "kind": "changed", changed: ReviewChanged, } | { "kind": "identity", form: GitIdentityForm, 
+export type LocalMergeResult = { "kind": "merged", toasts: Array<ReviewToast>, } | { "kind": "conflict", title: string, text: string, files: Array<string>, 
+/**
+ * A failed Merge check's output, its end when long; `None` for a conflict or a check that printed nothing.
+ */
+output: string | null, help: string, worktree: string | null, close: string, } | { "kind": "stopped", title: string, message: string, close: string, } | { "kind": "refused", title: string, message: string, retry: string, close: string, } | { "kind": "uncommitted", title: string, files: Array<string>, text: string, view: string, send_back: string, cancel: string, } | { "kind": "changed", changed: ReviewChanged, } | { "kind": "identity", form: GitIdentityForm, 
 /**
  * "Save and merge".
  */

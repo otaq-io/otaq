@@ -4719,6 +4719,9 @@
             "exit": {
               "ty": "Option<i32>"
             },
+            "output": {
+              "ty": "String"
+            },
             "target": {
               "ty": "String",
               "required": true

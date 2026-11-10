@@ -325,6 +325,8 @@ pub enum MergeResult {
         title: String,
         text: String,
         files: Vec<String>,
+        /// A failed Merge check's output, its end when long; `None` for a conflict or a check that printed nothing.
+        output: Option<String>,
         help: String,
         worktree: Option<String>,
         close: &'static str,
@@ -504,6 +506,7 @@ pub fn merge_result(
             title,
             text,
             files,
+            output: None,
             help: ap::conflict_help(key, target),
             worktree: ticket
                 .work
@@ -513,10 +516,15 @@ pub fn merge_result(
             close: "Close",
         },
         // Shown as a conflict is: what failed, and that the agent fixes it with no click (d0120).
-        MergeView::CheckFailed { title, text } => MergeResult::Conflict {
+        MergeView::CheckFailed {
+            title,
+            text,
+            output,
+        } => MergeResult::Conflict {
             title,
             text,
             files: Vec::new(),
+            output: Some(output).filter(|o| !o.is_empty()),
             help: ap::check_failed_help(key, target),
             worktree: ticket
                 .work
@@ -906,11 +914,13 @@ mod tests {
             target: "main".into(),
             command: "npm test".into(),
             exit: Some(1),
+            output: "FAIL src/cart.test.ts\n  expected 2, got 3".into(),
         };
         let MergeResult::Conflict {
             title,
             text,
             files,
+            output,
             help,
             ..
         } = merge_result(&t, "main", &failed, &all)
@@ -924,9 +934,14 @@ mod tests {
         );
         assert!(files.is_empty());
         assert_eq!(
+            output.as_deref(),
+            Some("FAIL src/cart.test.ts\n  expected 2, got 3"),
+            "the box shows what failed"
+        );
+        assert_eq!(
             help,
             "Nothing was merged into main. SHOP-18 went back to its agent, which fixes it and moves on again; the \
-             check\u{2019}s output is attached to its comment."
+             check\u{2019}s whole output is attached to its comment."
         );
         let stopped = LocalMergeOutcome::CheckStopped {
             target: "main".into(),

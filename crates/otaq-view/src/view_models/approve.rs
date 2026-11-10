@@ -429,7 +429,7 @@ pub fn merge_check_runs_first(command: &str, target: &str) -> String {
 pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
     format!(
         "Nothing was merged into {target}. {key} went back to its agent, which fixes it and moves on again; the \
-         check\u{2019}s output is attached to its comment."
+         check\u{2019}s whole output is attached to its comment."
     )
 }
 
@@ -458,7 +458,12 @@ pub enum MergeView {
         files: Vec<String>,
     },
     /// The Merge check failed on the rebased result (d0120): nothing merged, the agent fixes it with no click.
-    CheckFailed { title: String, text: String },
+    /// `output` is the end of what it printed (empty when it printed nothing).
+    CheckFailed {
+        title: String,
+        text: String,
+        output: String,
+    },
     /// The user's Stop of the Merge check (Q475): nothing merged, the ticket where it was.
     CheckStopped { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry." (Retry).
@@ -544,9 +549,11 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             target,
             command,
             exit,
+            output,
         } => MergeView::CheckFailed {
             title: format!("Merge check failed on {target}"),
             text: otaq_core::domain::validation::merge_check_failed(command, target, *exit),
+            output: output.clone(),
         },
         LocalMergeOutcome::CheckStopped { target } => MergeView::CheckStopped {
             message: format!("The merge check was stopped; nothing was merged into {target}."),

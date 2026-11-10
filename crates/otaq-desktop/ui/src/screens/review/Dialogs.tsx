@@ -84,6 +84,19 @@ function Files({
   );
 }
 
+/** A failed Merge check's output (its end when long), scrolled to its last line, where the failure usually is. */
+function CheckOutput({ output }: { output: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [output]);
+  return (
+    <pre ref={box} className="review-output" data-tone="error">
+      {output}
+    </pre>
+  );
+}
+
 /** The lines of one file of the new commits. */
 function NewCommitFile({ file }: { file: DiffFileView }) {
   return (
@@ -566,7 +579,8 @@ export function ResultDialog({
         >
           <div className="review-body" data-tone="error">
             <p className="review-text">{result.text}</p>
-            <Files files={result.files} tone="error" icon="git-merge" />
+            {result.files.length > 0 && <Files files={result.files} tone="error" icon="git-merge" />}
+            {result.output !== null && <CheckOutput output={result.output} />}
             <p className="review-text">{result.help}</p>
             {result.worktree !== null && (
               <div className="review-path">

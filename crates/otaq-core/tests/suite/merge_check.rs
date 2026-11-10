@@ -93,7 +93,9 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
             target: "main".into(),
             command: "sh test.sh".into(),
             exit: Some(1),
-        }
+            output: "card.ts\nFAIL: emerald is used".into(),
+        },
+        "the dialog has what the check printed"
     );
     assert_eq!(main_of(&repo), main, "main unchanged");
     assert_eq!(w.status("SHOP-1").await, Status::Merged);
