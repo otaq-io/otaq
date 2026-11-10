@@ -137,6 +137,7 @@ const RUNNING: AgentPanelView = {
           line: "Waits for a free agent · next in line",
           icon: "square-plus",
           edited: false,
+          change: null,
           start: null,
           delete: null,
         },
@@ -147,6 +148,7 @@ const RUNNING: AgentPanelView = {
           line: null,
           icon: "square-plus",
           edited: false,
+          change: null,
           start: "Start",
           delete: "Delete",
         },
@@ -156,10 +158,11 @@ const RUNNING: AgentPanelView = {
         {
           key: "NOTE-5",
           title: "Sync conflicts",
-          place: "Backlog",
+          place: "",
           line: null,
           icon: "pencil",
           edited: true,
+          change: "now waits for NOTE-4",
           start: null,
           delete: null,
         },
@@ -478,6 +481,11 @@ describe("a running agent", () => {
     expect(rows[0]?.textContent).not.toContain("Start");
     expect(rows[2]?.textContent).not.toContain("Start");
     expect(box.textContent).toContain("CHANGED 1");
+    // The changed row says what Noyan changed, the title kept for its tooltip.
+    expect(rows[2]?.textContent).toBe("NOTE-5· now waits for NOTE-4");
+    expect(rows[2]?.querySelector(".agent-panel-created-title")?.getAttribute("title")).toBe(
+      "Sync conflicts",
+    );
     const start = [...(rows[1]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Start");
     await act(async () => {
       start?.click();

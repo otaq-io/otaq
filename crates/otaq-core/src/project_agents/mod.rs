@@ -32,6 +32,7 @@ use crate::agent_tools::{
 };
 use crate::agents::{Agent, RunsOn, SessionRole, resolve};
 use crate::board::questions::{Choice, HumanQuestion};
+use crate::board::tickets::{Field, FieldChange};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::domain::{Actor, Status, StatusSet, TicketKey};
@@ -219,12 +220,56 @@ pub struct CreatedAndChanged {
     /// The tickets it created that still exist, in creation order.
     pub created: Vec<CreatedTicket>,
     /// The tickets it changed, in key order: other tickets it edited, and every ticket whose dependencies it added or
-    /// removed (one it created included).
+    /// removed (one it created included): the tickets of [`Self::changes`].
     pub edited: Vec<TicketKey>,
+    /// What it changed on them, one entry per part of a ticket (a field, one wait, one stage's choice), in key order
+    /// and then in the order it first changed them, each part as it left it against how it found it. A part it put
+    /// back as it found it is left out. What the CHANGED rows say ("SHOP-7 · now waits for SHOP-6").
+    #[serde(default)]
+    pub changes: Vec<TicketChange>,
     /// Dependencies it added.
     pub dependencies: u32,
     /// The one-line summary.
     pub summary: String,
+}
+
+/// One part of a ticket a Project agent changed: a CHANGED row. It holds how the agent found the part and how it left
+/// it, so the part can be put back, and a later change by someone else told apart (the part no longer reads as the
+/// agent left it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketChange {
+    pub ticket: TicketKey,
+    pub change: WhatChanged,
+    /// When it last changed this part (ms).
+    pub at: i64,
+}
+
+/// What a Project agent changed on a ticket ([`TicketChange`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WhatChanged {
+    /// The ticket now waits for `parent` (`otaq dep add`); it didn't before.
+    WaitsFor { parent: TicketKey },
+    /// The ticket no longer waits for `parent` (`otaq dep remove`); it did before.
+    NoLongerWaitsFor { parent: TicketKey },
+    /// A field (title, description, priority, base branch), as `otaq update` writes it in History: a priority reads
+    /// "P2 · High"; `None` is empty (a base branch: the project's own).
+    Field {
+        field: Field,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
+    /// A stage's choice (`otaq update --stage`): the stage's name and id and the choice's label ("Quick developer",
+    /// "skip"); `before` is `None` while nobody had chosen.
+    StageChoice {
+        stage: String,
+        stage_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        after: String,
+    },
 }
 
 /// A ticket a Project agent created.
@@ -878,16 +923,17 @@ impl ProjectAgents {
     pub async fn created_and_changed(&self, id: &str) -> Result<CreatedAndChanged, BoardError> {
         let agent = self.get(id).await?;
         let actor = Actor::ProjectAgent(id.to_owned()).to_string();
-        let events: Vec<(String, String)> =
-            sqlx::query_as("SELECT ticket_id, kind FROM events WHERE actor = ? ORDER BY at, id")
-                .bind(&actor)
-                .fetch_all(self.inner.board.store().pool())
-                .await?;
+        let events: Vec<(String, String, String, i64)> = sqlx::query_as(
+            "SELECT ticket_id, kind, payload_json, at FROM events WHERE actor = ? ORDER BY at, id",
+        )
+        .bind(&actor)
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
         let tickets = self.inner.board.tickets(&agent.project).await?;
         let by_id = |ticket: &str| tickets.iter().find(|t| t.id == ticket);
         let mut out = CreatedAndChanged::default();
         let mut created_ids: Vec<&str> = Vec::new();
-        for (ticket, kind) in &events {
+        for (ticket, kind, _, _) in &events {
             match kind.as_str() {
                 "created" => {
                     if let Some(t) = by_id(ticket) {
@@ -904,19 +950,39 @@ impl ProjectAgents {
                 _ => {}
             }
         }
-        for (ticket, kind) in &events {
-            // A field it set on a ticket it created is part of making it; a dependency it added or removed is a
-            // change to that ticket either way, so it is listed under Changed too.
-            let change = match kind.as_str() {
-                "updated" => !created_ids.contains(&ticket.as_str()),
-                "dependency_added" | "dependency_removed" => true,
-                _ => false,
-            };
-            if change
-                && let Some(t) = by_id(ticket)
-                && !out.edited.contains(&t.key)
-            {
-                out.edited.push(t.key.clone());
+        let mut changes = Changes::default();
+        for (ticket, kind, payload, at) in &events {
+            let Some(t) = by_id(ticket) else { continue };
+            let payload: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            // A field or stage choice it set on a ticket it created is part of making it; a dependency it added or
+            // removed is a change to that ticket either way, so it is listed under Changed too.
+            let made_it = created_ids.contains(&ticket.as_str());
+            match kind.as_str() {
+                "updated" if !made_it => {
+                    let fields: Vec<FieldChange> = payload
+                        .get("changes")
+                        .and_then(|c| serde_json::from_value(c.clone()).ok())
+                        .unwrap_or_default();
+                    for f in fields {
+                        changes.field(&t.key, f, *at);
+                    }
+                }
+                "stage_choice_set" if !made_it => changes.stage_choice(&t.key, &payload, *at),
+                "dependency_added" | "dependency_removed" => {
+                    if let Some(parent) = payload
+                        .get("parent")
+                        .and_then(|p| serde_json::from_value::<TicketKey>(p.clone()).ok())
+                    {
+                        changes.wait(&t.key, parent, kind == "dependency_added", *at);
+                    }
+                }
+                _ => {}
+            }
+        }
+        out.changes = changes.made();
+        for c in &out.changes {
+            if !out.edited.contains(&c.ticket) {
+                out.edited.push(c.ticket.clone());
             }
         }
         out.edited.sort();
@@ -1374,6 +1440,113 @@ async fn request(
         effort: None,
         title: None,
         theme: board.theme_in_use().await,
+    }
+}
+
+/// A Project agent's changes, one per part of a ticket, folded in the order of its events
+/// ([`CreatedAndChanged::changes`]).
+#[derive(Default)]
+struct Changes(Vec<TicketChange>);
+
+impl Changes {
+    /// Where `ticket`'s part (`same`) is, if it changed it before.
+    fn part(&self, ticket: &TicketKey, same: impl Fn(&WhatChanged) -> bool) -> Option<usize> {
+        self.0
+            .iter()
+            .position(|c| c.ticket == *ticket && same(&c.change))
+    }
+
+    fn push(&mut self, ticket: &TicketKey, change: WhatChanged, at: i64) {
+        self.0.push(TicketChange {
+            ticket: ticket.clone(),
+            change,
+            at,
+        });
+    }
+
+    /// A wait added (`added`) or removed. Taking back its own earlier change to that wait leaves it as it found it.
+    fn wait(&mut self, ticket: &TicketKey, parent: TicketKey, added: bool, at: i64) {
+        let on = |c: &WhatChanged| matches!(c, WhatChanged::WaitsFor { parent: p } | WhatChanged::NoLongerWaitsFor { parent: p } if *p == parent);
+        match self.part(ticket, on) {
+            Some(i) if matches!(self.0[i].change, WhatChanged::WaitsFor { .. }) != added => {
+                self.0.remove(i);
+            }
+            Some(i) => self.0[i].at = at,
+            None if added => self.push(ticket, WhatChanged::WaitsFor { parent }, at),
+            None => self.push(ticket, WhatChanged::NoLongerWaitsFor { parent }, at),
+        }
+    }
+
+    fn field(&mut self, ticket: &TicketKey, f: FieldChange, at: i64) {
+        let same =
+            |c: &WhatChanged| matches!(c, WhatChanged::Field { field, .. } if *field == f.field);
+        match self.part(ticket, same) {
+            Some(i) => {
+                if let WhatChanged::Field { after, .. } = &mut self.0[i].change {
+                    *after = f.after;
+                }
+                self.0[i].at = at;
+            }
+            None => self.push(
+                ticket,
+                WhatChanged::Field {
+                    field: f.field,
+                    before: f.before,
+                    after: f.after,
+                },
+                at,
+            ),
+        }
+    }
+
+    /// A `stage_choice_set` event's payload: `stage`, `stage_id`, `choice` and `from`.
+    fn stage_choice(&mut self, ticket: &TicketKey, payload: &serde_json::Value, at: i64) {
+        let text = |key: &str| {
+            payload
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let (Some(stage), Some(stage_id), Some(choice)) =
+            (text("stage"), text("stage_id"), text("choice"))
+        else {
+            return;
+        };
+        let same = |c: &WhatChanged| matches!(c, WhatChanged::StageChoice { stage_id: id, .. } if *id == stage_id);
+        match self.part(ticket, same) {
+            Some(i) => {
+                if let WhatChanged::StageChoice { after, .. } = &mut self.0[i].change {
+                    *after = choice;
+                }
+                self.0[i].at = at;
+            }
+            None => self.push(
+                ticket,
+                WhatChanged::StageChoice {
+                    stage,
+                    stage_id,
+                    before: text("from"),
+                    after: choice,
+                },
+                at,
+            ),
+        }
+    }
+
+    /// The parts it changed and didn't set back as it found them, in key order (and the order it first changed
+    /// them).
+    fn made(self) -> Vec<TicketChange> {
+        let mut made: Vec<TicketChange> = self
+            .0
+            .into_iter()
+            .filter(|c| match &c.change {
+                WhatChanged::Field { before, after, .. } => before != after,
+                WhatChanged::StageChoice { before, after, .. } => before.as_ref() != Some(after),
+                WhatChanged::WaitsFor { .. } | WhatChanged::NoLongerWaitsFor { .. } => true,
+            })
+            .collect();
+        made.sort_by(|a, b| a.ticket.cmp(&b.ticket));
+        made
     }
 }
 

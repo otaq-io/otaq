@@ -27,8 +27,12 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::Agent;
-use otaq_core::domain::{Status, StatusSet, TicketKey};
-use otaq_core::project_agents::{AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList};
+use otaq_core::board::stage_choices::SKIP;
+use otaq_core::board::tickets::Field;
+use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
+use otaq_core::project_agents::{
+    AgentState, CreatedAndChanged, ProjectAgent, ProjectAgentList, WhatChanged,
+};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -304,7 +308,8 @@ pub fn whereabouts(input: &BoardInput, keys: &[TicketKey]) -> Vec<Whereabouts> {
 
 /// One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
 /// still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
-/// created ticket that never went to Dev (TKT-08, the 0060 confirmation).
+/// created ticket that never went to Dev (TKT-08, the 0060 confirmation). A changed row is one change: the key, then
+/// what changed ("SHOP-7 · now waits for SHOP-6").
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentPanelCreatedRow")]
 pub struct CreatedRow {
@@ -317,6 +322,9 @@ pub struct CreatedRow {
     /// Created (square-plus) or changed (pencil).
     pub icon: IconName,
     pub edited: bool,
+    /// A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
+    /// for the tooltip. None on a created row.
+    pub change: Option<String>,
     /// "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
     pub start: Option<&'static str>,
     pub delete: Option<&'static str>,
@@ -351,6 +359,56 @@ pub struct Created {
     pub changed: Vec<CreatedRow>,
 }
 
+/// What a CHANGED row says Noyan changed, after the ticket's key: "now waits for SHOP-6", "no longer waits for SHOP-6",
+/// "renamed to “Cache previews”", "description changed", "priority now High", "now branches from develop",
+/// "now skips Review", "Dev: Quick developer".
+pub fn what_changed(change: &WhatChanged) -> String {
+    match change {
+        WhatChanged::WaitsFor { parent } => format!("now waits for {parent}"),
+        WhatChanged::NoLongerWaitsFor { parent } => format!("no longer waits for {parent}"),
+        WhatChanged::Field {
+            field,
+            before,
+            after,
+        } => {
+            let filled = |v: &Option<String>| v.as_deref().is_some_and(|v| !v.trim().is_empty());
+            let text = |what: &str| match (filled(before), filled(after)) {
+                (false, _) => format!("{what} written"),
+                (true, false) => format!("{what} cleared"),
+                (true, true) => format!("{what} changed"),
+            };
+            match field {
+                Field::Title => format!(
+                    "renamed to \u{201c}{}\u{201d}",
+                    after.as_deref().unwrap_or_default()
+                ),
+                Field::Body => text("description"),
+                Field::Plan => text("Plan"),
+                Field::Priority => {
+                    // History writes a priority as "P2 · High".
+                    let after = after.as_deref().unwrap_or_default();
+                    let label = after
+                        .split(" \u{b7} ")
+                        .next()
+                        .and_then(|p| p.parse::<Priority>().ok())
+                        .map_or_else(|| after.to_owned(), |p| p.label().to_owned());
+                    format!("priority now {label}")
+                }
+                Field::BaseBranch => match after.as_deref() {
+                    Some(branch) if !branch.trim().is_empty() => {
+                        format!("now branches from {branch}")
+                    }
+                    _ => "now branches from the project's base branch".to_owned(),
+                },
+            }
+        }
+        WhatChanged::StageChoice { stage, after, .. } if after == SKIP => {
+            format!("now skips {stage}")
+        }
+        WhatChanged::StageChoice { stage, after, .. } => format!("{stage}: {after}"),
+    }
+}
+
 /// `None` while the agent created and changed nothing. `places` says where each started ticket is.
 pub fn created(
     agent: &ProjectAgent,
@@ -380,34 +438,45 @@ pub fn created(
                 line: now.and_then(|w| w.line.clone()),
                 icon: IconName::SquarePlus,
                 edited: false,
+                change: None,
                 start: waiting.then_some("Start"),
                 delete: t.deletable.then_some("Delete"),
             }
         })
         .collect();
-    let changed: Vec<CreatedRow> = c
-        .edited
-        .iter()
-        .map(|key| {
-            let known = edited.iter().find(|t| t.key == *key);
-            CreatedRow {
-                key: key.to_string(),
-                title: known.map_or_else(String::new, |t| t.title.clone()),
-                place: known.map_or_else(String::new, |t| t.place.clone()),
-                line: None,
-                icon: IconName::Pencil,
-                edited: true,
-                start: None,
-                delete: None,
-            }
-        })
-        .collect();
+    let changed_row = |key: &TicketKey, change: Option<String>| {
+        let known = edited.iter().find(|t| t.key == *key);
+        CreatedRow {
+            key: key.to_string(),
+            title: known.map_or_else(String::new, |t| t.title.clone()),
+            // A row that says what changed reads "SHOP-7 · now waits for SHOP-6", without where the ticket is.
+            place: match (&change, known) {
+                (None, Some(t)) => t.place.clone(),
+                _ => String::new(),
+            },
+            line: None,
+            icon: IconName::Pencil,
+            edited: true,
+            change,
+            start: None,
+            delete: None,
+        }
+    };
+    // One row per change; a service from before the changes were sent gives only the tickets.
+    let changed: Vec<CreatedRow> = if c.changes.is_empty() {
+        c.edited.iter().map(|key| changed_row(key, None)).collect()
+    } else {
+        c.changes
+            .iter()
+            .map(|ch| changed_row(&ch.ticket, Some(what_changed(&ch.change))))
+            .collect()
+    };
     let all_waiting = c.created.iter().all(|t| in_backlog(t.status));
     Some(Created {
         line: format!(
             "CREATED {} \u{b7} CHANGED {}",
             c.created.len(),
-            c.edited.len()
+            changed.len()
         ),
         folded: window_width.is_some_and(|w| w < FOLD_BELOW_WIDTH),
         show_on_board: ShowOnBoard {
@@ -768,7 +837,7 @@ pub struct Gallery {
 }
 
 pub fn gallery() -> Gallery {
-    use otaq_core::project_agents::{CreatedTicket, NameSource};
+    use otaq_core::project_agents::{CreatedTicket, NameSource, TicketChange};
 
     const NOW: i64 = 1_791_600_000_000;
     let agent = |id: &str, name: &str, at: i64| ProjectAgent {
@@ -834,6 +903,13 @@ pub fn gallery() -> Gallery {
             },
         ],
         edited: vec!["NOTE-5".parse().expect("a key")],
+        changes: vec![TicketChange {
+            ticket: "NOTE-5".parse().expect("a key"),
+            change: WhatChanged::WaitsFor {
+                parent: "NOTE-4".parse().expect("a key"),
+            },
+            at: NOW,
+        }],
         dependencies: 1,
         summary: String::new(),
     };
@@ -1056,7 +1132,7 @@ fn session_on(name: &str) -> otaq_core::session::SessionInfo {
 
 #[cfg(test)]
 mod tests {
-    use otaq_core::project_agents::{CreatedTicket, NameSource};
+    use otaq_core::project_agents::{CreatedTicket, NameSource, TicketChange};
 
     use super::*;
     use crate::theme::Palette;
@@ -1115,6 +1191,7 @@ mod tests {
                 },
             ],
             edited: vec!["NOTE-5".parse().unwrap()],
+            changes: vec![waits("NOTE-5", "NOTE-4")],
             dependencies: 1,
             summary: String::new(),
         }
@@ -1501,6 +1578,7 @@ mod tests {
         let mut c = changed();
         c.created[0].status = Status::Backlog;
         c.edited.clear();
+        c.changes.clear();
         let all = created(&a, &c, &[], &[], None).unwrap();
         assert_eq!(all.title.as_deref(), Some("CREATED 2 \u{b7} IN BACKLOG"));
         assert!(all.rows.iter().all(|r| r.start == Some("Start")));
@@ -1586,8 +1664,21 @@ mod tests {
         assert_eq!(c.changed_title.as_deref(), Some("CHANGED 1"));
         assert_eq!(
             row_parts(&c.changed),
+            [("NOTE-5", "Sync conflicts", "", None, None)]
+        );
+        assert_eq!(
+            changed_parts(&c.changed),
+            [("NOTE-5", "now waits for NOTE-4")]
+        );
+        // A service from before the changes were sent: the ticket and where it is, as before.
+        let mut old = changed();
+        old.changes.clear();
+        let old = created(&a, &old, &edited(), &places, None).unwrap();
+        assert_eq!(
+            row_parts(&old.changed),
             [("NOTE-5", "Sync conflicts", "Backlog", None, None)]
         );
+        assert_eq!(old.changed[0].change, None);
         assert_eq!(c.changed[0].icon, IconName::Pencil);
         assert_eq!(
             c.show_on_board,
@@ -1622,6 +1713,7 @@ mod tests {
                 },
             ],
             edited: vec!["SHOP-7".parse().unwrap()],
+            changes: vec![waits("SHOP-7", "SHOP-6")],
             dependencies: 1,
             summary: String::new(),
         };
@@ -1635,14 +1727,110 @@ mod tests {
         assert_eq!(panel.title.as_deref(), Some("CREATED 2 \u{b7} IN BACKLOG"));
         assert_eq!(panel.changed_title.as_deref(), Some("CHANGED 1"));
         assert_eq!(
-            row_parts(&panel.changed),
-            [(
-                "SHOP-7",
-                "Check total for an empty list",
-                "Backlog",
-                None,
-                None
-            )]
+            changed_parts(&panel.changed),
+            [("SHOP-7", "now waits for SHOP-6")]
+        );
+        assert_eq!(panel.changed[0].title, "Check total for an empty list");
+    }
+
+    fn waits(ticket: &str, parent: &str) -> TicketChange {
+        TicketChange {
+            ticket: ticket.parse().unwrap(),
+            change: WhatChanged::WaitsFor {
+                parent: parent.parse().unwrap(),
+            },
+            at: 1,
+        }
+    }
+
+    /// A CHANGED row's key and what it says changed.
+    fn changed_parts(rows: &[CreatedRow]) -> Vec<(&str, &str)> {
+        rows.iter()
+            .map(|r| (r.key.as_str(), r.change.as_deref().unwrap_or_default()))
+            .collect()
+    }
+
+    /// A CHANGED row says what Noyan changed, one row per change, in plain words for each kind (the canvas's
+    /// "SHOP-7 · now waits for SHOP-6"), not where the ticket is.
+    #[test]
+    fn a_changed_row_says_what_changed() {
+        let a = agent("a1", "Tidy the backlog", 1);
+        let field =
+            |ticket: &str, field: Field, before: Option<&str>, after: Option<&str>| TicketChange {
+                ticket: ticket.parse().unwrap(),
+                change: WhatChanged::Field {
+                    field,
+                    before: before.map(Into::into),
+                    after: after.map(Into::into),
+                },
+                at: 1,
+            };
+        let choice = |stage: &str, after: &str| TicketChange {
+            ticket: "SHOP-9".parse().unwrap(),
+            change: WhatChanged::StageChoice {
+                stage: stage.into(),
+                stage_id: stage.to_lowercase(),
+                before: None,
+                after: after.into(),
+            },
+            at: 1,
+        };
+        let c = CreatedAndChanged {
+            edited: vec!["SHOP-3".parse().unwrap(), "SHOP-9".parse().unwrap()],
+            changes: vec![
+                waits("SHOP-3", "SHOP-2"),
+                TicketChange {
+                    ticket: "SHOP-3".parse().unwrap(),
+                    change: WhatChanged::NoLongerWaitsFor {
+                        parent: "SHOP-1".parse().unwrap(),
+                    },
+                    at: 1,
+                },
+                field("SHOP-3", Field::Title, Some("Old"), Some("Cache previews")),
+                field("SHOP-3", Field::Body, None, Some("Steps")),
+                field("SHOP-3", Field::Body, Some("Steps"), Some("More steps")),
+                field("SHOP-3", Field::Body, Some("Steps"), None),
+                field(
+                    "SHOP-9",
+                    Field::Priority,
+                    Some("P3 \u{b7} Normal"),
+                    Some("P2 \u{b7} High"),
+                ),
+                field("SHOP-9", Field::BaseBranch, None, Some("develop")),
+                choice("Review", SKIP),
+                choice("Dev", "Quick developer"),
+            ],
+            ..Default::default()
+        };
+        let edited = [EditedTicket {
+            key: "SHOP-3".parse().unwrap(),
+            title: "Cache previews".into(),
+            place: "Backlog".into(),
+        }];
+        let panel = created(&a, &c, &edited, &[], None).unwrap();
+        assert_eq!(panel.line, "CREATED 0 \u{b7} CHANGED 10");
+        assert_eq!(panel.changed_title.as_deref(), Some("CHANGED 10"));
+        assert_eq!(
+            changed_parts(&panel.changed),
+            [
+                ("SHOP-3", "now waits for SHOP-2"),
+                ("SHOP-3", "no longer waits for SHOP-1"),
+                ("SHOP-3", "renamed to \u{201c}Cache previews\u{201d}"),
+                ("SHOP-3", "description written"),
+                ("SHOP-3", "description changed"),
+                ("SHOP-3", "description cleared"),
+                ("SHOP-9", "priority now High"),
+                ("SHOP-9", "now branches from develop"),
+                ("SHOP-9", "now skips Review"),
+                ("SHOP-9", "Dev: Quick developer"),
+            ]
+        );
+        assert!(
+            panel
+                .changed
+                .iter()
+                .all(|r| r.place.is_empty() && r.icon == IconName::Pencil),
+            "the row says what changed, not where the ticket is"
         );
     }
 

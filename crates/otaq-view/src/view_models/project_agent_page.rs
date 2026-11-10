@@ -259,6 +259,7 @@ mod tests {
                 },
             ],
             edited: vec!["SHOP-31".parse().unwrap()],
+            changes: Vec::new(),
             dependencies: 1,
             summary: "Created SHOP-35, SHOP-36 \u{b7} edited SHOP-31 \u{b7} 1 dependency".into(),
         }
