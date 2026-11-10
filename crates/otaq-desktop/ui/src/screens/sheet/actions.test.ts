@@ -284,6 +284,43 @@ describe("what it needs from you, at the top of Overview", () => {
     expect(html).not.toContain("View the setup log");
   });
 
+  it("a permission prompt: the command above Answer in terminal", () => {
+    const atPrompt: SheetView = {
+      ...VIEW,
+      permission_prompt: {
+        heading: "Developer wants to run a command",
+        text: "npm install",
+        command: true,
+      },
+      buttons: [
+        {
+          action: "answer_in_terminal",
+          label: "Answer in terminal",
+          tooltip: null,
+          icon: "square-terminal",
+          look: "attention",
+        },
+      ],
+    };
+    const html = render(atPrompt);
+    expect(html).toContain("Developer wants to run a command");
+    expect(html).toContain("npm install");
+    expect(html).toContain("sheet-permission-command");
+    expect(html.indexOf("npm install")).toBeLessThan(html.indexOf("Answer in terminal"));
+    // The tool's own words when the prompt isn't a command.
+    const words = render({
+      ...atPrompt,
+      permission_prompt: {
+        heading: "Developer wants your permission",
+        text: "Claude needs your permission to use Bash",
+        command: false,
+      },
+    });
+    expect(words).toContain("Claude needs your permission to use Bash");
+    expect(words).not.toContain("sheet-permission-command");
+    expect(render(VIEW)).not.toContain("sheet-permission");
+  });
+
   it("the M12 extras: Auto-merge stop message and the Approve caret", () => {
     const html = render({
       ...VIEW,

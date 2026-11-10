@@ -30,6 +30,7 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::{self, Answer, question_bar};
+use otaq_view::view_models::permission_prompt::PermissionPrompt;
 use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
@@ -375,6 +376,8 @@ pub struct View {
     /// What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
     pub ask_noyan: String,
     pub answer: Option<Answer>,
+    /// A permission prompt the agent (or its checker) waits at: the command, above Answer in terminal.
+    pub permission_prompt: Option<PermissionPrompt>,
     pub notice: Option<Notice>,
     pub conflict: Option<ConflictStrip>,
     pub start_problem: Option<StartProblem>,
@@ -479,6 +482,23 @@ fn stopped_callout(f: &Facts) -> Option<Callout> {
     ))
 }
 
+/// The permission prompt the ticket waits at, named by the agent of the session that asks: the checker's for a
+/// checker's prompt, else the ticket's agent's ("Developer wants to run a command").
+fn permission_prompt_of(f: &Facts) -> Option<PermissionPrompt> {
+    let kind = if f.ticket.status == otaq_core::domain::Status::CheckerNeedsYou {
+        SessionKind::Validator
+    } else {
+        SessionKind::Agent
+    };
+    let agent = f
+        .sessions
+        .iter()
+        .filter(|s| s.kind == kind)
+        .max_by_key(|s| s.started_at)
+        .and_then(|s| s.agent.as_ref())
+        .map(|a| a.name.as_str());
+    otaq_view::view_models::permission_prompt::of(f.ticket, agent)
+}
 
 fn answer_of(ticket: &Ticket) -> Option<Answer> {
     if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
@@ -678,6 +698,7 @@ pub fn view_of(f: &Facts) -> View {
         menu: actions::menu(ticket, has_branch, f.skippable_check),
         ask_noyan: actions::ask_noyan_draft(&ticket.key),
         answer: answer_of(ticket),
+        permission_prompt: permission_prompt_of(f),
         notice: notice_of(ticket, f.tickets),
         conflict: f
             .conflict
@@ -2135,6 +2156,57 @@ mod tests {
         let view = view_of(&facts(&idle, std::slice::from_ref(&idle), &sessions));
         assert!(view.holds.is_empty());
         assert_eq!(labels(&view), ["Answer in terminal"]);
+    }
+
+    /// A ticket at a permission prompt shows the command on Overview, named by its agent, with Answer in terminal
+    /// still its button (Otaq doesn't answer the prompt); a checker's prompt names the checker.
+    #[test]
+    fn a_permission_prompt_shows_its_command_above_answer_in_terminal() {
+        use otaq_core::session::SessionAgent;
+        let named = |kind: SessionKind, name: &str| {
+            let mut s = agent(SessionState::Running);
+            s.kind = kind;
+            s.agent = Some(SessionAgent {
+                id: name.to_lowercase(),
+                name: name.into(),
+            });
+            s
+        };
+        let mut t = fixture("SHOP-7", "Check total for an empty list", Status::NeedsYou);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("Run command: npm install".into()),
+            ..Default::default()
+        });
+        let developer = named(SessionKind::Agent, "Developer");
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), std::slice::from_ref(&developer)));
+        let prompt = view.permission_prompt.as_ref().unwrap();
+        assert_eq!(prompt.heading, "Developer wants to run a command");
+        assert_eq!((prompt.text.as_str(), prompt.command), ("npm install", true));
+        assert!(view.answer.is_none());
+        assert_eq!(labels(&view), ["Answer in terminal"]);
+
+        // The checker's prompt names the checker, not the Dev agent; one with no command shows the tool's words.
+        let mut checker_at_prompt = t.clone();
+        checker_at_prompt.status = Status::CheckerNeedsYou;
+        checker_at_prompt.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("Claude needs your permission to use Bash".into()),
+            ..Default::default()
+        });
+        let sessions = [developer, named(SessionKind::Validator, "Checker")];
+        let view = view_of(&facts(
+            &checker_at_prompt,
+            std::slice::from_ref(&checker_at_prompt),
+            &sessions,
+        ));
+        let prompt = view.permission_prompt.unwrap();
+        assert_eq!(prompt.heading, "Checker wants your permission");
+        assert_eq!(prompt.text, "Claude needs your permission to use Bash");
+        assert!(!prompt.command);
+
+        // A working ticket has none.
+        let working = fixture("SHOP-7", "Check total for an empty list", Status::Working);
+        let view = view_of(&facts(&working, std::slice::from_ref(&working), &[]));
+        assert!(view.permission_prompt.is_none());
     }
 
     /// A check held before its checker started says it waits ("Validate waits for Codex checker", as Change agent…
