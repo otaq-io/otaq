@@ -69,6 +69,13 @@ pub const PARENT_CLOSED: &str = "Parent closed";
 pub const VALIDATOR_ASKS: &str = "Checker asks";
 /// The full label of an Idle that a failed turn left (F10): the tool stopped on an error of its own.
 pub const IDLE_ON_ERROR: &str = "Idle \u{b7} stopped on an error";
+/// The delivery's click on a PR: what happens, in the button's words.
+pub const APPROVE_AND_OPEN_PR: &str = "Approve & open PR";
+
+/// The delivery's click on a local merge: "Approve & merge into main".
+pub fn approve_and_merge_into(base: &str) -> String {
+    format!("Approve & merge into {base}")
+}
 
 /// Facts about a ticket that aren't on [`Ticket`] yet or come from elsewhere on the board.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -379,6 +386,9 @@ pub enum CardActionKind {
     LocalMerge,
     /// …or the Open PR dialog.
     OpenPr,
+    /// An automatic PR delivery that found no PR provider for the remote: app Settings → Git & pull requests, where
+    /// providers are set up.
+    SetUpProvider,
     /// A PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
     SendBackPr,
     /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery as the flow says.
@@ -410,7 +420,8 @@ impl CardActionKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct CardAction {
     pub kind: CardActionKind,
-    pub label: &'static str,
+    #[ts(type = "string")]
+    pub label: std::borrow::Cow<'static, str>,
     pub icon: Option<IconName>,
     pub primary: bool,
 }
@@ -1343,7 +1354,7 @@ fn start_action(ticket: &Ticket) -> Option<CardAction> {
     (ticket.place.is_backlog() && matches!(ticket.status, Status::Backlog | Status::Parked))
         .then_some(CardAction {
             kind: CardActionKind::Start,
-            label: START,
+            label: START.into(),
             icon: Some(IconName::Play),
             primary: false,
         })
@@ -1504,6 +1515,11 @@ fn your_check_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     })
 }
 
+/// An automatic PR delivery's card when no PR provider matches the remote: what is wrong and what to do.
+pub const NO_PR_PROVIDER: &str = "Can\u{2019}t open the PR: no PR provider for this repository. Set one up, or use your own Open PR skill";
+/// Its button: app Settings → Git & pull requests.
+pub const SET_UP_PROVIDER: &str = "Set up\u{2026}";
+
 /// A To deliver card (FLW-15, `s03-46`, `s03-54`): "Ready to merge" or "Ready for PR", with the checks it was moved
 /// past ("Failed Security 3 times · moved by you · open the PR when ready") or how it got here ("Passed Review"). An
 /// automatic Delivery under way says its agent opens the PR.
@@ -1512,6 +1528,14 @@ fn delivery_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     let pr = x.delivers == Some(Delivers::Pr);
     let label = if pr { READY_FOR_PR } else { READY_TO_MERGE };
     let flag = HeadFlag::new(Rank::Outcome, label, label, Legend::ReadyForReview);
+    // Delivery problems say what to do: no PR provider matches the remote, so the PR can't open by itself.
+    if pr && flags.pr_provider_not_detected {
+        return Some(Part::flag(
+            flag,
+            Some(NO_PR_PROVIDER.to_owned()),
+            Tone::Attention,
+        ));
+    }
     if flags.delivering_automatically {
         let text = match &x.delivery_agent {
             Some(agent) => format!("{agent} is opening the PR"),
@@ -1688,7 +1712,7 @@ impl CardViewModel {
             (
                 Some(CardAction {
                     kind: CardActionKind::SendAnswer,
-                    label: "Send answer",
+                    label: "Send answer".into(),
                     icon: Some(IconName::CornerDownLeft),
                     primary: true,
                 }),
@@ -1945,7 +1969,7 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
     if ticket.status == Status::CheckFailed {
         return Some(CardAction {
             kind: CardActionKind::Decide,
-            label: DECIDE,
+            label: DECIDE.into(),
             icon: None,
             primary: true,
         });
@@ -1954,14 +1978,14 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
     match action.kind {
         CardActionKind::Pass => Some(CardAction {
             kind: CardActionKind::Review,
-            label: "Review",
+            label: "Review".into(),
             icon: Some(IconName::Eye),
             primary: true,
         }),
         // The answer options are the sheet's: Reply opens it.
         CardActionKind::SendAnswer => Some(CardAction {
             kind: CardActionKind::Open,
-            label: "Reply",
+            label: "Reply".into(),
             icon: None,
             primary: true,
         }),
@@ -2656,10 +2680,10 @@ pub const MOVE_ON_ANYWAY: &str = "Move on anyway";
 /// The second button: on a held session Open agent… after Change agent…, Change agent… after Skip this check
 /// (`s03-54`); Fail after Pass, Mark merged after Send back with PR comments (`s03-46`).
 fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
-    let quiet = |kind, label| {
+    let quiet = |kind, label: &'static str| {
         Some(CardAction {
             kind,
-            label,
+            label: label.into(),
             icon: None,
             primary: false,
         })
@@ -2704,10 +2728,10 @@ pub fn open_agent(ticket: &Ticket, x: &CardExtras) -> Option<String> {
 /// start…; the others stay in the sheet.
 fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
     let has_pr = ticket.flags.pr_number.is_some();
-    let a = |kind, label, icon, primary| {
+    let a = |kind, label: &'static str, icon, primary| {
         Some(CardAction {
             kind,
-            label,
+            label: label.into(),
             icon,
             primary,
         })
@@ -2785,10 +2809,21 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         // To deliver (FLW-15): the click the delivery waits for, on any flow (a ticket waits To deliver in its last
         // stage, Review on the default flow); nothing while an automatic one runs.
         Status::ToDeliver if ticket.flags.delivering_automatically => None,
-        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
-            a(CardActionKind::OpenPr, "Open PR", None, true)
+        Status::ToDeliver
+            if x.delivers == Some(Delivers::Pr) && ticket.flags.pr_provider_not_detected =>
+        {
+            a(CardActionKind::SetUpProvider, SET_UP_PROVIDER, None, true)
         }
-        Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
+        // The button says what happens, as Review's Approve does: "Approve & open PR", "Approve & merge into main".
+        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
+            a(CardActionKind::OpenPr, APPROVE_AND_OPEN_PR, None, true)
+        }
+        Status::ToDeliver => Some(CardAction {
+            kind: CardActionKind::LocalMerge,
+            label: approve_and_merge_into(ticket.base.branch()).into(),
+            icon: None,
+            primary: true,
+        }),
         // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the sheet and the card's menu.
         Status::PrOpen if has_pr => a(
             CardActionKind::SendBackPr,
@@ -3328,25 +3363,25 @@ mod tests {
                 "Ready to merge \u{b7} passed Review",
                 Some("Ready to merge"),
                 Some("Passed Review"),
-                Some("[Local merge]"),
+                Some("[Approve & merge into main]"),
             ),
             (
                 "Ready to merge \u{b7} moved past Validate",
                 Some("Ready to merge"),
                 Some("Failed Validate 3 times \u{b7} moved by you \u{b7} merge when ready"),
-                Some("[Local merge]"),
+                Some("[Approve & merge into main]"),
             ),
             (
                 "Ready for PR \u{b7} moved past Security",
                 Some("Ready for PR"),
                 Some("Failed Security 3 times \u{b7} moved by you \u{b7} open the PR when ready"),
-                Some("[Open PR]"),
+                Some("[Approve & open PR]"),
             ),
             (
                 "Ready for PR \u{b7} skipped Security",
                 Some("Ready for PR"),
                 Some("Skipped Security \u{b7} by you \u{b7} open the PR when ready"),
-                Some("[Open PR]"),
+                Some("[Approve & open PR]"),
             ),
             (
                 "Ready for PR \u{b7} delivering automatically",
@@ -4856,6 +4891,54 @@ mod tests {
         );
     }
 
+    /// A To deliver card's button says what happens, in Review's Approve words: "Approve & merge into <its base>"
+    /// or "Approve & open PR".
+    #[test]
+    fn the_delivery_button_says_what_happens() {
+        let label = |delivers: Delivers, t: &Ticket| {
+            let x = CardExtras {
+                custom_flow: true,
+                delivers: Some(delivers),
+                ..main_project()
+            };
+            let vm = CardViewModel::from(t, &x, NOW);
+            let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+            (action.kind, action.label.to_string())
+        };
+        let t = ticket("SHOP-2", "Card", Status::ToDeliver);
+        assert_eq!(
+            label(Delivers::Local, &t),
+            (
+                CardActionKind::LocalMerge,
+                "Approve & merge into main".to_owned()
+            )
+        );
+        assert_eq!(
+            label(Delivers::Pr, &t),
+            (CardActionKind::OpenPr, "Approve & open PR".to_owned())
+        );
+    }
+
+    /// Delivery problems say what to do: an automatic PR delivery that found no PR provider for the remote says so on
+    /// its card, with Set up… (app Settings, where providers are set up).
+    #[test]
+    fn an_automatic_pr_with_no_provider_says_what_to_do() {
+        let mut t = ticket("SHOP-2", "Card", Status::ToDeliver);
+        t.flags.pr_provider_not_detected = true;
+        let x = CardExtras {
+            custom_flow: true,
+            delivers: Some(Delivers::Pr),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(line(&vm), Some(NO_PR_PROVIDER));
+        let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+        assert_eq!(
+            (action.kind, action.label.as_ref()),
+            (CardActionKind::SetUpProvider, "Set up\u{2026}")
+        );
+    }
+
     /// d0120: "Merging · running the merge check" with Stop (and nothing else) while Local merge runs the check, in
     /// Review or To deliver; "Merge check failed · fixing" while the agent fixes what it found.
     #[test]
@@ -4877,7 +4960,7 @@ mod tests {
             let footer = vm.footer.as_ref().unwrap();
             let stop = footer.action.as_ref().unwrap();
             assert_eq!(
-                (stop.kind, stop.label, stop.primary),
+                (stop.kind, stop.label.as_ref(), stop.primary),
                 (CardActionKind::StopMergeCheck, "Stop", false)
             );
             assert_eq!(footer.second, None, "no Fail beside it");
@@ -5003,7 +5086,7 @@ mod tests {
         assert_eq!(hover.sections[0].text, card_fixtures::MODEL_ISSUE_MESSAGE);
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
         assert_eq!(
-            (action.kind, action.primary, action.label),
+            (action.kind, action.primary, action.label.as_ref()),
             (CardActionKind::OpenAgent, true, "Open agent\u{2026}")
         );
         assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
@@ -5352,8 +5435,8 @@ mod tests {
         let footer = vm.footer.unwrap();
         assert_eq!(
             (
-                footer.action.map(|a| (a.kind, a.label)),
-                footer.second.map(|a| (a.kind, a.label))
+                footer.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
+                footer.second.as_ref().map(|a| (a.kind, a.label.as_ref()))
             ),
             (
                 Some((CardActionKind::CheckAgain, "Check again")),
@@ -5393,8 +5476,8 @@ mod tests {
         let footer = vm.footer.unwrap();
         assert_eq!(
             (
-                footer.action.map(|a| (a.kind, a.label)),
-                footer.second.map(|a| (a.kind, a.label))
+                footer.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
+                footer.second.as_ref().map(|a| (a.kind, a.label.as_ref()))
             ),
             (
                 Some((CardActionKind::ChangeAgent, "Change agent\u{2026}")),

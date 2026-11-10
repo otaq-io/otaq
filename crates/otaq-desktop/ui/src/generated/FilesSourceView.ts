@@ -3,7 +3,7 @@ import type { FilesSourceKind } from "./FilesSourceKind";
 import type { FilesTag } from "./FilesTag";
 
 /**
- * The card on top of the tree: "SHOP-22’s worktree" over "otaq/SHOP-22 · from main".
+ * The card on top of the tree: "SHOP-22’s copy" over "otaq/SHOP-22 · from main".
  */
 export type FilesSourceView = { kind: FilesSourceKind, title: string, subtitle: string, 
 /**

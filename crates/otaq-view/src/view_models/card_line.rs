@@ -334,16 +334,16 @@ fn first_sentence(text: &str) -> &str {
 /// The card's one action, in the board's words: Answer a question, Open a permission prompt, Retry a failed start,
 /// Decide on a closed parent, Mark merged on an open PR. Any other action keeps its label.
 pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Option<CardAction> {
-    let open = |label| CardAction {
+    let open = |label: &'static str| CardAction {
         kind: CardActionKind::Open,
-        label,
+        label: label.into(),
         icon: None,
         primary: true,
     };
     match status {
         Status::PrOpen if ticket.flags.pr_number.is_some() => Some(CardAction {
             kind: CardActionKind::MarkMerged,
-            label: "Mark merged",
+            label: "Mark merged".into(),
             icon: None,
             primary: false,
         }),
@@ -352,7 +352,7 @@ pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Op
             (Status::NeedsYou | Status::CheckerNeedsYou, CardActionKind::Open) => open("Open"),
             (_, CardActionKind::Open) if a.label == "Reply" => open("Answer"),
             (_, CardActionKind::RetryStart) => CardAction {
-                label: "Retry",
+                label: "Retry".into(),
                 ..a
             },
             _ => a,

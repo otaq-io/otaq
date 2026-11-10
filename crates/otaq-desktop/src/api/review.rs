@@ -261,7 +261,7 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
             toast(
                 app,
                 ToastLevel::Error,
-                format!("Local merge of {key} failed"),
+                format!("Approve & merge for {key} didn\u{2019}t go through"),
                 Some(page::merge_failed_text(&e.message)),
             );
             return Err(e);

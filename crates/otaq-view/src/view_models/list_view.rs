@@ -580,7 +580,7 @@ mod tests {
             let r = row(&list, key);
             (
                 r.card.status.as_ref().map(|l| l.text.clone()),
-                r.card.action.as_ref().map(|a| a.label.to_owned()),
+                r.card.action.as_ref().map(|a| a.label.clone()),
                 r.card.edge,
             )
         };

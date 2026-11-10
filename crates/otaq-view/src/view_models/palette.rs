@@ -1050,7 +1050,7 @@ mod tests {
         for keyless in [
             "Park",
             "Close ticket",
-            "Open PR",
+            "Approve & open PR",
             "Re-run validation",
             "Open diff",
         ] {

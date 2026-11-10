@@ -365,7 +365,7 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Local merge works on a ticket in your review",
+                    "{} is {}; Approve & merge works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),

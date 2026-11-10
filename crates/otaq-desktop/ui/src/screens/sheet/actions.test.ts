@@ -54,6 +54,8 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
+    // No PR provider for an automatic PR: Set up… opens app Settings where providers are set up.
+    expect(cardRoute("set_up_provider")).toEqual({ kind: "provider_settings" });
     // Change agent… on a held card: the dialog picking another agent for the waiting stage.
     expect(cardRoute("change_agent")).toEqual({ kind: "overlay", id: "change_agent" });
     expect(agentSettings("spec-writer")).toEqual({ section: "agents", agent: "spec-writer" });

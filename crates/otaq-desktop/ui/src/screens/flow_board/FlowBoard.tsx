@@ -30,6 +30,7 @@ import {
 import type { BoardView } from "../../generated/BoardView";
 import type { FlowBoardColumn } from "../../generated/FlowBoardColumn";
 import type { FlowBoardDelivery } from "../../generated/FlowBoardDelivery";
+import type { FlowBoardDeliverySkill } from "../../generated/FlowBoardDeliverySkill";
 import type { FlowBoardDetails } from "../../generated/FlowBoardDetails";
 import type { FlowBoardParams } from "../../generated/FlowBoardParams";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
@@ -589,6 +590,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         ) : view.delivery !== null ? (
           <DeliveryPanel
             delivery={view.delivery}
+            focusSkill={focusSkill === "done"}
             onEdit={edit}
             onClose={() => {
               setSelected(null);
@@ -650,9 +652,12 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
                 <span className="fb-pop-words">
                   <span className="fb-pop-name">{t.title}</span>
                   <span className="fb-muted">{t.line}</span>
-                  {t.skill_note !== null && (
-                    <span className="fb-muted fb-skill-note">
-                      <CodeText text={t.skill_note} />
+                  {t.warning !== null && (
+                    <span className="fb-head-warning fb-pop-warning">
+                      <Icon name="triangle-alert" size={11} />
+                      <span>
+                        <CodeText text={t.warning} />
+                      </span>
                     </span>
                   )}
                 </span>
@@ -1161,13 +1166,17 @@ function TextField({
 
 function DeliveryPanel({
   delivery,
+  focusSkill,
   onEdit,
   onClose,
 }: {
   delivery: FlowBoardDelivery;
+  /** Opened from "Set the delivery's PR skill": the PR skill field gets the keyboard. */
+  focusSkill: boolean;
   onEdit: (edit: FlowEditorStageEdit) => void;
   onClose: () => void;
 }) {
+  const skill = delivery.skill;
   return (
     <aside className="fb-side" aria-label={delivery.title}>
       <header className="fb-side-head">
@@ -1191,25 +1200,81 @@ function DeliveryPanel({
         ))}
         {delivery.delivers_note !== null && <span className="fe-hint">{delivery.delivers_note}</span>}
       </div>
-      {delivery.modes.length > 0 && (
-        <div className="fe-field" role="radiogroup" aria-label={delivery.mode_label}>
-          <span className="fe-label">{delivery.mode_label}</span>
-          {delivery.modes.map((c) => (
-            <Radio
-              key={c.id}
-              name="fb-mode"
-              checked={c.selected}
-              label={c.label}
-              onChange={(on) => {
-                if (on && !c.selected) onEdit({ edit: "delivery", field: delivery.mode_field, value: c.id });
-              }}
-            />
-          ))}
-          {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
-        </div>
+      <div className="fe-field" role="radiogroup" aria-label={delivery.mode_label}>
+        <span className="fe-label">{delivery.mode_label}</span>
+        {delivery.modes.map((c) => (
+          <Radio
+            key={c.id}
+            name="fb-mode"
+            checked={c.selected}
+            label={c.label}
+            disabled={delivery.modes_off}
+            onChange={(on) => {
+              if (on && !c.selected) onEdit({ edit: "delivery", field: delivery.mode_field, value: c.id });
+            }}
+          />
+        ))}
+        {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
+      </div>
+      <div className="fe-field">
+        <span className="fe-label">{delivery.agent.label}</span>
+        <Select
+          label={delivery.agent.label}
+          value={delivery.agent.value}
+          items={delivery.agent.items}
+          onChange={(agent) => {
+            onEdit({ edit: "delivery", field: delivery.agent.field, value: agent });
+          }}
+        />
+        <span className="fe-hint">{delivery.agent.hint}</span>
+      </div>
+      {skill !== null && (
+        <DeliverySkillField key={skill.value} skill={skill} focus={focusSkill} onEdit={onEdit} />
       )}
       <p className="fe-hint">{delivery.note}</p>
     </aside>
+  );
+}
+
+/** Done's PR skill: the user's own Open PR skill by name, saved when the field loses focus; empty, Otaq's own runs. */
+function DeliverySkillField({
+  skill,
+  focus,
+  onEdit,
+}: {
+  skill: FlowBoardDeliverySkill;
+  focus: boolean;
+  onEdit: (edit: FlowEditorStageEdit) => void;
+}) {
+  const [text, setText] = useState(skill.value);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focus) input.current?.focus();
+  }, [focus]);
+  return (
+    <label className="fe-field">
+      <span className="fe-label">{skill.label}</span>
+      <TextInput
+        ref={input}
+        value={text}
+        label={skill.label}
+        placeholder={skill.placeholder}
+        mono
+        onChange={setText}
+        onBlur={() => {
+          if (text.trim() !== skill.value) onEdit({ edit: "delivery", field: skill.field, value: text });
+        }}
+      />
+      {skill.warning !== null && (
+        <span className="fb-head-warning">
+          <Icon name="triangle-alert" size={11} />
+          <span>
+            <CodeText text={skill.warning} />
+          </span>
+        </span>
+      )}
+      <span className="fe-hint">{skill.hint}</span>
+    </label>
   );
 }
 

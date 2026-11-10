@@ -145,6 +145,7 @@ export type CardRoute =
   | { kind: "mark_closed" }
   | { kind: "run_tab" }
   | { kind: "open_agent" }
+  | { kind: "provider_settings" }
   | { kind: "none" };
 
 export function cardRoute(kind: CardActionKind): CardRoute {
@@ -177,6 +178,9 @@ export function cardRoute(kind: CardActionKind): CardRoute {
       return { kind: "overlay", id: "local_merge" };
     case "open_pr":
       return { kind: "overlay", id: "open_pr" };
+    // An automatic PR with no PR provider: app Settings, Git & pull requests, where providers are set up.
+    case "set_up_provider":
+      return { kind: "provider_settings" };
     case "send_back_pr":
       return { kind: "overlay", id: "send_back_pr" };
     case "send_answer":

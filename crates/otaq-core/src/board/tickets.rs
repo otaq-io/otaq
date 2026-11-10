@@ -192,6 +192,10 @@ pub struct Work {
     pub remote_warning: Option<RemoteWarning>,
 }
 
+/// Kept in a ticket's `start_problem_step` while it waits To deliver because its automatic PR delivery found no PR
+/// provider for the remote: its card says so, with Set up… ([`crate::domain::Flags::pr_provider_not_detected`]).
+pub(crate) const NO_PR_PROVIDER_MARK: &str = "no_pr_provider";
+
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartProblem {
@@ -1215,6 +1219,9 @@ impl Board {
                     delivered_without_checks: row.delivered_without_checks
                         && status == Status::Merged,
                     delivering_automatically: delivering.contains(&row.id),
+                    pr_provider_not_detected: status == Status::ToDeliver
+                        && !delivering.contains(&row.id)
+                        && row.start_problem_step.as_deref() == Some(NO_PR_PROVIDER_MARK),
                     done_without_merge: done_without_merge(&row, status),
                     nothing_to_merge: row.nothing_to_merge.clone().filter(|_| {
                         status == Status::ClosedNotMerged || done_without_merge(&row, status)

@@ -28,7 +28,7 @@ impl Board {
                 return Err(BoardError::refused(
                     Refusal::MoveRefused,
                     format!(
-                        "{} has no Open PR in progress: the user starts it with Approve \u{25be} \u{2192} Open PR",
+                        "{} has no Open PR in progress: the user starts it with Approve & open PR",
                         ticket.key
                     ),
                 ));

@@ -497,8 +497,8 @@ fn delivery_words(stage: &PathStage) -> String {
     };
     let what = match d.delivers.as_str() {
         "pr" => "PR",
-        "local" => "Local merge",
-        _ => "Local merge or PR",
+        "local" => "Merge",
+        _ => "Merge or PR",
     };
     match d.automatic {
         true => format!("{what}, automatic"),
@@ -2339,12 +2339,7 @@ mod tests {
                 row("Dev", "Developer", "haiku", false),
                 row("Validate", "Validator \u{b7} up to 2 rounds", "opus", false),
                 row("Review", "your check", "\u{2014}", false),
-                row(
-                    "Delivery",
-                    "Local merge or PR, your click",
-                    "\u{2014}",
-                    false
-                ),
+                row("Delivery", "Merge or PR, your click", "\u{2014}", false),
             ]
         );
     }

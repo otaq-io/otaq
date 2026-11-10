@@ -247,8 +247,8 @@
   overflow-wrap: anywhere;
 }
 
-/* A ready stage's skill the user brings: a quiet line in the palette, not a warning. */
-.fb-skill-note {
+/* A ready stage whose skill the user has none of: the usual amber warning, under its line in the palette. */
+.fb-pop-warning {
   margin-top: 2px;
 }
 

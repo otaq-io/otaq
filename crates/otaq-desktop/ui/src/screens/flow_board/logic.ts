@@ -52,7 +52,7 @@ export const STAGE_SKILL_ROUTES: StageSkillRoutes = {
 
 /**
  * "Use your own Open PR skill" (the refused Open PR toast's link): the board's editor on that stage's Skill field, or
- * on How work leaves the flow (Done) when no stage is named.
+ * when no stage is named on How work leaves the flow (Done), its PR skill field focused.
  */
 export function openStageSkill(
   project: string,
@@ -60,7 +60,7 @@ export function openStageSkill(
   routes: StageSkillRoutes = STAGE_SKILL_ROUTES,
 ): void {
   routes.closeSettings();
-  routes.open(stage === null ? { project, select: "done" } : { project, select: stage, focusSkill: true });
+  routes.open({ project, select: stage ?? "done", focusSkill: true });
 }
 
 /** Cancel, Save flow or Esc: the board is the board again. */

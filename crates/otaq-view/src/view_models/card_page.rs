@@ -365,7 +365,7 @@ mod tests {
         assert_eq!(card.edge, Some(Tone::Attention));
         let action = card.action.as_ref().unwrap();
         assert_eq!(
-            (action.kind, action.label),
+            (action.kind, action.label.as_ref()),
             (CardActionKind::Decide, "Decide")
         );
         let card = cell(&g, "Validation failed 3 times (0063)");
@@ -396,7 +396,7 @@ mod tests {
         let pr = cell(&g, "PR #481 open \u{b7} opened by Shipper");
         assert_eq!(line(pr).0, "PR #481 open");
         assert_eq!(
-            pr.action.as_ref().map(|a| (a.kind, a.label)),
+            pr.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
             Some((CardActionKind::MarkMerged, "Mark merged"))
         );
         assert_eq!(pr.edge, None);

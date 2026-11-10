@@ -1084,6 +1084,12 @@ impl ProjectAgents {
         Ok(list)
     }
 
+    /// Whether a Noyan conversation's session is replying: it runs a turn that hasn't ended. A conversation idle
+    /// between turns, waiting for the user's next message, isn't an agent at work.
+    pub fn replying(&self, session: &SessionInfo) -> bool {
+        session.is_running() && !self.inner.idle.is_idle(&session.id)
+    }
+
     /// One Project agent.
     pub async fn get(&self, id: &str) -> Result<ProjectAgent, BoardError> {
         let row: Row = sqlx::query_as(sqlx::AssertSqlSafe(format!("{SELECT} WHERE a.id = ?")))

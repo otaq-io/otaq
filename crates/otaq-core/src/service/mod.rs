@@ -1017,6 +1017,16 @@ impl Service {
                                 tracing::warn!(ticket = id, error = %e, "the delivery's message wasn't asked for");
                             }
                         }
+                        // Left for the user's click: the card may now say why (no PR provider, with Set up…).
+                        Ok(crate::review::delivery::Delivered::Left) => {
+                            if let Ok(t) = review.board().ticket_by_id(&id).await {
+                                events.publish(crate::protocol::Event::TicketChanged {
+                                    project: t.key.project.to_string(),
+                                    id: t.id.clone(),
+                                    key: t.key.clone(),
+                                });
+                            }
+                        }
                         Ok(_) => {}
                         // A git step failed: the card says so, with Retry merge (d0121).
                         Err(crate::board::BoardError::Git(e)) => {

@@ -120,6 +120,23 @@ fn the_default_and_the_test_flow_pass_the_checks() {
 
 /// An older file still loads: its Delivery stage becomes the flow's `delivery:` setting and its `column:` is
 /// ignored (every stage is its own column); written again, it is in today's form, and reads back the same.
+/// A stage an agent runs may name no skill: Otaq's own skill for that stage runs (`work-ticket` for an Agent stage,
+/// `validate` for an agent check), so the file passes the checks and is written back as it is.
+#[test]
+fn a_stage_with_no_skill_passes_and_runs_otaqs_own() {
+    let text = file(&flows().join("no-skill.yaml"));
+    let read = yaml::read(&text).unwrap();
+    assert_eq!(yaml::write(&read), text);
+    assert_eq!(check(&read.flow), Ok(()));
+    let plan = read.flow.stage("plan").unwrap();
+    assert_eq!(plan.skill, None);
+    assert_eq!(plan.own_skill(), Some("work-ticket"));
+    let check_stage = flow::default_flow();
+    let validate = check_stage.stage("validate").unwrap();
+    assert_eq!(validate.own_skill(), Some("validate"));
+    assert_eq!(check_stage.stage("review").unwrap().own_skill(), None);
+}
+
 #[test]
 fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
     let old = "flow:
@@ -223,11 +240,6 @@ fn each_rule_refuses_its_broken_file() {
                 Some("review"),
                 "If Product spec is skipped, a Fail at Review has nowhere to go",
             )],
-        ),
-        (
-            // The editor's draft holds a new Agent stage with no skill yet; Apply waits for one (FED-06).
-            "needs-skill",
-            &[(Rule::NeedsSkill, Some("plan"), "Plan needs a skill")],
         ),
         (
             // Every check's fails go to an Agent stage before it (d0131): not a later stage, a check by you or an
@@ -367,7 +379,7 @@ fn the_format_refuses_what_isnt_a_flow() {
     );
     assert_eq!(
         refused("flows: []\n"),
-        "line 1 column 1: unknown field `flows`, expected one of agents, flow, delivery"
+        "line 1 column 1: unknown field `flows`, expected one of agents, flow, delivery, why"
     );
 
     let cases = [

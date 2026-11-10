@@ -26,14 +26,14 @@ fn the_four_presets_are_listed_as_drawn() {
                 "Today\u{2019}s board",
                 naming::DEFAULT_FLOW_FILE,
                 cols(&["Backlog", "Dev", "Validate", "Review", "Done"]),
-                "Local merge or PR \u{b7} click".to_owned(),
+                "Merge or PR \u{b7} on Approve".to_owned(),
             ),
             (
                 "Solo autopilot",
                 "Solo projects that trust the checks",
                 "solo-autopilot.yaml",
                 cols(&["Backlog", "Dev", "Validate", "Done"]),
-                "Local merge \u{b7} automatic".to_owned(),
+                "Merge \u{b7} automatically".to_owned(),
             ),
             (
                 "Spec first",
@@ -51,14 +51,14 @@ fn the_four_presets_are_listed_as_drawn() {
                     "Code review",
                     "Done",
                 ]),
-                "Local merge or PR \u{b7} click".to_owned(),
+                "Merge or PR \u{b7} on Approve".to_owned(),
             ),
             (
                 "Team PR",
                 "Teams that review on GitHub or GitLab: the PR is the review",
                 "team-pr.yaml",
                 cols(&["Backlog", "Dev", "Validate", "Done"]),
-                "PR \u{b7} automatic".to_owned(),
+                "PR \u{b7} automatically".to_owned(),
             ),
         ]
     );

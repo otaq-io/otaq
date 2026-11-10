@@ -44,7 +44,7 @@ After a Send back with PR comments, the new commits go to the same PR through Ot
    `gh`); `dev.azure.com` or `*.visualstudio.com` is **Azure DevOps** (you will use `az repos`). For any other remote,
    **stop**: propose nothing, push nothing, and tell the user with `otaq ask human --stdin`: "This remote isn't GitHub
    or Azure DevOps, so the built-in Open PR skill can't open the PR. Use your own Open PR skill (name it as the
-   delivery's `skill:` in the flow file)." Then end your turn.
+   delivery's `skill:` in the flow file: Edit flow → Done → PR skill)." Then end your turn.
 4. **Write the proposal.**
    - **Branch name:** follow the user's rules if the Agent instructions give any (for example
      `bugfix/SHOP-18-login-redirect`). Otherwise use

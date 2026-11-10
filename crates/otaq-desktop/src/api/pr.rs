@@ -281,9 +281,16 @@ async fn answered(
         Ok(other) => Err(unexpected("ticket.open_pr", &other)),
         Err(e) => {
             // The built-in skill can't open a PR on this remote: the message says to name your own Open PR skill as
-            // the flow's delivery skill. The delivery is no stage, so the toast has no stage to link to.
-            app.notices
-                .toast(page::refused_toast(key, e.message.clone(), None));
+            // the flow's delivery skill, and the toast links to Edit flow's Done panel, where it goes.
+            let project = key
+                .parse::<otaq_core::domain::TicketKey>()
+                .ok()
+                .map(|k| k.project.to_string());
+            app.notices.toast(page::refused_toast(
+                key,
+                e.message.clone(),
+                project.as_deref(),
+            ));
             if click == Click::OpenPr {
                 forget(app, key);
             }

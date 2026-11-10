@@ -106,11 +106,19 @@ impl Typing {
 }
 
 /// Open PR refused because the built-in skill can't open a PR on this remote: the user's own Open PR skill goes in the
-/// flow's delivery (its `skill:`), never in an agent's skills.
+/// flow's delivery (its `skill:`, Edit flow's Done panel), never in an agent's skills.
 pub fn own_open_pr_skill(why: &str) -> String {
     format!(
-        "{why}: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in the flow file)"
+        "{why}: {OWN_OPEN_PR_SKILL} (name it as the delivery\u{2019}s `skill:` in the flow file: Edit flow \u{2192} Done \u{2192} PR skill)"
     )
+}
+
+/// The words every "use your own Open PR skill" refusal carries ([`own_open_pr_skill`]).
+const OWN_OPEN_PR_SKILL: &str = "use your own Open PR skill";
+
+/// Whether a refusal says to use your own Open PR skill: its toast links to where that skill goes.
+pub fn asks_for_own_open_pr_skill(message: &str) -> bool {
+    message.contains(OWN_OPEN_PR_SKILL)
 }
 
 /// What follows the PR skill's name when an automatic Delivery starts it (FLW-15): the skill proposes as usual and
@@ -207,7 +215,7 @@ impl Prs {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Open PR works on a ticket in your review",
+                    "{} is {}; Approve & open PR works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -255,6 +263,7 @@ impl Prs {
             self.skill_runs_in(&ticket, self.live_of(&ticket, session).as_ref())
                 .await?;
             let proposal = self.prepared_proposal(&ticket).await?;
+            board.mark_no_pr_provider(&ticket.id, false).await?;
             board.start_pr_flow(&ticket, kind, false).await?;
             board.set_pr_proposal(&ticket.id, &proposal).await?;
             tracing::info!(key = %ticket.key, "PR dialog opened on the prepared message");
@@ -348,6 +357,13 @@ impl Prs {
         board
             .apply_confirmed(&ticket, flow.kind, &checked, actor)
             .await?;
+        // Approve & open PR is an approve, as a merge is: the first one shows the box for new work and the hints that
+        // follow the first approve.
+        if flow.kind == FlowKind::Open
+            && let Err(e) = board.store().reach_first_approve().await
+        {
+            tracing::warn!(error = %e, "couldn't remember the first approve");
+        }
         // An Open PR's skill starts here, told the user confirmed (it proposed nothing: the delivery's agent wrote the
         // message in Review); a Push's skill proposed, so it is told in words.
         let confirmed = confirmed_instruction(flow.kind);
@@ -423,6 +439,7 @@ impl Prs {
             FlowKind::Open => WorkflowStep::OpenPr,
             FlowKind::Push => WorkflowStep::Push,
         };
+        board.mark_no_pr_provider(&ticket.id, false).await?;
         board.start_pr_flow(&ticket, kind, true).await?;
         sqlx::query("UPDATE tickets SET delivered_without_checks = ? WHERE id = ?")
             .bind(without_checks)
@@ -1169,6 +1186,37 @@ impl Prs {
 }
 
 impl Board {
+    /// An automatic PR delivery left waiting because no PR provider matches the remote (`on`), or no longer
+    /// (`off`): the card says so with Set up… ([`crate::domain::Flags::pr_provider_not_detected`]). Kept in the
+    /// ticket's start-problem columns while it waits To deliver.
+    pub(crate) async fn mark_no_pr_provider(
+        &self,
+        ticket_id: &str,
+        on: bool,
+    ) -> Result<(), BoardError> {
+        if on {
+            sqlx::query(
+                "UPDATE tickets SET start_problem_step = ?, start_problem_message = ? WHERE id = ? AND state = ?",
+            )
+            .bind(crate::board::tickets::NO_PR_PROVIDER_MARK)
+            .bind(super::provider::NO_PROVIDER)
+            .bind(ticket_id)
+            .bind(Status::ToDeliver.as_str())
+            .execute(self.store().pool())
+            .await?;
+        } else {
+            sqlx::query(
+                "UPDATE tickets SET start_problem_step = NULL, start_problem_message = NULL
+                 WHERE id = ? AND start_problem_step = ?",
+            )
+            .bind(ticket_id)
+            .bind(crate::board::tickets::NO_PR_PROVIDER_MARK)
+            .execute(self.store().pool())
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Approved · PR open (REV-13): after the skill reported the PR.
     pub(crate) async fn record_pr_open(
         &self,
@@ -1253,15 +1301,17 @@ mod tests {
         }
     }
 
-    /// "Use your own Open PR skill" points at the Delivery stage's Skill field, never at the agent's skills.
+    /// "Use your own Open PR skill" points at the delivery's PR skill in Edit flow, never at the agent's skills.
     #[test]
     fn own_open_pr_skill_names_the_flows_delivery() {
         let text = own_open_pr_skill("PR provider not detected");
         assert_eq!(
             text,
             "PR provider not detected: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in \
-             the flow file)"
+             the flow file: Edit flow \u{2192} Done \u{2192} PR skill)"
         );
+        assert!(asks_for_own_open_pr_skill(&text));
+        assert!(!asks_for_own_open_pr_skill("Nothing to push"));
         assert!(!text.contains("Settings"));
         assert!(!text.contains("agent's skills") && !text.contains("agent\u{2019}s skills"));
     }

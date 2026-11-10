@@ -87,7 +87,7 @@ const SHOP_22: FilesTabView = {
   key: "SHOP-22",
   source: {
     kind: "worktree",
-    title: "SHOP-22’s worktree",
+    title: "SHOP-22’s copy",
     subtitle: "otaq/SHOP-22 · from main",
     legend: [],
     stages: [],
@@ -261,7 +261,7 @@ describe("the Files tab", () => {
     const page: FilesFilePage = {
       path: "src/middleware.ts",
       child: null,
-      subtitle: "in SHOP-22’s worktree · +4 −1 against main",
+      subtitle: "in SHOP-22’s copy · +4 −1 against main",
       modes: ["File", "Diff"],
       opens_in: "diff",
       split_modes: ["Unified", "Split"],
@@ -306,7 +306,7 @@ describe("the Files tab", () => {
 
   it("draws SHOP-22's tree like the frame: the source, the search, All files · Changed · 3", () => {
     const out = body(SHOP_22);
-    expect(out).toContain("SHOP-22’s worktree");
+    expect(out).toContain("SHOP-22’s copy");
     expect(out).toContain("otaq/SHOP-22 · from main");
     expect(out).toContain('placeholder="Search files by name"');
     expect(out).toContain("⌥⌘P");
@@ -361,7 +361,7 @@ describe("the Files tab", () => {
     const page: FilesFilePage = {
       path: "src/middleware.ts",
       child: null,
-      subtitle: "in SHOP-22’s worktree · +4 −1 against main",
+      subtitle: "in SHOP-22’s copy · +4 −1 against main",
       modes: ["File", "Diff"],
       opens_in: "diff",
       split_modes: ["Unified", "Split"],
@@ -389,7 +389,7 @@ describe("the Files tab", () => {
       }),
     );
     expect(out).toContain("<span>src/</span><span><wbr/>middleware.ts</span>");
-    expect(out).toContain("in SHOP-22’s worktree · +4 −1 against main");
+    expect(out).toContain("in SHOP-22’s copy · +4 −1 against main");
     expect(out).toContain("New ticket from this file");
     expect(out).toContain("import { NextResponse } from &#x27;next/server&#x27;");
     // An unchanged file has no Diff to switch to.
@@ -487,7 +487,7 @@ describe("Spec review's Files (s30-02)", () => {
       key: "SHOP-40",
       source: {
         kind: "worktree",
-        title: "SHOP-40’s worktree",
+        title: "SHOP-40’s copy",
         subtitle: "otaq/SHOP-40 · what planning committed",
         legend: [],
         stages: ["Product spec · 2", "Tech spec · 2", "Milestone plan · 1"],

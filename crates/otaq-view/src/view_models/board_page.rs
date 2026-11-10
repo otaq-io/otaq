@@ -2764,7 +2764,7 @@ delivery: {delivers: pr, mode: click, agent: Shipper, skill: open-pr}
             .unwrap_or_else(|| panic!("no card {key}"));
         (
             card.status.as_ref().map(|l| l.text.clone()),
-            card.action.as_ref().map(|a| a.label.to_owned()),
+            card.action.as_ref().map(|a| a.label.to_string()),
             card.edge,
         )
     }

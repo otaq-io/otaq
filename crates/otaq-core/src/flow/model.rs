@@ -131,17 +131,17 @@ impl Delivery {
         self.mode == DeliveryMode::Automatic && self.delivers != Delivers::Either
     }
 
-    /// What it delivers and when, in a few words: "Local merge or PR · click", "Local merge · automatic", "PR ·
-    /// automatic".
+    /// What it delivers and when, in a few words: "Merge or PR · on Approve", "Merge · automatically", "PR ·
+    /// automatically".
     pub fn line(&self) -> String {
         let what = match self.delivers {
-            Delivers::Local => "Local merge",
+            Delivers::Local => "Merge",
             Delivers::Pr => "PR",
-            Delivers::Either => "Local merge or PR",
+            Delivers::Either => "Merge or PR",
         };
         let when = match self.mode {
-            DeliveryMode::Click => "click",
-            DeliveryMode::Automatic => "automatic",
+            DeliveryMode::Click => "on Approve",
+            DeliveryMode::Automatic => "automatically",
         };
         format!("{what} \u{b7} {when}")
     }
@@ -229,10 +229,16 @@ impl Stage {
         self.kind == StageKind::Check { by: CheckBy::You }
     }
 
-    /// An Agent stage or an agent check with no skill yet (FED-06): the draft may hold one, an applied flow never
-    /// does ([`super::check`]'s [`super::Rule::NeedsSkill`]).
-    pub fn needs_skill(&self) -> bool {
-        (self.is_agent_stage() || self.is_agent_check()) && self.skill.is_none()
+    /// Otaq's own skill for a stage an agent runs, the one that runs when the stage names no `skill:`: `work-ticket`
+    /// for an Agent stage, `validate` for an agent check; `None` for a check by you.
+    pub fn own_skill(&self) -> Option<&'static str> {
+        if self.is_agent_stage() {
+            Some(crate::agent_tools::WORK_TICKET_SKILL)
+        } else if self.is_agent_check() {
+            Some(crate::board::settings::WorkflowStep::Validate.own_skill())
+        } else {
+            None
+        }
     }
 
     /// An agent check's agent; `None` for every other kind, and for a draft's check with none yet.

@@ -183,10 +183,10 @@ describe("notification clicks", () => {
     expect(r.focus.get()).toEqual({ ticket: "NOTE-3", seq: 1 });
   });
 
-  it("the status icon's lines (d0139 TRY-06): a check on Files, a stopped ticket as it opens, nothing focused", () => {
+  it("the status icon's lines: your review on Overview, a stopped ticket as it opens, nothing focused", () => {
     const r = routes();
     openTarget({ kind: "review", project: "WEB", ticket: "WEB-7" }, r);
-    expect(r.selection.get()).toMatchObject({ project: "WEB", ticket: "WEB-7", tab: "files" });
+    expect(r.selection.get()).toMatchObject({ project: "WEB", ticket: "WEB-7", tab: "overview" });
     openTarget({ kind: "sheet", project: "SHOP", ticket: "SHOP-30" }, r);
     expect(r.selection.get()).toMatchObject({ project: "SHOP", ticket: "SHOP-30", tab: null });
     expect(r.focus.get()).toBeNull();

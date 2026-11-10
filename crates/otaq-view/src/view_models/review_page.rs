@@ -336,8 +336,8 @@ pub fn merged_toasts(
         return Vec::new();
     };
     let mut toasts = vec![ToastText {
-        title: format!("Local merge done \u{b7} {key}"),
-        text: Some(format!("Squashed into {target} as {}", ap::short(commit))),
+        title: ap::merged_title(key, target),
+        text: Some(ap::squashed_as(commit)),
     }];
     if let Some(warning) = ticket
         .work
@@ -979,11 +979,9 @@ mod tests {
         let MergeResult::Merged { toasts } = merge_result(&t, "main", &merged, &all) else {
             panic!("not merged");
         };
-        assert_eq!(toasts[0].title, "Local merge done \u{b7} SHOP-18");
-        assert_eq!(
-            toasts[0].text.as_deref(),
-            Some("Squashed into main as 9f3e2c1")
-        );
+        // The words the first approve's toast uses: "SHOP-18 merged into main · Squashed as 9f3e2c1".
+        assert_eq!(toasts[0].title, "SHOP-18 merged into main");
+        assert_eq!(toasts[0].text.as_deref(), Some("Squashed as 9f3e2c1"));
         assert_eq!(
             toasts[1].title,
             "SHOP-20 started \u{b7} all dependencies merged"
