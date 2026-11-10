@@ -482,7 +482,8 @@
   color: var(--st-paused);
 }
 
-.summary-detail[data-state="resuming"] > .icon {
+.summary-detail[data-state="resuming"] > .icon,
+.summary-detail[data-state="checking"] > .icon {
   color: var(--st-working);
 }
 

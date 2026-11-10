@@ -12,7 +12,7 @@ import type { CleanupWarmSection } from "../../generated/CleanupWarmSection";
 import type { Notices } from "../../generated/Notices";
 import type { ScratchConfirm } from "../../generated/ScratchConfirm";
 import { recovery } from ".";
-import { SummaryBody } from "./AfterRestart";
+import { SUMMARY_EVENTS, SummaryBody } from "./AfterRestart";
 import { CleanupBody, CleanupConfirmDialog, WarmConfirmDialog } from "./Cleanup";
 import { setUnchecked, startFolded, summaryToOpen, toggleFold } from "./logic";
 import { ScratchBody } from "./StartFromScratch";
@@ -39,6 +39,7 @@ function row(id: string, extra: Partial<AfterRestartRow> = {}): AfterRestartRow 
     state: "stopped",
     detail: "was working in Dev",
     problem: null,
+    checking: null,
     checked: true,
     ...extra,
   };
@@ -203,6 +204,32 @@ describe("the after-restart sheet", () => {
     const bill = html.slice(html.lastIndexOf("<input", html.indexOf("BILL-4")));
     expect(bill.slice(0, bill.indexOf(">"))).toContain("disabled");
     expect(html).toContain('data-problem="true">Codex isn’t signed in · sign in first');
+  });
+
+  it("shows a row whose tool is still being checked as waiting, never as not installed, and redraws on the check", () => {
+    const view: AfterRestartSummary = {
+      ...SUMMARY,
+      rows: [row("SHOP-10", { checking: "Checking Codex…", checked: false })],
+      selected: [],
+      selected_agents: [],
+      resume_selected: "Resume 0",
+    };
+    const html = renderToStaticMarkup(
+      createElement(SummaryBody, {
+        view,
+        resuming: new Set<string>(),
+        onCheck: nothing,
+        onRetry: nothing,
+      }),
+    );
+    const input = html.slice(html.indexOf("<input"));
+    expect(input.slice(0, input.indexOf(">"))).toContain("disabled");
+    expect(html).toContain('data-state="checking"');
+    expect(html).toContain("Checking Codex…");
+    expect(html).not.toContain("not installed");
+    expect(html).not.toContain("data-problem");
+    // The service's answer to the check is `agent_tools_changed`: the dialog asks again then.
+    expect(SUMMARY_EVENTS).toContain("agent_tools_changed");
   });
 
   it("ticks and unticks keys together", () => {

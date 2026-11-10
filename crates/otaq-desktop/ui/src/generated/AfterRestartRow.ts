@@ -22,4 +22,9 @@ detail: string,
 /**
  * "Codex isn’t signed in · sign in first": its tool can't run now, so it is unticked and can't be ticked.
  */
-problem: string | null, checked: boolean, };
+problem: string | null, 
+/**
+ * "Checking Codex…": its tool's check hasn't answered yet, so it is unticked and can't be ticked until it has;
+ * the dialog is drawn again when the tools change.
+ */
+checking: string | null, checked: boolean, };
