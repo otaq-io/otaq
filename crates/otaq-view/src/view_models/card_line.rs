@@ -11,6 +11,7 @@
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{AutoMergeStop, MergeCheckState, ReviewEntry, Status};
+use otaq_core::signals::{ToolStop, stopped_on_error};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -28,6 +29,8 @@ pub const NOT_STARTED: &str = "Not started";
 pub const PAUSED_LINE: &str = "Paused \u{b7} resumes where it was";
 /// A parked ticket: taken out of its stage, its work kept.
 pub const PARKED_LINE: &str = "Parked \u{b7} has work in its copy";
+/// The front of a line whose tool stopped on an error ("Stopped · login expired").
+pub const STOPPED: &str = "Stopped";
 /// A session a restart ended.
 pub const STOPPED_BY_RESTART: &str = "Stopped by a restart";
 /// Resuming its conversation failed.
@@ -250,6 +253,8 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Some(q) => format!("Asks you \u{b7} {q}"),
             None => "Asks you \u{b7} allow a command?".to_owned(),
         }),
+        // Its tool stopped on an error of its own: it broke and waits, and the line says why.
+        Status::Idle if let Some(error) = stopped_on_error(ticket) => broke(stopped_line(error)),
         // A turn that ended: it waits for the user's next word.
         Status::Idle => asks("Idle"),
         Status::Interrupted => broke(STOPPED_BY_RESTART),
@@ -327,6 +332,11 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
     }
 }
 
+/// A card whose tool stopped on an error: "Stopped · login expired", "Stopped · API Error: 500".
+pub fn stopped_line(error: &str) -> String {
+    format!("{STOPPED} \u{b7} {}", ToolStop::of(error).reason())
+}
+
 /// The first sentence of a longer message ("Base diverged. Rebase it…" → "Base diverged").
 fn first_sentence(text: &str) -> &str {
     text.split_once(". ")
@@ -351,6 +361,8 @@ pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Op
             primary: false,
         }),
         Status::ParentClosed => Some(open(super::card::DECIDE)),
+        // Nothing to answer: the sheet says what to do (sign in, then Resume).
+        Status::Idle if stopped_on_error(ticket).is_some() => Some(open("Open")),
         _ => action.map(|a| match (status, a.kind) {
             (Status::NeedsYou | Status::CheckerNeedsYou, CardActionKind::Open) => open("Open"),
             (_, CardActionKind::Open) if a.label == "Reply" => open("Answer"),

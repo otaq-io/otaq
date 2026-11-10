@@ -5320,6 +5320,10 @@
           "ty": "Status",
           "required": true
         },
+        "stopped": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "title": {
           "ty": "String",
           "required": true

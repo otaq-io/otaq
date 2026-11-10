@@ -4368,6 +4368,35 @@ mod tests {
         CardViewModel::from(t, &main_project().with_signal(t, now), now)
     }
 
+    /// A session that ended on its tool's error: the status line names why, in red with the red edge (it broke and
+    /// waits), and the card opens the sheet rather than offering an answer; a plain Idle stays turquoise.
+    #[test]
+    fn a_tool_error_says_why_the_agent_stopped() {
+        let text = otaq_core::signals::tool_error_text(
+            "authentication_failed",
+            Some("Login expired \u{b7} Please run /login"),
+        );
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some(&text), 0), NOW);
+        let line = vm.one_line.line.as_ref().unwrap();
+        assert_eq!(line.text, "Stopped \u{b7} login expired");
+        assert_eq!(line.tone, Tone::Error);
+        assert_eq!(line.dot, Palette::Error);
+        assert_eq!(vm.one_line.edge, Some(Tone::Error));
+        assert_eq!(vm.one_line.action.as_ref().unwrap().label, "Open");
+
+        let text = otaq_core::signals::tool_error_text("server_error", Some("API Error: 500"));
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some(&text), 0), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().unwrap().text,
+            "Stopped \u{b7} API Error: 500"
+        );
+
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some("All done."), 0), NOW);
+        assert_eq!(vm.one_line.line.as_ref().unwrap().text, "Idle");
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.one_line.action.as_ref().unwrap().label, "Answer");
+    }
+
     /// T-0075: the live signal states map to the card.
     #[test]
     fn signals_map_to_card_content() {

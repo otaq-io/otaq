@@ -118,4 +118,22 @@ describe("the callout", () => {
     expect(html).toContain('data-tone="neutral"');
     expect(html).not.toContain("tool-problem-buttons");
   });
+
+  it("an agent whose tool stopped on an error is red, with the next step and Sign in…", () => {
+    const stopped: CalloutView = {
+      ...HIDDEN,
+      role: null,
+      tone: "error",
+      heading: "Claude Code stopped · login expired",
+      text: "Sign in to Claude Code, then Resume: the agent goes on where it stopped.",
+      buttons: [{ label: "Sign in…", action: { kind: "sign_in", tool: "claude" }, primary: true }],
+    };
+    const html = renderToStaticMarkup(
+      createElement(ToolProblemCallout, { callout: stopped, look: "edge", onAction: () => undefined }),
+    );
+    expect(html).toContain('data-tone="error"');
+    for (const text of ["stopped · login expired", "then Resume", "Sign in…"]) {
+      expect(html).toContain(text);
+    }
+  });
 });

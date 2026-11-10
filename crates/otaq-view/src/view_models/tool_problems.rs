@@ -202,13 +202,15 @@ pub struct Button {
 }
 
 /// The callout's colour: amber for a tool that isn't available, a model no longer listed and a move; neutral for a
-/// limit (d0077: never turquoise). `ToolProblemTone` on the page.
+/// limit (d0077: never turquoise); red for an agent whose tool stopped on an error, as its card (broke and waits).
+/// `ToolProblemTone` on the page.
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, TS)]
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "ToolProblemTone")]
 pub enum Tone {
     Amber,
     Neutral,
+    Error,
 }
 
 /// A callout or a notice: its heading, the line under it, its buttons. `ToolProblemCallout` on the page.
@@ -441,6 +443,50 @@ pub fn agent_notice(tool: Tool, tools: &Tools) -> Option<Callout> {
         model: None,
         buttons,
     })
+}
+
+/// "Resume" in the bar under the callout of an agent whose tool stopped: what it does.
+pub const RESUME_GOES_ON: &str = "the agent goes on where it stopped.";
+
+/// The callout over the sheet's bar when the ticket's agent stopped on an error of its own tool (`error`, the tool's
+/// message): red, as its card. It names why and what to do: sign in first when the sign-in ran out or is missing
+/// (with Sign in… where the tool has one), then Resume, the bar's button, which has the agent go on.
+pub fn stopped_callout(tool: Tool, error: &str, tools: &Tools) -> Callout {
+    use otaq_core::signals::ToolStop;
+    let stop = ToolStop::of(error);
+    let word = tool_word(tool);
+    let (heading, text, buttons) = if stop.needs_sign_in() {
+        let can_sign_in = tools.status(tool).is_none_or(|s| s.can_sign_in);
+        let mut button = sign_in(tool);
+        button.primary = true;
+        (
+            format!("{word} stopped \u{b7} {}", stop.reason()),
+            format!("Sign in to {word}, then Resume: {RESUME_GOES_ON}"),
+            if can_sign_in {
+                vec![button]
+            } else {
+                Vec::new()
+            },
+        )
+    } else {
+        (
+            format!("{word} stopped on an error"),
+            format!(
+                "\u{201c}{}\u{201d}. Resume when you\u{2019}re ready: {RESUME_GOES_ON}",
+                error.trim()
+            ),
+            Vec::new(),
+        )
+    };
+    Callout {
+        role: None,
+        tone: Tone::Error,
+        avatar: tools.avatar(tool, None),
+        heading,
+        text: Some(text),
+        model: None,
+        buttons,
+    }
 }
 
 /// The empty agent panel's notice for a held first message (Q-O): Model unavailable opens Settings → Agents at the
@@ -846,6 +892,40 @@ mod tests {
         assert_eq!(labels(&c), ["Resume after reset"]);
         assert_eq!(c.tone, Tone::Neutral);
         assert_eq!(agent_notice(CLAUDE, &tools), None, "its tool runs");
+    }
+
+    /// An agent whose tool stopped on an error: red, with why and the next step. A sign-in that ran out says sign in
+    /// (Sign in… where the tool has one), then Resume; another error quotes the tool and says Resume.
+    #[test]
+    fn an_agent_stopped_on_its_tools_error_says_what_to_do() {
+        let c = stopped_callout(
+            CLAUDE,
+            "Login expired \u{b7} Please run /login",
+            &Tools::one(None),
+        );
+        assert_eq!(c.tone, Tone::Error);
+        assert_eq!(c.heading, "Claude Code stopped \u{b7} login expired");
+        assert_eq!(
+            c.text.as_deref(),
+            Some("Sign in to Claude Code, then Resume: the agent goes on where it stopped.")
+        );
+        assert_eq!(labels(&c), ["Sign in\u{2026}"]);
+        assert_eq!(
+            c.buttons[0].action,
+            Action::SignIn {
+                tool: CLAUDE.as_str().to_owned()
+            }
+        );
+        let c = stopped_callout(CLAUDE, "API Error: 500", &Tools::one(None));
+        assert_eq!(c.heading, "Claude Code stopped on an error");
+        assert_eq!(
+            c.text.as_deref(),
+            Some(
+                "\u{201c}API Error: 500\u{201d}. Resume when you\u{2019}re ready: the agent goes on where it \
+                 stopped."
+            )
+        );
+        assert!(c.buttons.is_empty());
     }
 
     /// Q-O: a first message held for Model unavailable → Change agent opens Settings → Agents at its agent.

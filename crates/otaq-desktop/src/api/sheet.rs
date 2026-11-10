@@ -462,6 +462,23 @@ fn running_agent(sessions: &[SessionInfo]) -> bool {
         .any(|s| s.kind == SessionKind::Agent && s.is_running())
 }
 
+/// The callout of an agent whose tool stopped on an error (red, with why and what to do), on the tool of its latest
+/// agent session; `None` for any other ticket.
+fn stopped_callout(f: &Facts) -> Option<Callout> {
+    let error = otaq_core::signals::stopped_on_error(f.ticket)?;
+    let tool = f
+        .sessions
+        .iter()
+        .filter(|s| s.kind == SessionKind::Agent)
+        .max_by_key(|s| s.started_at)
+        .and_then(|s| s.tool)
+        .or_else(|| f.tools.connected.first().copied())
+        .unwrap_or(otaq_core::agent_tools::Tool::ALL[0]);
+    Some(otaq_view::view_models::tool_problems::stopped_callout(
+        tool, error, f.tools,
+    ))
+}
+
 
 fn answer_of(ticket: &Ticket) -> Option<Answer> {
     if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
@@ -606,6 +623,14 @@ pub fn view_of(f: &Facts) -> View {
             // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (the
             // terminal's strip says "your turn" there).
             let mut pill = PillView::of(ticket.status);
+            // Its tool stopped on an error: red with why, as its card ("Stopped · login expired").
+            if let Some(error) = otaq_core::signals::stopped_on_error(ticket) {
+                pill = PillView {
+                    palette: otaq_view::theme::Palette::Error,
+                    icon: IconName::CircleX,
+                    label: otaq_view::view_models::card_line::stopped_line(error),
+                };
+            }
             if let Some(label) = validation_texts::pill_label(ticket, f.custom_flow) {
                 pill.label = label;
             }
@@ -662,10 +687,14 @@ pub fn view_of(f: &Facts) -> View {
             }),
         start_problem,
         refusal,
-        holds: f
-            .agents
-            .map(|t| stage_choices::callouts(t, f.tools))
-            .unwrap_or_default(),
+        holds: stopped_callout(f)
+            .into_iter()
+            .chain(
+                f.agents
+                    .map(|t| stage_choices::callouts(t, f.tools))
+                    .unwrap_or_default(),
+            )
+            .collect(),
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
             port: format!(":{port}"),
@@ -1067,6 +1096,34 @@ fn toast_error(app: &App, title: String, error: &RequestError) {
     ));
 }
 
+/// What Resume says when the agent's terminal has a line the user typed: it is never cleared without asking.
+pub const RESUME_UNSENT: &str =
+    "Its terminal has a line you typed. Send or clear it there, then Resume again.";
+
+/// Resume on an agent whose tool stopped on an error: "continue" typed into its session as the user's click, so it
+/// goes on where it stopped (resumed first when a restart ended it meanwhile).
+async fn resume_after_error(app: &App, key: &str) -> Result<(), RequestError> {
+    let failed = format!("{key} can\u{2019}t be resumed");
+    let choice = Choice::Other(otaq_core::usage::limit::CONTINUE.to_owned());
+    match app
+        .service
+        .send(answer::request(&key_of(key)?, &choice, false))
+        .await
+    {
+        Ok(Reply::Delivery(Delivery::Sent { .. })) => Ok(()),
+        Ok(Reply::Delivery(_)) => {
+            let e = RequestError::plain(RESUME_UNSENT);
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+        Ok(other) => Err(unexpected("needs_you.answer", &other)),
+        Err(e) => {
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
 /// What `sheet.action` takes: a button that talks to the service.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "SheetActionParams")]
@@ -1079,6 +1136,13 @@ pub struct ActionParams {
 /// rejects, so the button stops spinning). The other buttons open a tab or a dialog on the page.
 pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError> {
     let key = params.key;
+    if params.action == Action::Resume
+        && ticket(app, &key)
+            .await?
+            .is_some_and(|t| otaq_core::signals::stopped_on_error(&t).is_some())
+    {
+        return resume_after_error(app, &key).await;
+    }
     let k = KeyParams { key: key.clone() };
     let (request, failed) = match params.action {
         Action::Start => (
@@ -2042,6 +2106,35 @@ mod tests {
 
     fn labels(view: &View) -> Vec<&str> {
         view.buttons.iter().map(|b| b.label.as_str()).collect()
+    }
+
+    /// A session that ended on its tool's error: Overview says why in red and what to do next (sign in, then
+    /// Resume), and the header's badge names it as the card does.
+    #[test]
+    fn a_tool_error_says_the_next_step_on_overview() {
+        let mut t = fixture("SHOP-1", "Tidy the README", Status::Idle);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some(otaq_core::signals::tool_error_text(
+                "authentication_failed",
+                Some("Login expired \u{b7} Please run /login"),
+            )),
+            ..Default::default()
+        });
+        let sessions = [agent(SessionState::Running)];
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), &sessions));
+        assert_eq!(view.pill.label, "Stopped \u{b7} login expired");
+        assert_eq!(view.pill.palette, otaq_view::theme::Palette::Error);
+        let callout = &view.holds[0];
+        assert_eq!(callout.tone, otaq_view::view_models::tool_problems::Tone::Error);
+        assert!(callout.heading.ends_with("stopped \u{b7} login expired"));
+        assert!(callout.text.as_deref().unwrap().contains(", then Resume: the agent goes on"));
+        assert_eq!(labels(&view), ["Resume", "Answer in terminal"]);
+
+        // A plain Idle keeps its turquoise answer bar and no callout.
+        let idle = fixture("SHOP-1", "Tidy the README", Status::Idle);
+        let view = view_of(&facts(&idle, std::slice::from_ref(&idle), &sessions));
+        assert!(view.holds.is_empty());
+        assert_eq!(labels(&view), ["Answer in terminal"]);
     }
 
     /// A check held before its checker started says it waits ("Validate waits for Codex checker", as Change agent…

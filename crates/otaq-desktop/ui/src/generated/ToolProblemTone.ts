@@ -2,6 +2,7 @@
 
 /**
  * The callout's colour: amber for a tool that isn't available, a model no longer listed and a move; neutral for a
- * limit (d0077: never turquoise). `ToolProblemTone` on the page.
+ * limit (d0077: never turquoise); red for an agent whose tool stopped on an error, as its card (broke and waits).
+ * `ToolProblemTone` on the page.
  */
-export type ToolProblemTone = "amber" | "neutral";
+export type ToolProblemTone = "amber" | "neutral" | "error";

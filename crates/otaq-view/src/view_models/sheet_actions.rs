@@ -284,6 +284,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
             vec![(A::OpenTerminal, Secondary), (A::Run, Secondary)]
         }
+        // Its tool stopped on an error: once the cause is fixed (signed in), Resume has the agent go on.
+        Status::Idle if otaq_core::signals::stopped_on_error(ticket).is_some() => {
+            vec![(A::Resume, Primary), (A::AnswerInTerminal, Secondary)]
+        }
         Status::AsksYou | Status::NeedsYou | Status::Idle => vec![(A::AnswerInTerminal, Attention)],
         Status::Interrupted => vec![(A::Resume, Primary)],
         // *16 → Resume · in progress → resumed → failed*: Start from scratch is the primary, Retry beside it.
@@ -527,6 +531,25 @@ mod tests {
     }
 
     /// Every row of *Action bar · every state*, as designed (later features included).
+    /// An agent whose tool stopped on an error: Resume leads (it goes on once signed in), the terminal beside it.
+    #[test]
+    fn a_tool_error_offers_resume() {
+        use Look::*;
+        let mut t = ticket("SHOP-1", "Tidy the README", Status::Idle);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some(otaq_core::signals::tool_error_text(
+                "authentication_failed",
+                Some("Login expired \u{b7} Please run /login"),
+            )),
+            since: None,
+            wakeup_at: None,
+        });
+        assert_eq!(
+            all_buttons(&t),
+            [(A::Resume, Primary), (A::AnswerInTerminal, Secondary)]
+        );
+    }
+
     #[test]
     fn every_row_of_the_frame() {
         use Look::*;
