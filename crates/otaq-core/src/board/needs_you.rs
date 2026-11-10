@@ -176,6 +176,10 @@ pub struct NeedsYouItem {
     /// `/team-validate`", and the ticket offers Check again and Change agent….
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_skill: Option<crate::domain::MissingSkill>,
+    /// Its agent's tool stopped on an error and waits: why, in short ("login expired", "API Error: 500"). The chip
+    /// reads "stopped · login expired" in red, as the card does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<String>,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -251,6 +255,8 @@ pub fn needs_you_items_with(
                     piece: ticket.flags.piece_wait.clone(),
                     helpers_to_resume: ticket.flags.helpers_to_resume.clone(),
                     missing_skill: ticket.flags.missing_skill.clone(),
+                    stopped: crate::signals::stopped_on_error(ticket)
+                        .map(|error| crate::signals::ToolStop::of(error).reason()),
                 })
             })
         })
@@ -566,6 +572,7 @@ impl Board {
                 piece: None,
                 helpers_to_resume: Vec::new(),
                 missing_skill: None,
+                stopped: None,
             });
         }
         for item in &mut items {

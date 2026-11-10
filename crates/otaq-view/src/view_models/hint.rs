@@ -290,7 +290,11 @@ pub fn board(facts: &BoardFacts) -> Option<BoardHint> {
         });
     }
     if unseen(Hint::FirstQuestion)
-        && let Some(t) = first(&|t| matches!(t.status, Status::AsksYou | Status::Idle))
+        // A tool that stopped on an error is red, not a question: the hint waits for a real one.
+        && let Some(t) = first(&|t| {
+            matches!(t.status, Status::AsksYou | Status::Idle)
+                && otaq_core::signals::stopped_on_error(t).is_none()
+        })
     {
         return Some(BoardHint {
             hint: first_question(facts.keys),
@@ -405,6 +409,26 @@ mod tests {
             first_approve,
             keys: &keys,
         })
+    }
+
+    /// A tool that stopped on an error isn't an agent asking: the "An agent needs you" hint waits for a real question.
+    #[test]
+    fn a_tool_error_is_not_the_first_question() {
+        let mut stopped = in_stage("SHOP-1", Status::Idle, "dev");
+        stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some(otaq_core::signals::tool_error_text(
+                "authentication_failed",
+                Some("Login expired \u{b7} Please run /login"),
+            )),
+            since: None,
+            wakeup_at: None,
+        });
+        assert_eq!(hint_on(std::slice::from_ref(&stopped), &[], false), None);
+        let idle = in_stage("SHOP-1", Status::Idle, "dev");
+        assert_eq!(
+            hint_on(&[idle], &[], false).unwrap().hint.id,
+            HintId::FirstQuestion
+        );
     }
 
     #[test]

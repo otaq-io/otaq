@@ -40,6 +40,75 @@ pub fn tool_error(text: &str) -> Option<&str> {
     text.strip_prefix(TOOL_ERROR_PREFIX)
 }
 
+/// Why the tool stopped, read from its message: its sign-in ran out or is missing (so signing in comes before
+/// anything else), or another error of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolStop<'a> {
+    /// "Login expired · Please run /login", "OAuth token has expired".
+    LoginExpired,
+    /// "Not logged in · Run /login", "Invalid API key".
+    NotSignedIn,
+    /// Any other error: the tool's own words ("API Error: 500").
+    Error(&'a str),
+}
+
+impl<'a> ToolStop<'a> {
+    /// The stop a tool's message (or its error kind, when it gave no message) says.
+    pub fn of(error: &'a str) -> Self {
+        let lower = error.to_lowercase();
+        let sign_in = [
+            "/login",
+            "log in",
+            "logged in",
+            "login",
+            "sign in",
+            "signed in",
+            "authenticat",
+            "api key",
+            "oauth",
+            "unauthorized",
+            "credential",
+        ]
+        .iter()
+        .any(|word| lower.contains(word));
+        match sign_in {
+            true if lower.contains("expired") => Self::LoginExpired,
+            true => Self::NotSignedIn,
+            false => Self::Error(error.trim()),
+        }
+    }
+
+    /// The short reason the card and Needs you give: "login expired", "not signed in", else the message's first part
+    /// ("API Error: 500").
+    pub fn reason(self) -> String {
+        match self {
+            Self::LoginExpired => "login expired".to_owned(),
+            Self::NotSignedIn => "not signed in".to_owned(),
+            Self::Error(message) => message
+                .split(" \u{b7} ")
+                .next()
+                .unwrap_or(message)
+                .trim()
+                .trim_end_matches('.')
+                .to_owned(),
+        }
+    }
+
+    /// The user has to sign in to the tool before the agent can go on.
+    pub fn needs_sign_in(self) -> bool {
+        matches!(self, Self::LoginExpired | Self::NotSignedIn)
+    }
+}
+
+/// The tool's message when the ticket's agent stopped on an error of its own and waits for the user (an Idle a
+/// failed turn left); `None` for any other ticket.
+pub fn stopped_on_error(ticket: &crate::board::tickets::Ticket) -> Option<&str> {
+    if ticket.status != crate::domain::Status::Idle {
+        return None;
+    }
+    tool_error(ticket.signal.as_ref()?.text.as_deref()?)
+}
+
 /// What happened in the session's current turn, as far as the turn-end rule cares.
 #[derive(Debug, Clone, Copy, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct TurnFacts {
@@ -336,6 +405,32 @@ mod tests {
                 prompt: String::new()
             }
             .ends_turn()
+        );
+    }
+
+    /// A tool that stopped on its sign-in says so in short; any other error keeps the tool's own words.
+    #[test]
+    fn a_tool_stop_names_a_sign_in_or_keeps_the_message() {
+        let expired = ToolStop::of("Login expired \u{b7} Please run /login");
+        assert_eq!(expired, ToolStop::LoginExpired);
+        assert_eq!(expired.reason(), "login expired");
+        assert!(expired.needs_sign_in());
+        for text in [
+            "Not logged in \u{b7} Run /login",
+            "Invalid API key \u{b7} Please run /login",
+            "authentication_failed",
+        ] {
+            let stop = ToolStop::of(text);
+            assert_eq!(stop, ToolStop::NotSignedIn, "{text}");
+            assert_eq!(stop.reason(), "not signed in");
+        }
+        let other = ToolStop::of("API Error: 500");
+        assert_eq!(other, ToolStop::Error("API Error: 500"));
+        assert_eq!(other.reason(), "API Error: 500");
+        assert!(!other.needs_sign_in());
+        assert_eq!(
+            ToolStop::of("Overloaded. \u{b7} Try again later").reason(),
+            "Overloaded"
         );
     }
 }

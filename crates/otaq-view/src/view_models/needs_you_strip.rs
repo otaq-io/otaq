@@ -493,6 +493,17 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
             Tone::Error,
             "missing skill".to_owned(),
         )
+    } else if let Some(why) = item
+        .stopped
+        .as_ref()
+        .filter(|_| item.status == Status::Idle)
+    {
+        // Its tool stopped on an error: red, as the card, with the reason ("stopped · login expired").
+        (
+            IconName::CircleX,
+            Tone::Error,
+            format!("stopped \u{b7} {why}"),
+        )
     } else if item.group == NeedsYouGroup::Review {
         let reason = match item.waiting_in.as_ref().and_then(|w| w.delivers) {
             Some(Delivers::Pr) => "open the PR",
@@ -718,6 +729,7 @@ pub mod samples {
             piece: None,
             helpers_to_resume: Vec::new(),
             missing_skill: None,
+            stopped: None,
         }
     }
 
@@ -856,6 +868,27 @@ mod tests {
             .iter()
             .map(|c| format!("{} {}", c.label, c.reason))
             .collect()
+    }
+
+    /// An agent whose tool stopped on an error is red in Needs you with the reason, as its card; a plain Idle stays
+    /// turquoise "idle".
+    #[test]
+    fn a_tool_error_is_a_red_chip_with_its_reason() {
+        let mut t = ticket(
+            "SHOP-1",
+            "Tidy the README",
+            Status::Idle,
+            "idle \u{b7} stopped on an error: \u{201c}Login expired\u{201d}",
+        );
+        t.stopped = Some("login expired".into());
+        let target = item(t.clone()).target();
+        let chip = ticket_chip(&t, target.clone()).unwrap();
+        assert_eq!(chip.reason, "stopped \u{b7} login expired");
+        assert_eq!(chip.tone, Tone::Error);
+        assert_eq!(chip.icon, IconName::CircleX);
+        t.stopped = None;
+        let chip = ticket_chip(&t, target).unwrap();
+        assert_eq!((chip.reason.as_str(), chip.tone), ("idle", Tone::Attn));
     }
 
     /// OTQ-9: an open question (no options) is a free-text box; a permission prompt has no popover.
