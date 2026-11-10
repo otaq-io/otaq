@@ -754,7 +754,6 @@ pub fn gallery() -> Vec<GalleryFrame> {
         // Agents at work, as drawn: Pause this project is offered.
         agents_working: 1,
         needs_you: 0,
-        flow_setup_since: None,
         paused_since: None,
         paused_by: None,
     };
@@ -861,7 +860,6 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }

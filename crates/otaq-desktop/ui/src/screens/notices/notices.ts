@@ -107,9 +107,6 @@ export async function pressBanner(
     case "service_stopped":
       await ask("notices.restart");
       return;
-    case "permission_warning":
-      await ask("notices.open_docs");
-      return;
     case "usage_limit":
       await ask("notices.resume_after_limit");
       return;

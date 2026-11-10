@@ -4,8 +4,10 @@
 //! folder, on the temporary branch `otaq/<KEY>` (the real name is chosen at the first push, M10). The base
 //! is the ticket's base branch.
 //!
-//! Everything converges (SES-02): a branch or worktree that exists is reused, a worktree registered with git
-//! whose folder is gone is added again, and the ticket row is filled in whatever happened before. Nothing is
+//! Everything converges (SES-02): the ticket's own branch or worktree that exists is reused, a worktree registered
+//! with git whose folder is gone is added again, and the ticket row is filled in whatever happened before. A branch of
+//! that name the ticket didn't make (a project added to a repository that already has `otaq/SHOP-1`) is never taken
+//! over: the ticket's branch is the next free name, `otaq/SHOP-1-2` ([`free_branch`]), stored before it is made. Nothing is
 //! written into the user's repository except git's own branch refs and worktree metadata under `.git/`.
 
 use std::path::{Path, PathBuf};
@@ -46,11 +48,26 @@ pub async fn prepare_worktree(
     let base_branch = ticket.base.branch().to_owned();
     let base_commit = branch_commit(git, &repo, &base_branch).await?;
 
-    // Step 3: the ticket's branch.
-    let branch = naming::branch(&ticket.key.to_string());
-    let branch_ref = format!("refs/heads/{branch}");
+    // Step 3: the ticket's branch: the one an earlier start of it chose, else a free name, stored before it is made so
+    // that a start cut short after making it finds it again as its own.
     let stored = board.store().ticket(&ticket.id).await?;
+    let stored_branch = stored.as_ref().and_then(|row| row.branch_name.clone());
     let stored_base_sha = stored.and_then(|row| row.base_sha);
+    let branch = match stored_branch {
+        Some(branch) => branch,
+        None => {
+            let branch = free_branch(git, &repo, &ticket.key.to_string()).await?;
+            sqlx::query("UPDATE tickets SET branch_name = ?, updated_at = ? WHERE id = ?")
+                .bind(&branch)
+                .bind(now_ms())
+                .bind(&ticket.id)
+                .execute(board.store().pool())
+                .await
+                .map_err(crate::store::StoreError::from)?;
+            branch
+        }
+    };
+    let branch_ref = format!("refs/heads/{branch}");
     let base_sha = if git.resolve(&repo, &branch_ref).await?.is_some() {
         match stored_base_sha {
             Some(sha) => sha,
@@ -94,6 +111,33 @@ pub async fn prepare_worktree(
         base_branch,
         base_sha,
     })
+}
+
+/// The first of `otaq/SHOP-1`, `otaq/SHOP-1-2`, `otaq/SHOP-1-3`… that no local or remote branch of `repo` has: a new
+/// ticket never takes over a branch it didn't make.
+pub(crate) async fn free_branch(git: &Git, repo: &Path, key: &str) -> Result<String, GitError> {
+    let mut n = 1;
+    loop {
+        let name = match n {
+            1 => naming::branch(key),
+            n => naming::branch(&format!("{key}-{n}")),
+        };
+        let found = git
+            .run(
+                repo,
+                &[
+                    "for-each-ref",
+                    "--format=%(refname)",
+                    &format!("refs/heads/{name}"),
+                    &format!("refs/remotes/*/{name}"),
+                ],
+            )
+            .await?;
+        if found.trim().is_empty() {
+            return Ok(name);
+        }
+        n += 1;
+    }
 }
 
 /// Creates `branch` at `from`, or leaves it where it is when it already exists (another start made it a moment

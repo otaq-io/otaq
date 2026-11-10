@@ -681,9 +681,10 @@ impl Starter {
                 || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
                     && own.is_none()));
         let mut checked = None;
-        // An agent never commits under a borrowed name: a new conversation waits until git knows the user's name and
-        // email, which only the user's own Save writes ([`Starter::lift_identity_holds`]).
-        if new_conversation
+        // An agent never commits under a borrowed name: a session about to launch, a new conversation or a resumed one
+        // (Resume, a Send back, Park → Dev), waits until git knows the user's name and email, which only the user's own
+        // Save writes ([`Starter::lift_identity_holds`]). A live session it continues launches nothing.
+        if own.is_none()
             && git
                 .missing_identity(repo)
                 .await

@@ -59,7 +59,6 @@ fn shop_web() -> NewProject {
         name: "shop-web".into(),
         repo_path: "/Users/me/code/shop-web".into(),
         base_branch: "main".into(),
-        flow_setup: false,
     }
 }
 

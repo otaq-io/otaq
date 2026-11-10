@@ -295,23 +295,16 @@ async fn onboarding_state_and_remembered_dismissal() {
         ),
         OnboardingState {
             has_projects: false,
-            permission_warning_dismissed: false,
             trust_note: false,
             trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),
             first_approve: false,
         }
     );
-    assert_eq!(
-        request_once(&socket, Request::DismissPermissionWarning)
-            .await
-            .unwrap(),
-        Reply::Ok
-    );
     stopper.stop();
     task.await.unwrap();
 
-    // The dismissal survives a restart of the service; a stored project ends the first run.
+    // A stored project ends the first run.
     let store = otaq_core::store::Store::open_in(&data).await.unwrap();
     store
         .insert_project(&otaq_core::store::projects::NewProject {
@@ -319,7 +312,6 @@ async fn onboarding_state_and_remembered_dismissal() {
             name: "shop-web".into(),
             repo_path: "/tmp/shop-web".into(),
             base_branch: "main".into(),
-            flow_setup: false,
         })
         .await
         .unwrap();
@@ -333,7 +325,6 @@ async fn onboarding_state_and_remembered_dismissal() {
         ),
         OnboardingState {
             has_projects: true,
-            permission_warning_dismissed: true,
             trust_note: false,
             trust_note_tools: Vec::new(),
             trust_failed: Vec::new(),

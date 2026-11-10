@@ -952,6 +952,24 @@ impl Board {
     /// The user's `git` with the project's variables set in every command it runs (ENV-02), for the git
     /// commands Otaq runs in the project's repository and worktrees, so the user's hooks see them. Otaq sets
     /// none of its own variables there, so a `${…}` naming one becomes empty ([`crate::session::env::substitute`]).
+    /// Refuses an agent session about to launch in `project` while git has no name and email to sign its commits
+    /// with: an agent never commits under a borrowed name. The refusal says where to give them.
+    pub async fn refuse_without_identity(&self, project: &str) -> Result<(), BoardError> {
+        let repo = self.project(project).await?.repo_path;
+        match self
+            .project_git(project)
+            .await?
+            .missing_identity(Path::new(&repo))
+            .await?
+        {
+            None => Ok(()),
+            Some(_) => Err(BoardError::refused(
+                Refusal::NotAvailableYet,
+                format!("Not started: {}", crate::start::sequence::NEEDS_IDENTITY),
+            )),
+        }
+    }
+
     pub async fn project_git(&self, project: &str) -> Result<crate::git::Git, BoardError> {
         let git = self.git()?;
         let settings = self.project_settings(project).await?;
@@ -969,9 +987,29 @@ impl Board {
         Ok(effective(&own))
     }
 
-    /// `settings.set`: stores the global settings.
+    /// `settings.set`: stores the global settings. The OS appearance isn't the page's to save: the stored one stays
+    /// (only `settings.os_dark` writes it), so a page that read the settings before the OS changed never puts the old
+    /// appearance back.
     pub async fn save_global_settings(&self, settings: &GlobalSettings) -> Result<(), BoardError> {
-        self.set_global_settings(settings).await
+        let stored = self.global_settings().await?;
+        let settings = GlobalSettings {
+            os_dark: stored.os_dark,
+            ..settings.clone()
+        };
+        self.set_global_settings(&settings).await
+    }
+
+    /// `settings.os_dark`: stores the OS appearance the app sees now, nothing else.
+    pub async fn set_os_dark(&self, dark: bool) -> Result<(), BoardError> {
+        sqlx::query(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES ('os_dark', ?, ?)
+             ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        )
+        .bind(serde_json::Value::Bool(dark).to_string())
+        .bind(now_ms())
+        .execute(self.store.pool())
+        .await?;
+        Ok(())
     }
 
     /// `project_settings.set`: stores a project's settings.

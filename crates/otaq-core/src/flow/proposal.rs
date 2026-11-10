@@ -1,8 +1,6 @@
 //! Proposals (FLW-03, FLW-04, FLW-05, FLW-09, FLW-10; d0108): a flow document waiting in the flow editor for one project,
 //! with where it came from ([`Source`]) and who proposed it ([`ProposedBy`]). A project has at most one open
-//! proposal; a new one replaces it ([`Board::open_proposal`]). **During Flow setup** (ASK-03, ASK-04) it keeps one
-//! open proposal per flow agent instead, one for each agent tool asked, and the user's own beside them: a new one
-//! replaces only the open one from the same tool (the user's, the user's).
+//! proposal; a new one replaces it ([`Board::open_proposal`]).
 //!
 //! **The checks** ([`ProposalProblem`]): STG-02's rules ([`super::check()`]), the agents the stages name
 //! ([`super::check_agents`]), each agent's model against its tool's list, written stage ids starting with `_`
@@ -16,8 +14,8 @@
 //! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `/<name>`", and the stage is
 //! held when it is due to start on that tool. Otaq's own skills never warn.
 //!
-//! **The draft** ([`super::draft`], FED-02): outside Flow setup the open proposal is the project's draft, which the
-//! flow editor and a Project agent's `flow propose` both edit; during it, the user's own one is.
+//! **The draft** ([`super::draft`], FED-02): the open proposal is the project's draft, which the flow editor and a
+//! Project agent's `flow propose` both edit.
 //!
 //! **Stage ids** ([`match_ids`]): a written id is kept; otherwise a stage takes the id of the stage with its name in
 //! the flow it changes, else of the stage at its position (when that stage's name is gone), so "rename Review to QA"
@@ -132,7 +130,7 @@ pub enum ProposedBy {
         session: String,
         /// Its name ("Checkout slowness"), for "Changed by Noyan".
         name: String,
-        /// The agent tool it runs on: "Recommended by OpenCode" during Flow setup (ASK-03).
+        /// The agent tool it runs on.
         tool: Tool,
     },
 }
@@ -1172,8 +1170,7 @@ impl Board {
         Ok((self.current_flow_file(project).await?, false))
     }
 
-    /// Opens a proposal for `project`, replacing the open one (FLW-03; during Flow setup only the open one from the
-    /// same tool, ASK-03): its stage ids matched to the flow as it will be, then checked. A Project agent's proposal with problems is refused with them, one per line, so it can fix
+    /// Opens a proposal for `project`, replacing the open one (FLW-03): its stage ids matched to the flow as it will be, then checked. A Project agent's proposal with problems is refused with them, one per line, so it can fix
     /// them; a document that doesn't read is refused for everyone. The proposal as the flow editor shows it.
     pub async fn open_proposal(
         &self,
@@ -1237,15 +1234,11 @@ impl Board {
         }
         let tool = proposed_by.tool().map(Tool::as_str);
         let mut tx = self.store().begin_write().await?;
-        // Outside Flow setup one proposal per project (FLW-03); during it one per tool, and the user's (ASK-03).
-        let replaced = if project.flow_setup_since.is_some() {
-            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ? AND tool IS ?")
-                .bind(&project.id)
-                .bind(tool)
-        } else {
-            sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?").bind(&project.id)
-        };
-        replaced.execute(&mut *tx).await?;
+        // One proposal per project (FLW-03).
+        sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?")
+            .bind(&project.id)
+            .execute(&mut *tx)
+            .await?;
         let id: i64 = sqlx::query_scalar(
             "INSERT INTO flow_proposals (project_id, tool, yaml, source_json, proposed_by_json, created_at)
              VALUES (?, ?, ?, ?, ?, ?) RETURNING id",
@@ -1280,8 +1273,7 @@ impl Board {
         }
     }
 
-    /// Every open proposal of `project`, oldest first, checked and compared now: one at most outside Flow setup, one
-    /// per flow agent and the user's during it (ASK-03).
+    /// Every open proposal of `project`, oldest first, checked and compared now: one at most.
     pub async fn proposals(
         &self,
         project: &str,
@@ -1311,8 +1303,7 @@ impl Board {
         Ok(())
     }
 
-    /// The open proposal the flow editor shows: the only one outside Flow setup; during it the user's own draft (a
-    /// preset, or a tool's entry copied in, FED-02) when there is one, else the newest.
+    /// The open proposal the flow editor shows: the draft (FED-02), else the newest.
     pub(crate) async fn proposal_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
         if let Some(draft) = self.draft_row(project).await? {
             return Ok(Some(draft));

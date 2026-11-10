@@ -79,7 +79,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::QuickSwitcherView::export_all(&cfg)?;
     crate::api::DigitParams::export_all(&cfg)?;
     crate::api::StepParams::export_all(&cfg)?;
-    crate::api::CleanupBroom::export_all(&cfg)?;
     // Settings → About's update parts and the rail's dot (UPD-04); also writes the rows, the notice and the params.
     crate::api::export_updates_types(&cfg)?;
     // The command palette (T-0393): its view with the rows, and the requests' params.

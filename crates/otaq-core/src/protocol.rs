@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 12;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -197,28 +197,6 @@ pub enum Request {
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
-    /// Who Flow onboarding can ask for a project (ASK-05, d0108): its name and the connected tools. Answered with
-    /// [`Reply::OnboardingSources`].
-    #[serde(rename = "onboarding.sources")]
-    OnboardingSources(ProjectParams),
-    /// **Ask <Tool>** (ASK-02, d0108): `{"project": "SHOP", "tool": "opencode"}` starts the tool's flow agent for a
-    /// project in Flow setup (the agent Noyan uses, on the tool's default model, the `flow` skill), or
-    /// returns it while it runs. Refused for a tool that isn't connected, at its plan limit, and for a project not
-    /// in Flow setup. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
-    #[serde(rename = "onboarding.ask")]
-    OnboardingAsk(OnboardingAskParams),
-    /// `{"project": "SHOP"}`: the project's Flow setup now (ASK-03, ASK-04, ASK-06): each tool's row and the open
-    /// proposals. Answered with [`Reply::FlowSetup`]; refetch on [`Event::FlowSetupChanged`].
-    #[serde(rename = "onboarding.flow_setup")]
-    OnboardingFlowSetup(ProjectParams),
-    /// `{"project": "SHOP"}`: **Use the default** or **Skip, use the default** (ASK-03, ASK-04): the project keeps
-    /// the default flow and leaves Flow setup; every open proposal closes and every flow agent is told "The user
-    /// chose another flow." and ends. Answered with [`Reply::Ok`].
-    #[serde(rename = "onboarding.use_default")]
-    OnboardingUseDefault(ProjectParams),
-    /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
-    #[serde(rename = "onboarding.dismiss_permission_warning")]
-    DismissPermissionWarning,
     /// The user dismissed the one-time folder trust note (PRJ-08); it never comes back. Answered with [`Reply::Ok`].
     #[serde(rename = "notices.dismiss_trust_note")]
     DismissTrustNote,
@@ -781,8 +759,13 @@ pub enum Request {
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
     SettingsGet,
+    /// The whole settings, as the Settings page saves them; the OS appearance is left as stored.
     #[serde(rename = "settings.set")]
     SettingsSet(GlobalSettings),
+    /// `{"dark": true}`: the OS appearance the app sees now, while the theme matches the system; the other settings
+    /// stay. Answered with [`Reply::GlobalSettings`].
+    #[serde(rename = "settings.os_dark")]
+    SettingsOsDark(OsDarkParams),
     #[serde(rename = "project_settings.get")]
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
@@ -802,8 +785,7 @@ pub enum Request {
     #[serde(rename = "flow.versions")]
     FlowVersions(ProjectParams),
     /// `{"project": "SHOP"}`: the project's open proposal, checked and compared with the flow as it will be now
-    /// (FLW-03, FLW-04); during Flow setup the user's own if there is one, else the newest (`onboarding.flow_setup`
-    /// lists them all). Answered with [`Reply::FlowProposal`], `null` when there is none.
+    /// (FLW-03, FLW-04). Answered with [`Reply::FlowProposal`], `null` when there is none.
     #[serde(rename = "flow.proposal")]
     FlowProposal(ProjectParams),
     /// Apply in the flow editor (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
@@ -837,8 +819,8 @@ pub enum Request {
     #[serde(rename = "flow.show")]
     FlowShow(ProjectParams),
     /// `otaq flow propose` (FLW-03, FED-02), from a Project agent's session or the user: a document or another
-    /// project's stages, checked, then put in the project's draft with the agent's changes marked (during Flow setup
-    /// it replaces only the open one from the same tool, ASK-03). Answered with [`Reply::FlowProposal`].
+    /// project's stages, checked, then put in the project's draft with the agent's changes marked. Answered with
+    /// [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose")]
     FlowPropose(crate::flow::propose::ProposeParams),
     /// Ask for more changes in the flow editor (FLW-04): closes the open proposal; the text goes to the Project agent
@@ -1130,13 +1112,6 @@ pub enum Request {
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
-}
-
-/// `onboarding.ask`: the project and the tool to ask (ASK-02).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OnboardingAskParams {
-    pub project: String,
-    pub tool: Tool,
 }
 
 /// `tools.git_identity`: what the user typed.
@@ -1843,6 +1818,12 @@ pub struct TicketTerminal {
     pub text: String,
 }
 
+/// `{"dark": true}`: whether the OS is dark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsDarkParams {
+    pub dark: bool,
+}
+
 /// `{"project": "SHOP"}`.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProjectParams {
@@ -2077,11 +2058,6 @@ impl Request {
             Self::GitSetIdentity(_) => "tools.git_identity",
             Self::GitMissingIdentity(_) => "git.missing_identity",
             Self::OnboardingState => "onboarding.state",
-            Self::OnboardingSources(_) => "onboarding.sources",
-            Self::OnboardingAsk(_) => "onboarding.ask",
-            Self::OnboardingFlowSetup(_) => "onboarding.flow_setup",
-            Self::OnboardingUseDefault(_) => "onboarding.use_default",
-            Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::NotificationsState => "notifications.state",
             Self::NotificationsAskAnswered => "notifications.ask_answered",
@@ -2230,6 +2206,7 @@ impl Request {
             Self::UsageMarkLimit(_) => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
+            Self::SettingsOsDark(_) => "settings.os_dark",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
             Self::ProjectViewSet(_) => "project_view.set",
@@ -2329,8 +2306,6 @@ pub enum Reply {
     StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
-    OnboardingSources(crate::onboarding::Sources),
-    FlowSetup(Box<crate::project_agents::first_flow::FlowSetup>),
     NotificationsState(crate::attention::os_permission::NotificationsState),
     FirstHide(crate::attention::os_permission::FirstHide),
     UpdatePrefs(crate::updates::UpdatePrefs),
@@ -2495,7 +2470,6 @@ pub struct ProjectSettingsReply {
 pub struct OnboardingState {
     /// First run means no project is stored yet (UI-08).
     pub has_projects: bool,
-    pub permission_warning_dismissed: bool,
     /// The one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08): shown until
     /// `notices.dismiss_trust_note`.
     #[serde(default)]
@@ -2682,9 +2656,6 @@ pub enum Event {
     /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
     /// `project_agent.list`.
     ProjectAgentChanged { project: String, id: String },
-    /// A project's Flow setup changed (ASK-04, ASK-06): a flow agent, a proposal, a tool's state or a limit, or
-    /// its flow got settled. Refetch `onboarding.flow_setup` (and `project.list` once it is settled).
-    FlowSetupChanged { project: String },
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
@@ -2938,7 +2909,6 @@ mod tests {
             Message::request(6, Request::Subscribe(SubscribeParams::default())),
             Message::request(7, Request::ToolsCheck),
             Message::request(8, Request::OnboardingState),
-            Message::request(9, Request::DismissPermissionWarning),
             Message::request(9, Request::DismissTrustNote),
             Message::request(
                 9,
@@ -2964,7 +2934,6 @@ mod tests {
                 8,
                 Reply::OnboardingState(OnboardingState {
                     has_projects: false,
-                    permission_warning_dismissed: true,
                     trust_note: true,
                     trust_note_tools: vec![crate::agent_tools::Tool::Codex],
                     trust_failed: vec![crate::agent_tools::setup::TrustFailure {

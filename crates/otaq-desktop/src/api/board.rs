@@ -775,7 +775,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -849,7 +848,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -929,7 +927,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -1057,7 +1054,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -1100,7 +1096,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await

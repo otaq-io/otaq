@@ -20,7 +20,6 @@ pub mod local_time;
 pub mod logging;
 pub mod messages;
 pub mod naming;
-pub mod onboarding;
 pub mod paths;
 pub mod policy;
 pub mod ports;

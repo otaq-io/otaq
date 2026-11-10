@@ -402,6 +402,11 @@ impl Helpers {
         first: FirstPrompt,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
+        // A helper commits its piece: never under a borrowed name, new session or resumed.
+        inner
+            .board
+            .refuse_without_identity(project.key.as_str())
+            .await?;
         let port = inner
             .ports
             .allocate_helper(&ticket.id, piece)

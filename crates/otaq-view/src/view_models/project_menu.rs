@@ -120,7 +120,6 @@ pub fn example(key: &str, name: &str, needs_you: u32) -> ProjectInfo {
         base_branch: "main".into(),
         agents_working: 0,
         needs_you,
-        flow_setup_since: None,
         paused_since: None,
         paused_by: None,
     }

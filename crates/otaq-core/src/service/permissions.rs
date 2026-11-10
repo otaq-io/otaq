@@ -414,13 +414,6 @@ async fn action_for(
         },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::ServiceStopAgents => Action::UserOnly("stop every agent and the background service"),
-        R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
-        // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
-        R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {
-            Action::UserOnly("look at a project's Flow setup")
-        }
-        R::OnboardingAsk(_) => Action::UserOnly("ask an agent tool for a flow"),
-        R::OnboardingUseDefault(_) => Action::UserOnly("settle a project's flow"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
@@ -471,7 +464,9 @@ async fn action_for(
         R::ProjectAgentRename(_) => Action::UserOnly("rename conversations with Noyan"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
-        R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
+        R::SettingsSet(_) | R::SettingsOsDark(_) | R::ProjectSettingsSet(_) => {
+            Action::UserOnly("change settings")
+        }
         R::ProjectViewSet(_) => Action::UserOnly("change the board's view"),
         // Agents and the default model are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList

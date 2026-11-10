@@ -1,12 +1,12 @@
 //! The banner area's rules (P6, d0016; *11 · Banners → Stacking · usage limit + reconnecting*): one banner per
 //! situation, never one per agent; at most two rows; ordered error › restart required › usage limit › folder trust
-//! failed › permission warning › folder trust note › service update ready › reconnecting; reconnecting folds into
+//! failed › folder trust note › service update ready › reconnecting; reconnecting folds into
 //! another banner as a suffix instead of taking a row of its own. The two folder-trust banners (PRJ-08, d0085; *11 →
-//! 4c*): the warning for the projects whose trust couldn't be recorded sits above the permission warning, the
-//! one-time note below it. The two notification banners (ATT-13, ATT-14, d0090): "macOS is blocking Otaq's
-//! notifications" (amber) right below the folder trust warning, above the permission warning; Otaq's calm "Allow
+//! 4c*): the warning for the projects whose trust couldn't be recorded sits above the
+//! one-time note. The two notification banners (ATT-13, ATT-14, d0090): "macOS is blocking Otaq's
+//! notifications" (amber) right below the folder trust warning; Otaq's calm "Allow
 //! notifications?" ask right below the folder trust note. The whole order: error › restart required › usage limit ›
-//! folder trust failed › notifications blocked › permission warning › flow change waiting › folder trust note ›
+//! folder trust failed › notifications blocked › flow change waiting › folder trust note ›
 //! notifications ask › service update ready › reconnecting. The flow change waiting (FLW-06, d0108; *11 → A flow change
 //! waiting*) is the project on screen's: amber, under the other warnings. The paused banner (PAU-08, d0112; `s24-07`)
 //! is the project on screen's too, amber and first of all.
@@ -26,7 +26,7 @@ use crate::icons::IconName;
 use crate::view_models::agent_tools_page::and_list;
 use crate::view_models::limit_banner::LineView;
 
-/// Where the permission-mode warning's Read the docs goes (allowlists and auto mode).
+/// Where Settings → Agent tools' Read the docs goes for Claude Code (allowlists and auto mode).
 pub const PERMISSION_DOCS_URL: &str = "https://code.claude.com/docs/en/permission-modes";
 
 /// The situations a banner can stand for. The order of the variants is the stacking order (first = top).
@@ -45,7 +45,6 @@ pub enum SituationKind {
     TrustFailed,
     /// Amber: macOS blocked a notification that mattered (ATT-14, d0090).
     NotificationsBlocked,
-    PermissionWarning,
     /// Amber: the project on screen has a flow change waiting for a quiet board (FLW-06); no ticket of it starts.
     FlowWaiting,
     /// Calm: the one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08).
@@ -92,7 +91,6 @@ pub enum Situation {
     TrustFailed {
         projects: Vec<TrustFailure>,
     },
-    PermissionWarning,
     /// The tools Otaq recorded folder trust for (d0085; Claude Code when the service didn't say).
     TrustNote {
         tools: Vec<Tool>,
@@ -139,7 +137,6 @@ impl Situation {
             Self::RestartRequired { .. } => SituationKind::RestartRequired,
             Self::UsageLimit { .. } => SituationKind::UsageLimit,
             Self::TrustFailed { .. } => SituationKind::TrustFailed,
-            Self::PermissionWarning => SituationKind::PermissionWarning,
             Self::TrustNote { .. } => SituationKind::TrustNote,
             Self::NotificationsBlocked => SituationKind::NotificationsBlocked,
             Self::NotificationsAsk => SituationKind::NotificationsAsk,
@@ -159,7 +156,6 @@ impl SituationKind {
             self,
             Self::Paused
                 | Self::UsageLimit
-                | Self::PermissionWarning
                 | Self::NotificationsBlocked
                 | Self::TrustNote
                 | Self::ServiceUpdateReady
@@ -215,7 +211,7 @@ pub enum BannerTone {
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize, TS)]
 #[serde(rename_all = "snake_case")]
 pub enum BannerButtonId {
-    /// Restart now, Start service, Resume all (after interrupted sessions), Read the docs, Allow (the notifications
+    /// Restart now, Start service, Resume all (after interrupted sessions), Allow (the notifications
     /// ask), Open System Settings (notifications blocked) or Apply now (a flow change waiting: its window, APN-01).
     Action,
     /// Review & resume, the notifications ask's Not now, or Cancel change (a flow change waiting).
@@ -264,7 +260,6 @@ impl BannerRow {
             // Amber like the paused banner, never turquoise (d0077), which means needs you.
             SituationKind::UsageLimit => (BannerTone::Warning, IconName::Gauge),
             SituationKind::TrustFailed => (BannerTone::Warning, IconName::ShieldX),
-            SituationKind::PermissionWarning => (BannerTone::Warning, IconName::ShieldAlert),
             SituationKind::TrustNote => (BannerTone::Info, IconName::ShieldCheck),
             SituationKind::NotificationsBlocked => (BannerTone::Warning, IconName::TriangleAlert),
             SituationKind::NotificationsAsk => (BannerTone::Info, IconName::Bell),
@@ -284,9 +279,7 @@ impl BannerRow {
                 (SituationKind::ServiceStopped, true) => ("Starting…", IconName::LoaderCircle),
                 (_, true) => ("Restarting…", IconName::LoaderCircle),
                 (SituationKind::ServiceStopped, false) => (label, IconName::Play),
-                (SituationKind::PermissionWarning | SituationKind::NotificationsBlocked, false) => {
-                    (label, IconName::ExternalLink)
-                }
+                (SituationKind::NotificationsBlocked, false) => (label, IconName::ExternalLink),
                 (SituationKind::NotificationsAsk, false) => (label, IconName::Bell),
                 (SituationKind::FlowWaiting, false) => (label, IconName::Play),
                 (_, false) => (label, IconName::RotateCw),
@@ -536,11 +529,6 @@ fn row(situation: &Situation) -> BannerRow {
             notifications_blocked(),
             Some(OPEN_SYSTEM_SETTINGS),
         ),
-        Situation::PermissionWarning => (
-            "Permission prompts are on".to_owned(),
-            "With 5–10 agents, permission prompts will stop agents often. See allowlists · auto mode in the Claude Code docs".to_owned(),
-            Some("Read the docs"),
-        ),
         // *11 → A flow change waiting*: Apply now (its window, APN-01), then Cancel change (no question). Show the N
         // tickets went in M35 (d0108 changelog 2026-10-21): the window lists the same tickets.
         Situation::FlowWaiting { summary, count } => {
@@ -699,7 +687,7 @@ mod tests {
     }
 
     /// FLW-06, APN-01 (*11 → A flow change waiting*): the banner's text and count, Apply now and Cancel change (no
-    /// Show the N tickets any more); under the permission warning; it can't be closed.
+    /// Show the N tickets any more); under the notifications warning; it can't be closed.
     #[test]
     fn a_flow_change_waiting() {
         let mut m = BannerModel::default();
@@ -707,10 +695,13 @@ mod tests {
             summary: "QA after Security".into(),
             count: 8,
         });
-        m.raise(Situation::PermissionWarning);
+        m.raise(Situation::NotificationsBlocked);
         assert_eq!(
             kinds(&m),
-            [SituationKind::PermissionWarning, SituationKind::FlowWaiting]
+            [
+                SituationKind::NotificationsBlocked,
+                SituationKind::FlowWaiting
+            ]
         );
         let view = m.rows()[1].view(false);
         assert_eq!(view.tone, BannerTone::Warning);
@@ -755,7 +746,7 @@ mod tests {
         assert_eq!(view.buttons.len(), 1);
         assert_eq!(view.buttons[0].label, "Cancel change");
         m.clear(SituationKind::FlowWaiting);
-        assert_eq!(kinds(&m), [SituationKind::PermissionWarning]);
+        assert_eq!(kinds(&m), [SituationKind::NotificationsBlocked]);
     }
 
     #[test]
@@ -765,7 +756,7 @@ mod tests {
             working: 0,
             waiting: 0,
         });
-        m.raise(Situation::PermissionWarning);
+        m.raise(Situation::NotificationsBlocked);
         m.raise(Situation::UsageLimit {
             state: String::new(),
             title: "Session limit reached".into(),
@@ -775,7 +766,10 @@ mod tests {
         });
         assert_eq!(
             kinds(&m),
-            [SituationKind::UsageLimit, SituationKind::PermissionWarning]
+            [
+                SituationKind::UsageLimit,
+                SituationKind::NotificationsBlocked
+            ]
         );
         m.raise(Situation::RestartRequired {
             working: 0,
@@ -914,7 +908,7 @@ mod tests {
         let stopped = row(&Situation::ServiceStopped).view(true);
         assert_eq!(stopped.buttons[0].label, "Starting…");
 
-        let warning = row(&Situation::PermissionWarning).view(true);
+        let warning = row(&Situation::NotificationsBlocked).view(true);
         assert_eq!(
             (
                 warning.tone,
@@ -922,7 +916,7 @@ mod tests {
                 warning.buttons[0].enabled
             ),
             (BannerTone::Warning, IconName::ExternalLink, true),
-            "a restart doesn't hold Read the docs"
+            "a restart doesn't hold Open System Settings"
         );
     }
 
@@ -1119,7 +1113,7 @@ mod tests {
     }
 
     #[test]
-    fn the_folder_trust_banners_stack_around_the_permission_warning() {
+    fn the_folder_trust_banners_stack_around_the_notifications_warning() {
         let limit = || Situation::UsageLimit {
             state: String::new(),
             title: "Session limit reached".into(),
@@ -1128,18 +1122,24 @@ mod tests {
             lines: Vec::new(),
         };
         let mut m = BannerModel::default();
-        m.raise(Situation::PermissionWarning);
+        m.raise(Situation::NotificationsBlocked);
         m.set_trust(true, Vec::new(), vec![failure("NOTE", "why")]);
         assert_eq!(
             kinds(&m),
-            [SituationKind::TrustFailed, SituationKind::PermissionWarning],
-            "the warning above the permission warning; the note waits for a free row"
+            [
+                SituationKind::TrustFailed,
+                SituationKind::NotificationsBlocked
+            ],
+            "the warning above the notifications warning; the note waits for a free row"
         );
         m.set_trust(true, Vec::new(), Vec::new());
         assert_eq!(
             kinds(&m),
-            [SituationKind::PermissionWarning, SituationKind::TrustNote],
-            "the note below the permission warning"
+            [
+                SituationKind::NotificationsBlocked,
+                SituationKind::TrustNote
+            ],
+            "the note below the notifications warning"
         );
         m.set_trust(true, Vec::new(), vec![failure("NOTE", "why")]);
         m.raise(limit());
@@ -1148,7 +1148,7 @@ mod tests {
             [SituationKind::UsageLimit, SituationKind::TrustFailed],
             "the usage limit stays on top"
         );
-        m.clear(SituationKind::PermissionWarning);
+        m.clear(SituationKind::NotificationsBlocked);
         m.clear(SituationKind::UsageLimit);
         m.set_trust(true, Vec::new(), Vec::new());
         m.raise(Situation::Reconnecting);
@@ -1242,7 +1242,7 @@ mod tests {
         assert_eq!(kinds(&m), [SituationKind::NotificationsBlocked]);
     }
 
-    /// T-0372: blocked right below the folder trust warning, above the permission warning; the ask right below the
+    /// T-0372: blocked right below the folder trust warning; the ask right below the
     /// folder trust note; the usage limit stays on top and reconnecting folds into the top row.
     #[test]
     fn the_notification_banners_stack_with_the_others() {
@@ -1262,15 +1262,6 @@ mod tests {
                 SituationKind::NotificationsAsk
             ]
         );
-        m.raise(Situation::PermissionWarning);
-        assert_eq!(
-            kinds(&m),
-            [
-                SituationKind::NotificationsBlocked,
-                SituationKind::PermissionWarning
-            ],
-            "blocked above the permission warning"
-        );
         m.set_trust(false, Vec::new(), vec![failure("NOTE", "why")]);
         assert_eq!(
             kinds(&m),
@@ -1287,7 +1278,6 @@ mod tests {
             "the usage limit stays on top"
         );
         m.clear(SituationKind::UsageLimit);
-        m.clear(SituationKind::PermissionWarning);
         m.set_trust(true, Vec::new(), Vec::new());
         m.set_notifications(true, false);
         assert_eq!(

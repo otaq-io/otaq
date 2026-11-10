@@ -9,8 +9,7 @@
 //! (`--from`), by a Project agent or the user's own terminal. It goes through T-0413's checks; a document the same as
 //! the flow as it will be is refused with [`SAME`] (nothing to ask the user), and so is one with a problem the editor
 //! can't fix (a Project agent's with any problem: it can act on them). Otherwise it lands in the project's draft, the
-//! agent's changes marked (FED-02, [`super::draft`]), or during Flow setup becomes that tool's entry (ASK-03), and the
-//! command returns at once.
+//! agent's changes marked (FED-02, [`super::draft`]), and the command returns at once.
 //!
 //! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes reaches the proposing Project agent's
 //! session as its next message ([`deliver_answer`]), typed once the agent is idle and its input line is empty (d0048),
@@ -259,22 +258,9 @@ impl Board {
         if view.diff.same {
             return Err(refuse(SAME.to_owned()));
         }
-        // Outside Flow setup it lands in the draft (FED-02); during it each tool's is its own entry (ASK-03, FED-03).
-        if self.project(&key).await?.flow_setup_since.is_none() {
-            return self
-                .propose_into_draft(&key, matched, &source, by, &whys, models)
-                .await;
-        }
-        self.open_read_proposal(
-            &key,
-            file,
-            &written,
-            &source,
-            by,
-            &super::draft::DraftMemory::default(),
-            models,
-        )
-        .await
+        // It lands in the draft (FED-02).
+        self.propose_into_draft(&key, matched, &source, by, &whys, models)
+            .await
     }
 
     /// Who proposed `project`'s open proposal `id`; `None` when it isn't open (any more).

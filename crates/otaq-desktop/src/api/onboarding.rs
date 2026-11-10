@@ -218,7 +218,6 @@ async fn add(app: &App, params: FormParams) -> Result<AddOutcome, RequestError> 
             key: Some(model.key.clone()),
             base_branch: Some(model.base_branch.clone()),
             // Every project starts on its flow in use (Otaq default); Edit flow changes it.
-            flow_setup: false,
         }))
         .await;
     if let Ok(Reply::ProjectAdded { project, .. }) = &added
@@ -404,8 +403,6 @@ mod tests {
         .await
         .unwrap();
         assert_eq!(added, json!({ "kind": "added", "key": "BILL" }));
-        let projects = projects(&h.app).await.unwrap();
-        assert!(projects.iter().all(|p| p.flow_setup_since.is_none()));
         h.service.stop_all().await;
     }
 

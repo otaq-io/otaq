@@ -28,7 +28,14 @@ before Publish (`scripts/README.md`, "Making a release").
 - **Agents never commit under a borrowed name.** Start, a drop from Backlog and Create & start ask for git's name
   and email the same way before the first agent starts (**Save and start**), and create or start nothing until you
   save them. A start that happens by itself waits instead ("Held · git doesn't know your name and email yet") and
-  goes on once you save them anywhere.
+  goes on once you save them anywhere. A resumed agent (Resume, a Send back, Park → Dev) waits for them too, and a
+  delivery or helper agent is refused in plain words until they are saved.
+- **Smaller fixes after the rethink.** Esc closes the topmost open menu, popover or dialog wherever the focus is
+  (the project switcher and the Pause menu too), and only that one. "2nd in line" counts every project's tickets
+  waiting for a free agent, as the agent limit does. A merge message whose agent's session ended before it was
+  written stops saying it is being written, and the confirmation starts from the plain message. Running and Pause
+  count a ticket its own agent is delivering. A new ticket in a repository that already has an `otaq/<KEY>` branch
+  gets the next free name (`otaq/SHOP-1-2`) instead of taking that branch over.
 - **Smaller fixes from the second walk.** The Tools step opens at its top; Overview's answer box is a few lines of
   normal text (↵ sends, ⇧↵ a new line), and the question and your answer stay quietly on Overview while the agent
   works on them; in Review, "What the agent did" and the checker's verdict show once (not again as comments); the

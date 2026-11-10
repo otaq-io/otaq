@@ -11,6 +11,7 @@ import type { MenuItem } from "../generated/MenuItem";
 import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { CodeText } from "./CodeText";
+import { useEscapeLayer } from "./escape";
 import { type Anchor, useFloatingStyle } from "./Floating";
 import { chooseMenu, filterMenu, firstMatch, menuKey, searchKey, selectable, withTyped } from "./logic";
 import { PLAIN_TEXT } from "./plainText";
@@ -78,6 +79,14 @@ export function Menu({
       cancelAnimationFrame(frame);
     };
   }, []);
+  // Esc closes it with the focus elsewhere too, as the topmost layer; with the focus in it, its own keys do.
+  useEscapeLayer(
+    () => {
+      onClose("key");
+    },
+    root,
+    true,
+  );
   const row = (n: number) => `${id}-${String(n)}`;
   /** Highlights row `index`, scrolled into sight in a long list. */
   const highlight = (index: number | null) => {

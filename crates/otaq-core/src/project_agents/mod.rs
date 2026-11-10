@@ -20,7 +20,6 @@
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
 //!   conversations are never deleted.
 
-pub mod first_flow;
 pub mod prime;
 
 use std::collections::HashMap;
@@ -89,11 +88,6 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     rows: 40,
     cols: 120,
 };
-
-/// The size a flow agent ("Flow setup · Claude Code") starts with: about what its terminal on the Flow setup page
-/// shows (420 px wide, `.flow-at-work-terminals`, at the 13 px monospace font), so the output it draws before the
-/// page attaches isn't redrawn for a narrower terminal.
-const FLOW_AGENT_SIZE: TerminalSize = TerminalSize { rows: 30, cols: 52 };
 
 stored_enum! {
     /// Where a Project agent's name came from (`project_agents.name_source`).
@@ -263,9 +257,6 @@ struct Inner {
     turn_ends: Mutex<HashMap<String, i64>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
-    /// How long an unchosen flow agent may take to read its answer before it ends anyway, in milliseconds
-    /// ([`first_flow::ANSWER_GRACE`]; tests shorten it).
-    answer_grace_ms: std::sync::atomic::AtomicU64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -322,9 +313,6 @@ impl ProjectAgents {
                 waiting: Mutex::new(HashMap::new()),
                 turn_ends: Mutex::new(HashMap::new()),
                 gate: std::sync::OnceLock::new(),
-                answer_grace_ms: std::sync::atomic::AtomicU64::new(
-                    u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
-                ),
             }),
         }
     }
@@ -423,17 +411,16 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
-        self.start(&project, message, &runs_on, None).await
+        self.start(&project, message, &runs_on).await
     }
 
-    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first `message`;
-    /// `name` names it from the start (a flow agent, "Flow setup · OpenCode"), as the user's name would.
+    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first
+    /// `message`.
     async fn start(
         &self,
         project: &Project,
         message: &str,
         runs_on: &RunsOn,
-        name: Option<&str>,
     ) -> Result<ProjectAgent, BoardError> {
         let id = new_id();
         // Otaq writes no skill into the project's folder (T2); `/flow` runs the flow skill (FLW-11).
@@ -458,8 +445,8 @@ impl ProjectAgents {
         )?;
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
-                                         state, first_request, created_at, name, name_source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                         state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -472,19 +459,11 @@ impl ProjectAgents {
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
-        .bind(name)
-        .bind(name.map(|_| NameSource::User.as_str()))
         .execute(self.inner.board.store().pool())
         .await?;
-        // Only flow agents are named from the start.
-        let size = if name.is_some() {
-            FLOW_AGENT_SIZE
-        } else {
-            INITIAL_SIZE
-        };
         if let Err(e) = self
-            // The user's first message (or Ask each tool): it starts while paused too (PAU-05).
-            .spawn(project, launched, &id, size, runs_on, Start::User)
+            // The user's first message: it starts while paused too (PAU-05).
+            .spawn(project, launched, &id, INITIAL_SIZE, runs_on, Start::User)
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")

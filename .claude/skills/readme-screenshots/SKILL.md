@@ -104,8 +104,8 @@ zsh $S/shot.sh /tmp/otaqdemo/shots/x.png scroll 180 600 -15 wait 2 # scroll a co
 ```
 
 Coordinates are pixels in an earlier shot of the same window (window-relative; the window is 1440×900 by default
-on a 1x display). `shot.sh` first clicks the header's top edge, because the first click on an inactive window only
-activates it; at the end it moves the pointer below the window, because a hovered card dims the rest of the board.
+on a 1x display). `shot.sh` first brings the demo app forward by its pid (`osascript`, no click, so an open dialog or
+menu stays open); at the end it moves the pointer below the window, because a hovered card dims the rest of the board.
 Look at each shot with Read before moving on: a click can still miss, a panel may be open, a tooltip may show, and
 once in a while macOS hands back a scaled-down window (`shot.sh` warns about the size): just capture again.
 

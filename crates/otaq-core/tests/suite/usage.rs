@@ -823,3 +823,42 @@ async fn activity_lists_the_tools_windows_as_stored_and_its_active_limit() {
     assert!(none.limit.is_some());
     world.w.stop().await;
 }
+
+/// A ticket its own agent delivers (its PR being opened while it waits as To deliver) has an agent at work, as a
+/// separate delivery session would: Running and the header count it. The same session kept while the ticket only
+/// waits for the user's click doesn't count.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tickets_own_agent_delivering_it_is_at_work() {
+    let world = World::new().await;
+    let w = &world.w;
+    let notes = w.add_project("pocket-notes").await;
+    let delivering = w.create(&notes.key, "Search notes").await;
+    let waiting = w.create(&notes.key, "Tags").await;
+    for ticket in [&delivering, &waiting] {
+        sqlx::query("UPDATE tickets SET state = 'to_deliver' WHERE id = ?")
+            .bind(&ticket.id)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+    }
+    let t0 = now_ms() - 60_000;
+    world.session(&delivering, S1, t0, None).await;
+    world.session(&waiting, S2, t0, None).await;
+    sqlx::query(
+        "INSERT INTO pr_flows (ticket_id, kind, state, started_at, updated_at) VALUES (?, 'open', 'preparing', ?, ?)",
+    )
+    .bind(&delivering.id)
+    .bind(t0)
+    .bind(t0)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+
+    let activity = activity(w).await;
+    let keys: Vec<&str> = activity.working.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, [delivering.key.to_string()]);
+    let infos = w.board.project_infos().await.unwrap();
+    assert_eq!(infos[0].agents_working, 1);
+    assert_eq!(activity.running(), 1);
+    world.w.stop().await;
+}

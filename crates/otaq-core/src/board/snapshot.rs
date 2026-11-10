@@ -24,10 +24,6 @@ pub struct ProjectInfo {
     /// The project's needs-you items, the needs-you count of the project switcher (ATT-10): needs-you family,
     /// Interrupted, Start interrupted, Resume failed, Parent closed, Ready for Review.
     pub needs_you: u32,
-    /// Since when it is in Flow setup (ASK-04): it shows no board ("pocket-api · Flow setup"); `None` once its flow
-    /// is settled.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub flow_setup_since: Option<i64>,
     /// Since when it is paused (PAU-01, d0112): nothing starts an agent there on its own until the user's Resume.
     /// `None` while it runs.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -116,8 +112,9 @@ impl Board {
         tickets: &[Ticket],
     ) -> Result<ProjectInfo, BoardError> {
         // Tickets with an agent at work, once each: a session kept while its ticket waits for review isn't running.
-        let live: Vec<(String, String, String)> = sqlx::query_as(
-            "SELECT t.id, t.state, s.kind FROM sessions s JOIN tickets t ON t.id = s.ticket_id
+        let live: Vec<(String, String, String, bool)> = sqlx::query_as(
+            "SELECT t.id, t.state, s.kind, EXISTS (SELECT 1 FROM pr_flows f WHERE f.ticket_id = t.id)
+             FROM sessions s JOIN tickets t ON t.id = s.ticket_id
              WHERE t.project_id = ? AND s.ended_at IS NULL",
         )
         .bind(&project.id)
@@ -125,16 +122,16 @@ impl Board {
         .await?;
         let working = live
             .iter()
-            .filter(|(_, state, kind)| {
+            .filter(|(_, state, kind, delivering)| {
                 match (
                     state.parse::<crate::domain::Status>(),
                     kind.parse::<crate::session::SessionKind>(),
                 ) {
-                    (Ok(status), Ok(kind)) => kind.at_work_on(status),
+                    (Ok(status), Ok(kind)) => kind.at_work_on(status, *delivering),
                     _ => false,
                 }
             })
-            .map(|(id, _, _)| id)
+            .map(|(id, _, _, _)| id)
             .collect::<std::collections::HashSet<_>>()
             .len();
         // The project's needs-you count (ATT-10): the same items Needs you lists for it.
@@ -157,7 +154,6 @@ impl Board {
             base_branch: project.base_branch.clone(),
             agents_working: u32::try_from(working).unwrap_or(0),
             needs_you: u32::try_from(needs_you).unwrap_or(u32::MAX),
-            flow_setup_since: project.flow_setup_since,
             paused_since: project.paused_since,
             paused_by: project.paused_by,
         })

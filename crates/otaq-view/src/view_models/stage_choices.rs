@@ -704,6 +704,9 @@ pub fn path(t: &TicketAgents, tools: &Tools) -> Option<PathView> {
                         Some(_) => format!("{agent} \u{b7} delivered"),
                         None => "Delivered".to_owned(),
                     },
+                    // Your check has no agent: left another way (a conflict to fix took it back), it is still
+                    // yours, never "— · round 1".
+                    PathKind::HumanCheck => numbered("your check".to_owned()),
                     _ => numbered(agent),
                 };
                 let model = match run.session {
@@ -1829,6 +1832,52 @@ mod tests {
 
     use super::fixtures::*;
     use super::*;
+
+    /// After a conflict fix the ticket came back to Review: the earlier visit reads as your check, never as an
+    /// agent's dash ("Review — · round 1").
+    #[test]
+    fn review_left_for_a_conflict_fix_is_still_your_check() {
+        use super::fixtures::{run, shop_path, ticket};
+        let t = ticket(
+            "SHOP-29",
+            Status::WaitingForYou,
+            Place::InStage("review".into()),
+            shop_path("rust"),
+            Vec::new(),
+            vec![
+                run(
+                    "dev",
+                    Some("s1"),
+                    Some("Rust developer"),
+                    None,
+                    Some(RunResult::Done),
+                ),
+                run("review", None, None, None, Some(RunResult::Done)),
+                run(
+                    "dev",
+                    Some("s1"),
+                    Some("Rust developer"),
+                    None,
+                    Some(RunResult::Done),
+                ),
+                run("review", None, None, None, None),
+            ],
+            Vec::new(),
+        );
+        let p = path(&t, &super::fixtures::tools()).expect("path");
+        let review: Vec<&str> = p
+            .rows
+            .iter()
+            .filter(|r| r.stage == "Review")
+            .map(|r| r.detail.as_str())
+            .collect();
+        assert_eq!(review, ["your check \u{b7} round 1", "your check"]);
+        assert!(
+            p.rows.iter().all(|r| !r.detail.starts_with(DASH)),
+            "{:?}",
+            p.rows
+        );
+    }
 
     fn texts(p: &PathView) -> Vec<(String, String, String, bool)> {
         p.rows

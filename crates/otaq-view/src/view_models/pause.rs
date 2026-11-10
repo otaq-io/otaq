@@ -720,7 +720,6 @@ mod tests {
             base_branch: "main".to_owned(),
             agents_working: u32::from(!paused),
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: paused.then_some(1),
             paused_by: paused.then_some(PauseKind::All),
         };
@@ -790,7 +789,6 @@ mod tests {
             base_branch: "main".to_owned(),
             agents_working: 0,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: paused.then_some(1),
             paused_by: None,
         };

@@ -5,8 +5,8 @@
 //! the Start interrupted callout and the tab strip with its indicators. The buttons that talk to the service land
 //! here too, so their wording (toasts, refusals) stays in Rust; the ones that open a tab or a dialog are the page's.
 //!
-//! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header, details line
-//! and tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
+//! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header and
+//! tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
 //! T-0465, T-0466 and T-0468 move it. `sheet.move_menu` is the header's Move….
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,7 +30,7 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::{self, Answer, question_bar};
-use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
+use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
 use otaq_view::view_models::build_aside::{self, BuildAsideLine};
@@ -42,7 +42,7 @@ use otaq_view::view_models::close;
 use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::session_tab::{self, Dot, PartView};
-use otaq_view::view_models::sheet::{self, Content, Crumb, Detail, DetailFacts, SheetTab, Step};
+use otaq_view::view_models::sheet::{self, Content, Crumb, DetailFacts, SheetTab, Step};
 use otaq_view::view_models::sheet_actions::{self as actions, Action, Look};
 use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
@@ -244,15 +244,14 @@ pub struct TabView {
     pub list: Option<otaq_view::view_models::pieces::SessionList>,
 }
 
-/// The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
+/// The sheet's frame (SHT-01): breadcrumb, the line under the title, tabs, the tab it opens on and its widths.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "SheetFrame")]
 pub struct SheetFrame {
     pub crumbs: Vec<Crumb>,
     /// The line under the title: "In Dev · Strong · started by you 12 min ago" (`sheet::subtitle`).
     pub subtitle: String,
-    pub details: Vec<Detail>,
-    /// The flow path under the details line.
+    /// The flow path under the title.
     pub steps: Vec<Step>,
     pub tabs: Vec<TabView>,
     pub opens_on: SheetTab,
@@ -356,9 +355,6 @@ pub struct View {
     pub base: String,
     pub signal: Option<Signal>,
     pub tokens: Option<Tokens>,
-    /// The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
-    /// round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
-    pub token_split: Option<String>,
     /// The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
     pub previous: Option<String>,
     pub next: Option<String>,
@@ -390,16 +386,10 @@ pub struct View {
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & sheet-overview-header controls*).
     pub run: Option<RunPill>,
-    /// The sheet's header, details line and tabs (SHT-01, SHT-02).
+    /// The sheet's header and tabs (SHT-01, SHT-02).
     pub sheet: SheetFrame,
     /// The ticket's agent session runs.
     pub live_agent: bool,
-    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
-    pub choices: Option<ChoicesView>,
-    /// The ticket's path (AGM-09): every stage with its agent and model.
-    pub path: Option<PathView>,
-    /// "Stages": the label over the choices and the path in Overview's right column.
-    pub stages_heading: &'static str,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
     /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
@@ -461,7 +451,7 @@ pub struct Facts<'a> {
     pub project_name: &'a str,
     /// The Files tab's count (Q421): "Files 3"; `None` with no changes or before it started.
     pub files_count: Option<u32>,
-    /// The ticket's helpers (d0133): the header "Dev · 2 helpers working", Details and Session's list.
+    /// The ticket's helpers (d0133): the header "Dev · 2 helpers working" and Session's list.
     pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
@@ -640,10 +630,6 @@ pub fn view_of(f: &Facts) -> View {
         base: ticket.base.branch().to_owned(),
         signal,
         tokens,
-        token_split: match f.agents {
-            Some(agents) => stage_choices::token_line(agents, f.tools),
-            None => f.usage.and_then(|u| validation_texts::token_split(ticket, u)),
-        },
         previous: sheet::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: sheet::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
         close_hint: Hint::new("Close", KeyAction::CloseSheet, &f.keys),
@@ -690,9 +676,6 @@ pub fn view_of(f: &Facts) -> View {
         }),
         sheet: sheet_of(f),
         live_agent: live,
-        choices: f.agents.and_then(stage_choices::sheet_choices),
-        path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
-        stages_heading: stage_choices::STAGES_HEADING,
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
         build_aside: build_aside::line(ticket),
     }
@@ -775,15 +758,6 @@ fn sheet_of(f: &Facts) -> SheetFrame {
     SheetFrame {
         crumbs: sheet::breadcrumb(ticket, f.project_name),
         subtitle: sheet::subtitle(&DetailFacts {
-            ticket,
-            agents: f.agents,
-            tools: f.tools,
-            tickets: f.tickets,
-            now: f.now,
-            helpers: f.helpers,
-            usage: f.usage,
-        }),
-        details: sheet::details(&DetailFacts {
             ticket,
             agents: f.agents,
             tools: f.tools,
@@ -1850,7 +1824,7 @@ pub fn notes_gallery() -> NotesGallery {
     }
 }
 
-/// The sheet's header and details line for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
+/// The sheet's header for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
 /// connected: SHOP-22 needing you in Dev on Rust developer (Codex · gpt-5.5, 3 minutes, 64k tokens), SHOP-18 in your
 /// check for 12 minutes, SHOP-24 working, and SHOP-41 in Backlog with Product spec's agent to pick.
 pub fn sheet_gallery() -> Vec<View> {
@@ -2161,37 +2135,12 @@ mod tests {
         assert_eq!((off.sheet.full_page.keys, off.sheet.back.keys), (None, None));
     }
 
-    /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24
-    /// working, SHOP-41's Product spec agent to pick.
+    /// The gallery's sheets (T-0464): SHOP-22 as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24 working.
     #[test]
-    fn the_sheet_gallery_draws_the_frames_details() {
+    fn the_sheet_gallery_draws_the_frames() {
         let views = sheet_gallery();
-        let line = |v: &View| {
-            v.sheet
-                .details
-                .iter()
-                .map(|d| format!("{} {}", d.label, d.value))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            line(&views[0]),
-            [
-                "Assignee Rust developer".to_owned(),
-                "Model Codex \u{b7} gpt-5.5".to_owned(),
-                "Working 3 min \u{b7} 64k tokens".to_owned(),
-                "Priority P2".to_owned(),
-                format!("Branch {}", otaq_core::naming::branch("SHOP-22")),
-            ]
-        );
-        assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
-        // Your check: "In charge · You" and no model (`s30-02`).
-        assert_eq!(&line(&views[1])[..2], ["In charge You", "Working waiting for you \u{b7} 12 min"]);
         let crumbs: Vec<&str> = views[2].sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(crumbs, ["shop-web", "SHOP-24"]);
-        assert!(matches!(
-            views[3].sheet.details[0].change,
-            Some(sheet::DetailChange::Choice { .. })
-        ));
         assert_eq!(views[0].sheet.steps.len(), 5, "Delivery is no step");
     }
 
@@ -2458,10 +2407,6 @@ mod tests {
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         assert_eq!(view.pill.label, "Checking \u{b7} round 1 of 3");
-        assert_eq!(
-            view.token_split.as_deref(),
-            Some("agent 58k \u{b7} validation 9k (1 round)")
-        );
         assert_eq!(labels(&view), ["Open terminal \u{b7} Checker"]);
         assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
@@ -2553,10 +2498,9 @@ mod tests {
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// AGM-09, AGM-03 (`s05-36`, `s03-54`): the sheet's Choices and Path mid-flow; a held session's callout with Open
-    /// agent…, which opens the held agent.
+    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Open agent…, which opens the held agent.
     #[test]
-    fn the_panel_shows_the_choices_the_path_and_the_holds() {
+    fn the_panel_shows_the_holds() {
         use otaq_core::agent_tools::Tool;
         use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
         use otaq_view::view_models::stage_choices::fixtures::{shop_29, tools};
@@ -2568,10 +2512,6 @@ mod tests {
             tools: &tools,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
-        let choices = view.choices.unwrap();
-        assert_eq!(choices.heading, "Choices");
-        assert_eq!(choices.set_by.as_deref(), Some("set by Noyan"));
-        assert_eq!(view.path.unwrap().rows[1].detail, "Rust developer \u{b7} working");
         assert!(view.holds.is_empty());
         assert_eq!(view.open_agent, None);
         let mut held = shop_29();
@@ -2652,7 +2592,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -2761,8 +2700,7 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// d0133 (`s30-03`): a ticket whose build stage split its work names its agent "In charge", counts its pieces in
-    /// Details and shows Session as a list (the agent in charge, then a row per piece); without helpers, as today.
+    /// d0133 (`s30-03`): a ticket whose build stage split its work shows Session as a list (the agent in charge, then a row per piece); without helpers, as today.
     #[test]
     fn a_ticket_with_helpers_lists_its_sessions() {
         use otaq_core::helpers::HelperStatus;
@@ -2787,15 +2725,6 @@ mod tests {
             helpers: &helpers,
             ..facts(&t, &all, &sessions)
         });
-        let details: Vec<(&str, &str)> = view
-            .sheet
-            .details
-            .iter()
-            .map(|d| (d.label, d.value.as_str()))
-            .collect();
-        // The agent's name comes from `ticket.agents` (none here): the label is what changes.
-        assert_eq!(details[0].0, "In charge", "{details:?}");
-        assert!(details.contains(&("Pieces", "1 of 4 merged")), "{details:?}");
         let session_tab = view
             .sheet
             .tabs
@@ -2809,7 +2738,6 @@ mod tests {
         assert_eq!(list.helpers.len(), 4);
 
         let alone = view_of(&facts(&t, &all, &sessions));
-        assert!(alone.sheet.details.iter().any(|d| d.label == "Assignee"));
         assert!(alone.sheet.tabs.iter().all(|t| t.list.is_none()));
     }
 }
