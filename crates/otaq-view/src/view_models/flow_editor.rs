@@ -1229,8 +1229,9 @@ fn shape_words(f: &Facts) -> String {
     words.join(" ")
 }
 
-/// "the 6 there now (4 in Dev, 2 in Security)": the tickets inside, by stage in the order they come.
-fn inside_words(inside: &[Inside]) -> String {
+/// "the 6 there now (4 in Dev, 2 in Security)": the tickets inside, by stage in the order they come, each stage by
+/// the name the user sees (a removed stage's is in the flow in use, a new one's in the draft), never its id.
+fn inside_words(f: &Facts, inside: &[Inside]) -> String {
     let mut by: Vec<(&str, usize)> = Vec::new();
     for i in inside {
         match by.iter_mut().find(|(s, _)| *s == i.stage) {
@@ -1238,8 +1239,15 @@ fn inside_words(inside: &[Inside]) -> String {
             None => by.push((&i.stage, 1)),
         }
     }
+    let name = |id: &str| -> String {
+        f.in_use
+            .flow
+            .stage(id)
+            .or_else(|| f.file.flow.stage(id))
+            .map_or_else(|| id.to_owned(), |s| s.name.clone())
+    };
     by.iter()
-        .map(|(stage, n)| format!("{n} in {stage}"))
+        .map(|(stage, n)| format!("{n} in {}", name(stage)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -1265,8 +1273,11 @@ pub(crate) fn change_line(f: &Facts) -> Option<String> {
                 format!("{what}No ticket is between {first} and {last} now, so it applies at once.")
             } else {
                 let there = match inside.len() {
-                    1 => format!("the ticket there now ({}) finishes", inside_words(inside)),
-                    n => format!("the {n} there now ({}) finish", inside_words(inside)),
+                    1 => format!(
+                        "the ticket there now ({}) finishes",
+                        inside_words(f, inside)
+                    ),
+                    n => format!("the {n} there now ({}) finish", inside_words(f, inside)),
                 };
                 format!(
                     "{what}This waits until no ticket is between {first} and {last}: {there} on the current \
@@ -2194,12 +2205,12 @@ mod tests {
                 last: "Review".into(),
             },
             inside: vec![
-                inside("SHOP-22", "Dev"),
-                inside("SHOP-33", "Dev"),
-                inside("SHOP-29", "Dev"),
-                inside("SHOP-30", "Dev"),
-                inside("SHOP-19", "Security"),
-                inside("SHOP-32", "Security"),
+                inside("SHOP-22", "dev"),
+                inside("SHOP-33", "dev"),
+                inside("SHOP-29", "dev"),
+                inside("SHOP-30", "dev"),
+                inside("SHOP-19", "security"),
+                inside("SHOP-32", "security"),
             ],
         };
         let v = render(&e, &d, &file, &in_use, None);
@@ -2213,6 +2224,49 @@ mod tests {
         );
         assert_eq!(v.footer.apply, "Apply to shop-web");
         assert!(v.footer.apply_enabled);
+    }
+
+    #[test]
+    fn the_change_line_names_a_removed_stage_holding_a_ticket_by_its_name() {
+        let e = env();
+        let in_use = shop_web();
+        let (file, _) = edited(
+            &in_use,
+            &StageEdit::Remove {
+                stage: "validate".into(),
+            },
+        )
+        .unwrap();
+        let mut d = draft(&file, false);
+        d.proposal.diff.stages.push(StageChange {
+            stage_id: "validate".into(),
+            stage: "Validate".into(),
+            change: Change::Removed,
+            text: String::new(),
+            label: String::new(),
+            applies: Applies::Span {
+                first: "Validate".into(),
+                last: "Validate".into(),
+            },
+        });
+        d.applies = DraftApplies::Span {
+            span: Span {
+                stages: vec!["validate".into()],
+                first: "Validate".into(),
+                last: "Validate".into(),
+            },
+            inside: vec![Inside {
+                ticket: "SHOP-22".parse().unwrap(),
+                stage: "validate".into(),
+            }],
+        };
+        let v = render(&e, &d, &file, &in_use, None);
+        let line = v.change_line.expect("the draft waits");
+        assert!(
+            line.contains("the ticket there now (1 in Validate) finishes"),
+            "{line}"
+        );
+        assert!(!line.contains("in validate"), "{line}");
     }
 
     #[test]
