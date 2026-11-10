@@ -4,3 +4,6 @@
 
 # Saved Windows launchers keep their CRLF line endings, byte for byte.
 crates/otaq-core/tests/fixtures/npm-shims/*.cmd -text
+
+# Captured terminal output (escape sequences, CR LF) for the input-line tests, byte for byte.
+crates/otaq-core/tests/fixtures/input-line/*.bin -text

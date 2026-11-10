@@ -204,14 +204,19 @@ pub fn hint(
             "Read-only · the session ended",
             HintTone::Muted,
         ),
-        // The agent is busy: the note waits for its turn to end, whatever the line holds.
-        Phase::Live if messages_waiting > 0 && status == Status::Working => line(
-            IconName::MousePointerClick,
-            &format!(
-                "{product}’s notes only arrive when the agent is idle and your input line is empty"
-            ),
-            HintTone::Muted,
-        ),
+        // The agent is busy or on a prompt of its own (a permission question): the note waits for its turn to end,
+        // whatever the line holds. Only an idle agent's note waits for the line alone.
+        Phase::Live
+            if messages_waiting > 0 && !matches!(status, Status::Idle | Status::AsksYou) =>
+        {
+            line(
+                IconName::MousePointerClick,
+                &format!(
+                    "{product}’s notes only arrive when the agent is idle and your input line is empty"
+                ),
+                HintTone::Muted,
+            )
+        }
         Phase::Live if messages_waiting > 0 => line(
             IconName::MousePointerClick,
             &format!("Unsent text in the input line · {product}’s note waits until it’s empty"),
@@ -677,6 +682,16 @@ mod tests {
             Some((
                 s("Unsent text in the input line · {product}’s note waits until it’s empty"),
                 Focus
+            ))
+        );
+        // On Codex's "Would you like to run the following command?" the note waits for the prompt, not the line.
+        assert_eq!(
+            text(Phase::Live, true, Status::NeedsYou, true, 1),
+            Some((
+                s(
+                    "{product}’s notes only arrive when the agent is idle and your input line is empty"
+                ),
+                Muted
             ))
         );
         assert_eq!(
