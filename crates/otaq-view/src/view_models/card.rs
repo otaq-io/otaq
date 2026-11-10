@@ -136,8 +136,8 @@ pub struct CardExtras {
     /// renames and new features (PR comments, conflicts) show on every flow.
     pub custom_flow: bool,
     /// It stands in an agent check its flow marks skippable (`options: [skip]`,
-    /// [`otaq_core::flow::engine::user_may_move_past`]): only there are Skip this check (held for the plan limit)
-    /// and Move on anyway (after the last failed round) offered.
+    /// [`otaq_core::flow::engine::user_may_move_past`]): only there is Skip this check (held for the plan limit)
+    /// offered. Move on anyway after the last failed round shows on every check.
     pub skippable_check: bool,
     /// Its project is paused (PAU-03, d0112): a ticket the pause stopped reads "Paused" in amber with what it was
     /// doing, its timer held; one that needs the user keeps its question.
@@ -2777,9 +2777,8 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
         Status::AsksYou | Status::Idle => open("Reply"),
         Status::ParentClosed | Status::DeliveryStopped => open("Open"),
-        // Not on a check the flow doesn't mark skippable: another round and Answer the agent are in the sheet.
-        Status::CheckFailed if !x.custom_flow || !x.skippable_check => open("Open"),
-        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the sheet.
+        Status::CheckFailed if !x.custom_flow => open("Open"),
+        // Only Move on anyway (FLW-13, `s03-44`), on every check; another round and Answer the agent stay in the sheet.
         Status::CheckFailed => a(CardActionKind::MoveOnAnyway, MOVE_ON_ANYWAY, None, false),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
         // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the sheet.
@@ -3433,17 +3432,16 @@ mod tests {
         }
     }
 
-    /// Skip this check and Move on anyway only on a check the flow marks skippable: the same cards on a check that
-    /// isn't offer Change agent… and Open agent… (the held one waits for its tool) and Open (another round and Answer the agent are in
-    /// the sheet).
+    /// Skip this check only on a check the flow marks skippable: the held card on a check that isn't offers Change
+    /// agent… and Open agent… (it waits for its tool). A check out of rounds offers Move on anyway either way.
     #[test]
-    fn no_skip_or_move_on_on_a_check_not_marked_skippable() {
+    fn no_skip_on_a_check_not_marked_skippable() {
         for (name, footer) in [
             (
                 "Plan limit \u{b7} Skip this check",
                 "Security reviewer [Change agent\u{2026}] [Open agent\u{2026}]",
             ),
-            ("Security failed \u{d7}3", "[Open]"),
+            ("Security failed \u{d7}3", "[Move on anyway]"),
         ] {
             let mut v = card_fixtures::flow_variants()
                 .into_iter()

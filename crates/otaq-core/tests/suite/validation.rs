@@ -796,41 +796,64 @@ async fn skippable_validate(w: &TestService) {
         .await;
 }
 
-/// Skip this check and Move on anyway only on a check the flow marks skippable: on the default flow (Validate not
-/// skippable) the service refuses both, saying why, and the ticket stays where it is; with Validate marked skippable
-/// both are accepted.
+/// Skip this check only on a check the flow marks skippable: on the default flow (Validate not skippable) the service
+/// refuses it, saying why, and the ticket stays where it is; with Validate marked skippable it is accepted.
 #[tokio::test(flavor = "multi_thread")]
-async fn skip_and_move_on_only_on_a_skippable_check() {
+async fn skip_only_on_a_skippable_check() {
     use otaq_core::domain::ValidationAction as A;
     let w = world().await;
     w.add_project("shop-web").await;
-    set_rounds(&w, 1).await;
-    let refused = |e: otaq_core::board::BoardError| {
-        let text = e.to_string();
-        assert!(
-            text.contains(
-                "Validate can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable"
-            ),
-            "{text}"
-        );
-    };
-
     let t = working(&w, "Skipped").await;
     submit(&w, &t).await.unwrap();
-    refused(act(&w, &t, A::Skip, "").await.unwrap_err());
+    let text = act(&w, &t, A::Skip, "").await.unwrap_err().to_string();
+    assert!(
+        text.contains(
+            "Validate can\u{2019}t be skipped: the flow doesn\u{2019}t mark it skippable"
+        ),
+        "{text}"
+    );
     assert_eq!(w.status(&t.key.to_string()).await, Status::Checking);
-    verdict(&w, &t, false, FINDINGS).await;
-    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckFailed);
-    refused(act(&w, &t, A::MoveOnAnyway, "").await.unwrap_err());
-    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckFailed);
 
     skippable_validate(&w).await;
-    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
-    assert_eq!(after.status, Status::WaitingForYou);
-    let t = working(&w, "Skipped again").await;
-    submit(&w, &t).await.unwrap();
     let after = act(&w, &t, A::Skip, "").await.unwrap();
     assert_eq!(after.status, Status::WaitingForYou);
+    w.stop().await;
+}
+
+/// A check that runs out of rounds can always be sent on: on the default flow, whose Validate isn't marked
+/// skippable, a ticket that failed its one round is sent on to Review, "Failed 1 time · moved by you", and the
+/// checker's last report goes with it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_required_check_out_of_rounds_is_sent_on_with_its_last_report() {
+    use otaq_core::domain::{ReviewEntry, ValidationAction as A};
+    let w = world().await;
+    w.add_project("shop-web").await;
+    set_rounds(&w, 1).await;
+    let t = working(&w, "Sent on").await;
+    submit(&w, &t).await.unwrap();
+    verdict(&w, &t, false, FINDINGS).await;
+    assert_eq!(w.status(&t.key.to_string()).await, Status::CheckFailed);
+
+    let after = act(&w, &t, A::MoveOnAnyway, "").await.unwrap();
+    let entry = after.flags.review_entry.unwrap();
+    assert_eq!(
+        (after.status, entry.entry, entry.to_string().as_str()),
+        (
+            Status::WaitingForYou,
+            ReviewEntry::FailedMoved,
+            "Failed 1 time \u{b7} moved by you"
+        )
+    );
+    assert_ne!(
+        after.place,
+        otaq_core::domain::Place::stage_of(otaq_core::flow::default::VALIDATE),
+        "it left Validate"
+    );
+    let last = outcomes(&w, &t).await.pop().unwrap();
+    assert_eq!(
+        (last.1.as_deref(), last.2.as_deref()),
+        (Some("fail"), Some(FINDINGS))
+    );
     w.stop().await;
 }
 

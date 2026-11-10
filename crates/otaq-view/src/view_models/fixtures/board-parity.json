@@ -2229,7 +2229,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -3639,7 +3639,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -5049,7 +5049,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,

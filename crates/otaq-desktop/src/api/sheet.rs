@@ -445,7 +445,8 @@ pub struct Facts<'a> {
     /// comments (FLW-16).
     pub custom_flow: bool,
     /// It stands in an agent check its flow marks skippable (`otaq_core::flow::engine::user_may_move_past`): only
-    /// there do Move on anyway and Skip this check show.
+    /// there do Skip this check and Move on anyway after no result show. A check out of rounds offers Move on anyway
+    /// on every check.
     pub skippable_check: bool,
     /// Its project's name: the breadcrumb (SHT-01).
     pub project_name: &'a str,
@@ -2440,16 +2441,15 @@ mod tests {
         failed.validation_round = 3;
         let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
         assert_eq!(view.pill.label, "Check failed 3 times");
-        // Validate not skippable (the default flow): no Move on anyway.
-        assert_eq!(labels(&view), ["Give it another round", "Answer the agent\u{2026}"]);
+        // A check out of rounds is sent on whether or not the flow marks it skippable (the default flow's Validate
+        // isn't).
+        let ways_on = ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"];
+        assert_eq!(labels(&view), ways_on);
         let view = view_of(&Facts {
             skippable_check: true,
             ..facts(&failed, std::slice::from_ref(&failed), &[])
         });
-        assert_eq!(
-            labels(&view),
-            ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"]
-        );
+        assert_eq!(labels(&view), ways_on);
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
         let mut stopped = fixture("SHOP-42", "Wishlist page", Status::DeliveryStopped);

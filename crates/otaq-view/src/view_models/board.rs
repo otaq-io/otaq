@@ -688,10 +688,10 @@ mod tests {
         }
     }
 
-    /// A card offers Move on anyway only on a check its flow marks skippable: Security failed its rounds on the test
-    /// flow opens the ticket; once the flow marks Security skippable the card's action is Move on anyway.
+    /// A check out of rounds can always be sent on: Security failed its rounds on the test flow, which doesn't mark it
+    /// skippable, and the card's action is Move on anyway; marking Security skippable changes nothing.
     #[test]
-    fn move_on_anyway_only_on_a_check_the_flow_marks_skippable() {
+    fn move_on_anyway_on_every_check_out_of_rounds() {
         let mut flow = crate::view_models::flow_columns::every_kind();
         let mut t = ticket("NOTE-3", "Search", Status::CheckFailed);
         t.place = otaq_core::domain::Place::stage_of("security");
@@ -708,7 +708,7 @@ mod tests {
         };
         assert_eq!(
             action(&flow),
-            Some(crate::view_models::card::CardActionKind::Open)
+            Some(crate::view_models::card::CardActionKind::MoveOnAnyway)
         );
         for stage in flow.stages.iter_mut().filter(|s| s.id == "security") {
             stage.options.push(otaq_core::flow::StageOption::Skip);

@@ -237,8 +237,9 @@ pub fn transition(s: ValidationState<'_>, event: ValidationEvent) -> Result<Tran
             },
         )
     };
-    // Skip this check and Move on anyway only on a check the flow marks skippable; the reason says so.
-    if matches!(event, E::SkipCheck | E::MoveOnAnyway)
+    // Skip this check, and Move on anyway after no result, only on a check the flow marks skippable; the reason says
+    // so. A check that ran out of rounds can always be sent on.
+    if (event == E::SkipCheck || (event == E::MoveOnAnyway && s.status != Status::CheckFailed))
         && let Some(stage) = s.place.stage().and_then(|id| s.flow.stage(id))
         && stage.is_agent_check()
         && !stage.can_skip()
@@ -1905,15 +1906,14 @@ mod tests {
         }
     }
 
-    /// Skip this check and Move on anyway only on a check the flow marks skippable: the default flow's Validate isn't,
-    /// so both are refused there, saying why.
+    /// Skip this check, and Move on anyway after no result, only on a check the flow marks skippable: the default
+    /// flow's Validate isn't, so both are refused there, saying why.
     #[test]
     fn skip_and_move_on_only_on_a_skippable_check() {
         for (status, event) in [
             (Status::Checking, E::SkipCheck),
             (Status::CheckerNeedsYou, E::SkipCheck),
             (Status::WaitingForLimitReset, E::SkipCheck),
-            (Status::CheckFailed, E::MoveOnAnyway),
             (Status::CheckNoResult, E::MoveOnAnyway),
         ] {
             let place = Place::stage_of(crate::flow::default::VALIDATE);
@@ -1934,15 +1934,23 @@ mod tests {
         }
     }
 
-    /// After the last failed round: Move on anyway, Give it another round, Answer the agent.
+    /// After the last failed round: Move on anyway, Give it another round, Answer the agent. Move on anyway works on
+    /// a check the flow doesn't mark skippable too (the default flow's Validate).
     #[test]
     fn after_the_last_failed_round() {
         let failed = state(Status::CheckFailed);
-        let t = go(skippable(failed), E::MoveOnAnyway);
-        assert_eq!(
-            (t.to, t.entry),
-            (Status::WaitingForYou, Some(ReviewEntry::FailedMoved))
-        );
+        let place = Place::stage_of(crate::flow::default::VALIDATE);
+        let required = ValidationState {
+            place: &place,
+            ..failed
+        };
+        for at in [skippable(failed), required] {
+            let t = go(at, E::MoveOnAnyway);
+            assert_eq!(
+                (t.to, t.entry),
+                (Status::WaitingForYou, Some(ReviewEntry::FailedMoved))
+            );
+        }
         let t = go(failed, E::AnotherRound);
         assert_eq!(
             (t.to, t.deliver_findings, t.extra_round, t.counters),
