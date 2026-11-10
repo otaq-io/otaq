@@ -564,7 +564,13 @@ async fn resume(
             w.review.park("SHOP-1", true, &me()).await.unwrap();
             let s = start(w, &t).await;
             assert_ne!(s.id, first.id);
-            (s, format!("--resume {conversation}{flag}"))
+            (
+                s,
+                format!(
+                    "--resume {conversation}{flag} {}",
+                    otaq_core::recovery::carry_on_after_park_text()
+                ),
+            )
         }
         Resume::AfterRestart => {
             let t = create(&world.w, "Upgrade to Next.js 15").await;
@@ -789,7 +795,10 @@ async fn a_resume_passes_the_sessions_own_effort() {
     let s = start(w, &t).await;
     assert_eq!(
         launched(w, &s.id).await,
-        format!("--resume {conversation} --model opus --effort high")
+        format!(
+            "--resume {conversation} --model opus --effort high {}",
+            otaq_core::recovery::carry_on_after_park_text()
+        )
     );
     assert_eq!(
         w.sessions.stored(&s.id).await.unwrap().effort.as_deref(),

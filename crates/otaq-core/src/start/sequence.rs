@@ -1325,11 +1325,14 @@ struct Returning {
     conversation: Option<StoredConversation>,
     /// The user's Resume, Resume all or Retry brought it back (`return_mode` "resume").
     resumed: bool,
+    /// It was dragged back from Parked.
+    parked: bool,
 }
 
 impl Returning {
     /// What the resumed conversation gets first: the skill followed by its text, else the needs-you answer, else (a
-    /// Resume with nothing waiting) "Carry on where you left off" (d0122).
+    /// Resume, or a drag back from Parked, with nothing waiting) "Carry on where you left off" (d0122): an agent
+    /// that comes back with no prompt would sit idle at it while the card says Working.
     fn first_prompt(&self) -> Option<FirstPrompt> {
         match (&self.skill, &self.prompt) {
             (Some(name), message) => Some(FirstPrompt::Skill {
@@ -1340,6 +1343,9 @@ impl Returning {
             (None, None) if self.resumed => {
                 Some(FirstPrompt::Text(crate::recovery::carry_on_text()))
             }
+            (None, None) if self.parked => Some(FirstPrompt::Text(
+                crate::recovery::carry_on_after_park_text(),
+            )),
             (None, None) => None,
         }
     }
@@ -1366,6 +1372,7 @@ impl Returning {
                 prompt: row.resume_prompt,
                 conversation: None,
                 resumed: false,
+                parked: row.parked,
             }));
         }
         let pool = board.store().pool();
@@ -1378,6 +1385,7 @@ impl Returning {
             prompt: row.resume_prompt,
             conversation,
             resumed: row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME),
+            parked: row.parked,
         }))
     }
 }

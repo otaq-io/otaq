@@ -19,7 +19,7 @@ use otaq_core::board::moves::DropTarget;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Actor, Status};
 use otaq_core::git::testing::commit;
-use otaq_core::recovery::carry_on_text;
+use otaq_core::recovery::{carry_on_after_park_text, carry_on_text};
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, said};
 use otaq_core::session::{SessionInfo, SessionKind, Start};
@@ -216,5 +216,40 @@ async fn resume_and_retry_carry_on_and_start_from_scratch_does_not() {
     assert!(!a.contains("--resume"), "{a}");
     assert!(a.contains("/otaq:work-ticket"), "{a}");
     assert!(!a.contains("Carry on"), "{a}");
+    w.stop().await;
+}
+
+/// A ticket dragged back from Parked carries on: on every tool its conversation reopens with "Carry on…" as the
+/// first prompt, so the agent works again instead of waking up idle at its prompt while the card says Working
+/// (the decision that an unparked agent carries on).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_ticket_dragged_back_from_parked_carries_on_on_each_tool() {
+    let dir = TempDir::new().unwrap();
+    let (w, _launch) = world(&dir).await;
+    let carry_on = carry_on_after_park_text();
+    assert_eq!(
+        carry_on,
+        "You were parked and are now back. Carry on where you left off; run `otaq prime` if you need the ticket \
+         again."
+    );
+    for (n, tool) in TOOLS.into_iter().enumerate() {
+        let (t, first) = started(&w, tool, &format!("Coupon codes {n}")).await;
+        let conversation = first.tool_session_id.clone().unwrap();
+        let key = t.key.to_string();
+        let parked = w.review.park(&key, true, &me()).await.unwrap();
+        assert_eq!(parked.status, Status::Parked, "{tool:?}");
+
+        w.board
+            .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+            .await
+            .unwrap();
+        w.starter.start(&key, &me(), Start::Auto).await.unwrap();
+        let back = running(&w, &t).await;
+        assert_ne!(back.id, first.id, "{tool:?}");
+        let a = args(&w, &back).await;
+        assert!(a.contains(conversation.as_str()), "{tool:?}: {a}");
+        assert!(a.contains(&carry_on), "{tool:?}: {a}");
+        w.sessions.stop(&back.id).await.unwrap();
+    }
     w.stop().await;
 }

@@ -230,6 +230,16 @@ pub fn carry_on_text() -> String {
     )
 }
 
+/// The first prompt of a ticket's conversation reopened when the ticket is dragged back from Parked with nothing
+/// else to send: the agent carries on, as after Resume, rather than waking up idle at its prompt.
+pub fn carry_on_after_park_text() -> String {
+    format!(
+        "You were parked and are now back. Carry on where you left off; run `{} prime` if you need the ticket \
+         again.",
+        crate::naming::COMMAND_NAME
+    )
+}
+
 /// The first prompt of a Project agent resumed from "Ended by restart" (d0122, d0068).
 pub const CARRY_ON_PROJECT_AGENT: &str =
     "You were interrupted by a restart. Carry on where you left off.";
