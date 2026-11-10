@@ -433,7 +433,7 @@ pub async fn decide(
     Ok(otaq_view::view_models::decide_menu::menu(&ticket, &flow))
 }
 
-/// The Agent stage a parked ticket left, by name (its Parked event's stage; a check's Agent stage before it).
+/// The Agent stage a parked ticket left, by name (its latest Parked event's stage; a check's Agent stage before it).
 async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> {
     let history = app
         .service
@@ -444,9 +444,9 @@ async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> 
     let Ok(Reply::History(events)) = history else {
         return None;
     };
+    // History is newest first: the first Parked event is the latest park.
     let id = events
         .iter()
-        .rev()
         .find(|e| e.kind == EventKind::Parked)?
         .payload
         .get("stage_id")?
@@ -747,6 +747,9 @@ pub async fn delete(app: &App, params: TicketParams) -> Result<(), RequestError>
         other => Err(unexpected("ticket.delete", &other)),
     }
 }
+
+#[cfg(test)]
+mod parked_from_tests;
 
 #[cfg(test)]
 mod tests {
