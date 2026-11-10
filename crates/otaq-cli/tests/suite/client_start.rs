@@ -1,11 +1,19 @@
 //! The client starts the real service through `otaq daemon start` when none runs, and never a second one.
 //! Uses a temporary data folder; the service is stopped at the end even if the test fails.
 
+use std::future::Future;
+use std::path::Path;
+use std::pin::Pin;
 use std::process::Command;
 
-use otaq_core::client::{Client, ClientConfig, CommandLauncher};
+use otaq_core::client::{Client, ClientConfig, CommandLauncher, Launcher};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{Reply, Request};
+
+/// How long a test waits for the service to stop, end or answer before calling it stuck, also as the client's start
+/// timeout: far longer than it takes, even with every test of the workspace running at once. Each wait ends as soon
+/// as the service gets there.
+const SLOW_MACHINE: std::time::Duration = std::time::Duration::from_secs(60);
 
 struct StopOnDrop(std::path::PathBuf);
 
@@ -19,19 +27,43 @@ impl Drop for StopOnDrop {
     }
 }
 
+/// `otaq daemon start` for the test's data folder, the test then waiting for the service itself rather than for that
+/// command's verdict. The command gives up after its own few seconds, but the service it started keeps starting: on
+/// a machine busy with the whole test run, a debug build's start (its runtime copy, the store) can take longer than
+/// that. A start that really failed still fails the test, when the client finds no service within [`SLOW_MACHINE`].
+struct UntilItAnswers(CommandLauncher);
+
+impl Launcher for UntilItAnswers {
+    fn launch(&self) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send + '_>> {
+        Box::pin(async move {
+            if let Err(e) = self.0.launch().await {
+                eprintln!("{e}; waiting for the service to answer");
+            }
+            Ok(())
+        })
+    }
+}
+
+fn launcher(data: &Path) -> UntilItAnswers {
+    UntilItAnswers(
+        CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
+            .with_env(DataDir::env_var(), data)
+            // The real service locates Claude Code's config file: never the user's (PRJ-06).
+            .with_env("CLAUDE_CONFIG_DIR", data)
+            // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
+            .with_env("PATH", data.join("no-tools"))
+            .with_env("HOME", data),
+    )
+}
+
 #[tokio::test]
 async fn connect_or_start_launches_the_daemon_once() {
     let tmp = tempfile::tempdir().unwrap();
     let _guard = StopOnDrop(tmp.path().to_owned());
     let data = DataDir::new(tmp.path());
-    let launcher = CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
-        .with_env(DataDir::env_var(), tmp.path())
-        // The real service locates Claude Code's config file: never the user's (PRJ-06).
-        .with_env("CLAUDE_CONFIG_DIR", tmp.path())
-        // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
-        .with_env("PATH", tmp.path().join("no-tools"))
-        .with_env("HOME", tmp.path());
-    let config = ClientConfig::new(&data);
+    let launcher = launcher(tmp.path());
+    let mut config = ClientConfig::new(&data);
+    config.start_timeout = SLOW_MACHINE;
 
     let client = Client::connect_or_start(config.clone(), &launcher)
         .await
@@ -65,16 +97,11 @@ async fn restart_replaces_the_service_process() {
     let tmp = tempfile::tempdir().unwrap();
     let _guard = StopOnDrop(tmp.path().to_owned());
     let data = DataDir::new(tmp.path());
-    let launcher = CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
-        .with_env(DataDir::env_var(), tmp.path())
-        // The real service locates Claude Code's config file: never the user's (PRJ-06).
-        .with_env("CLAUDE_CONFIG_DIR", tmp.path())
-        // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
-        .with_env("PATH", tmp.path().join("no-tools"))
-        .with_env("HOME", tmp.path());
+    let launcher = launcher(tmp.path());
     let mut config = ClientConfig::new(&data);
     // Pretend this program was rebuilt after the service started.
     config.build_id = "rebuilt.1".into();
+    config.start_timeout = SLOW_MACHINE;
 
     let client = Client::connect_or_start(config, &launcher).await.unwrap();
     assert_eq!(
@@ -95,10 +122,10 @@ async fn restart_replaces_the_service_process() {
             .status
             .success()
     };
-    for _ in 0..100 {
-        if !alive() {
-            break;
-        }
+    // The old service removes its lock file before its process has finished exiting (its runtime still winds down),
+    // so the process may outlive the restart for a while.
+    let deadline = std::time::Instant::now() + SLOW_MACHINE;
+    while alive() && std::time::Instant::now() < deadline {
         std::thread::sleep(std::time::Duration::from_millis(20));
     }
     assert!(!alive(), "the old service process ended");

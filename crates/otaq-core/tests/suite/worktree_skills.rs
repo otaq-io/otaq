@@ -713,7 +713,15 @@ async fn an_agent_stage_whose_tool_lacks_its_skill_is_held_until_check_again() {
         &std::fs::read_to_string(checkout.join(".claude/skills/team-dev/SKILL.md")).unwrap(),
     );
     git(&checkout, &["push", "-q", "origin", "main"]);
-    assert!(w.gate.check_again(&t.id).await.unwrap());
+    // The service also checks its holds again by itself whenever a tool's state or a model list changes, and the
+    // tools' first checks can land this late on a busy machine: such a check may find the skill first, and Check
+    // again then has no hold left to start. Either way the hold is gone now.
+    w.gate.check_again(&t.id).await.unwrap();
+    assert_eq!(
+        hold_of(&w, &t, SessionRole::Developer).await,
+        None,
+        "the skill is found"
+    );
     assert_ne!(w.status(&key).await, Status::Held, "back to Queued");
     assert_eq!(needs_you_line(&w, &t).await, None);
     let _ = w
