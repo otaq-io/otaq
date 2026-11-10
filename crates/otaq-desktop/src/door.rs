@@ -1674,3 +1674,18 @@ mod updater_config_tests {
         assert!(!updates::is_release());
     }
 }
+
+#[cfg(test)]
+mod bundle_identity_tests {
+    use serde_json::Value;
+
+    /// The Windows installer names its Start-menu shortcut after `productName` and gives it `identifier` as its
+    /// AppUserModelID; the service posts its toasts under that identity and looks for that shortcut, so both stay
+    /// the names the core uses.
+    #[test]
+    fn the_installers_shortcut_carries_the_identity_toasts_use() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"], otaq_core::naming::BUNDLE_ID);
+        assert_eq!(conf["productName"], otaq_core::naming::PRODUCT_NAME);
+    }
+}

@@ -117,7 +117,8 @@ pub fn app_binary_name() -> String {
     format!("{COMMAND_NAME}-app{}", std::env::consts::EXE_SUFFIX)
 }
 
-/// The macOS bundle's ID (d0072), under which macOS shows its notifications (d0090).
+/// The app's identifier (d0072): the macOS bundle's ID and the Windows Start-menu shortcut's AppUserModelID, under
+/// which each shows its notifications (d0090).
 pub const BUNDLE_ID: &str = "io.otaq.desktop";
 
 /// What the app's update check asks for (UPD-04): the newest release's `latest.json`. Also the updater's endpoint in
