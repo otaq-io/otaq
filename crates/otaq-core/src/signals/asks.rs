@@ -11,8 +11,10 @@
 
 use super::Signals;
 use super::hooks::Signal;
-use crate::domain::TicketKey;
+use crate::board::BoardError;
+use crate::domain::{Status, TicketKey};
 use crate::protocol::Event;
+use crate::session::SessionKind;
 
 impl Signals {
     /// The permission prompt `session`'s tool shows now, if any.
@@ -55,6 +57,31 @@ impl Signals {
         if removed {
             self.prompt_changed(ticket, ticket_id);
         }
+    }
+
+    /// The user's key in the ticket's agent terminal answered its open prompt. On a tool whose prompt takes a key alone
+    /// (Codex's "y", [`crate::agent_tools::AgentTool::key_alone_approves_prompt`]) nothing else will say so until the
+    /// turn ends or asks again, so a card showing Needs you is Working again now, as after Enter.
+    pub async fn key_answered_prompt(
+        &self,
+        ticket: &TicketKey,
+        ticket_id: &str,
+        session: &str,
+    ) -> Result<(), BoardError> {
+        self.prompt_answered(ticket, ticket_id, session);
+        let Ok(info) = self.inner.sessions.info(session) else {
+            return Ok(());
+        };
+        let alone = info
+            .tool
+            .is_some_and(|tool| self.inner.adapters.get(tool).key_alone_approves_prompt());
+        if alone
+            && info.kind == SessionKind::Agent
+            && self.status_of(ticket_id).await? == Some(Status::NeedsYou)
+        {
+            self.answered(ticket_id).await?;
+        }
+        Ok(())
     }
 
     fn prompt_changed(&self, ticket: &TicketKey, ticket_id: &str) {

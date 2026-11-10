@@ -294,6 +294,12 @@ impl AgentTool for Codex {
         false
     }
 
+    /// "y" (or another option's letter) at Codex's approval prompt approves it; Codex sends nothing until the turn
+    /// ends or asks again.
+    fn key_alone_approves_prompt(&self) -> bool {
+        true
+    }
+
     fn turn_end_reports_background(&self) -> bool {
         false
     }

@@ -932,6 +932,13 @@ pub trait AgentTool: Send + Sync {
         false
     }
 
+    /// Whether a single key at the tool's permission prompt approves it, with no Enter and no signal after it until
+    /// the turn goes on to its end or its next prompt (Codex's "y"), so the key itself makes the card Working. Only
+    /// Codex.
+    fn key_alone_approves_prompt(&self) -> bool {
+        false
+    }
+
     // Turn ends and models (ADP-12, AGT-05).
 
     /// Whether the tool's turn end says what the turn left running (Claude Code's `background_tasks`). When not
