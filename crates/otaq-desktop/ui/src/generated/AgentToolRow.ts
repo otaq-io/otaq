@@ -37,6 +37,10 @@ detail: string,
  */
 sign_in: string | null, 
 /**
+ * **Re-check** for a tool whose sign-in couldn't be checked (`agent_tools.recheck {tool}`).
+ */
+recheck: string | null, 
+/**
  * **Show** for a hidden tool (`agent_tools.set_hidden {hidden: false}`).
  */
 show: string | null, install: AgentToolCommand | null, 

@@ -36,6 +36,8 @@ pub enum Place {
 pub enum PillLook {
     Connected,
     NotSignedIn,
+    /// Its sign-in answer couldn't be read: amber, as signed out.
+    CouldNotCheck,
     UpdateNeeded,
     NotInstalled,
     Hidden,
@@ -44,7 +46,8 @@ pub enum PillLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolPill")]
 pub struct Pill {
-    /// "Connected", "Found · not signed in", "Found · update needed", "Not installed", "Hidden".
+    /// "Connected", "Found · not signed in", "Found · couldn't check", "Found · update needed", "Not installed",
+    /// "Hidden".
     pub label: String,
     pub look: PillLook,
 }
@@ -147,6 +150,8 @@ pub struct Row {
     pub detail: String,
     /// **Sign in…** (`agent_tools.sign_in`).
     pub sign_in: Option<String>,
+    /// **Re-check** for a tool whose sign-in couldn't be checked (`agent_tools.recheck {tool}`).
+    pub recheck: Option<String>,
     /// **Show** for a hidden tool (`agent_tools.set_hidden {hidden: false}`).
     pub show: Option<String>,
     pub install: Option<CommandView>,
@@ -246,6 +251,15 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
                 "found \u{b7} not signed in".to_owned()
             },
         ),
+        AgentToolState::CouldNotCheck { .. } => (
+            PillLook::CouldNotCheck,
+            "Found \u{b7} couldn\u{2019}t check",
+            if settings {
+                with_version("couldn\u{2019}t check sign-in")
+            } else {
+                "found \u{b7} couldn\u{2019}t check sign-in".to_owned()
+            },
+        ),
         AgentToolState::UpdateNeeded { .. } => (
             PillLook::UpdateNeeded,
             "Found \u{b7} update needed",
@@ -308,9 +322,10 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         }
         notes.extend(s.notes.iter().map(|note| format!("{name}: {note}")));
     }
+    let could_not_check = matches!(s.state, AgentToolState::CouldNotCheck { .. });
     let mark = if connected {
         Mark::Connected
-    } else if s.can_sign_in || update.is_some() {
+    } else if s.can_sign_in || update.is_some() || could_not_check {
         Mark::Attention
     } else if s.state == AgentToolState::NotInstalled && (settings || none_connected) {
         Mark::Missing
@@ -328,6 +343,7 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         }),
         detail,
         sign_in: s.can_sign_in.then(|| "Sign in\u{2026}".to_owned()),
+        recheck: could_not_check.then(|| "Re-check".to_owned()),
         show: matches!(s.state, AgentToolState::Hidden { .. }).then(|| "Show".to_owned()),
         install,
         install_button,
@@ -590,7 +606,7 @@ pub mod fixtures {
             "npm install -g @anthropic-ai/claude-code",
             WindowsSource::Report,
             &[TRUST],
-            false,
+            true,
         ),
         (
             "brew install codex",
@@ -695,6 +711,12 @@ pub mod fixtures {
             ),
             status(
                 tool,
+                AgentToolState::CouldNotCheck {
+                    version: v("1.0.98"),
+                },
+            ),
+            status(
+                tool,
                 AgentToolState::UpdateNeeded {
                     version: v("0.0.404"),
                 },
@@ -793,6 +815,7 @@ mod tests {
                 [
                     ("Connected", PillLook::Connected),
                     ("Found · not signed in", PillLook::NotSignedIn),
+                    ("Found · couldn’t check", PillLook::CouldNotCheck),
                     ("Found · update needed", PillLook::UpdateNeeded),
                     ("Not installed", PillLook::NotInstalled),
                     ("Hidden", PillLook::Hidden),
@@ -805,12 +828,13 @@ mod tests {
                 [
                     "v1.0.98 · signed in as mira-dev",
                     "v1.0.98 · not signed in",
+                    "v1.0.98 · couldn’t check sign-in",
                     "v0.0.404 · too old for this app",
                     "not installed",
                     "Found, hidden by you",
                 ]
             );
-            let [connected, signed_out, update, missing, hidden] = &rows[..] else {
+            let [connected, signed_out, unchecked, update, missing, hidden] = &rows[..] else {
                 unreachable!()
             };
             assert_eq!(connected.name, tool.display_name());
@@ -818,10 +842,17 @@ mod tests {
             assert_eq!(connected.avatar.letters.len(), 2, "always shown here");
             assert_eq!(menu_actions(connected), [Hide, Recheck, Disconnect]);
             assert!(connected.sign_in.is_none() && connected.install.is_none());
-            // Sign in… only where the service says it applies (Claude Code has no sign-in command).
-            assert_eq!(signed_out.sign_in.is_some(), tool != Tool::Claude);
+            assert!(connected.recheck.is_none());
+            // Signed out: Sign in… on every tool, Claude Code's included (`claude auth login`).
+            assert_eq!(signed_out.sign_in.as_deref(), Some("Sign in…"));
+            assert_eq!(signed_out.mark, Mark::Attention);
             assert_eq!(menu_actions(signed_out), [Hide, Recheck]);
             assert!(signed_out.can_see.is_none());
+            // Its sign-in answer couldn't be read: Re-check on the row, never signed in or counted.
+            assert_eq!(unchecked.recheck.as_deref(), Some("Re-check"));
+            assert!(unchecked.sign_in.is_none() && unchecked.can_see.is_none());
+            assert_eq!(unchecked.mark, Mark::Attention);
+            assert_eq!(menu_actions(unchecked), [Hide, Recheck]);
             let cmd = update.update.as_ref().unwrap();
             assert_eq!(
                 cmd.label,
@@ -1096,6 +1127,31 @@ mod tests {
         );
         assert_eq!(hidden.detail, "hidden by you");
         assert_eq!(hidden.show.as_deref(), Some("Show"));
+        let unchecked = row(
+            &status(
+                Tool::Claude,
+                AgentToolState::CouldNotCheck {
+                    version: Some("Claude Code 2.1.319".into()),
+                },
+            ),
+            Place::Onboarding,
+            false,
+        );
+        assert_eq!(unchecked.detail, "found · couldn’t check sign-in");
+        assert_eq!(unchecked.recheck.as_deref(), Some("Re-check"));
+        assert_eq!(unchecked.mark, Mark::Attention);
+        let signed_out = row(
+            &status(
+                Tool::Claude,
+                AgentToolState::FoundNotSignedIn {
+                    version: Some("Claude Code 2.1.319".into()),
+                },
+            ),
+            Place::Onboarding,
+            false,
+        );
+        assert_eq!(signed_out.detail, "found · not signed in");
+        assert_eq!(signed_out.sign_in.as_deref(), Some("Sign in…"));
     }
 
     #[test]
@@ -1112,7 +1168,7 @@ mod tests {
     fn the_gallery_has_every_state_per_tool_and_both_dialogs() {
         let g = gallery();
         assert_eq!(g.pages.len(), 6);
-        assert!(g.pages[1..5].iter().all(|c| c.page.rows.len() == 5));
+        assert!(g.pages[1..5].iter().all(|c| c.page.rows.len() == 6));
         assert_eq!(g.dialogs.len(), 2);
         assert!(g.dialogs[1].error.is_some());
     }

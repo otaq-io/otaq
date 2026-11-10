@@ -21,6 +21,7 @@ import {
   InstallLine,
   MARK_ICONS,
   markOf,
+  RecheckButton,
   RowMenu,
   ToolWarning,
 } from "../settings/AgentTools";
@@ -68,6 +69,7 @@ function AgentRow({
             }}
           />
         )}
+        <RecheckButton row={row} onAction={onAction} compact />
         <RowMenu row={row} label={menuLabel} onAction={onAction} />
       </div>
       {row.install !== null && <CommandBox command={row.install} label={false} />}

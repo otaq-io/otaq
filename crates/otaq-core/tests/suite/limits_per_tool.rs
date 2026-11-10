@@ -157,15 +157,23 @@ impl World {
 
 const ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
 
-/// Claude Code and Codex connected (stand-ins printing a version): the default model is Claude Code's own. Project
+/// Claude Code and Codex connected (stand-ins printing a version and a signed-in status): the default model is Claude Code's own. Project
 /// SHOP (`shop-web`, Developer) and BILL (`billing-api`, "Codex developer" on Codex's default). OS notifications are recorded.
 async fn world() -> World {
     let tools = TempDir::new().unwrap();
     let bin = tools.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(tools.path().join("claude")).unwrap();
-    otaq_core::process::testing::stub_command(&bin, "claude", r#"echo "2.1.4 (Claude Code)""#);
-    otaq_core::process::testing::stub_command(&bin, "codex", r#"echo "codex-cli 0.157.1""#);
+    otaq_core::process::testing::stub_command(
+        &bin,
+        "claude",
+        r#"case "$1" in auth) echo '{"loggedIn": true}';; *) echo "2.1.4 (Claude Code)";; esac"#,
+    );
+    otaq_core::process::testing::stub_command(
+        &bin,
+        "codex",
+        r#"case "$1" in login) echo "Logged in using ChatGPT";; *) echo "codex-cli 0.157.1";; esac"#,
+    );
     let root = tools.path().to_path_buf();
     let agent_path = std::env::join_paths(
         std::iter::once(bin.clone()).chain(otaq_core::process::testing::sh_dirs()),

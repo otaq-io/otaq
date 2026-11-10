@@ -81,8 +81,8 @@ fn auth_list_args() -> [&'static str; 5] {
 }
 
 /// Whether OpenCode is signed in to a provider, and the account line, from `opencode auth list` (ADP-10). With no
-/// provider it still runs the free models, so it counts as Connected ("free models only", Q-K): `None`, never
-/// `Some(false)`. `(None, None)` when the list can't be read.
+/// provider it still runs the free models, so it counts as Connected ("free models only", Q-K): `Some(true)`, never
+/// `Some(false)`. `(None, None)` when the list can't be read: "couldn't check".
 pub(super) async fn signed_in(context: &OpenCodeContext) -> (Option<bool>, Option<String>) {
     let Some(program) = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path) else {
         return (None, None);
@@ -122,7 +122,7 @@ pub(super) fn account(output: &str) -> (Option<bool>, Option<String>) {
         })
         .collect();
     match names.split_last() {
-        None => (None, Some(FREE_MODELS_ONLY.to_owned())),
+        None => (Some(true), Some(FREE_MODELS_ONLY.to_owned())),
         Some((only, [])) => (Some(true), Some(format!("signed in to {only}"))),
         Some((last, rest)) => (
             Some(true),
@@ -158,7 +158,7 @@ mod tests {
     fn auth_list_outputs() {
         assert_eq!(
             account(&fixture("list-none")),
-            (None, Some("free models only".into())),
+            (Some(true), Some("free models only".into())),
             "Connected all the same (Q-K)"
         );
         assert_eq!(

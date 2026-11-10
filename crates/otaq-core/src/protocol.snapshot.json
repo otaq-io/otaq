@@ -517,6 +517,13 @@
             }
           }
         },
+        "could_not_check": {
+          "fields": {
+            "version": {
+              "ty": "Option<String>"
+            }
+          }
+        },
         "found_not_signed_in": {
           "fields": {
             "version": {

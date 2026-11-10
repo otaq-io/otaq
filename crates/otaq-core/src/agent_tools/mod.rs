@@ -195,7 +195,9 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct Detection {
     /// Found on PATH (and, for the M23 tools, its version read).
     pub installed: bool,
-    /// Signed in; `None` when the tool can't say without a model call.
+    /// Signed in, as the tool's own sign-in answer says (`claude auth status`, `codex login status`, …); `None`
+    /// when that answer couldn't be read (the command failed, took too long or printed something else). A found
+    /// tool is never taken as signed in without its answer, nor guessed from its config files.
     pub signed_in: Option<bool>,
     /// The version as the tool prints it.
     pub version: Option<String>,
@@ -739,15 +741,14 @@ pub trait AgentTool: Send + Sync {
 
     // 1. Detect.
 
-    /// Installed, signed in and version (ADP-10). Claude Code: `claude --version`, signed in not reported
-    /// (`None`), as the Tools checklist does today. Codex: `codex --version`; `codex login status`. Copilot:
-    /// `copilot --version`; signed in from its login state (no model call). OpenCode: `opencode --version`;
-    /// signed in from its stored credentials, where it can say.
+    /// Installed, signed in and version (ADP-10), signed in always from the tool's own answer ([`Detection`]).
+    /// Claude Code: `claude --version`; `claude auth status`. Codex: `codex --version`; `codex login status`.
+    /// Copilot: `copilot --version`; its `--acp` `session/new` (no model call). OpenCode: `opencode --version`;
+    /// `opencode auth list`.
     fn detect(&self) -> BoxFuture<'_, Detection>;
 
     /// What **Sign in…** runs in a terminal for a found tool that isn't signed in (d0086); `None` when the tool has
-    /// no sign-in command of its own. Claude Code: `None` ("Run claude and sign in" stays the checklist's text).
-    /// Codex: `codex login`. Copilot: its lane verifies it (T-0353). OpenCode: `opencode auth login --standalone`.
+    /// no sign-in command of its own. Claude Code: `claude auth login`. Codex: `codex login`. Copilot: its lane verifies it (T-0353). OpenCode: `opencode auth login --standalone`.
     fn login_command(&self) -> Option<Vec<String>> {
         None
     }

@@ -4,4 +4,4 @@
  * The state pill's colour: green Connected, amber the found states that need something, grey the rest. Never
  * turquoise (d0077).
  */
-export type AgentToolPillLook = "connected" | "not_signed_in" | "update_needed" | "not_installed" | "hidden";
+export type AgentToolPillLook = "connected" | "not_signed_in" | "could_not_check" | "update_needed" | "not_installed" | "hidden";

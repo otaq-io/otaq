@@ -3,6 +3,7 @@
 //! folder trust ([`trust`]); its tokens and "Before the restart" come from its saved conversations
 //! ([`transcript`]).
 
+mod auth;
 pub mod hooks;
 mod launch;
 pub mod limits;
@@ -297,13 +298,29 @@ impl AgentTool for ClaudeCode {
     fn detect(&self) -> BoxFuture<'_, Detection> {
         Box::pin(async move {
             let status = tools::check_one(tools::Tool::Claude, &self.context.check).await;
+            // Signed in only as its own `auth status` says, never from its config files.
+            let signed_in = match status.path.as_deref().filter(|_| status.found) {
+                Some(program) => {
+                    auth::signed_in(Path::new(program), &self.context.check.path).await
+                }
+                None => None,
+            };
             Detection {
                 installed: status.found,
-                signed_in: status.logged_in,
+                signed_in,
                 version: status.version,
                 ..Detection::default()
             }
         })
+    }
+
+    /// **Sign in…**: `claude auth login` ("Sign in to your Anthropic account", Claude Code 2.1.x).
+    fn login_command(&self) -> Option<Vec<String>> {
+        Some(
+            [command_name(), auth::LOGIN_ARGS[0], auth::LOGIN_ARGS[1]]
+                .map(str::to_owned)
+                .to_vec(),
+        )
     }
 
     fn install_command(&self, os: Os) -> &'static str {
