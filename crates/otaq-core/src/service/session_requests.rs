@@ -140,6 +140,17 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
             }
+            // A key alone in a Project agent's terminal answers its permission prompt on a tool that takes one (Codex's
+            // "y"), as Enter does above. Escape sequences and pastes don't.
+            if effect.enters == 0
+                && bytes.len() == 1
+                && info
+                    .as_ref()
+                    .is_some_and(|i| i.kind == SessionKind::ProjectAgent)
+                && let Err(e) = shared.project_agents.key(&p.session).await
+            {
+                tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
+            }
             // Any key may answer a tool's own prompt without a signal (Copilot's Esc, ADP-08).
             if !bytes.is_empty()
                 && let Err(e) = shared.signals.typed(&p.session).await

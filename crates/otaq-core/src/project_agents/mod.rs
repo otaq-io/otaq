@@ -1041,6 +1041,31 @@ impl ProjectAgents {
         }
     }
 
+    /// A single key in a session's terminal: if it is a Project agent's at a permission prompt, on a tool whose prompt
+    /// takes a key alone (Codex's "y", [`crate::agent_tools::AgentTool::key_alone_approves_prompt`]), the key answered
+    /// it. Nothing else says so until the turn ends or asks again, so it is active now, as after Enter: a drafting
+    /// line that gave way to Needs you comes back while the approved command runs.
+    pub async fn key(&self, session: &str) -> Result<(), BoardError> {
+        let Ok(info) = self.inner.sessions.info(session) else {
+            return Ok(());
+        };
+        let alone = info
+            .tool
+            .is_some_and(|tool| self.inner.adapters.get(tool).key_alone_approves_prompt());
+        if !alone || info.kind != crate::session::SessionKind::ProjectAgent {
+            return Ok(());
+        }
+        let agent: Option<(Option<String>,)> =
+            sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
+                .bind(session)
+                .fetch_optional(self.inner.board.store().pool())
+                .await?;
+        match agent {
+            Some((Some(agent),)) => self.active(&agent).await,
+            _ => Ok(()),
+        }
+    }
+
     /// The user sent `line` to the Project agent `id` (Enter in its terminal, or the Ask bar's Continue): it answers
     /// the agent's open question, if any (d0119).
     async fn answered_in_terminal(&self, id: &str, line: &str) -> Result<(), BoardError> {

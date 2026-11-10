@@ -18,6 +18,7 @@ use otaq_core::service::testing::TestService;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::signals::background::BackgroundWork;
+use otaq_core::signals::hooks::Signal;
 use otaq_core::signals::quiet::QuietTiming;
 
 /// Short waits: a recheck every 100 ms, 300 ms after a key.
@@ -390,6 +391,106 @@ async fn y_at_codexs_prompt_makes_it_working_at_once() {
     assert_eq!(card(&w).await, (Status::Working, None));
     tokio::time::sleep(TIMING.answer_wait * 2).await;
     assert_eq!(card(&w).await.0, Status::Working);
+    w.stop().await;
+}
+
+/// An interactive `sh` as Project agent `id` of SHOP on `tool`, and its caller.
+async fn project_agent_on(w: &TestService, id: &str, tool: Tool) -> Caller {
+    let project = w.board.project("SHOP").await.unwrap();
+    sqlx::query(
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at) VALUES (?, ?, ?, 'running', 1)",
+    )
+    .bind(id)
+    .bind(&project.id)
+    .bind(tool.as_str())
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let info = w
+        .sessions
+        .prepared(None)
+        .for_project_agent(id)
+        .spawn(SpawnSpec {
+            kind: SessionKind::ProjectAgent,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: None,
+            program: "sh".into(),
+            args: Vec::new(),
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PS1".into(), String::new())],
+            size: TerminalSize::default(),
+            tool: Some(tool),
+            tool_session_id: Some("conversation-1".into()),
+            model: None,
+            agent: None,
+            effort: None,
+            theme: None,
+        })
+        .await
+        .unwrap();
+    Caller::ProjectAgent {
+        project: project.key.to_string(),
+        agent: id.to_owned(),
+        session: info.id,
+    }
+}
+
+/// Codex's "y" at a Project agent's prompt (Noyan drafting a flow) answers it: it no longer waits for the user, so
+/// Needs you gives way to the drafting line while the approved command runs, and its next prompt names the new
+/// command. On Claude Code a key alone changes nothing (only Enter does).
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_project_agents_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let waits = async |id: &str| w.project_agents.get(id).await.unwrap().needs_you;
+    // The tool's prompt, as the service applies a Project agent's hook to it.
+    let prompt = async |id: &str, command: &str| {
+        let prompt = format!("Run command: {command}");
+        w.project_agents
+            .hook(id, &Signal::NeedsYou { prompt })
+            .await
+            .unwrap();
+    };
+    let input = async |caller: &Caller, bytes: &[u8]| {
+        let Caller::ProjectAgent { session, .. } = caller else {
+            panic!("{caller:?}")
+        };
+        client
+            .request(Request::SessionInput(InputParams {
+                session: session.clone(),
+                data: encode_bytes(bytes),
+                reply: false,
+                if_empty: false,
+            }))
+            .await
+            .unwrap();
+    };
+
+    let codex = project_agent_on(&w, "pa-codex", Tool::Codex).await;
+    prompt("pa-codex", "Get-ChildItem .agents").await;
+    assert_eq!(
+        waits("pa-codex").await.as_deref(),
+        Some("Run command: Get-ChildItem .agents")
+    );
+    input(&codex, b"y").await;
+    assert_eq!(waits("pa-codex").await, None, "answered by the key");
+    prompt("pa-codex", "Get-Content SKILL.md").await;
+    assert_eq!(
+        waits("pa-codex").await.as_deref(),
+        Some("Run command: Get-Content SKILL.md")
+    );
+
+    let claude = project_agent_on(&w, "pa-claude", Tool::Claude).await;
+    prompt("pa-claude", "npm test").await;
+    input(&claude, b"1").await;
+    assert!(
+        waits("pa-claude").await.is_some(),
+        "a key alone on Claude Code"
+    );
+    input(&claude, b"\r").await;
+    assert_eq!(waits("pa-claude").await, None, "Enter answers it");
     w.stop().await;
 }
 
