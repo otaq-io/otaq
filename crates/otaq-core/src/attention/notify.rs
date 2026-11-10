@@ -25,8 +25,8 @@
 //! the target ([`Opener::open`]). Outside the bundle the macOS notifier runs `osascript`, whose notifications belong
 //! to Script Editor (a click can't open a ticket that way, Q22). On Linux `notify-send` posts through the desktop's
 //! notification service and reports a click (T-0159, Q34). On Windows a toast is shown under the installed app's
-//! identity (its name and icon), or Windows PowerShell's when the app isn't installed; Windows hands a click only to
-//! an app registered to be started by it, so there a click doesn't reach Otaq.
+//! identity (its name and icon), or Windows PowerShell's when the app isn't installed; a click on the installed app's
+//! toast opens an `otaq://open/…` link, which the installer registers to start the app on the target.
 
 #[cfg(target_os = "macos")]
 pub mod macos;
@@ -780,9 +780,11 @@ impl Notifier for NotifySendNotifier {
 
 /// Windows: a toast through the Windows notification platform, under the app identity [`toast_app_id`] picks.
 /// Windows shows a toast with the name and icon of the identity it is posted under, whichever process posts it (the
-/// background service posts them), and drops a toast whose identity nothing registered. Windows hands a toast's
-/// click only to an app registered to be started by it, so a click can't reach Otaq: like macOS (Q22), the toast
-/// tells, the app opens the ticket. It therefore carries no "Open terminal" button.
+/// background service posts them), and drops a toast whose identity nothing registered. A click on the installed
+/// app's toast, on its pop-up or later in the notification centre, makes Windows open the toast's [`open_link`],
+/// which the installer registers to start the app: that start brings the open window forward on the target (a second
+/// start hands it to the copy that runs) or opens a new one on it. It works whether or not the service still runs.
+/// A build that wasn't installed has no such link, so a click on its toast opens nothing.
 pub struct ToastNotifier;
 
 /// The AppUserModelID of Windows PowerShell, registered by Windows itself.
@@ -829,9 +831,86 @@ fn installed() -> bool {
         .any(|shortcut| shortcut.is_file())
 }
 
+/// The scheme of the link a toast opens when clicked: `otaq`. The Windows installer registers it to start the app.
+pub const OPEN_LINK_SCHEME: &str = naming::COMMAND_NAME;
+
+/// Letters, digits and `-._~` stay; every other byte becomes `%XX`.
+fn percent_encode(text: &str) -> String {
+    text.bytes()
+        .map(|b| match b {
+            b'A'..=b'Z' | b'a'..=b'z' | b'0'..=b'9' | b'-' | b'.' | b'_' | b'~' => {
+                (b as char).to_string()
+            }
+            _ => format!("%{b:02X}"),
+        })
+        .collect()
+}
+
+fn percent_decode(text: &str) -> Option<String> {
+    let bytes = text.as_bytes();
+    let mut out = Vec::with_capacity(bytes.len());
+    let mut i = 0;
+    while i < bytes.len() {
+        if bytes[i] == b'%' {
+            let hex = text.get(i + 1..i + 3)?;
+            out.push(u8::from_str_radix(hex, 16).ok()?);
+            i += 3;
+        } else {
+            out.push(bytes[i]);
+            i += 1;
+        }
+    }
+    String::from_utf8(out).ok()
+}
+
+/// The link a click on a toast opens: `otaq://open/<target>`, the target as [`Target::to_open_value`] gives it, with
+/// `?home=<folder>` when the service runs on a data folder of its own (`data_home`, its `OTAQ_HOME`): the app the
+/// link starts doesn't get the service's environment, so that is how it reaches this service's data folder.
+pub fn open_link(target: &Target, data_home: Option<&str>) -> String {
+    let mut link = format!(
+        "{OPEN_LINK_SCHEME}://open/{}",
+        percent_encode(&target.to_open_value())
+    );
+    if let Some(home) = data_home.filter(|h| !h.is_empty()) {
+        link.push_str("?home=");
+        link.push_str(&percent_encode(home));
+    }
+    link
+}
+
+/// What an [`open_link`] asks for: the target's open value, and the data folder when the link names one.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct OpenLink {
+    pub open: String,
+    pub home: Option<std::path::PathBuf>,
+}
+
+/// Reads an [`open_link`] back (an app started by a toast's click gets it as its argument); anything else is `None`.
+pub fn parse_open_link(link: &str) -> Option<OpenLink> {
+    let rest = link
+        .trim()
+        .strip_prefix(OPEN_LINK_SCHEME)?
+        .strip_prefix("://open/")?;
+    let (target, query) = match rest.split_once('?') {
+        Some((target, query)) => (target, Some(query)),
+        None => (rest.trim_end_matches('/'), None),
+    };
+    let open = percent_decode(target.trim_end_matches('/'))?;
+    // Only a link that names something opens.
+    Target::parse_open_value(&open)?;
+    let home = query
+        .into_iter()
+        .flat_map(|q| q.split('&'))
+        .find_map(|pair| pair.strip_prefix("home="))
+        .and_then(percent_decode)
+        .filter(|h| !h.is_empty())
+        .map(std::path::PathBuf::from);
+    Some(OpenLink { open, home })
+}
+
 /// The toast's XML (frame *11 → OS notifications → Windows 11*, d0090): the title, the body, and the subtitle as the
-/// attribution line.
-pub fn toast_xml(n: &OsNotification) -> String {
+/// attribution line; with `link`, a click opens it.
+pub fn toast_xml(n: &OsNotification, link: Option<&str>) -> String {
     fn escape(text: &str) -> String {
         text.replace('&', "&amp;")
             .replace('<', "&lt;")
@@ -847,9 +926,12 @@ pub fn toast_xml(n: &OsNotification) -> String {
             escape(&n.subtitle)
         )
     };
+    let launch = link.map_or(String::new(), |link| {
+        format!(" launch=\"{}\" activationType=\"protocol\"", escape(link))
+    });
     format!(
-        "<toast><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text>{attribution}</binding>\
-         </visual></toast>",
+        "<toast{launch}><visual><binding template=\"ToastGeneric\"><text>{}</text><text>{}</text>{attribution}\
+         </binding></visual></toast>",
         escape(&n.title),
         escape(&n.body)
     )
@@ -857,7 +939,14 @@ pub fn toast_xml(n: &OsNotification) -> String {
 
 impl Notifier for ToastNotifier {
     fn post(&self, n: &OsNotification, _on_click: OnClick) {
-        let xml = toast_xml(n);
+        #[cfg(windows)]
+        let link = installed().then(|| {
+            let home = std::env::var(DataDir::env_var()).ok();
+            open_link(&n.target, home.as_deref())
+        });
+        #[cfg(not(windows))]
+        let link: Option<String> = None;
+        let xml = toast_xml(n, link.as_deref());
         #[cfg(windows)]
         toast::post(xml);
         #[cfg(not(windows))]
@@ -1804,7 +1893,7 @@ mod tests {
             &on(),
         ))
         .remove(0);
-        let xml = toast_xml(&n);
+        let xml = toast_xml(&n, None);
         assert!(
             xml.contains("<text>SHOP-22 needs permission</text>"),
             "{xml}"
@@ -1824,7 +1913,94 @@ mod tests {
             "no button that couldn't act: {xml}"
         );
         n.subtitle.clear();
-        assert!(!toast_xml(&n).contains("attribution"));
+        assert!(!toast_xml(&n, None).contains("attribution"));
+        assert!(!xml.contains("launch"), "no link, no click: {xml}");
+    }
+
+    /// A link of Otaq's scheme: `rest` follows the scheme.
+    fn link_of(rest: &str) -> String {
+        format!("{OPEN_LINK_SCHEME}{rest}")
+    }
+
+    /// The installed app's toast opens Otaq on its ticket when clicked: it carries the link the installer registers,
+    /// escaped for the XML, and the app started by that link reads the same target back.
+    #[test]
+    fn a_click_on_the_toast_opens_otaq_on_its_ticket() {
+        let n = notifications(plan(
+            &[item("SHOP-22", Status::NeedsYou, NeedsYouGroup::Family, 1)],
+            &HashMap::new(),
+            &mut HashSet::new(),
+            &on(),
+        ))
+        .remove(0);
+        let link = open_link(&n.target, Some(r"C:\Users\me\data home"));
+        assert_eq!(
+            link,
+            link_of("://open/SHOP-22?home=C%3A%5CUsers%5Cme%5Cdata%20home")
+        );
+        let xml = toast_xml(&n, Some(&link));
+        assert!(
+            xml.starts_with(&format!(
+                "<toast launch=\"{link}\" activationType=\"protocol\">"
+            )),
+            "{xml}"
+        );
+        assert_eq!(
+            parse_open_link(&link),
+            Some(OpenLink {
+                open: "SHOP-22".to_owned(),
+                home: Some(r"C:\Users\me\data home".into()),
+            })
+        );
+    }
+
+    /// Every target survives the link, the service's own data folder only when it has one; links that aren't Otaq's
+    /// or name nothing open nothing.
+    #[test]
+    fn every_target_travels_in_the_link() {
+        for target in [
+            Target::Ticket {
+                key: "SHOP-22".parse().unwrap(),
+            },
+            Target::Review {
+                key: "SHOP-18".parse().unwrap(),
+            },
+            Target::ProjectAgent {
+                project: "SHOP".to_owned(),
+                agent: "pa7".to_owned(),
+            },
+            Target::NeedsYou,
+            Target::Board { project: None },
+        ] {
+            let link = open_link(&target, None);
+            assert!(!link.contains("home="), "{link}");
+            let read = parse_open_link(&link).unwrap();
+            assert_eq!(Target::parse_open_value(&read.open), Some(target));
+            assert_eq!(read.home, None);
+        }
+        assert_eq!(
+            parse_open_link(&link_of("://open/SHOP-22/")).map(|l| l.open),
+            Some("SHOP-22".to_owned())
+        );
+        assert_eq!(
+            open_link(&Target::NeedsYou, Some("")),
+            link_of("://open/needs_you")
+        );
+        for other in [
+            String::new(),
+            "SHOP-22".to_owned(),
+            "https://open/SHOP-22".to_owned(),
+            link_of("://other/SHOP-22"),
+            link_of("://open/"),
+            link_of("://open/not%20a%20target"),
+        ] {
+            assert_eq!(parse_open_link(&other), None, "{other}");
+        }
+        assert_eq!(
+            parse_open_link(&link_of("://open/SHOP-22?home=%ZZ")).map(|l| l.home),
+            Some(None),
+            "a folder that doesn't decode is left out"
+        );
     }
 
     /// A Windows toast goes under the installed app's identity, so it shows Otaq's name and icon; a build that

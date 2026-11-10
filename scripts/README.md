@@ -431,6 +431,9 @@ Output: `$CARGO_TARGET_DIR/<target>/release/bundle/<kind>/` (without `--target`,
 - **Uninstalling from the system** removes only the program: the NSIS uninstall hook
   (`bundle/windows/hooks.nsh`, skipped on an update) and the `.deb`'s `bundle/linux/prerm` (`remove` only) stop the
   service, ignoring a failure, and say "Run `otaq uninstall` first to remove worktrees and data".
+- **Notification clicks on Windows:** the NSIS install hook registers the `otaq://` links (per user, under
+  `HKCU\Software\Classes\otaq`) that a click on a toast opens: they start the installed `otaq-app.exe` on the toast's
+  ticket. The uninstall hook removes them; a build that wasn't installed has no link, so its toasts can't be clicked.
 
 ### macOS order
 

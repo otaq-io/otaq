@@ -18,6 +18,7 @@ mod install_place;
 mod notices;
 mod notify_check;
 mod one_copy;
+mod open_link;
 mod quit;
 mod service;
 mod shell_path;
@@ -87,6 +88,8 @@ fn main() {
     if notify_check::requested() {
         std::process::exit(notify_check::run());
     }
+    // A start from a notification's link (a click on a Windows toast) opens its target, as `OTAQ_OPEN` does.
+    open_link::apply();
     // A copy opened by Move to Applications waits for the one that moved it to quit, so it takes the one-copy lock
     // below instead of handing over to the quitting copy (T-0579). The variable isn't passed on to the service.
     let moved_from = install_place::moved_from_var();
