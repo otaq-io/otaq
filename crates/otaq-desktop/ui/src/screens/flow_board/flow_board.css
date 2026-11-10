@@ -96,6 +96,17 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
+/* The drafting agent waits on the user: Needs you, in its colour, instead of "drafting a flow". */
+.fb-drafting[data-needs-you] {
+  background: var(--st-attn-bg);
+  color: var(--text-primary);
+}
+
+.fb-needs-you {
+  color: var(--st-attn);
+  font-weight: 600;
+}
+
 .fb-board {
   display: flex;
   flex: 1;

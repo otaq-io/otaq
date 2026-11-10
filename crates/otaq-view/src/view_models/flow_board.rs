@@ -339,10 +339,14 @@ pub struct Suggestion {
     pub discard: &'static str,
 }
 
-/// While Noyan's agent drafts a flow: "Strong is drafting a flow for shop-web…", with Show (its conversation).
+/// While Noyan's agent drafts a flow: "Strong is drafting a flow for shop-web…", with Show (its conversation). While it
+/// waits on the user, at a permission prompt or a question, Needs you takes the line's place: "Needs you" with "Strong
+/// wants your permission: Allow npm test?" and Answer; the line comes back once it works again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowBoardDrafting")]
 pub struct Drafting {
+    /// "Needs you" while the agent waits on the user; `None` while it drafts.
+    pub needs_you: Option<&'static str>,
     pub text: String,
     pub agent: String,
     pub show: &'static str,
@@ -837,23 +841,45 @@ pub fn suggest_message(project_name: &str) -> String {
 /// Noyan's agent is drafting a flow: the editor's agent is mid-turn (or waits on a prompt or a question it asked
 /// along the way) and nothing it proposed shows yet. An agent whose turn ended is idle, not drafting: its session
 /// stays open after it proposed, so once its suggestion is discarded or saved the line goes with it.
+/// A waiting agent mustn't look busy: while it stops at a permission prompt or a question, the line says Needs you
+/// and what it waits on instead.
 fn drafting(f: &Facts) -> Option<Drafting> {
     let agent = f.agent?;
     let working = agent.mid_turn || agent.needs_you.is_some() || agent.question.is_some();
     let drafting = matches!(agent.state, AgentState::Running) && working && f.marks.is_empty();
-    drafting.then(|| Drafting {
-        text: format!(
-            "{} is drafting a flow for {}\u{2026}",
-            agent.name, f.project_name
-        ),
-        agent: agent.id.clone(),
-        show: "Show",
+    if !drafting {
+        return None;
+    }
+    let waiting = match (&agent.question, &agent.needs_you) {
+        (Some(q), _) => Some(format!("{} asks: {}", agent.name, q.text)),
+        (None, Some(prompt)) => Some(format!("{} wants your permission: {prompt}", agent.name)),
+        (None, None) => None,
+    };
+    Some(match waiting {
+        Some(text) => Drafting {
+            needs_you: Some("Needs you"),
+            text,
+            agent: agent.id.clone(),
+            show: "Answer",
+        },
+        None => Drafting {
+            needs_you: None,
+            text: drafting_text(&agent.name, f.project_name),
+            agent: agent.id.clone(),
+            show: "Show",
+        },
     })
+}
+
+/// "Strong is drafting a flow for shop-web…".
+fn drafting_text(agent: &str, project_name: &str) -> String {
+    format!("{agent} is drafting a flow for {project_name}\u{2026}")
 }
 
 fn start_from(f: &Facts, b: &BoardFacts) -> StartFrom {
     let name = suggester(f);
-    let busy = drafting(f).map(|d| d.text);
+    // Suggest stays off while the agent drafts, waiting on the user or not.
+    let busy = drafting(f).and_then(|_| f.agent.map(|a| drafting_text(&a.name, f.project_name)));
     StartFrom {
         suggest: Suggest {
             label: format!("Suggest a flow for {}\u{2026}", f.project_name),
@@ -1549,6 +1575,93 @@ mod tests {
             plan_warning(&written).as_deref(),
             Some("`plan-ticket` is written but not committed yet: commit it so agents get it")
         );
+    }
+
+    /// While the drafting agent waits on the user, at a permission prompt or a question, Needs you takes the line's
+    /// place (Suggest stays off); once the user answers and it works again, "drafting a flow" comes back.
+    #[test]
+    fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            };
+            let d = drafting(&f).unwrap();
+            (d.needs_you, d.text, d.show, start_from_off(&f))
+        };
+        let drafting_line = "Shop repo flow is drafting a flow for shop\u{2026}".to_owned();
+        let busy = Some(drafting_line.clone());
+
+        let mut a = agent("c1", "Shop repo flow", 0);
+        a.mid_turn = true;
+        assert_eq!(
+            line(&a),
+            (None, drafting_line.clone(), "Show", busy.clone())
+        );
+
+        // At a permission prompt (its turn hasn't ended).
+        a.needs_you = Some("Allow npm test?".into());
+        assert_eq!(
+            line(&a),
+            (
+                Some("Needs you"),
+                "Shop repo flow wants your permission: Allow npm test?".to_owned(),
+                "Answer",
+                busy.clone()
+            )
+        );
+
+        // Answered: it works again, and the line is back.
+        a.needs_you = None;
+        assert_eq!(
+            line(&a),
+            (None, drafting_line.clone(), "Show", busy.clone())
+        );
+
+        // A question for the user.
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Keep the Validate stage?".into(),
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        assert_eq!(
+            line(&a),
+            (
+                Some("Needs you"),
+                "Shop repo flow asks: Keep the Validate stage?".to_owned(),
+                "Answer",
+                busy.clone()
+            )
+        );
+        a.question = None;
+        assert_eq!(line(&a), (None, drafting_line, "Show", busy));
     }
 
     #[test]
