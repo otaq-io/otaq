@@ -47,6 +47,7 @@ fn input_quirks() {
     assert_eq!(quirks.before_enter, before_enter);
     assert!(!quirks.multi_line_clearable);
     assert!(!adapter.typed_key_answers_prompt());
+    assert!(adapter.key_alone_approves_prompt());
     assert!(!adapter.turn_end_reports_background());
     assert_eq!(adapter.own_helper_programs(), ["codex-code-mode-host"]);
     assert!(!adapter.swaps_refused_model());

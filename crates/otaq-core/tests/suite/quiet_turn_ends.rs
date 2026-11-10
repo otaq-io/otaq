@@ -378,6 +378,21 @@ async fn a_key_at_copilots_prompt_answers_it() {
     w.stop().await;
 }
 
+/// Codex takes "y" alone at its approval prompt and sends nothing until the command's turn goes on to its end or its
+/// next prompt: the key itself makes the card Working at once, and it stays Working while the turn runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_codexs_prompt_makes_it_working_at_once() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let agent = sh_on(&w, &ticket, Tool::Codex).await;
+    needs_you(&w, &agent, Tool::Codex).await;
+    key(&client, &agent, b"y").await;
+    assert_eq!(card(&w).await, (Status::Working, None));
+    tokio::time::sleep(TIMING.answer_wait * 2).await;
+    assert_eq!(card(&w).await.0, Status::Working);
+    w.stop().await;
+}
+
 /// Something running under Copilot after the key (the command it was allowed to run): the card stays Working until
 /// it ends.
 #[tokio::test(flavor = "multi_thread")]

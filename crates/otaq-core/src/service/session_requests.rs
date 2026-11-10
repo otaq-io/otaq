@@ -104,8 +104,8 @@ pub(super) async fn handle(
                 }
             }
             // A key in a ticket's agent terminal answers its open permission prompt, whatever the ticket's status
-            // (Codex takes "y" alone): the message writer's prompt in Review closes here. Escape sequences (arrows,
-            // the mouse) and pastes don't.
+            // (Codex takes "y" alone): the message writer's prompt in Review closes here, and a card left at Needs you
+            // by such a key is Working again. Escape sequences (arrows, the mouse) and pastes don't.
             if (effect.enters > 0 || bytes.len() == 1)
                 && let Some(info) = info
                     .as_ref()
@@ -113,8 +113,12 @@ pub(super) async fn handle(
                 && let Some(key) = &info.ticket
                 && shared.signals.open_prompt(&p.session).is_some()
                 && let Ok(id) = shared.board.ticket_id(&key.to_string()).await
+                && let Err(e) = shared
+                    .signals
+                    .key_answered_prompt(key, &id, &p.session)
+                    .await
             {
-                shared.signals.prompt_answered(key, &id, &p.session);
+                tracing::warn!(session = p.session, error = %e, "can't clear the prompt");
             }
             // Enter in a helper's terminal answers its permission prompt there, or its passed-on question (d0133 audit
             // 3, d0119).
