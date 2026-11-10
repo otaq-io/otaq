@@ -834,11 +834,14 @@ pub fn suggest_message(project_name: &str) -> String {
     )
 }
 
-/// Noyan's agent is drafting a flow: the editor's agent runs and nothing it proposed shows yet.
+/// Noyan's agent is drafting a flow: the editor's agent is mid-turn (or waits on a prompt or a question it asked
+/// along the way) and nothing it proposed shows yet. An agent whose turn ended is idle, not drafting: its session
+/// stays open after it proposed, so once its suggestion is discarded or saved the line goes with it.
 fn drafting(f: &Facts) -> Option<Drafting> {
     let agent = f.agent?;
-    let running = matches!(agent.state, AgentState::Running) && f.marks.is_empty();
-    running.then(|| Drafting {
+    let working = agent.mid_turn || agent.needs_you.is_some() || agent.question.is_some();
+    let drafting = matches!(agent.state, AgentState::Running) && working && f.marks.is_empty();
+    drafting.then(|| Drafting {
         text: format!(
             "{} is drafting a flow for {}\u{2026}",
             agent.name, f.project_name
@@ -1271,6 +1274,21 @@ mod tests {
     use super::*;
     use otaq_core::flow::presets::preset;
 
+    /// Why Suggest a flow can't be asked now, as Start from says.
+    fn start_from_off(f: &Facts) -> Option<String> {
+        let none = Vec::new();
+        start_from(
+            f,
+            &BoardFacts {
+                base_branch: "main",
+                others: &none,
+                previous: false,
+            },
+        )
+        .suggest
+        .off
+    }
+
     fn default_flow() -> Flow {
         presets()[0].read().flow
     }
@@ -1340,6 +1358,64 @@ mod tests {
         let mut flow = default_flow();
         flow.stages.retain(|s| s.is_agent_stage());
         assert!(walk(&flow, "main", true).is_empty());
+    }
+
+    /// The "drafting a flow" line shows only while Noyan's agent works on the draft. After Discard or Save the draft
+    /// has no marks and the agent's turn has ended (its session stays open, idle): the line is gone, and Suggest can
+    /// be asked again.
+    #[test]
+    fn the_drafting_line_goes_when_the_draft_does() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            };
+            (drafting(&f).map(|d| d.text), start_from_off(&f))
+        };
+
+        let mut a = agent("c1", "Shop repo flow", 0);
+        a.mid_turn = true;
+        assert_eq!(
+            line(&a).0.as_deref(),
+            Some("Shop repo flow is drafting a flow for shop\u{2026}"),
+            "while its turn runs"
+        );
+        a.mid_turn = false;
+        a.needs_you = Some("Allow npm test?".into());
+        assert!(
+            line(&a).0.is_some(),
+            "a permission prompt along the way is still drafting"
+        );
+
+        // Discarded or saved: no marks, and the agent sits idle with its session open.
+        a.needs_you = None;
+        assert_eq!(line(&a), (None, None), "an idle agent drafts nothing");
+        a.state = AgentState::Ended;
+        a.mid_turn = true;
+        assert_eq!(line(&a), (None, None), "nor does an ended one");
     }
 
     #[test]
