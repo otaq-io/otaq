@@ -27,12 +27,13 @@
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::Agent;
-use otaq_core::board::stage_choices::SKIP;
-use otaq_core::board::tickets::Field;
+use otaq_core::board::stage_choices::{SKIP, TicketChoices};
+use otaq_core::board::tickets::{Field, Ticket, TicketUpdate};
 use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
 use otaq_core::project_agents::{
     AgentState, CreatedAndChanged, CreatedTicket, ProjectAgent, ProjectAgentList, WhatChanged,
 };
+use otaq_core::protocol::{DepParams, Request, SetChoiceParams, TicketUpdateParams};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -278,6 +279,8 @@ pub struct EditedTicket {
     pub title: String,
     /// Its column as the board names it ("Backlog", "Validate", "Review"; `Ticket::place_name`).
     pub place: String,
+    /// The changes on it that still read as Noyan left them ([`still_as_left`]): their rows have Undo.
+    pub undo: Vec<WhatChanged>,
 }
 
 /// Where a started ticket is now, as the board shows it: its column ("Dev", the stage's name) and its card's status
@@ -329,6 +332,9 @@ pub struct CreatedRow {
     /// "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
     pub start: Option<&'static str>,
     pub delete: Option<&'static str>,
+    /// "Undo" on a changed row while that part of the ticket still reads as Noyan left it: `agent_panel.undo` takes
+    /// the change back. Gone once someone changed that part again, so Undo never overwrites a later edit.
+    pub undo: Option<&'static str>,
 }
 
 /// Show on board (Q-G, d0087): the board shows only the tickets this agent created or changed, with the chip
@@ -422,6 +428,111 @@ pub fn what_it_was_given(t: &CreatedTicket) -> Option<String> {
     })
 }
 
+/// Whether `change` still reads on `ticket` as Noyan left it, so its Undo takes back only Noyan's change and never
+/// overwrites a later one (the user's or an agent's): the wait it added is still there (the one it removed still
+/// gone), the field still reads as Noyan wrote it, the stage still has the choice Noyan set. A part that can't change
+/// any more has no Undo either: the base branch once the ticket started, a stage's choice once the stage started.
+/// Where the ticket is doesn't count: a ticket that only moved to another column keeps its Undo. `choices` (the
+/// ticket's stage choices) is needed only for a stage's choice.
+pub fn still_as_left(
+    change: &WhatChanged,
+    ticket: &Ticket,
+    choices: Option<&TicketChoices>,
+) -> bool {
+    match change {
+        WhatChanged::WaitsFor { parent } => ticket.depends_on.contains(parent),
+        WhatChanged::NoLongerWaitsFor { parent } => !ticket.depends_on.contains(parent),
+        WhatChanged::Field { field, after, .. } => {
+            let after = after.as_deref().unwrap_or_default();
+            match field {
+                Field::Title => ticket.title == after,
+                Field::Body => ticket.body == after,
+                Field::Plan => ticket.plan == after,
+                // History writes a priority as "P2 · High".
+                Field::Priority => ticket.priority.to_string() == after,
+                Field::BaseBranch => !ticket.base_locked && ticket.base.branch() == after,
+            }
+        }
+        WhatChanged::StageChoice {
+            stage_id, after, ..
+        } => choices
+            .and_then(|c| c.stages.iter().find(|s| s.stage_id == *stage_id))
+            .is_some_and(|s| !s.locked && s.label() == *after),
+    }
+}
+
+/// The request Undo sends to take `change` back on `ticket`: the board's own edit, the one the ticket's editor and
+/// card make, so History records it as the user's. The wait comes off (or goes back on), the field reads as Noyan
+/// found it, the stage gets back the choice it had (its own agent when nobody had chosen, which needs `choices`).
+/// `None` when there is nothing to put back (a title Noyan found empty).
+pub fn undo_request(
+    ticket: &TicketKey,
+    change: &WhatChanged,
+    choices: Option<&TicketChoices>,
+) -> Option<Request> {
+    let dep = |parent: &TicketKey| DepParams {
+        child: ticket.to_string(),
+        parent: parent.to_string(),
+    };
+    let update = |update: TicketUpdate| {
+        Request::TicketUpdate(TicketUpdateParams {
+            key: ticket.to_string(),
+            update,
+        })
+    };
+    let filled = |v: &Option<String>| v.clone().filter(|v| !v.trim().is_empty());
+    match change {
+        WhatChanged::WaitsFor { parent } => Some(Request::DepRemove(dep(parent))),
+        WhatChanged::NoLongerWaitsFor { parent } => Some(Request::DepAdd(dep(parent))),
+        WhatChanged::Field { field, before, .. } => Some(update(match field {
+            Field::Title => TicketUpdate {
+                title: Some(filled(before)?),
+                ..TicketUpdate::default()
+            },
+            Field::Body => TicketUpdate {
+                body: Some(before.clone().unwrap_or_default()),
+                ..TicketUpdate::default()
+            },
+            Field::Plan => TicketUpdate {
+                plan: Some(before.clone().unwrap_or_default()),
+                ..TicketUpdate::default()
+            },
+            Field::Priority => TicketUpdate {
+                // "P3 · Normal" → P3.
+                priority: Some(
+                    filled(before)?
+                        .split(" \u{b7} ")
+                        .next()?
+                        .parse::<Priority>()
+                        .ok()?,
+                ),
+                ..TicketUpdate::default()
+            },
+            Field::BaseBranch => TicketUpdate {
+                base_branch: Some(filled(before)?),
+                ..TicketUpdate::default()
+            },
+        })),
+        WhatChanged::StageChoice {
+            stage_id, before, ..
+        } => {
+            let choice = match before {
+                Some(before) => before.clone(),
+                None => choices?
+                    .stages
+                    .iter()
+                    .find(|s| s.stage_id == *stage_id)?
+                    .usual_label(),
+            };
+            Some(Request::TicketSetChoice(SetChoiceParams {
+                key: ticket.to_string(),
+                stage: stage_id.clone(),
+                choice,
+            }))
+        }
+    }
+}
+
 /// `None` while the agent created and changed nothing. `places` says where each started ticket is.
 pub fn created(
     agent: &ProjectAgent,
@@ -454,11 +565,16 @@ pub fn created(
                 change: what_it_was_given(t),
                 start: waiting.then_some("Start"),
                 delete: t.deletable.then_some("Delete"),
+                undo: None,
             }
         })
         .collect();
-    let changed_row = |key: &TicketKey, change: Option<String>| {
+    let changed_row = |key: &TicketKey, change: Option<&WhatChanged>| {
         let known = edited.iter().find(|t| t.key == *key);
+        let undo = change
+            .zip(known)
+            .is_some_and(|(change, t)| t.undo.contains(change));
+        let change = change.map(what_changed);
         CreatedRow {
             key: key.to_string(),
             title: known.map_or_else(String::new, |t| t.title.clone()),
@@ -473,6 +589,7 @@ pub fn created(
             change,
             start: None,
             delete: None,
+            undo: undo.then_some("Undo"),
         }
     };
     // One row per change; a service from before the changes were sent gives only the tickets.
@@ -481,7 +598,7 @@ pub fn created(
     } else {
         c.changes
             .iter()
-            .map(|ch| changed_row(&ch.ticket, Some(what_changed(&ch.change))))
+            .map(|ch| changed_row(&ch.ticket, Some(&ch.change)))
             .collect()
     };
     let all_waiting = c.created.iter().all(|t| in_backlog(t.status));
@@ -932,6 +1049,9 @@ pub fn gallery() -> Gallery {
         key: "NOTE-5".parse().expect("a key"),
         title: "Sync conflicts".into(),
         place: "Backlog".into(),
+        undo: vec![WhatChanged::WaitsFor {
+            parent: "NOTE-4".parse().expect("a key"),
+        }],
     }];
     // NOTE-11 was started from the panel and waits at the top of Dev.
     let places = [Whereabouts {
@@ -1219,6 +1339,7 @@ mod tests {
             key: "NOTE-5".parse().unwrap(),
             title: "Sync conflicts".into(),
             place: "Backlog".into(),
+            undo: Vec::new(),
         }]
     }
 
@@ -1777,6 +1898,176 @@ mod tests {
             .collect()
     }
 
+    /// Undo shows on a CHANGED row only while that part of the ticket still reads as Noyan left it: "now waits for
+    /// SHOP-6" has Undo while SHOP-7 waits for SHOP-6, and loses it once the user removed that wait; a column move
+    /// keeps it. Undo removes the wait through the board's own edit.
+    #[test]
+    fn undo_shows_while_the_wait_is_as_noyan_left_it() {
+        use crate::view_models::card_fixtures::ticket;
+
+        let shop6: TicketKey = "SHOP-6".parse().unwrap();
+        let change = WhatChanged::WaitsFor {
+            parent: shop6.clone(),
+        };
+        let mut t = ticket("SHOP-7", "Check total", Status::Backlog);
+        t.depends_on = vec![shop6.clone()];
+        assert!(still_as_left(&change, &t, None));
+        assert_eq!(
+            undo_request(&t.key, &change, None),
+            Some(Request::DepRemove(DepParams {
+                child: "SHOP-7".into(),
+                parent: "SHOP-6".into(),
+            }))
+        );
+        // Moved to another column: still as Noyan left it.
+        let moved = Ticket {
+            depends_on: vec![shop6.clone()],
+            ..ticket("SHOP-7", "Check total", Status::Queued)
+        };
+        assert!(still_as_left(&change, &moved, None));
+        // The user removed that wait themselves: no Undo, so it never puts back what they did.
+        t.depends_on.clear();
+        assert!(!still_as_left(&change, &t, None));
+        // A wait Noyan removed: Undo while it is still gone, and it puts the wait back.
+        let removed = WhatChanged::NoLongerWaitsFor { parent: shop6 };
+        assert!(still_as_left(&removed, &t, None));
+        assert!(matches!(
+            undo_request(&t.key, &removed, None),
+            Some(Request::DepAdd(_))
+        ));
+
+        // The panel's row: Undo while the ticket lists the change as still Noyan's, none after.
+        let a = agent("a1", "Tidy the backlog", 1);
+        let c = CreatedAndChanged {
+            edited: vec!["SHOP-7".parse().unwrap()],
+            changes: vec![waits("SHOP-7", "SHOP-6")],
+            ..Default::default()
+        };
+        let mut edited = [EditedTicket {
+            key: "SHOP-7".parse().unwrap(),
+            title: "Check total".into(),
+            place: "Backlog".into(),
+            undo: vec![change],
+        }];
+        let panel = created(&a, &c, &edited, &[], None).unwrap();
+        assert_eq!(panel.changed[0].undo, Some("Undo"));
+        edited[0].undo.clear();
+        let panel = created(&a, &c, &edited, &[], None).unwrap();
+        assert_eq!(panel.changed[0].undo, None);
+        assert_eq!(
+            panel.changed[0].change.as_deref(),
+            Some("now waits for SHOP-6"),
+            "the row keeps what it says"
+        );
+    }
+
+    /// A field has Undo while it still reads as Noyan wrote it, and Undo writes back what Noyan found; a base branch
+    /// that can't change any more (the ticket started) has none.
+    #[test]
+    fn undo_of_a_field_writes_back_what_noyan_found() {
+        use crate::view_models::card_fixtures::ticket;
+
+        let field = |field: Field, before: &str, after: &str| WhatChanged::Field {
+            field,
+            before: Some(before.into()),
+            after: Some(after.into()),
+        };
+        let mut t = ticket("SHOP-9", "Cache previews", Status::Backlog);
+        t.priority = "P2".parse().unwrap();
+        t.body = "More steps".into();
+        let update = |t: &Ticket, change: &WhatChanged| match undo_request(&t.key, change, None) {
+            Some(Request::TicketUpdate(p)) => {
+                assert_eq!(p.key, "SHOP-9");
+                p.update
+            }
+            other => panic!("{other:?}"),
+        };
+
+        let title = field(Field::Title, "Old", "Cache previews");
+        assert!(still_as_left(&title, &t, None));
+        assert_eq!(update(&t, &title).title.as_deref(), Some("Old"));
+        let priority = field(Field::Priority, "P3 \u{b7} Normal", "P2 \u{b7} High");
+        assert!(still_as_left(&priority, &t, None));
+        assert_eq!(update(&t, &priority).priority, Some("P3".parse().unwrap()));
+        let body = WhatChanged::Field {
+            field: Field::Body,
+            before: None,
+            after: Some("More steps".into()),
+        };
+        assert!(still_as_left(&body, &t, None));
+        assert_eq!(update(&t, &body).body.as_deref(), Some(""));
+        // Someone wrote the description again: no Undo.
+        t.body = "Edited by you".into();
+        assert!(!still_as_left(&body, &t, None));
+
+        let base = field(Field::BaseBranch, "main", "develop");
+        t.base = otaq_core::board::tickets::Base::Branch("develop".into());
+        assert!(still_as_left(&base, &t, None));
+        assert_eq!(update(&t, &base).base_branch.as_deref(), Some("main"));
+        t.base_locked = true;
+        assert!(!still_as_left(&base, &t, None));
+    }
+
+    /// A stage's choice has Undo while the stage still has Noyan's choice and hasn't started; Undo sets back the
+    /// choice it had, the stage's own agent when nobody had chosen.
+    #[test]
+    fn undo_of_a_stage_choice_sets_back_the_choice_it_had() {
+        use otaq_core::board::stage_choices::{
+            Choice, OptionAgent, SetBy, StageChoice, StageOptions,
+        };
+
+        let key: TicketKey = "SHOP-9".parse().unwrap();
+        let mut choices = TicketChoices {
+            key: Some(key.clone()),
+            stages: vec![StageOptions {
+                stage_id: "dev".into(),
+                stage: "Dev".into(),
+                usual: Some(OptionAgent {
+                    name: "Rust developer".into(),
+                    agent_id: Some("rust".into()),
+                    tool: None,
+                }),
+                agents: Vec::new(),
+                can_skip: true,
+                choice: Some(StageChoice {
+                    stage_id: "dev".into(),
+                    choice: Choice::Skip,
+                    set_by: SetBy::User,
+                    set_at: 1,
+                    from: None,
+                }),
+                locked: false,
+                held: false,
+                description: None,
+            }],
+        };
+        let change = WhatChanged::StageChoice {
+            stage: "Dev".into(),
+            stage_id: "dev".into(),
+            before: None,
+            after: SKIP.into(),
+        };
+        let t =
+            crate::view_models::card_fixtures::ticket("SHOP-9", "Cache previews", Status::Backlog);
+        assert!(still_as_left(&change, &t, Some(&choices)));
+        assert!(!still_as_left(&change, &t, None));
+        assert_eq!(
+            undo_request(&key, &change, Some(&choices)),
+            Some(Request::TicketSetChoice(SetChoiceParams {
+                key: "SHOP-9".into(),
+                stage: "dev".into(),
+                choice: "Rust developer".into(),
+            }))
+        );
+        // The stage started: its choice can't change, so no Undo.
+        choices.stages[0].locked = true;
+        assert!(!still_as_left(&change, &t, Some(&choices)));
+        // Someone chose again: no Undo.
+        choices.stages[0].locked = false;
+        choices.stages[0].choice = None;
+        assert!(!still_as_left(&change, &t, Some(&choices)));
+    }
+
     /// A CHANGED row says what Noyan changed, one row per change, in plain words for each kind (the canvas's
     /// "SHOP-7 · now waits for SHOP-6"), not where the ticket is.
     #[test]
@@ -1833,6 +2124,7 @@ mod tests {
             key: "SHOP-3".parse().unwrap(),
             title: "Cache previews".into(),
             place: "Backlog".into(),
+            undo: Vec::new(),
         }];
         let panel = created(&a, &c, &edited, &[], None).unwrap();
         assert_eq!(panel.line, "CREATED 0 \u{b7} CHANGED 10");

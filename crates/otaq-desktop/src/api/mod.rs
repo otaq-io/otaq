@@ -13,7 +13,7 @@ pub use agent_panel::{
     AnswerParams as AgentAnswerParams, EndParams as AgentPanelEndParams, Ended as AgentPanelEnded,
     Params as AgentPanelParams, ProjectOnly as AgentPanelProjectParams,
     RenameParams as AgentPanelRenameParams, ResumeParams as AgentPanelResumeParams,
-    SendParams as AgentPanelSendParams,
+    SendParams as AgentPanelSendParams, UndoParams as AgentPanelUndoParams,
 };
 #[cfg(test)]
 pub use agent_tools::{

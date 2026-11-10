@@ -140,6 +140,7 @@ const RUNNING: AgentPanelView = {
           change: null,
           start: null,
           delete: null,
+          undo: null,
         },
         {
           key: "NOTE-12",
@@ -151,6 +152,7 @@ const RUNNING: AgentPanelView = {
           change: null,
           start: "Start",
           delete: "Delete",
+          undo: null,
         },
       ],
       changed_title: "CHANGED 1",
@@ -165,6 +167,7 @@ const RUNNING: AgentPanelView = {
           change: "now waits for NOTE-4",
           start: null,
           delete: null,
+          undo: "Undo",
         },
       ],
     },
@@ -482,10 +485,21 @@ describe("a running agent", () => {
     expect(rows[2]?.textContent).not.toContain("Start");
     expect(box.textContent).toContain("CHANGED 1");
     // The changed row says what Noyan changed, the title kept for its tooltip.
-    expect(rows[2]?.textContent).toBe("NOTE-5· now waits for NOTE-4");
+    expect(rows[2]?.textContent).toBe("NOTE-5· now waits for NOTE-4Undo");
     expect(rows[2]?.querySelector(".agent-panel-created-title")?.getAttribute("title")).toBe(
       "Sync conflicts",
     );
+    // Undo takes that change back: the row names it by its ticket and what it says changed.
+    const undo = [...(rows[2]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Undo");
+    await act(async () => {
+      undo?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("agent_panel.undo", {
+      agent: "a1",
+      ticket: "NOTE-5",
+      change: "now waits for NOTE-4",
+    });
     const start = [...(rows[1]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Start");
     await act(async () => {
       start?.click();

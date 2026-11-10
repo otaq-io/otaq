@@ -86,6 +86,8 @@ objc2-app-kit = { version = "0.3.2", default-features = false, features = ["std"
 [dev-dependencies]
 # The freshness test generates the types into a temporary folder.
 tempfile = "3.27.0"
+# A test writes a Project agent's row beside the running service (agent_panel.undo).
+sqlx = { version = "0.9.0", default-features = false, features = ["runtime-tokio", "sqlite"] }
 
 [features]
 # Set by the Tauri CLI for release builds: the page is served from the binary, not from the Vite dev server.
