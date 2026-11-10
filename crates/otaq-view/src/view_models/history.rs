@@ -3367,7 +3367,7 @@ mod tests {
         let row = |payload| event_row(&event(EventKind::Dragged, 1, payload)).unwrap();
         let sent = row(serde_json::json!({
             "stage": "Product spec", "back": true, "skipped": [], "run_by_you": false,
-            "note": "Dev asked to send SHOP-1 back to Product spec: Refunds over 30 days aren't specified.",
+            "note": "Dev sent it back to Product spec: Refunds over 30 days aren't specified.",
             "asked_by": "Dev", "reason": "Refunds over 30 days aren't specified.\nMore lines.",
             "skip_cleared": true,
         }));

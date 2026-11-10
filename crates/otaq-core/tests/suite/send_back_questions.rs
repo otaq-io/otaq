@@ -267,9 +267,10 @@ async fn send_back_moves_the_ticket_to_the_named_stage_and_clears_its_skip() {
     let comment = agents_reason(&w, "SHOP-1", "Rust developer", "dev")
         .await
         .body;
-    assert!(
-        comment.starts_with("Dev asked to send SHOP-1 back to Product spec"),
-        "{comment}"
+    assert_eq!(
+        comment.trim(),
+        format!("Dev sent it back to Product spec: {REASON}"),
+        "each stage is named once"
     );
     let event = w
         .board

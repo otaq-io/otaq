@@ -1931,11 +1931,9 @@ async fn send_back_on_request(
     let cleared = board.clear_skip(&ticket, &to.stage_id).await?;
     let skip_cleared = cleared.is_some();
     let reason = question.text.trim();
+    // The comment names each stage once: "Dev sent it back to Product spec: <reason>".
     let note = match &asked_by {
-        Some(by) => format!(
-            "{by} asked to send {} back to {}: {reason}",
-            ticket.key, to.stage
-        ),
+        Some(by) => format!("{by} sent it back to {}: {reason}", to.stage),
         None => format!("Sent back to {}: {reason}", to.stage),
     };
     let asked = crate::review::drag::Asked {
