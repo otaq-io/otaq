@@ -1148,9 +1148,10 @@ pub(crate) fn stop_agents_and_quit(handle: &tauri::AppHandle) {
     });
 }
 
-/// ⌘Q and the menu bar's Quit Otaq (TRY-03): with agents working, the window asks "Quit Otaq?": Keep them running
-/// (the default: the app only) · Quit and stop agents · Cancel; with none working, or no service to ask, the app
-/// quits at once. The Dock's
+/// ⌘Q, the menu bar's Quit Otaq and the tray's Quit Otaq on every platform (TRY-03): with agents working, the window
+/// asks "Quit Otaq?": Keep them running (the default: the app only) · Quit and stop agents · Cancel; with none
+/// working, or no service to ask, the app quits at once. The window comes up first, so the question shows on it even
+/// when the window was closed to the tray. The Dock's
 /// Quit and a logout end the app through macOS without asking (Tauri can't hold them), so a logout never waits.
 fn quit_asked(handle: &tauri::AppHandle) {
     use otaq_view::view_models::quit::quit_question;
@@ -1163,6 +1164,10 @@ fn quit_asked(handle: &tauri::AppHandle) {
         };
         let on_main = handle.clone();
         let _ = handle.run_on_main_thread(move || {
+            // A question on a hidden window can show behind everything, or not at all.
+            if let Err(e) = show_main_window(&on_main) {
+                eprintln!("couldn't bring the window up for the quit question: {e}");
+            }
             let labels = vec![
                 question.keep.to_owned(),
                 question.stop.to_owned(),
