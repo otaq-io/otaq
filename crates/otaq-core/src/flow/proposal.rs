@@ -1317,12 +1317,15 @@ impl Board {
         Ok(proposals)
     }
 
-    /// `flow.cancel_proposal`: drops the open proposal (nothing else changes). The one it dropped.
+    /// `flow.cancel_proposal`: drops the open proposal. The skills the Project agent wrote (or was writing) for it go
+    /// with it, as Undo and Stop take them away: only while git says they are untracked and, once written, they hold
+    /// only what was written; a skill the user had before is never touched. The one it dropped.
     pub async fn cancel_proposal(&self, project: &str) -> Result<Option<u32>, BoardError> {
         let Some(row) = self.proposal_row(project).await? else {
             return Ok(None);
         };
         self.drop_proposal(row.id).await?;
+        self.remove_draft_skills(&row).await;
         Ok(Some(row.id))
     }
 

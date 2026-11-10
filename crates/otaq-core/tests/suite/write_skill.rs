@@ -513,6 +513,72 @@ async fn undo_and_stop_leave_no_empty_folders_the_write_made() {
     );
 }
 
+/// Cancel in Edit flow takes away what the agent wrote for the draft, as Undo and Stop do: the skill it handed in and
+/// the folder it was still writing in go; a skill the user had before stays, and so does one the user changed since.
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_removes_the_skills_the_agent_wrote_and_keeps_the_users() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    let skills = checkout.join(".claude").join("skills");
+    let mine = skills.join("mine").join("SKILL.md");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::write(
+        &mine,
+        "---\nname: mine\ndescription: The user's own.\n---\n",
+    )
+    .unwrap();
+
+    // Written and handed in, then Cancel: the draft and the skill's folder go; the user's own skill stays.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "Noyan").await.unwrap();
+    assert!(w.board.cancel_proposal(&key).await.unwrap().is_some());
+    assert!(!Path::new(&given.folder).exists(), "the written skill goes");
+    assert!(mine.is_file(), "the user's own skill stays");
+
+    // Still being written, then Cancel: the folder the agent writes in goes.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-steps"), Some("pa-1"))
+        .await
+        .unwrap();
+    std::fs::write(
+        Path::new(&given.folder).join("SKILL.md"),
+        "---\nname: plan-steps\n",
+    )
+    .unwrap();
+    w.board.cancel_proposal(&key).await.unwrap();
+    assert!(
+        !Path::new(&given.folder).exists(),
+        "the half-written skill goes"
+    );
+
+    // Changed by the user after it was handed in: Cancel keeps it.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-later"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "Noyan").await.unwrap();
+    std::fs::write(Path::new(&given.folder).join("notes.md"), "mine").unwrap();
+    w.board.cancel_proposal(&key).await.unwrap();
+    assert!(
+        Path::new(&given.folder).join("notes.md").is_file(),
+        "the user's edit stays"
+    );
+    assert!(mine.is_file());
+}
+
 /// Otaq keeps no skills: the folders an older Otaq kept them in (`$OTAQ_HOME/skills/`, `skill-writes/`) are gone after
 /// the service starts.
 #[tokio::test(flavor = "multi_thread")]

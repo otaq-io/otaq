@@ -344,23 +344,50 @@ async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
 
 /// Cancel drops the draft.
 /// Cancel drops the draft the page showed (`proposal`; `0`: none was stored, so nothing to drop). With no
-/// `proposal` the page had no view to say which (the draft doesn't draw): whatever draft is open goes.
+/// `proposal` the page had no view to say which (the draft doesn't draw): whatever draft is open goes. The skills the
+/// agent wrote for it go with it (the service deletes their folders), and an agent still writing one is interrupted,
+/// as Stop does, so it doesn't write the folder again.
 async fn cancel(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
     if params.proposal == Some(0) {
         return Ok(());
     }
+    let writers: Vec<String> = draft(app, &params.project)
+        .await
+        .map(|d| d.writing.into_iter().filter_map(|w| w.agent).collect())
+        .unwrap_or_default();
     match app
         .service
         .send(Request::FlowCancelProposal(ProjectParams {
-            project: params.project,
+            project: params.project.clone(),
         }))
         .await
     {
-        Ok(_) => Ok(()),
+        Ok(_) => {}
         // Gone meanwhile (applied or cancelled elsewhere): nothing left to drop.
-        Err(e) if e.not_found => Ok(()),
-        Err(e) => Err(e),
+        Err(e) if e.not_found => return Ok(()),
+        Err(e) => return Err(e),
     }
+    if writers.is_empty() {
+        return Ok(());
+    }
+    let open = super::agent_panel::agents(app, &params.project).await?.open;
+    for agent in open {
+        if writers.contains(&agent.id)
+            && agent.state == AgentState::Running
+            && agent.mid_turn
+            && let Some(session) = agent.session
+        {
+            app.service
+                .send(Request::SessionInput(InputParams {
+                    session: session.id,
+                    data: encode_bytes(b"\x1b"),
+                    reply: false,
+                    if_empty: false,
+                }))
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 /// The first message, on the `flow` skill: `/flow <the user's words>`.
