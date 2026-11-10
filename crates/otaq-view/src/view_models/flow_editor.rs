@@ -899,7 +899,7 @@ fn found_skill<'f>(f: &'f Facts, skill: &str) -> Option<&'f FoundSkill> {
     f.skills.iter().find(|s| !s.otaq && s.name == skill)
 }
 
-/// "Codex doesn’t load the skill `retest-docs`: its SKILL.md starts with a byte order mark" on a stage whose
+/// "Codex doesn’t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark" on a stage whose
 /// skill a tool finds but doesn't load: when no tool loads it, or when the stage's agent's tool is one that skips it.
 /// Only a warning, the flow still applies; a ticket reaching the stage is held.
 pub(crate) fn skipped_skill(f: &Facts, stage: &Stage) -> Option<String> {

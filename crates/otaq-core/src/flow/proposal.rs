@@ -996,10 +996,26 @@ pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
 }
 
 /// The warning on a stage whose skill `tools` find but don't load, because its `SKILL.md` starts with a UTF-8 byte
-/// order mark: "Codex doesn’t load the skill `team-validate`: its SKILL.md starts with a byte order mark".
+/// order mark: "Codex doesn’t load the skill `$team-validate`: its SKILL.md starts with a byte order mark", the skill
+/// named as those tools call it (each form once, "`$team-validate` or `/team-validate`" when they call it differently).
 pub fn skipped_skill_text(tools: &[Tool], skill: &str) -> String {
+    let mut forms: Vec<String> = Vec::new();
+    for tool in tools {
+        let form = tool.skill_reference(skill);
+        if !forms.contains(&form) {
+            forms.push(form);
+        }
+    }
+    if forms.is_empty() {
+        forms.push(skill.to_owned());
+    }
+    let named = forms
+        .iter()
+        .map(|form| format!("`{form}`"))
+        .collect::<Vec<_>>()
+        .join(" or ");
     format!(
-        "{} doesn\u{2019}t load the skill `{skill}`: its {} starts with a byte order mark",
+        "{} doesn\u{2019}t load the skill {named}: its {} starts with a byte order mark",
         tool_names(tools),
         crate::skills::found::SKILL_FILE
     )
@@ -1699,6 +1715,15 @@ mod tests {
         assert_eq!(
             missing_skill_text(Tool::OpenCode, "retest-docs"),
             "OpenCode doesn\u{2019}t have the skill `retest-docs`"
+        );
+        assert_eq!(
+            skipped_skill_text(&[Tool::Codex], "retest-docs"),
+            "Codex doesn\u{2019}t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark"
+        );
+        assert_eq!(
+            skipped_skill_text(&[Tool::Codex, Tool::Copilot], "retest-docs"),
+            "Codex, GitHub Copilot doesn\u{2019}t load the skill `$retest-docs` or `/retest-docs`: its SKILL.md starts \
+             with a byte order mark"
         );
     }
 

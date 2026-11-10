@@ -807,7 +807,7 @@ async fn a_personal_codex_skill_is_codexs_and_its_stage_starts() {
 
 /// The same skill saved with a UTF-8 byte order mark (as Windows PowerShell 5 writes it) isn't loaded by Codex, so
 /// the stage is still held, but the finder says why instead of "you don't have it": Pick a skill… has Codex skipping
-/// it and the stage warns "Codex doesn’t load the skill `reltest-docs`: its SKILL.md starts with a byte order mark".
+/// it and the stage warns "Codex doesn’t load the skill `$reltest-docs`: its SKILL.md starts with a byte order mark".
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_codex_skill_with_a_byte_order_mark_says_why_it_is_held() {
@@ -824,7 +824,7 @@ async fn a_codex_skill_with_a_byte_order_mark_says_why_it_is_held() {
         stage_warnings(&w).await,
         [(
             Some("Dev".to_owned()),
-            "Codex doesn\u{2019}t load the skill `reltest-docs`: its SKILL.md starts with a byte order mark"
+            "Codex doesn\u{2019}t load the skill `$reltest-docs`: its SKILL.md starts with a byte order mark"
                 .to_owned()
         )]
     );

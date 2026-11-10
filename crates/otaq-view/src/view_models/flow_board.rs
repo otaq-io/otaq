@@ -1429,7 +1429,7 @@ mod tests {
             &[],
         );
         docs.skipped = vec![Tool::Codex];
-        let text = "Codex doesn\u{2019}t load the skill `retest-docs`: its SKILL.md starts with a byte order mark";
+        let text = "Codex doesn\u{2019}t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark";
         let (card, panel) = warnings(&docs);
         assert_eq!(card.as_deref(), Some(text), "the card warns");
         assert_eq!(panel.as_deref(), Some(text), "the panel warns");
