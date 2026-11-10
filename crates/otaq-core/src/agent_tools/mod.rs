@@ -940,6 +940,14 @@ pub trait AgentTool: Send + Sync {
         true
     }
 
+    /// The programs the tool starts for itself while it runs, by file name without `.exe` (Codex's
+    /// `codex-code-mode-host`, started during its first turn): never work its turn left running, whenever they start.
+    /// Helpers already running when a turn starts are recognised without this; a helper the tool first starts
+    /// mid-turn would otherwise keep the card Working in background while the tool sits idle at its prompt.
+    fn own_helper_programs(&self) -> &'static [&'static str] {
+        &[]
+    }
+
     /// Whether the tool quietly runs another model when it refuses the one asked for (AGT-05: Copilot, OpenCode),
     /// so "asked for X, ran on Y" is read from the model that ran. Claude Code and Codex refuse instead.
     fn swaps_refused_model(&self) -> bool {

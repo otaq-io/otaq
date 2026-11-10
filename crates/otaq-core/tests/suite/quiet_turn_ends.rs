@@ -202,6 +202,64 @@ async fn a_quiet_turn_end_shows_what_still_runs_until_it_ends() {
     w.stop().await;
 }
 
+/// SHOP-13 on Codex: Codex starts its code-mode host during the turn (after the turn's start, so it isn't one of the
+/// helpers already running) and keeps it while it sits idle at its prompt. The turn end is Idle, not Working in
+/// background, so the user is asked to act; a command the turn left running still counts beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helper_codex_starts_mid_turn_is_not_background_work() {
+    let (w, ticket) = world().await;
+    let agent = sh_on(&w, &ticket, Tool::Codex).await;
+    event(&w, &agent, Tool::Codex, new_turn()).await;
+    // A program named as Codex's host (a copy of `sleep`, signed again on macOS, which kills an unsigned copy of a
+    // system program), started in the turn and left running.
+    run(
+        &w,
+        &agent,
+        "cp \"$(command -v sleep)\" ./codex-code-mode-host; \
+         command -v codesign >/dev/null && codesign -f -s - ./codex-code-mode-host 2>/dev/null; \
+         ./codex-code-mode-host 300 &",
+        "STARTED",
+    )
+    .await;
+    // The background job runs the copy a moment after its shell forks.
+    let host = |p: &otaq_core::process::TreeProcess| {
+        p.program
+            .as_ref()
+            .and_then(|p| p.file_stem()?.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("codex-code-mode-host"))
+    };
+    let running = tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.sessions.process_tree(session_of(&agent)).iter().any(host) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        running.is_ok(),
+        "the host never ran: {:?}",
+        w.sessions.process_tree(session_of(&agent))
+    );
+    event(&w, &agent, Tool::Codex, quiet_end()).await;
+    assert_eq!(
+        card(&w).await,
+        (Status::Idle, Some("Started the test run.".to_owned()))
+    );
+    // The next turn leaves a command of its own running beside the host: only that one is named.
+    event(&w, &agent, Tool::Codex, new_turn()).await;
+    run(&w, &agent, "sleep 30 &", "SLEEPING").await;
+    event(&w, &agent, Tool::Codex, quiet_end()).await;
+    assert_eq!(
+        card(&w).await,
+        (
+            Status::WorkingInBackground,
+            Some("background: sleep 30".to_owned())
+        )
+    );
+    run(&w, &agent, "kill $!", "KILLED").await;
+    until(&w, "Idle", (Status::Idle, Some("Started the test run."))).await;
+    w.stop().await;
+}
+
 /// A command whose shell ended (`sh -c 'sleep … &'`) still runs in the agent's session: it counts.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_whose_shell_ended_still_counts() {

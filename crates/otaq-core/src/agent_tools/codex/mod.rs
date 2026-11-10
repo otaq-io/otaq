@@ -298,6 +298,12 @@ impl AgentTool for Codex {
         false
     }
 
+    /// Codex starts its code-mode host during the first turn and keeps it until it quits (seen on Windows with Codex
+    /// 0.166: after the turn's `UserPromptSubmit`, before its `Stop`).
+    fn own_helper_programs(&self) -> &'static [&'static str] {
+        &["codex-code-mode-host"]
+    }
+
     fn swaps_refused_model(&self) -> bool {
         false
     }
