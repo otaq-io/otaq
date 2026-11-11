@@ -5,7 +5,7 @@ use std::path::{Path, PathBuf};
 use std::time::Duration;
 
 use otaq_core::git::checkpoint::UpdateError;
-use otaq_core::git::merge::{MergeOutcome, MergeRequest};
+use otaq_core::git::merge::{HookChanges, MergeOutcome, MergeRequest};
 use otaq_core::git::testing::{TempRepos, commit, git};
 use otaq_core::git::{Git, GitError, GitStep, GitWatch};
 
@@ -285,6 +285,111 @@ async fn a_slow_hook_is_reported_running_by_name_while_it_runs() {
     assert!(ran.passed());
     assert!(ran.ended_ms - ran.started_ms >= 1900, "{ran:?}");
     assert_eq!(ran.output, "testing…");
+}
+
+/// A formatter's pre-commit: a header line on top of each staged `.js`, staged again.
+const HEADER_HOOK: &str = r#"for f in $(git diff --cached --name-only --diff-filter=ACM -- '*.js'); do
+  { echo '// formatted'; cat "$f"; } > "$f.tmp" && mv "$f.tmp" "$f"
+  git add "$f"
+done"#;
+
+#[tokio::test]
+async fn a_pre_commit_that_changes_the_squash_commit_lands_and_is_said() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    git(&repo, &["checkout", "--quiet", "otaq/HOOK-1"]);
+    commit(&repo, "util.js", "util\n");
+    commit(&repo, "notes.md", "notes\n");
+    git(&repo, &["checkout", "--quiet", "main"]);
+    // main moved on: what is compared is the branch with main merged in, not main.
+    commit(&repo, "readme.md", "readme\n");
+    hook(&hooks, "pre-commit", HEADER_HOOK);
+    hook(&hooks, "commit-msg", "exit 0");
+
+    // Nothing watches it: the commit's hooks are read even so.
+    let outcome = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap();
+
+    let MergeOutcome::Merged {
+        commit: landed,
+        checked,
+        hook_changed: Some(changes),
+        ..
+    } = outcome
+    else {
+        panic!("expected merged with a hook's changes, got {outcome:?}");
+    };
+    assert!(!checked, "the Merge check doesn't run because of it");
+    assert_eq!(changes.hook.as_deref(), Some("pre-commit"));
+    assert_eq!(changes.files, ["calc.js", "util.js"]);
+    assert_eq!(changes.sentence(), "Your pre-commit hook changed 2 files");
+    assert_eq!(changes.landed, landed);
+    // It landed as the hook left it.
+    assert_eq!(git(&repo, &["rev-parse", "main"]), landed);
+    assert_eq!(git(&repo, &["show", "main:calc.js"]), "// formatted\nadd");
+    // What was compared is what was squashed: the branch with main merged in.
+    assert_eq!(changes.reviewed, git(&repo, &["rev-parse", "otaq/HOOK-1"]));
+    assert_eq!(
+        git(&repo, &["show", &format!("{}:readme.md", changes.reviewed)]),
+        "readme"
+    );
+    // Show changes: only the hook's two lines.
+    let diff = git(
+        &repo,
+        &["diff", "--no-color", "-U0", &changes.reviewed, &landed],
+    );
+    let added: Vec<&str> = diff
+        .lines()
+        .filter(|l| l.starts_with('+') && !l.starts_with("+++"))
+        .collect();
+    assert_eq!(added, ["+// formatted", "+// formatted"]);
+    assert!(
+        !diff
+            .lines()
+            .any(|l| l.starts_with('-') && !l.starts_with("---"))
+    );
+}
+
+#[tokio::test]
+async fn a_pre_commit_that_changes_nothing_says_nothing() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(&hooks, "pre-commit", "echo 'lint: clean'\nexit 0");
+
+    let outcome = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap();
+
+    assert!(
+        matches!(
+            outcome,
+            MergeOutcome::Merged {
+                hook_changed: None,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+}
+
+#[test]
+fn a_hooks_changes_are_said_in_one_sentence() {
+    let changes = |hook: Option<&str>, n: usize| HookChanges {
+        hook: hook.map(str::to_owned),
+        files: (0..n).map(|i| format!("f{i}.js")).collect(),
+        reviewed: "a".into(),
+        landed: "b".into(),
+    };
+    assert_eq!(
+        changes(Some("pre-commit"), 1).sentence(),
+        "Your pre-commit hook changed 1 file"
+    );
+    assert_eq!(changes(None, 3).sentence(), "A hook changed 3 files");
 }
 
 fn now_ms() -> i64 {

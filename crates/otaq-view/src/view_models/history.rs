@@ -28,6 +28,7 @@ use ts_rs::TS;
 
 use crate::view_models::card::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 use crate::view_models::clock;
+use crate::view_models::review_page::{HookChangesView, hook_changes_view};
 use crate::view_models::stage_choices::{self, HistoryLine};
 use crate::view_models::ticket_comments::{self as comments, AttachmentChip, Mark, Thumbnail};
 use crate::view_models::tool_problems::tool_word;
@@ -305,6 +306,8 @@ pub struct HistoryRow {
     pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said.
     pub opens: Option<Opens>,
+    /// A merge whose landing commit a hook changed: the row's Show changes.
+    pub hook_changes: Option<HookChangesView>,
     /// Activity's filter it shows under.
     pub kind: Kind,
     /// An agent session's start: its quiet row's words, "Session · Dev · Strong" ([`one_row_per_session`] makes it
@@ -462,6 +465,7 @@ pub fn rows_with_rounds(
             session: None,
             mark: comments::agent_mark(tool, facts.avatars),
             opens: None,
+            hook_changes: None,
             kind: Kind::Check,
             quiet: None,
             ended: None,
@@ -551,6 +555,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         session: Some(s.id.clone()),
         mark: mark.clone(),
         opens: None,
+        hook_changes: None,
         kind,
         quiet,
         ended: s.ended_at,
@@ -1055,6 +1060,7 @@ fn told(
         session: None,
         mark,
         opens: Some(opens),
+        hook_changes: None,
         kind,
         quiet: None,
         ended: None,
@@ -1452,9 +1458,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             format!("Finished {}", text(p, "stage").unwrap_or_default()),
             text(p, "summary").map(first_line),
         ),
+        // "Merged" · "into main · Your pre-commit hook changed 2 files" when a hook changed what landed (with Show
+        // changes); nothing extra otherwise.
         EventKind::Merged => (
             "Merged".to_owned(),
-            text(p, "target").map(|t| format!("into {t}")),
+            text(p, "target").map(|t| match landed_changes(e) {
+                Some(changes) => format!("into {t} \u{b7} {}", changes.sentence()),
+                None => format!("into {t}"),
+            }),
         ),
         // Finished without a merge (the Approve menu, or `otaq stage done` with its reason): it counts as merged.
         EventKind::DoneWithoutMerge if p.get("nothing_to_merge").is_some() => (
@@ -1758,6 +1769,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             )
         }
     };
+    let hook_changes = landed_changes(e).map(|c| hook_changes_view(&c));
     Some(HistoryRow {
         title,
         detail,
@@ -1770,10 +1782,19 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         session: None,
         mark: event_mark(e, facts),
         opens: None,
+        hook_changes,
         kind: kind_of(e.kind),
         quiet: None,
         ended: None,
     })
+}
+
+/// A merge's record of a hook that changed what landed.
+fn landed_changes(e: &HistoryEvent) -> Option<otaq_core::git::merge::HookChanges> {
+    if e.kind != EventKind::Merged {
+        return None;
+    }
+    serde_json::from_value(e.payload.get("hook_changed")?.clone()).ok()
 }
 
 /// Who an event's row shows (Q432): Otaq for what happened on its own (a restart, a start that failed, an automatic
@@ -1854,6 +1875,7 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 session: None,
                 mark: Mark::Otaq,
                 opens: None,
+                hook_changes: None,
                 kind: Kind::Session,
                 quiet: None,
                 ended: None,
@@ -1986,6 +2008,49 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(plain.opens, None);
+    }
+
+    /// A hook changed the commit that landed: the Merged row says which hook changed how many files, with Show
+    /// changes from what was reviewed to what landed; a merge no hook changed says nothing extra.
+    #[test]
+    fn a_merge_a_hook_changed_says_so_with_show_changes() {
+        let changed = event(
+            EventKind::Merged,
+            MIN,
+            serde_json::json!({
+                "target": "main",
+                "commit": "bbb",
+                "hook_changed": {
+                    "hook": "pre-commit",
+                    "files": ["calc.js", "util.js"],
+                    "reviewed": "aaa",
+                    "landed": "bbb",
+                },
+            }),
+        );
+        let row = event_row_in(&changed, &Facts::default()).unwrap();
+        assert_eq!(row.title, "Merged");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("into main \u{b7} Your pre-commit hook changed 2 files")
+        );
+        let show = row.hook_changes.expect("Show changes");
+        assert_eq!(show.title, "Your pre-commit hook changed 2 files");
+        assert_eq!(show.show, "Show changes");
+        assert_eq!(
+            (show.reviewed.as_str(), show.landed.as_str()),
+            ("aaa", "bbb")
+        );
+        assert_eq!(show.files, ["calc.js", "util.js"]);
+
+        let plain = event(
+            EventKind::Merged,
+            MIN,
+            serde_json::json!({"target": "main", "commit": "bbb"}),
+        );
+        let row = event_row_in(&plain, &Facts::default()).unwrap();
+        assert_eq!(row.detail.as_deref(), Some("into main"));
+        assert_eq!(row.hook_changes, None);
     }
 
     /// d0133 (`s30-03`): a helper's rows name the agent in charge then, under the Stages filter: "Developer started a

@@ -10,10 +10,12 @@
 // the old panel's section, SHT-01, T-0469), when there are any.
 import { Fragment, type ReactNode, useCallback, useState } from "react";
 
+import { openOverlay } from "../../app/overlays";
 import type { TicketProps } from "../../app/registry";
 import { Tooltip } from "../../components";
 import type { HistoryOpens } from "../../generated/HistoryOpens";
 import type { HistoryView } from "../../generated/HistoryView";
+import type { HookChangesView } from "../../generated/HookChangesView";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -43,6 +45,21 @@ function CopyId({ id, hint, copied }: { id: string; hint: string; copied: string
         <Icon name={done ? "check" : "copy"} size={11} />
       </button>
     </Tooltip>
+  );
+}
+
+/** Show changes on a merge a hook changed ("into main · Your pre-commit hook changed 2 files"): what it changed. */
+function ShowHookChanges({ ticket, changes }: { ticket: string; changes: HookChangesView }) {
+  return (
+    <button
+      type="button"
+      className="history-show-changes"
+      onClick={() => {
+        openOverlay("hook_changes", { ticket, changes });
+      }}
+    >
+      {changes.show}
+    </button>
   );
 }
 
@@ -221,6 +238,9 @@ export function HistoryBody({
                     <span className="history-detail">
                       <span className="history-detail-text">{row.detail}</span>
                     </span>
+                  )}
+                  {row.hook_changes !== null && (
+                    <ShowHookChanges ticket={view.key} changes={row.hook_changes} />
                   )}
                   <span className="history-who">{row.who}</span>
                 </span>

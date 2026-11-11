@@ -110,6 +110,7 @@ const row = (
           attachments: [],
         }
       : null,
+  hook_changes: null,
   kind,
 });
 

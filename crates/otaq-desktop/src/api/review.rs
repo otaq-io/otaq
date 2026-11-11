@@ -337,8 +337,13 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
         .unwrap_or_default();
     let result = page::merge_result(&ticket, &target, &outcome, &all);
     if let page::MergeResult::Merged { toasts } = &result {
+        // The merged toast, the first, has Show changes when a hook changed what landed.
+        let mut link = page::merged_toast_link(&key, &outcome);
         for t in toasts {
-            toast(app, ToastLevel::Success, t.title.clone(), t.text.clone());
+            app.notices.toast(NewToast {
+                link: link.take(),
+                ..NewToast::new(ToastLevel::Success, t.title.clone(), t.text.clone())
+            });
         }
     }
     Ok(result)

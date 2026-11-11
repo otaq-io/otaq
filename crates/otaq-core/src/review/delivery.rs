@@ -128,6 +128,7 @@ impl Review {
             LocalMergeOutcome::Merged {
                 ticket: merged,
                 started,
+                hook_changed,
                 ..
             } => {
                 board
@@ -142,14 +143,19 @@ impl Review {
                         .map_or(ticket.validation_round, |e| e.round)
                 });
                 let started: Vec<String> = started.iter().map(ToString::to_string).collect();
-                let (title, message) =
+                let (title, mut message) =
                     merged_toast(&ticket.key.to_string(), &into, round, &started);
+                // A hook changed what landed: said as Approve & merge says it, with Show changes.
+                if let Some(changes) = &hook_changed {
+                    message.push_str(&format!(" \u{b7} {}", changes.sentence()));
+                }
                 Delivered::Merged {
                     toast: Box::new(Event::MergedAutomatically {
                         project: ticket.key.project.to_string(),
                         key: ticket.key.clone(),
                         title,
                         message,
+                        hook_changed,
                     }),
                 }
             }

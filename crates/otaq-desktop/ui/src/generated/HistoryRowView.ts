@@ -2,6 +2,7 @@
 import type { ActivityKind } from "./ActivityKind";
 import type { CommentMark } from "./CommentMark";
 import type { HistoryOpens } from "./HistoryOpens";
+import type { HookChangesView } from "./HookChangesView";
 
 /**
  * One row of History, newest first: a plain sentence over "you · 09:58" with who's mark beside it, or an agent
@@ -53,6 +54,10 @@ mark: CommentMark,
  * What the row opens: a before / after, or what a comment said and its report (CMT-14).
  */
 opens: HistoryOpens | null, 
+/**
+ * A merge whose landing commit a hook changed: "Show changes" after the row's detail.
+ */
+hook_changes: HookChangesView | null, 
 /**
  * History's filter it shows under.
  */

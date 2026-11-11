@@ -7,4 +7,9 @@ export type FilesFileParams = { key: string, path: string,
 /**
  * `files.diff` only: the commit the review saw, to show only what changed after it (REV-06).
  */
-since?: string, };
+since?: string, 
+/**
+ * `files.diff` with `since` only: up to this commit instead of the branch's head (what a hook changed in the
+ * commit that landed, from the commit that was squashed).
+ */
+until?: string, };
