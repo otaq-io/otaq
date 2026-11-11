@@ -43,6 +43,7 @@ export function actionRoute(action: SheetAction): ActionRoute {
     case "retry_merge":
     case "move_to_review":
     case "stop_merge_check": // d0120: on a connection of its own (Rust's), the merge finishes without merging.
+    case "stop_git_step": // A merge's or a start's git step and its hook end; on a connection of its own (Rust's).
       return { kind: "service" };
     // Session on the check's side (SHT-04).
     case "open_validator":
@@ -171,6 +172,7 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "move_on_anyway": // FLW-13: after the last failed round.
     case "skip_check": // FLW-13: a check at the plan limit.
     case "stop_merge_check": // d0120: Stop on "Merging · running the merge check".
+    case "stop_git_step": // Stop on "Merging · running your pre-commit hook", "Starting · making its worktree".
     case "check_again": // A stage held for its skill: the finder is asked again.
       return { kind: "service" };
     case "pass":

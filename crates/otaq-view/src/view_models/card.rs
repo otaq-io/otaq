@@ -412,6 +412,9 @@ pub enum CardActionKind {
     SkipCheck,
     /// "Merging · running the merge check" (d0120, Q475): Stop ends the check and nothing is merged.
     StopMergeCheck,
+    /// "Merging · running your pre-commit hook · 2 min", "Starting · making its worktree": Stop ends the git step and
+    /// its hook; the merge or start leaves things as a refusal does. Never on the target's move, once merged.
+    StopGitStep,
 }
 
 impl CardActionKind {
@@ -2032,7 +2035,7 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
             primary: true,
         }),
         // Stop is quiet, but it is all the card offers while the Merge check runs (d0120).
-        CardActionKind::StopMergeCheck => Some(action),
+        CardActionKind::StopMergeCheck | CardActionKind::StopGitStep => Some(action),
         _ if edge || action.primary => Some(action),
         _ => None,
     }
@@ -2809,9 +2812,18 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             false,
         );
     }
-    // While a merge or a start runs its git steps nothing on the card starts another: the slot is where its Stop goes.
-    if ticket.flags.git.is_some() {
-        return None;
+    // While a merge or a start runs its git steps nothing on the card starts another: Stop is all there is, with no
+    // time limit (a hook runs until it ends or the user stops it); none once the target moves, the merge landed.
+    if let Some(git) = &ticket.flags.git {
+        if !git.step.is_none_or(otaq_core::git::GitStep::stoppable) {
+            return None;
+        }
+        return a(
+            CardActionKind::StopGitStep,
+            STOP,
+            Some(IconName::Square),
+            false,
+        );
     }
     // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the sheet.
     // A held role (M23, AGM-03) waits for its own tool: Change agent… then Open agent…, or on a check at the plan
@@ -5189,7 +5201,8 @@ mod tests {
     }
 
     /// While Approve & merge runs its git steps the card says the step git is really on and, while one of the user's
-    /// hooks runs, which one and for how long; nothing else to click meanwhile. A start says the same.
+    /// hooks runs, which one and for how long; Stop is the only thing to click meanwhile, and none once the target
+    /// moves (the merge has landed). A start says the same.
     #[test]
     fn a_running_git_step_and_hook_show_on_the_card() {
         use otaq_core::domain::{GitHookRunning, GitOperation, GitProgress};
@@ -5209,7 +5222,10 @@ mod tests {
             one.line.as_ref().map(|l| l.text.as_str()),
             Some("Merging \u{b7} squashing into main")
         );
-        assert_eq!((one.action.as_ref(), one.edge), (None, None));
+        assert_eq!(
+            (one.action.as_ref().map(|a| a.kind), one.edge),
+            (Some(CardActionKind::StopGitStep), None)
+        );
 
         let git = t.flags.git.as_mut().unwrap();
         git.step = Some(GitStep::Commit);
@@ -5228,7 +5244,20 @@ mod tests {
             later.one_line.line.as_ref().map(|l| l.text.as_str()),
             Some("Merging \u{b7} running your pre-commit hook \u{b7} 45 s")
         );
+        let stop = vm.footer.as_ref().and_then(|f| f.action.as_ref()).unwrap();
+        assert_eq!(
+            (stop.kind, stop.label.as_ref(), stop.primary),
+            (CardActionKind::StopGitStep, "Stop", false)
+        );
+        assert_eq!(vm.footer.as_ref().and_then(|f| f.second.as_ref()), None);
+
+        let mut landed = t.clone();
+        let git = landed.flags.git.as_mut().unwrap();
+        git.step = Some(GitStep::MoveTarget);
+        git.hook = None;
+        let vm = CardViewModel::from(&landed, &main_project(), NOW);
         assert_eq!(vm.footer.as_ref().and_then(|f| f.action.as_ref()), None);
+        assert_eq!(vm.one_line.action, None);
 
         let mut start = ticket("SHOP-3", "Card", Status::Queued);
         start.flags.git = Some(GitProgress {
@@ -5246,6 +5275,10 @@ mod tests {
         assert_eq!(
             vm.one_line.line.as_ref().map(|l| l.text.as_str()),
             Some("Starting \u{b7} running your post-checkout hook \u{b7} 3 s")
+        );
+        assert_eq!(
+            vm.one_line.action.as_ref().map(|a| a.kind),
+            Some(CardActionKind::StopGitStep)
         );
     }
 

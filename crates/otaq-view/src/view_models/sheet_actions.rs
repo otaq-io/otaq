@@ -87,6 +87,9 @@ pub enum Action {
     OpenAgent,
     /// "Merging · running the merge check" (d0120, Q475): the check ends and nothing is merged.
     StopMergeCheck,
+    /// "Merging · running your pre-commit hook", "Starting · making its worktree": the git step and its hook end, and
+    /// the merge or start leaves things as a refusal does.
+    StopGitStep,
 }
 
 /// How a button looks. `SheetButtonLook` on the page.
@@ -144,7 +147,7 @@ impl Action {
             Self::EditMessage => "Edit message and retry",
             Self::EditPrMessages => "Edit messages and retry",
             Self::OpenAgent => "Open agent\u{2026}",
-            Self::StopMergeCheck => crate::view_models::card::STOP,
+            Self::StopMergeCheck | Self::StopGitStep => crate::view_models::card::STOP,
         }
     }
 
@@ -173,7 +176,7 @@ impl Action {
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen => IconName::RotateCcw,
-            Self::StopMergeCheck => IconName::Square,
+            Self::StopMergeCheck | Self::StopGitStep => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
             Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
@@ -200,7 +203,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen => None,
-            Self::OpenAgent | Self::StopMergeCheck => None,
+            Self::OpenAgent | Self::StopMergeCheck | Self::StopGitStep => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveOnAnyway
@@ -259,6 +262,15 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
     // While Local merge runs the Merge check, Stop is all there is to do (d0120): the merge finishes on its own.
     if ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Running) {
         return vec![(A::StopMergeCheck, Secondary)];
+    }
+    // While a merge or a start runs a git step, Stop is all there is to do (none once the target moves).
+    if ticket
+        .flags
+        .git
+        .as_ref()
+        .is_some_and(|git| git.step.is_none_or(otaq_core::git::GitStep::stoppable))
+    {
+        return vec![(A::StopGitStep, Secondary)];
     }
     // A hand-off typed in that the agent hasn't picked up (d0118): Send again first.
     if card::pending_hand_off(ticket, s).is_some() {
@@ -507,6 +519,29 @@ mod tests {
             [(A::OpenTerminal, Look::Secondary)],
             "the agent fixes it"
         );
+    }
+
+    /// While a merge or a start runs a git step (a hook that hangs), Stop is all there is; not once the target moves.
+    #[test]
+    fn a_running_git_step_offers_only_stop() {
+        use otaq_core::domain::{GitOperation, GitProgress};
+        use otaq_core::git::GitStep;
+        let running = |operation, step| GitProgress {
+            operation,
+            target: "main".into(),
+            step: Some(step),
+            earlier: Vec::new(),
+            hook: None,
+        };
+        let mut t = ticket("SHOP-1", "t", Status::WaitingForYou);
+        t.flags.git = Some(running(GitOperation::Merge, GitStep::Commit));
+        assert_eq!(buttons(&t), [(A::StopGitStep, Look::Secondary)]);
+        t.flags.git = Some(running(GitOperation::Merge, GitStep::MoveTarget));
+        assert!(!buttons(&t).contains(&(A::StopGitStep, Look::Secondary)));
+        let mut t = ticket("SHOP-2", "t", Status::Queued);
+        t.flags.git = Some(running(GitOperation::Start, GitStep::AddWorktree));
+        assert_eq!(buttons(&t), [(A::StopGitStep, Look::Secondary)]);
+        assert_eq!(A::StopGitStep.label(), "Stop");
     }
 
     fn all(status: Status) -> Vec<(Action, Look)> {

@@ -112,6 +112,9 @@ pub struct MergingView {
     /// While one of the user's hooks runs: "running your pre-commit hook · 40 s", under the current step. The page
     /// asks again every second meanwhile.
     pub hook: Option<String>,
+    /// "Stop" while a step runs that can be stopped (the Merge check's included), beside the current step; none once
+    /// the target moves (the merge has landed). Sends `stop_git_step`.
+    pub stop: Option<&'static str>,
     pub label: &'static str,
     pub note: String,
     /// The dialog can be closed while it runs; the merge finishes on its own (d0120).
@@ -332,6 +335,9 @@ fn merging_view(f: &ApproveFacts) -> MergingView {
                 hook, g.step, f.now_ms,
             ))
         }),
+        stop: progress
+            .filter(|g| g.step.is_none_or(otaq_core::git::GitStep::stoppable))
+            .map(|_| crate::view_models::card::STOP),
         label: "Merging\u{2026}",
         note: format!(
             "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
@@ -650,6 +656,11 @@ pub fn merge_result(
         },
         MergeView::CheckStopped { message } => MergeResult::Stopped {
             title: "Merge check stopped".to_owned(),
+            message,
+            close: "Close",
+        },
+        MergeView::Stopped { message } => MergeResult::Stopped {
+            title: "Merge stopped".to_owned(),
             message,
             close: "Close",
         },
@@ -1096,6 +1107,19 @@ mod tests {
             MergeResult::Stopped {
                 title: "Merge check stopped".into(),
                 message: "The merge check was stopped; nothing was merged into main.".into(),
+                close: "Close",
+            }
+        );
+        let stopped = LocalMergeOutcome::Stopped {
+            target: "main".into(),
+        };
+        assert_eq!(
+            merge_result(&t, "main", &stopped, &all),
+            MergeResult::Stopped {
+                title: "Merge stopped".into(),
+                message: "You stopped the merge. Nothing was merged into main; the branch and its worktree are as \
+                          they were."
+                    .into(),
                 close: "Close",
             }
         );

@@ -91,6 +91,8 @@ describe("where buttons and menu items go", () => {
   it("Stop on a running merge check, in the sheet and on the card (d0120)", () => {
     expect(actionRoute("stop_merge_check")).toEqual({ kind: "service" });
     expect(cardRoute("stop_merge_check")).toEqual({ kind: "service" });
+    expect(actionRoute("stop_git_step")).toEqual({ kind: "service" });
+    expect(cardRoute("stop_git_step")).toEqual({ kind: "service" });
   });
 
   it("the … menu's ids from the view models", () => {

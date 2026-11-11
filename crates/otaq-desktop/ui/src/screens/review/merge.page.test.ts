@@ -116,6 +116,7 @@ const VIEW: ApproveView = {
     steps: [],
     current: 0,
     hook: null,
+    stop: null,
     label: "Merging…",
     note: "",
     close: "Close",

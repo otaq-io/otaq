@@ -324,8 +324,18 @@ impl Git {
                     code: None,
                     stderr: format!("the branch `{}` doesn't exist", m.branch),
                 })?;
-        self.run(scratch, &["merge", "--quiet", "--squash", &squashed])
-            .await?;
+        if let Err(e) = self
+            .run(scratch, &["merge", "--quiet", "--squash", &squashed])
+            .await
+        {
+            // Stopped: the scratch worktree is left clean, as after a refused commit.
+            if e.is_stopped() {
+                let _ = self
+                    .run(scratch, &["reset", "--quiet", "--hard", &onto])
+                    .await;
+            }
+            return Err(e);
+        }
         let message_file = tempfile::NamedTempFile::new().map_err(|e| GitError::Spawn {
             args: "commit -F".into(),
             error: e,
@@ -388,8 +398,14 @@ impl Git {
             _ => false,
         };
 
-        // 6. Move the target.
-        self.step(GitStep::MoveTarget);
+        // 6. Move the target. A Stop that came after the last command (during the Merge check's end) still counts;
+        // once the target moves, nothing can be stopped.
+        if let Err(stopped) = self.step_unstoppable(GitStep::MoveTarget) {
+            let _ = self
+                .run(scratch, &["reset", "--quiet", "--hard", &onto])
+                .await;
+            return Err(stopped);
+        }
         let mut post_merge = None;
         match &checkout {
             Some(folder) => {
@@ -460,13 +476,21 @@ impl Git {
         // No worktree holds the branch: merge in the scratch worktree, then let go of it.
         let scratch = m.scratch.as_path();
         self.step(GitStep::UpdateBranch);
-        self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
-            .await?;
-        self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
-        let merged = self.merge_in(scratch, rev).await;
-        self.run(scratch, &["checkout", "--quiet", "--detach"])
-            .await?;
-        merged
+        let merged = async {
+            self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
+                .await?;
+            self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
+            self.merge_in(scratch, rev).await
+        }
+        .await;
+        // Let go of the branch whatever happened (a Stop during the checkout's post-checkout hook included), so a
+        // later start can check it out in a worktree again.
+        let detached = self
+            .run(scratch, &["checkout", "--quiet", "--detach"])
+            .await;
+        let merged = merged?;
+        detached?;
+        Ok(merged)
     }
 
     /// Creates the scratch worktree (detached at `at`) or reuses it.

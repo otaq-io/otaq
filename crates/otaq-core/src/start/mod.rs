@@ -49,6 +49,15 @@ impl StartError {
 impl fmt::Display for StartError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
+            // The user's Stop on the card: nothing the start made is kept (a reopened ticket's branch and earlier
+            // work always are), so Retry start does the whole start again.
+            Self::Git(GitError::Stopped { hook, .. }) => {
+                f.write_str("You stopped the start")?;
+                if let Some(hook) = hook {
+                    write!(f, " while your {hook} hook was running")?;
+                }
+                f.write_str(". Retry start starts it again.")
+            }
             Self::Board(e) => write!(f, "{e}"),
             Self::Git(e) => write!(f, "{e}"),
             Self::Store(e) => write!(f, "{e}"),

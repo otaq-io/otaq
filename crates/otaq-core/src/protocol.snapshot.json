@@ -4973,6 +4973,14 @@
               "required": true
             }
           }
+        },
+        "stopped": {
+          "fields": {
+            "target": {
+              "ty": "String",
+              "required": true
+            }
+          }
         }
       }
     },
@@ -8803,6 +8811,9 @@
           "newtype": "FailParams"
         },
         "ticket.get": {
+          "newtype": "KeyParams"
+        },
+        "ticket.git_stop": {
           "newtype": "KeyParams"
         },
         "ticket.history": {
