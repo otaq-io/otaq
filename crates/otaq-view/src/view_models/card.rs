@@ -5221,6 +5221,7 @@ mod tests {
         other.start_problem = Some(otaq_core::board::tickets::StartProblem {
             step: otaq_core::domain::StartStep::Setup,
             message: "exit 1".into(),
+            hook: None,
         });
         assert_eq!(start_refusal(&other), None);
         let vm = card(&other);

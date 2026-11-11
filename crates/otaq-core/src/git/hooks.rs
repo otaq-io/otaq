@@ -129,6 +129,42 @@ impl HookRefusal {
     }
 }
 
+/// What a ticket keeps of a hook's refusal of one of Otaq's own git steps, for its card, its sheet and its History:
+/// which hook, the step, what it stopped and the hook's whole output. It outlives the worktree the hook ran in.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct RefusedHook {
+    /// `post-checkout`.
+    pub name: String,
+    /// The step it refused, when known.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<GitStep>,
+    /// What it stopped, as the card says it: "the start", "the update from main".
+    pub what: String,
+    /// The hook's whole output, paths under the home shortened; git's own output when the hook printed nothing.
+    pub output: String,
+}
+
+impl RefusedHook {
+    /// Kept from `refusal`; `step` when git's events didn't say one (nothing watched the command).
+    pub fn of(refusal: &HookRefusal, step: GitStep, what: impl Into<String>) -> Self {
+        let output = match refusal.output().trim() {
+            "" => refusal.stderr.trim(),
+            output => output,
+        };
+        Self {
+            name: refusal.name().to_owned(),
+            step: Some(refusal.step().unwrap_or(step)),
+            what: what.into(),
+            output: shorten_home(output),
+        }
+    }
+
+    /// "post-checkout hook refused the start".
+    pub fn line(&self) -> String {
+        format!("{} hook refused {}", self.name, self.what)
+    }
+}
+
 /// Follows one git operation: give it to [`Git::watched`](super::Git::watched) and every command that `Git` runs
 /// reports here. Cloning shares it.
 #[derive(Debug, Clone)]

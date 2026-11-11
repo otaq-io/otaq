@@ -11,7 +11,9 @@ pub mod reword;
 mod sync;
 pub mod testing;
 
-pub use hooks::{GitActivity, GitStep, GitWatch, HookRefusal, HookRun, RunningHook, shorten_home};
+pub use hooks::{
+    GitActivity, GitStep, GitWatch, HookRefusal, HookRun, RefusedHook, RunningHook, shorten_home,
+};
 pub use sync::{BaseSync, FetchFailure};
 
 use std::ffi::OsStr;

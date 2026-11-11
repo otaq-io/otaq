@@ -429,6 +429,7 @@ pub fn agent_variants() -> Vec<Variant> {
     t.start_problem = Some(StartProblem {
         step: StartStep::Model,
         message: MODEL_ISSUE_MESSAGE.into(),
+        hook: None,
     });
     out.push(v(
         "Start failed on the model",
@@ -1006,6 +1007,7 @@ pub fn tool_variants() -> Vec<Variant> {
         t.start_problem = Some(StartProblem {
             step,
             message: "held before launch".into(),
+            hook: None,
         });
         t
     };
@@ -1016,6 +1018,7 @@ pub fn tool_variants() -> Vec<Variant> {
     t.start_problem = Some(StartProblem {
         step: StartStep::Model,
         message: MODEL_ISSUE_MESSAGE.into(),
+        hook: None,
     });
     out.push(v(
         "Start failed \u{b7} several tools",
@@ -1030,6 +1033,7 @@ pub fn tool_variants() -> Vec<Variant> {
     t.start_problem = Some(StartProblem {
         step: StartStep::Model,
         message: "model gpt-5.4 is not supported on this account".into(),
+        hook: None,
     });
     out.push(v(
         "Start failed \u{b7} Codex",

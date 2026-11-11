@@ -327,6 +327,30 @@ pub struct StartProblem {
     pub hide_log: &'static str,
     pub retry_heading: &'static str,
     pub retry_does: Vec<&'static str>,
+    /// The user's hook that refused the start: its whole output under the message.
+    pub hook: Option<HookOutput>,
+}
+
+/// A hook's refusal on the sheet: "Output of your post-checkout hook", a sentence above it when the hook needs one,
+/// and the hook's whole output, paths under the home shortened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetHookOutput")]
+pub struct HookOutput {
+    pub name: String,
+    pub label: String,
+    pub note: Option<String>,
+    pub output: String,
+}
+
+impl From<sheet::HookOutput> for HookOutput {
+    fn from(h: sheet::HookOutput) -> Self {
+        Self {
+            name: h.name,
+            label: h.label,
+            note: h.note,
+            output: h.output,
+        }
+    }
 }
 
 /// *SHOP-32 · Validation failed 3 times*: the note box Answer the agent… opens (VAL-07).
@@ -636,6 +660,7 @@ pub fn view_of(f: &Facts) -> View {
         hide_log: "Hide the setup log",
         retry_heading: "RETRY START DOES",
         retry_does: sheet::RETRY_START_DOES.to_vec(),
+        hook: p.hook.map(HookOutput::from),
     });
     let mark_closed = (ticket.status == otaq_core::domain::Status::PrOpen)
         .then_some(ticket.flags.pr_number)

@@ -42,6 +42,8 @@ pub struct TicketRow {
     pub updated_at: i64,
     pub start_problem_step: Option<String>,
     pub start_problem_message: Option<String>,
+    /// The hook that refused the start, JSON (migration 0118): [`crate::git::RefusedHook`].
+    pub start_problem_hook: Option<String>,
     pub signal_text: Option<String>,
     pub signal_since: Option<i64>,
     pub wakeup_at: Option<i64>,
