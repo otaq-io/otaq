@@ -111,7 +111,7 @@ pub struct CardExtras {
     pub diff: Option<(u32, u32, u32)>,
     /// The PR provider's name ("GitHub").
     pub pr_provider: Option<String>,
-    /// The user's terminal has focus on this ticket and the agent ended its turn: calm "your turn".
+    /// The user's terminal has focus on this ticket and the agent waits: its alerts are held back ("in terminal · no alert").
     pub your_turn: bool,
     /// The branch name shown on a parked ticket.
     pub branch: Option<String>,
@@ -1646,7 +1646,8 @@ impl CardViewModel {
 
     /// [`Self::from`] with avatars shown or hidden on purpose.
     fn build(ticket: &Ticket, x: &CardExtras, now_ms: i64, avatars: bool) -> Self {
-        // The user is in its terminal: the card stays calm, "your turn · in terminal" (ATT-03, d0042).
+        // The user in its terminal changes no state: a waiting agent reads Needs you as the sheet's pill does, with a
+        // quiet "in terminal · no alert" for why none came (ATT-03, d0042).
         let status = status::shown(ticket);
         let flags = &ticket.flags;
         let paused = paused_stop(ticket, status, x);
@@ -1730,7 +1731,7 @@ impl CardViewModel {
             ));
         }
         if ticket.flags.your_turn {
-            parts.push(Part::quiet("your turn \u{b7} in terminal", Tone::Accent));
+            parts.push(Part::quiet("in terminal \u{b7} no alert", Tone::Accent));
         }
         parts.extend(marker(ticket));
         if flags.messages_waiting > 0 {
@@ -4394,10 +4395,10 @@ mod tests {
                 "GitHub",
             ),
             (
-                "your turn",
+                "in terminal",
                 Status::Idle,
                 |t, _| t.flags.your_turn = true,
-                "your turn · in terminal",
+                "in terminal · no alert",
             ),
             (
                 "parked branch",
@@ -4639,16 +4640,28 @@ mod tests {
         assert!(card(&t).options.is_none());
     }
 
+    /// Re-test 5: with the agent's terminal focused, a Codex prompt left the card "Working" while the sheet's pill read
+    /// "Needs you". Being in the terminal holds back only the alert: the card reads the real state, as the pill does.
     #[test]
-    fn a_focused_waiting_ticket_stays_calm() {
-        let mut t = ticket("SHOP-19", "Price table", Status::Idle);
-        t.flags.your_turn = true;
-        let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("Working"));
-        assert_eq!(vm.outline, Outline::Normal);
-        assert_eq!(line(&vm), Some("your turn · in terminal"));
-        t.flags.your_turn = false;
-        assert_eq!(card(&t).outline, Outline::Attention);
+    fn a_focused_waiting_ticket_reads_its_real_state() {
+        for status in [Status::NeedsYou, Status::AsksYou, Status::Idle] {
+            let mut t = ticket("SHOP-19", "Price table", status);
+            t.flags.your_turn = true;
+            let vm = card(&t);
+            let pill = status::PillView::of(t.status).label;
+            assert_eq!(flag_of(&vm), Some(pill.as_str()), "{status:?}");
+            assert_eq!(vm.outline, Outline::Attention, "{status:?}");
+            assert_eq!(vm.one_line.edge, Some(Tone::Attention), "{status:?}");
+            let text = line(&vm).unwrap_or_default();
+            assert!(
+                text.ends_with("in terminal · no alert"),
+                "{status:?}: {text}"
+            );
+            t.flags.your_turn = false;
+            let unfocused = card(&t);
+            assert_eq!(flag_of(&unfocused), Some(pill.as_str()), "{status:?}");
+            assert_eq!(unfocused.outline, Outline::Attention, "{status:?}");
+        }
     }
 
     /// An interrupted question keeps its flag and is answered, not resumed, from the card (d0045).

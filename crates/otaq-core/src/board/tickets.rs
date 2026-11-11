@@ -228,17 +228,16 @@ impl Ticket {
         self.started_at.is_some()
     }
 
-    /// Turquoise as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
+    /// Turquoise as the user sees it: the agent waits. Also while its terminal has focus: being there holds back
+    /// only the alert ([`crate::domain::Flags::your_turn`]), never the card's state.
     pub fn shows_needs_you(&self) -> bool {
-        (self.status.is_needs_you_family() && !self.flags.your_turn)
-            || self.stopped_in_place().is_some()
+        self.status.is_needs_you_family() || self.stopped_in_place().is_some()
     }
 
-    /// Whether the ticket waits for the user where they can see it: turquoise (unless its terminal has focus) or
-    /// Needs you's second group. Such cards float to the top of Dev and count in the project's needs-you number.
+    /// Whether the ticket waits for the user where they can see it: turquoise or Needs you's second group. Such cards
+    /// float to the top of Dev, focused terminal or not.
     pub fn needs_user(&self) -> bool {
-        (super::order::needs_user(self.status) && !self.flags.your_turn)
-            || self.stopped_in_place().is_some()
+        super::order::needs_user(self.status) || self.stopped_in_place().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting

@@ -264,8 +264,9 @@ pub struct Flags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub in_line: Option<u32>,
     /// A needs-you status while the user's terminal for the waiting session has focus (ATT-03, d0042; per session,
-    /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no Needs you
-    /// item, no notification; the terminal strip shows "your turn".
+    /// so the validator's prompt calms only with the validator's terminal, d0063): its alerts are held back (no Needs
+    /// you item in the strip, no notification, no sound), but the card, the sheet's pill and the session still read
+    /// the real state, Needs you included; the hint under the terminal says "you're here, so no alert".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,
     /// "1 decision": the open recorded decisions of a ticket in Ready for Review

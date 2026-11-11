@@ -13,10 +13,11 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::Status;
-use otaq_core::protocol::{InputParams, Request, encode_bytes};
+use otaq_core::protocol::{FocusParams, InputParams, Request, encode_bytes};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::signals::asks::LOOK_EVERY;
+use otaq_core::store::now_ms;
 
 const FIRST: &str = "Get-Content package.json; Get-Content docs/one.txt";
 const SECOND: &str = "git show --stat --oneline 718a765";
@@ -352,5 +353,56 @@ async fn a_project_agents_second_prompt_reads_needs_you_once_drawn() {
     until_waits(Some(SECOND)).await;
     key_in(&client, &session, b"y").await;
     until_waits(None).await;
+    w.stop().await;
+}
+
+/// Re-test 5: with the agent's terminal focused ("you're here, so no alert"), a Codex prompt left the card "Working"
+/// while the sheet's pill read "Needs you". Being in the terminal holds back only the alert: no needs-you item (so no
+/// strip chip and no notification), while the ticket reads Needs you, turquoise, as long as the prompt is on screen.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prompt_in_the_focused_terminal_reads_needs_you_with_no_alert() {
+    let (w, ticket, client) = world().await;
+    w.force_status(&ticket, Status::Working).await;
+    let session = codex_session(&w, &ticket, SessionKind::Agent).await;
+    let agent = Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    let focus = async |focused| {
+        client
+            .request(Request::SessionFocus(FocusParams {
+                session: session.clone(),
+                focused,
+            }))
+            .await
+            .unwrap();
+    };
+    let in_needs_you = async || {
+        let items = w.board.needs_you_items(now_ms()).await.unwrap();
+        let info = w.board.project_info_of("SHOP").await.unwrap();
+        (items.iter().any(|i| i.key == ticket.key), info.needs_you)
+    };
+    focus(true).await;
+
+    draw(&w, &session, FIRST).await;
+    both_asked(&w, &agent).await;
+    until(&w, &ticket, Status::NeedsYou, Some(FIRST)).await;
+    let reads_needs_you = async || {
+        let t = w.board.ticket(&ticket.key.to_string()).await.unwrap();
+        assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, true));
+        assert!(t.shows_needs_you() && t.needs_user(), "the card reads it");
+        assert_eq!(in_needs_you().await, (false, 0), "but raises no alert");
+    };
+    reads_needs_you().await;
+    // And keeps reading it while the prompt is on screen (re-test 5 saw "Working" for 12 s+).
+    tokio::time::sleep(LOOK_EVERY * 4).await;
+    reads_needs_you().await;
+
+    // Leaving the terminal with the prompt still open: the alert comes at once.
+    focus(false).await;
+    let t = w.board.ticket(&ticket.key.to_string()).await.unwrap();
+    assert_eq!((t.status, t.flags.your_turn), (Status::NeedsYou, false));
+    assert_eq!(in_needs_you().await, (true, 1));
     w.stop().await;
 }

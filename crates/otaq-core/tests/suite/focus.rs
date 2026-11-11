@@ -1,6 +1,7 @@
 //! The focused-terminal rule (T-0110, ATT-03, d0042): while a ticket's terminal has focus, its agent's waiting is
-//! recorded but raises no turquoise, no needs-you item (and so no notification); "your turn" is shown instead. Leaving the
-//! terminal brings the turquoise and the item back at once. An ordinary `sh` stands in for `claude`.
+//! recorded and the card reads it (Needs you, turquoise), but it raises no needs-you item (and so no notification);
+//! being there holds back only the alert. Leaving the terminal brings the item back at once. An ordinary `sh` stands
+//! in for `claude`.
 
 use std::time::Duration;
 
@@ -91,8 +92,11 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
         .unwrap();
     let t = w.board.ticket("SHOP-1").await.unwrap();
     assert_eq!(t.status, Status::Idle, "recorded");
-    assert!(t.flags.your_turn, "your turn instead of turquoise");
-    assert!(!t.shows_needs_you() && !t.needs_user());
+    assert!(t.flags.your_turn, "its alert held back");
+    assert!(
+        t.shows_needs_you() && t.needs_user(),
+        "the card still reads the real state"
+    );
     assert_eq!(
         in_needs_you(&w).await,
         (false, 0),
@@ -106,7 +110,7 @@ async fn waiting_while_focused_is_recorded_but_calm_until_the_user_leaves() {
         .unwrap();
     assert_eq!(dev.cards[0].key.to_string(), "SHOP-1");
 
-    // A permission prompt while focused: also calm.
+    // A permission prompt while focused: also no alert.
     w.signals
         .hook(
             &agent(&shop1, &shell),
