@@ -121,6 +121,19 @@ fn yours(text: impl Into<String>) -> Option<Words> {
     edged(text, Palette::Review, Tone::Review)
 }
 
+/// Approve & merge or a start running its git steps (the Merge check aside, which has its own line): "Merging ·
+/// running your pre-commit hook · 40 s", "Starting · making its worktree".
+pub fn git_words(ticket: &Ticket, now_ms: i64) -> Option<Words> {
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return None;
+    }
+    let git = ticket.flags.git.as_ref()?;
+    plain(
+        crate::view_models::git_progress::card_line(git, now_ms),
+        Palette::Working,
+    )
+}
+
 /// Waiting is the status line itself: an amber hourglass, calm words.
 pub fn waiting(text: impl Into<String>) -> Option<Words> {
     Some(Words {

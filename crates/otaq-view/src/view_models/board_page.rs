@@ -352,6 +352,9 @@ pub struct BoardPage {
     /// "Edit flow", at the end of the board in either layout (after the columns, or after the List's rows): the board
     /// turns into the flow's editor in place, as columns. `null` on Files and Settings.
     pub edit_flow: Option<String>,
+    /// A card says how long one of the user's hooks has run ("running your pre-commit hook · 40 s"): the page asks
+    /// again every second meanwhile.
+    pub seconds: bool,
 }
 
 /// Edit flow's button at the end of the columns.
@@ -669,6 +672,9 @@ pub fn page(
         toolbar: view_prefs::toolbar(prefs, keys),
         list,
         edit_flow: matches!(view, ViewKind::Board | ViewKind::List).then(|| EDIT_FLOW.to_owned()),
+        seconds: tickets
+            .iter()
+            .any(|t| crate::view_models::git_progress::shows_seconds(t.flags.git.as_ref())),
     }
 }
 

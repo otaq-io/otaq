@@ -14,6 +14,7 @@ pub mod deps;
 pub mod diff;
 pub mod files;
 pub mod fixes;
+pub mod git_steps;
 pub mod hand_over;
 pub mod human_check;
 pub mod manual_checks;
@@ -70,6 +71,9 @@ pub struct Board {
     run_ports: RunPorts,
     /// Tickets whose Merge check runs now: "Merging · running the merge check" (d0120).
     merge_checks: merge_check::MergeChecks,
+    /// Tickets running Approve & merge or a start: the step git is on and the hook that runs ("running your
+    /// pre-commit hook · 40 s").
+    git_steps: git_steps::GitSteps,
     /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
     hand_offs: HandOffs,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
@@ -99,6 +103,7 @@ impl Board {
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
             merge_checks: merge_check::MergeChecks::default(),
+            git_steps: git_steps::GitSteps::default(),
             hand_offs: HandOffs::default(),
             project_files: Default::default(),
             ticket_changes_cache: Default::default(),
@@ -148,6 +153,11 @@ impl Board {
     /// The Merge checks running now (d0120); Local merge keeps it.
     pub fn merge_checks(&self) -> &merge_check::MergeChecks {
         &self.merge_checks
+    }
+
+    /// Otaq's own git operations running on tickets now; Local merge and the starts keep it.
+    pub fn git_steps(&self) -> &git_steps::GitSteps {
+        &self.git_steps
     }
 
     /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.

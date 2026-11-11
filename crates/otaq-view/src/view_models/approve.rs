@@ -7,7 +7,7 @@
 use otaq_core::board::merge_into::{can_be_merged_in, can_take};
 use otaq_core::board::review::{ApproveCheck, changed_message};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Status, TicketKey};
+use otaq_core::domain::{GitOperation, GitProgress, Status, TicketKey};
 use otaq_core::flow::Delivers;
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
@@ -443,14 +443,39 @@ pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
     )
 }
 
-/// The steps the "Merging…" state lists (*Local merge · merging*).
-pub fn merging_steps(target: &str) -> Vec<String> {
-    vec![
+/// The steps the "Merging…" state lists (*Local merge · merging*), in the order Local merge takes them; the Merge
+/// check's only when the project has one.
+pub fn merging_steps(target: &str, merge_check: bool) -> Vec<String> {
+    let mut steps = vec![
         format!("Fetch {target} and bring it up to date"),
         format!("Merge {target} into the branch"),
         format!("Squash into {target}"),
-        "Start waiting tickets whose dependencies are all merged".to_owned(),
-    ]
+    ];
+    if merge_check {
+        steps.push("Run the merge check".to_owned());
+    }
+    steps.push(format!("Move {target} to the new commit"));
+    steps.push("Start waiting tickets whose dependencies are all merged".to_owned());
+    steps
+}
+
+/// Which of [`merging_steps`] git is really on, from the merge's progress; the first until it says one. The scratch
+/// worktree is prepared before the branch is brought up to date (only when it isn't there yet) and again before the
+/// squash: what came before places it.
+pub fn merging_step(progress: Option<&GitProgress>, merge_check: bool) -> usize {
+    use otaq_core::git::GitStep as S;
+    let Some(progress) = progress.filter(|p| p.operation == GitOperation::Merge) else {
+        return 0;
+    };
+    let check = usize::from(merge_check);
+    match progress.step {
+        None | Some(S::UpdateTarget) => 0,
+        Some(S::PrepareScratch) if !progress.earlier.contains(&S::UpdateBranch) => 0,
+        Some(S::UpdateBranch | S::SaveUncommitted | S::RestoreUncommitted) => 1,
+        Some(S::PrepareScratch | S::Squash | S::Commit | S::AddWorktree | S::Reword) => 2,
+        Some(S::MergeCheck) => 2 + check,
+        Some(S::MoveTarget) => 3 + check,
+    }
 }
 
 /// What the sheet shows after the click.
@@ -1022,7 +1047,41 @@ mod tests {
             "SHOP-20 Checkout page still waits for SHOP-19 to merge; it starts from main once both parents are \
              merged. The worktree for SHOP-18 is removed unless it has uncommitted changes."
         );
-        assert_eq!(merging_steps("main").len(), 4);
+        assert_eq!(merging_steps("main", false).len(), 5);
+        assert_eq!(merging_steps("main", true)[3], "Run the merge check");
+    }
+
+    /// The Merging dialog follows the step git is really on, not the first one for the whole run; the scratch
+    /// worktree prepared before the branch's update is still the first step, after it the squash.
+    #[test]
+    fn the_merging_step_is_the_one_git_is_on() {
+        use otaq_core::git::GitStep as S;
+        let at = |step: S, earlier: &[S], check: bool| {
+            merging_step(
+                Some(&GitProgress {
+                    operation: GitOperation::Merge,
+                    target: "main".into(),
+                    step: Some(step),
+                    earlier: earlier.to_vec(),
+                    hook: None,
+                }),
+                check,
+            )
+        };
+        assert_eq!(merging_step(None, false), 0);
+        assert_eq!(at(S::UpdateTarget, &[], false), 0);
+        assert_eq!(at(S::PrepareScratch, &[S::UpdateTarget], false), 0);
+        assert_eq!(at(S::UpdateBranch, &[S::UpdateTarget], false), 1);
+        let updated = [S::UpdateTarget, S::UpdateBranch];
+        assert_eq!(at(S::PrepareScratch, &updated, false), 2);
+        assert_eq!(at(S::Commit, &updated, false), 2);
+        assert_eq!(at(S::MergeCheck, &updated, true), 3);
+        assert_eq!(at(S::MoveTarget, &updated, true), 4);
+        let steps = merging_steps("main", false);
+        assert_eq!(
+            steps[at(S::MoveTarget, &updated, false)],
+            "Move main to the new commit"
+        );
     }
 
     #[test]

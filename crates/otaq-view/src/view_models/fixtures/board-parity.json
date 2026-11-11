@@ -2806,6 +2806,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -4216,6 +4217,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -5637,6 +5639,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -6171,6 +6174,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -6652,6 +6656,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -7144,6 +7149,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -8348,6 +8354,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -9166,6 +9173,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -9995,6 +10003,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {

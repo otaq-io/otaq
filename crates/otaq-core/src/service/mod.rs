@@ -790,6 +790,8 @@ impl Service {
         );
         // "Merging · running the merge check" shows and goes at once (d0120).
         board.merge_checks().set_events(events.clone());
+        // The step a merge or a start is on, and the hook that runs, show at once.
+        board.git_steps().set_events(events.clone());
         // The agents in charge's helpers (d0133): their own worktrees, ports and sessions.
         let helpers = crate::helpers::Helpers::new(
             board.clone(),

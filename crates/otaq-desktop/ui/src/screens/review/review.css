@@ -251,11 +251,25 @@
   color: var(--text-muted);
 }
 
-.review-step[data-first] {
+.review-step[data-current] {
   color: var(--text-primary);
 }
 
-.review-step[data-first] > .icon {
+.review-step[data-done] > .icon {
+  color: var(--st-approved);
+}
+
+/* The hook that runs on the current step, under its words. */
+.review-step-hook {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0 24px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-step[data-current] > .icon {
   color: var(--accent);
   animation: review-spin 1s linear infinite;
 }
@@ -267,7 +281,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .review-step[data-first] > .icon {
+  .review-step[data-current] > .icon {
     animation: none;
   }
 }

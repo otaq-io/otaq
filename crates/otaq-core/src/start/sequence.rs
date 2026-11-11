@@ -63,10 +63,10 @@ use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{
-    Actor, BuildState, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
+    Actor, BuildState, GitOperation, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
 };
 use crate::flow::engine::{Move, RunResult, first_stage};
-use crate::git::BaseSync;
+use crate::git::{BaseSync, GitStep};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -775,6 +775,12 @@ impl Starter {
                 .and_then(|w| w.worktree.as_deref())
                 .is_some_and(|w| Path::new(w).is_dir());
 
+        // The card follows the step git is really on and the hook that runs, until the worktree is ready.
+        let running = board
+            .git_steps()
+            .begin(ticket, GitOperation::Start, ticket.base.branch());
+        let git = &git.watched(running.watch());
+
         // 1. The base, and which base branch to bring up to date.
         self.mark_step(ticket, StartStep::Base).await;
         let to_sync = match &ticket.base {
@@ -791,6 +797,7 @@ impl Starter {
         // 2. Keep the base current.
         self.mark_step(ticket, StartStep::SyncBase).await;
         if let Some(branch) = to_sync {
+            git.step(GitStep::UpdateTarget);
             let synced = git
                 .sync_base(repo, &branch)
                 .await
@@ -863,6 +870,7 @@ impl Starter {
                 .await
                 .map_err(at(StartStep::Worktree))?;
         }
+        drop(running);
         self.publish_changed(ticket).await;
         // Seeding never fails a start (WRM-04).
         let seeded = match inner.seeder.get() {
@@ -1217,7 +1225,9 @@ impl Starter {
         use crate::board::conflicts::{Conflict, ConflictReason};
         use crate::git::checkpoint::UpdateOutcome;
         let board = &self.inner.board;
-        let git = &board.project_git(ticket.key.project.as_str()).await?;
+        let git = &board
+            .ticket_git(ticket.key.project.as_str(), &ticket.id)
+            .await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
         // By the base's name while it points at `onto`: the merge message is git's plain "Merge branch 'main' into …".
         let local = git

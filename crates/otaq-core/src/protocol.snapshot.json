@@ -3544,6 +3544,10 @@
           "ty": "bool",
           "omittable": true
         },
+        "git": {
+          "ty": "Option<GitProgress>",
+          "omittable": true
+        },
         "hand_off": {
           "ty": "Option<HandOffKind>",
           "omittable": true
@@ -3909,6 +3913,23 @@
         }
       }
     },
+    "GitHookRunning": {
+      "kind": "struct",
+      "fields": {
+        "folder": {
+          "ty": "String",
+          "required": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "since_ms": {
+          "ty": "i64",
+          "required": true
+        }
+      }
+    },
     "GitIdentityParams": {
       "kind": "struct",
       "fields": {
@@ -3917,6 +3938,38 @@
           "required": true
         },
         "name": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "GitOperation": {
+      "kind": "enum",
+      "variants": {
+        "merge": {},
+        "start": {}
+      }
+    },
+    "GitProgress": {
+      "kind": "struct",
+      "fields": {
+        "earlier": {
+          "ty": "Vec<GitStep>",
+          "omittable": true
+        },
+        "hook": {
+          "ty": "Option<GitHookRunning>",
+          "omittable": true
+        },
+        "operation": {
+          "ty": "GitOperation",
+          "required": true
+        },
+        "step": {
+          "ty": "Option<GitStep>",
+          "omittable": true
+        },
+        "target": {
           "ty": "String",
           "required": true
         }

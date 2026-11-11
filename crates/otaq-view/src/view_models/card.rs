@@ -830,6 +830,19 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Muted,
         ));
     }
+    // Approve & merge or a start running its git steps: the step git is really on, and the hook that runs and for how
+    // long, whether the Merging dialog is open or not.
+    if let Some(git) = &flags.git {
+        let line = crate::view_models::git_progress::card_line(git, now_ms);
+        return Some(match git.operation {
+            otaq_core::domain::GitOperation::Merge => Part::flag(
+                flag(R::Busy, MERGING, &line, Legend::Validating).colored(Palette::Working),
+                Some(line),
+                Tone::Muted,
+            ),
+            otaq_core::domain::GitOperation::Start => Part::quiet(line, Tone::Muted),
+        });
+    }
     Some(match status {
         Status::NeedsYou => {
             let text = x
@@ -1819,6 +1832,10 @@ impl CardViewModel {
             one.line = Some(words.line);
             one.edge = words.edge;
         }
+        if let Some(words) = card_line::git_words(ticket, now_ms) {
+            one.line = Some(words.line);
+            one.edge = words.edge;
+        }
         if !kept {
             one.action = card_line::action(status, ticket, one.action.take());
         }
@@ -2705,7 +2722,7 @@ fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<Card
             primary: false,
         })
     };
-    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) || ticket.flags.git.is_some() {
         return None;
     }
     if let Some(hold) = held(ticket, status, x) {
@@ -2763,6 +2780,10 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
             Some(IconName::Square),
             false,
         );
+    }
+    // While a merge or a start runs its git steps nothing on the card starts another: the slot is where its Stop goes.
+    if ticket.flags.git.is_some() {
+        return None;
     }
     // A model the tool refused (AGT-05): open its agent; Retry start / Retry validation stay in the sheet.
     // A held role (M23, AGM-03) waits for its own tool: Change agent… then Open agent…, or on a check at the plan
@@ -5090,6 +5111,67 @@ mod tests {
         );
         assert_eq!(vm.outline, Outline::Normal, "the agent has it");
         assert_eq!(vm.one_line.action, None);
+    }
+
+    /// While Approve & merge runs its git steps the card says the step git is really on and, while one of the user's
+    /// hooks runs, which one and for how long; nothing else to click meanwhile. A start says the same.
+    #[test]
+    fn a_running_git_step_and_hook_show_on_the_card() {
+        use otaq_core::domain::{GitHookRunning, GitOperation, GitProgress};
+        use otaq_core::git::GitStep;
+        let mut t = ticket("SHOP-2", "Card", Status::WaitingForYou);
+        t.flags.git = Some(GitProgress {
+            operation: GitOperation::Merge,
+            target: "main".into(),
+            step: Some(GitStep::Squash),
+            earlier: vec![GitStep::UpdateTarget, GitStep::UpdateBranch],
+            hook: None,
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(flag_of(&vm), Some("Merging\u{2026}"));
+        let one = &vm.one_line;
+        assert_eq!(
+            one.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} squashing into main")
+        );
+        assert_eq!((one.action.as_ref(), one.edge), (None, None));
+
+        let git = t.flags.git.as_mut().unwrap();
+        git.step = Some(GitStep::Commit);
+        git.hook = Some(GitHookRunning {
+            name: "pre-commit".into(),
+            folder: "~/code/shop-web".into(),
+            since_ms: NOW - 40_000,
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} running your pre-commit hook \u{b7} 40 s")
+        );
+        let later = CardViewModel::from(&t, &main_project(), NOW + 5_000);
+        assert_eq!(
+            later.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} running your pre-commit hook \u{b7} 45 s")
+        );
+        assert_eq!(vm.footer.as_ref().and_then(|f| f.action.as_ref()), None);
+
+        let mut start = ticket("SHOP-3", "Card", Status::Queued);
+        start.flags.git = Some(GitProgress {
+            operation: GitOperation::Start,
+            target: "main".into(),
+            step: Some(GitStep::AddWorktree),
+            earlier: vec![GitStep::UpdateTarget],
+            hook: Some(GitHookRunning {
+                name: "post-checkout".into(),
+                folder: "~/.otaq/worktrees/shop-web/SHOP-3".into(),
+                since_ms: NOW - 3_000,
+            }),
+        });
+        let vm = CardViewModel::from(&start, &main_project(), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Starting \u{b7} running your post-checkout hook \u{b7} 3 s")
+        );
     }
 
     /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).

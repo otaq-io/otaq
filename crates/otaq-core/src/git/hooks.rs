@@ -61,6 +61,9 @@ pub enum GitStep {
 pub struct GitActivity {
     /// The step it is on, once it has said one.
     pub step: Option<GitStep>,
+    /// The steps it was on before, in order: a step that comes up twice (Local merge prepares its scratch worktree
+    /// before and after bringing the branch up to date) is placed by what came before it.
+    pub earlier: Vec<GitStep>,
     /// The hook running right now.
     pub hook: Option<RunningHook>,
     /// The hooks that ran so far, passed or failed, oldest first; each is added when its git command ends.
@@ -197,9 +200,13 @@ impl GitWatch {
 
     pub(super) fn set_step(&self, step: GitStep) {
         self.0.send_if_modified(|a| {
-            let changed = a.step != Some(step);
-            a.step = Some(step);
-            changed
+            if a.step == Some(step) {
+                return false;
+            }
+            if let Some(was) = a.step.replace(step) {
+                a.earlier.push(was);
+            }
+            true
         });
     }
 

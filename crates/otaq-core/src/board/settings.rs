@@ -981,6 +981,20 @@ impl Board {
         )))
     }
 
+    /// [`Self::project_git`] for one of `ticket_id`'s operations: while Approve & merge or a start runs on the
+    /// ticket ([`Self::git_steps`]), its commands report the step and the running hook to it.
+    pub async fn ticket_git(
+        &self,
+        project: &str,
+        ticket_id: &str,
+    ) -> Result<crate::git::Git, BoardError> {
+        let git = self.project_git(project).await?;
+        Ok(match self.git_steps.watch(ticket_id) {
+            Some(watch) => git.watched(&watch),
+            None => git,
+        })
+    }
+
     /// The values a project's agents, validators and Project agents use.
     pub async fn effective_settings(&self, project: &str) -> Result<EffectiveSettings, BoardError> {
         let own = self.project_settings(project).await?;

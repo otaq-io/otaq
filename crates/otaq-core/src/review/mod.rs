@@ -50,7 +50,7 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, HandOffKind, Status, TicketKey, ValidationTrigger};
+use crate::domain::{Actor, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
 use crate::git::merge::{MergeOutcome, MergeRequest};
@@ -393,8 +393,16 @@ impl Review {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project.name.clone());
+        // The card and, while it is open, the Merging dialog follow the step git is really on and the hook that runs,
+        // until the merge has ended.
+        let running = board
+            .git_steps()
+            .begin(&ticket, GitOperation::Merge, &target.target);
         // With the project's variables: the merge of the target into the branch, the commit and the checkouts run the user's hooks (ENV-02).
-        let git = &board.project_git(&project.key).await?;
+        let git = &board
+            .project_git(&project.key)
+            .await?
+            .watched(running.watch());
         // The merge into the branch and the squash commit both sign with the user's name and email: without them git fails half
         // way with "Author identity unknown", so they are asked for first, in plain words.
         if let Some(has) = git.missing_identity(&repo).await? {
