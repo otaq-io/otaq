@@ -446,6 +446,20 @@ impl Shared {
         else {
             return;
         };
+        // An answer session that ends its turn without the answer is ended, and its question goes to Needs you.
+        if self
+            .sessions
+            .info(session)
+            .is_ok_and(|info| info.kind == crate::session::SessionKind::Answer)
+            && self.messages.answer_turn_ended(session, signal)
+        {
+            let (messages, session) = (self.messages.clone(), session.clone());
+            tokio::spawn(async move {
+                if let Err(e) = messages.end_unanswered_turn(&session).await {
+                    tracing::warn!(session, error = %e, "can't end the answer session");
+                }
+            });
+        }
         // The plan limit (USG-03): it becomes active once, for every agent it stops. Waiting messages stay
         // queued: typing them now would only hit the limit again.
         if let Signal::LimitReached { hit, resets_at } = signal {
@@ -1000,6 +1014,10 @@ impl Service {
             config.data.clone(),
             adapters.clone(),
         );
+        // A question whose answer session went with the previous run goes to Needs you (a pause's waits for Resume).
+        if let Err(e) = messages.answer_sessions_gone().await {
+            tracing::warn!(error = %e, "can't look at the questions of the answer sessions gone");
+        }
         let validation = crate::validation::Validation::new(
             board.clone(),
             sessions.clone(),
