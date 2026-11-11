@@ -388,6 +388,11 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
+        /// The user's post-merge hook ran in their own folder as a Local merge moved the target there, passed or
+        /// failed; it changes nothing about the merge. Payload `target` and `hook` (as
+        /// [`crate::git::merge::PostMergeHook`]). History reads "Your post-merge hook ran in ~/shop-web" · the last
+        /// line it printed, opening its whole output.
+        PostMergeHook = "post_merge_hook",
         /// The ticket finished without a merge (the Approve menu's "Done, nothing to merge", or an agent's `stage
         /// done`): Done, counting as merged ([`crate::domain::Outcome::DoneWithoutMerge`]). Payload `from`, and
         /// `nothing_to_merge` (with `stage done`'s `reason`) when the branch had nothing beyond its base. History

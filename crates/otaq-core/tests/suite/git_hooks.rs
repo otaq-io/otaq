@@ -377,6 +377,111 @@ async fn a_pre_commit_that_changes_nothing_says_nothing() {
     );
 }
 
+/// A post-merge hook runs in the user's own folder when main moves there: reported running at that step, in that
+/// folder, and kept in the outcome with its output. A failing one doesn't undo or refuse anything: main has moved.
+#[tokio::test]
+async fn the_post_merge_hook_in_the_users_folder_is_reported_and_kept_even_when_it_fails() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(
+        &hooks,
+        "post-merge",
+        "echo \"npm install in $HOME/shop\"\nsleep 2\necho 'npm ERR! code EACCES' >&2\nexit 1",
+    );
+    let watch = GitWatch::new();
+    let mut changes = watch.subscribe();
+    let watched = Git::find().unwrap().watched(&watch);
+    let request = request(&repos, &repo);
+
+    let merging = tokio::spawn(async move { watched.local_merge(&request).await });
+    // The squash runs post-merge too, in Otaq's scratch worktree: wait for the one where main moves.
+    let running = tokio::time::timeout(Duration::from_secs(30), async {
+        loop {
+            changes.changed().await.unwrap();
+            let activity = changes.borrow_and_update().clone();
+            if let Some(hook) = activity.hook
+                && hook.step == Some(GitStep::MoveTarget)
+            {
+                break hook;
+            }
+        }
+    })
+    .await
+    .expect("the post-merge hook in the user's folder is reported running");
+    assert_eq!(running.name, "post-merge");
+    assert_eq!(
+        running.folder.canonicalize().unwrap(),
+        repo.canonicalize().unwrap()
+    );
+    assert!(!merging.is_finished(), "reported while it runs");
+    assert!(!GitStep::MoveTarget.stoppable());
+
+    let outcome = merging.await.unwrap().unwrap();
+    let MergeOutcome::Merged {
+        commit: landed,
+        post_merge: Some(ran),
+        ..
+    } = outcome
+    else {
+        panic!("expected merged with the post-merge hook, got {outcome:?}");
+    };
+    assert_eq!(git(&repo, &["rev-parse", "main"]), landed, "main moved");
+    assert_eq!(ran.exit, Some(1));
+    assert!(!ran.passed());
+    assert_eq!(ran.output, "npm install in ~/shop\nnpm ERR! code EACCES");
+    assert!(ran.ended_ms - ran.started_ms >= 1900, "{ran:?}");
+    assert_eq!(
+        ran.folder,
+        otaq_core::git::shorten_home(&running.folder.display().to_string())
+    );
+    assert_eq!(
+        ran.sentence(),
+        format!("Your post-merge hook failed in {} (exit 1)", ran.folder)
+    );
+}
+
+#[tokio::test]
+async fn without_a_post_merge_hook_or_a_checkout_of_main_nothing_is_kept() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(&hooks, "pre-commit", "exit 0");
+    let outcome = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            outcome,
+            MergeOutcome::Merged {
+                post_merge: None,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+
+    // main checked out nowhere: only its ref moves, and no hook runs for it.
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(&hooks, "post-merge", "echo installed");
+    git(&repo, &["checkout", "--quiet", "--detach"]);
+    let outcome = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap();
+    let MergeOutcome::Merged {
+        commit: landed,
+        post_merge: None,
+        ..
+    } = outcome
+    else {
+        panic!("expected merged without a post-merge hook, got {outcome:?}");
+    };
+    assert_eq!(git(&repo, &["rev-parse", "main"]), landed);
+}
+
 #[test]
 fn a_hooks_changes_are_said_in_one_sentence() {
     let changes = |hook: Option<&str>, n: usize| HookChanges {

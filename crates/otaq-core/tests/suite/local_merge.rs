@@ -699,3 +699,58 @@ done"#,
     );
     w.stop().await;
 }
+
+/// The user's post-merge hook runs in their own folder when main moves there. Failing, it changes nothing: the ticket
+/// is merged, and History keeps the hook's output on a line after the Merged one.
+#[tokio::test]
+async fn a_failing_post_merge_hook_leaves_the_ticket_merged_with_its_output_in_history() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    reviewed(&w, "Calc", "calc.js", "add\n").await;
+    // It fails only in the user's folder, where main is checked out (the squash runs it in Otaq's scratch worktree).
+    hook(
+        &repo,
+        "post-merge",
+        "[ \"$(git rev-parse --abbrev-ref HEAD)\" = main ] || exit 0\necho 'npm install: 3 packages'\necho 'npm ERR! EACCES' >&2\nexit 1",
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged { commit: landed, .. } = outcome else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(git(&repo, &["rev-parse", "main"]), landed);
+    assert_eq!(w.status("SHOP-1").await, Status::Merged);
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let ran = history
+        .iter()
+        .find(|e| e.kind == EventKind::PostMergeHook)
+        .expect("the post-merge hook's line");
+    assert_eq!(ran.payload["target"], "main");
+    let hook: otaq_core::git::merge::PostMergeHook =
+        serde_json::from_value(ran.payload["hook"].clone()).unwrap();
+    assert_eq!(hook.exit, Some(1));
+    assert_eq!(hook.output, "npm install: 3 packages\nnpm ERR! EACCES");
+    assert!(hook.folder.ends_with("shop-web"), "{}", hook.folder);
+    w.stop().await;
+}
+
+/// Without a post-merge hook nothing extra is recorded.
+#[tokio::test]
+async fn without_a_post_merge_hook_history_has_no_line_for_it() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    reviewed(&w, "Calc", "calc.js", "add\n").await;
+    w.review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::Merged));
+    assert!(!history.iter().any(|e| e.kind == EventKind::PostMergeHook));
+    w.stop().await;
+}

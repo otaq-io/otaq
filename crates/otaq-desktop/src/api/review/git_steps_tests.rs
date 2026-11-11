@@ -194,3 +194,126 @@ async fn a_running_hook_shows_on_the_card_and_in_the_merging_dialog() {
     let view = quick(&app, "board.view", board).await;
     assert_eq!(view["seconds"], false);
 }
+
+/// A post-merge hook that, only in the user's own folder (main checked out), touches `started`, runs until `release`
+/// exists, then prints a line and ends with `exit`.
+fn slow_post_merge(repo: &Path, started: &Path, release: &Path, exit: i32) {
+    let hook = repo.join(".git/hooks/post-merge");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\n[ \"$(git rev-parse --abbrev-ref HEAD)\" = main ] || exit 0\ntouch '{}'\nwhile [ ! -e '{}' ]; do sleep 0.05; done\necho 'added 3 packages'\nexit {exit}\n",
+            started.display(),
+            release.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// The user's post-merge hook runs in their own folder as main moves there: the card and the Merging dialog say so,
+/// naming the folder, on the last git step; once it ends History keeps what it printed. Passed or failed, the ticket
+/// is merged.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_post_merge_hook_in_the_users_folder_shows_and_its_output_stays_in_history() {
+    for exit in [0, 1] {
+        let w = TestService::start().await;
+        let project = w.add_project("shop-web").await;
+        let repo = PathBuf::from(&project.repo_path);
+        let t = w.create("SHOP", "Card").await;
+        let wt = w.start_worktree(&t).await;
+        commit(&wt, "card.ts", "card\n");
+        w.force_status(&t, Status::WaitingForYou).await;
+        let marks = tempfile::tempdir().unwrap();
+        let started = marks.path().join("started");
+        let release = marks.path().join("release");
+        slow_post_merge(&repo, &started, &release, exit);
+        let app = app(&w).await;
+        let board = json!({ "project": "SHOP", "width": 1376.0, "height": 856.0 });
+
+        let merge = request(
+            &app,
+            "review.local_merge",
+            json!({ "key": "SHOP-1", "message": "SHOP-1: Card" }),
+        );
+        let watch = async {
+            until("the post-merge hook started", || started.exists()).await;
+            let mut shown = w.board.ticket("SHOP-1").await.unwrap();
+            for _ in 0..100 {
+                if shown.flags.git.as_ref().is_some_and(|g| g.hook.is_some()) {
+                    break;
+                }
+                tokio::time::sleep(Duration::from_millis(50)).await;
+                shown = w.board.ticket("SHOP-1").await.unwrap();
+            }
+            let progress = shown.flags.git.clone().expect("the merge shows on the ticket");
+            assert_eq!(progress.step, Some(GitStep::MoveTarget));
+            let hook = progress.hook.as_ref().unwrap();
+            assert_eq!(hook.name, "post-merge");
+            assert!(hook.folder.ends_with("shop-web"), "{}", hook.folder);
+            // main has moved already: the merge landed before the hook runs.
+            assert_eq!(
+                git(&repo, &["log", "-1", "--format=%s", "main"]),
+                "SHOP-1: Card"
+            );
+
+            let view = quick(&app, "board.view", board.clone()).await;
+            let line = card(&view, "SHOP-1").unwrap()["status"]["text"]
+                .as_str()
+                .unwrap()
+                .to_owned();
+            assert!(
+                line.starts_with(&format!(
+                    "Merging \u{b7} running your post-merge hook in {} \u{b7} ",
+                    hook.folder
+                )),
+                "{line}"
+            );
+
+            let open = quick(&app, "review.approve", json!({ "key": "SHOP-1" })).await;
+            let steps = open["merging"]["steps"].as_array().unwrap();
+            let current = open["merging"]["current"].as_u64().unwrap() as usize;
+            assert_eq!(steps[current], "Move main to the new commit", "{}", open["merging"]);
+            let first = open["merging"]["hook"].as_str().unwrap().to_owned();
+            assert!(
+                first.starts_with(&format!("running your post-merge hook in {} \u{b7} ", hook.folder)),
+                "{first}"
+            );
+            tokio::time::sleep(Duration::from_millis(2_100)).await;
+            let later = quick(&app, "review.approve", json!({ "key": "SHOP-1" })).await;
+            let second = later["merging"]["hook"].as_str().unwrap().to_owned();
+            assert!(seconds(&second) >= seconds(&first) + 2, "{first} → {second}");
+
+            std::fs::write(&release, "").unwrap();
+            hook.folder.clone()
+        };
+        let (merged, folder) = tokio::time::timeout(Duration::from_secs(60), async {
+            tokio::join!(merge, watch)
+        })
+        .await
+        .expect("the merge ends once the hook does");
+        assert_eq!(merged.unwrap()["kind"], "merged");
+        let after = w.board.ticket("SHOP-1").await.unwrap();
+        assert_eq!(after.status, Status::Merged, "a failing hook changes nothing");
+        assert_eq!(after.flags.git, None);
+
+        let history = quick(&app, "sections.history", json!({ "key": "SHOP-1" })).await;
+        let rows = history["rows"].as_array().unwrap();
+        let said = match exit {
+            0 => format!("Your post-merge hook ran in {folder}"),
+            _ => format!("Your post-merge hook failed in {folder} (exit 1)"),
+        };
+        let row = rows
+            .iter()
+            .find(|r| r["title"] == json!(said))
+            .unwrap_or_else(|| panic!("no {said:?} in {history}"));
+        assert_eq!(row["detail"], "added 3 packages");
+        assert!(rows.iter().any(|r| r["title"] == "Merged"));
+        drop(app);
+        w.stop().await;
+    }
+}

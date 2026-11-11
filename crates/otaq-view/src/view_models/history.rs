@@ -261,6 +261,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::SentBack
         | EventKind::SentBackWithPrComments
         | EventKind::Merged
+        | EventKind::PostMergeHook
         | EventKind::DoneWithoutMerge
         | EventKind::MergedAutomatically
         | EventKind::MergedInto
@@ -1302,6 +1303,49 @@ fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     ))
 }
 
+/// The user's post-merge hook that ran in their own folder as a merge moved the target there: "Your post-merge hook
+/// ran in ~/shop-web" (or "failed in ~/shop-web (exit 1)") · the last line it printed, opening its whole output.
+/// Passed or failed it is only told: the merge had landed. `None` for any other event.
+fn post_merge_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    if e.kind != EventKind::PostMergeHook {
+        return None;
+    }
+    let hook: otaq_core::git::merge::PostMergeHook =
+        serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
+    let last = hook
+        .output
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned);
+    let output = match hook.output.trim() {
+        "" => "(the hook printed nothing)",
+        _ => hook.output.as_str(),
+    };
+    Some(told(
+        e,
+        hook.sentence(),
+        last,
+        event_mark(e, facts),
+        Opens {
+            label: "OUTPUT OF YOUR POST-MERGE HOOK".to_owned(),
+            caption: None,
+            lines: output
+                .lines()
+                .map(|line| DiffLine {
+                    kind: LineKind::Same,
+                    sign: String::new(),
+                    text: line.to_owned(),
+                })
+                .collect(),
+            thumbnails: Vec::new(),
+            attachments: Vec::new(),
+        },
+        kind_of(e.kind),
+    ))
+}
+
 #[cfg(test)]
 fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
     event_row_in(e, &Facts::default())
@@ -1312,6 +1356,9 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         return Some(row);
     }
     if let Some(row) = refused_hook_row(e, facts) {
+        return Some(row);
+    }
+    if let Some(row) = post_merge_row(e, facts) {
         return Some(row);
     }
     let p = &e.payload;
@@ -1325,6 +1372,8 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
             return None;
         }
+        // Drawn by `post_merge_row`; one it can't read has nothing to say.
+        EventKind::PostMergeHook => return None,
         // "You created the ticket" (Q432, `s25-07`).
         EventKind::Created => (format!("{} created the ticket", changed_by(e)), None),
         // The agent filed another ticket (#47): "Created DEMO-12 Fix the build" · "by DEMO-7's agent · in Backlog".
@@ -1807,6 +1856,7 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::StartNote
             | EventKind::RemoteUnreachable
             | EventKind::TemplateRefreshFailed
+            | EventKind::PostMergeHook
             | EventKind::ChoiceDropped
             | EventKind::StageChoiceCleared
             | EventKind::SchemaOverlap
@@ -2008,6 +2058,55 @@ mod tests {
         ))
         .unwrap();
         assert_eq!(plain.opens, None);
+    }
+
+    /// The post-merge hook that ran in the user's folder as main moved there: its own line, passed or failed, with
+    /// the last line it printed, opening its whole output.
+    #[test]
+    fn the_post_merge_hook_in_the_users_folder_is_a_line_with_its_output() {
+        let ran = |exit: i64, output: &str| {
+            event_row(&event(
+                EventKind::PostMergeHook,
+                MIN,
+                serde_json::json!({
+                    "target": "main",
+                    "hook": {
+                        "folder": "~/code/shop-web",
+                        "exit": exit,
+                        "output": output,
+                        "started_ms": 0,
+                        "ended_ms": 20_000,
+                    },
+                }),
+            ))
+            .unwrap()
+        };
+        let failed = ran(1, "npm install\nnpm ERR! code EACCES\n");
+        assert_eq!(
+            failed.title,
+            "Your post-merge hook failed in ~/code/shop-web (exit 1)"
+        );
+        assert_eq!(failed.detail.as_deref(), Some("npm ERR! code EACCES"));
+        assert_eq!(failed.mark, Mark::Otaq);
+        let opens = failed.opens.unwrap();
+        assert_eq!(opens.label, "OUTPUT OF YOUR POST-MERGE HOOK");
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(lines, ["npm install", "npm ERR! code EACCES"]);
+
+        let passed = ran(0, "added 3 packages");
+        assert_eq!(passed.title, "Your post-merge hook ran in ~/code/shop-web");
+        assert_eq!(passed.detail.as_deref(), Some("added 3 packages"));
+
+        let quiet = ran(0, "");
+        assert_eq!(quiet.detail, None);
+        let lines: Vec<String> = quiet
+            .opens
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert_eq!(lines, ["(the hook printed nothing)"]);
     }
 
     /// A hook changed the commit that landed: the Merged row says which hook changed how many files, with Show

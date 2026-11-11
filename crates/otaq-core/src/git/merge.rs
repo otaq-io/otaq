@@ -18,7 +18,10 @@
 //! 5. the project's **Merge check** (d0120), when it has one and the update brought in commits the branch didn't
 //!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
 //!    then the scratch worktree is cleaned. A failure or the user's Stop merges nothing;
-//! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere.
+//! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere. The
+//!    fast-forward runs the user's post-merge hook in their own folder: the merge has landed by then, so whatever
+//!    the hook does (an install that fails) doesn't change the outcome; the outcome keeps its output
+//!    ([`PostMergeHook`]) for the ticket's History.
 //!
 //! **Never pushes, never stashes, never commits in the user's folder.**
 
@@ -130,6 +133,49 @@ impl HookChanges {
     }
 }
 
+/// The user's post-merge hook that ran in their own folder when the target moved there. Passed or failed, it is
+/// only told: the merge had landed before it ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostMergeHook {
+    /// The folder it ran in, the home shortened: `~/code/shop-web`.
+    pub folder: String,
+    /// Its exit code; `None` when git didn't say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
+    /// Everything it printed, paths under the home shortened.
+    pub output: String,
+    pub started_ms: i64,
+    pub ended_ms: i64,
+}
+
+impl PostMergeHook {
+    fn of(run: &HookRun) -> Self {
+        Self {
+            folder: super::hooks::shorten_home(&run.folder.display().to_string()),
+            exit: run.exit,
+            output: run.output.clone(),
+            started_ms: run.started_ms,
+            ended_ms: run.ended_ms,
+        }
+    }
+
+    pub fn passed(&self) -> bool {
+        self.exit == Some(0)
+    }
+
+    /// "Your post-merge hook ran in ~/shop-web"; "Your post-merge hook failed in ~/shop-web (exit 1)".
+    pub fn sentence(&self) -> String {
+        match (self.passed(), self.exit) {
+            (true, _) => format!("Your post-merge hook ran in {}", self.folder),
+            (false, Some(code)) => format!(
+                "Your post-merge hook failed in {} (exit {code})",
+                self.folder
+            ),
+            (false, None) => format!("Your post-merge hook failed in {}", self.folder),
+        }
+    }
+}
+
 /// The hook named for a change to a commit's files, of those its `git commit` ran: pre-commit, the one that changes
 /// what is committed; else post-commit, which can only change it by amending the commit.
 fn changing_hook(runs: &[HookRun]) -> Option<String> {
@@ -153,6 +199,9 @@ pub enum MergeOutcome {
         fetch_failed: Option<FetchFailure>,
         /// A hook changed the commit's files; `None` when what landed is what was squashed.
         hook_changed: Option<HookChanges>,
+        /// The user's post-merge hook ran in their folder as the target moved there; `None` without one (or when the
+        /// target wasn't checked out anywhere, so only its ref moved and no hook ran).
+        post_merge: Option<Box<PostMergeHook>>,
     },
     RefusedUncommitted {
         files: Vec<String>,
@@ -341,18 +390,23 @@ impl Git {
 
         // 6. Move the target.
         self.step(GitStep::MoveTarget);
+        let mut post_merge = None;
         match &checkout {
             Some(folder) => {
-                if self
-                    .run(folder, &["merge", "--quiet", "--ff-only", &commit])
-                    .await
-                    .is_err()
-                {
+                let (moved, hooks) = self
+                    .run_with_hooks(folder, &["merge", "--quiet", "--ff-only", &commit], &[])
+                    .await;
+                if moved.is_err() {
                     // Something in the folder (an untracked file in the way) stops the fast-forward.
                     return Ok(MergeOutcome::RefusedDirtyCheckout {
                         message: dirty_checkout_message(&m.project_name, &m.target),
                     });
                 }
+                // A failing post-merge doesn't fail git's merge: its own exit code says how it went.
+                post_merge = hooks
+                    .iter()
+                    .find(|run| run.name == "post-merge")
+                    .map(|run| Box::new(PostMergeHook::of(run)));
             }
             None => {
                 self.run(&m.repo, &["update-ref", &target_ref, &commit, &onto])
@@ -366,6 +420,7 @@ impl Git {
             checked,
             fetch_failed,
             hook_changed,
+            post_merge,
         })
     }
 
