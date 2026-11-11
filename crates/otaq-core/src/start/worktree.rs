@@ -15,7 +15,7 @@ use std::path::{Path, PathBuf};
 use super::StartError;
 use crate::board::Board;
 use crate::data_dir::DataDir;
-use crate::git::{Git, GitError};
+use crate::git::{Git, GitError, GitStep};
 use crate::naming;
 use crate::store::now_ms;
 
@@ -223,6 +223,7 @@ pub(crate) async fn add_worktree(
         args.push("--force");
     }
     args.extend([path_arg.as_str(), branch]);
+    git.step(GitStep::AddWorktree);
     git.run(repo, &args).await?;
     // The checkout writes the files and the index in the same second, so git can't trust the index's stat data and
     // reads every file again on each diff until something rewrites it (the Files view reads with

@@ -198,7 +198,12 @@ async fn a_rejecting_pre_commit_hook_stops_with_an_error_and_changes_nothing() {
         .await
         .unwrap_err();
     match err {
-        RebaseError::CheckpointRejected { message } => assert!(message.contains("lint failed")),
+        RebaseError::CheckpointRejected { message, refusal } => {
+            assert!(message.contains("lint failed"));
+            let refusal = refusal.expect("the hook is named");
+            assert_eq!(refusal.name(), "pre-commit");
+            assert_eq!(refusal.output(), "lint failed");
+        }
         other => panic!("expected a rejected checkpoint, got {other}"),
     }
     assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "not rebased");

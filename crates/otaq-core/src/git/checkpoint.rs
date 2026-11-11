@@ -8,13 +8,13 @@
 //! even the user's `rebase.autoStash` setting makes one.
 //!
 //! The user's git config and hooks apply (P4): a hook that rejects the checkpoint stops the operation with an
-//! error ([`RebaseError::CheckpointRejected`]); nothing passes `--no-verify`. A conflict, in the rebase or in
+//! error ([`RebaseError::CheckpointRejected`], naming the hook when one refused); nothing passes `--no-verify`. A conflict, in the rebase or in
 //! putting the files back, leaves the branch, the index and the files exactly as they were before.
 
 use std::fmt;
 use std::path::Path;
 
-use super::{Git, GitError};
+use super::{Git, GitError, GitStep, HookRefusal};
 use crate::naming;
 
 /// The checkpoint commit's message: `wip: paused by Otaq`.
@@ -36,9 +36,10 @@ pub enum RebaseOutcome {
 #[derive(Debug)]
 pub enum RebaseError {
     /// The user's hooks (or config) refused the checkpoint commit; the files are as they were. `message` is
-    /// git's output.
+    /// git's output; `refusal` says which hook refused, with its whole output, when one did.
     CheckpointRejected {
         message: String,
+        refusal: Option<Box<HookRefusal>>,
     },
     Git(GitError),
 }
@@ -46,7 +47,7 @@ pub enum RebaseError {
 impl fmt::Display for RebaseError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CheckpointRejected { message } => {
+            Self::CheckpointRejected { message, .. } => {
                 write!(f, "the checkpoint commit was rejected: {message}")
             }
             Self::Git(e) => write!(f, "{e}"),
@@ -91,9 +92,11 @@ impl Git {
         let saved = if self.uncommitted_files(worktree).await?.is_empty() {
             None
         } else {
+            self.step(GitStep::SaveUncommitted);
             Some(self.checkpoint(worktree).await?)
         };
 
+        self.step(GitStep::UpdateBranch);
         let rebase = self
             .run(worktree, &["rebase", "--no-autostash", "--quiet", onto])
             .await;
@@ -104,6 +107,7 @@ impl Git {
                 self.run(worktree, &["rebase", "--abort"]).await?;
             }
             if let Some(saved) = &saved {
+                self.step(GitStep::RestoreUncommitted);
                 self.restore(worktree, saved).await?;
             }
             if files.is_empty() {
@@ -116,6 +120,7 @@ impl Git {
         let Some(saved) = saved else {
             return Ok(RebaseOutcome::Clean);
         };
+        self.step(GitStep::RestoreUncommitted);
         // Take the checkpoint out again: its changes stay in the files.
         self.run(worktree, &["reset", "--quiet", "--soft", "HEAD~1"])
             .await?;
@@ -170,9 +175,14 @@ impl Git {
             // Put the index back as it was; the files never changed.
             self.run(worktree, &["read-tree", &index]).await?;
             return Err(match e {
-                GitError::Failed { stderr, .. } => {
-                    RebaseError::CheckpointRejected { message: stderr }
-                }
+                GitError::Failed { stderr, .. } => RebaseError::CheckpointRejected {
+                    message: stderr,
+                    refusal: None,
+                },
+                GitError::HookRefused(refusal) => RebaseError::CheckpointRejected {
+                    message: refusal.stderr.clone(),
+                    refusal: Some(refusal),
+                },
                 e => RebaseError::Git(e),
             });
         }
