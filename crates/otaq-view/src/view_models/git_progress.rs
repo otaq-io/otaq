@@ -29,9 +29,9 @@ pub fn step_words(step: GitStep, target: &str) -> String {
 }
 
 /// Whether the running hook's line names its folder: only where it runs in the user's own folder rather than in
-/// Otaq's worktrees. None does yet; the post-merge hook that runs where the target branch moves will.
-pub fn names_folder(_step: Option<GitStep>) -> bool {
-    false
+/// Otaq's worktrees (the post-merge hook that runs where the target branch moves).
+pub fn names_folder(step: Option<GitStep>) -> bool {
+    step.is_some_and(GitStep::runs_in_users_folder)
 }
 
 /// "40 s", "1 min 5 s", "12 min": how long a hook has run.
@@ -130,6 +130,18 @@ mod tests {
             ..merging(None, None)
         };
         assert_eq!(card_line(&start, 0), "Starting \u{b7} making its worktree");
+    }
+
+    #[test]
+    fn the_post_merge_hook_in_the_users_folder_names_the_folder() {
+        let p = merging(Some(GitStep::MoveTarget), Some("post-merge"));
+        assert_eq!(
+            card_line(&p, 21_000),
+            "Merging \u{b7} running your post-merge hook in ~/code/shop-web \u{b7} 20 s"
+        );
+        // Hooks in Otaq's own worktrees don't name where they run.
+        let commit = merging(Some(GitStep::Commit), Some("post-merge"));
+        assert!(!card_line(&commit, 21_000).contains(" in "));
     }
 
     #[test]

@@ -56,6 +56,20 @@ pub enum GitStep {
     Reword,
 }
 
+impl GitStep {
+    /// Whether the user can stop the step while it runs. Moving the target is the one that can't: by then the merge
+    /// has landed, and the post-merge hook it runs in the user's own folder has nothing to undo.
+    pub fn stoppable(self) -> bool {
+        !matches!(self, Self::MoveTarget)
+    }
+
+    /// Whether its hooks run in the user's own folder rather than in Otaq's worktrees: moving the target fast-forwards
+    /// the user's checkout, where their post-merge hook runs.
+    pub fn runs_in_users_folder(self) -> bool {
+        matches!(self, Self::MoveTarget)
+    }
+}
+
 /// What a watched git operation is doing now ([`GitWatch::activity`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize)]
 pub struct GitActivity {

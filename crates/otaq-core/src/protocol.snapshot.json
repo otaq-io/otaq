@@ -3070,6 +3070,7 @@
         "parked",
         "passed",
         "pinned",
+        "post_merge_hook",
         "pr_cancelled",
         "pr_confirmed",
         "pr_opened",

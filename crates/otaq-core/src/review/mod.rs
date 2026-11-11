@@ -499,6 +499,7 @@ impl Review {
                 onto,
                 fetch_failed,
                 hook_changed,
+                post_merge,
                 ..
             } => {
                 let merged = board
@@ -508,6 +509,7 @@ impl Review {
                         &commit,
                         &onto,
                         hook_changed.as_ref(),
+                        post_merge.as_deref(),
                         actor,
                     )
                     .await?;
