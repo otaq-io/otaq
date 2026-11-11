@@ -353,6 +353,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)
         | Request::AppFocus(_)
         | Request::SessionBeforeRestart(_)
         | Request::Hook(_)

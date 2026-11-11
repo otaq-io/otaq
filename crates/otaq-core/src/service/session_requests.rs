@@ -143,19 +143,21 @@ pub(super) async fn handle(
             }
             // An Enter or a backspace may have emptied the line: waiting messages may go now. A key a tool's own
             // menu took leaves the line empty on screen, which counts once the program has drawn it: look again
-            // then.
+            // then. Whatever the answer, the Session tab's "Unsent text in the input line" follows it.
             let deliveries = shared.deliveries.clone();
             let sessions = sessions.clone();
             let session = p.session.clone();
             tokio::spawn(async move {
-                if sessions.has_unsent_input(&session).unwrap_or(true) {
+                let mut unsent = sessions.has_unsent_input(&session).unwrap_or(true);
+                if unsent {
                     tokio::time::sleep(crate::session::KEY_SETTLE).await;
-                    if sessions.has_unsent_input(&session).unwrap_or(true) {
-                        return;
-                    }
+                    unsent = sessions.has_unsent_input(&session).unwrap_or(true);
                 }
-                if let Err(e) = deliveries.deliver_if_ready(&session).await {
+                if !unsent && let Err(e) = deliveries.deliver_if_ready(&session).await {
                     tracing::warn!(session, error = %e, "delivery failed");
+                }
+                if let Err(e) = deliveries.line_settled(&session, unsent).await {
+                    tracing::warn!(session, error = %e, "can't tell the line's change");
                 }
             });
             Ok((Reply::Ok, Then::Continue))
@@ -184,6 +186,15 @@ pub(super) async fn handle(
             }
             .map_err(session_error)?;
             Ok((Reply::Delivery(delivery), Then::Continue))
+        }
+        Request::SessionUnsent(p) => {
+            // A session that isn't running takes no notes, so nothing waits behind its line.
+            let running = sessions.info(&p.session).is_ok_and(|i| i.is_running());
+            let unsent = running
+                && sessions
+                    .has_unsent_input(&p.session)
+                    .map_err(session_error)?;
+            Ok((Reply::Unsent(unsent), Then::Continue))
         }
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,

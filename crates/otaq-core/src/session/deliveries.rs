@@ -135,6 +135,9 @@ pub struct Deliveries {
     senders: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
     /// By `pending_deliveries.id`: the deliveries typed only if still wanted then ([`Self::queue_while`]).
     conditions: Arc<Mutex<HashMap<String, StillWanted>>>,
+    /// By session: whether its input line held unsent text when a person's key last settled
+    /// ([`Self::line_settled`]).
+    lines: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 impl Deliveries {
@@ -154,6 +157,7 @@ impl Deliveries {
             hand_offs: HandOffs::default(),
             senders: Arc::default(),
             conditions: Arc::default(),
+            lines: Arc::default(),
         }
     }
 
@@ -388,6 +392,7 @@ impl Deliveries {
     /// check's, a helper's, or the agent's with no live agent session left) is dropped. A new session starts by
     /// reading its ticket, so nothing it needs is lost.
     pub async fn session_ended(&self, ended: &SessionInfo) -> Result<(), SessionError> {
+        self.lines.lock().expect("input lines").remove(&ended.id);
         let pending = self.pending(&ended.id).await?;
         if pending.is_empty() {
             return Ok(());
@@ -448,6 +453,23 @@ impl Deliveries {
             return Ok(0);
         }
         self.send_pending(session, true).await
+    }
+
+    /// A person's key reached the session and the program has drawn it: `unsent` is whether its input line holds text
+    /// now ([`Sessions::has_unsent_input`]). The Session tab says "Unsent text in the input line" only while messages
+    /// wait behind such text, so when the answer changes with messages waiting, `messages_waiting` goes out again and
+    /// the tab looks again: a key a tool's prompt took, or one typed after a prompt closed and then cleared, never
+    /// leaves that line up over an empty input line.
+    pub async fn line_settled(&self, session: &str, unsent: bool) -> Result<(), SessionError> {
+        let before = self
+            .lines
+            .lock()
+            .expect("input lines")
+            .insert(session.to_owned(), unsent);
+        if before == Some(unsent) || self.pending(session).await?.is_empty() {
+            return Ok(());
+        }
+        self.publish_waiting(session).await
     }
 
     /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns and its

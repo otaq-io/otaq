@@ -275,6 +275,7 @@ async fn action_for(
         | R::WarmList
         | R::SessionAttach(_)
         | R::SessionDetach(_)
+        | R::SessionUnsent(_)
         | R::RunStatus(_)
         | R::RunApps(_)
         | R::RunList

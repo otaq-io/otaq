@@ -485,7 +485,8 @@ async fn respond(
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
-        | Request::SessionFocus(_)) => {
+        | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)) => {
             match session_requests::handle(request, client, shared).await {
                 Ok(answer) => answer,
                 Err(error) => return (Message::error(id, error), Then::Continue),
