@@ -339,9 +339,11 @@ fn merging_view(f: &ApproveFacts) -> MergingView {
             .filter(|g| g.step.is_none_or(otaq_core::git::GitStep::stoppable))
             .map(|_| crate::view_models::card::STOP),
         label: "Merging\u{2026}",
+        // Its last step moves the target in the user's folder (and runs their post-merge hook there).
         note: format!(
-            "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
-            otaq_core::naming::PRODUCT_NAME
+            "Works in {}\u{2019}s own scratch worktree; only the last step moves {} in your folder.",
+            otaq_core::naming::PRODUCT_NAME,
+            f.target
         ),
         close: "Close",
     }
@@ -907,6 +909,19 @@ mod tests {
         assert_eq!(c.conflict, None);
         assert!(c.hint.starts_with("cancel \u{b7} "));
         assert_eq!(view.merging.label, "Merging\u{2026}");
+        assert_eq!(
+            view.merging.note,
+            "Works in Otaq\u{2019}s own scratch worktree; only the last step moves main in your folder."
+        );
+        let develop = approve_view(facts(&t, &all, "develop", &ApproveCheck::Unchanged));
+        assert!(
+            develop
+                .merging
+                .note
+                .ends_with("only the last step moves develop in your folder."),
+            "{}",
+            develop.merging.note
+        );
         assert_eq!(view.merging.steps.len(), 5);
         assert_eq!(
             (view.merging.current, view.merging.hook.as_ref()),
