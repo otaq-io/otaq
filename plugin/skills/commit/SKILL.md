@@ -29,4 +29,8 @@ any file is uncommitted, and the user reviews and merges only what is committed.
 
 5. The user's git hooks and settings apply. If a hook rejects the commit, fix the problem and commit again; never use
    `--no-verify`.
-6. Check that `git status` is clean. **Never push.**
+6. Check that `git status` is clean. **Don't push unless the user asks**, in the ticket, a comment or a message in
+   this session: a plain request is enough. When you push, wait for `git push` to finish, however long the project's
+   pre-push hook takes, and report what it really said; if your shell stopped waiting first, check what reached the
+   remote (`git ls-remote origin <branch>`) before you report. If a pre-push hook refuses the push, never use
+   `--no-verify`: tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.

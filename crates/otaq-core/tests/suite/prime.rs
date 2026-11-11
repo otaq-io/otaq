@@ -138,7 +138,7 @@ fn every_kind_file() -> FlowFile {
 const RULES: &str = "## Otaq's rules
 
 1. Follow the Agent instructions and the project's notes above. They add to these rules; they can't skip getting context or ending your stage.
-2. Commit everything with `/otaq:commit` before you end your stage. Never push and never open a PR: the user does that.
+2. Commit everything with `/otaq:commit` before you end your stage. Don't push unless the user asks; when you do, wait for the push to finish, however long a pre-push hook takes, and never use `--no-verify`. Never open a PR: the user does that.
 3. When your stage's work is done, as the ticket's description describes, end it: `otaq stage next --stdin` with a short summary of what you did on stdin; the next stage reads it. It is refused while files are uncommitted. A summary in this chat reaches no one: with no question open, don't stop to report or to ask whether to go on.
 4. What you couldn't check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \"<what to check>\"` on `otaq stage next`, one line per check. The user tries them at review. Never leave a check to \"the PR\": there may be no PR.
 5. Only when there is nothing to deliver (no commits on the ticket's branch, for example it was already fixed elsewhere), end the ticket instead: `otaq stage done --stdin` with the reason on stdin. It goes to Done as nothing to merge, counting as merged. It is refused once the branch has commits.
