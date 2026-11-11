@@ -64,6 +64,7 @@ mod folder_trust;
 mod found_skills;
 mod free;
 mod git;
+mod git_hooks;
 mod git_identity_start;
 mod hand_off_pending;
 mod hand_overs;

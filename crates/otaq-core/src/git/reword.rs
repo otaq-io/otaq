@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::{Git, GitError};
+use super::{Git, GitError, GitStep};
 
 /// One commit of a range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -71,6 +71,7 @@ impl Git {
         parent: &str,
         commits: &[(CommitInfo, String)],
     ) -> Result<String, GitError> {
+        self.step(GitStep::Reword);
         let mut parent = parent.to_owned();
         let mut changed = false;
         for (commit, message) in commits {
