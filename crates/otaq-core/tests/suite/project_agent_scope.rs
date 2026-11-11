@@ -405,6 +405,126 @@ async fn a_ticket_it_created_and_made_wait_is_created_with_its_wait_not_changed(
     w.stop().await;
 }
 
+/// A ticket shows under Created only in the turn it was made: a wait given in a later turn is a change like any
+/// other (a CHANGED row, with Undo), and the Created row keeps its title and what it was given then. The Windows
+/// re-test saw the later wait folded into the Created row, with no Changed row.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_change_in_a_later_turn_to_a_ticket_it_created_is_changed() {
+    use otaq_core::project_agents::WhatChanged;
+    use otaq_core::signals::Signal;
+
+    let w = world().await;
+    let (agent, shell) = open(&w).await;
+    for title in ["Retest dep A", "Retest dep B"] {
+        let created = send(
+            &w,
+            &shell,
+            "ticket.create",
+            json!({"project": "SHOP", "title": title}),
+        )
+        .await;
+        assert!(created.get("error").is_none(), "{created}");
+    }
+    let given = send(
+        &w,
+        &shell,
+        "dep.add",
+        json!({"child": "SHOP-45", "parent": "SHOP-44"}),
+    )
+    .await;
+    assert!(given.get("error").is_none(), "{given}");
+    // Its turn ends (twice: one mark), then the user's next message: a later turn.
+    for _ in 0..2 {
+        w.project_agents
+            .hook(&agent.id, &Signal::TurnEnded)
+            .await
+            .unwrap();
+    }
+    let later = send(
+        &w,
+        &shell,
+        "dep.add",
+        json!({"child": "SHOP-44", "parent": "SHOP-13"}),
+    )
+    .await;
+    assert!(later.get("error").is_none(), "{later}");
+
+    let c = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    let keys = |keys: &[otaq_core::domain::TicketKey]| {
+        keys.iter().map(ToString::to_string).collect::<Vec<_>>()
+    };
+    assert_eq!(
+        c.created
+            .iter()
+            .map(|t| (t.key.to_string(), t.title.as_str(), keys(&t.waits_for)))
+            .collect::<Vec<_>>(),
+        [
+            ("SHOP-44".to_owned(), "Retest dep A", Vec::<String>::new()),
+            (
+                "SHOP-45".to_owned(),
+                "Retest dep B",
+                vec!["SHOP-44".to_owned()]
+            ),
+        ],
+        "the Created rows keep what they said"
+    );
+    assert_eq!(
+        c.changes
+            .iter()
+            .map(|c| (c.ticket.to_string(), c.change.clone(), c.undone))
+            .collect::<Vec<_>>(),
+        [(
+            "SHOP-44".to_owned(),
+            WhatChanged::WaitsFor {
+                parent: "SHOP-13".parse().unwrap()
+            },
+            false
+        )]
+    );
+    assert_eq!(keys(&c.edited), ["SHOP-44"]);
+
+    // Undo (the user's own edit, then recorded): the change is listed as undone.
+    w.board
+        .remove_dependency("SHOP-44", "SHOP-13", &Actor::User("me".into()))
+        .await
+        .unwrap();
+    w.project_agents
+        .undone(
+            &agent.id,
+            "SHOP-44",
+            &c.changes[0].change,
+            &Actor::User("me".into()),
+        )
+        .await
+        .unwrap();
+    let c = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    assert!(c.changes[0].undone, "{c:?}");
+    // It makes the same change again later: a change of its own once more, not undone.
+    let again = send(
+        &w,
+        &shell,
+        "dep.add",
+        json!({"child": "SHOP-44", "parent": "SHOP-13"}),
+    )
+    .await;
+    assert!(again.get("error").is_none(), "{again}");
+    let c = w
+        .project_agents
+        .created_and_changed(&agent.id)
+        .await
+        .unwrap();
+    assert!(!c.changes[0].undone, "{c:?}");
+    w.stop().await;
+}
+
 /// Created and changed says what it changed (the CHANGED rows): one entry per part of a ticket, how it found the
 /// part and how it left it; a wait it added and took back again is no change.
 #[tokio::test(flavor = "multi_thread")]

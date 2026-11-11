@@ -1005,6 +1005,10 @@ pub enum Request {
     /// A Project agent's "Created and changed" (PAG-05). Answered with [`Reply::CreatedAndChanged`].
     #[serde(rename = "project_agent.created")]
     ProjectAgentCreated(IdParams),
+    /// Undo on one of a Project agent's CHANGED rows took that change back (the app sends the board's own edit first):
+    /// recorded so the row says it was undone. Answered with [`Reply::Ok`].
+    #[serde(rename = "project_agent.undone")]
+    ProjectAgentUndone(ProjectAgentUndoneParams),
 
     /// `otaq show <KEY> --terminal` (SHL-10, CLI-09, d0087): the ticket's terminal as the user sees it, as plain
     /// text; read-only, for the user and a Project agent of its project. Answered with
@@ -1258,6 +1262,15 @@ pub struct ProjectAgentCloseParams {
 pub struct ProjectAgentRenameParams {
     pub id: String,
     pub name: String,
+}
+
+/// `{"id": "…", "ticket": "SHOP-7", "change": {"kind": "waits_for", "parent": "SHOP-6"}}`: the Project agent, the
+/// ticket and the change of its CHANGED row that Undo took back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentUndoneParams {
+    pub id: String,
+    pub ticket: String,
+    pub change: crate::project_agents::WhatChanged,
 }
 
 /// `{"name": "Checkout slowness"}`; `rename` when the user asked the agent for a new name.
@@ -2272,6 +2285,7 @@ impl Request {
             Self::ProjectAgentSend(_) => "project_agent.send",
             Self::ProjectAgentPrime(_) => "project_agent.prime",
             Self::ProjectAgentCreated(_) => "project_agent.created",
+            Self::ProjectAgentUndone(_) => "project_agent.undone",
             Self::TicketTerminal(_) => "ticket.terminal",
             Self::AgentsList => "agents.list",
             Self::AgentsAdd(_) => "agents.add",

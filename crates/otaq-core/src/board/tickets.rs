@@ -361,6 +361,9 @@ stored_enum! {
         DependencyRemoved = "dependency_removed",
         Closed = "closed",
         AgentEditsSeen = "agent_edits_seen",
+        /// Undo on one of Noyan's CHANGED rows took that change back (the edit itself is recorded as its own event):
+        /// payload `agent` (the conversation's id) and `change` (what Noyan had changed). Not in History.
+        NoyanChangeUndone = "noyan_change_undone",
         /// The start sequence finished: the agent is working (SES-01).
         Started = "started",
         /// The start stopped at a step (SES-02).

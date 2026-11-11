@@ -526,7 +526,8 @@ async fn respond(
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_)) => {
+        | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)) => {
             match agent_requests::handle(request, who, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),

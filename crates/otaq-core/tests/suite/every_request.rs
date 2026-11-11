@@ -51,6 +51,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "flow.draft_update" {
             params["edit"] = json!({"edit": "undo_all"});
         }
+        if method == "project_agent.undone" {
+            params["change"] = json!({"kind": "waits_for", "parent": "NOPE-2"});
+        }
         if method == "flow.apply_now" {
             params["stamp"] = json!("s");
         }
@@ -379,6 +382,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)
         | Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

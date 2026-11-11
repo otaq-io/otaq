@@ -141,6 +141,7 @@ const RUNNING: AgentPanelView = {
           start: null,
           delete: null,
           undo: null,
+          undone: null,
         },
         {
           key: "NOTE-12",
@@ -153,6 +154,7 @@ const RUNNING: AgentPanelView = {
           start: "Start",
           delete: "Delete",
           undo: null,
+          undone: null,
         },
       ],
       changed_title: "CHANGED 1",
@@ -168,6 +170,7 @@ const RUNNING: AgentPanelView = {
           start: null,
           delete: null,
           undo: "Undo",
+          undone: null,
         },
       ],
     },
@@ -506,6 +509,27 @@ describe("a running agent", () => {
       await Promise.resolve();
     });
     expect(ask).toHaveBeenCalledWith("board.start", { key: "NOTE-12" });
+  });
+
+  it("an undone changed row says it was undone, with no Undo", () => {
+    const running = RUNNING.running;
+    const created = running?.created;
+    const changed = created?.changed[0];
+    if (!running || !created || !changed) throw new Error("the fixture runs and changed a ticket");
+    show({
+      ...RUNNING,
+      running: {
+        ...running,
+        created: {
+          ...created,
+          folded: false,
+          changed: [{ ...changed, change: "no longer waits for NOTE-4", undo: null, undone: "Undone" }],
+        },
+      },
+    });
+    const rows = [...box.querySelectorAll(".agent-panel-created-row")];
+    expect(rows[2]?.textContent).toBe("Undone ·NOTE-5no longer waits for NOTE-4");
+    expect([...(rows[2]?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual(["NOTE-5"]);
   });
 
   it("the switcher continues a conversation: Resume on an ended one, and the recently ended ones", async () => {

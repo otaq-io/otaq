@@ -3034,6 +3034,7 @@
         "merged_in",
         "merged_into",
         "moved",
+        "noyan_change_undone",
         "parked",
         "passed",
         "pinned",
@@ -6671,6 +6672,23 @@
         }
       }
     },
+    "ProjectAgentUndoneParams": {
+      "kind": "struct",
+      "fields": {
+        "change": {
+          "ty": "WhatChanged",
+          "required": true
+        },
+        "id": {
+          "ty": "String",
+          "required": true
+        },
+        "ticket": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "ProjectChanges": {
       "kind": "struct",
       "fields": {
@@ -8349,6 +8367,9 @@
         },
         "project_agent.send": {
           "newtype": "ProjectAgentSendParams"
+        },
+        "project_agent.undone": {
+          "newtype": "ProjectAgentUndoneParams"
         },
         "project_settings.get": {
           "newtype": "ProjectParams"
@@ -10850,6 +10871,10 @@
         "ticket": {
           "ty": "TicketKey",
           "required": true
+        },
+        "undone": {
+          "ty": "bool",
+          "omittable": true
         }
       }
     },

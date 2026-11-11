@@ -31,7 +31,8 @@ use otaq_core::board::stage_choices::{SKIP, TicketChoices};
 use otaq_core::board::tickets::{Field, Ticket, TicketUpdate};
 use otaq_core::domain::{Priority, Status, StatusSet, TicketKey};
 use otaq_core::project_agents::{
-    AgentState, CreatedAndChanged, CreatedTicket, ProjectAgent, ProjectAgentList, WhatChanged,
+    AgentState, CreatedAndChanged, CreatedTicket, ProjectAgent, ProjectAgentList, TicketChange,
+    WhatChanged,
 };
 use otaq_core::protocol::{DepParams, Request, SetChoiceParams, TicketUpdateParams};
 use serde::Serialize;
@@ -335,6 +336,9 @@ pub struct CreatedRow {
     /// "Undo" on a changed row while that part of the ticket still reads as Noyan left it: `agent_panel.undo` takes
     /// the change back. Gone once someone changed that part again, so Undo never overwrites a later edit.
     pub undo: Option<&'static str>,
+    /// "Undone" on a changed row the user took back with its Undo: the row reads "Undone · SHOP-7 no longer waits for
+    /// SHOP-6", `change` saying what Undo put back ([`what_was_undone`]), and has no Undo.
+    pub undone: Option<&'static str>,
 }
 
 /// Show on board (Q-G, d0087): the board shows only the tickets this agent created or changed, with the chip
@@ -413,6 +417,47 @@ pub fn what_changed(change: &WhatChanged) -> String {
             format!("now skips {stage}")
         }
         WhatChanged::StageChoice { stage, after, .. } => format!("{stage}: {after}"),
+    }
+}
+
+/// What an undone CHANGED row says Undo put back, after "Undone · " and the ticket's key: "no longer waits for SHOP-6",
+/// "waits for SHOP-6 again", "renamed back to “Coupons”", "description put back", "priority back to Normal",
+/// "branches from main again", "no longer skips Review", "Dev: back to Quick developer".
+pub fn what_was_undone(change: &WhatChanged) -> String {
+    match change {
+        WhatChanged::WaitsFor { parent } => format!("no longer waits for {parent}"),
+        WhatChanged::NoLongerWaitsFor { parent } => format!("waits for {parent} again"),
+        WhatChanged::Field { field, before, .. } => match field {
+            Field::Title => format!(
+                "renamed back to \u{201c}{}\u{201d}",
+                before.as_deref().unwrap_or_default()
+            ),
+            Field::Body => "description put back".to_owned(),
+            Field::Plan => "Plan put back".to_owned(),
+            Field::Priority => {
+                // History writes a priority as "P2 · High".
+                let before = before.as_deref().unwrap_or_default();
+                let label = before
+                    .split(" \u{b7} ")
+                    .next()
+                    .and_then(|p| p.parse::<Priority>().ok())
+                    .map_or_else(|| before.to_owned(), |p| p.label().to_owned());
+                format!("priority back to {label}")
+            }
+            Field::BaseBranch => match before.as_deref() {
+                Some(branch) if !branch.trim().is_empty() => {
+                    format!("branches from {branch} again")
+                }
+                _ => "branches from the project's base branch again".to_owned(),
+            },
+        },
+        WhatChanged::StageChoice { stage, after, .. } if after == SKIP => {
+            format!("no longer skips {stage}")
+        }
+        WhatChanged::StageChoice { stage, before, .. } => match before {
+            Some(before) => format!("{stage}: back to {before}"),
+            None => format!("{stage}: back to its usual agent"),
+        },
     }
 }
 
@@ -566,15 +611,24 @@ pub fn created(
                 start: waiting.then_some("Start"),
                 delete: t.deletable.then_some("Delete"),
                 undo: None,
+                undone: None,
             }
         })
         .collect();
-    let changed_row = |key: &TicketKey, change: Option<&WhatChanged>| {
+    let changed_row = |key: &TicketKey, change: Option<&TicketChange>| {
         let known = edited.iter().find(|t| t.key == *key);
-        let undo = change
-            .zip(known)
-            .is_some_and(|(change, t)| t.undo.contains(change));
-        let change = change.map(what_changed);
+        let undone = change.is_some_and(|c| c.undone);
+        let undo = !undone
+            && change
+                .zip(known)
+                .is_some_and(|(c, t)| t.undo.contains(&c.change));
+        let change = change.map(|c| {
+            if undone {
+                what_was_undone(&c.change)
+            } else {
+                what_changed(&c.change)
+            }
+        });
         CreatedRow {
             key: key.to_string(),
             title: known.map_or_else(String::new, |t| t.title.clone()),
@@ -590,6 +644,7 @@ pub fn created(
             start: None,
             delete: None,
             undo: undo.then_some("Undo"),
+            undone: undone.then_some("Undone"),
         }
     };
     // One row per change; a service from before the changes were sent gives only the tickets.
@@ -598,7 +653,7 @@ pub fn created(
     } else {
         c.changes
             .iter()
-            .map(|ch| changed_row(&ch.ticket, Some(&ch.change)))
+            .map(|ch| changed_row(&ch.ticket, Some(ch)))
             .collect()
     };
     let all_waiting = c.created.iter().all(|t| in_backlog(t.status));
@@ -1041,6 +1096,7 @@ pub fn gallery() -> Gallery {
                 parent: "NOTE-4".parse().expect("a key"),
             },
             at: NOW,
+            undone: false,
         }],
         dependencies: 1,
         summary: String::new(),
@@ -1888,6 +1944,7 @@ mod tests {
                 parent: parent.parse().unwrap(),
             },
             at: 1,
+            undone: false,
         }
     }
 
@@ -1959,6 +2016,81 @@ mod tests {
             Some("now waits for SHOP-6"),
             "the row keeps what it says"
         );
+    }
+
+    /// After Undo the row stays and says it was undone ("Undone · SHOP-7 no longer waits for SHOP-6"), with no Undo,
+    /// rather than keeping its old text as if the change still held.
+    #[test]
+    fn an_undone_row_says_it_was_undone() {
+        let a = agent("a1", "Tidy the backlog", 1);
+        let mut change = waits("SHOP-7", "SHOP-6");
+        change.undone = true;
+        let c = CreatedAndChanged {
+            edited: vec!["SHOP-7".parse().unwrap()],
+            changes: vec![change],
+            ..Default::default()
+        };
+        let edited = [EditedTicket {
+            key: "SHOP-7".parse().unwrap(),
+            title: "Check total".into(),
+            place: "Backlog".into(),
+            undo: Vec::new(),
+        }];
+        let panel = created(&a, &c, &edited, &[], None).unwrap();
+        let row = &panel.changed[0];
+        assert_eq!(row.undone, Some("Undone"));
+        assert_eq!(row.key, "SHOP-7");
+        assert_eq!(row.change.as_deref(), Some("no longer waits for SHOP-6"));
+        assert_eq!(row.undo, None);
+
+        // Each kind says what Undo put back.
+        let field = |field: Field, before: &str, after: &str| WhatChanged::Field {
+            field,
+            before: Some(before.into()),
+            after: Some(after.into()),
+        };
+        let shop6: TicketKey = "SHOP-6".parse().unwrap();
+        for (change, says) in [
+            (
+                WhatChanged::NoLongerWaitsFor {
+                    parent: shop6.clone(),
+                },
+                "waits for SHOP-6 again",
+            ),
+            (
+                field(Field::Title, "Coupons", "Coupon codes"),
+                "renamed back to \u{201c}Coupons\u{201d}",
+            ),
+            (field(Field::Body, "Steps", "More"), "description put back"),
+            (
+                field(Field::Priority, "P3 \u{b7} Normal", "P1 \u{b7} Urgent"),
+                "priority back to Normal",
+            ),
+            (
+                field(Field::BaseBranch, "main", "develop"),
+                "branches from main again",
+            ),
+            (
+                WhatChanged::StageChoice {
+                    stage: "Review".into(),
+                    stage_id: "review".into(),
+                    before: None,
+                    after: SKIP.into(),
+                },
+                "no longer skips Review",
+            ),
+            (
+                WhatChanged::StageChoice {
+                    stage: "Dev".into(),
+                    stage_id: "dev".into(),
+                    before: Some("Developer".into()),
+                    after: "Quick developer".into(),
+                },
+                "Dev: back to Developer",
+            ),
+        ] {
+            assert_eq!(what_was_undone(&change), says);
+        }
     }
 
     /// A field has Undo while it still reads as Noyan wrote it, and Undo writes back what Noyan found; a base branch
@@ -2082,6 +2214,7 @@ mod tests {
                     after: after.map(Into::into),
                 },
                 at: 1,
+                undone: false,
             };
         let choice = |stage: &str, after: &str| TicketChange {
             ticket: "SHOP-9".parse().unwrap(),
@@ -2092,6 +2225,7 @@ mod tests {
                 after: after.into(),
             },
             at: 1,
+            undone: false,
         };
         let c = CreatedAndChanged {
             edited: vec!["SHOP-3".parse().unwrap(), "SHOP-9".parse().unwrap()],
@@ -2103,6 +2237,7 @@ mod tests {
                         parent: "SHOP-1".parse().unwrap(),
                     },
                     at: 1,
+                    undone: false,
                 },
                 field("SHOP-3", Field::Title, Some("Old"), Some("Cache previews")),
                 field("SHOP-3", Field::Body, None, Some("Steps")),

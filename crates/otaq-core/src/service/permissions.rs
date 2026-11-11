@@ -463,6 +463,7 @@ async fn action_for(
             Action::UserOnly("close conversations with Noyan")
         }
         R::ProjectAgentRename(_) => Action::UserOnly("rename conversations with Noyan"),
+        R::ProjectAgentUndone(_) => Action::UserOnly("undo Noyan's changes"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
         R::SettingsSet(_) | R::SettingsOsDark(_) | R::ProjectSettingsSet(_) => {
