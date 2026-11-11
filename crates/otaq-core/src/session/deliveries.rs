@@ -21,6 +21,10 @@
 //! [`Deliveries::hand_off`] (the user's click) or [`Deliveries::queue_hand_off`] (automatic): from the moment it is
 //! typed its ticket shows "waiting for the agent to pick it up" until the agent's tool reports activity, and
 //! [`Deliveries::send_again`] types it once more (d0118, [`super::hand_offs`]).
+//!
+//! A message never waits for a session that has ended ([`Deliveries::session_ended`]): one for the ticket's agent goes
+//! to the ticket's live agent session, and any other (a check's, a helper's) is dropped. The waiting count a ticket
+//! shows is its live agent session's alone, the session its Deliver now types into.
 
 use std::collections::HashMap;
 use std::future::Future;
@@ -30,8 +34,10 @@ use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use tokio::sync::{broadcast, watch};
+
 use super::hand_offs::{HandOff, HandOffs};
-use super::{SessionError, Sessions};
+use super::{SessionError, SessionInfo, SessionKind, SessionState, Sessions};
 use crate::agent_tools::{Adapters, InputQuirks};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
@@ -190,6 +196,7 @@ impl Deliveries {
             .lock()
             .expect("delivery conditions")
             .insert(id, still_wanted);
+        self.not_for_an_ended(session).await?;
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
@@ -201,7 +208,8 @@ impl Deliveries {
         kind: DeliveryKind,
         text: &str,
     ) -> Result<(), SessionError> {
-        self.hold(session, kind, text).await.map(|_| ())
+        self.hold(session, kind, text).await?;
+        self.not_for_an_ended(session).await
     }
 
     /// Stores an automatic delivery and tells clients the waiting count; returns its id.
@@ -238,6 +246,7 @@ impl Deliveries {
             .hold(session, DeliveryKind::Skill, &hand_off.text)
             .await?;
         self.hand_offs.queued(&id, hand_off);
+        self.not_for_an_ended(session).await?;
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
@@ -338,7 +347,97 @@ impl Deliveries {
         .await
         .map_err(store_error)?;
         self.publish_waiting(session).await?;
+        self.not_for_an_ended(session).await?;
         self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// Watches session ends until the service stops: what still waited for an ended session is moved or dropped
+    /// ([`Self::session_ended`]).
+    pub async fn run(self, mut stop: watch::Receiver<bool>) {
+        let mut listener = self.events.listen();
+        loop {
+            let event = tokio::select! {
+                _ = stop.wait_for(|s| *s) => return,
+                event = listener.receiver.recv() => event,
+            };
+            match event {
+                Ok(Event::SessionState { session }) if !session.is_running() => {
+                    if let Err(e) = self.session_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't move an ended session's messages");
+                    }
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    tracing::warn!(missed, "deliveries fell behind on session events");
+                }
+                Err(broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    }
+
+    /// A message queued just as its session ended (after [`Self::run`] saw the end) doesn't stay behind it.
+    async fn not_for_an_ended(&self, session: &str) -> Result<(), SessionError> {
+        match self.sessions.info(session) {
+            Ok(info) if !info.is_running() => self.session_ended(&info).await,
+            _ => Ok(()),
+        }
+    }
+
+    /// `ended` has ended: the messages still waiting for it don't wait for nothing. Those for the ticket's agent (its
+    /// agent session's) go to the ticket's live agent session, typed there once it is ready; every other one (a
+    /// check's, a helper's, or the agent's with no live agent session left) is dropped. A new session starts by
+    /// reading its ticket, so nothing it needs is lost.
+    pub async fn session_ended(&self, ended: &SessionInfo) -> Result<(), SessionError> {
+        let pending = self.pending(&ended.id).await?;
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let live = if ended.kind == SessionKind::Agent {
+            self.live_agent_session(&ended.id).await?
+        } else {
+            None
+        };
+        if let Some(live) = live {
+            sqlx::query("UPDATE pending_deliveries SET session_id = ? WHERE session_id = ?")
+                .bind(&live)
+                .bind(&ended.id)
+                .execute(self.store.pool())
+                .await
+                .map_err(store_error)?;
+            self.publish_waiting(&ended.id).await?;
+            self.publish_waiting(&live).await?;
+            self.deliver_if_ready(&live).await?;
+            return Ok(());
+        }
+        for delivery in &pending {
+            sqlx::query("DELETE FROM pending_deliveries WHERE id = ?")
+                .bind(&delivery.id)
+                .execute(self.store.pool())
+                .await
+                .map_err(store_error)?;
+            self.forget_condition(&delivery.id);
+            self.hand_offs.take_queued(&delivery.id);
+        }
+        self.publish_waiting(&ended.id).await
+    }
+
+    /// The running agent session of `session`'s ticket other than `session`, the newest.
+    async fn live_agent_session(&self, session: &str) -> Result<Option<String>, SessionError> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT n.id FROM sessions n JOIN sessions o ON o.ticket_id = n.ticket_id
+             WHERE o.id = ? AND n.id <> o.id AND n.kind = ? AND n.state = ?
+             ORDER BY n.started_at DESC, n.id DESC",
+        )
+        .bind(session)
+        .bind(SessionKind::Agent.as_str())
+        .bind(SessionState::Running.as_str())
+        .fetch_all(self.store.pool())
+        .await
+        .map_err(store_error)?;
+        // The row says running; the session itself must still be.
+        Ok(ids
+            .into_iter()
+            .find(|id| self.sessions.info(id).is_ok_and(|i| i.is_running())))
     }
 
     /// Types every pending delivery, oldest first, if the agent is idle **and** the input line is empty.

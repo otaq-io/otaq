@@ -137,7 +137,7 @@ pub struct Flags {
     /// Changed since you reviewed it (d0043).
     #[serde(default, skip_serializing_if = "is_false")]
     pub changed_since_review: bool,
-    /// N messages waiting to be typed into the session (d0048).
+    /// N messages waiting to be typed into the ticket's live agent session (d0048); a check's own don't count.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub messages_waiting: u32,
     /// A hand-off typed into the live session that its agent hasn't picked up yet: "Sent back · waiting for the agent
