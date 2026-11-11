@@ -758,8 +758,10 @@ impl Signals {
         let Ok(status) = state.parse::<Status>() else {
             return Ok(false);
         };
-        // An agent that waits for the user during a validation is marked so (interrupted_from validating).
+        // An agent that waits for the user during a validation is marked so (interrupted_from validating), and one
+        // that waits for the user while fixing a delivery problem too (interrupted_from fixing).
         let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
+        let fixing_mark = interrupted_from.as_deref() == Some(Status::MergeConflictFixing.as_str());
         // The store decides (d0119): an open question holds Asks you.
         let question = self
             .inner
@@ -777,6 +779,8 @@ impl Signals {
             validating: status == Status::Checking
                 || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
+            fixing: status == Status::MergeConflictFixing
+                || (fixing_mark && status.is_agent_waiting()),
             question,
             helper_prompt,
         };
@@ -789,9 +793,15 @@ impl Signals {
         if before.status == Status::WaitingForLimitReset && after.status != before.status {
             self.inner.board.limit_stops().mark(ticket_id, None);
         }
-        // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
-        let behind_after = (before.validating && after.status.is_agent_waiting())
-            .then_some(Status::Checking.as_str());
+        // Only a validating or fixing ticket's mark changes: set while its agent waits, cleared once it validates or
+        // fixes again. A fixing mark left on a ticket that no longer waits is dropped.
+        let waits = after.status.is_agent_waiting();
+        let mark_after = if before.validating {
+            waits.then_some(Status::Checking.as_str())
+        } else {
+            (before.fixing && waits).then_some(Status::MergeConflictFixing.as_str())
+        };
+        let mark_changes = before.validating || before.fixing || fixing_mark;
         sqlx::query(concat!(
             "UPDATE tickets SET state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
                                 last_signal_at = ?,
@@ -804,8 +814,8 @@ impl Signals {
         .bind(after.since)
         .bind(after.wakeup_at)
         .bind(after.last_signal_at)
-        .bind(before.validating)
-        .bind(behind_after)
+        .bind(mark_changes)
+        .bind(mark_after)
         .bind(after.status.as_str())
         .bind(now_ms())
         .bind(ticket_id)

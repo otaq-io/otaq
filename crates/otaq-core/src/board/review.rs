@@ -261,6 +261,8 @@ impl Board {
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL, sent_back_at = NULL,
                                 resume_skill = NULL, conflicts_with = NULL, conflict_files = NULL,
                                 conflict_reason = NULL, pr_rework = FALSE, updated_by = ?,
+                                interrupted_from = CASE WHEN interrupted_from = ? THEN NULL
+                                                        ELSE interrupted_from END,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
@@ -277,6 +279,8 @@ impl Board {
         .bind(now)
         .bind(waits)
         .bind(actor.to_string())
+        // The agent's wait while it fixed a delivery problem is over with the stage.
+        .bind(Status::MergeConflictFixing.as_str())
         .bind(now)
         .bind(status.as_str())
         .bind(now)
