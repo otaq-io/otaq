@@ -22,11 +22,10 @@ pub enum Tone {
     Muted,
 }
 
-/// The strip's first item: "Live", "your turn", "Waiting for you", "Reconnecting…", "Ended". `your_turn`: the
-/// terminal has focus and the agent waits, so only a subtle "your turn" (ATT-03, d0042).
-pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, Tone) {
+/// The strip's first item: "Live", "Waiting for you", "Reconnecting…", "Ended". A waiting agent reads "Waiting for
+/// you" also while its terminal has focus: being there holds back only the alert (the hint says so), never the state.
+pub fn state(phase: &Phase, status: Status) -> (&'static str, Tone) {
     match phase {
-        Phase::Live if your_turn => ("your turn", Tone::Muted),
         Phase::Live if status.is_needs_you_family() => ("Waiting for you", Tone::Attention),
         Phase::Live => ("Live", Tone::Working),
         Phase::Attaching => ("Connecting…", Tone::Muted),
@@ -113,7 +112,7 @@ pub enum StripTone {
     Working,
     /// Turquoise: the agent waits for you.
     Attention,
-    /// Calm but present: "your turn", "Waiting on its background work".
+    /// Calm but present: "Waiting on its background work".
     Secondary,
     Muted,
     /// Red: Interrupted.
@@ -128,20 +127,16 @@ pub struct StripState {
     pub tone: StripTone,
 }
 
-/// The Terminal tab's state label (*06 · Terminal tab*): [`state`], with "your turn" in the secondary colour and
-/// "Waiting on its background work" for Working in background (calm, not needs-you, d0042).
-pub fn tab_state(phase: &Phase, status: Status, your_turn: bool) -> StripState {
-    let (label, tone) = state(phase, status, your_turn);
+/// The Terminal tab's state label (*06 · Terminal tab*): [`state`], with "Waiting on its background work" for
+/// Working in background (calm, not needs-you, d0042).
+pub fn tab_state(phase: &Phase, status: Status) -> StripState {
+    let (label, tone) = state(phase, status);
     let tone = match tone {
         Tone::Working => StripTone::Working,
         Tone::Attention => StripTone::Attention,
         Tone::Muted => StripTone::Muted,
     };
     match phase {
-        Phase::Live if your_turn => StripState {
-            label,
-            tone: StripTone::Secondary,
-        },
         Phase::Live if status == Status::WorkingInBackground => StripState {
             label: "Waiting on its background work",
             tone: StripTone::Secondary,
@@ -301,7 +296,7 @@ pub fn validator_state(
             Some(ValidationOutcome::Stopped) => ended("Ended · stopped"),
             None => ended("Ended"),
         },
-        _ => tab_state(phase, status, false),
+        _ => tab_state(phase, status),
     }
 }
 
@@ -587,25 +582,22 @@ mod tests {
     #[test]
     fn states() {
         assert_eq!(
-            state(&Phase::Live, Status::Working, false),
+            state(&Phase::Live, Status::Working),
             ("Live", Tone::Working)
         );
         assert_eq!(
-            state(&Phase::Live, Status::NeedsYou, false),
+            state(&Phase::Live, Status::NeedsYou),
             ("Waiting for you", Tone::Attention)
         );
         assert_eq!(
-            state(&Phase::Reconnecting, Status::Working, false).0,
+            state(&Phase::Reconnecting, Status::Working).0,
             "Reconnecting…"
         );
+        assert_eq!(state(&Phase::Ended, Status::WaitingForYou).0, "Ended");
+        // The terminal has focus and the agent waits: the state is the real one; only the alert is held back.
         assert_eq!(
-            state(&Phase::Ended, Status::WaitingForYou, false).0,
-            "Ended"
-        );
-        // The terminal has focus and the agent waits: only "your turn" (ATT-03).
-        assert_eq!(
-            state(&Phase::Live, Status::Idle, true),
-            ("your turn", Tone::Muted)
+            state(&Phase::Live, Status::Idle),
+            ("Waiting for you", Tone::Attention)
         );
     }
 
@@ -628,32 +620,22 @@ mod tests {
     fn tab_states() {
         let live = Phase::Live;
         assert_eq!(
-            tab_state(&live, Status::Working, false),
+            tab_state(&live, Status::Working),
             StripState {
                 label: "Live",
                 tone: StripTone::Working
             }
         );
         assert_eq!(
-            tab_state(&live, Status::Idle, true),
-            StripState {
-                label: "your turn",
-                tone: StripTone::Secondary
-            }
-        );
-        assert_eq!(
-            tab_state(&live, Status::WorkingInBackground, false),
+            tab_state(&live, Status::WorkingInBackground),
             StripState {
                 label: "Waiting on its background work",
                 tone: StripTone::Secondary
             }
         );
+        assert_eq!(tab_state(&live, Status::AsksYou).tone, StripTone::Attention);
         assert_eq!(
-            tab_state(&live, Status::AsksYou, false).tone,
-            StripTone::Attention
-        );
-        assert_eq!(
-            tab_state(&Phase::Ended, Status::WorkingInBackground, false).label,
+            tab_state(&Phase::Ended, Status::WorkingInBackground).label,
             "Ended"
         );
         assert_eq!(INTERRUPTED.label, "Interrupted");

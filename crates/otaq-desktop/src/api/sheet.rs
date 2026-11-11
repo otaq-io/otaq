@@ -716,8 +716,8 @@ pub fn view_of(f: &Facts) -> View {
         priority_hint: "Priority".to_owned(),
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
-            // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (the
-            // terminal's strip says "your turn" there). A Delivery stop that kept it in Review reads as its card does.
+            // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (being there
+            // holds back only the alert), as its card. A Delivery stop that kept it in Review reads as its card does.
             let mut pill = PillView::of(match ticket.stopped_in_place() {
                 Some(_) => otaq_core::domain::Status::DeliveryStopped,
                 None => ticket.status,

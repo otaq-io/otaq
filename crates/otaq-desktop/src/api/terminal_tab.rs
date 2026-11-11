@@ -344,7 +344,7 @@ pub fn view_with(
             state: if recovering {
                 strip::INTERRUPTED
             } else {
-                strip::tab_state(&phase, ticket.status, flags.your_turn)
+                strip::tab_state(&phase, ticket.status)
             },
             hint: if recovering {
                 strip::hint(
@@ -471,7 +471,7 @@ pub fn with_helpers(
                 .iter()
                 .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
                 .map(|(phase, focused)| Strip {
-                    state: strip::tab_state(&phase, otaq_core::domain::Status::Working, false),
+                    state: strip::tab_state(&phase, otaq_core::domain::Status::Working),
                     hint: strip::hint(&phase, focused, otaq_core::domain::Status::Working, false, 0, false),
                     phase,
                     focused,
