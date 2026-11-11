@@ -82,6 +82,7 @@ mod manual_checks;
 mod mark_pr;
 mod merge_check;
 mod merge_into;
+mod message_rules;
 mod message_writer;
 mod migrations;
 mod model_refused;

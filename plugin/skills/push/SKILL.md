@@ -26,8 +26,14 @@ confirmed**. This happens in two turns, like opening the PR did.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1), proposing before pushing (step 3)
    or reporting back (step 8).
-3. **Propose** with `otaq pr propose --stdin`: one message per new commit, in the listed order. Keep the branch as
-   `prime` names it. The title and description stay those of the open PR, so leave them out:
+3. **Propose** with `otaq pr propose --stdin`: one message per new commit, in the listed order. First find the
+   project's commit message rules: a CONTRIBUTING file or similar docs, a commitlint or similar config
+   (`commitlint.config.*`, `.commitlintrc*`, a `commitlint` key in `package.json`), the commit-msg hook in the folder
+   `git rev-parse --git-path hooks` prints (it follows `core.hooksPath`, as husky sets it), the Agent instructions,
+   and the style of recent commits on the target branch. Write each message as they say, keeping the key where they
+   allow it (`fix: round totals per line, as the review asked (SHOP-26)`); when nothing sets a format, the key leads,
+   as in the example below. Keep the branch as `prime` names it. The title and description stay those of the open PR,
+   so leave them out:
 
    ```sh
    otaq pr propose --stdin <<'PROPOSAL'

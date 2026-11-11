@@ -584,6 +584,35 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
     assert!(read_skill("open-pr").contains("Otaq's `push` skill"));
 }
 
+/// Commit messages follow the project's own rules: `commit` (an agent's own commits), `open-pr` and `push` (the PR's
+/// per-commit messages) send the agent to the same places as the delivery's message prompt before it writes, keep the
+/// key where the rules allow, and lead with the key only when nothing sets a format.
+#[test]
+fn commit_open_pr_and_push_follow_the_projects_message_rules() {
+    let places = flat(otaq_core::pr::message::MESSAGE_RULES_PLACES);
+    for name in ["commit", "open-pr", "push"] {
+        let text = flat(&read_skill(name));
+        for needle in [
+            places.as_str(),
+            "the Agent instructions, and the style of recent commits",
+            "where they allow it",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+        assert!(
+            text.to_lowercase().contains("when nothing sets a format"),
+            "{name} must say what happens when nothing sets a format"
+        );
+    }
+    let commit = flat(&read_skill("commit"));
+    let rules = commit.find(&places).unwrap();
+    let example = commit.find("git commit -m").unwrap();
+    assert!(
+        rules < example,
+        "commit finds the rules before its first commit"
+    );
+}
+
 /// A host's PR lists the tickets merged into it: `open-pr` and `push` read prime's "Tickets merged into this one" and
 /// list each of them in the PR's description; `push` edits the open PR's description to add them.
 #[test]
