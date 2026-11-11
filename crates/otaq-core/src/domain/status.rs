@@ -350,6 +350,13 @@ stored_enum! {
 }
 
 impl StartStep {
+    /// The worktree is ready by this step: the worktree, its seeding, env files, resources and setup (where the start's
+    /// hooks run and the worktree is prepared) are done. A new ticket's start that fails at an earlier step removes
+    /// the worktree it made; one that fails here (the ports, the launch) keeps it, so Retry start only launches again.
+    pub fn worktree_ready(self) -> bool {
+        matches!(self, Self::Ports | Self::Launch)
+    }
+
     /// How the step reads on a card: "setup command failed".
     pub fn failure_label(self) -> &'static str {
         match self {

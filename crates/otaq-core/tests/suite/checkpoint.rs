@@ -249,6 +249,55 @@ async fn the_temporary_save_runs_no_hook() {
     no_stash(&repo);
 }
 
+/// The temporary save isn't signed: with commit signing on and a signing program that always fails (a key whose
+/// passphrase nobody can type), a commit that lands fails, but the save still works and the files come back.
+#[cfg(unix)]
+#[tokio::test]
+async fn the_temporary_save_is_not_signed() {
+    use std::os::unix::fs::PermissionsExt;
+    let repos = TempRepos::new();
+    let (repo, wt) = setup(&repos);
+    let signer = repos.root().join("failing-gpg");
+    std::fs::write(
+        &signer,
+        "#!/bin/sh\necho 'gpg: no passphrase' >&2\nexit 1\n",
+    )
+    .unwrap();
+    std::fs::set_permissions(&signer, std::fs::Permissions::from_mode(0o755)).unwrap();
+    git(&repo, &["config", "commit.gpgSign", "true"]);
+    git(&repo, &["config", "gpg.program", signer.to_str().unwrap()]);
+    // The config is active: a real commit in the worktree fails to sign.
+    let real = std::process::Command::new("git")
+        .args(["commit", "--allow-empty", "-m", "feat: a real commit"])
+        .current_dir(&wt)
+        .env("GIT_CONFIG_GLOBAL", "/dev/null")
+        .env("GIT_CONFIG_NOSYSTEM", "1")
+        .env("GIT_AUTHOR_NAME", "Test")
+        .env("GIT_AUTHOR_EMAIL", "test@example.com")
+        .env("GIT_COMMITTER_NAME", "Test")
+        .env("GIT_COMMITTER_EMAIL", "test@example.com")
+        .output()
+        .unwrap();
+    assert!(!real.status.success(), "a signed commit fails");
+    std::fs::write(wt.join("feature.txt"), "half done\n").unwrap();
+    std::fs::write(wt.join("loose.txt"), "untracked\n").unwrap();
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let before = status(&wt);
+
+    let outcome = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap();
+    assert_eq!(outcome, UpdateOutcome::Clean);
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(status(&wt), before);
+    assert_eq!(read(&wt, "feature.txt"), "half done\n");
+    assert_eq!(read(&wt, "loose.txt"), "untracked\n");
+    no_checkpoint_in_history(&wt);
+    no_stash(&repo);
+}
+
 /// The merge of main that follows the save is a commit that lands: it runs the hooks, and they can refuse it.
 #[tokio::test]
 async fn the_merge_after_the_temporary_save_still_runs_the_hooks() {

@@ -9,10 +9,14 @@
 //!    Working.
 //!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
-//! ticket in Queued · **Start interrupted** with the step and its message. A new ticket's start leaves nothing
-//! half-made: the worktree and branch this start made go again ([`super::worktree::discard`]), so Retry start does the
-//! whole start again and the start's hooks (post-checkout) run again; nothing else is rolled back or deleted, and a
-//! reopened ticket's worktree, with its earlier work, always stays.
+//! ticket in Queued · **Start interrupted** with the step and its message. The worktree is **ready** once steps 3 to 5
+//! are done (the worktree, its seeding, env files, resources and setup: where the start's hooks run and the worktree
+//! is prepared; [`StartStep::worktree_ready`]). A new ticket's start that fails before then leaves nothing half-made:
+//! the worktree and branch this start made go again ([`super::worktree::discard`]), so Retry start does the whole
+//! start again and the start's hooks (post-checkout) run again. A start that fails after (the ports, launching the
+//! agent) keeps the ready worktree, marked `worktree_ready` until an agent launches in it, so Retry start reuses it and
+//! only launches again: no hook, seeding, env files, resources or setup again, and the warm build it took stays.
+//! Nothing else is rolled back or deleted, and a reopened ticket's worktree, with its earlier work, always stays.
 //! Only **Retry start** (a user's click, [`Starter::retry`]) runs it again; no code path re-runs a failed start
 //! by itself (P2, d0018). The step a running start is at is stored too, so a start that the service stopping
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
@@ -519,7 +523,8 @@ impl Starter {
         };
         let mut made = None;
         let done = self.steps(ticket, actor, start, &mut made).await;
-        if done.is_err()
+        if let Err((step, _)) = &done
+            && !step.worktree_ready()
             && let Some(worktree) = made
         {
             self.discard(ticket, &worktree).await;
@@ -547,7 +552,7 @@ impl Starter {
                 // started again now.
                 sqlx::query(
                     "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL,
-                                        started_at = COALESCE(started_at, ?)
+                                        started_at = COALESCE(started_at, ?), worktree_ready = FALSE
                      WHERE id = ?",
                 )
                     .bind(now_ms())
@@ -663,7 +668,7 @@ impl Starter {
     }
 
     /// `made` gets the worktree when this start made it or its branch for a new ticket, for [`Starter::discard`]
-    /// if a later step fails.
+    /// if a later step fails before the worktree is ready.
     async fn steps(
         &self,
         ticket: &Ticket,
@@ -853,6 +858,21 @@ impl Starter {
                 .data
                 .worktree_path(&crate::warm::store::repo_name(&project), &key)
                 .is_ok_and(|p| p.join(".git").exists());
+        // A worktree an earlier attempt set up whose agent didn't launch (a launch that failed, a pause at the launch)
+        // is ready: env files, resources and setup aren't done again. A worktree made afresh never is.
+        let ready = !keep_worktree
+            && !new_worktree
+            && sqlx::query_scalar::<_, bool>("SELECT worktree_ready FROM tickets WHERE id = ?")
+                .bind(&ticket.id)
+                .fetch_optional(board.store().pool())
+                .await
+                .map_err(|e| (StartStep::Worktree, BoardError::from(e).into()))?
+                .unwrap_or(false);
+        if new_worktree {
+            self.set_worktree_ready(ticket, false)
+                .await
+                .map_err(|e| (StartStep::Worktree, e.into()))?;
+        }
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
@@ -888,7 +908,7 @@ impl Starter {
             .project_settings(&project.key)
             .await
             .map_err(|e| (StartStep::EnvFiles, e.into()))?;
-        if !keep_worktree {
+        if !keep_worktree && !ready {
             // The log begins with where the worktree was seeded from, even if the env files fail.
             let log = inner
                 .data
@@ -938,7 +958,11 @@ impl Starter {
                     .await
                     .map_err(|e| (StartStep::Setup, e.into()))?;
             }
-        } else if let Some(env) = inner.ticket_env.get() {
+            // Ready: from here on a failed start keeps the worktree, and Retry start only launches again.
+            self.set_worktree_ready(ticket, true)
+                .await
+                .map_err(|e| (StartStep::Setup, e.into()))?;
+        } else if keep_worktree && let Some(env) = inner.ticket_env.get() {
             // A returning ticket whose build was freed at Review (a full limit or a gone session): it comes back
             // before the agent does (M19-c). Always asked, never judged from `ticket` (read without the ticket's
             // lock): a Free still moving the build out when the ticket was queued again finishes first, and the
@@ -1179,8 +1203,19 @@ impl Starter {
         Ok(session)
     }
 
-    /// A new ticket's start failed after making its worktree or branch: what it made goes, so that Retry start does
-    /// the whole start again with every start hook (a reopened ticket's worktree is never in `worktree.made`).
+    /// Records whether the ticket's worktree is set up for an agent that hasn't launched yet (`worktree_ready`).
+    async fn set_worktree_ready(&self, ticket: &Ticket, ready: bool) -> Result<(), BoardError> {
+        sqlx::query("UPDATE tickets SET worktree_ready = ? WHERE id = ?")
+            .bind(ready)
+            .bind(&ticket.id)
+            .execute(self.inner.board.store().pool())
+            .await?;
+        Ok(())
+    }
+
+    /// A new ticket's start failed before its worktree was ready, after making its worktree or branch: what it made
+    /// goes, so that Retry start does the whole start again with every start hook (a reopened ticket's worktree is
+    /// never in `worktree.made`).
     async fn discard(&self, ticket: &Ticket, worktree: &super::Worktree) {
         let board = &self.inner.board;
         let key = ticket.key.to_string();
