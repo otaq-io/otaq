@@ -1154,12 +1154,18 @@ impl Sessions {
         self.live(id)?.write(id, bytes)
     }
 
-    /// Whether the session's input line may hold text the user hasn't sent (d0048).
-    /// The typed keys say so, unless the program's screen shows the input line empty: only the tool's placeholder
-    /// after its prompt marker ([`input_line`]), as after a key its own menu took.
+    /// Whether the session's input line may hold text the user hasn't sent (d0048). **The one answer to "is the
+    /// line empty"**: every automatic message, every click that types into a session and the unsent-text question
+    /// ask here.
+    ///
+    /// The screen decides wherever it can tell ([`input_line`]): its prompt marker with text after it is text,
+    /// whatever the typed keys counted (a tool that pastes the clipboard itself on Ctrl+V puts there text no key
+    /// accounts for, and one Backspace would bring the count to nothing); only the tool's placeholder after its
+    /// prompt marker is empty, as after a key its own menu took. Where the screen can't tell (a hidden cursor, a
+    /// shell's line), the typed keys answer. Until the program has drawn a person's key, text they counted stands.
     pub fn has_unsent_input(&self, id: &str) -> Result<bool, SessionError> {
         let live = self.live(id)?;
-        let (unsent, multi_line, settled) = {
+        let (keys, multi_line, settled) = {
             let input = live.input.lock().expect("session input");
             (
                 input.has_unsent_text(),
@@ -1167,14 +1173,15 @@ impl Sessions {
                 !input.typed_within(KEY_SETTLE),
             )
         };
-        if !unsent || !settled {
-            return Ok(unsent);
+        if keys && !settled {
+            return Ok(true);
         }
         Ok(match live.input_line() {
+            input_line::InputLine::Typed => true,
             input_line::InputLine::Placeholder => false,
             // Lines of a draft may sit above a bare marker row.
-            input_line::InputLine::Blank => multi_line,
-            input_line::InputLine::Text => true,
+            input_line::InputLine::Blank => keys && multi_line,
+            input_line::InputLine::Unknown => keys,
         })
     }
 

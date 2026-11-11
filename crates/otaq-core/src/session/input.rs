@@ -12,9 +12,11 @@
 //! - **Backspace** removes one counted character; backspacing to empty clears the flag, **but only while the
 //!   count is exact**. Moving the cursor (←/→/Home/End, Ctrl+A/E/B/F, Alt+B/F) makes it inexact, because a
 //!   backspace at the start of the line deletes nothing. Up/down (history, menus) may fill the line, so they
-//!   set the flag with an inexact count.
+//!   set the flag with an inexact count. So does **Ctrl+V**: in a terminal whose own paste is another key
+//!   (Ctrl+Shift+V on Windows and Linux) it reaches the program as a key, and Codex pastes the clipboard itself
+//!   on it (Claude Code an image), text no keystroke here accounts for.
 //! - A line break (`\n`, ESC + Enter, or one inside pasted text) makes the draft **multi-line**, as does a
-//!   history entry, which may hold several lines. Some tools' clear-line keys clear only the current line of such a
+//!   history entry or a program's own paste, which may hold several lines. Some tools' clear-line keys clear only the current line of such a
 //!   draft (ADP-06), so it is the user's to clear (SES-07).
 //! - Keys that delete in other ways (Ctrl+U/K/W, Alt+Backspace, Ctrl+C, Esc) leave the flag as it is: the
 //!   tracker can't know what they removed. The next Enter or Otaq's [`clear_line`](InputTracker::clear_line)
@@ -73,7 +75,7 @@ pub struct InputTracker {
     params: Vec<u8>,
     /// The line's text as far as it can be followed, in UTF-8 bytes.
     text: Vec<u8>,
-    /// The line came from history: its text is unknown until it is sent or cleared.
+    /// The line came from history or the program's own paste: its text is unknown until it is sent or cleared.
     recalled: bool,
     /// When a person last typed: until the program has had time to draw the key, its screen is no guide to the
     /// line ([`super::input_line`]).
@@ -163,7 +165,9 @@ impl InputTracker {
                 // Ctrl+A, Ctrl+E, Ctrl+B, Ctrl+F: cursor movement.
                 0x01 | 0x05 | 0x02 | 0x06 => self.cursor_moved(),
                 // Ctrl+P, Ctrl+N: history.
-                0x10 | 0x0e => self.history(),
+                0x10 | 0x0e => self.filled_by_program(),
+                // Ctrl+V: the program may paste the clipboard itself.
+                0x16 => self.filled_by_program(),
                 // Ctrl+C, Ctrl+U: the text is gone from the line, though the flag can't trust it.
                 0x03 | 0x15 => self.text.clear(),
                 // Other control keys (Tab, …) don't add text and can't be trusted to remove it.
@@ -194,7 +198,7 @@ impl InputTracker {
                 if (0x40..=0x7e).contains(&b) {
                     self.parse = Parse::Ground;
                     match b {
-                        b'A' | b'B' => self.history(),
+                        b'A' | b'B' => self.filled_by_program(),
                         b'C' | b'D' | b'H' | b'F' => self.cursor_moved(),
                         b'~' if self.params == b"200" => self.parse = Parse::Paste,
                         // Home/End as `ESC [ 1 ~` / `ESC [ 4 ~` and friends.
@@ -210,7 +214,7 @@ impl InputTracker {
             Parse::Ss3 => {
                 self.parse = Parse::Ground;
                 match b {
-                    b'A' | b'B' => self.history(),
+                    b'A' | b'B' => self.filled_by_program(),
                     b'C' | b'D' | b'H' | b'F' => self.cursor_moved(),
                     _ => {}
                 }
@@ -310,7 +314,9 @@ impl InputTracker {
         }
     }
 
-    fn history(&mut self) {
+    /// The program filled the line from somewhere the keys don't show (history, its own paste): text of unknown
+    /// length and lines.
+    fn filled_by_program(&mut self) {
         self.recalled = true;
         let count = match self.line {
             Line::Empty => 1,
@@ -453,6 +459,35 @@ mod tests {
         let (t, enters) = after(&[b"\x1b[2", b"00~x", b"\x1b[20", b"1~", b"\r"]);
         assert!(!t.has_unsent_text());
         assert_eq!(enters, 1);
+    }
+
+    /// A paste counts every character it brings, bracketed or not: one Backspace leaves the rest.
+    #[test]
+    fn a_paste_in_one_piece_counts_each_character() {
+        for paste in [
+            &b"\x1b[200~unsent draft line\x1b[201~"[..],
+            b"unsent draft line",
+        ] {
+            let (t, _) = after(&[paste, b"\x7f"]);
+            assert!(t.has_unsent_text(), "{paste:?}");
+            let (t, _) = after(&[paste, &[0x7f; 16]]);
+            assert!(t.has_unsent_text(), "{paste:?}");
+            let (t, _) = after(&[paste, &[0x7f; 17]]);
+            assert!(!t.has_unsent_text(), "{paste:?}");
+        }
+    }
+
+    /// Ctrl+V reaches the program as a key where the terminal's own paste is Ctrl+Shift+V, and Codex pastes the
+    /// clipboard itself: the line may hold any amount of text, which no count of Backspaces can take off.
+    #[test]
+    fn ctrl_v_may_paste_text_no_key_counted() {
+        let (t, _) = after(&[b"\x16"]);
+        assert!(t.has_unsent_text());
+        assert!(t.has_multi_line_text());
+        let (t, _) = after(&[b"\x16", b"5", &[0x7f; 2]]);
+        assert!(t.has_unsent_text(), "the typed 5 and one more off");
+        let (t, _) = after(&[b"\x16", b"\r"]);
+        assert!(!t.has_unsent_text(), "sent");
     }
 
     #[test]
