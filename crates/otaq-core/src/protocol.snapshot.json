@@ -8238,6 +8238,9 @@
         "uninstall_scan": {
           "newtype": "UninstallScan"
         },
+        "unsent": {
+          "newtype": "bool"
+        },
         "update_prefs": {
           "newtype": "UpdatePrefs"
         },
@@ -8721,6 +8724,9 @@
         },
         "session.send_again": {
           "newtype": "DeliverNowParams"
+        },
+        "session.unsent": {
+          "newtype": "SessionIdParams"
         },
         "settings.get": {},
         "settings.os_dark": {

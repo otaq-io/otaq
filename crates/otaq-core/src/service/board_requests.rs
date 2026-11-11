@@ -1704,6 +1704,7 @@ pub(super) async fn handle(
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)
         | Request::AppFocus(_)
         | Request::Hook(_)
         | Request::RunStart(_)

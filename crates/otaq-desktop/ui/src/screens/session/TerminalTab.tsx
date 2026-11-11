@@ -41,6 +41,9 @@ export const TERMINAL_TAB_EVENTS = [
   "session_state",
   "projects_changed",
   "needs_you_changed",
+  // A note was typed, or the input line it waits behind filled or emptied: "1 message waiting" and the hint's
+  // "Unsent text in the input line" follow.
+  "messages_waiting",
   // The user's keys in its tooltips (KEY-08).
   "settings_changed",
 ] as const;

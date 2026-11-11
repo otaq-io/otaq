@@ -891,6 +891,11 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
     SessionFocus(FocusParams),
+    /// Whether the session's input line holds text the user hasn't sent, as Otaq's notes go by it (d0048): the
+    /// Session tab's "Unsent text in the input line" shows only then. A session that isn't running has none.
+    /// Answered with [`Reply::Unsent`].
+    #[serde(rename = "session.unsent")]
+    SessionUnsent(SessionIdParams),
     /// The client's app window gained or lost focus (d0090): while any app window is focused, no OS notification
     /// goes out. Per connection, like `session.focus`; a closed connection loses it. Answered with [`Reply::Ok`].
     #[serde(rename = "app.focus")]
@@ -2277,6 +2282,7 @@ impl Request {
             Self::SessionDeliverNow(_) => "session.deliver_now",
             Self::SessionSendAgain(_) => "session.send_again",
             Self::SessionFocus(_) => "session.focus",
+            Self::SessionUnsent(_) => "session.unsent",
             Self::AppFocus(_) => "app.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",
             Self::Hook(_) => "hook",
@@ -2416,6 +2422,8 @@ pub enum Reply {
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
+    /// The answer to `session.unsent`: the input line holds unsent text.
+    Unsent(bool),
     History(Vec<HistoryEvent>),
     Prime(Box<PrimeContext>),
     PrimeValidate(Box<crate::prime::ValidatePrime>),

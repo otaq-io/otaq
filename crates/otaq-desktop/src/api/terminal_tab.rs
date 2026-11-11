@@ -13,7 +13,9 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::board::validation::ValidationRecord;
 use otaq_core::domain::TicketKey;
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::protocol::{BeforeRestartParams, KeyParams, Reply, Request, SessionListParams};
+use otaq_core::protocol::{
+    BeforeRestartParams, KeyParams, Reply, Request, SessionIdParams, SessionListParams,
+};
 use otaq_core::recovery::BeforeRestart;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionInfo, SessionState};
@@ -319,7 +321,8 @@ fn recovery_of(
 /// The view from what the service said: the ticket, its sessions, its validation rounds, its check's side
 /// ([`session_tab::check_side`]), its project's name and, for an Interrupted ticket whose session is gone, its tool's
 /// saved conversation. `keys`: the user's keys, read as they work inside a terminal (KEY-08), for "leave terminal"
-/// and Find.
+/// and Find. `unsent`: the agent session's input line holds text the user hasn't sent ([`unsent_line`]).
+#[allow(clippy::too_many_arguments)]
 pub fn view_with(
     ticket: &Ticket,
     sessions: &[SessionInfo],
@@ -328,6 +331,7 @@ pub fn view_with(
     project_name: &str,
     before: Option<&BeforeRestart>,
     keys: &KeyLabels,
+    unsent: bool,
 ) -> View {
     let session = session_tab::agent_session(sessions);
     let running = session.is_some_and(SessionInfo::is_running);
@@ -349,6 +353,7 @@ pub fn view_with(
                     ticket.status,
                     false,
                     flags.messages_waiting,
+                    unsent,
                 )
             } else {
                 strip::hint(
@@ -357,6 +362,7 @@ pub fn view_with(
                     ticket.status,
                     flags.your_turn,
                     flags.messages_waiting,
+                    unsent,
                 )
             },
             phase,
@@ -466,7 +472,7 @@ pub fn with_helpers(
                 .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
                 .map(|(phase, focused)| Strip {
                     state: strip::tab_state(&phase, otaq_core::domain::Status::Working, false),
-                    hint: strip::hint(&phase, focused, otaq_core::domain::Status::Working, false, 0),
+                    hint: strip::hint(&phase, focused, otaq_core::domain::Status::Working, false, 0, false),
                     phase,
                     focused,
                 })
@@ -540,6 +546,29 @@ async fn project_name(app: &App, key: &TicketKey) -> Result<String, RequestError
     }
 }
 
+/// Whether the ticket's running agent session has unsent text in its input line, as the service reads it: the same
+/// answer Otaq's notes wait by, so the hint's "Unsent text in the input line" never shows over an empty line. Asked
+/// only while messages wait for that session, the one time the hint says it (reading the line replays its screen).
+/// A service too old to answer is taken at its word that the notes wait for the line.
+async fn unsent_line(app: &App, ticket: &Ticket, sessions: &[SessionInfo]) -> bool {
+    let Some(session) = session_tab::agent_session(sessions).filter(|s| s.is_running()) else {
+        return false;
+    };
+    if ticket.flags.messages_waiting == 0 {
+        return false;
+    }
+    match app
+        .service
+        .send(Request::SessionUnsent(SessionIdParams {
+            session: session.id.clone(),
+        }))
+        .await
+    {
+        Ok(Reply::Unsent(unsent)) => unsent,
+        _ => true,
+    }
+}
+
 pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     let gone = format!("{} is gone.", params.key);
     let Some(ticket) = ticket(app, &params.key).await? else {
@@ -586,6 +615,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
     };
     let keys = super::keymap::labels(app).await;
     let helpers = super::board::helpers(app, ticket.key.project.as_str()).await;
+    let unsent = unsent_line(app, &ticket, &sessions).await;
     let view = view_with(
         &ticket,
         &sessions,
@@ -594,6 +624,7 @@ pub async fn view(app: &App, params: Params) -> Result<Load, RequestError> {
         &name,
         before.as_ref(),
         &keys,
+        unsent,
     );
     Ok(Load {
         view: Some(with_helpers(view, &ticket, &sessions, &helpers)),
@@ -651,7 +682,7 @@ mod tests {
     use otaq_core::domain::Status;
     use crate::service::testing::{Harness, connected};
 
-    /// [`view_with`] on the base map's macOS keys.
+    /// [`view_with`] on the base map's macOS keys, with an empty input line.
     fn view_of(
         ticket: &Ticket,
         sessions: &[SessionInfo],
@@ -668,6 +699,7 @@ mod tests {
             project_name,
             before,
             &keys::base(),
+            false,
         )
     }
 
@@ -677,7 +709,7 @@ mod tests {
     fn leave_and_find_show_the_users_keys_in_a_terminal() {
         let t = ticket(Status::Working);
         let tips = |labels: &KeyLabels| {
-            let v = view_with(&t, &[], &[], &[], "shop-web", None, labels);
+            let v = view_with(&t, &[], &[], &[], "shop-web", None, labels, false);
             (v.leave.keys, v.find.keys)
         };
         let own = |a: &str, b: &str| (Some(a.to_owned()), Some(b.to_owned()));
@@ -784,6 +816,24 @@ mod tests {
         assert_eq!(view.ended, None);
         assert_eq!(view.recovery, None);
         assert_eq!(view.background, None);
+    }
+
+    /// Re-test 5: "Unsent text in the input line" showed over Codex's empty line because a note waited. It shows only
+    /// while the line holds text, as the service reads it; over an empty line the hint says what it says without a
+    /// note, and "1 message waiting · Deliver now" stays.
+    #[test]
+    fn unsent_text_shows_only_over_a_line_that_holds_text() {
+        let mut t = ticket(Status::Idle);
+        t.flags.messages_waiting = 1;
+        let sessions = [session("s1", SessionState::Running, 0)];
+        let checks = session_tab::check_sides(&t, &sessions, &[], &Default::default());
+        let hint = |unsent| {
+            let view = view_with(&t, &sessions, &[], &checks, "shop-web", None, &keys::base(), unsent);
+            assert_eq!(view.waiting.as_ref().unwrap().label, "1 message waiting");
+            strip(&view, Phase::Live, true).hint.clone().unwrap().text
+        };
+        assert!(hint(true).starts_with("Unsent text in the input line"), "{}", hint(true));
+        assert_eq!(hint(false), "Typing goes to the agent");
     }
 
     #[test]
@@ -1026,7 +1076,7 @@ mod tests {
         let mut t = ticket(Status::Checking);
         t.place = otaq_core::domain::Place::InStage("validate".into());
         let sides = session_tab::check_sides(&t, &sessions, &runs, &Default::default());
-        let view = view_with(&t, &sessions, &[], &sides, "shop-web", None, &keys::base());
+        let view = view_with(&t, &sessions, &[], &sides, "shop-web", None, &keys::base(), false);
         let read: Vec<(&str, Option<&str>, &str, bool)> = view
             .checks
             .iter()

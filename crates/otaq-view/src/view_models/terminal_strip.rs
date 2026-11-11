@@ -176,13 +176,15 @@ pub struct Hint {
 }
 
 /// The hint for the agent's terminal (SES-10, d0042, d0048); `None` while it connects or has no session. A scrolled-up
-/// terminal shows how far it is scrolled instead (the page's).
+/// terminal shows how far it is scrolled instead (the page's). `unsent`: the session's input line holds text the user
+/// hasn't sent, as the service reads it (the same answer Otaq's notes wait by).
 pub fn hint(
     phase: &Phase,
     focused: bool,
     status: Status,
     your_turn: bool,
     messages_waiting: u32,
+    unsent: bool,
 ) -> Option<Hint> {
     let line = |icon, text: &str, tone| {
         Some(Hint {
@@ -217,7 +219,9 @@ pub fn hint(
                 HintTone::Muted,
             )
         }
-        Phase::Live if messages_waiting > 0 => line(
+        // Only over text the line really holds: over an empty line the note is on its way, and the line says
+        // what it would say without it.
+        Phase::Live if messages_waiting > 0 && unsent => line(
             IconName::MousePointerClick,
             &format!("Unsent text in the input line · {product}’s note waits until it’s empty"),
             HintTone::Focus,
@@ -335,7 +339,7 @@ pub fn validator_hint(
             "Read-only · this checker has ended",
             HintTone::Muted,
         ),
-        _ => hint(phase, focused, Status::Checking, false, 0),
+        _ => hint(phase, focused, Status::Checking, false, 0, false),
     }
 }
 
@@ -658,7 +662,7 @@ mod tests {
     #[test]
     fn hints_follow_the_phase_the_focus_and_the_waiting_notes() {
         let text = |phase: Phase, focused, status, your_turn, waiting| {
-            hint(&phase, focused, status, your_turn, waiting).map(|h| (h.text, h.tone))
+            hint(&phase, focused, status, your_turn, waiting, true).map(|h| (h.text, h.tone))
         };
         let s = |text: &str| text.replace("{product}", naming::PRODUCT_NAME);
         use HintTone::{Focus, Muted};
@@ -683,6 +687,17 @@ mod tests {
                 s("Unsent text in the input line · {product}’s note waits until it’s empty"),
                 Focus
             ))
+        );
+        // Over an empty line (a key Codex's prompt took, or one typed after it closed and then cleared) the note is
+        // on its way: the line says what it says without one.
+        let empty = |focused, waiting| {
+            hint(&Phase::Live, focused, Status::Idle, false, waiting, false)
+                .map(|h| (h.text, h.tone))
+        };
+        assert_eq!(empty(true, 1), Some((s("Typing goes to the agent"), Focus)));
+        assert_eq!(
+            empty(false, 1),
+            Some((s("Click the terminal to type to the agent"), Muted))
         );
         // On Codex's "Would you like to run the following command?" the note waits for the prompt, not the line.
         assert_eq!(
