@@ -1651,7 +1651,7 @@ pub mod example {
                 }],
                 function: Some("applyDiscount".to_owned()),
                 note: "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second \
-                       will rebase on the other."
+                       will merge the other in first."
                     .to_owned(),
             }],
         }
@@ -2732,7 +2732,7 @@ mod tests {
             p.same_file,
             [
                 "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will \
-              rebase on the other."
+              merge the other in first."
             ]
         );
         assert_eq!(p.other_base, None);

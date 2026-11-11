@@ -64,7 +64,7 @@ const VIEW: ApproveView = {
   },
   merging: {
     title: "Local merge SHOP-18 Checkout API",
-    steps: ["Rebase onto main"],
+    steps: ["Merge main into the branch"],
     label: "Merging…",
     note: "",
     close: "Close",
@@ -111,7 +111,7 @@ describe("the review screen", () => {
         ticket: "SHOP-18",
         result: {
           kind: "conflict",
-          title: "Rebase onto main stopped — conflict",
+          title: "Merging main in stopped — conflict",
           text: "main moved since SHOP-18 was built.",
           files: ["src/lib/stripe/session.ts", "package.json"],
           output: null,
@@ -125,7 +125,7 @@ describe("the review screen", () => {
       }),
     );
     for (const text of [
-      "Rebase onto main stopped — conflict",
+      "Merging main in stopped — conflict",
       "package.json",
       "SHOP-18 went back to its agent",
       "Close",
@@ -140,7 +140,7 @@ describe("the review screen", () => {
         result: {
           kind: "conflict",
           title: "Merge check failed on main",
-          text: "Merge check `npm test` failed on the result rebased onto main (exit 1).",
+          text: "Merge check `npm test` failed on the result with main merged in (exit 1).",
           files: [],
           output: "FAIL src/cart.test.ts\n  expected 2, got 3",
           help: "Nothing was merged into main.",

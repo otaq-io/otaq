@@ -331,7 +331,7 @@ async fn the_user_s_git_hooks_see_the_rows() {
     std::fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
     let git_with_rows = f.board.project_git("SHOP").await.unwrap();
     git_with_rows
-        .rebase_with_checkpoint(&worktree, "main")
+        .merge_with_checkpoint(&worktree, "main")
         .await
         .unwrap();
     let logged = std::fs::read_to_string(&log).unwrap();
@@ -341,8 +341,9 @@ async fn the_user_s_git_hooks_see_the_rows() {
         "uncommitted\n"
     );
     assert_eq!(
-        git(&worktree, &["log", "-1", "--format=%s"]),
-        git(&repo, &["log", "-1", "--format=%s", "main"])
+        git(&worktree, &["rev-parse", "HEAD"]),
+        git(&repo, &["rev-parse", "main"]),
+        "up to date with main (a fast-forward: the branch had no commits of its own)"
     );
 }
 

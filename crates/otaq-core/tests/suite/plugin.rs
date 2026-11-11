@@ -489,17 +489,18 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
     );
 }
 
-/// T-0090 (GIT-03, d0038; AGM-12): restack rebases onto the target prime names, resolves, commits and ends its stage
-/// with `stage next`.
+/// T-0090 (GIT-03, d0038; AGM-12): restack merges the target prime names into the branch (never a rebase), resolves,
+/// commits and ends its stage with `stage next`.
 #[test]
-fn restack_rebases_resolves_commits_and_submits() {
+fn restack_merges_the_target_in_resolves_commits_and_submits() {
     let (name, body) = skill("restack");
     assert_eq!(name, "restack");
     let cmd = naming::COMMAND_NAME;
     let order = [
         format!("`{cmd} prime`"),
         "Follow the Agent instructions".to_owned(),
-        "Rebase onto the target".to_owned(),
+        "Merge the target into your branch".to_owned(),
+        "git merge main".to_owned(),
         "Resolve every conflict".to_owned(),
         COMMIT_STEP.to_owned(),
         format!("{cmd} stage next --stdin"),
@@ -514,10 +515,13 @@ fn restack_rebases_resolves_commits_and_submits() {
     for needle in [
         "Don't push unless the user asks",
         "never stash",
+        "never rebase",
+        "never `--no-verify`",
         "Long text always goes through stdin",
     ] {
         assert!(body.contains(needle), "restack must say {needle:?}");
     }
+    assert!(!body.contains("git rebase"), "restack never rebases");
 }
 
 /// T-0140 (REV-10, PLG-05, d0050; T-0415 FLW-21): open-pr proposes after prime, waits for the confirmation (the

@@ -1,5 +1,5 @@
 //! Changed since review (T-0097, REV-06, GIT-05): new commits after a ticket entered Ready for Review need an
-//! explicit Approve anyway; Otaq's own rebases don't count.
+//! explicit Approve anyway; Otaq merging the base into the branch doesn't count.
 
 use otaq_core::service::testing::said;
 use std::path::{Path, PathBuf};
@@ -126,20 +126,29 @@ async fn a_new_commit_needs_approve_anyway_and_shows_only_itself() {
 }
 
 #[tokio::test]
-async fn otaqs_own_rebase_onto_a_moved_base_is_no_change() {
+async fn otaqs_own_merge_of_a_moved_base_is_no_change() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     let (t, wt) = submitted(&w).await;
     commit(&repo, "other.ts", "main moved\n");
     let before = git(&wt, &["rev-parse", "HEAD"]);
-    // The squash commit is refused after the free rebase already ran.
-    hook(&repo, "commit-msg", "#!/bin/sh\nexit 1\n");
+    // The squash commit is refused after main was already merged into the branch (its merge commit passes).
+    hook(
+        &repo,
+        "commit-msg",
+        "#!/bin/sh\ngrep -q '^Merge branch' \"$1\" || exit 1\n",
+    );
 
     let err = w.review.local_merge("SHOP-1", "m", false, &me()).await;
     assert!(err.is_err(), "the hook refused the squash commit");
     let after = git(&wt, &["rev-parse", "HEAD"]);
-    assert_ne!(before, after, "the branch was rebased");
+    assert_ne!(before, after, "main was merged into the branch");
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD^"]),
+        before,
+        "on top of its own head"
+    );
     assert_eq!(
         w.board.approve_check("SHOP-1").await.unwrap(),
         ApproveCheck::Unchanged
@@ -150,7 +159,7 @@ async fn otaqs_own_rebase_onto_a_moved_base_is_no_change() {
 }
 
 #[tokio::test]
-async fn a_rebase_keeps_new_commits_new() {
+async fn a_merge_of_main_keeps_new_commits_new() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -161,7 +170,7 @@ async fn a_rebase_keeps_new_commits_new() {
 
     Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap();
     let new_head = git(&wt, &["rev-parse", "HEAD"]);

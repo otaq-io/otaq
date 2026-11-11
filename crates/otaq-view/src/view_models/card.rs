@@ -1130,7 +1130,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Working | Status::MergeConflictFixing if let Some(kind) = flags.hand_off => {
             Part::quiet(hand_off_line(kind), Tone::Muted)
         }
-        // The Merge check failed on the rebased result (d0120): back with the agent, as after a conflict.
+        // The Merge check failed on the result with the target merged in (d0120): back with the agent, as after a conflict.
         Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
             let f = flag(
                 R::Busy,
@@ -1152,7 +1152,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 },
             )
         }
-        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`). A
+        // The agent of the nearest earlier Agent stage merges the target in with restack, no click (FLW-17; amber, `s03-46`). A
         // conflict the test merge found in Review says which branch: "Conflicts with main · fixing" (d0127).
         Status::MergeConflictFixing => {
             let fixing = match flags.conflicts_with.as_deref() {

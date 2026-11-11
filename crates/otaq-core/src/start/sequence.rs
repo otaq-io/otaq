@@ -1183,7 +1183,14 @@ impl Starter {
             .begin_write()
             .await
             .map_err(crate::store::StoreError::from)?;
-        record_event(&mut tx, &ticket.id, EventKind::UpdatedFromBase, actor, payload).await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::UpdatedFromBase,
+            actor,
+            payload,
+        )
+        .await?;
         tx.commit().await.map_err(crate::store::StoreError::from)?;
         Ok(())
     }

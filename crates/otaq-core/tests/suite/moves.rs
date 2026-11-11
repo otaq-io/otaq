@@ -285,7 +285,7 @@ async fn reopen_of_a_never_started_closed_ticket_is_bookkeeping() {
         .execute(f.board.store().pool())
         .await
         .unwrap();
-    // Started work reopens too (T-0101): its next start rebases the old branch first.
+    // Started work reopens too (T-0101): its next start merges the current base into the old branch first.
     let reopened = f
         .board
         .move_ticket(&t.key.to_string(), DropTarget::Backlog, false, &me())

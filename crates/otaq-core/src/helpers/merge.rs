@@ -107,7 +107,10 @@ impl Helpers {
         }
         let range = format!("{onto}..{}", helper.branch);
         let subjects = git
-            .run(repo, &["log", "--reverse", "--no-merges", "--format=%s", &range])
+            .run(
+                repo,
+                &["log", "--reverse", "--no-merges", "--format=%s", &range],
+            )
             .await?;
         if subjects.trim().is_empty() {
             return Err(BoardError::refused(

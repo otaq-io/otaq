@@ -1,6 +1,6 @@
 //! The review dialogs as the Tauri page draws them (T-0226; REV-04, REV-06, REV-08, GIT-03, GIT-04, GIT-05, UI-02;
 //! d0015, d0017, d0034, d0038, d0043, d0050, d0051): [`approve`] and [`send_back`] turned into plain, serialized
-//! shapes. *07 → Send back · review & confirm, Local merge · confirm / success / rebasing / conflict / refused,
+//! shapes. *07 → Send back · review & confirm, Local merge · confirm / success / merging / conflict / refused,
 //! Approve · changed since review, Uncommitted files · refused, Base branch · SHOP-31 on release/2.3*.
 //!
 //! The page keeps only which step shows, the edited message and note, and the click.
@@ -53,7 +53,7 @@ pub struct ConfirmView {
     pub message_label: &'static str,
     pub message: String,
     pub note: String,
-    /// "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
+    /// "Conflicts with release/2.3. Otaq merges the latest …" while the ticket is flagged (GIT-04).
     pub conflict: Option<String>,
     /// The Merge check's one line (d0120).
     pub merge_check: MergeCheckNote,
@@ -95,7 +95,7 @@ impl MergeCheckNote {
     }
 }
 
-/// *Local merge · rebasing onto main…*: the steps while it runs.
+/// *Local merge · merging*: the steps while it runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LocalMergeMerging")]
 pub struct MergingView {
@@ -269,7 +269,7 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
                 format!(
-                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, its \
+                    "Conflicts with {t}. {} merges the latest {t} into the branch first; if it still conflicts, its \
                      agent fixes it.",
                     otaq_core::naming::PRODUCT_NAME,
                     t = f.target
@@ -930,7 +930,7 @@ mod tests {
         assert_eq!(title, "Merge check failed on main");
         assert_eq!(
             text,
-            "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again."
+            "Merge check `npm test` failed on the result with main merged in (exit 1). Fix it, then submit again."
         );
         assert!(files.is_empty());
         assert_eq!(
@@ -1096,7 +1096,7 @@ mod tests {
         else {
             panic!("not a conflict");
         };
-        assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
+        assert_eq!(title, "Merging main in stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
         assert!(help.starts_with("SHOP-18 went back to its agent"), "{help}");
 

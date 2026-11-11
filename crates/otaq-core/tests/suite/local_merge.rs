@@ -54,7 +54,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
         .await
         .unwrap();
     w.force_status(&waiting, Status::Queued).await;
-    // main moved on after the ticket left it: the free rebase takes care of it.
+    // main moved on after the ticket left it: merging it into the branch takes care of it.
     commit(&repo, "other.ts", "other\n");
     let old_main = git(&repo, &["rev-parse", "main"]);
 
@@ -108,7 +108,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
     assert_eq!(
         row.base_sha.as_deref(),
         Some(old_main.as_str()),
-        "rebased onto it"
+        "main merged into the branch"
     );
     // The Done ticket's diff is still its own change.
     let diff = w.board.diff_summary("SHOP-1").await.unwrap();
@@ -175,7 +175,7 @@ async fn uncommitted_files_in_the_ticket_are_refused() {
 }
 
 #[tokio::test]
-async fn a_rebase_conflict_merges_nothing() {
+async fn a_conflict_merging_main_in_merges_nothing() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -511,4 +511,116 @@ async fn saving_a_git_identity_refuses_what_git_cant_use() {
         assert_eq!(err.to_string(), why);
     }
     assert_eq!(std::fs::read_to_string(&global).unwrap(), "");
+}
+
+/// A hook script in the repository's `.git/hooks` (shared by its worktrees and Otaq's scratch worktree).
+fn hook(repo: &Path, name: &str, body: &str) {
+    let path = repo.join(".git/hooks").join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// A team that forbids rebasing: with main moved on, Approve & merge merges main into the branch (git's plain
+/// message, the hooks running on it) and lands one squash commit; the pre-rebase hook never runs.
+#[tokio::test]
+async fn a_refusing_pre_rebase_hook_never_stops_approve_and_merge() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    commit(&repo, "other.ts", "other\n");
+    let old_main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let log = w.repos.root().join("hooks.log");
+    hook(
+        &repo,
+        "pre-rebase",
+        &format!(
+            "echo pre-rebase >> '{}'\necho 'merge instead' >&2\nexit 1",
+            log.display()
+        ),
+    );
+    for name in ["pre-merge-commit", "commit-msg"] {
+        hook(&repo, name, &format!("echo {name} >> '{}'", log.display()));
+    }
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, LocalMergeOutcome::Merged { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "main~1"]),
+        old_main,
+        "one squash commit"
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%B", "main"]),
+        "SHOP-1: Checkout API"
+    );
+    let branch = otaq_core::naming::branch("SHOP-1");
+    assert_eq!(git(&repo, &["rev-parse", &format!("{branch}^1")]), head);
+    assert_eq!(git(&repo, &["rev-parse", &format!("{branch}^2")]), old_main);
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%s", &branch]),
+        format!("Merge branch 'main' into {branch}")
+    );
+    let ran = std::fs::read_to_string(&log).unwrap();
+    assert!(!ran.contains("pre-rebase"), "pre-rebase never ran: {ran}");
+    assert!(
+        ran.contains("pre-merge-commit"),
+        "the merge commit runs the hooks: {ran}"
+    );
+    no_stash(&repo);
+    w.stop().await;
+}
+
+/// A hook that refuses the merge commit on the branch is a refusal like any other: nothing merged, main, the branch
+/// and the worktree as they were, the ticket still in review.
+#[tokio::test]
+async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    commit(&repo, "other.ts", "other\n");
+    let main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    hook(
+        &repo,
+        "commit-msg",
+        "grep -q '^SHOP-' \"$1\" || { echo 'messages start with the ticket key' >&2; exit 1; }",
+    );
+
+    let err = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string()
+            .contains("messages start with the ticket key"),
+        "{err}"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD"]),
+        head,
+        "the branch unchanged"
+    );
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+    let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+    assert!(!wt.join(merge_head).exists(), "no merge left in progress");
+    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
+    no_stash(&repo);
+    w.stop().await;
 }

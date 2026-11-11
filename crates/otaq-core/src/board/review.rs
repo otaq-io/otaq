@@ -472,7 +472,10 @@ impl Board {
         };
         let brought_in = merge_base.trim().to_owned();
         let already = git
-            .run(repo, &["merge-base", "--is-ancestor", &brought_in, reviewed])
+            .run(
+                repo,
+                &["merge-base", "--is-ancestor", &brought_in, reviewed],
+            )
             .await
             .is_ok();
         if already {
@@ -482,7 +485,13 @@ impl Board {
         let merged = git
             .run_with_code(
                 repo,
-                &["merge-tree", "--write-tree", "--no-messages", reviewed, &brought_in],
+                &[
+                    "merge-tree",
+                    "--write-tree",
+                    "--no-messages",
+                    reviewed,
+                    &brought_in,
+                ],
             )
             .await?;
         match merged {

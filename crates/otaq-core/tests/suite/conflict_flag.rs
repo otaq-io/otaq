@@ -310,8 +310,11 @@ async fn the_flag_clears_when_the_next_test_merge_is_clean() {
     merge(&w, "SHOP-1").await;
     assert!(w.board.conflict(&shop2.id).await.unwrap().is_some());
 
-    // SHOP-2's branch changes (its agent rebased and resolved it); the next merge into main re-checks it.
-    git(&wt2, &["rebase", "--quiet", "-X", "theirs", "main"]);
+    // SHOP-2's branch changes (its agent merged main in and resolved it); the next merge into main re-checks it.
+    git(
+        &wt2,
+        &["merge", "--quiet", "--no-edit", "-X", "ours", "main"],
+    );
     reviewed(&w, "Other", "lib/other.ts", "x\n").await;
     merge(&w, "SHOP-3").await;
     assert_eq!(w.board.conflict(&shop2.id).await.unwrap(), None);

@@ -2514,7 +2514,7 @@ mod tests {
         );
         assert_eq!(strip.count.as_deref(), Some("1 of 3"));
 
-        // The merge check failed on the rebased result: no conflict, its own words.
+        // The merge check failed on the result with the target merged in: no conflict, its own words.
         let mut note1 = fixture("NOTE-1", "Fix the typo", Status::MergeConflictFixing);
         note1.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
         note1.auto_merge_conflicts = 2;

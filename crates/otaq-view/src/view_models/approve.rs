@@ -1,5 +1,5 @@
 //! Approve ▾ and Local merge (GIT-03, REV-08, UI-02; d0015, d0038, d0050, d0058; *07 → Local merge · confirm,
-//! success, rebasing, conflict, refused*): the choice, the confirmation's texts, and one state per Local merge
+//! success, merging, conflict, refused*): the choice, the confirmation's texts, and one state per Local merge
 //! result. Approve offers exactly what the flow's delivery allows, named by what it does ("Approve & merge into
 //! main", "Approve & open PR"; both when the flow delivers either), then the other ways to finish the ticket. Nothing
 //! here pushes, and no state offers to stash or discard.
@@ -433,11 +433,11 @@ pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
     )
 }
 
-/// The steps the "Merging…" state lists (*Local merge · rebasing onto main…*).
+/// The steps the "Merging…" state lists (*Local merge · merging*).
 pub fn merging_steps(target: &str) -> Vec<String> {
     vec![
         format!("Fetch {target} and bring it up to date"),
-        format!("Rebase onto {target}"),
+        format!("Merge {target} into the branch"),
         format!("Squash into {target}"),
         "Start waiting tickets whose dependencies are all merged".to_owned(),
     ]
@@ -457,7 +457,7 @@ pub enum MergeView {
         text: String,
         files: Vec<String>,
     },
-    /// The Merge check failed on the rebased result (d0120): nothing merged, the agent fixes it with no click.
+    /// The Merge check failed on the result with the target merged in (d0120): nothing merged, the agent fixes it with no click.
     /// `output` is the end of what it printed (empty when it printed nothing).
     CheckFailed {
         title: String,
@@ -521,9 +521,9 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             started: started_label(started.len()),
         },
         LocalMergeOutcome::Conflict { target, files } => MergeView::Conflict {
-            title: format!("Rebase onto {target} stopped \u{2014} conflict"),
+            title: format!("Merging {target} in stopped \u{2014} conflict"),
             text: format!(
-                "{target} moved since {key} was built. The rebase onto the latest {target} conflicts in {}. It \
+                "{target} moved since {key} was built. Merging the latest {target} into its branch conflicts in {}. It \
                  was aborted; {target} and your own checkout are unchanged.",
                 match files.len() {
                     1 => "1 file".to_owned(),
@@ -644,7 +644,7 @@ pub const IN_A_ROW_HINT: &str =
 /// What happens after the conflict (FLW-17, no click): the agent fixes it, or the user does by hand.
 pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     format!(
-        "{key} went back to its agent, which rebases onto {target}, resolves the conflict and moves on again. Or \
+        "{key} went back to its agent, which merges {target} in, resolves the conflict and moves on again. Or \
          resolve it yourself in the worktree."
     )
 }
@@ -1080,7 +1080,7 @@ mod tests {
         ) else {
             panic!()
         };
-        assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
+        assert_eq!(title, "Merging main in stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
         assert_eq!(files.len(), 2);
         assert!(matches!(

@@ -91,7 +91,11 @@ impl Git {
     /// fast-forwarded); `Ok(Some(files))`: it conflicted on these files and was aborted. Any other failure (a hook
     /// refused the merge commit) is the error, with the merge aborted too: either way the branch, the index and the
     /// files are as they were.
-    pub async fn merge_in(&self, worktree: &Path, onto: &str) -> Result<Option<Vec<String>>, GitError> {
+    pub async fn merge_in(
+        &self,
+        worktree: &Path,
+        onto: &str,
+    ) -> Result<Option<Vec<String>>, GitError> {
         let merged = self
             .run(
                 worktree,
@@ -162,7 +166,9 @@ impl Git {
             .is_err()
         {
             let files = self.conflicted_files(worktree).await?;
-            tracing::warn!("uncommitted changes don't fit the updated branch; putting everything back");
+            tracing::warn!(
+                "uncommitted changes don't fit the updated branch; putting everything back"
+            );
             self.back_to_checkpoint(worktree, &saved).await?;
             return Ok(UpdateOutcome::UndoConflict { files });
         }
