@@ -51,6 +51,8 @@ import {
   rendererFor,
   takesInput,
   type TerminalState,
+  ctrlCCopies,
+  onWindows,
   terminalKey,
   typingIn,
 } from "./state";
@@ -415,18 +417,27 @@ export function Terminal({
       setPicked({ setting, size: clampFontSize((term.options.fontSize ?? setting) + delta) });
     };
     // Its own keys: copy, paste, font size and new line (from the Rust map); everything else is the session's.
+    const copySelection = () => {
+      navigator.clipboard.writeText(term.getSelection()).catch((err: unknown) => {
+        console.warn("copy failed", err);
+      });
+    };
+    const windows = onWindows();
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      // On Windows Ctrl+C copies a selection and clears it; the program gets nothing, so its draft stays.
+      if (ctrlCCopies(windows, term.hasSelection(), e)) {
+        e.preventDefault();
+        copySelection();
+        term.clearSelection();
+        return false;
+      }
       const key = terminalKey(keymap.get(), e);
       if (key === undefined) return true;
       e.preventDefault();
       switch (key) {
         case "copy":
-          if (term.hasSelection()) {
-            navigator.clipboard.writeText(term.getSelection()).catch((err: unknown) => {
-              console.warn("copy failed", err);
-            });
-          }
+          if (term.hasSelection()) copySelection();
           break;
         case "paste":
           navigator.clipboard.readText().then(

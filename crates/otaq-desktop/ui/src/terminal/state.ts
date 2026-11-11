@@ -1,6 +1,7 @@
 // The terminal component's own state, as plain functions the tests drive without a real terminal: what it tells its
 // host (`TerminalState`), the find bar's count, the font size, the renderer it asks xterm.js for, and its own keys.
 import type { Keymap } from "../generated/Keymap";
+import type { Keystroke } from "../generated/Keystroke";
 import type { TerminalKey } from "../generated/TerminalKey";
 import type { TerminalPhase } from "../generated/TerminalPhase";
 import type { TerminalRenderer } from "../generated/TerminalRenderer";
@@ -82,6 +83,27 @@ export function rendererFor(setting: TerminalRenderer, webglFailed: boolean): Te
 /** The terminal's own key `e` presses (copy, paste, font size, new line), from the Rust map. */
 export function terminalKey(map: Keymap | undefined, e: KeyLike): TerminalKey | undefined {
   return map?.terminal_keys.find((b) => strokeMatches(b.keystroke, e))?.key;
+}
+
+/** Ctrl+C alone, as the layout types C (Ctrl+Shift+C stays the terminal's copy key on Windows and Linux). */
+const CTRL_C: Keystroke = {
+  key: "c",
+  code: "KeyC",
+  modifiers: { control: true, alt: false, shift: false, platform: false, function: false },
+};
+
+/** Whether the page runs on Windows (WebView2 names it in its user agent; Linux's WebKitGTK and macOS don't). */
+export function onWindows(userAgent: string = navigator.userAgent): boolean {
+  return userAgent.includes("Windows");
+}
+
+/**
+ * Whether Ctrl+C copies instead of reaching the program: on Windows, with text selected, as in Windows Terminal. The
+ * program then gets nothing, so a draft in its input line stays (Codex clears it on Ctrl+C); with nothing selected
+ * Ctrl+C is the program's (an interrupt). macOS and Linux keep their own keys.
+ */
+export function ctrlCCopies(windows: boolean, hasSelection: boolean, e: KeyLike): boolean {
+  return windows && hasSelection && strokeMatches(CTRL_C, e);
 }
 
 /** What ⇧↵ (`new_line`) sends: ESC + CR, as ⌥↵, a new line in the prompt for every agent tool; xterm.js would send
