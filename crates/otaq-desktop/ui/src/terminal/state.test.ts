@@ -8,6 +8,7 @@ import {
   findCount,
   fontSizeOf,
   jumpLabel,
+  keepsSelectionOnMove,
   NEW_LINE,
   onWindows,
   opaqueHex,
@@ -147,6 +148,18 @@ describe("the terminal's state", () => {
     expect(ctrlCCopies(true, true, key("c", "KeyC", { ctrlKey: true, altKey: true }))).toBe(false);
     expect(ctrlCCopies(true, true, key("c", "KeyC", {}))).toBe(false);
     expect(ctrlCCopies(true, true, key("x", "KeyX", { ctrlKey: true }))).toBe(false);
+  });
+
+  it("keeps a plain mouse move from the program only on Windows, with a selection, while it hears every move", () => {
+    expect(keepsSelectionOnMove(true, true, "any", 0)).toBe(true);
+    // A drag, nothing selected, macOS and Linux: reported as before.
+    expect(keepsSelectionOnMove(true, true, "any", 1)).toBe(false);
+    expect(keepsSelectionOnMove(true, false, "any", 0)).toBe(false);
+    expect(keepsSelectionOnMove(false, true, "any", 0)).toBe(false);
+    // Programs that don't hear plain moves (a shell, or clicks and drags only) never clear it on a move.
+    for (const mode of ["none", "x10", "vt200", "drag"] as const) {
+      expect(keepsSelectionOnMove(true, true, mode, 0)).toBe(false);
+    }
   });
 
   it("knows Windows from WebView2's user agent", () => {

@@ -52,6 +52,7 @@ import {
   takesInput,
   type TerminalState,
   ctrlCCopies,
+  keepsSelectionOnMove,
   onWindows,
   terminalKey,
   typingIn,
@@ -423,6 +424,34 @@ export function Terminal({
       });
     };
     const windows = onWindows();
+    // On Windows a selection over a program that hears every mouse move stays until Ctrl+C copies it: such a move,
+    // with no button held, is kept from xterm.js's report (which would clear the selection as typing). Its link hover,
+    // which listens on its screen, still hears the move: a copy is sent there that goes no further.
+    let forwarding = false;
+    const keepSelection = (e: MouseEvent) => {
+      if (forwarding) return;
+      if (!keepsSelectionOnMove(windows, term.hasSelection(), term.modes.mouseTrackingMode, e.buttons))
+        return;
+      e.stopPropagation();
+      const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen || !(e.target instanceof Node) || !screen.contains(e.target)) return;
+      const { clientX, clientY, screenX, screenY, ctrlKey, shiftKey, altKey, metaKey } = e;
+      forwarding = true;
+      screen.dispatchEvent(
+        new MouseEvent("mousemove", {
+          clientX,
+          clientY,
+          screenX,
+          screenY,
+          ctrlKey,
+          shiftKey,
+          altKey,
+          metaKey,
+        }),
+      );
+      forwarding = false;
+    };
+    element.addEventListener("mousemove", keepSelection, true);
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
       // On Windows Ctrl+C copies a selection and clears it; the program gets nothing, so its draft stays.
@@ -568,6 +597,7 @@ export function Terminal({
       disposed = true;
       undrop();
       unwheel();
+      element.removeEventListener("mousemove", keepSelection, true);
       if (focused) onBlur();
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();
