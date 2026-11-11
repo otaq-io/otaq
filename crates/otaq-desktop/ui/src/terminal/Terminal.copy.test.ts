@@ -19,6 +19,12 @@ interface Fake {
   press: (init: KeyboardEventInit, bytes: string) => void;
   select: (text: string) => void;
   selected: () => string;
+  /** The mouse moves the program asked to hear (`term.modes.mouseTrackingMode`). */
+  track: (mode: "none" | "drag" | "any") => void;
+  /** A mouse move over the terminal's text (`screen`) or its scrollbar, with `buttons` held. */
+  move: (over: "screen" | "scrollbar", buttons?: number) => void;
+  /** The moves xterm.js's link hover heard on its screen. */
+  hovers: () => number;
 }
 const made = vi.hoisted(() => [] as Fake[]);
 const sent = vi.hoisted(() => [] as [string, { data?: string }][]);
@@ -35,7 +41,11 @@ vi.mock("@xterm/xterm", () => {
     textarea: HTMLTextAreaElement | undefined = undefined;
     buffer = { active: { baseY: 0, viewportY: 0, getLine: () => undefined } };
     _core = { _linkProviderService: { linkProviders: [] } };
+    modes = { mouseTrackingMode: "none" as "none" | "drag" | "any" };
     private selection = "";
+    private hovered = 0;
+    private text: HTMLElement | undefined = undefined;
+    private scrollbar: HTMLElement | undefined = undefined;
     private onType: (data: string) => void = () => undefined;
     private onKey: (e: KeyboardEvent) => boolean = () => true;
     constructor() {
@@ -48,8 +58,35 @@ vi.mock("@xterm/xterm", () => {
           this.selection = text;
         },
         selected: () => this.selection,
+        track: (mode) => {
+          this.modes.mouseTrackingMode = mode;
+        },
+        move: (over, buttons = 0) => {
+          const target = over === "screen" ? this.text : this.scrollbar;
+          target?.dispatchEvent(
+            new MouseEvent("mousemove", { bubbles: true, buttons, clientX: 5, clientY: 5 }),
+          );
+        },
+        hovers: () => this.hovered,
       });
     }
+    /**
+     * A mouse report as xterm.js 6 sends it: `CoreMouseService.triggerMouseEvent` hands it to
+     * `CoreService.triggerDataEvent(report, true)`, which fires `onData` and then `onUserInput`, on which
+     * `SelectionService` clears the selection. So a reported move clears a selection, as in the app.
+     */
+    private report = () => {
+      this.onType("\x1b[<35;1;1M");
+      this.selection = "";
+    };
+    /** xterm.js's `bindMouse`: buttonless moves on its element (`.xterm`), reported while the program tracks "any". */
+    private plainMove = (e: MouseEvent) => {
+      if (this.modes.mouseTrackingMode === "any" && !e.buttons) this.report();
+    };
+    /** xterm.js's `mousedrag`: moves with a button held, heard on the document, reported for "drag" and "any". */
+    private drag = (e: MouseEvent) => {
+      if (this.modes.mouseTrackingMode !== "none" && e.buttons) this.report();
+    };
     hasSelection = () => this.selection !== "";
     getSelection = () => this.selection;
     clearSelection = () => {
@@ -70,8 +107,27 @@ vi.mock("@xterm/xterm", () => {
     attachCustomKeyEventHandler = (handler: (e: KeyboardEvent) => boolean) => {
       this.onKey = handler;
     };
-    open = (element: HTMLElement) => {
+    /** xterm.js's elements: `.xterm` in the host, holding its screen (where its link hover, `Linkifier`, listens on
+     * mousemove) and the scrollbar beside it. */
+    open = (parent: HTMLElement) => {
+      const element = document.createElement("div");
+      element.className = "terminal xterm";
+      const screen = document.createElement("div");
+      screen.className = "xterm-screen";
+      const row = document.createElement("span");
+      screen.append(row);
+      const scrollbar = document.createElement("div");
+      scrollbar.className = "scrollbar";
+      element.append(screen, scrollbar);
+      parent.append(element);
+      screen.addEventListener("mousemove", () => {
+        this.hovered++;
+      });
+      element.addEventListener("mousemove", this.plainMove);
+      document.addEventListener("mousemove", this.drag);
       this.element = element;
+      this.text = row;
+      this.scrollbar = scrollbar;
     };
     focus = () => undefined;
     reset = () => undefined;
@@ -79,7 +135,9 @@ vi.mock("@xterm/xterm", () => {
     write = (_data: unknown, done?: () => void) => {
       done?.();
     };
-    dispose = () => undefined;
+    dispose = () => {
+      document.removeEventListener("mousemove", this.drag);
+    };
   }
   return { Terminal };
 });
@@ -284,5 +342,81 @@ describe("Ctrl+C in a terminal elsewhere", () => {
     await settle();
     expect(copied).toEqual(["ls -la"]);
     expect(typed()).toBe("\x03");
+  });
+});
+
+// Over a program that hears every mouse move (Codex on Windows: its capture becomes DECSET 1003 through ConPTY),
+// xterm.js reports each buttonless move as typing and so clears the selection; the stand-in does the same.
+const REPORT = "\x1b[<35;1;1M";
+
+describe("a selection over a program that hears every mouse move", () => {
+  it("on Windows survives moving the mouse away, and Ctrl+C copies it with nothing sent", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    term.track("any");
+    term.select("cargo test --workspace");
+    term.move("screen");
+    term.move("scrollbar");
+    expect(term.selected()).toBe("cargo test --workspace");
+    term.press(CTRL_C, "\x03");
+    await settle();
+    expect(copied).toEqual(["cargo test --workspace"]);
+    expect(typed()).toBe("");
+  });
+
+  it("on Windows keeps Ctrl+Shift+C's copy after a move", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    term.track("any");
+    term.select("ls -la");
+    term.move("screen");
+    term.press(CTRL_SHIFT_C, "\x03");
+    await settle();
+    expect(copied).toEqual(["ls -la"]);
+    expect(typed()).toBe("");
+  });
+
+  it("on Windows the link hover still hears the kept move", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    term.track("any");
+    term.select("https://example.com");
+    term.move("screen");
+    expect(term.hovers()).toBe(1);
+  });
+
+  it("on Windows reports moves with nothing selected, and drags", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    term.track("any");
+    term.move("screen");
+    term.select("draft");
+    term.move("screen", 1);
+    await settle();
+    expect(term.hovers()).toBe(2);
+    expect(typed()).toBe(REPORT + REPORT);
+    expect(term.selected()).toBe("");
+  });
+
+  it("in a shell (no mouse tracking) a move leaves the selection for Ctrl+C", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    term.select("hello");
+    term.move("screen");
+    term.press(CTRL_C, "\x03");
+    await settle();
+    expect(copied).toEqual(["hello"]);
+    expect(typed()).toBe("");
+  });
+
+  it("on macOS the move is reported as before", async () => {
+    platform(MAC_UA, MAC_MAP);
+    const term = await live();
+    term.track("any");
+    term.select("ls -la");
+    term.move("screen");
+    await settle();
+    expect(typed()).toBe(REPORT);
+    expect(term.selected()).toBe("");
   });
 });

@@ -106,6 +106,25 @@ export function ctrlCCopies(windows: boolean, hasSelection: boolean, e: KeyLike)
   return windows && hasSelection && strokeMatches(CTRL_C, e);
 }
 
+/** What xterm.js says a program asked to hear of the mouse (`term.modes.mouseTrackingMode`). */
+export type MouseTracking = "none" | "x10" | "vt200" | "drag" | "any";
+
+/**
+ * Whether a mouse move over the terminal is kept from the program so a selection stays until Ctrl+C copies it: on
+ * Windows, with text selected, while the program asks for every mouse move ("any"; Codex's mouse capture becomes this
+ * through ConPTY) and no button is held. xterm.js reports such a move to the program as typing, and typing clears the
+ * selection, so the first move after a Shift-drag would lose it. Drags, programs that don't ask for plain moves (a
+ * shell), and macOS and Linux are unchanged.
+ */
+export function keepsSelectionOnMove(
+  windows: boolean,
+  hasSelection: boolean,
+  tracking: MouseTracking,
+  buttons: number,
+): boolean {
+  return windows && hasSelection && tracking === "any" && buttons === 0;
+}
+
 /** What ⇧↵ (`new_line`) sends: ESC + CR, as ⌥↵, a new line in the prompt for every agent tool; xterm.js would send
  * `\r` (↵, which sends the prompt). */
 export const NEW_LINE = "\x1b\r";
