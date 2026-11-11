@@ -9,7 +9,10 @@
 //!    Working.
 //!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
-//! ticket in Queued · **Start interrupted** with the step and its message; nothing is rolled back or deleted.
+//! ticket in Queued · **Start interrupted** with the step and its message. A new ticket's start leaves nothing
+//! half-made: the worktree and branch this start made go again ([`super::worktree::discard`]), so Retry start does the
+//! whole start again and the start's hooks (post-checkout) run again; nothing else is rolled back or deleted, and a
+//! reopened ticket's worktree, with its earlier work, always stays.
 //! Only **Retry start** (a user's click, [`Starter::retry`]) runs it again; no code path re-runs a failed start
 //! by itself (P2, d0018). The step a running start is at is stored too, so a start that the service stopping
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
@@ -486,7 +489,14 @@ impl Starter {
             }
             _ => false,
         };
-        match self.steps(ticket, actor, start).await {
+        let mut made = None;
+        let done = self.steps(ticket, actor, start, &mut made).await;
+        if done.is_err()
+            && let Some(worktree) = made
+        {
+            self.discard(ticket, &worktree).await;
+        }
+        match done {
             Ok(Done::Started(session)) => {
                 self.set_state(
                     ticket,
@@ -616,11 +626,14 @@ impl Starter {
         }
     }
 
+    /// `made` gets the worktree when this start made it or its branch for a new ticket, for [`Starter::discard`]
+    /// if a later step fails.
     async fn steps(
         &self,
         ticket: &Ticket,
         actor: &Actor,
         start: Start,
+        made: &mut Option<super::Worktree>,
     ) -> Result<Done, (StartStep, StartError)> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -800,6 +813,9 @@ impl Starter {
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
+        if !worktree.made.is_empty() {
+            *made = Some(worktree.clone());
+        }
         if board
             .store()
             .ticket(&ticket.id)
@@ -1117,6 +1133,37 @@ impl Starter {
             .await
             .map_err(|e| StartError::Other(e.to_string()))?;
         Ok(session)
+    }
+
+    /// A new ticket's start failed after making its worktree or branch: what it made goes, so that Retry start does
+    /// the whole start again with every start hook (a reopened ticket's worktree is never in `worktree.made`).
+    async fn discard(&self, ticket: &Ticket, worktree: &super::Worktree) {
+        let board = &self.inner.board;
+        let key = ticket.key.to_string();
+        let (project, git) = match board.project(ticket.key.project.as_str()).await {
+            Ok(project) => match board.project_git(&project.key).await {
+                Ok(git) => (project, git),
+                Err(e) => {
+                    tracing::warn!(ticket = %key, error = %e, "can't remove a failed start's worktree");
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::warn!(ticket = %key, error = %e, "can't remove a failed start's worktree");
+                return;
+            }
+        };
+        super::worktree::discard(
+            board,
+            &ticket.id,
+            &git,
+            Path::new(&project.repo_path),
+            &worktree.path,
+            &worktree.branch,
+            &worktree.made,
+        )
+        .await;
+        tracing::info!(ticket = %key, "what a failed start made is removed");
     }
 
     /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
