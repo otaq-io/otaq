@@ -107,6 +107,12 @@ or Azure DevOps, push nothing and tell the user, as step 3 says.
 
      The PR's URL is the repository's `webUrl` from that JSON, then `/pullrequest/` and its `pullRequestId`.
 
+   **Wait for the push to finish** before you open the PR, however long the project's pre-push hook takes (it may
+   run tests for minutes), and report only what git really said; if your shell stopped waiting first, check what
+   reached the remote (`git ls-remote origin <branch>` against `git rev-parse HEAD`) before you go on. If a pre-push
+   hook refuses the push, never bypass it with `--no-verify` and open no PR: tell the user what the hook said with
+   `otaq ask human --stdin`, ask how to go on, and end your turn.
+
    Use the user's own logins and git credentials as they are. Never store, print or ask for a token. If `gh` or `az`
    says you are not logged in, or the push is rejected, don't retry with other options: tell the user what failed with
    `otaq ask human --stdin` (for example "gh isn't logged in. Run `gh auth login`, then tell me to retry.") and end
@@ -117,7 +123,7 @@ or Azure DevOps, push nothing and tell the user, as step 3 says.
 ## Rules
 
 - **Never push before Otaq tells you the proposal is confirmed.** Turn 1 only proposes.
-- Push only the confirmed branch, to `origin`, and never with `--force`. Never merge the PR yourself.
+- Push only the confirmed branch, to `origin`, and never with `--force` or `--no-verify`. Never merge the PR yourself.
 - Don't change files or commits in either turn. If something must change, ask the user with
   `otaq ask human --stdin` instead.
 - **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments.

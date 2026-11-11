@@ -59,6 +59,12 @@ nothing is pushed.
    git push origin bugfix/SHOP-26-checkout-totals
    ```
 
+   **Wait for the push to finish**, however long the project's pre-push hook takes (it may run tests for minutes),
+   and report only what git really said; if your shell stopped waiting first, check what reached the remote
+   (`git ls-remote origin <branch>` against `git rev-parse HEAD`) before you go on. If a pre-push hook refuses the
+   push, never bypass it with `--no-verify`: tell the user what the hook said with `otaq ask human --stdin`, ask how
+   to go on, and end your turn.
+
    Use the user's own git credentials as they are; never store, print or ask for a token. If the push is rejected
    (for example because someone else pushed to the PR), don't force it and don't rebase: tell the user what git said
    with `otaq ask human --stdin` and end your turn.
@@ -78,6 +84,6 @@ nothing is pushed.
 
 ## Rules
 
-- **Never push before Otaq tells you the push is confirmed**, and never with `--force`.
+- **Never push before Otaq tells you the push is confirmed**, and never with `--force` or `--no-verify`.
 - Don't change files or commits. If something must change, ask the user with `otaq ask human --stdin`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.
