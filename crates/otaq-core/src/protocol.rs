@@ -668,6 +668,10 @@ pub enum Request {
     /// [`Reply::MergeProposal`].
     #[serde(rename = "ticket.merge_proposal")]
     TicketMergeProposal(KeyParams),
+    /// The user's edit of the merge message or the PR's title, description and commit messages, kept on the ticket
+    /// until it lands; empty fields put back the proposal (Use the proposed message). Answered with [`Reply::Ok`].
+    #[serde(rename = "ticket.keep_message")]
+    TicketKeepMessage(KeepMessageParams),
     /// **Local merge** with the confirmed squash message (GIT-03). Answered with [`Reply::LocalMerge`]: merged,
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
@@ -1769,6 +1773,15 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-18", "dialog": "merge", "message": "feat: add subtraction (SHOP-18)"}`: one dialog's edit of the
+/// ticket's delivery message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeepMessageParams {
+    pub key: String,
+    #[serde(flatten)]
+    pub edit: crate::pr::message::MessageEdit,
+}
+
 /// `{"key": "SHOP-27", "app": "web"}`: one app's Run of the ticket (agents run the app). No `app`: the project's only app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunParams {
@@ -2159,6 +2172,7 @@ impl Request {
             Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
+            Self::TicketKeepMessage(_) => "ticket.keep_message",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketDone(_) => "ticket.done",
             Self::TicketDoneNotMerged(_) => "ticket.done_not_merged",

@@ -100,6 +100,8 @@ const VIEW: ApproveView = {
     locked: false,
     message_label: "Squash commit message",
     message: "SHOP-18: Checkout API",
+    proposed: "SHOP-18: Checkout API",
+    use_proposed: "Use the proposed message",
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
     // The link button sits above the message: it took the focus before (dogfood #60).
@@ -236,6 +238,54 @@ test("a press outside the confirmation leaves it open: only Cancel, Esc or Merge
   });
   expect(closed).toBe(0);
   expect(message()).not.toBeNull();
+});
+
+const keeps = () => asked.mock.calls.filter(([method]) => method === "review.keep_message");
+const useProposed = () =>
+  [...(host?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Use the proposed message");
+const EDIT = "feat: checkout API (SHOP-18)";
+
+test("a kept edit opens the box; Use the proposed message puts the proposal back and keeps nothing", async () => {
+  await open({ ...VIEW, confirm: { ...VIEW.confirm, message: EDIT } }, false);
+  expect(message()?.value).toBe(EDIT);
+  expect(useProposed()).toBeDefined();
+  act(() => useProposed()?.click());
+  expect(message()?.value).toBe("SHOP-18: Checkout API");
+  expect(useProposed()).toBeUndefined();
+  expect(keeps()).toEqual([["review.keep_message", { key: "SHOP-18", message: "SHOP-18: Checkout API" }]]);
+});
+
+test("an edit is kept on the ticket when the dialog closes, and a merge sends it as typed", async () => {
+  await open(VIEW, false);
+  expect(useProposed()).toBeUndefined();
+  act(() => {
+    const box = message();
+    if (box === null) return;
+    Reflect.set(HTMLTextAreaElement.prototype, "value", EDIT, box);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  expect(useProposed()).toBeDefined();
+  press("Enter", SUBMIT);
+  expect(merges()).toEqual([
+    ["review.local_merge", { key: "SHOP-18", message: EDIT, approve_anyway: false }],
+  ]);
+  // The merge keeps what it was given itself: nothing is left to keep on close.
+  act(() => root?.unmount());
+  root = null;
+  expect(keeps()).toEqual([]);
+});
+
+test("an edit not merged is kept when the dialog closes", async () => {
+  await open(VIEW, false);
+  act(() => {
+    const box = message();
+    if (box === null) return;
+    Reflect.set(HTMLTextAreaElement.prototype, "value", EDIT, box);
+    box.dispatchEvent(new Event("input", { bubbles: true }));
+  });
+  act(() => root?.unmount());
+  root = null;
+  expect(keeps()).toEqual([["review.keep_message", { key: "SHOP-18", message: EDIT }]]);
 });
 
 const IDENTITY_FORM = {

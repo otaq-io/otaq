@@ -37,7 +37,19 @@ repo: string,
 /**
  * The base is the ticket's own (a hotfix on `release/2.3`), locked since it started (d0051).
  */
-locked: boolean, message_label: string, message: string, note: string, 
+locked: boolean, message_label: string, 
+/**
+ * The message the box starts from: the user's kept edit, else the proposal.
+ */
+message: string, 
+/**
+ * The proposal (the agent's, else the plain one): Use the proposed message puts it back.
+ */
+proposed: string, 
+/**
+ * "Use the proposed message", shown while the box differs from `proposed`.
+ */
+use_proposed: string, note: string, 
 /**
  * "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
  */

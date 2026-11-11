@@ -85,6 +85,16 @@ export function messageAfter(
   return next.message;
 }
 
+/** How long the message must stay unchanged before the edit is kept on the ticket (closing the dialog keeps it at
+ * once). */
+export const KEEP_AFTER_MS = 400;
+
+/** The message isn't the proposal (spaces around it don't count, as in Rust's `kept_edit`): Use the proposed message
+ * shows. */
+export function isEdited(message: string, proposed: string): boolean {
+  return message.trim() !== proposed.trim();
+}
+
 /** The step a Local merge's answer leads to. */
 export function afterMerge(result: LocalMergeResult): Step {
   switch (result.kind) {

@@ -73,10 +73,12 @@ export function Proposed({
   view,
   fields,
   onEdit,
+  onUseProposed,
 }: {
   view: PrDialogView;
   fields: Fields;
   onEdit: (field: "branch" | "title" | "description" | "commit", value: string, index?: number) => void;
+  onUseProposed: () => void;
 }) {
   const hint = view.branch_hint;
   return (
@@ -173,6 +175,12 @@ export function Proposed({
             view.prepared !== null && <p className="pr-muted">{view.prepared}</p>
           )}
         </>
+      )}
+      {/* The user's edit is kept on the ticket until the PR is opened or pushed with it; this puts the proposal back. */}
+      {view.use_proposed !== null && (
+        <button type="button" className="pr-link pr-use-proposed" onClick={onUseProposed}>
+          {view.use_proposed}
+        </button>
       )}
       <span className="pr-target">
         <Icon name="git-merge" size={12} />
@@ -374,6 +382,10 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
     );
     (request("pr.edit", { key, field, index, value }) as Promise<PrAnswer>).then(apply, ignore);
   };
+  // The fields take the proposal again from the answer (its `filled` grows).
+  const onUseProposed = () => {
+    (request("pr.use_proposed", { key }) as Promise<PrAnswer>).then(apply, ignore);
+  };
   const toSendBack = () => {
     request("pr.cancel", { key }).catch(ignore);
     close();
@@ -574,7 +586,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
                 <Waiting view={view} />
               </>
             ) : (
-              <Proposed view={view} fields={fields} onEdit={onEdit} />
+              <Proposed view={view} fields={fields} onEdit={onEdit} onUseProposed={onUseProposed} />
             )}
           </div>
         </Dialog>

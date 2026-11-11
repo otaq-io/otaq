@@ -12,7 +12,8 @@ use otaq_core::pr::flow::PrFlowView;
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::protocol::{
-    BranchRenameParams, KeyParams, OpenPrParams, PrConfirmParams, ProjectParams, Reply, Request,
+    BranchRenameParams, KeepMessageParams, KeyParams, OpenPrParams, PrConfirmParams, ProjectParams,
+    Reply, Request,
 };
 use otaq_core::review::LocalMergeOutcome;
 use otaq_view::view_models::pr_dialog::{PrDialog, Stage};
@@ -33,7 +34,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "pr.open" => reply(&open(app, parse(params)?).await?),
         "pr.start" => reply(&start(app, parse(params)?).await?),
         "pr.view" => reply(&view(app, parse(params)?).await?),
-        "pr.edit" => reply(&edit(app, parse(params)?)?),
+        "pr.edit" => reply(&edit(app, parse(params)?).await?),
+        "pr.use_proposed" => reply(&use_proposed(app, parse(params)?).await?),
         "pr.check" => reply(&check(app, parse(params)?).await?),
         "pr.confirm" => reply(&confirm(app, parse(params)?).await?),
         "pr.retry" => reply(&retry(app, parse(params)?).await?),
@@ -357,7 +359,7 @@ pub struct EditParams {
     pub value: String,
 }
 
-pub fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
+pub async fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
     let known = with(app, &params.key, |d| match params.field.as_str() {
         "branch" => {
             if d.branch != params.value {
@@ -389,8 +391,43 @@ pub fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
             "no such field: {}",
             params.field
         ))),
-        _ => Ok(dialog(app, &params.key)),
+        _ => {
+            // The title, description and commit messages are kept on the ticket as typed, until the PR is opened or
+            // pushed with them; the branch name isn't part of the message.
+            if params.field != "branch" {
+                keep(app, &params.key).await;
+            }
+            Ok(dialog(app, &params.key))
+        }
     }
+}
+
+/// Keeps the open dialog's edit of the title, description and commit messages on the ticket (nothing kept where
+/// they are the proposal). A failure is only logged: the dialog goes on with the edit in hand.
+async fn keep(app: &App, key: &str) {
+    let Some(edit) = with(app, key, |d| d.edit()) else {
+        return;
+    };
+    if let Err(e) = app
+        .service
+        .send(Request::TicketKeepMessage(KeepMessageParams {
+            key: key.to_owned(),
+            edit,
+        }))
+        .await
+    {
+        eprintln!("can't keep {key}'s edited PR message: {}", e.message);
+    }
+}
+
+/// **Use the proposed message**: the title, description and commit messages go back to the skill's proposal (the
+/// delivery's agent's once written), and the kept edit goes.
+pub async fn use_proposed(app: &App, params: Params) -> Result<Answer, RequestError> {
+    if with(app, &params.key, PrDialog::use_proposed).is_none() {
+        return Ok(Answer::Closed);
+    }
+    keep(app, &params.key).await;
+    Ok(dialog(app, &params.key))
 }
 
 /// The live branch-name check, asked once the name stayed the same for `check_after_ms`; a newer edit wins.

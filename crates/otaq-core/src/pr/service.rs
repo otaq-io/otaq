@@ -1318,6 +1318,11 @@ impl Board {
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
+        // The PR was opened (or pushed to) with the user's edit: the kept edit goes.
+        sqlx::query(crate::pr::message::FORGET_EDITED)
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

@@ -33,6 +33,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "ticket.pr_confirm" {
             params["proposal"] = json!({"branch": "b", "commits": []});
         }
+        if method == "ticket.keep_message" {
+            params["dialog"] = json!("merge");
+        }
         if method == "flow.apply" {
             params["proposal"] = json!(3);
         }
@@ -254,6 +257,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketPass(_)
         | Request::ReviewFeedback(_)
         | Request::TicketMergeProposal(_)
+        | Request::TicketKeepMessage(_)
         | Request::TicketLocalMerge(_)
         | Request::TicketDone(_)
         | Request::TicketDoneNotMerged(_)

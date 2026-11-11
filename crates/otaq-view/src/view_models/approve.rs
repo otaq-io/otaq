@@ -384,6 +384,16 @@ pub fn open_pr_title(pr: Option<&PrProvider>) -> String {
     }
 }
 
+/// Puts the agent's proposal back in Approve & merge's message, or in Approve & open PR's title, description and
+/// commit messages, in place of the user's kept edit.
+pub const USE_THE_PROPOSED_MESSAGE: &str = "Use the proposed message";
+
+/// The edit Approve & merge keeps on the ticket: the message as the user left it when it isn't the proposal (spaces
+/// around it don't count), else none, and the dialog opens on the proposal again.
+pub fn kept_edit(proposed: &str, message: &str) -> Option<String> {
+    (message.trim() != proposed.trim()).then(|| message.to_owned())
+}
+
 /// "Approve & merge SHOP-18 Checkout API".
 pub fn confirm_title(ticket: &Ticket) -> String {
     format!("Approve & merge {} {}", ticket.key, ticket.title)
@@ -660,6 +670,19 @@ mod tests {
         let mut shop20 = ticket("SHOP-20", "Checkout page", Status::Queued);
         shop20.depends_on = vec![shop18.key.clone(), shop19.key.clone()];
         (shop18.clone(), vec![shop18, shop19, shop20])
+    }
+
+    /// Only a message that differs from the proposal is kept; the proposal typed back (or with spaces around it)
+    /// keeps nothing.
+    #[test]
+    fn only_a_message_that_isnt_the_proposal_is_kept() {
+        let proposed = "SHOP-18 Add subtraction\n\nAdds subtract().";
+        assert_eq!(kept_edit(proposed, proposed), None);
+        assert_eq!(kept_edit(proposed, &format!("{proposed}\n")), None);
+        assert_eq!(
+            kept_edit(proposed, "feat: add subtraction (SHOP-18)").as_deref(),
+            Some("feat: add subtraction (SHOP-18)")
+        );
     }
 
     #[test]

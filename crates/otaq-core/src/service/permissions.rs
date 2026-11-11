@@ -518,6 +518,7 @@ async fn action_for(
         | R::TicketMergeCheckStop(_)
         | R::TicketMergeInto(_) => Action::UserOnly("merge tickets"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),
+        R::TicketKeepMessage(_) => Action::UserOnly("edit merge and pull request messages"),
         R::MessageResume(_) => Action::UserOnly("resume finished tickets to answer"),
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {
             Action::UserOnly("open or push pull requests")
