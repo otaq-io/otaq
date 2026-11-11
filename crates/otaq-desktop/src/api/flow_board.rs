@@ -134,8 +134,32 @@ async fn has_previous(app: &App, project: &str) -> bool {
     )
 }
 
+/// The stages of the flow in use with tickets in them, by id: a ticket held before a stage counts as in it, as the
+/// flow change that removes the stage waits for it.
+fn occupied(
+    tickets: &[otaq_core::board::tickets::Ticket],
+    in_use: &otaq_core::flow::model::Flow,
+) -> Vec<String> {
+    let mut ids: Vec<String> = tickets
+        .iter()
+        .filter_map(|t| {
+            otaq_core::flow::apply::standing(t, in_use, in_use)
+                .stage_id()
+                .map(str::to_owned)
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
     let gathered = gather(app, &params.project).await?;
+    let tickets: Vec<_> = super::board::snapshot(app, &params.project)
+        .await
+        .map(|b| b.tickets().cloned().collect())
+        .unwrap_or_default();
+    let occupied = occupied(&tickets, &gathered.in_use.flow);
     let all = projects(app).await?;
     let base = all
         .iter()
@@ -159,6 +183,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
             base_branch: &base,
             others: &others,
             previous,
+            occupied: &occupied,
         },
     ))
 }
@@ -263,6 +288,72 @@ mod tests {
         )
         .await
         .unwrap()
+    }
+
+    /// The note beside Remove stage reads from the board: none while Dev is empty, a ticket in Backlog included.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_remove_note_on_an_empty_stage() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let note = |v: vm::View| v.details.expect("the stage's panel").remove_note;
+        assert_eq!(note(load(&h, Some("dev")).await), None, "Dev is empty");
+
+        let Reply::Ticket(_) = h
+            .app
+            .service
+            .send(Request::TicketCreate(otaq_core::board::tickets::NewTicketInput {
+                project: "SHOP".into(),
+                title: "Footer links go to old pages".into(),
+                body: String::new(),
+                plan: String::new(),
+                priority: None,
+                base_branch: None,
+                first_comment: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no ticket");
+        };
+        assert_eq!(note(load(&h, Some("dev")).await), None, "in Backlog");
+    }
+
+    /// The stages with tickets in them, as a change removing them waits for: a ticket in a stage, one held before a
+    /// stage (waiting to begin the first one included); not one in Backlog, queued to begin, or done.
+    #[test]
+    fn occupied_stages_are_those_a_removal_waits_for() {
+        use otaq_core::domain::{Place, Status};
+        use otaq_view::view_models::card_fixtures::ticket;
+
+        let flow = otaq_core::flow::default_flow();
+        let at = |status: Status, place: Place| {
+            let mut t = ticket("SHOP-1", "Footer links", status);
+            t.place = place;
+            t
+        };
+        let in_stages = |tickets: &[otaq_core::board::tickets::Ticket]| occupied(tickets, &flow);
+        assert!(
+            in_stages(&[
+                at(Status::Backlog, Place::Backlog),
+                at(Status::Queued, Place::Waiting(None)),
+                at(Status::Merged, Place::Done),
+            ])
+            .is_empty()
+        );
+        assert_eq!(
+            in_stages(&[
+                at(Status::Working, Place::InStage("dev".into())),
+                at(Status::Working, Place::InStage("dev".into())),
+                at(Status::Held, Place::Waiting(Some("validate".into()))),
+            ]),
+            ["dev", "validate"]
+        );
+        assert_eq!(
+            in_stages(&[at(Status::Held, Place::Waiting(None))]),
+            ["dev"]
+        );
     }
 
     /// + after Dev → Security review: the ready stage arrives with its description, agent and skill, marked New,

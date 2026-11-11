@@ -26,6 +26,6 @@ skill_tag: string | null, skill_hint: string, fail_to: FlowEditorFailTo | null, 
  */
 problem: string | null, fixes: Array<FlowEditorFix>, mark: FlowEditorMark | null, remove: string, 
 /**
- * [`REMOVING_WAITS`] for a stage the flow has now.
+ * [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
  */
 remove_note: string | null, };

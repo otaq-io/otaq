@@ -58,7 +58,8 @@ pub fn kind_label(kind: EditorKind) -> &'static str {
 /// "Every flow starts here" / "Every flow ends here": the fixed ends, which can't be moved or removed.
 pub const STARTS_HERE: &str = "Every flow starts here";
 pub const ENDS_HERE: &str = "Every flow ends here";
-/// Under a stage the flow has now, in its details: removing it waits for the tickets in it.
+/// Under a stage the flow has now with tickets in it, in its details: removing it waits for them. With none in it, the
+/// stage goes at once and nothing is said.
 pub const REMOVING_WAITS: &str = "Removing waits until no ticket is in it";
 /// The Rounds field's words after its number.
 pub const ROUNDS_NOTE: &str = "fails in a row, then it waits for you";
@@ -176,7 +177,7 @@ pub struct Details {
     pub fixes: Vec<FixRow>,
     pub mark: Option<MarkView>,
     pub remove: &'static str,
-    /// [`REMOVING_WAITS`] for a stage the flow has now.
+    /// [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
     pub remove_note: Option<&'static str>,
 }
 
@@ -454,6 +455,8 @@ pub struct BoardFacts<'a> {
     pub others: &'a [(String, String, Option<FlowFile>)],
     /// The project has a flow before the one in use.
     pub previous: bool,
+    /// The stages of the flow in use with tickets in them (held before them included), by id.
+    pub occupied: &'a [String],
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -633,10 +636,10 @@ fn columns(f: &Facts) -> Vec<Column> {
 pub const DELIVERY_NOTE: &str = "Part of the flow, so it travels in the flow file. The project\u{2019}s Repository \
      card shows the same setting.";
 
-fn details(f: &Facts, stage: &Stage) -> Details {
+fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
     let d = editor::details(f, stage);
     let kind = stage_kind(stage);
-    let in_use = f.in_use.flow.stage(&stage.id).is_some();
+    let has_tickets = f.in_use.flow.stage(&stage.id).is_some() && b.occupied.contains(&stage.id);
     let skill_tag = stage
         .skill
         .as_deref()
@@ -692,7 +695,7 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         fixes: d.fixes,
         mark: d.mark,
         remove: "Remove stage",
-        remove_note: in_use.then_some(REMOVING_WAITS),
+        remove_note: has_tickets.then_some(REMOVING_WAITS),
     }
 }
 
@@ -882,12 +885,12 @@ fn drafting(f: &Facts) -> Option<Drafting> {
     })
 }
 
-/// The most of a waiting prompt the Needs you line's tooltip shows: a whole SKILL.md would be taller than the window;
-/// the terminal has it all.
-const TOOLTIP_MAX_CHARS: usize = 600;
+/// The most of a waiting prompt a tooltip shows (this Needs you line's, the Needs you strip's chips): a whole SKILL.md
+/// would be taller than the window; the terminal has it all.
+pub(crate) const TOOLTIP_MAX_CHARS: usize = 600;
 
 /// What the agent waits on, whole for the tooltip, cut with "…" past [`TOOLTIP_MAX_CHARS`].
-fn tooltip_text(what: &str) -> String {
+pub(crate) fn tooltip_text(what: &str) -> String {
     let what = what.trim();
     match what.char_indices().nth(TOOLTIP_MAX_CHARS) {
         Some((cut, _)) => format!("{}\u{2026}", what[..cut].trim_end()),
@@ -1305,7 +1308,7 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         yaml: otaq_core::flow::yaml::write(f.file),
         bar: bar(f),
         columns: columns(f),
-        details: selected.map(|s| details(f, s)),
+        details: selected.map(|s| details(f, b, s)),
         delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
         palette: palette(f),
         start_from: start_from(f, b),
@@ -1333,10 +1336,67 @@ mod tests {
                 base_branch: "main",
                 others: &none,
                 previous: false,
+                occupied: &[],
             },
         )
         .suggest
         .off
+    }
+
+    /// The board's facts with `occupied`'s stages holding tickets.
+    fn board(occupied: &[String]) -> BoardFacts<'_> {
+        BoardFacts {
+            base_branch: "main",
+            others: &[],
+            previous: false,
+            occupied,
+        }
+    }
+
+    /// The note beside Remove stage says removing waits only while tickets are in the stage; with none in it the
+    /// stage goes at once, so no note shows (a stage only the draft has never shows it).
+    #[test]
+    fn the_remove_note_shows_only_with_tickets_in_the_stage() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let f = Facts {
+            project: "SHOP",
+            project_name: "shop",
+            proposal: &draft,
+            marks: &[],
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            stored: &stored,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: Some("validate"),
+            agent: None,
+            new_agent: None,
+            choices: &choices,
+        };
+        let note = |occupied: &[String]| {
+            view(&f, &board(occupied))
+                .details
+                .expect("Validate's panel")
+                .remove_note
+        };
+        assert_eq!(note(&[]), None, "no ticket in Validate");
+        assert_eq!(note(&["dev".to_owned()]), None, "tickets in another stage");
+        assert_eq!(note(&["validate".to_owned()]), Some(REMOVING_WAITS));
+        let panel = view(&f, &board(&[])).details.expect("Validate's panel");
+        assert_eq!(
+            panel.remove, "Remove stage",
+            "Remove stage stays either way"
+        );
     }
 
     fn default_flow() -> Flow {
@@ -1464,7 +1524,11 @@ mod tests {
                 .expect("Validate's card")
                 .warning;
             let stage = file.flow.stage("validate").expect("Validate");
-            let panel = match details(&f, stage).skill.expect("a Skill field").state {
+            let panel = match details(&f, &board(&[]), stage)
+                .skill
+                .expect("a Skill field")
+                .state
+            {
                 SkillState::Set { warning, .. } => warning,
                 other => panic!("the skill is set: {other:?}"),
             };
