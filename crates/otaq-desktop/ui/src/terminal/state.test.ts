@@ -4,10 +4,12 @@ import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
   clampFontSize,
+  ctrlCCopies,
   findCount,
   fontSizeOf,
   jumpLabel,
   NEW_LINE,
+  onWindows,
   opaqueHex,
   rendererFor,
   takesInput,
@@ -129,5 +131,29 @@ describe("the terminal's state", () => {
   it("drops the alpha of a theme colour for xterm.js's decorations", () => {
     expect(opaqueHex(" #4c57d633")).toBe("#4c57d6");
     expect(opaqueHex("#d4500a")).toBe("#d4500a");
+  });
+
+  it("copies on Ctrl+C only on Windows with a selection, as Windows Terminal does", () => {
+    const ctrlC = key("c", "KeyC", { ctrlKey: true });
+    expect(ctrlCCopies(true, true, ctrlC)).toBe(true);
+    // Caps Lock on: still C.
+    expect(ctrlCCopies(true, true, key("C", "KeyC", { ctrlKey: true }))).toBe(true);
+    // Nothing selected: the program's interrupt.
+    expect(ctrlCCopies(true, false, ctrlC)).toBe(false);
+    // macOS and Linux keep their own keys.
+    expect(ctrlCCopies(false, true, ctrlC)).toBe(false);
+    // Ctrl+Shift+C is the terminal's copy key; other modifiers stay the program's.
+    expect(ctrlCCopies(true, true, key("C", "KeyC", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(ctrlCCopies(true, true, key("c", "KeyC", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(ctrlCCopies(true, true, key("c", "KeyC", {}))).toBe(false);
+    expect(ctrlCCopies(true, true, key("x", "KeyX", { ctrlKey: true }))).toBe(false);
+  });
+
+  it("knows Windows from WebView2's user agent", () => {
+    expect(onWindows("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/131.0.0.0")).toBe(
+      true,
+    );
+    expect(onWindows("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")).toBe(false);
+    expect(onWindows("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe(false);
   });
 });

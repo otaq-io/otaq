@@ -157,7 +157,9 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
 - **Focus.** On focus it calls `focusTerminal(session)` and tells the service (`terminal.focus`, passed on for an
   agent's session only, ATT-03); on blur `focusTerminal(null)`. Keys go to xterm.js untouched except the app's own
   (T-0215) and the terminal's own from the Rust map (`keymap.map`'s `terminal_keys`): copy and paste on Ctrl+Shift+C /
-  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
+  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), and on Windows Ctrl+C too while text is
+  selected, as in Windows Terminal: it copies and clears the selection, and the program gets nothing (with nothing
+  selected Ctrl+C is the program's), ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
   terminal's font size until the setting changes, and ⇧↵, which types ESC + CR (as ⌥↵) instead of xterm.js's `\r`, so
   it starts a new line in the agent's prompt instead of sending it (OT-5). ⌘F / Ctrl+Shift+F opens the find bar
   (`useShortcut`).
