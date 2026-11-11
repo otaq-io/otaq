@@ -291,6 +291,113 @@ async fn a_codex_agents_skill_goes_in_the_agents_folder() {
     );
 }
 
+/// Two stages with near names, "Update the docs" (its own skill) and a new "Update the docs 2": asked to write the
+/// second's skill, an agent that names the first gets no folder and is told which stage it was asked for; the second
+/// gets the skill and the first keeps its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skill_asked_for_a_new_stage_goes_to_that_stage_and_not_one_with_a_near_name() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let mut file = yaml::read(&draft.proposal.yaml).unwrap();
+    let docs = |id: &str, name: &str, skill: Option<&str>| Stage {
+        id: id.into(),
+        name: name.into(),
+        kind: StageKind::Agent,
+        agent: Some("Developer".into()),
+        skill: skill.map(str::to_owned),
+        options: Vec::new(),
+        rounds: None,
+        fail_to: None,
+        description: None,
+    };
+    let dev = file.flow.position("dev").unwrap();
+    file.flow.stages.insert(
+        dev,
+        docs("update-the-docs", "Update the docs", Some("retest-docs")),
+    );
+    file.flow.stages.insert(
+        dev + 2,
+        docs("update-the-docs-2", "Update the docs 2", None),
+    );
+    w.board
+        .update_draft(
+            &key,
+            &DraftEdit::Document {
+                yaml: yaml::write(&file),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+
+    // Ask the agent to write it, on the new stage.
+    w.board
+        .update_draft(
+            &key,
+            &DraftEdit::SkillWriting {
+                stage: "update-the-docs-2".into(),
+                agent: Some("pa-1".into()),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+
+    // The agent names the other stage: refused, naming the one it was asked for; nothing is made.
+    let wrong = w
+        .board
+        .skill_folder(&key, "update-the-docs", Some("update-docs"), Some("pa-1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        wrong.contains("Update the docs 2") && wrong.contains("flow write-skill update-the-docs-2"),
+        "{wrong}"
+    );
+    assert!(!checkout.join(".claude/skills/update-docs").exists());
+
+    // By the new stage's name, as the request gives it: the folder is the new stage's, and so is the skill.
+    let given = w
+        .board
+        .skill_folder(&key, "Update the docs 2", Some("update-docs"), Some("pa-1"))
+        .await
+        .unwrap();
+    assert_eq!(given.stage, "Update the docs 2");
+    std::fs::write(
+        Path::new(&given.folder).join("SKILL.md"),
+        "---\nname: update-docs\ndescription: Brings the docs in line with the change.\n---\n# Update the docs\n",
+    )
+    .unwrap();
+    let handed = w
+        .board
+        .skill_written(&key, "Update the docs 2", "Noyan")
+        .await
+        .unwrap();
+    assert_eq!(handed.stage, "Update the docs 2");
+
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let file = yaml::read(&draft.proposal.yaml).unwrap();
+    assert_eq!(
+        file.flow
+            .stage("update-the-docs-2")
+            .unwrap()
+            .skill
+            .as_deref(),
+        Some("update-docs")
+    );
+    assert_eq!(
+        file.flow.stage("update-the-docs").unwrap().skill.as_deref(),
+        Some("retest-docs"),
+        "the first stage keeps its own skill"
+    );
+    assert!(draft.writing.is_empty(), "{:?}", draft.writing);
+    assert_eq!(draft.written.len(), 1);
+    assert_eq!(draft.written[0].stage_id, "update-the-docs-2");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn undo_deletes_an_untracked_folder_and_keeps_a_committed_one() {
     let w = TestService::start().await;
