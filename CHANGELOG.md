@@ -167,3 +167,22 @@ before Publish (`scripts/README.md`, "Making a release").
 - **A stage's skill can't be a tool's built-in command.** A flow whose stage names one, such as Claude Code's
   `/security-review`, is refused instead of applying and then holding the stage. Write a small skill that runs the
   command and name that skill.
+- **Your git hooks, on the ticket.** When a hook refuses Approve & merge, Approve & open PR or a start, the ticket
+  says which hook and shows its whole output (paths shortened to `~`), with the way on (Edit message and retry,
+  Retry start); History keeps it, and the ticket stays where it was. A hook that asks a question in the terminal is
+  named as such.
+- **See and stop a running hook.** While Approve & merge or a start runs, the card and the Merging dialog show the
+  step git is really on and "running your pre-commit hook · 40 s", with Stop; Otaq never stops a hook by itself.
+  Your post-merge hook in your own folder shows the same way, and its output is kept in History.
+- **No more rebasing.** Otaq brings a branch up to date by merging main into it; a pre-rebase hook no longer blocks
+  every merge. Approve & merge still lands one squashed commit.
+- **Messages follow your project's rules.** Merge messages and agents' commits follow CONTRIBUTING, commitlint and
+  your commit-msg hook (`feat: … (KEY)`); with none, the key leads as before. Reworded PR messages go through your
+  commit-msg hook before anything is rewritten, and your edits to a merge or PR message are kept until it lands.
+- **A hook's changes are said.** When a formatter hook changes the commit that lands: "Your pre-commit hook changed 2
+  files", with Show changes.
+- **Pushes.** Agents push when you ask them to, wait for a slow pre-push hook and never bypass it; Otaq checks a
+  delivery's push really reached the remote.
+- **Starts.** A start that fails before its worktree is ready leaves nothing half-made, so Retry start runs your
+  post-checkout hook again; Otaq's temporary save of unfinished files runs no hook and isn't signed, so a reopened
+  ticket with uncommitted work starts.
