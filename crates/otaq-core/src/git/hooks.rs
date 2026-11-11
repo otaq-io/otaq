@@ -30,11 +30,11 @@ use tokio::sync::watch;
 pub enum GitStep {
     /// A start makes the ticket's worktree (`git worktree add`: post-checkout).
     AddWorktree,
-    /// Uncommitted files are kept in Otaq's temporary checkpoint commit (pre-commit, prepare-commit-msg,
-    /// commit-msg, post-commit).
+    /// Uncommitted files are kept in Otaq's temporary checkpoint commit. It runs no hook (the one place Otaq's
+    /// steps skip them: nothing of it lands), so no hook refusal names this step.
     SaveUncommitted,
-    /// A branch is brought up to date with the branch it goes into (today a rebase: pre-rebase, post-checkout,
-    /// post-rewrite; a merge of it runs prepare-commit-msg, commit-msg, pre-merge-commit, post-merge).
+    /// A branch is brought up to date by merging the branch it goes into into it (prepare-commit-msg, commit-msg,
+    /// pre-merge-commit, post-merge; never a rebase).
     UpdateBranch,
     /// The uncommitted files kept by the checkpoint are put back.
     RestoreUncommitted,

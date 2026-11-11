@@ -1,11 +1,12 @@
 //! Bringing a branch up to date by merging main into it, and the checkpoint commit around it (T-0088, GIT-02),
-//! against temporary repositories. Every test checks that no stash was ever made.
+//! against temporary repositories. Every test checks that no stash was ever made; the checkpoint runs no hook, the
+//! merge commit runs them all.
 
 use std::path::{Path, PathBuf};
 
-use otaq_core::git::Git;
 use otaq_core::git::checkpoint::{UpdateError, UpdateOutcome, checkpoint_message};
 use otaq_core::git::testing::{TempRepos, commit, git};
+use otaq_core::git::{Git, GitError};
 
 /// `main` checked out in the repository, `feature` (one commit on `feature.txt`) in a worktree beside it.
 fn setup(repos: &TempRepos) -> (PathBuf, PathBuf) {
@@ -178,41 +179,143 @@ async fn staged_changes_that_dont_fit_the_merged_branch_put_everything_back() {
     no_stash(&repo);
 }
 
+/// Every hook a commit can run, each logging its name to `log`; `commit-msg` refuses anything but `feat:` and
+/// `pre-commit` refuses staged work with a TODO in it, like a Conventional Commits rule and a lint.
+fn strict_hooks(repo: &Path, log: &Path) {
+    let log = log.display();
+    for name in ["prepare-commit-msg", "post-commit", "pre-merge-commit"] {
+        hook(repo, name, &format!("echo {name} >> '{log}'"));
+    }
+    hook(
+        repo,
+        "pre-commit",
+        &format!(
+            "echo pre-commit >> '{log}'\n\
+             git diff --cached | grep -q TODO && {{ echo 'lint: no TODOs' >&2; exit 1; }}\nexit 0"
+        ),
+    );
+    hook(
+        repo,
+        "commit-msg",
+        &format!(
+            "echo commit-msg >> '{log}'\n\
+             grep -qE '^feat:' \"$1\" || {{ echo 'commit-msg: use feat:' >&2; exit 1; }}"
+        ),
+    );
+}
+
+fn hooks_run(log: &Path) -> Vec<String> {
+    std::fs::read_to_string(log)
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The temporary save is the one place the hooks don't run: a message rule and a lint that would refuse it never
+/// see it, and the files come back exactly as they were.
 #[tokio::test]
-async fn a_rejecting_pre_commit_hook_stops_with_an_error_and_changes_nothing() {
+async fn the_temporary_save_runs_no_hook() {
+    let repos = TempRepos::new();
+    let (repo, wt) = setup(&repos);
+    let log = repos.root().join("hooks.log");
+    strict_hooks(&repo, &log);
+    // A prepare-commit-msg that refuses too: `commit --no-verify` would still run it.
+    hook(
+        &repo,
+        "prepare-commit-msg",
+        &format!("echo prepare-commit-msg >> '{}'\nexit 1", log.display()),
+    );
+    std::fs::write(wt.join("feature.txt"), "// TODO: finish\n").unwrap();
+    git(&wt, &["add", "feature.txt"]);
+    std::fs::write(wt.join("loose.txt"), "TODO untracked\n").unwrap();
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let before = status(&wt);
+    let staged_before = git(&wt, &["diff", "--cached"]);
+
+    let outcome = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap();
+    assert_eq!(outcome, UpdateOutcome::Clean);
+    assert_eq!(hooks_run(&log), Vec::<String>::new(), "no hook ran");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "nothing to merge");
+    assert_eq!(status(&wt), before);
+    assert_eq!(git(&wt, &["diff", "--cached"]), staged_before);
+    assert_eq!(read(&wt, "feature.txt"), "// TODO: finish\n");
+    assert_eq!(read(&wt, "loose.txt"), "TODO untracked\n");
+    no_checkpoint_in_history(&wt);
+    no_stash(&repo);
+}
+
+/// The merge of main that follows the save is a commit that lands: it runs the hooks, and they can refuse it.
+#[tokio::test]
+async fn the_merge_after_the_temporary_save_still_runs_the_hooks() {
     let repos = TempRepos::new();
     let (repo, wt) = setup(&repos);
     commit(&repo, "main.txt", "moved on\n");
-    let hook = repo.join(".git/hooks/pre-commit");
-    std::fs::write(&hook, "#!/bin/sh\necho 'lint failed' >&2\nexit 1\n").unwrap();
-    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
-    #[cfg(unix)]
-    {
-        use std::os::unix::fs::PermissionsExt;
-        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
-    }
-    std::fs::write(wt.join("feature.txt"), "dirty\n").unwrap();
+    let log = repos.root().join("hooks.log");
+    strict_hooks(&repo, &log);
+    std::fs::write(wt.join("feature.txt"), "// TODO: finish\n").unwrap();
     git(&wt, &["add", "feature.txt"]);
     std::fs::write(wt.join("loose.txt"), "untracked\n").unwrap();
     let head = git(&wt, &["rev-parse", "HEAD"]);
     let before = status(&wt);
+    let staged_before = git(&wt, &["diff", "--cached"]);
 
+    // git's plain "Merge branch 'main' into feature" isn't `feat:`: commit-msg refuses the merge commit.
     let err = Git::find()
         .unwrap()
         .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap_err();
-    match err {
-        UpdateError::CheckpointRejected { message, refusal } => {
-            assert!(message.contains("lint failed"));
-            let refusal = refusal.expect("the hook is named");
-            assert_eq!(refusal.name(), "pre-commit");
-            assert_eq!(refusal.output(), "lint failed");
-        }
-        other => panic!("expected a rejected checkpoint, got {other}"),
-    }
+    let UpdateError::Git(GitError::HookRefused(refusal)) = err else {
+        panic!("expected a hook's refusal, got {err}");
+    };
+    assert_eq!(refusal.name(), "commit-msg");
+    assert!(
+        refusal.output().starts_with("commit-msg: use feat:"),
+        "{}",
+        refusal.output()
+    );
+    assert_eq!(
+        hooks_run(&log),
+        ["pre-merge-commit", "prepare-commit-msg", "commit-msg"],
+        "the merge's hooks, and none for the save"
+    );
     assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "not merged");
     assert_eq!(status(&wt), before);
+    assert_eq!(git(&wt, &["diff", "--cached"]), staged_before);
+    assert_eq!(read(&wt, "feature.txt"), "// TODO: finish\n");
+    assert_eq!(read(&wt, "loose.txt"), "untracked\n");
+    no_stash(&repo);
+
+    // A rule the merge passes: it is made, with the hooks run once, and the files are back on top of it.
+    std::fs::remove_file(&log).unwrap();
+    hook(
+        &repo,
+        "commit-msg",
+        &format!(
+            "echo commit-msg >> '{}'\ngrep -qE '^(feat:|Merge )' \"$1\" || exit 1",
+            log.display()
+        ),
+    );
+    let outcome = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap();
+    assert_eq!(outcome, UpdateOutcome::Clean);
+    assert_eq!(
+        hooks_run(&log),
+        ["pre-merge-commit", "prepare-commit-msg", "commit-msg"],
+        "putting the files back runs no hook"
+    );
+    assert!(wt.join("main.txt").is_file(), "main merged in");
+    assert_eq!(status(&wt), before);
+    assert_eq!(git(&wt, &["diff", "--cached"]), staged_before);
+    no_checkpoint_in_history(&wt);
     no_stash(&repo);
 }
 
@@ -266,7 +369,7 @@ async fn the_merge_commit_runs_the_hooks_and_a_refusal_changes_nothing() {
     hook(
         &repo,
         "commit-msg",
-        "grep -qE '^(feat|fix|wip):' \"$1\" || { echo 'not a conventional message' >&2; exit 1; }",
+        "grep -qE '^(feat|fix):' \"$1\" || { echo 'not a conventional message' >&2; exit 1; }",
     );
     std::fs::write(wt.join("feature.txt"), "staged\n").unwrap();
     git(&wt, &["add", "feature.txt"]);

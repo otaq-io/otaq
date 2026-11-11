@@ -8,19 +8,28 @@
 //!
 //! When the worktree has uncommitted changes (only a reopened ticket's start brings such a worktree up to date: every
 //! other update refuses uncommitted files first), they are kept in a **checkpoint commit**, `wip: paused by Otaq`,
-//! for a moment: the branch goes back to its head, main is merged in, and the checkpoint's changes are put back on
-//! top of the merge as uncommitted files, with the index as it was, so staged, unstaged and untracked files all come
-//! back exactly as they were. The checkpoint is never left on the branch. **Never a stash**: the merge runs with
-//! `--no-autostash`, so not even the user's `merge.autoStash` setting makes one.
+//! for a moment: the branch stays at its head, main is merged in, and the checkpoint's changes are put back on top of
+//! the merge as uncommitted files, with the index as it was, so staged, unstaged and untracked files all come back
+//! exactly as they were. The checkpoint is never on the branch, main or a remote. **Never a stash**: the merge runs
+//! with `--no-autostash`, so not even the user's `merge.autoStash` setting makes one.
 //!
-//! The user's git config and hooks apply (P4): a hook that rejects the checkpoint stops the update with an error
-//! ([`UpdateError::CheckpointRejected`], naming the hook when one refused); nothing passes `--no-verify`. A hook
-//! that refuses the merge commit is the error ([`GitError::HookRefused`]), with the merge aborted.
+//! **The checkpoint is the one place Otaq doesn't run the project's hooks**, by the user's decision: nothing of it
+//! lands and it is undone right after, so a commit-msg rule or a lint pre-commit has nothing to protect there, and
+//! judging half-done work or the save's own message would only stop a reopened ticket from starting. It is made with
+//! plumbing (`write-tree` then `commit-tree`), which runs no hook at all, rather than `commit --no-verify`, which
+//! still runs prepare-commit-msg (it can refuse) and post-commit (a team's hook may push or notify). `commit-tree`
+//! also leaves HEAD and the branch where they are. Putting the files back (`cherry-pick --no-commit`, `reset`,
+//! `read-tree`, `apply --cached`) makes no commit and runs no hook either.
+//!
+//! **Every commit that lands still runs the hooks**: the merge commit that brings the branch up to date runs
+//! prepare-commit-msg, commit-msg and pre-merge-commit, and a hook that refuses it is the error
+//! ([`GitError::HookRefused`]), with the merge aborted and the files back as they were. Nothing here passes
+//! `--no-verify`. The rest of the user's git config applies to the checkpoint too (its identity, commit signing).
 
 use std::fmt;
 use std::path::Path;
 
-use super::{Git, GitError, GitStep, HookRefusal};
+use super::{Git, GitError, GitStep};
 use crate::naming;
 
 /// The checkpoint commit's message: `wip: paused by Otaq`.
@@ -39,23 +48,17 @@ pub enum UpdateOutcome {
     UndoConflict { files: Vec<String> },
 }
 
+/// Why [`Git::merge_with_checkpoint`] stopped. The checkpoint runs no hook, so a hook can only refuse the merge
+/// commit ([`GitError::HookRefused`]); the checkpoint itself fails only when git can't write it (for example a
+/// broken index, no identity, or commit signing that fails), with git's own error.
 #[derive(Debug)]
 pub enum UpdateError {
-    /// The user's hooks (or config) refused the checkpoint commit; the files are as they were. `message` is
-    /// git's output; `refusal` says which hook refused, with its whole output, when one did.
-    CheckpointRejected {
-        message: String,
-        refusal: Option<Box<HookRefusal>>,
-    },
     Git(GitError),
 }
 
 impl fmt::Display for UpdateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CheckpointRejected { message, .. } => {
-                write!(f, "the checkpoint commit was rejected: {message}")
-            }
             Self::Git(e) => write!(f, "{e}"),
         }
     }
@@ -67,14 +70,6 @@ impl From<GitError> for UpdateError {
     fn from(e: GitError) -> Self {
         Self::Git(e)
     }
-}
-
-/// The message for a rejected checkpoint (SDD GIT-02).
-pub fn checkpoint_rejected_message(key: &str) -> String {
-    format!(
-        "Your pre-commit hook rejected {}'s temporary checkpoint. Commit or discard the files in {key}, then retry.",
-        naming::PRODUCT_NAME
-    )
 }
 
 /// What the worktree looked like before the checkpoint.
@@ -143,7 +138,7 @@ impl Git {
         }
         self.step(GitStep::SaveUncommitted);
         let saved = self.checkpoint(worktree).await?;
-        // The branch goes back to its own head, with the files of that head: the checkpoint holds the changes.
+        // The worktree goes back to the branch's head, with the files of that head: the checkpoint holds the changes.
         self.run(worktree, &["reset", "--quiet", "--hard", &saved.head])
             .await?;
         let merged = match self.merge_in(worktree, onto).await {
@@ -207,46 +202,51 @@ impl Git {
         Ok(UpdateOutcome::Clean)
     }
 
-    /// Commits every uncommitted file (untracked ones too) as the checkpoint.
-    async fn checkpoint(&self, worktree: &Path) -> Result<Saved, UpdateError> {
+    /// Saves every uncommitted file (untracked ones too) in the checkpoint commit, running **no hook**: the
+    /// temporary save is the one place the project's hooks don't judge (see the module's comments). The commit is
+    /// made with `write-tree` and `commit-tree`, so HEAD and the branch don't move; the index holds everything
+    /// afterwards, and the caller's `reset --hard` puts the worktree back to the head.
+    async fn checkpoint(&self, worktree: &Path) -> Result<Saved, GitError> {
         let head = self
             .run(worktree, &["rev-parse", "HEAD"])
             .await?
             .trim()
             .to_owned();
         let index = self.run(worktree, &["write-tree"]).await?.trim().to_owned();
-        self.run(worktree, &["add", "-A"]).await?;
-        if let Err(e) = self
-            .run(
-                worktree,
-                &["commit", "--quiet", "-m", &checkpoint_message()],
-            )
-            .await
-        {
-            // Put the index back as it was; the files never changed.
-            self.run(worktree, &["read-tree", &index]).await?;
-            return Err(match e {
-                GitError::Failed { stderr, .. } => UpdateError::CheckpointRejected {
-                    message: stderr,
-                    refusal: None,
-                },
-                GitError::HookRefused(refusal) => UpdateError::CheckpointRejected {
-                    message: refusal.stderr.clone(),
-                    refusal: Some(refusal),
-                },
-                e => UpdateError::Git(e),
-            });
-        }
-        let checkpoint = self
-            .run(worktree, &["rev-parse", "HEAD"])
-            .await?
-            .trim()
-            .to_owned();
+        let checkpoint = match self.checkpoint_commit(worktree, &head).await {
+            Ok(checkpoint) => checkpoint,
+            Err(e) => {
+                // Put the index back as it was; the files never changed.
+                self.run(worktree, &["read-tree", &index]).await?;
+                return Err(e);
+            }
+        };
         Ok(Saved {
             head,
             index,
             checkpoint,
         })
+    }
+
+    /// Stages everything and writes it as a commit on top of `head` with plumbing, which runs no hook.
+    async fn checkpoint_commit(&self, worktree: &Path, head: &str) -> Result<String, GitError> {
+        self.run(worktree, &["add", "-A"]).await?;
+        let tree = self.run(worktree, &["write-tree"]).await?.trim().to_owned();
+        Ok(self
+            .run(
+                worktree,
+                &[
+                    "commit-tree",
+                    &tree,
+                    "-p",
+                    head,
+                    "-m",
+                    &checkpoint_message(),
+                ],
+            )
+            .await?
+            .trim()
+            .to_owned())
     }
 
     /// Back to where the update started: the checkpoint's files in the worktree, then the old HEAD and index.
