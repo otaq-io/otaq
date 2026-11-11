@@ -58,8 +58,9 @@ async fn prime_names_otaqs_commit_skill_not_a_users_folder() {
         .expect("the commit rule");
     assert_eq!(
         rule,
-        "2. Commit everything with `/otaq:commit` before you end your stage. Never push and never open a PR: the \
-         user does that."
+        "2. Commit everything with `/otaq:commit` before you end your stage. Don't push unless the user asks; when \
+         you do, wait for the push to finish, however long a pre-push hook takes, and never use `--no-verify`. Never \
+         open a PR: the user does that."
     );
     let ran = agent.run(&format!("'{CB}' prime --json")).await;
     let context: Value = serde_json::from_str(&ran.stdout).unwrap();

@@ -118,7 +118,8 @@ pub fn render(p: &HelperPrime) -> String {
     out.push_str(&crate::prime::render_comments(&t.key, &p.comments));
     out.push_str(&format!(
         "\n## Rules\n\n\
-         - Commit your work in this worktree; never push, never merge into {merges}: the agent in charge does.\n\
+         - Commit your work in this worktree; don't push unless the user asks, and never merge into {merges}: the \
+           agent in charge does.\n\
          - When your piece is done, hand it back with a short summary: `{cmd} helper done --stdin`. It is refused while \
            files are uncommitted. Then end your turn: the agent in charge may send it back with a note.\n\
          - You never move the ticket: `{cmd} stage next`, `{cmd} stage done`, `{cmd} check` and `{cmd} helper start` \

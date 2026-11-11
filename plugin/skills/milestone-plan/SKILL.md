@@ -54,7 +54,7 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
 6. **Write the plan into the project's docs** where it keeps one, as the project's notes say (for example "milestone
    plans are rows in SDD.md §24", or a file per milestone in docs/milestones/). With no such place, the ticket's Plan
    is enough: write nothing else. Then **commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are
-   uncommitted. **Never push.**
+   uncommitted. **Don't push unless the user asks** (see "Rules").
 7. **End your stage** with a short comment on stdin, then end your turn: the number of pieces and each file you wrote,
    in a line or two (at most 2,000 characters). The user reads it at Spec review:
 
@@ -154,7 +154,12 @@ Agent instructions take precedence over this guidance.
 
 - **File nothing**: you never create tickets. Several tickets are Noyan's, at the user's request.
 - Plan the work; don't build it. The build stage's agent and its helpers write the code from the Plan.
-- **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments. Long command output goes to
   a file.
 - Always finish with `otaq stage next --stdin`.

@@ -26,8 +26,14 @@ confirmed**. This happens in two turns, like opening the PR did.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1), proposing before pushing (step 3)
    or reporting back (step 8).
-3. **Propose** with `otaq pr propose --stdin`: one message per new commit, in the listed order. Keep the branch as
-   `prime` names it. The title and description stay those of the open PR, so leave them out:
+3. **Propose** with `otaq pr propose --stdin`: one message per new commit, in the listed order. First find the
+   project's commit message rules: a CONTRIBUTING file or similar docs, a commitlint or similar config
+   (`commitlint.config.*`, `.commitlintrc*`, a `commitlint` key in `package.json`), the commit-msg hook in the folder
+   `git rev-parse --git-path hooks` prints (it follows `core.hooksPath`, as husky sets it), the Agent instructions,
+   and the style of recent commits on the target branch. Write each message as they say, keeping the key where they
+   allow it (`fix: round totals per line, as the review asked (SHOP-26)`); when nothing sets a format, the key leads,
+   as in the example below. Keep the branch as `prime` names it. The title and description stay those of the open PR,
+   so leave them out:
 
    ```sh
    otaq pr propose --stdin <<'PROPOSAL'
@@ -59,6 +65,12 @@ nothing is pushed.
    git push origin bugfix/SHOP-26-checkout-totals
    ```
 
+   **Wait for the push to finish**, however long the project's pre-push hook takes (it may run tests for minutes),
+   and report only what git really said; if your shell stopped waiting first, check what reached the remote
+   (`git ls-remote origin <branch>` against `git rev-parse HEAD`) before you go on. If a pre-push hook refuses the
+   push, never bypass it with `--no-verify`: tell the user what the hook said with `otaq ask human --stdin`, ask how
+   to go on, and end your turn.
+
    Use the user's own git credentials as they are; never store, print or ask for a token. If the push is rejected
    (for example because someone else pushed to the PR), don't force it and don't rebase: tell the user what git said
    with `otaq ask human --stdin` and end your turn.
@@ -78,6 +90,6 @@ nothing is pushed.
 
 ## Rules
 
-- **Never push before Otaq tells you the push is confirmed**, and never with `--force`.
+- **Never push before Otaq tells you the push is confirmed**, and never with `--force` or `--no-verify`.
 - Don't change files or commits. If something must change, ask the user with `otaq ask human --stdin`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments.

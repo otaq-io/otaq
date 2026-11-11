@@ -1361,7 +1361,9 @@ pub fn render(ctx: &PrimeContext) -> String {
          getting context or ending your stage."
             .to_owned(),
         format!(
-            "{commit} before you end your stage. Never push and never open a PR: the user does that."
+            "{commit} before you end your stage. Don't push unless the user asks; when you do, wait for the push to \
+             finish, however long a pre-push hook takes, and never use `--no-verify`. Never open a PR: the user does \
+             that."
         ),
         format!(
             "When your stage's work is done, as the ticket's description describes, end it: `{cmd} stage next \

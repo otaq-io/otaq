@@ -529,7 +529,12 @@ QUESTION
 
 - **Always finish with `otaq stage next --stdin`** (or `otaq stage done --stdin` when there is nothing to deliver), as
   step 6 says. A summary in this chat isn't a hand-over.
-- **Never push, never open a PR, never merge.** The user does that from the board. The one merge that is yours:
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** The user does that from the board. The one merge that is yours:
   your helpers' pieces into this ticket's branch, with `otaq helper merge`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
   Long command output never does: it goes to a file (see "Long output").
@@ -554,7 +559,8 @@ branch. The agent in charge reviews your work, merges it and moves the ticket; y
    notes it names, as far as they apply to your piece.
 2. **Build only your piece**, as the Plan describes it. Anything else you notice goes in your hand-back, not in your
    code. If the piece turns out too big for one agent, see step 7.
-3. **Commit everything** with Otaq's `commit` skill. Never push and never merge: the agent in charge merges your branch.
+3. **Commit everything** with Otaq's `commit` skill. Don't push unless the user asks (as in "Rules"), and never merge:
+   the agent in charge merges your branch.
 4. **Questions** go through `otaq ask human --stdin`, as in "When you need the user": they reach the agent in charge
    first, which answers or passes them on to the user. End your turn and wait; the answer is typed into this session.
 5. **Hand your piece back** with what you built and what you couldn't check yourself (a real browser, a device), then

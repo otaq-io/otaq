@@ -246,7 +246,7 @@
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Otaq's default Commit workflow skill - commit every change in this worktree (messages as the Agent instructions say, else \"<KEY>: <what changed>\"), before `otaq stage next`.",
+            "hint": "Otaq’s · Otaq's default Commit workflow skill - commit every change in this worktree (messages as the project's rules and the Agent instructions say, else \"<KEY>: <what changed>\"), before `otaq stage next`.",
             "separated": false,
             "checked": false,
             "header": false

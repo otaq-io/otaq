@@ -146,7 +146,7 @@ fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
         "you committed nothing",
         "It is refused once the branch has commits",
         &format!("{cmd} ask human --stdin"),
-        "Never push",
+        "Don't push unless the user asks",
         "Long text always goes through stdin",
     ] {
         assert!(body.contains(needle), "work-ticket must say {needle:?}");
@@ -154,13 +154,13 @@ fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
 }
 
 #[test]
-fn the_commit_skill_commits_everything_and_never_pushes() {
+fn the_commit_skill_commits_everything_and_pushes_only_when_asked() {
     let (name, body) = skill("commit");
     assert_eq!(name, "commit");
     for needle in [
         "git add -A",
         "SHOP-19: ",
-        "Never push",
+        "Don't push unless the user asks",
         "never use\n   `--no-verify`",
     ] {
         assert!(body.contains(needle), "commit must say {needle:?}");
@@ -479,7 +479,7 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
             .unwrap_or_else(|| panic!("address-review must say {step:?} after the step before"));
         at += found;
     }
-    assert!(body.contains("Never push"));
+    assert!(body.contains("Don't push unless the user asks"));
     assert_teaches_answer_options(
         "address-review",
         "--option \"Add a setting\" --note \"Users can pick their page size; a new Settings row and a migration.\" \
@@ -512,7 +512,7 @@ fn restack_rebases_resolves_commits_and_submits() {
         at += found;
     }
     for needle in [
-        "Never push",
+        "Don't push unless the user asks",
         "never stash",
         "Long text always goes through stdin",
     ] {
@@ -583,6 +583,69 @@ fn push_proposes_the_new_commits_and_pushes_after_the_confirmation() {
         at += found;
     }
     assert!(body.contains("never with `--force`"));
+}
+
+/// Decision 033 (issue 03): a skill that commits doesn't push unless the user asks, with no "override" words, and
+/// says how to push: wait for the push however long the pre-push hook takes, report what it really said, never bypass
+/// a refusal with `--no-verify`, and ask the user how to go on. "Never open a PR, never merge" stays.
+#[test]
+fn committing_skills_push_only_when_the_user_asks_and_wait_for_the_pre_push_hook() {
+    let cmd = naming::COMMAND_NAME;
+    for name in [
+        WORK_TICKET_SKILL,
+        "commit",
+        "address-review",
+        "restack",
+        "product-spec",
+        "tech-spec",
+        "milestone-plan",
+    ] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        assert!(
+            !text.contains("Never push"),
+            "{name} must not say \"Never push\" any more"
+        );
+        for needle in [
+            "Don't push unless the user asks",
+            "a plain request is enough",
+            "wait for `git push` to finish, however long the project's pre-push hook takes",
+            "report what it really said",
+            "`git ls-remote origin <branch>`",
+            "`--no-verify`",
+            &format!("ask how to go on with `{cmd} ask human --stdin`"),
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+        if name != "commit" {
+            assert!(
+                text.contains("**Never open a PR, never merge"),
+                "{name} still never opens a PR or merges"
+            );
+        }
+    }
+}
+
+/// Decisions 033 and 034 (issue 03): the delivery skills push only after Otaq's go-ahead, wait for the pre-push hook
+/// however long it takes, report the real result, and never bypass a refusal.
+#[test]
+fn delivery_skills_wait_for_the_pre_push_hook_and_never_bypass_it() {
+    let cmd = naming::COMMAND_NAME;
+    for name in ["push", "open-pr"] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        for needle in [
+            "**Wait for the push to finish**",
+            "however long the project's pre-push hook takes",
+            "report only what git really said",
+            "`git ls-remote origin <branch>`",
+            "never bypass it with `--no-verify`",
+            &format!("`{cmd} ask human --stdin`, ask how to go on"),
+            "never with `--force` or `--no-verify`",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+    }
 }
 
 /// T-0140 (MSG-03, d0030): answer-question answers only and replies with `answer <ID> --stdin`.

@@ -59,7 +59,7 @@ types a reminder into this session.
 6. **Write the product decisions and docs** where step 3 found they live: a new decision for each thing you agreed
    (or a change to an existing one, the way the folder records changes), and the overview docs updated to match. You
    may edit any file the spec needs (an overview, a docs page, a sample), but don't build the feature: Dev does that.
-7. **Commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are uncommitted. **Never push.**
+7. **Commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are uncommitted. **Don't push unless the user asks** (see "Rules").
 8. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you
    wrote**, then what you agreed, in a line or two (at most 2,000 characters). Tech spec, Milestone
    plan and the user at Spec review read it:
@@ -156,7 +156,12 @@ QUESTION
 
 - Settle the product, not the code: don't plan the code or start building.
 - Ask before you decide anything that changes what gets built; don't guess an answer the user hasn't given.
-- **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
   goes to a file.
 - Always finish with `otaq stage next --stdin` (or `otaq stage done --stdin` when there is nothing to build).

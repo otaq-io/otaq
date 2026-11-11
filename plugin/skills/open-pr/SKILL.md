@@ -51,7 +51,14 @@ After a Send back with PR comments, the new commits go to the same PR through Ot
      `otaq/SHOP-18-<slug>`, where the slug is a few lowercase words of the title joined by `-`.
    - **One message per commit**, for every commit `prime` lists, in the same order. Keep each message about what that
      commit changed. You only propose: never run `git commit --amend`, `git rebase` or `git branch -m` yourself.
-   - **PR title:** the key and the title, for example `SHOP-18 Login redirect`.
+   - **Message rules:** first find the project's commit message rules: a CONTRIBUTING file or similar docs, a
+     commitlint or similar config (`commitlint.config.*`, `.commitlintrc*`, a `commitlint` key in `package.json`), the
+     commit-msg hook in the folder `git rev-parse --git-path hooks` prints (it follows `core.hooksPath`, as husky sets
+     it), the Agent instructions, and the style of recent commits on the target branch. Write each commit message and
+     the PR title as they say, keeping the key where they allow it (`feat: return to the page you came from after
+     login (SHOP-18)`). When nothing sets a format, the key leads, as in the examples below.
+   - **PR title:** the key and the title, for example `SHOP-18 Login redirect`, unless the message rules say
+     otherwise.
    - **PR description:** what changed and why, and how it was tested, in Markdown. When the "Pull request" section
      has **Tickets merged into this one**, those tickets' work is in this branch too: the description lists each of
      them, with its key, its title and a line on what it changed (for example
@@ -107,6 +114,12 @@ or Azure DevOps, push nothing and tell the user, as step 3 says.
 
      The PR's URL is the repository's `webUrl` from that JSON, then `/pullrequest/` and its `pullRequestId`.
 
+   **Wait for the push to finish** before you open the PR, however long the project's pre-push hook takes (it may
+   run tests for minutes), and report only what git really said; if your shell stopped waiting first, check what
+   reached the remote (`git ls-remote origin <branch>` against `git rev-parse HEAD`) before you go on. If a pre-push
+   hook refuses the push, never bypass it with `--no-verify` and open no PR: tell the user what the hook said with
+   `otaq ask human --stdin`, ask how to go on, and end your turn.
+
    Use the user's own logins and git credentials as they are. Never store, print or ask for a token. If `gh` or `az`
    says you are not logged in, or the push is rejected, don't retry with other options: tell the user what failed with
    `otaq ask human --stdin` (for example "gh isn't logged in. Run `gh auth login`, then tell me to retry.") and end
@@ -117,7 +130,7 @@ or Azure DevOps, push nothing and tell the user, as step 3 says.
 ## Rules
 
 - **Never push before Otaq tells you the proposal is confirmed.** Turn 1 only proposes.
-- Push only the confirmed branch, to `origin`, and never with `--force`. Never merge the PR yourself.
+- Push only the confirmed branch, to `origin`, and never with `--force` or `--no-verify`. Never merge the PR yourself.
 - Don't change files or commits in either turn. If something must change, ask the user with
   `otaq ask human --stdin` instead.
 - **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments.
