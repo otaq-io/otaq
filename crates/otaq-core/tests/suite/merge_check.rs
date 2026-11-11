@@ -163,6 +163,121 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     w.stop().await;
 }
 
+/// The release test's case: the agent sits idle at its prompt with text the user left in its input line when the
+/// merge check fails. The restack request waits behind that text, as every automatic message does, and the line
+/// stays as the user left it; once the user empties it the request is typed, alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_restack_request_waits_behind_unsent_text_and_is_typed_once_the_line_is_empty() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::caller::Caller;
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{InputParams, Request, encode_bytes};
+
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    commit(&repo, "test.sh", TEST_SH);
+    set_check(&w, "sh test.sh").await;
+    let (_a, _) = reviewed(&w, "Accent token", "guard", "no emerald\n").await;
+    let (b, _) = reviewed(&w, "Card", "card.ts", "bg-emerald-500\n").await;
+    let agent = w.agent_shell(&b).await;
+    // Its turn ended: an automatic message would be typed at once into an empty line.
+    let caller = Caller::Agent {
+        ticket: b.key.clone(),
+        ticket_id: b.id.clone(),
+        session: agent.session.clone(),
+    };
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.is_ready(&agent.session).unwrap());
+    // The user's half-typed line, from the app's terminal.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let typing = |bytes: &[u8]| {
+        Request::SessionInput(InputParams {
+            session: agent.session.clone(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        })
+    };
+    client.request(typing(b"half-typed")).await.unwrap();
+    let shown = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    wait_until("the user's text shows", || shown().contains("half-typed")).await;
+
+    assert!(matches!(
+        merge(&w, "SHOP-1").await,
+        LocalMergeOutcome::Merged { .. }
+    ));
+    assert!(matches!(
+        merge(&w, "SHOP-2").await,
+        LocalMergeOutcome::CheckFailed { .. }
+    ));
+    assert_eq!(w.status("SHOP-2").await, Status::MergeConflictFixing);
+
+    // It waits: nothing typed over the user's text, which is still there to send or clear.
+    let restack = claude_skill("restack");
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+    assert!(pending[0].text.contains(&restack), "{}", pending[0].text);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(!shown().contains(&restack), "typed over the user's text");
+    assert!(w.sessions.has_unsent_input(&agent.session).unwrap());
+    assert_eq!(
+        w.board
+            .ticket("SHOP-2")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        1
+    );
+
+    // The user deletes their text: the line is empty, and the request goes, alone.
+    client
+        .request(typing(&[0x7f; "half-typed".len()]))
+        .await
+        .unwrap();
+    wait_until("the restack request is typed", || {
+        shown().contains(&restack)
+    })
+    .await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !w
+            .deliveries
+            .pending(&agent.session)
+            .await
+            .unwrap()
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("nothing waits any more");
+    // On screen the line holds the request alone: the user's text went before it, not under it.
+    let mut screen = vt100::Parser::new(50, 400, 0);
+    screen.process(shown().as_bytes());
+    let line = screen
+        .screen()
+        .contents()
+        .lines()
+        .find(|l| l.contains(&restack))
+        .unwrap_or_default()
+        .to_owned();
+    assert!(line.starts_with(&restack), "{line:?}");
+    drop(client);
+    w.stop().await;
+}
+
 /// The branch already has the target's commits (nothing moved since it was checked): the command doesn't run.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_check_does_not_run_when_the_target_did_not_move() {
