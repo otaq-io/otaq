@@ -22,6 +22,8 @@ use crate::view_models::toasts::{NewToast, ToastLevel, ToastLink};
 pub struct CommitView {
     pub sha: String,
     pub message: String,
+    /// It still holds the message the project's commit-msg hook refused at the last confirm: the field is marked.
+    pub refused: bool,
 }
 
 /// The line under the branch name: "Valid name · not taken on origin", or the problem in red.
@@ -259,6 +261,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .map(|c| CommitView {
                 sha: c.sha.clone(),
                 message: c.message.clone(),
+                refused: d.is_refused(&c.message),
             })
             .collect(),
         title_label: "Title",

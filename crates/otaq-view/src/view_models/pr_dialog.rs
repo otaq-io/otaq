@@ -89,6 +89,9 @@ pub struct PrDialog {
     pub branch_locked: bool,
     pub check: NameCheck,
     pub commits: Vec<CommitField>,
+    /// The commit message the project's commit-msg hook refused at the last confirm, kept on the ticket: its field is
+    /// marked while it still holds that message.
+    pub refused_message: Option<String>,
     pub title: String,
     pub description: String,
     /// The proposal's title and description (the delivery's agent's once it wrote them): Use the proposed message
@@ -168,6 +171,11 @@ impl PrDialog {
             branch_locked: ticket.work.as_ref().is_some_and(|w| w.branch_locked),
             check: NameCheck::Pending,
             commits: Vec::new(),
+            refused_message: ticket
+                .flags
+                .hook_refusal
+                .as_ref()
+                .and_then(|r| r.message.clone()),
             title: String::new(),
             description: String::new(),
             proposed_title: String::new(),
@@ -300,6 +308,13 @@ impl PrDialog {
                 c.message = message.clone();
             }
         }
+    }
+
+    /// Whether the commit field holding `message` still holds the message the commit-msg hook refused.
+    pub fn is_refused(&self, message: &str) -> bool {
+        self.refused_message
+            .as_deref()
+            .is_some_and(|refused| refused.trim() == message.trim())
     }
 
     /// The title, description or a commit message differs from the proposal.
@@ -683,6 +698,72 @@ mod tests {
             },
             "nothing is kept"
         );
+    }
+
+    /// Open PR shows the branch's commits with their message fields, as Push to PR does: after the commit-msg hook
+    /// refused one, the dialog opens again with the user's kept edits in them and the refused one marked; a fixed
+    /// message is kept and confirmed, and Use the proposed message puts the commit messages back too.
+    #[test]
+    fn open_pr_shows_the_commit_fields_with_the_kept_edits_and_the_refused_one_marked() {
+        use otaq_core::git::{GitStep, RefusedHook};
+        let mut shown = view(FlowState::Proposed, false);
+        shown.edited = EditedMessage {
+            merge: None,
+            title: None,
+            description: None,
+            commits: [("a1b2c3d4".to_owned(), "update stuff".to_owned())].into(),
+        };
+        let mut t = shop18();
+        t.flags.hook_refusal = Some(RefusedHook {
+            name: "commit-msg".into(),
+            step: Some(GitStep::Reword),
+            what: "the PR".into(),
+            output: "commitlint: type must be one of [feat, fix]".into(),
+            message: Some("update stuff".into()),
+        });
+
+        let mut d = PrDialog::opening(&t, "open-pr", Some(&github(true)));
+        d.update(&shown);
+        assert_eq!(d.kind, FlowKind::Open);
+        let page = crate::view_models::pr_page::dialog_view;
+        let v = page(&d);
+        assert!(!v.push);
+        assert_eq!(v.commits_label, "Commit messages (2 commits)");
+        assert_eq!(
+            v.commits
+                .iter()
+                .map(|c| (c.sha.as_str(), c.message.as_str(), c.refused))
+                .collect::<Vec<_>>(),
+            [
+                ("a1b2c3d4", "update stuff", true),
+                ("e5f6a7b8", "test(checkout): cover declined cards", false),
+            ]
+        );
+        assert_eq!(v.use_proposed, Some("Use the proposed message"));
+
+        // The user fixes it in its field (what `pr.edit` does): kept by sha, no longer marked, and confirmed.
+        d.commits[0].message = "fix: redirect after login".into();
+        assert!(!page(&d).commits[0].refused);
+        let MessageEdit::Pr { commits, .. } = d.edit() else {
+            panic!("a PR edit");
+        };
+        assert_eq!(
+            commits.get("a1b2c3d4").map(String::as_str),
+            Some("fix: redirect after login")
+        );
+        assert_eq!(d.proposal().commits[0].message, "fix: redirect after login");
+
+        d.use_proposed();
+        assert_eq!(d.commits[0].message, "feat(checkout): add POST /checkout");
+        assert_eq!(
+            d.edit(),
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: Default::default()
+            }
+        );
+        assert_eq!(page(&d).use_proposed, None);
     }
 
     /// A provider whose tool is missing or signed out keeps Push & open PR off until it is set up.

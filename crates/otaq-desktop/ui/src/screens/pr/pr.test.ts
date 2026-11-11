@@ -24,8 +24,8 @@ const VIEW: PrDialogView = {
   check_after_ms: 300,
   commits_label: "Commit messages (2 commits)",
   commits: [
-    { sha: "a1b2c3d4", message: "feat(checkout): add POST /checkout" },
-    { sha: "e5f6a7b8", message: "test(checkout): cover declined cards" },
+    { sha: "a1b2c3d4", message: "feat(checkout): add POST /checkout", refused: false },
+    { sha: "e5f6a7b8", message: "test(checkout): cover declined cards", refused: false },
   ],
   title_label: "PR title",
   title: "Checkout API (SHOP-18)",
@@ -85,8 +85,11 @@ describe("the PR screen", () => {
     ]) {
       expect(html).toContain(text);
     }
-    // An Open PR keeps its commits as they are: only a Push rewords them.
-    expect(html).not.toContain("feat(checkout): add POST /checkout");
+    // Open PR rewords the commits it pushes, as Push to PR does: each message has its field.
+    expect(html).toContain("Commit messages (2 commits)");
+    expect(html).toContain("feat(checkout): add POST /checkout");
+    expect(html).toContain("test(checkout): cover declined cards");
+    expect(html).not.toContain("aria-invalid");
     expect(html).not.toContain("Use the proposed message");
   });
 

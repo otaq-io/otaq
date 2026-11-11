@@ -123,23 +123,21 @@ export function Proposed({
         {!view.branch_locked && <Icon name={hint.error ? "circle-x" : "circle-check"} size={12} />}
         {hint.text}
       </span>
-      {/* A Push rewords its new commits; an Open PR keeps them as they are (`ticket-05`). */}
-      {view.push && (
-        <>
-          <span className="pr-label">{view.commits_label}</span>
-          {fields.commits.map((message, i) => (
-            <TextInput
-              key={view.commits[i]?.sha ?? i}
-              mono
-              label={view.commits[i]?.sha ?? view.commits_label}
-              value={message}
-              onChange={(v) => {
-                onEdit("commit", v, i);
-              }}
-            />
-          ))}
-        </>
-      )}
+      {/* Open PR and Push to PR both reword the commits they push: each message is editable, and the one the
+          project's commit-msg hook refused last time is marked while the field still holds it. */}
+      <span className="pr-label">{view.commits_label}</span>
+      {fields.commits.map((message, i) => (
+        <TextInput
+          key={view.commits[i]?.sha ?? i}
+          mono
+          invalid={view.commits[i]?.refused}
+          label={view.commits[i]?.sha ?? view.commits_label}
+          value={message}
+          onChange={(v) => {
+            onEdit("commit", v, i);
+          }}
+        />
+      ))}
       {!view.push && (
         <>
           <Field label={view.title_label}>

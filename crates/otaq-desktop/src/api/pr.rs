@@ -621,3 +621,6 @@ mod tests {
         h.service.stop_all().await;
     }
 }
+
+#[cfg(test)]
+mod commit_msg_tests;

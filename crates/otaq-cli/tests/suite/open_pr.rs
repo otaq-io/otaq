@@ -818,6 +818,21 @@ async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
     // Edit messages and retry: the dialog opens again from Review; fixed, the PR goes on.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    // What the dialog fills its commit fields from: the same commits, the refused one's kept text over it.
+    let reopened = w.board.pr_flow_view("SHOP-1").await.unwrap();
+    let again = reopened.flow.unwrap().proposal.unwrap();
+    assert_eq!(
+        again.commits.iter().map(|c| &c.sha).collect::<Vec<_>>(),
+        edits.commits.iter().map(|c| &c.sha).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        reopened
+            .edited
+            .commits
+            .get(&edits.commits[0].sha)
+            .map(String::as_str),
+        Some("update stuff")
+    );
     edits.commits[0].message = "fix: redirect after login".into();
     let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
