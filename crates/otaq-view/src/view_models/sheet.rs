@@ -18,6 +18,7 @@ use otaq_core::board::merge::passed_latest;
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{Place, Status, StatusSet, TicketKey};
+use otaq_core::flow::engine::RunResult;
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
@@ -430,16 +431,36 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
             index(id).map_or((path.len(), path.len().checked_sub(1)), |i| (i, Some(i)))
         }
         Place::Waiting(Some(id)) => (index(id).unwrap_or(0), None),
+        // Closed without merging, it got only as far as the furthest stage it ran.
+        Place::Done if ticket.status == Status::ClosedNotMerged => (
+            path.iter()
+                .rposition(|s| agents.runs.iter().any(|r| r.stage == s.stage_id))
+                .map_or(0, |i| i + 1),
+            None,
+        ),
         Place::Done => (path.len(), None),
         Place::Backlog | Place::Waiting(None) => (0, None),
     };
+    let closed = ticket.status == Status::ClosedNotMerged;
     path.into_iter()
         .enumerate()
         .map(|(i, stage)| {
             let check = matches!(stage.kind, PathKind::AgentCheck | PathKind::HumanCheck);
+            // A closed ticket ticks only the stages it passed: an Agent stage one of whose runs finished, a check
+            // whose latest run passed. The stage it was closed in is not ticked.
+            let passed = || match check {
+                true => passed_latest(&agents.runs, &stage.stage_id),
+                false => agents
+                    .runs
+                    .iter()
+                    .any(|r| r.stage == stage.stage_id && r.result == Some(RunResult::Done)),
+            };
             let state = match () {
                 _ if stage.skipped => StepState::Skipped,
                 _ if Some(i) == current => StepState::Current,
+                _ if closed && passed() => StepState::Done,
+                _ if closed && i + 1 < done_before => StepState::Skipped,
+                _ if closed => StepState::ToCome,
                 _ if i < done_before && check && !passed_latest(&agents.runs, &stage.stage_id) => {
                     StepState::Skipped
                 }
@@ -735,6 +756,81 @@ mod tests {
                 ("Review", StepState::Current),
             ]
         );
+    }
+
+    /// A closed ticket ticks only the stages it passed: closed from Product spec, nothing is ticked; closed in
+    /// Security after Dev finished and Validate passed, those two are, and the stages it never reached are to come.
+    #[test]
+    fn a_closed_ticket_ticks_only_the_stages_it_passed() {
+        use crate::view_models::stage_choices::fixtures::{round, run};
+        let mut t = ticket(
+            "NOTE-15",
+            "Retest3 codex spec park",
+            Status::ClosedNotMerged,
+        );
+        t.place = Place::Done;
+        let shown = |t: &Ticket, runs: Vec<_>, skip_first: bool| {
+            let mut path = shop_path("rust");
+            path[0].skipped = skip_first;
+            let agents = crate::view_models::stage_choices::fixtures::ticket(
+                "NOTE-15",
+                t.status,
+                t.place.clone(),
+                path,
+                shop_options(),
+                runs,
+                Vec::new(),
+            );
+            steps(t, Some(&agents))
+                .into_iter()
+                .map(|s| (s.stage, s.state))
+                .collect::<Vec<_>>()
+        };
+        let all = |state| {
+            ["Product spec", "Dev", "Validate", "Security", "Review"]
+                .map(|s| (s.to_owned(), state))
+                .to_vec()
+        };
+        // Closed from Product spec: its run was stopped.
+        let spec = vec![run(
+            "product-spec",
+            None,
+            None,
+            None,
+            Some(RunResult::Cancelled),
+        )];
+        assert_eq!(shown(&t, spec, false), all(StepState::ToCome));
+        // Never started.
+        assert_eq!(shown(&t, Vec::new(), false), all(StepState::ToCome));
+        // Closed in Security, past Dev and a passed Validate; Product spec it skipped by its choice.
+        let check = |stage: &str, n: u32, result: RunResult| {
+            round(run(stage, None, None, None, Some(result)), n, None)
+        };
+        let runs = vec![
+            run("dev", None, None, None, Some(RunResult::Done)),
+            check("validate", 1, RunResult::Passed),
+            check("security", 1, RunResult::Cancelled),
+        ];
+        assert_eq!(
+            shown(&t, runs, true),
+            [
+                ("Product spec".to_owned(), StepState::Skipped),
+                ("Dev".to_owned(), StepState::Done),
+                ("Validate".to_owned(), StepState::Done),
+                ("Security".to_owned(), StepState::ToCome),
+                ("Review".to_owned(), StepState::ToCome),
+            ]
+        );
+        // Merged, every stage it went through is done.
+        let mut merged = t.clone();
+        merged.status = Status::Merged;
+        let runs = vec![
+            run("dev", None, None, None, Some(RunResult::Done)),
+            check("validate", 1, RunResult::Passed),
+            check("security", 1, RunResult::Passed),
+            check("review", 1, RunResult::Passed),
+        ];
+        assert_eq!(shown(&merged, runs, false)[1..], all(StepState::Done)[1..]);
     }
 
     #[test]

@@ -411,6 +411,21 @@ fn next_stage(t: &Ticket, flow: &Flow) -> Option<String> {
     flow.stages.get(at + 1).map(|s| s.name.clone())
 }
 
+/// The board's columns for `input`, knowing where each waiting ticket starts (its card's agents): a held ticket shows
+/// in the column of the stage it starts at, not in one it skips.
+pub fn columns<'f>(input: &BoardInput<'f>) -> Columns<'f> {
+    let starts = input
+        .agents
+        .into_iter()
+        .flat_map(|a| &a.cards)
+        .filter_map(|card| {
+            card.starts
+                .as_ref()
+                .map(|start| (&card.key, start.stage.as_str()))
+        });
+    Columns::of(input.flow).with_starts(starts)
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all.iter().map(|t| &t.key).collect();
@@ -424,7 +439,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         Some(CardEntry::Ticket(ticket_card(input, t)))
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
-    let columns = Columns::of(input.flow);
+    let columns = columns(input);
     let quiet = !keeps_default_look(input.flow);
     columns
         .iter()
@@ -1074,6 +1089,78 @@ mod tests {
         assert_eq!(columns_after(1376., 252. * 14., &fourteen), 0);
         assert_eq!(more_stages(0), None);
         assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
+    }
+
+    /// A held ticket stays in a column it runs: one that skips Spec first's planning and is held for its Dev agent's
+    /// signed-out tool shows in Dev, not in Product spec, which it skips. Queued, it waits at the top of Product spec
+    /// saying "Dev next · skips planning" (`s30-01`).
+    #[test]
+    fn a_held_ticket_shows_in_the_stage_it_starts_at() {
+        use otaq_core::agents::facts::{CardAgents, CardStart};
+        let file = otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+            .unwrap()
+            .read();
+        let waiting = |key: &str, status| {
+            let mut t = ticket(key, "Work", status);
+            t.place = Place::Waiting(None);
+            t
+        };
+        let tickets = vec![
+            waiting("NOTE-12", Status::Held),
+            waiting("SHOP-35", Status::Queued),
+            waiting("SHOP-36", Status::Held),
+        ];
+        let card = |key: &str, starts: &str| CardAgents {
+            instead_of: None,
+            own_agent: None,
+            skips: Vec::new(),
+            key: key.parse().unwrap(),
+            running_developer: None,
+            running_validator: None,
+            running_developer_on: None,
+            running_validator_on: None,
+            holds: Vec::new(),
+            starts: Some(CardStart {
+                stage: starts.into(),
+                agent: "Spec writer".into(),
+                model: None,
+            }),
+            refused_agent: None,
+            stage_agent: None,
+        };
+        let agents = BoardAgents {
+            agent_count: 5,
+            cards: vec![
+                card("NOTE-12", "Dev"),
+                card("SHOP-35", "Dev"),
+                card("SHOP-36", "Product spec"),
+            ],
+            connected: Vec::new(),
+        };
+        let input = BoardInput {
+            flow: &file.flow,
+            agents: Some(&agents),
+            ..input(&tickets, None)
+        };
+        let columns = columns(&input);
+        let spot = |key: &str| {
+            let t = tickets.iter().find(|t| t.key.to_string() == key).unwrap();
+            columns.spot(t).to_owned()
+        };
+        assert_eq!(spot("NOTE-12"), "dev");
+        assert_eq!(spot("SHOP-35"), "product-spec");
+        assert_eq!(spot("SHOP-36"), "product-spec");
+        let totals: Vec<(String, usize)> = build(&input)
+            .into_iter()
+            .map(|c| (c.id.0.to_string(), c.total))
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        assert_eq!(
+            totals,
+            [("product-spec".to_owned(), 2), ("dev".to_owned(), 1)]
+        );
+        // Without the cards' agents it can't say where a ticket starts: the first stage, as before.
+        assert_eq!(Columns::of(&file.flow).spot(&tickets[0]), "product-spec");
     }
 
     /// Spec first's board (`s30-01`; d0129, d0093): no waiting column (a started ticket waits at the top of Product

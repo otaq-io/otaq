@@ -12,7 +12,7 @@
 use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Place, StatusSet, TicketKey};
+use otaq_core::domain::{Place, Status, StatusSet, TicketKey};
 use otaq_core::flow::engine::{Target, status_set};
 use otaq_core::flow::{CheckBy, Flow, Stage, StageKind};
 use serde::Serialize;
@@ -60,6 +60,9 @@ pub struct FlowColumn<'f> {
 pub struct Columns<'f> {
     flow: &'f Flow,
     columns: Vec<FlowColumn<'f>>,
+    /// Where started tickets waiting to begin start, by the stage's name, past the stages they skip
+    /// ([`Columns::with_starts`]).
+    starts: Vec<(TicketKey, String)>,
 }
 
 impl<'f> Columns<'f> {
@@ -78,7 +81,26 @@ impl<'f> Columns<'f> {
             stage: Some(stage),
         }));
         columns.push(fixed(DONE, ColumnKind::Done, "Done"));
-        Self { flow, columns }
+        Self {
+            flow,
+            columns,
+            starts: Vec::new(),
+        }
+    }
+
+    /// These columns knowing where each waiting ticket starts (the stage's name, past the stages it skips). A started
+    /// ticket that can't begin waits at the top of the first stage's column only while it is queued, its line saying
+    /// where it starts ("Dev next · skips planning"); held, or waiting for an agent of the stage it starts at, it
+    /// shows in that stage's column, never in one it skips.
+    pub fn with_starts<'k>(
+        mut self,
+        starts: impl IntoIterator<Item = (&'k TicketKey, &'k str)>,
+    ) -> Self {
+        self.starts = starts
+            .into_iter()
+            .map(|(key, stage)| (key.clone(), stage.to_owned()))
+            .collect();
+        self
     }
 
     pub fn flow(&self) -> &'f Flow {
@@ -107,6 +129,13 @@ impl<'f> Columns<'f> {
     /// waiting to begin, the first Agent stage); for a stage the flow doesn't have, the one its status's kind shows in
     /// (as the core's drag rules see it), a ticket being delivered in the last stage.
     pub fn stage_of(&self, ticket: &Ticket) -> Option<&'f Stage> {
+        if ticket.place == Place::Waiting(None)
+            && ticket.status != Status::Queued
+            && let Some((_, name)) = self.starts.iter().find(|(key, _)| key == &ticket.key)
+            && let Some(stage) = self.flow.stages.iter().find(|s| &s.name == name)
+        {
+            return Some(stage);
+        }
         ticket.shown_stage(self.flow)
     }
 

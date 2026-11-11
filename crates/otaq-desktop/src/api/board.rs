@@ -538,7 +538,7 @@ async fn carry_out(
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
-            dialog: board_page::park_dialog(ticket),
+            dialog: board_page::park_dialog(ticket, flow),
         },
         DropStep::Move => {
             // A move only follows a target the flow has (drop_step_in says Nothing otherwise).

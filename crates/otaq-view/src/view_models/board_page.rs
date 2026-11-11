@@ -876,8 +876,8 @@ pub struct ParkDialog {
     pub confirm_icon: IconName,
 }
 
-pub fn park_dialog(ticket: &Ticket) -> ParkDialog {
-    let text = close::park_text(ticket);
+pub fn park_dialog(ticket: &Ticket, flow: &Flow) -> ParkDialog {
+    let text = close::park_text(ticket, flow);
     ParkDialog {
         key: ticket.key.to_string(),
         title: text.title,
@@ -2419,7 +2419,7 @@ mod tests {
             drop_step(&working, &[], DropTargetId::BACKLOG),
             DropStep::Park
         );
-        let park = park_dialog(&working);
+        let park = park_dialog(&working, &otaq_core::flow::default_flow());
         assert_eq!(park.title, "Park SHOP-25?");
         assert!(park.message.contains("will be stopped"), "{}", park.message);
         assert_eq!(park.kept.len(), 3);
