@@ -589,6 +589,13 @@ pub fn view_of(f: &Facts) -> View {
                     action.label().to_owned()
                 }
                 Action::Pass | Action::Approve => actions::approve_label(f.decisions),
+                // A delivery push that didn't land: trying again only pushes again.
+                Action::RetryMerge
+                    if ticket.auto_merge_stop
+                        == Some(otaq_core::domain::AutoMergeStop::PushNotLanded) =>
+                {
+                    "Retry push".to_owned()
+                }
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -2724,6 +2731,10 @@ mod tests {
             view.stop_message.as_deref(),
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
         );
+        // A delivery push the remote doesn't have: trying again pushes again.
+        stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::PushNotLanded);
+        let view = view_of(&facts(&stopped, std::slice::from_ref(&stopped), &[]));
+        assert_eq!(labels(&view), ["Retry push", "Move to Review"]);
 
         // To deliver: Approve with its ▾ (in your check they are the review bar's).
         let deliver = fixture("SHOP-18", "Checkout API", Status::ToDeliver);

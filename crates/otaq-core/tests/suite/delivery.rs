@@ -84,6 +84,16 @@ async fn working(w: &TestService, title: &str, file: &str) -> Ticket {
     w.board.ticket(&t.key.to_string()).await.unwrap()
 }
 
+/// What the delivery's agent does before `pr opened`: pushes the ticket's branch to `origin` (Otaq checks it is
+/// there).
+fn push_branch(t: &Ticket) {
+    let work = t.work.as_ref().unwrap();
+    git(
+        std::path::Path::new(work.worktree.as_ref().unwrap()),
+        &["push", "--quiet", "origin", work.branch.as_ref().unwrap()],
+    );
+}
+
 /// Submits and passes validation; returns the ticket after it.
 async fn pass(w: &TestService, t: &Ticket) -> Ticket {
     let key = t.key.to_string();
@@ -858,6 +868,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
     );
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
 
+    push_branch(&t);
     let open = w
         .prs
         .opened(
@@ -1028,7 +1039,8 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
             .any(|e| e.kind == EventKind::Interrupted)
     );
 
-    // The Delivery's own session reports the PR: PR open in the Delivery.
+    // The Delivery's own session pushes and reports the PR: PR open in the Delivery.
+    push_branch(&t);
     let open = w
         .prs
         .opened(
@@ -1076,6 +1088,7 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
     w.agent_shell(&t).await;
     assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
     w.force_stage(&t, DEV, Status::Interrupted).await;
+    push_branch(&t);
     let open = w
         .prs
         .opened(

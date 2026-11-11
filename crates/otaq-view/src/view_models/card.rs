@@ -1064,6 +1064,11 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Some(AutoMergeStop::DeliveryFailed) => {
                     ("Not delivered".to_owned(), "Couldn\u{2019}t deliver")
                 }
+                // The delivery agent reported a push the remote doesn't have: "Needs you: the branch isn't on the
+                // remote as expected · the remote has no branch `…`".
+                Some(AutoMergeStop::PushNotLanded) => {
+                    ("Needs you".to_owned(), "Branch not on the remote")
+                }
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -4832,6 +4837,42 @@ mod tests {
             text,
             "Couldn\u{2019}t deliver \u{b7} git commit failed (exit 1): lint"
         );
+        assert_eq!(vm.outline, Outline::Attention);
+    }
+
+    /// A PR delivery's agent reported a push the remote doesn't have: "Needs you: the branch isn't on the remote as
+    /// expected · the remote has …".
+    #[test]
+    fn a_push_that_did_not_land() {
+        use otaq_core::domain::AutoMergeStop;
+        use otaq_core::pr::verify::PushNotLanded;
+        let mut t = ticket("SHOP-1", "Login redirect", Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::PushNotLanded);
+        let text = PushNotLanded {
+            branch: "feature/SHOP-1-login".into(),
+            expected: "5d6e7f8a9b".into(),
+            remote: None,
+        }
+        .message();
+        let x = CardExtras {
+            question: Some(text.clone()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        // What the remote has is the hover's and the sheet's; the card's one line says it needs the user.
+        assert_eq!(line(&vm), Some(text.as_str()));
+        assert_eq!(
+            text,
+            "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has no branch \
+             `feature/SHOP-1-login`"
+        );
+        let one = vm.one_line.line.as_ref().unwrap();
+        assert_eq!(
+            one.text,
+            "Needs you \u{b7} the branch isn\u{2019}t on the remote as expected"
+        );
+        assert_eq!(one.tone, Tone::Attention);
         assert_eq!(vm.outline, Outline::Attention);
     }
 
