@@ -1,7 +1,7 @@
 //! Seeding a new worktree at start (T-0298, T-0307; WRM-04, SES-01, SES-02, M19-b, d0082, d0085) against temporary
 //! repositories, with a temporary data folder, on a disk that can clone (the build is cloned) and one that can't (it
 //! is renamed out of the stock): from the warm build, from the checkout only where the disk can clone (env files left
-//! out, its uncommitted changes marked changed), nothing to seed, a returning ticket and a re-run start not seeded,
+//! out, its uncommitted changes marked changed), nothing to seed, a returning ticket not seeded and a retried start seeded afresh,
 //! the timestamp trick, a failed clone or rename, the recorded times (Q71), Clear waiting for a running seed, the
 //! nearest build, three starts taking three builds, and a returning ticket whose build was freed at Review getting it
 //! back (T-0309). Builds are fake: files the test writes. Where the test disk
@@ -13,6 +13,8 @@ use std::sync::{Arc, Mutex, mpsc};
 use std::time::{Duration, SystemTime};
 
 use crate::common::{Fixture, me, test_cloner};
+use otaq_core::agent_tools::LaunchContext;
+use otaq_core::agent_tools::claude::ClaudeLaunch;
 use otaq_core::board::settings::ProjectSettings;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::data_dir::DataDir;
@@ -148,14 +150,24 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
     let mut hand = Recording::new(&data);
     change(&mut hand);
     let hand = Arc::new(hand);
-    // No launch context: every start stops at the launch step, after seeding, env files and setup.
+    // A stand-in for `claude` that exits at once: every start goes past seeding, env files and setup and launches. (A
+    // start that failed would remove the worktree it made.)
     let sessions = Sessions::new(f.board.store().clone(), events.clone());
+    let launch = LaunchContext {
+        bin_dir: "/opt/cb/bin".into(),
+        plugin_dir: "/opt/cb/plugin".into(),
+        path: std::env::var_os("PATH").unwrap(),
+        claude: ClaudeLaunch {
+            program: vec!["sh".into(), "-c".into(), "exit 0".into(), "sh".into()],
+            config_dir: None,
+        },
+    };
     let starter = Starter::new(
         f.board.clone(),
         data.clone(),
         PortPool::new(f.board.store().clone()),
         sessions.clone(),
-        otaq_core::agent_tools::Adapters::launching_only(None, data.clone()),
+        otaq_core::agent_tools::Adapters::launching_only(Some(launch), data.clone()),
         events.clone(),
     );
     let seeder = Seeder::new(warm.clone(), stock.clone(), hand.clone(), hand.clone());
@@ -347,18 +359,9 @@ fn is_recent(path: &Path) -> bool {
     modified(path) > SystemTime::now() - Duration::from_secs(3_600)
 }
 
-/// The start went past seeding, env files and setup, to the launch (no launch context in these tests).
+/// The start went past seeding, env files and setup, and launched the stand-in agent.
 fn went_on(outcome: &StartOutcome) {
-    assert!(
-        matches!(
-            outcome,
-            StartOutcome::Interrupted {
-                step: StartStep::Launch,
-                ..
-            }
-        ),
-        "{outcome:?}"
-    );
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
 }
 
 #[tokio::test]
@@ -485,7 +488,7 @@ async fn nothing_is_seeded_without_a_seed_or_with_the_switch_off() {
 }
 
 #[tokio::test]
-async fn a_rerun_start_and_a_returning_ticket_are_not_seeded_again() {
+async fn a_retried_start_is_seeded_afresh_and_a_returning_ticket_is_not() {
     for mode in MODES {
         let w = world(mode).await;
         w.keep(&head(&w.repo())).await;
@@ -500,23 +503,24 @@ async fn a_rerun_start_and_a_returning_ticket_are_not_seeded_again() {
         ));
         assert_eq!(w.calls().len(), 1);
         let wt = w.worktree("SHOP-1");
-        std::fs::remove_dir_all(wt.join("out")).unwrap();
-        // Another build in the stock, so a second seed would find one.
+        assert!(!wt.exists(), "the failed start left no worktree");
+        // Another build in the stock for the next seed.
         w.keep(&head(&w.repo())).await;
 
-        // Retry start reuses the worktree: not seeded twice (SES-02), and its log begins anew.
+        // Retry start starts over: a new worktree, seeded again, and its log begins anew.
+        w.settings(|s| s.setup_command.clear()).await;
         w.starter.retry("SHOP-1", &me()).await.unwrap();
-        w.start("SHOP-1").await;
-        assert_eq!(w.calls().len(), 1);
-        assert!(!wt.join("out").exists());
+        went_on(&w.start("SHOP-1").await);
+        assert_eq!(w.calls().len(), 2);
+        assert!(wt.join("out").exists());
         assert!(
-            w.log("SHOP-1").starts_with("$ exit 1"),
+            w.log("SHOP-1").starts_with(w.seeded_from()),
             "{}",
             w.log("SHOP-1")
         );
+        std::fs::remove_dir_all(wt.join("out")).unwrap();
 
         // A returning (parked) ticket keeps its worktree as it is.
-        w.settings(|s| s.setup_command.clear()).await;
         sqlx::query("UPDATE tickets SET parked = TRUE WHERE id = ?")
             .bind(&t.id)
             .execute(w.f.board.store().pool())
@@ -524,7 +528,7 @@ async fn a_rerun_start_and_a_returning_ticket_are_not_seeded_again() {
             .unwrap();
         w.f.force_status(&t, Status::Queued).await;
         went_on(&w.start("SHOP-1").await);
-        assert_eq!(w.calls().len(), 1);
+        assert_eq!(w.calls().len(), 2);
         assert!(!wt.join("out").exists());
     }
 }

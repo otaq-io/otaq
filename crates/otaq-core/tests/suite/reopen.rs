@@ -138,6 +138,44 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     w.stop().await;
 }
 
+/// A reopened ticket's worktree holds its earlier work: a start that fails never removes it, nor its branch.
+#[tokio::test]
+async fn a_failed_start_of_a_reopened_ticket_keeps_its_worktree() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = closed(&w, "coupon.ts").await;
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    let branch = naming::branch("SHOP-1");
+    let before = git(&repo, &["rev-parse", &branch]);
+    let hook = repo.join(".git/hooks/post-checkout");
+    std::fs::write(&hook, "#!/bin/sh\necho 'post-checkout: no' >&2\nexit 1\n").unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::StartInterrupted).await;
+
+    assert!(wt.join("coupon.ts").is_file(), "the worktree stays");
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "so does the branch"
+    );
+    w.stop().await;
+}
+
 #[tokio::test]
 async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_starts() {
     let w = world().await;
