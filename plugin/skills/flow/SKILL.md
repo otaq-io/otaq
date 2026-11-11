@@ -117,10 +117,13 @@ When the user asks you to **write a skill for a stage** ("Write a skill for the 
 the agent to write it** starts the line, the user finishes it), you write it in the one folder Otaq gives you, inside
 this project:
 
-1. **Name it and get the folder**: `otaq flow write-skill <stage> --name <name>` (the stage's id or name, and a short
-   name for the skill in lowercase letters, digits and hyphens, e.g. `otaq flow write-skill plan --name plan-ticket`).
-   It prints the only folder you may write in, the skills folder the stage's agent's tool reads; the editor shows the
-   stage's skill as being written. If the name is taken or is one of Otaq's own skills, it refuses: pick another.
+1. **Name it and get the folder**: `otaq flow write-skill <stage> --name <name>` (the stage's name exactly as the
+   request gives it, in quotes, or its id from `otaq flow show`, and a short name for the skill in lowercase letters,
+   digits and hyphens, e.g. `otaq flow write-skill "Plan" --name plan-ticket`). Two stages can have near names
+   ("Update the docs", "Update the docs 2"): never guess an id from the name. It prints the only folder you may write
+   in, the skills folder the stage's agent's tool reads; the editor shows the stage's skill as being written. If the
+   name is taken or is one of Otaq's own skills, it refuses: pick another. If it says you were asked for another
+   stage, run it again for that stage.
 2. **Read first**: `otaq prime --project`, the repo's `AGENTS.md` / `CLAUDE.md`, and the skills the flow's other
    stages run (`otaq flow show` names them), so the new one fits how this project works. Ask the user one question
    at a time with `otaq ask human --stdin` only when the request leaves out something you can't find.

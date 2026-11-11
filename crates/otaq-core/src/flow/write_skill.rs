@@ -88,6 +88,28 @@ pub(crate) fn stage_of<'a>(file: &'a FlowFile, stage: &str) -> Result<&'a Stage,
         })
 }
 
+/// The stage whose skill the Project agent `agent` was asked to write (Ask the agent to write it, no folder named yet)
+/// when that isn't `target`: two stages with near names ("Update the docs", "Update the docs 2") must not swap, so a
+/// folder for the other one is refused, naming the stage asked for. None when `target` is one it was asked for, or it
+/// was asked for none (the user asked in their own words).
+fn asked_for_another<'a>(
+    file: &'a FlowFile,
+    writing: &[SkillWriting],
+    target: &Stage,
+    agent: &str,
+) -> Option<&'a Stage> {
+    let its: Vec<&SkillWriting> = writing
+        .iter()
+        .filter(|w| w.agent.as_deref() == Some(agent))
+        .collect();
+    if its.iter().any(|w| w.stage_id == target.id) {
+        return None;
+    }
+    its.iter()
+        .filter(|w| w.folder.is_none())
+        .find_map(|w| file.flow.stage(&w.stage_id))
+}
+
 /// A stage an agent runs (only those have a skill).
 fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
     if stage.has_agent() {
@@ -349,6 +371,21 @@ impl Board {
         let file = read(&row.yaml)?;
         let target = stage_of(&file, stage)?.clone();
         runs_agent(&target)?;
+        if let Some(asked) =
+            agent.and_then(|a| asked_for_another(&file, &row.draft.writing, &target, a))
+        {
+            return Err(BoardError::refused(
+                Refusal::BadSkillFolder,
+                format!(
+                    "You were asked to write {asked}'s skill, not {target}'s: run `{cmd} flow write-skill {id} --name \
+                     <name>`",
+                    asked = asked.name,
+                    target = target.name,
+                    cmd = naming::COMMAND_NAME,
+                    id = asked.id,
+                ),
+            ));
+        }
         let checkout = self.checkout(&key).await?;
         let (had, had_made) = row
             .draft
