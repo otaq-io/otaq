@@ -99,8 +99,8 @@ function CheckOutput({ output }: { output: string }) {
   );
 }
 
-/** The lines of one file of the new commits. */
-function NewCommitFile({ file }: { file: DiffFileView }) {
+/** The lines of one file of the new commits (also of what a hook changed in the commit that landed). */
+export function NewCommitFile({ file }: { file: DiffFileView }) {
   return (
     <div className="review-commit-file">
       <div className="review-commit-file-name">{file.path}</div>

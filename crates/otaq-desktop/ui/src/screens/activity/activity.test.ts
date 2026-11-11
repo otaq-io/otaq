@@ -33,6 +33,7 @@ const base = (over: Partial<HistoryRowView>): HistoryRowView => ({
   range: null,
   mark: { kind: "agent" },
   opens: null,
+  hook_changes: null,
   kind: "other",
   ...over,
 });

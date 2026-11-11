@@ -524,10 +524,15 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
             target,
             commit,
             started,
+            hook_changed,
             ..
         } => MergeView::Merged {
             title: merged_title(key, target),
-            text: squashed_as(commit),
+            // A hook changed what landed: said after it, "· Your pre-commit hook changed 2 files".
+            text: match hook_changed {
+                Some(changes) => format!("{} \u{b7} {}", squashed_as(commit), changes.sentence()),
+                None => squashed_as(commit),
+            },
             started: started_label(started.len()),
         },
         LocalMergeOutcome::Conflict { target, files } => MergeView::Conflict {
@@ -1086,6 +1091,7 @@ mod tests {
                     target: "main".into(),
                     commit: "9f3e2c1aaaa".into(),
                     started: vec!["SHOP-20".parse().unwrap(), "SHOP-21".parse().unwrap()],
+                    hook_changed: None,
                 }
             ),
             MergeView::Merged {

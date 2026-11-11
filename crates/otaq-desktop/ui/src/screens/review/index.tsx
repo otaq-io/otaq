@@ -3,7 +3,8 @@
 // merge's `done_not_merged` confirmation and the `send_back`
 // overlay, and ⌘↵ / ⌘⌫ on the open ticket. The sheet's Approve and
 // Send back buttons and the board's approve choice open the same overlays. `change_decision` is Change… on a
-// recorded decision (T-0288). What they say is Rust's
+// recorded decision (T-0288). `hook_changes` is Show changes on what a hook changed in the commit that landed. What
+// they say is Rust's
 // (`src/api/review.rs`, `otaq-view`'s `review_page.rs`).
 import { openOverlay } from "../../app/overlays";
 import type { Screen } from "../../app/registry";
@@ -12,6 +13,7 @@ import type { ReviewAvailable } from "../../generated/ReviewAvailable";
 import { request } from "../../tauri";
 import { passTicket, SendBackPrDialog } from "./CheckDialogs";
 import { ChangeDecisionDialog, DoneNotMergedDialog, LocalMergeDialog, SendBackDialog } from "./Dialogs";
+import { HookChangesDialog } from "./HookChanges";
 import { MergeIntoDialog } from "./MergeIntoDialog";
 import "./review.css";
 
@@ -33,6 +35,7 @@ function onOpenTicket(open: (ticket: string, available: ReviewAvailable) => void
 export const review: Screen = (app) => {
   app.overlays.register("local_merge", { Component: LocalMergeDialog });
   app.overlays.register("merge_into", { Component: MergeIntoDialog });
+  app.overlays.register("hook_changes", { Component: HookChangesDialog });
   app.overlays.register("done_not_merged", { Component: DoneNotMergedDialog });
   app.overlays.register("send_back", { Component: SendBackDialog });
   app.overlays.register("change_decision", { Component: ChangeDecisionDialog });

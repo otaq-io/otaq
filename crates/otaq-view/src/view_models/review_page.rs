@@ -9,8 +9,9 @@ use otaq_core::board::comments::ReviewComment;
 use otaq_core::board::review::ApproveCheck;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
+use otaq_core::git::merge::HookChanges;
 use otaq_core::review::LocalMergeOutcome;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::keymap::Platform;
@@ -313,6 +314,71 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
     }
 }
 
+/// "Show changes": a hook's changes to what landed.
+pub const SHOW_CHANGES: &str = "Show changes";
+
+/// A hook changed the files of the commit Approve & merge made, and it landed as the hook left it: the merged toast's
+/// and History's "Your pre-commit hook changed 2 files" with Show changes, and the window Show changes opens, each
+/// file's difference between what was reviewed and what landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "HookChangesView")]
+pub struct HookChangesView {
+    /// "Your pre-commit hook changed 2 files".
+    pub title: String,
+    /// "Show changes".
+    pub show: String,
+    /// Under the title in the window: what the lines are.
+    pub note: String,
+    /// The commit that was squashed (what was reviewed, the target merged in) and the one that landed: each file's
+    /// lines are `files.diff` with `since` and `until`.
+    pub reviewed: String,
+    pub landed: String,
+    pub files: Vec<String>,
+    /// "Close".
+    pub close: String,
+}
+
+/// The view of a hook's changes to what landed.
+pub fn hook_changes_view(changes: &HookChanges) -> HookChangesView {
+    HookChangesView {
+        title: changes.sentence(),
+        show: SHOW_CHANGES.to_owned(),
+        note: "What the hook changed after your review: the difference between what you reviewed and what landed."
+            .to_owned(),
+        reviewed: changes.reviewed.clone(),
+        landed: changes.landed.clone(),
+        files: changes.files.clone(),
+        close: "Close".to_owned(),
+    }
+}
+
+/// The merged toast's Show changes when a hook changed what landed; `None` otherwise.
+pub fn merged_toast_link(
+    key: &TicketKey,
+    outcome: &LocalMergeOutcome,
+) -> Option<crate::view_models::toasts::ToastLink> {
+    let LocalMergeOutcome::Merged {
+        hook_changed: Some(changes),
+        ..
+    } = outcome
+    else {
+        return None;
+    };
+    Some(hook_changes_link(key, changes))
+}
+
+/// Show changes after a toast's text, opening the window of a hook's changes.
+pub fn hook_changes_link(
+    key: &TicketKey,
+    changes: &HookChanges,
+) -> crate::view_models::toasts::ToastLink {
+    crate::view_models::toasts::ToastLink::HookChanges {
+        label: SHOW_CHANGES.to_owned(),
+        ticket: key.to_string(),
+        changes: hook_changes_view(changes),
+    }
+}
+
 /// A toast the page shows (the merged ones; their wording is the view model's).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ReviewToast")]
@@ -389,13 +455,20 @@ pub fn merged_toasts(
         target,
         commit,
         started,
+        hook_changed,
     } = outcome
     else {
         return Vec::new();
     };
+    // A hook changed what landed: said in the merged toast itself ("· Your pre-commit hook changed 2 files"), its
+    // Show changes from `merged_toast_link`. Nothing extra otherwise.
+    let text = match hook_changed {
+        Some(changes) => format!("{} \u{b7} {}", ap::squashed_as(commit), changes.sentence()),
+        None => ap::squashed_as(commit),
+    };
     let mut toasts = vec![ToastText {
         title: ap::merged_title(key, target),
-        text: Some(ap::squashed_as(commit)),
+        text: Some(text),
     }];
     if let Some(warning) = ticket
         .work
@@ -1058,6 +1131,7 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: Vec::new(),
+            hook_changed: None,
         };
         let toasts = merged_toasts(&t.key, &merged, &[]);
         assert_eq!(toasts.len(), 2);
@@ -1084,8 +1158,58 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: Vec::new(),
+            hook_changed: None,
         };
         assert_eq!(merged_toasts(&t.key, &merged, &[]).len(), 1);
+    }
+
+    /// A hook changed what landed: the merged toast says so, with Show changes; without one, nothing extra.
+    #[test]
+    fn a_merge_a_hook_changed_says_so_in_its_toast() {
+        let t = review_ticket();
+        let changes = HookChanges {
+            hook: Some("pre-commit".into()),
+            files: vec!["calc.js".into(), "util.js".into()],
+            reviewed: "aaa".into(),
+            landed: "9f3e2c1abc".into(),
+        };
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+            hook_changed: Some(changes.clone()),
+        };
+        let toasts = merged_toasts(&t.key, &merged, &[]);
+        assert_eq!(toasts.len(), 1);
+        assert_eq!(
+            toasts[0].text.as_deref(),
+            Some("Squashed as 9f3e2c1 \u{b7} Your pre-commit hook changed 2 files")
+        );
+        let Some(crate::view_models::toasts::ToastLink::HookChanges {
+            label,
+            ticket,
+            changes: view,
+        }) = merged_toast_link(&t.key, &merged)
+        else {
+            panic!("Show changes");
+        };
+        assert_eq!(label, "Show changes");
+        assert_eq!(ticket, "SHOP-18");
+        assert_eq!(view, hook_changes_view(&changes));
+
+        let plain = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+            hook_changed: None,
+        };
+        assert_eq!(
+            merged_toasts(&t.key, &plain, &[])[0].text.as_deref(),
+            Some("Squashed as 9f3e2c1")
+        );
+        assert_eq!(merged_toast_link(&t.key, &plain), None);
     }
 
     #[test]
@@ -1099,6 +1223,7 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: vec!["SHOP-20".parse().unwrap()],
+            hook_changed: None,
         };
         let MergeResult::Merged { toasts } = merge_result(&t, "main", &merged, &all) else {
             panic!("not merged");

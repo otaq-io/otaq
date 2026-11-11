@@ -47,6 +47,13 @@ pub enum ToastLink {
         project: String,
         stage: Option<String>,
     },
+    /// "Show changes" after "Your pre-commit hook changed 2 files": the window of what the hook changed in `ticket`'s
+    /// landed commit.
+    HookChanges {
+        label: String,
+        ticket: String,
+        changes: crate::view_models::review_page::HookChangesView,
+    },
 }
 
 /// A toast to show, as a screen or the app asks for it. Its wording comes from the view models or the service.

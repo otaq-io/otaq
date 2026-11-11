@@ -20,6 +20,7 @@ use otaq_view::icons::IconName;
 use otaq_view::view_models::clock::local_hhmm;
 use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::history::{self, HistoryRow, Opens};
+use otaq_view::view_models::review_page::HookChangesView;
 use otaq_view::view_models::messages::{self, Line, Thread, Tone};
 use otaq_view::view_models::ticket_comments::Mark;
 use otaq_view::view_models::tool_avatar;
@@ -274,6 +275,8 @@ pub struct HistoryRowView {
     pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said and its report (CMT-14).
     pub opens: Option<Opens>,
+    /// A merge whose landing commit a hook changed: "Show changes" after the row's detail.
+    pub hook_changes: Option<HookChangesView>,
     /// History's filter it shows under.
     pub kind: history::Kind,
 }
@@ -320,6 +323,7 @@ impl From<HistoryRow> for HistoryRowView {
             range,
             mark: r.mark,
             opens: r.opens,
+            hook_changes: r.hook_changes,
             kind: r.kind,
         }
     }
@@ -536,6 +540,7 @@ mod tests {
             session: Some("s1".into()),
             mark: Mark::Agent,
             opens: None,
+            hook_changes: None,
             kind: history::Kind::Session,
             quiet: None,
             ended: Some(41 * 60_000),

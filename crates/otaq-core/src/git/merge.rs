@@ -10,7 +10,11 @@
 //! 3. **bring the branch up to date**: the target is merged into the ticket's branch, never rebased onto it (a team's
 //!    pre-rebase hook or rule never stops it), in its worktree or in the scratch worktree when the branch has no
 //!    worktree. The merge commit runs the project's hooks: a refusal merges nothing; a conflict merges nothing;
-//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
+//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run). A hook that changes
+//!    the commit's files (a formatter's pre-commit) isn't stopped: the commit lands as the hook left it, and the
+//!    outcome says which hook changed which files ([`HookChanges`]), comparing the commit's tree with the branch that
+//!    was squashed (the reviewed work with the target merged in), never with the target. The Merge check doesn't run
+//!    again because of it;
 //! 5. the project's **Merge check** (d0120), when it has one and the update brought in commits the branch didn't
 //!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
 //!    then the scratch worktree is cleaned. A failure or the user's Stop merges nothing;
@@ -22,7 +26,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{BaseSync, FetchFailure, Git, GitError, GitStep};
+use serde::{Deserialize, Serialize};
+
+use super::diff::DiffSpec;
+use super::{BaseSync, FetchFailure, Git, GitError, GitStep, HookRun};
 
 /// One Local merge.
 #[derive(Debug, Clone)]
@@ -94,6 +101,44 @@ impl fmt::Debug for MergeCheck {
     }
 }
 
+/// A hook changed the files of the commit Approve & merge made: it landed as the hook left it, so the target differs
+/// from the branch the user reviewed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookChanges {
+    /// `pre-commit`; `None` when git didn't say which hook ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
+    /// The files it changed, as git names them.
+    pub files: Vec<String>,
+    /// The commit that was squashed: what the user reviewed, with the target merged in.
+    pub reviewed: String,
+    /// The commit that landed. Show changes is the difference from `reviewed` to it.
+    pub landed: String,
+}
+
+impl HookChanges {
+    /// "Your pre-commit hook changed 2 files"; "A hook changed 1 file" when git didn't say which.
+    pub fn sentence(&self) -> String {
+        let files = match self.files.len() {
+            1 => "1 file".to_owned(),
+            n => format!("{n} files"),
+        };
+        match &self.hook {
+            Some(hook) => format!("Your {hook} hook changed {files}"),
+            None => format!("A hook changed {files}"),
+        }
+    }
+}
+
+/// The hook named for a change to a commit's files, of those its `git commit` ran: pre-commit, the one that changes
+/// what is committed; else post-commit, which can only change it by amending the commit.
+fn changing_hook(runs: &[HookRun]) -> Option<String> {
+    ["pre-commit", "post-commit"]
+        .into_iter()
+        .find(|name| runs.iter().any(|r| r.name == *name))
+        .map(str::to_owned)
+}
+
 /// What a Local merge did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeOutcome {
@@ -106,6 +151,8 @@ pub enum MergeOutcome {
         checked: bool,
         /// The fetch before it failed and it merged into the local target as it was (d0121).
         fetch_failed: Option<FetchFailure>,
+        /// A hook changed the commit's files; `None` when what landed is what was squashed.
+        hook_changed: Option<HookChanges>,
     },
     RefusedUncommitted {
         files: Vec<String>,
@@ -219,7 +266,16 @@ impl Git {
         .await?;
         self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
         self.step(GitStep::Squash);
-        self.run(scratch, &["merge", "--quiet", "--squash", &m.branch])
+        // What is squashed: the reviewed work with the target merged in. A hook's changes are compared with it.
+        let squashed =
+            self.resolve(&m.repo, &branch_ref)
+                .await?
+                .ok_or_else(|| GitError::Failed {
+                    args: format!("rev-parse {branch_ref}"),
+                    code: None,
+                    stderr: format!("the branch `{}` doesn't exist", m.branch),
+                })?;
+        self.run(scratch, &["merge", "--quiet", "--squash", &squashed])
             .await?;
         let message_file = tempfile::NamedTempFile::new().map_err(|e| GitError::Spawn {
             args: "commit -F".into(),
@@ -231,13 +287,14 @@ impl Git {
         })?;
         let message_path = message_file.path().display().to_string();
         self.step(GitStep::Commit);
-        if let Err(e) = self
-            .run(
+        let (committed, commit_hooks) = self
+            .run_with_hooks(
                 scratch,
                 &["commit", "--quiet", "--allow-empty", "-F", &message_path],
+                &[],
             )
-            .await
-        {
+            .await;
+        if let Err(e) = committed {
             // A hook refused the squash commit: leave the scratch worktree clean; the target never moved.
             let _ = self
                 .run(scratch, &["reset", "--quiet", "--hard", &onto])
@@ -249,6 +306,15 @@ impl Git {
             .await?
             .trim()
             .to_owned();
+        let changed = self
+            .changed_files(scratch, &DiffSpec::between(&squashed, &commit))
+            .await?;
+        let hook_changed = (!changed.is_empty()).then(|| HookChanges {
+            hook: changing_hook(&commit_hooks),
+            files: changed.into_iter().map(|f| f.path).collect(),
+            reviewed: squashed.clone(),
+            landed: commit.clone(),
+        });
 
         // 5. The Merge check on the merged result, before anything moves (d0120).
         let checked = match &m.check {
@@ -299,6 +365,7 @@ impl Git {
             brought_in,
             checked,
             fetch_failed,
+            hook_changed,
         })
     }
 

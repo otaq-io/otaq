@@ -77,10 +77,13 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
         target,
         commit,
         started,
+        hook_changed,
     } = outcome
     else {
         panic!("expected merged, got {outcome:?}");
     };
+    // No hook changed anything: nothing extra.
+    assert_eq!(hook_changed, None);
     assert_eq!(target, "main");
     assert_eq!(ticket.status, Status::Merged);
     assert_eq!(started, ["SHOP-2".parse().unwrap()]);
@@ -622,5 +625,77 @@ async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
     assert!(!wt.join(merge_head).exists(), "no merge left in progress");
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
     no_stash(&repo);
+    w.stop().await;
+}
+
+/// A formatter's pre-commit adds a header to each staged `.js` of the squash commit: it lands as the hook left it,
+/// the outcome and History say "Your pre-commit hook changed 2 files", and Show changes is the hook's two lines.
+#[tokio::test]
+async fn a_hooks_changes_to_the_landing_commit_land_and_are_said() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Calc", "calc.js", "add\n").await;
+    commit(&wt, "util.js", "util\n");
+    hook(
+        &repo,
+        "pre-commit",
+        r#"for f in $(git diff --cached --name-only --diff-filter=ACM -- '*.js'); do
+  { echo '// formatted'; cat "$f"; } > "$f.tmp" && mv "$f.tmp" "$f"
+  git add "$f"
+done"#,
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged {
+        commit: landed,
+        hook_changed: Some(changes),
+        ..
+    } = outcome
+    else {
+        panic!("expected merged with a hook's changes, got {outcome:?}");
+    };
+    assert_eq!(changes.sentence(), "Your pre-commit hook changed 2 files");
+    assert_eq!(git(&repo, &["show", "main:util.js"]), "// formatted\nutil");
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let merged = history
+        .iter()
+        .find(|e| e.kind == EventKind::Merged)
+        .unwrap();
+    assert_eq!(
+        merged.payload["hook_changed"],
+        serde_json::to_value(&changes).unwrap()
+    );
+    // Show changes: each file's difference between what was reviewed and what landed.
+    for file in &changes.files {
+        let diff = w
+            .board
+            .diff_file_between("SHOP-1", file, &changes.reviewed, &landed)
+            .await
+            .unwrap();
+        let lines: Vec<_> = diff.hunks.iter().flat_map(|h| &h.lines).collect();
+        let added: Vec<&str> = lines
+            .iter()
+            .filter(|l| l.kind == otaq_core::git::diff::LineKind::Added)
+            .map(|l| l.text.as_str())
+            .collect();
+        assert_eq!(added, ["// formatted"], "{file}");
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.kind == otaq_core::git::diff::LineKind::Removed)
+        );
+    }
+    // Only commit ids are taken.
+    assert!(
+        w.board
+            .diff_file_between("SHOP-1", "calc.js", "--output=x", &landed)
+            .await
+            .is_err()
+    );
     w.stop().await;
 }

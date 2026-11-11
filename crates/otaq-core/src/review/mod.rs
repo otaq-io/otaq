@@ -53,7 +53,7 @@ use crate::data_dir::DataDir;
 use crate::domain::{Actor, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
-use crate::git::merge::{MergeOutcome, MergeRequest};
+use crate::git::merge::{HookChanges, MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
@@ -112,6 +112,10 @@ pub enum LocalMergeOutcome {
         commit: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         started: Vec<TicketKey>,
+        /// A hook changed the squash commit's files and it landed as the hook left it: "Your pre-commit hook changed
+        /// 2 files", with Show changes. `None` when what landed is what was reviewed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hook_changed: Option<HookChanges>,
     },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back.
     RefusedUncommitted { files: Vec<String>, message: String },
@@ -459,10 +463,18 @@ impl Review {
                 commit,
                 onto,
                 fetch_failed,
+                hook_changed,
                 ..
             } => {
                 let merged = board
-                    .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
+                    .record_local_merge(
+                        &ticket,
+                        &target.target,
+                        &commit,
+                        &onto,
+                        hook_changed.as_ref(),
+                        actor,
+                    )
                     .await?;
                 self.remote_after_merge(&merged, &request, fetch_failed, actor)
                     .await?;
@@ -496,6 +508,7 @@ impl Review {
                     target: target.target,
                     commit,
                     started,
+                    hook_changed,
                 }
             }
             MergeOutcome::RefusedUncommitted { files, message } => {

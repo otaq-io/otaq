@@ -554,9 +554,12 @@ pub(super) async fn handle(
                 .map(|d| Reply::DiffSummary(Box::new(d)))
         }),
         Request::DiffFile(p) => boxed(move || async move {
-            match &p.since {
-                Some(since) => board.diff_file_since(&p.key, &p.path, since).await,
-                None => board.diff_file(&p.key, &p.path).await,
+            match (&p.since, &p.until) {
+                (Some(since), Some(until)) => {
+                    board.diff_file_between(&p.key, &p.path, since, until).await
+                }
+                (Some(since), None) => board.diff_file_since(&p.key, &p.path, since).await,
+                (None, _) => board.diff_file(&p.key, &p.path).await,
             }
             .map(|d| Reply::FileDiff(Box::new(d)))
         }),

@@ -2266,6 +2266,10 @@
         "since": {
           "ty": "Option<String>",
           "omittable": true
+        },
+        "until": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -2729,6 +2733,10 @@
         },
         "merged_automatically": {
           "fields": {
+            "hook_changed": {
+              "ty": "Option<HookChanges>",
+              "omittable": true
+            },
             "key": {
               "ty": "TicketKey",
               "required": true
@@ -4304,6 +4312,27 @@
         "tool_unavailable"
       ]
     },
+    "HookChanges": {
+      "kind": "struct",
+      "fields": {
+        "files": {
+          "ty": "Vec<String>",
+          "required": true
+        },
+        "hook": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "landed": {
+          "ty": "String",
+          "required": true
+        },
+        "reviewed": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "HookParams": {
       "kind": "struct",
       "fields": {
@@ -4798,6 +4827,10 @@
             "commit": {
               "ty": "String",
               "required": true
+            },
+            "hook_changed": {
+              "ty": "Option<HookChanges>",
+              "omittable": true
             },
             "started": {
               "ty": "Vec<TicketKey>",

@@ -99,6 +99,17 @@ impl Git {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> Result<String, GitError> {
+        self.run_with_hooks(cwd, args, env).await.0
+    }
+
+    /// Like [`run_with_env`](Self::run_with_env), with the hooks the command ran, passed or failed, oldest first
+    /// (empty when git's events couldn't be read).
+    pub async fn run_with_hooks(
+        &self,
+        cwd: &Path,
+        args: &[&str],
+        env: &[(&str, &str)],
+    ) -> (Result<String, GitError>, Vec<HookRun>) {
         // git's events say which hook runs and how it ended: read for the commands that can run one, and for every
         // command of a followed step. Without them git still runs; only the hook goes unnamed.
         let mut trace = if self.watch.is_some() || hooks::runs_hooks(args) {
@@ -127,7 +138,10 @@ impl Git {
             args: join(args),
             error,
         };
-        let mut child = command.spawn().map_err(spawn_error)?;
+        let mut child = match command.spawn() {
+            Ok(child) => child,
+            Err(e) => return (Err(spawn_error(e)), Vec::new()),
+        };
         let (mut stdout, mut stderr) = (
             child.stdout.take().expect("piped"),
             child.stderr.take().expect("piped"),
@@ -153,7 +167,10 @@ impl Git {
             (Some(watch), Some(trace)) => follow(ran, trace, watch, cwd).await,
             _ => ran.await,
         };
-        let status = status.map_err(spawn_error)?;
+        let status = match status {
+            Ok(status) => status,
+            Err(e) => return (Err(spawn_error(e)), Vec::new()),
+        };
         let stdout = String::from_utf8_lossy(&stdout).into_owned();
         let stderr_bytes: Vec<u8> = chunks.iter().flat_map(|(_, b)| b.iter().copied()).collect();
         let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
@@ -177,21 +194,22 @@ impl Git {
             "git"
         );
         if status.success() {
-            return Ok(stdout);
+            return (Ok(stdout), runs);
         }
-        if let Some(hook) = HookTrace::refusing(&runs) {
-            return Err(GitError::HookRefused(Box::new(HookRefusal {
+        let error = match HookTrace::refusing(&runs) {
+            Some(hook) => GitError::HookRefused(Box::new(HookRefusal {
                 hook: hook.clone(),
                 args: join(args),
                 code: status.code(),
                 stderr: shorten_home(&stderr),
-            })));
-        }
-        Err(GitError::Failed {
-            args: join(args),
-            code: status.code(),
-            stderr,
-        })
+            })),
+            None => GitError::Failed {
+                args: join(args),
+                code: status.code(),
+                stderr,
+            },
+        };
+        (Err(error), runs)
     }
 
     /// Runs `git <args>` and returns its exit code and standard output, for commands whose non-zero codes carry
