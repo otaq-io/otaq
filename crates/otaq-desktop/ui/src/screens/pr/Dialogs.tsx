@@ -308,6 +308,11 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
               ).then((a) => {
                 applied.current(a, press);
               }, ignore),
+            // Kept, before any dialog showed (the Push skill wasn't started): nothing of the PR dialog stays open, so
+            // the next Push to PR opens it again.
+            onCancel: () => {
+              if (shown.current === null) close();
+            },
           });
           return;
         }
