@@ -121,6 +121,7 @@ pub use sections::NoteRequest as CreateFromNoteParams;
 #[cfg(test)]
 pub use sections::{
     AnswerMessage as AnswerMessageParams, HistoryView, MessagesView, Params as SectionParams,
+    ResumeMessage as ResumeMessageParams,
 };
 #[cfg(test)]
 pub use settings::{

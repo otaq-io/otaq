@@ -203,6 +203,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::MessagesView::export_all(&cfg)?;
     crate::api::AnswerMessageParams::export_all(&cfg)?;
+    crate::api::ResumeMessageParams::export_all(&cfg)?;
     crate::api::HistoryView::export_all(&cfg)?;
     // The ticket editor and the Ticket tab (T-0228); the view also writes its form, texts, fields and read mode.
     crate::api::EditorView::export_all(&cfg)?;

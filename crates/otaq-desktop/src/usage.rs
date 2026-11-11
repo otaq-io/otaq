@@ -322,6 +322,7 @@ const FEATURES: &[&str] = &[
     // The ticket's sections.
     "sections.create_from_note",
     "sections.answer_message",
+    "sections.resume_message",
     // Terminals, agents and Run.
     "drawer.new",
     "drawer.resume",

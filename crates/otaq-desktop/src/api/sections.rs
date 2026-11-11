@@ -37,6 +37,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "sections.messages" => reply(&messages_view(app, parse(params)?).await?),
         "sections.answer_message" => reply(&answer_message(app, parse(params)?).await?),
+        "sections.resume_message" => reply(&resume_message(app, parse(params)?).await?),
         "sections.history" => reply(&history_view(app, parse(params)?).await?),
         "sections.create_from_note" => reply(&create_from_note(app, parse(params)?).await?),
         _ => Err(unknown(method)),
@@ -149,6 +150,8 @@ pub struct ThreadView {
     pub answer: Option<LineView>,
     /// Sent to the user (Needs you): answered here.
     pub answerable: bool,
+    /// "Resume SHOP-41" on a question sent to the user: the finished ticket answers it after all.
+    pub resume: Option<String>,
 }
 
 impl From<Thread> for ThreadView {
@@ -158,6 +161,7 @@ impl From<Thread> for ThreadView {
             question: t.question.into(),
             answer: t.answer.map(Into::into),
             answerable: t.answerable,
+            resume: t.resume,
         }
     }
 }
@@ -237,6 +241,34 @@ pub async fn answer_message(app: &App, params: AnswerMessage) -> Result<(), Requ
                 app,
                 ToastLevel::Error,
                 "The answer wasn\u{2019}t sent".to_owned(),
+                Some(e.message.clone()),
+            );
+            Err(e)
+        }
+    }
+}
+
+/// What `sections.resume_message` takes: a question that went to the user (Needs you).
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "ResumeMessageParams")]
+pub struct ResumeMessage {
+    pub id: String,
+}
+
+/// **Resume SHOP-41** on a question sent to the user: the finished ticket is started again to answer it; a refusal
+/// (the usage limit, a conversation that is gone) toasts and rejects.
+pub async fn resume_message(app: &App, params: ResumeMessage) -> Result<(), RequestError> {
+    match app
+        .service
+        .send(Request::MessageResume(otaq_core::protocol::IdParams { id: params.id }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast(
+                app,
+                ToastLevel::Error,
+                "The ticket wasn\u{2019}t resumed".to_owned(),
                 Some(e.message.clone()),
             );
             Err(e)

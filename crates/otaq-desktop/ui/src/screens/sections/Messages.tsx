@@ -50,6 +50,29 @@ function LineRow({ line, you }: { line: MessageLineView; you: string }) {
   );
 }
 
+// "Resume SHOP-41": the finished ticket answers the question after all; a refusal toasts.
+function Resume({ id, label }: { id: string; label: string }) {
+  const [resuming, setResuming] = useState(false);
+  return (
+    <Button
+      compact
+      variant="secondary"
+      label={label}
+      icon="play"
+      loading={resuming}
+      onClick={() => {
+        if (resuming) return;
+        setResuming(true);
+        request("sections.resume_message", { id })
+          .catch(ignore)
+          .finally(() => {
+            setResuming(false);
+          });
+      }}
+    />
+  );
+}
+
 function Reply({ view, thread }: { view: MessagesView; thread: MessageThreadView }) {
   const [open, setOpen] = useState(false);
   const [text, setText] = useState("");
@@ -68,7 +91,7 @@ function Reply({ view, thread }: { view: MessagesView; thread: MessageThreadView
   };
   if (!open) {
     return (
-      <div>
+      <div className="message-actions">
         <Button
           compact
           label={view.answer}
@@ -77,6 +100,7 @@ function Reply({ view, thread }: { view: MessagesView; thread: MessageThreadView
             setOpen(true);
           }}
         />
+        {thread.resume !== null && <Resume id={thread.id} label={thread.resume} />}
       </div>
     );
   }
