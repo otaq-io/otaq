@@ -139,7 +139,8 @@ pub struct HiddenParams {
     pub hidden: bool,
 }
 
-/// Sign in…'s terminal: the tab to open in the Terminals drawer, focused.
+/// Sign in…'s terminal: its session, shown in the Sign in dialog where Sign in… was clicked (`tab` names the
+/// session's tab and is not used to open it).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolSignIn")]
 pub struct SignIn {

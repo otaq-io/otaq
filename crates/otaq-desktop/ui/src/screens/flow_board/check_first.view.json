@@ -407,7 +407,7 @@
     "fixes": [],
     "mark": null,
     "remove": "Remove stage",
-    "remove_note": "Removing waits until no ticket is in it"
+    "remove_note": null
   },
   "delivery": null,
   "palette": {
