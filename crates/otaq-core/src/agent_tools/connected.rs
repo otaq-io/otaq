@@ -406,6 +406,23 @@ impl ConnectedTools {
         });
     }
 
+    /// An agent of `tool` stopped because the tool's sign-in ran out or is missing ("Login expired"): a Connected
+    /// tool reads Found · not signed in at once, so Sign in… shows wherever the tool's problem does (the stopped
+    /// ticket, the agent panel, the strip) without waiting for a check of the tools. Its last check's time stays; the
+    /// next check takes the tool's own answer. Any other state is left as it is.
+    pub fn signed_out(&self, tool: Tool) {
+        self.change(|found| {
+            if let Some((state, _)) = found.states.get_mut(&tool)
+                && let AgentToolState::Connected { version, .. } = state
+            {
+                *state = AgentToolState::FoundNotSignedIn {
+                    version: version.take(),
+                };
+                found.sign_in_offered.remove(&tool);
+            }
+        });
+    }
+
     /// Sets `tool` Hidden or not, in memory only.
     pub fn hide(&self, tool: Tool, hidden: bool) {
         self.change(|found| {

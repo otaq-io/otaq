@@ -2130,6 +2130,9 @@ pub fn sheet_gallery() -> Vec<View> {
 }
 
 #[cfg(test)]
+mod login_expired_tests;
+
+#[cfg(test)]
 mod tests {
     use otaq_core::board::questions::HumanQuestion;
     use otaq_core::board::tickets::NewTicketInput;
