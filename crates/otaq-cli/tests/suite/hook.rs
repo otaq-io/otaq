@@ -231,7 +231,8 @@ async fn every_codex_hook() {
     );
     assert_eq!(session.model_ran.as_deref(), Some("gpt-6-luna"));
 
-    // PermissionRequest → Needs you with the command; Esc (Interrupt) ends the turn → Idle.
+    // PermissionRequest → Needs you with the command; Esc (Interrupt) changes nothing yet: Codex is still stopping
+    // the turn, whose end its session file says (`turn_aborted`).
     hook("PermissionRequest").await;
     assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
     let text = w.board.ticket("SHOP-1").await.unwrap().signal.unwrap().text;
@@ -240,7 +241,7 @@ async fn every_codex_hook() {
         Some("Run command: curl -sI https://example.com | head -1")
     );
     hook("Interrupt").await;
-    assert_eq!(w.status("SHOP-1").await, Status::Idle);
+    assert_eq!(w.status("SHOP-1").await, Status::NeedsYou);
 
     // UserPromptSubmit → Working; Stop → Idle with the last message.
     hook("UserPromptSubmit").await;

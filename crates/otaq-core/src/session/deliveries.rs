@@ -348,7 +348,7 @@ impl Deliveries {
         if !self.is_ready(session)? {
             return Ok(0);
         }
-        self.send_pending(session).await
+        self.send_pending(session, true).await
     }
 
     /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns and its
@@ -364,7 +364,7 @@ impl Deliveries {
         if self.sessions.has_unsent_input(session)? {
             return Ok(self.needs_confirmation(session));
         }
-        let count = self.send_pending(session).await?;
+        let count = self.send_pending(session, false).await?;
         Ok(Delivery::Sent { count })
     }
 
@@ -404,7 +404,7 @@ impl Deliveries {
                 self.idle.delivered(session);
                 1
             }
-            None => self.send_pending(session).await?,
+            None => self.send_pending(session, false).await?,
         };
         Ok(Delivery::Sent { count })
     }
@@ -426,7 +426,9 @@ impl Deliveries {
         .map_err(store_error)
     }
 
-    async fn send_pending(&self, session: &str) -> Result<usize, SessionError> {
+    /// Types the waiting messages. `when_ready`: an automatic delivery, typed only if the agent is still idle with an
+    /// empty input line once this sender's turn comes (another sender may have typed meanwhile, starting a turn).
+    async fn send_pending(&self, session: &str, when_ready: bool) -> Result<usize, SessionError> {
         let sender = self
             .senders
             .lock()
@@ -435,6 +437,9 @@ impl Deliveries {
             .or_default()
             .clone();
         let _sending = sender.lock().await;
+        if when_ready && !self.is_ready(session)? {
+            return Ok(0);
+        }
         let pending = self.pending(session).await?;
         let mut typed = 0;
         for delivery in &pending {
