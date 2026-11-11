@@ -29,6 +29,7 @@ use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, AutoMergeStop, Outcome, Place, Status, TicketKey};
 use crate::flow::engine::{self, Move, RunResult};
 use crate::flow::{Delivery, DeliveryMode, Flow, Stage};
+use crate::git::{GitStep, RefusedHook};
 use crate::store::tickets::set_state_since;
 use crate::store::{new_id, now_ms};
 
@@ -253,8 +254,8 @@ impl Board {
             "UPDATE tickets SET stage_id = NULL, state = ?, outcome = 'merged', merge_commit_sha = ?,
                                 base_sha = ?, sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, auto_merge_conflicts = 0,
-                                auto_merge_stop = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
+                                auto_merge_stop = NULL, hook_refusal = NULL, signal_text = NULL, signal_since = NULL,
+                                wakeup_at = NULL, merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -331,8 +332,8 @@ impl Board {
             "UPDATE tickets SET stage_id = NULL, state = ?, outcome = ?, merge_commit_sha = NULL, nothing_to_merge = ?,
                                 sent_back_at = NULL, resume_skill = NULL, conflicts_with = NULL,
                                 conflict_files = NULL, conflict_reason = NULL, auto_merge_conflicts = 0,
-                                auto_merge_stop = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
+                                auto_merge_stop = NULL, hook_refusal = NULL, signal_text = NULL, signal_since = NULL,
+                                wakeup_at = NULL, merge_check_due = FALSE, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -488,6 +489,43 @@ impl Board {
         message: &str,
         conflicted: bool,
     ) -> Result<(), BoardError> {
+        self.stop_delivery(ticket_id, stop, message, conflicted, None)
+            .await
+    }
+
+    /// A project's git hook refused a step of Approve & merge, the user's click or the automatic delivery alike: the
+    /// Delivery stops as any other stop does, with "pre-commit hook refused the merge" as its text, the hook's
+    /// whole output kept on the ticket for its sheet, and History's line holding that output. The way on is to edit
+    /// the message and merge again (Approve & merge opens on the user's kept edit), or Move to Review.
+    pub(crate) async fn merge_refused_by_hook(
+        &self,
+        ticket_id: &str,
+        refusal: &crate::git::HookRefusal,
+    ) -> Result<RefusedHook, BoardError> {
+        // Watched, git says the step; else the squash commit, where a refusal most often comes.
+        let refused = RefusedHook::of(refusal, GitStep::Commit, "the merge");
+        self.stop_delivery(
+            ticket_id,
+            AutoMergeStop::HookRefused,
+            &refused.line(),
+            false,
+            Some(&refused),
+        )
+        .await?;
+        tracing::warn!(ticket = ticket_id, hook = %refused.name, step = ?refused.step, "a hook refused the merge");
+        Ok(refused)
+    }
+
+    /// [`Self::delivery_stopped`], with the hook's refusal that stopped it, if one did: kept on the ticket, and
+    /// History's line is the refusal's.
+    async fn stop_delivery(
+        &self,
+        ticket_id: &str,
+        stop: AutoMergeStop,
+        message: &str,
+        conflicted: bool,
+        refused: Option<&RefusedHook>,
+    ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::DeliveryStopped;
         let ticket = self.ticket_by_id(ticket_id).await?;
@@ -500,7 +538,7 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
-                                auto_merge_conflicts = auto_merge_conflicts + ?, updated_at = ?, ",
+                                auto_merge_conflicts = auto_merge_conflicts + ?, hook_refusal = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -510,20 +548,24 @@ impl Board {
         .bind(message)
         .bind(now)
         .bind(i64::from(conflicted))
+        .bind(refused.map(|r| serde_json::to_string(r).expect("serializable")))
         .bind(now)
         .bind(to.as_str())
         .bind(now)
         .bind(ticket_id)
         .execute(&mut *tx)
         .await?;
-        record_event(
-            &mut tx,
-            ticket_id,
-            EventKind::AutoMergeStopped,
-            &Actor::current_user(),
-            json!({ "stop": stop, "message": message }),
-        )
-        .await?;
+        let (kind, payload) = match refused {
+            Some(refused) => (
+                EventKind::HookRefused,
+                json!({ "hook": refused, "stop": stop, "message": message }),
+            ),
+            None => (
+                EventKind::AutoMergeStopped,
+                json!({ "stop": stop, "message": message }),
+            ),
+        };
+        record_event(&mut tx, ticket_id, kind, &Actor::current_user(), payload).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -619,7 +661,7 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = NULL, auto_merge_conflicts = 0,
-                                signal_text = NULL, signal_since = NULL, review_entered_at = ?,
+                                hook_refusal = NULL, signal_text = NULL, signal_since = NULL, review_entered_at = ?,
                                 review_head_sha = COALESCE(?, review_head_sha), sent_back_at = NULL,
                                 pr_rework = FALSE, updated_by = ?, updated_at = ?, ",
             set_state_since!(),

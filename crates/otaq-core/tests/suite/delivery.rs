@@ -610,10 +610,10 @@ async fn an_unreachable_remote_still_merges_automatically() {
     w.stop().await;
 }
 
-/// d0121: a git step of an automatic Delivery that fails (here a hook refuses the squash commit) stops the card with
-/// "Couldn't deliver · <reason>" and Retry merge, not only a log line.
+/// A hook that refuses the automatic Delivery's squash commit stops it as it stops the user's click: "pre-commit
+/// hook refused the merge", the hook's output on the ticket and in History, nothing merged.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_git_step_says_so_on_the_card() {
+async fn a_hook_refusing_the_automatic_delivery_is_on_the_ticket() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -632,13 +632,13 @@ async fn a_failed_git_step_says_so_on_the_card() {
 
     let after = pass(&w, &t).await;
     assert_eq!(after.status, Status::DeliveryStopped);
-    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::DeliveryFailed));
+    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::HookRefused));
     let text = after.signal.unwrap().text.unwrap();
-    assert!(
-        text.starts_with("Couldn\u{2019}t deliver \u{b7} git commit"),
-        "{text}"
-    );
-    assert!(text.contains("lint failed"), "{text}");
+    assert_eq!(text, "pre-commit hook refused the merge");
+    let refused = after.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.output.trim(), "lint failed");
+    let history = w.board.history(&t.key.to_string()).await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::HookRefused));
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "nothing merged");
     w.stop().await;
 }

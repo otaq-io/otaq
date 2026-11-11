@@ -62,7 +62,9 @@ export function actionRoute(action: SheetAction): ActionRoute {
       return { kind: "edit" };
     case "view_parent":
       return { kind: "parent" };
+    // Edit message and retry (a hook refused Approve & merge): its confirmation again, on the message the user edited.
     case "approve":
+    case "edit_message":
       return { kind: "overlay", id: "local_merge" };
     case "send_back":
       return { kind: "overlay", id: "send_back" };

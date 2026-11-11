@@ -269,6 +269,10 @@ stored_enum! {
         /// A PR delivery's agent reported its push or PR done, but the remote doesn't have the ticket's branch at the
         /// commit it should: "The branch isn't on the remote as expected · <what the remote has>".
         PushNotLanded = "push_not_landed",
+        /// A project's git hook refused a step of Approve & merge, the user's click or the automatic delivery alike:
+        /// "pre-commit hook refused the merge", the hook's output on the ticket
+        /// ([`crate::domain::Flags::hook_refusal`]); the way on is to edit the message and retry.
+        HookRefused = "hook_refused",
     }
 }
 

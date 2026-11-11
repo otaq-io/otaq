@@ -11,6 +11,7 @@ import type { SheetConfirm } from "./SheetConfirm";
 import type { SheetConflict } from "./SheetConflict";
 import type { SheetFrame } from "./SheetFrame";
 import type { SheetHint } from "./SheetHint";
+import type { SheetHookRefusal } from "./SheetHookRefusal";
 import type { SheetNotice } from "./SheetNotice";
 import type { SheetPermissionPrompt } from "./SheetPermissionPrompt";
 import type { SheetRefusal } from "./SheetRefusal";
@@ -40,6 +41,11 @@ approve_opens_menu: boolean,
  * Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
  */
 stop_message: string | null, 
+/**
+ * A project's git hook refused one of Otaq's own git steps: which hook, the step, its whole output and the way
+ * on, above the bar (whose primary button is that way on).
+ */
+hook_refusal: SheetHookRefusal | null, 
 /**
  * Validation failed N times: Answer the agent…'s note box.
  */

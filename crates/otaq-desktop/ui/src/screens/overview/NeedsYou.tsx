@@ -30,6 +30,7 @@ import type { SheetButtonLook } from "../../generated/SheetButtonLook";
 import type { SheetNotice } from "../../generated/SheetNotice";
 import type { SheetPermissionPrompt } from "../../generated/SheetPermissionPrompt";
 import type { SheetSent } from "../../generated/SheetSent";
+import type { SheetHookRefusal } from "../../generated/SheetHookRefusal";
 import type { SheetRefusal } from "../../generated/SheetRefusal";
 import type { SheetStartProblem } from "../../generated/SheetStartProblem";
 import type { SheetRunPill } from "../../generated/SheetRunPill";
@@ -442,6 +443,22 @@ function Refusal({ refusal }: { refusal: SheetRefusal }) {
   );
 }
 
+/** A project's git hook refused Approve & merge, above the bar whose primary button is the way on (Edit message and
+ * retry): which hook and step, the hook's output in the same box as a refused start's, the way on. */
+export function HookRefusal({ refusal }: { refusal: SheetHookRefusal }) {
+  return (
+    <div className="sheet-hook-refusal" role="alert">
+      <div className="sheet-hook-refusal-heading">
+        <Icon name="circle-alert" size={14} />
+        <span>{refusal.heading}</span>
+      </div>
+      {refusal.step !== null && <p className="sheet-hook-refusal-text">{refusal.step}</p>}
+      <HookOutput hook={refusal.hook} />
+      <p className="sheet-hook-refusal-text">{refusal.way_on}</p>
+    </div>
+  );
+}
+
 function StartProblem({ view, problem }: { view: SheetView; problem: SheetStartProblem }) {
   const [log, setLog] = useState<string | null>(null);
   const [shown, setShown] = useState(false);
@@ -583,6 +600,7 @@ export function NeedsYou({
           <>
             {view.permission_prompt && <PermissionPrompt prompt={view.permission_prompt} />}
             {view.refusal && <Refusal refusal={view.refusal} />}
+            {view.hook_refusal && <HookRefusal refusal={view.hook_refusal} />}
             <Holds view={view} />
             {aboveBar}
             {view.buttons.length > 0 && (

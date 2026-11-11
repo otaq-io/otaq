@@ -509,6 +509,9 @@ pub enum MergeView {
     Uncommitted { message: String, files: Vec<String> },
     /// git has no name and email for the user: nothing merged; they're asked for, then the merge goes on.
     NeedsIdentity { has: otaq_core::git::Identity },
+    /// A project's git hook refused a step: nothing merged. The refusal is on the ticket (Needs you, its output and
+    /// the way on), so the dialog closes and a toast only points there.
+    HookRefused { title: String, text: String },
     /// "SHOP-18 changed since you reviewed it · 1 new commit": the new commits (short sha, subject) and the
     /// files they changed · Approve anyway / Send back (REV-06).
     Changed {
@@ -584,6 +587,10 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
         },
         LocalMergeOutcome::Changed { check } => changed_view(key, check),
         LocalMergeOutcome::NeedsIdentity { has } => MergeView::NeedsIdentity { has: has.clone() },
+        LocalMergeOutcome::HookRefused { message, .. } => {
+            let (title, text) = super::hook_refusal::toast(&key.to_string(), message);
+            MergeView::HookRefused { title, text }
+        }
         // Nothing merged; the ticket is back with its agent, the comment's words (d0120).
         LocalMergeOutcome::CheckFailed {
             target,

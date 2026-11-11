@@ -278,6 +278,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::PrCancelled
         | EventKind::PrOpened
         | EventKind::AutoMergeStopped
+        | EventKind::HookRefused
         | EventKind::Helper => Kind::Stage,
         _ => Kind::Other,
     }
@@ -1273,15 +1274,18 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
 /// A start a hook refused: "Start failed" · "post-checkout hook refused the start", opening the hook's whole output,
 /// kept after the worktree it ran in is gone. `None` for any other event.
 fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
-    if e.kind != EventKind::StartInterrupted {
-        return None;
-    }
+    // A start, or Approve & merge (the click or the automatic delivery): the same row, its title naming what stopped.
+    let title = match e.kind {
+        EventKind::StartInterrupted => "Start failed",
+        EventKind::HookRefused => "Merge didn\u{2019}t go through",
+        _ => return None,
+    };
     let hook: otaq_core::git::RefusedHook =
         serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
     let output = super::sheet::hook_output(&hook);
     Some(told(
         e,
-        "Start failed".to_owned(),
+        title.to_owned(),
         Some(hook.line()),
         event_mark(e, facts),
         Opens {
@@ -1368,8 +1372,11 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         EventKind::Started | EventKind::AgentEditsSeen | EventKind::NoyanChangeUndone => {
             return None;
         }
-        // Each drawn by `comment_row`.
-        EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
+        // Each drawn by `comment_row`, a hook's refusal by `hook_refused_row`.
+        EventKind::CommentPosted
+        | EventKind::CommentEdited
+        | EventKind::CommentDeleted
+        | EventKind::HookRefused => {
             return None;
         }
         // Drawn by `post_merge_row`; one it can't read has nothing to say.
@@ -1866,6 +1873,7 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::StartedFromScratch
             | EventKind::MergedAutomatically
             | EventKind::AutoMergeStopped
+            | EventKind::HookRefused
             | EventKind::ValidationEnded
             | EventKind::SentToFix
             | EventKind::UpdatedFromBase
@@ -2385,6 +2393,35 @@ mod tests {
         assert_eq!(
             row.detail.as_deref(),
             Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
+        );
+    }
+
+    /// A hook's refusal stays in History with the hook's whole output, which the row opens.
+    #[test]
+    fn a_hook_refusal_keeps_its_output() {
+        let row = event_row(&event(
+            EventKind::HookRefused,
+            MIN,
+            json!({ "hook": { "name": "commit-msg", "step": "commit", "what": "the merge",
+                    "output": "commitlint: subject may not be empty\ncommitlint: type must be one of [feat, fix]\n",
+                    } }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "Merge didn\u{2019}t go through");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("commit-msg hook refused the merge")
+        );
+        assert_eq!(row.mark, Mark::Otaq);
+        assert_eq!(row.kind, Kind::Stage);
+        let opens = row.opens.unwrap();
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            lines,
+            [
+                "commitlint: subject may not be empty",
+                "commitlint: type must be one of [feat, fix]"
+            ]
         );
     }
 

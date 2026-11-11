@@ -34,6 +34,7 @@ use otaq_view::view_models::permission_prompt::PermissionPrompt;
 use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
+use otaq_view::view_models::hook_refusal as hook_refusals;
 use otaq_view::view_models::build_aside::{self, BuildAsideLine};
 use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
@@ -353,6 +354,29 @@ impl From<sheet::HookOutput> for HookOutput {
     }
 }
 
+/// A project's git hook refused Approve & merge (the click or the automatic delivery): "Your commit-msg hook refused
+/// the merge", the step, the hook's output in the same box as a refused start's, and the way on (the bar's Edit
+/// message and retry).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetHookRefusal")]
+pub struct HookRefusal {
+    pub heading: String,
+    pub step: Option<String>,
+    pub hook: HookOutput,
+    pub way_on: String,
+}
+
+impl From<hook_refusals::HookRefusalView> for HookRefusal {
+    fn from(v: hook_refusals::HookRefusalView) -> Self {
+        Self {
+            heading: v.heading,
+            step: v.step,
+            hook: v.hook.into(),
+            way_on: v.way_on,
+        }
+    }
+}
+
 /// *SHOP-32 · Validation failed 3 times*: the note box Answer the agent… opens (VAL-07).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetAnswerAgent")]
@@ -400,6 +424,9 @@ pub struct View {
     pub approve_opens_menu: bool,
     /// Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
     pub stop_message: Option<String>,
+    /// A project's git hook refused one of Otaq's own git steps: which hook, the step, its whole output and the way
+    /// on, above the bar (whose primary button is that way on).
+    pub hook_refusal: Option<HookRefusal>,
     /// Validation failed N times: Answer the agent…'s note box.
     pub answer_agent: Option<AnswerAgentBox>,
     /// The first parent, for View parent.
@@ -593,6 +620,8 @@ pub fn view_of(f: &Facts) -> View {
     let in_review = otaq_view::view_models::files_tab::waits_for_you(ticket);
     // Run shows once the project has a run command (or a Run is up).
     let runnable = session_tab::runnable(f.run);
+    let hook_refusal = otaq_view::view_models::card::hook_refusal(ticket)
+        .map(|r| HookRefusal::from(hook_refusals::view(r, ticket.base.branch())));
     let buttons: Vec<Button> = actions::all_buttons_in(ticket, f.custom_flow, f.skippable_check)
         .into_iter()
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
@@ -725,7 +754,9 @@ pub fn view_of(f: &Facts) -> View {
             .any(|b| b.action == Action::Approve)
             .then_some("Approve choices"),
         approve_opens_menu: actions::approve_opens_menu(f.decisions),
-        stop_message: validation_texts::stop_message(ticket),
+        // A hook's refusal says it all in its own callout.
+        stop_message: validation_texts::stop_message(ticket).filter(|_| hook_refusal.is_none()),
+        hook_refusal,
         answer_agent: validation_texts::answer_agent_text(ticket, f.rounds).map(|t| AnswerAgentBox {
             heading: t.heading,
             placeholder: t.placeholder,

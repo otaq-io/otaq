@@ -76,6 +76,9 @@ pub enum Action {
     RetryMerge,
     /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
     MoveToReview,
+    /// A project's git hook refused Approve & merge: the Approve & merge confirmation again, on the message the user
+    /// edited, to change it and merge from where it stopped.
+    EditMessage,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
@@ -135,6 +138,7 @@ impl Action {
             Self::RetryValidation => "Retry validation",
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
+            Self::EditMessage => "Edit message and retry",
             Self::OpenAgent => "Open agent\u{2026}",
             Self::StopMergeCheck => crate::view_models::card::STOP,
         }
@@ -151,6 +155,7 @@ impl Action {
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
+            Self::EditMessage => IconName::Pencil,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::SendAgain => IconName::Send,
             Self::Run => IconName::Play,
@@ -199,7 +204,8 @@ impl Action {
             | Self::AnswerAgent
             | Self::RetryValidation
             | Self::RetryMerge
-            | Self::MoveToReview => None,
+            | Self::MoveToReview
+            | Self::EditMessage => None,
         }
     }
 }
@@ -334,6 +340,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
             vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         }
         Status::CheckNoResult => vec![(A::RetryValidation, Primary)],
+        // A hook refused the merge: the message again, merged from where it stopped.
+        Status::DeliveryStopped if card::hook_refusal(ticket).is_some() => {
+            vec![(A::EditMessage, Primary), (A::MoveToReview, Secondary)]
+        }
         Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],

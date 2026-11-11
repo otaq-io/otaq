@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{EventKind, Ticket};
-use otaq_core::domain::{Actor, RemoteWarning, Status, WentOn};
+use otaq_core::domain::{Actor, AutoMergeStop, RemoteWarning, Status, WentOn};
 use otaq_core::flow::Delivers;
 use otaq_core::flow::default::testing::delivering;
+use otaq_core::git::GitStep;
 use otaq_core::git::testing::{commit, git, snapshot};
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
@@ -588,7 +589,7 @@ async fn a_refusing_pre_rebase_hook_never_stops_approve_and_merge() {
 }
 
 /// A hook that refuses the merge commit on the branch is a refusal like any other: nothing merged, main, the branch
-/// and the worktree as they were, the ticket still in review.
+/// and the worktree as they were, the refusal on the ticket.
 #[tokio::test]
 async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
     let w = TestService::start().await;
@@ -604,15 +605,23 @@ async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
         "grep -q '^SHOP-' \"$1\" || { echo 'messages start with the ticket key' >&2; exit 1; }",
     );
 
-    let err = w
+    let outcome = w
         .review
         .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
         .await
-        .unwrap_err();
+        .unwrap();
+    let LocalMergeOutcome::HookRefused { hook, step, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(hook, "commit-msg");
+    assert_eq!(step, Some(GitStep::UpdateBranch));
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    let refused = ticket.flags.hook_refusal.unwrap();
     assert!(
-        err.to_string()
+        refused
+            .output
             .contains("messages start with the ticket key"),
-        "{err}"
+        "{refused:?}"
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
     assert_eq!(
@@ -623,8 +632,107 @@ async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
     assert_eq!(git(&wt, &["status", "--porcelain"]), "");
     let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
     assert!(!wt.join(merge_head).exists(), "no merge left in progress");
-    assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);
+    assert_eq!(ticket.status, Status::DeliveryStopped);
     no_stash(&repo);
+    w.stop().await;
+}
+
+/// A hook that refuses Approve & merge's squash commit (the user's click, the dialog since closed): the refusal is on
+/// the ticket, not only in a toast. Its Delivery stops with "commit-msg hook refused the merge" (the card's Needs
+/// you), the hook's whole output is kept for the sheet, History lists it with that output, and main, the branch and
+/// the worktree are as they were. Edited to pass, the merge goes through from there and the refusal goes.
+#[tokio::test]
+async fn a_hook_refusing_approve_and_merge_shows_on_the_ticket() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    let main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let user = user_files(&repo);
+    hook(
+        &repo,
+        "commit-msg",
+        "grep -q '^feat: ' \"$1\" && exit 0\n\
+         echo 'commitlint: subject may not be empty' >&2\n\
+         echo 'commitlint: type must be one of [feat, fix]' >&2\n\
+         exit 1",
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::HookRefused {
+        hook: name,
+        step,
+        message,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(name, "commit-msg");
+    assert_eq!(step, Some(GitStep::Commit));
+    assert_eq!(message, "commit-msg hook refused the merge");
+
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::DeliveryStopped);
+    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    assert!(ticket.shows_needs_you(), "Needs you");
+    assert_eq!(
+        ticket.signal.and_then(|s| s.text).as_deref(),
+        Some("commit-msg hook refused the merge")
+    );
+    let refused = ticket.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.name, "commit-msg");
+    assert_eq!(refused.what, "the merge");
+    assert!(
+        refused.output.contains(
+            "commitlint: subject may not be empty\ncommitlint: type must be one of [feat, fix]"
+        ),
+        "the hook's whole output: {:?}",
+        refused.output
+    );
+    let events = w.board.history("SHOP-1").await.unwrap();
+    let logged = events
+        .iter()
+        .find(|e| e.kind == EventKind::HookRefused)
+        .expect("History lists it");
+    assert!(
+        logged.payload["hook"]["output"]
+            .as_str()
+            .is_some_and(|o| o.contains("type must be one of")),
+        "{:?}",
+        logged.payload
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD"]),
+        head,
+        "the branch unchanged"
+    );
+    assert_eq!(
+        git(&wt, &["status", "--porcelain"]),
+        "",
+        "the worktree clean"
+    );
+    assert_eq!(user_files(&repo), user, "the user's checkout unchanged");
+    no_stash(&repo);
+
+    // Edit the message and retry, from where it stopped.
+    let merged = w
+        .review
+        .local_merge("SHOP-1", "feat: checkout API (SHOP-1)", false, &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(merged, LocalMergeOutcome::Merged { .. }),
+        "{merged:?}"
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::Merged);
+    assert_eq!(ticket.flags.hook_refusal, None, "the refusal went");
     w.stop().await;
 }
 

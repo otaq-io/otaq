@@ -120,7 +120,10 @@ impl Review {
         let proposal = board.merge_proposal(key).await?;
         let actor = Actor::current_user();
         let ticket = board.ticket(key).await?;
-        let Merge { outcome, failed } = self.merge(key, &proposal.message, true, &actor).await?;
+        // The user's kept edit of the message, once they made one (after a hook refused the proposal, say), else the
+        // proposal.
+        let message = proposal.edited.as_deref().unwrap_or(&proposal.message);
+        let Merge { outcome, failed } = self.merge(key, message, true, &actor).await?;
         if let Some(failed) = failed {
             return self.delivery_check_failed(&ticket, &failed, &actor).await;
         }
@@ -182,6 +185,8 @@ impl Review {
                     .await?;
                 Delivered::Stopped(AutoMergeStop::DeliveryFailed)
             }
+            // Stopped already, with the refusal on the ticket, as after the user's click.
+            LocalMergeOutcome::HookRefused { .. } => Delivered::Stopped(AutoMergeStop::HookRefused),
             LocalMergeOutcome::RefusedUncommitted { message, .. } => {
                 tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");
                 Delivered::Left
