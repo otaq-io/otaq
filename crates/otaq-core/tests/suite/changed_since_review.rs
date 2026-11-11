@@ -140,8 +140,11 @@ async fn otaqs_own_merge_of_a_moved_base_is_no_change() {
         "#!/bin/sh\ngrep -q '^Merge branch' \"$1\" || exit 1\n",
     );
 
-    let err = w.review.local_merge("SHOP-1", "m", false, &me()).await;
-    assert!(err.is_err(), "the hook refused the squash commit");
+    let refused = w.review.local_merge("SHOP-1", "m", false, &me()).await;
+    assert!(
+        matches!(refused, Ok(LocalMergeOutcome::HookRefused { .. })),
+        "the hook refused the squash commit: {refused:?}"
+    );
     let after = git(&wt, &["rev-parse", "HEAD"]);
     assert_ne!(before, after, "main was merged into the branch");
     assert_eq!(
