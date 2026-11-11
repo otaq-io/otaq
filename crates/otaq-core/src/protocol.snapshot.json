@@ -2576,6 +2576,27 @@
         }
       }
     },
+    "EditedMessage": {
+      "kind": "struct",
+      "fields": {
+        "commits": {
+          "ty": "BTreeMap<String, String>",
+          "omittable": true
+        },
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "merge": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "title": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
     "EffectiveSettings": {
       "kind": "struct",
       "fields": {
@@ -4480,6 +4501,21 @@
         }
       }
     },
+    "KeepMessageParams": {
+      "kind": "struct",
+      "fields": {
+        "..edit": {
+          "ty": "MessageEdit",
+          "attrs": [
+            "flatten"
+          ]
+        },
+        "key": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "KeptBranches": {
       "kind": "struct",
       "fields": {
@@ -4994,6 +5030,10 @@
         "commits": {
           "ty": "u32"
         },
+        "edited": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "key": {
           "ty": "TicketKey",
           "required": true
@@ -5076,6 +5116,34 @@
         "name": {
           "ty": "String",
           "required": true
+        }
+      }
+    },
+    "MessageEdit": {
+      "kind": "enum",
+      "attrs": [
+        "tag=dialog"
+      ],
+      "variants": {
+        "merge": {
+          "fields": {
+            "message": {
+              "ty": "Option<String>"
+            }
+          }
+        },
+        "pr": {
+          "fields": {
+            "commits": {
+              "ty": "BTreeMap<String, String>"
+            },
+            "description": {
+              "ty": "Option<String>"
+            },
+            "title": {
+              "ty": "Option<String>"
+            }
+          }
         }
       }
     },
@@ -6203,6 +6271,10 @@
         "commits": {
           "ty": "Vec<FlowCommit>",
           "required": true
+        },
+        "edited": {
+          "ty": "EditedMessage",
+          "omittable": true
         },
         "flow": {
           "ty": "Option<PrFlow>",
@@ -8576,6 +8648,9 @@
         },
         "ticket.human_answers": {
           "newtype": "KeyParams"
+        },
+        "ticket.keep_message": {
+          "newtype": "KeepMessageParams"
         },
         "ticket.list": {
           "newtype": "ProjectParams"
