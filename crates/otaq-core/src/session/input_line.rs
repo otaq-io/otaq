@@ -2,8 +2,10 @@
 //!
 //! The tracker sees only keystrokes, so a key that a tool's own menu took (Codex's `y` on "Would you like to run
 //! the following command?") still counts as text in the input line, and Otaq's notes would wait for a line that
-//! is in fact empty. So when the tracker says there is text, the screen is read too: the kept output is replayed
-//! through a headless terminal ([`vt100`], as [`super::screen`] does) and the row the cursor is on is the input line.
+//! is in fact empty. And a tool that pastes the clipboard itself on Ctrl+V (Codex) puts text there no key accounts
+//! for, so one Backspace can bring the tracker's count to nothing over a full line. So the screen is read too,
+//! whatever the tracker says: the kept output is replayed through a headless terminal ([`vt100`], as
+//! [`super::screen`] does) and the row the cursor is on is the input line.
 //!
 //! The line is **empty** when, on that row,
 //!
@@ -16,8 +18,10 @@
 //!
 //! A row with the prompt marker and nothing after it (Copilot's empty line has no placeholder) is
 //! [`InputLine::Blank`]: empty too, unless the draft may run over several lines, whose other lines can sit above
-//! the cursor. Anything else, a hidden cursor (a menu, a permission prompt) included, is [`InputLine::Text`]: the
-//! tracker's answer stands.
+//! the cursor. A row that starts with the prompt marker and has text after it that isn't faded is
+//! [`InputLine::Typed`]: the line holds text, whatever the keys say. Anything else, a hidden cursor (a menu, a
+//! permission prompt) or text on a row without a prompt marker (a shell's line) included, is
+//! [`InputLine::Unknown`]: the tracker's answer stands.
 
 use crate::board::settings::TerminalColors;
 
@@ -30,8 +34,10 @@ pub enum InputLine {
     Placeholder,
     /// The prompt marker and nothing after it.
     Blank,
-    /// Text, or no input line to be seen.
-    Text,
+    /// The prompt marker and text after it: the line holds text.
+    Typed,
+    /// No input line to go by.
+    Unknown,
 }
 
 /// How much closer to the background a placeholder's colour is than the terminal's text colour: below this share
@@ -54,7 +60,7 @@ pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLi
     parser.process(&bytes[start..]);
     let screen = parser.screen();
     if screen.hide_cursor() {
-        return InputLine::Text;
+        return InputLine::Unknown;
     }
     let (row, cursor) = screen.cursor_position();
     let cells = (0..cols).filter_map(|col| {
@@ -64,29 +70,37 @@ pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLi
             .map(|c| (col, c))
     });
 
-    let mut markers = 0;
+    // The row starts with the prompt marker (left of the cursor).
+    let mut marker = false;
+    let mut left = 0;
     let mut placeholder = false;
+    let mut text = false;
     for (col, cell) in cells {
-        let text = cell.contents();
-        if text.chars().all(char::is_whitespace) {
+        let contents = cell.contents();
+        if contents.chars().all(char::is_whitespace) {
             continue;
         }
         if col < cursor {
-            markers += 1;
-            if markers > 1 || !is_prompt_marker(text) {
-                return InputLine::Text;
+            left += 1;
+            if left == 1 && is_prompt_marker(contents) {
+                marker = true;
+            } else {
+                text = true;
             }
         } else if faded(cell, colors) {
             placeholder = true;
         } else {
-            return InputLine::Text;
+            text = true;
         }
     }
-    match (placeholder, markers) {
-        (true, _) => InputLine::Placeholder,
-        (false, 1) => InputLine::Blank,
+    match (text, placeholder, marker) {
+        (true, _, true) => InputLine::Typed,
+        // Text on a row without a prompt marker: a shell's line, or output.
+        (true, _, false) => InputLine::Unknown,
+        (false, true, _) => InputLine::Placeholder,
+        (false, false, true) => InputLine::Blank,
         // An empty row without even a prompt marker is no input line to go by.
-        (false, _) => InputLine::Text,
+        (false, false, false) => InputLine::Unknown,
     }
 }
 
@@ -213,7 +227,7 @@ mod tests {
             read(&capture("codex-empty"), SIZE, DARK),
             InputLine::Placeholder
         );
-        assert_eq!(read(&capture("codex-typed"), SIZE, DARK), InputLine::Text);
+        assert_eq!(read(&capture("codex-typed"), SIZE, DARK), InputLine::Typed);
     }
 
     /// The release test's case: `y` answered Codex's "Would you like to run the following command?" and Codex went
@@ -222,7 +236,7 @@ mod tests {
     fn codex_after_its_command_question_shows_an_empty_line() {
         assert_eq!(
             read(&capture("codex-approval"), SIZE, DARK),
-            InputLine::Text
+            InputLine::Unknown
         );
         assert_eq!(
             read(&capture("codex-after-approval"), SIZE, DARK),
@@ -236,7 +250,7 @@ mod tests {
             read(&capture("claude-empty"), SIZE, DARK),
             InputLine::Placeholder
         );
-        assert_eq!(read(&capture("claude-typed"), SIZE, DARK), InputLine::Text);
+        assert_eq!(read(&capture("claude-typed"), SIZE, DARK), InputLine::Typed);
     }
 
     /// OpenCode's placeholder isn't dim: it is grey (128,128,128) on its own background, typed text near white.
@@ -249,7 +263,7 @@ mod tests {
             );
             assert_eq!(
                 read(&capture("opencode-typed"), SIZE, colors),
-                InputLine::Text
+                InputLine::Typed
             );
         }
     }
@@ -261,7 +275,10 @@ mod tests {
             read(&capture("copilot-empty"), SIZE, DARK),
             InputLine::Blank
         );
-        assert_eq!(read(&capture("copilot-typed"), SIZE, DARK), InputLine::Text);
+        assert_eq!(
+            read(&capture("copilot-typed"), SIZE, DARK),
+            InputLine::Typed
+        );
     }
 
     fn line(bytes: &str) -> InputLine {
@@ -303,42 +320,45 @@ mod tests {
     #[test]
     fn text_in_the_line_is_text() {
         // Typed text left of the cursor, also with a faded suggestion after it.
-        assert_eq!(line("\x1b[3;1H> fix it"), InputLine::Text);
+        assert_eq!(line("\x1b[3;1H> fix it"), InputLine::Typed);
         assert_eq!(
             line("\x1b[3;1H> /he\x1b[2mlp\x1b[22m\x1b[3;5H"),
-            InputLine::Text
+            InputLine::Typed
         );
         // Punctuation the user typed isn't a marker.
-        assert_eq!(line("\x1b[3;1H/"), InputLine::Text);
-        assert_eq!(line("\x1b[3;1H> /"), InputLine::Text);
+        assert_eq!(line("\x1b[3;1H/"), InputLine::Unknown);
+        assert_eq!(line("\x1b[3;1H> /"), InputLine::Typed);
         // The cursor moved back to the start of the text: it is right of the cursor, in the text's own colour.
-        assert_eq!(line("\x1b[3;1H> abc\x1b[3;3H"), InputLine::Text);
+        assert_eq!(line("\x1b[3;1H> abc\x1b[3;3H"), InputLine::Typed);
         // Coloured text that isn't faded (blue on the dark background, its own or the terminal's), and text on a
         // light background of the tool's own.
         assert_eq!(
             line("\x1b[3;1H> \x1b[38;2;92;156;245mabc\x1b[39m\x1b[3;3H"),
-            InputLine::Text
+            InputLine::Typed
         );
         assert_eq!(
             line("\x1b[3;1H\x1b[48;2;10;10;10m> \x1b[38;2;92;156;245mabc\x1b[3;3H"),
-            InputLine::Text
+            InputLine::Typed
         );
         assert_eq!(
             line("\x1b[3;1H\x1b[48;2;250;250;250m> \x1b[38;2;40;40;40mabc\x1b[3;3H"),
-            InputLine::Text
+            InputLine::Typed
         );
     }
 
     #[test]
-    fn no_input_line_in_sight_is_text() {
+    fn no_input_line_in_sight_is_unknown() {
         // A hidden cursor: a menu or a permission prompt.
         assert_eq!(
             line("\x1b[3;1H> \x1b[2mAsk\x1b[22m\x1b[3;3H\x1b[?25l"),
-            InputLine::Text
+            InputLine::Unknown
         );
         // An empty row without a marker: a program that doesn't echo, or a draft's second line.
-        assert_eq!(line("\x1b[3;1H"), InputLine::Text);
-        assert_eq!(line("abc\r\n"), InputLine::Text);
+        assert_eq!(line("\x1b[3;1H"), InputLine::Unknown);
+        assert_eq!(line("abc\r\n"), InputLine::Unknown);
+        // A shell's line: its prompt isn't a marker, so its text says nothing either way.
+        assert_eq!(line("\x1b[3;1H$ echo hi"), InputLine::Unknown);
+        assert_eq!(line("\x1b[3;1Hhalf-typed"), InputLine::Unknown);
     }
 
     #[test]

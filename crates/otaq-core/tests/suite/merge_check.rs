@@ -278,6 +278,128 @@ async fn the_restack_request_waits_behind_unsent_text_and_is_typed_once_the_line
     w.stop().await;
 }
 
+/// Re-test 5's case: a line pasted into a Codex session with Ctrl+V. Where the terminal's own paste is Ctrl+Shift+V,
+/// Ctrl+V reaches Codex as a key and Codex pastes the clipboard itself, so the whole line arrives in one piece that
+/// no keystroke carried; the tester then typed one more character. One Backspace brought the keys' count to
+/// nothing, and the restack request was typed after the rest of the text, both sent as one message. The screen
+/// decides: while it shows text after the prompt marker the request waits, and once the line shows empty it is typed
+/// alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_restack_request_waits_behind_a_pasted_line_after_one_backspace() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::caller::Caller;
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{InputParams, Request, encode_bytes};
+
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    commit(&repo, "test.sh", TEST_SH);
+    set_check(&w, "sh test.sh").await;
+    let (_a, _) = reviewed(&w, "Accent token", "guard", "no emerald\n").await;
+    let (b, _) = reviewed(&w, "Card", "card.ts", "bg-emerald-500\n").await;
+    let agent = w.agent_shell(&b).await;
+    let shown = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    // The row the cursor is on, as the screen shows it.
+    let input_row = || {
+        let mut screen = vt100::Parser::new(50, 400, 0);
+        screen.process(shown().as_bytes());
+        let (row, _) = screen.screen().cursor_position();
+        screen
+            .screen()
+            .rows(0, 400)
+            .nth(usize::from(row))
+            .unwrap_or_default()
+    };
+    // An agent tool's input line starts with its prompt marker.
+    w.sessions.write(&agent.session, b"PS1='> '\r").unwrap();
+    wait_until("the prompt marker shows", || input_row().trim_end() == ">").await;
+    let caller = Caller::Agent {
+        ticket: b.key.clone(),
+        ticket_id: b.id.clone(),
+        session: agent.session.clone(),
+    };
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.is_ready(&agent.session).unwrap());
+
+    // The pasted line, put in by the program in one piece, then one typed character from the app's terminal.
+    let pasted = "unsent draft line left by the tester retest";
+    w.sessions.write(&agent.session, pasted.as_bytes()).unwrap();
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let typing = |bytes: &[u8]| {
+        Request::SessionInput(InputParams {
+            session: agent.session.clone(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        })
+    };
+    client.request(typing(b"5")).await.unwrap();
+    wait_until("the user's text shows", || {
+        input_row().trim_end() == format!("> {pasted}5")
+    })
+    .await;
+
+    assert!(matches!(
+        merge(&w, "SHOP-1").await,
+        LocalMergeOutcome::Merged { .. }
+    ));
+    assert!(matches!(
+        merge(&w, "SHOP-2").await,
+        LocalMergeOutcome::CheckFailed { .. }
+    ));
+    let restack = claude_skill("restack");
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+
+    // One Backspace: the keys counted nothing more, but the screen still shows the pasted text. It waits.
+    client.request(typing(&[0x7f])).await.unwrap();
+    wait_until("the Backspace shows", || {
+        input_row().trim_end() == format!("> {pasted}")
+    })
+    .await;
+    tokio::time::sleep(otaq_core::session::KEY_SETTLE * 3).await;
+    assert!(!shown().contains(&restack), "typed onto the pasted text");
+    assert!(w.sessions.has_unsent_input(&agent.session).unwrap());
+    assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 1);
+
+    // The user empties the line: the request goes, alone.
+    client
+        .request(typing(&vec![0x7f; pasted.len()]))
+        .await
+        .unwrap();
+    wait_until("the restack request is typed", || {
+        shown().contains(&restack)
+    })
+    .await;
+    let mut screen = vt100::Parser::new(50, 400, 0);
+    screen.process(shown().as_bytes());
+    let line = screen
+        .screen()
+        .contents()
+        .lines()
+        .find(|l| l.contains(&restack))
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        line.strip_prefix("> ")
+            .is_some_and(|rest| rest.starts_with(&restack)),
+        "{line:?}"
+    );
+    drop(client);
+    w.stop().await;
+}
+
 /// The branch already has the target's commits (nothing moved since it was checked): the command doesn't run.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_check_does_not_run_when_the_target_did_not_move() {
