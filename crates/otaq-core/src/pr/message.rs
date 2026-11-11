@@ -118,13 +118,23 @@ pub fn prompt(key: &str, target: &str, can_open_pr: bool, can_merge: bool) -> St
     };
     format!(
         "{key} is waiting in Review. You are its delivery's agent: write the message its delivery uses, for {uses}, so \
-         it is ready when the user approves. Run `{cmd} prime` and read the commits against the base branch, follow \
-         the user's Agent instructions, then send one JSON object with `{cmd} pr message --stdin`: \"title\": one line \
-         starting with {key} (\"{key} Retry the order request once on timeout\"), \"description\": what changed and \
-         why, and how it was checked, in Markdown{branch}. Change no files and no commits, push nothing, and end your \
-         turn: {product} shows it to the user, who may edit it."
+         it is ready when the user approves. Run `{cmd} prime` and read the commits against the base branch, and \
+         follow the user's Agent instructions. The message must pass the project's own commit message rules, so find \
+         them first: {MESSAGE_RULES_PLACES}, and the style of recent commits on {target}. Then send one JSON object \
+         with `{cmd} pr message --stdin`: \"title\": one line that follows those rules and keeps {key} where they \
+         allow it (\"feat: retry the order request once on timeout ({key})\"); when nothing sets a format, it starts \
+         with {key} (\"{key} Retry the order request once on timeout\"), \"description\": what changed and why, and \
+         how it was checked, in Markdown{branch}. Change no files and no commits, push nothing, and end your turn: \
+         {product} shows it to the user, who may edit it."
     )
 }
+
+/// Where an agent finds a project's commit message rules before it writes a message: the merge message above, and
+/// the commit, open-pr and push skills, which name the same places. The hooks folder is the one git really uses, so a
+/// husky-style `core.hooksPath` is found from a ticket's worktree too.
+pub const MESSAGE_RULES_PLACES: &str = "a CONTRIBUTING file or similar docs, a commitlint or similar config \
+     (`commitlint.config.*`, `.commitlintrc*`, a `commitlint` key in `package.json`), the commit-msg hook in the \
+     folder `git rev-parse --git-path hooks` prints (it follows `core.hooksPath`, as husky sets it)";
 
 /// What the agent's `otaq pr message` prints.
 pub fn stored_text(key: &str) -> String {
@@ -343,5 +353,34 @@ mod tests {
             "a local merge has no PR branch"
         );
         assert!(local.contains("Change no files and no commits"));
+    }
+
+    /// The agent looks for the project's message rules before it writes, follows them keeping the key where they
+    /// allow, and leads with the key only when nothing sets a format.
+    #[test]
+    fn the_prompt_follows_the_projects_message_rules_and_else_leads_with_the_key() {
+        let text = prompt("HOOK-1", "main", false, true);
+        for needle in [
+            "CONTRIBUTING",
+            "commitlint",
+            "`git rev-parse --git-path hooks`",
+            "`core.hooksPath`",
+            "Agent instructions",
+            "recent commits on main",
+            "keeps HOOK-1 where they allow it",
+            "\"feat: retry the order request once on timeout (HOOK-1)\"",
+            "when nothing sets a format, it starts with HOOK-1 (\"HOOK-1 Retry the order request once on timeout\")",
+        ] {
+            assert!(
+                text.contains(needle),
+                "the prompt must say {needle:?}: {text}"
+            );
+        }
+        let rules = text.find("find them first").unwrap();
+        let send = text.find("pr message --stdin").unwrap();
+        assert!(
+            rules < send,
+            "the rules are found before the message is sent"
+        );
     }
 }
