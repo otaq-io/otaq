@@ -602,14 +602,22 @@ impl Signals {
     }
 
     /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`, the line the ticket showed
-    /// for it), or its question was passed on to the user or answered. The ticket's status follows.
+    /// for it), or its question was passed on to the user or answered. The ticket's status follows. Clients are told
+    /// the ticket changed even when its status stays (it already shows the agent in charge's prompt, or another
+    /// helper's): the helper's own row on the card and in the Session list changed.
     pub async fn helper_wait_changed(
         &self,
         ticket_id: &str,
         ended_prompt: Option<String>,
     ) -> Result<(), BoardError> {
-        self.apply(ticket_id, &Input::HelperWait { ended_prompt })
-            .await
+        let told = self
+            .apply_told(ticket_id, &Input::HelperWait { ended_prompt })
+            .await?;
+        if !told {
+            let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+            self.publish(&ticket, false);
+        }
+        Ok(())
     }
 
     /// The line of the ticket's helper prompt that has been open the longest, of a helper whose session still runs:
@@ -705,6 +713,11 @@ impl Signals {
 
     /// Runs one transition on the stored state, writes what changed and tells clients.
     async fn apply(&self, ticket_id: &str, input: &Input) -> Result<(), BoardError> {
+        self.apply_told(ticket_id, input).await.map(|_| ())
+    }
+
+    /// [`Self::apply`], returning whether the state changed (and so clients were told).
+    async fn apply_told(&self, ticket_id: &str, input: &Input) -> Result<bool, BoardError> {
         let _one_at_a_time = self.inner.applying.lock().await;
         let pool = self.inner.board.store().pool();
         let row: Option<StoredSignal> = sqlx::query_as(
@@ -715,10 +728,10 @@ impl Signals {
         .fetch_optional(pool)
         .await?;
         let Some((state, text, since, wakeup_at, last_signal_at, interrupted_from)) = row else {
-            return Ok(());
+            return Ok(false);
         };
         let Ok(status) = state.parse::<Status>() else {
-            return Ok(());
+            return Ok(false);
         };
         // An agent that waits for the user during a validation is marked so (interrupted_from validating).
         let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
@@ -744,7 +757,7 @@ impl Signals {
         };
         let after = transition(&before, input, now_ms());
         if after == before {
-            return Ok(());
+            return Ok(false);
         }
         // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no
         // longer the limit's to hide from Needs you (ATT-09).
@@ -775,7 +788,7 @@ impl Signals {
         .await?;
         let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
         self.publish(&ticket, after.status != before.status);
-        Ok(())
+        Ok(true)
     }
 
     fn publish(&self, ticket: &Ticket, status_changed: bool) {

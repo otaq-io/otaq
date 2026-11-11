@@ -862,7 +862,7 @@ impl Validation {
                 self.asking_of(ticket_id, |asking| {
                     asking.insert(session.to_owned());
                 });
-                board
+                let set = board
                     .set_validation_status(
                         ticket_id,
                         &[Status::Checking],
@@ -871,6 +871,7 @@ impl Validation {
                         false,
                     )
                     .await?;
+                self.status_set(&ticket, set, Status::CheckerNeedsYou);
             }
             Signal::Working { .. } => {
                 // Validating… again once the checker no longer waits on a prompt.
@@ -879,7 +880,7 @@ impl Validation {
                     !asking.is_empty()
                 });
                 if !still {
-                    board
+                    let set = board
                         .set_validation_status(
                             ticket_id,
                             &[Status::CheckerNeedsYou],
@@ -888,6 +889,7 @@ impl Validation {
                             false,
                         )
                         .await?;
+                    self.status_set(&ticket, set, Status::Checking);
                 }
             }
             Signal::Idle { .. } | Signal::TurnEnded if validating(ticket.status) => {
@@ -911,7 +913,7 @@ impl Validation {
                     .await?;
             }
             Signal::LimitReached { .. } if validating(ticket.status) => {
-                board
+                let set = board
                     .set_validation_status(
                         ticket_id,
                         &[Status::Checking, Status::CheckerNeedsYou],
@@ -920,10 +922,31 @@ impl Validation {
                         true,
                     )
                     .await?;
+                self.status_set(&ticket, set, Status::WaitingForLimitReset);
             }
             _ => {}
         }
         Ok(())
+    }
+
+    /// A checker's hook moved the ticket to `status` (`set`: the store's update took): clients are told at once, so the
+    /// card and the sheet show its prompt as it is drawn (or Validating… once it is answered), not at the next change.
+    fn status_set(&self, ticket: &Ticket, set: bool, status: Status) {
+        if !set {
+            return;
+        }
+        let project = ticket.key.project.to_string();
+        self.inner.events.publish(Event::TicketChanged {
+            project: project.clone(),
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+        });
+        self.inner.events.publish(Event::CardStatusChanged {
+            project,
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+            status,
+        });
     }
 
     /// The user answered the checker `session`'s permission prompt in its terminal (Enter, or Codex's "y" alone, after
