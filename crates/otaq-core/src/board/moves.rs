@@ -445,7 +445,8 @@ pub(crate) async fn unqueue_in(
 #[derive(Debug, Clone)]
 pub(crate) struct DragWrite {
     pub moved: Moved,
-    /// Every agent check's counter restarts (a drag back counts as a human Fail, FLW-13).
+    /// A drag back: every agent check's counter restarts (it counts as a human Fail, FLW-13) and the ticket's open
+    /// question closes ([`super::send_back::went_back`]).
     pub reset: bool,
     /// The stages the user moved the card past (a forward drag): its card says so.
     pub marks: Vec<(String, MovedPast)>,
@@ -524,7 +525,7 @@ pub(crate) async fn record_drag_in(
         .record(tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
         .await?;
     if reset {
-        super::validation::reset_check_counters(tx, &ticket.id).await?;
+        super::send_back::went_back(tx, &ticket.id).await?;
     }
     for (stage, how) in &marks {
         super::validation::mark_moved_past(tx, &ticket.id, stage, *how).await?;

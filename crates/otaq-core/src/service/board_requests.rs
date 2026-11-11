@@ -1908,8 +1908,8 @@ async fn ask_human(
 /// named stage is cleared, then the ticket goes back there as the user's own drag would take it (the asking agent's
 /// session stops, its conversation kept for when the ticket returns to its stage; the stage sent back to resumes its
 /// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the asking agent's
-/// comment, by its name: the reason is the agent's, only the send back is the user's. The question closes with the
-/// answer, and History's row names the stage that asked and its reason.
+/// comment, by its name: the reason is the agent's, only the send back is the user's. The send back closes the question
+/// (as every send back does), its answer recorded on it, and History's row names the stage that asked and its reason.
 async fn send_back_on_request(
     shared: &Shared,
     key: &str,
@@ -1917,7 +1917,7 @@ async fn send_back_on_request(
     actor: &Actor,
 ) -> Result<crate::session::deliveries::Delivery, BoardError> {
     use crate::board::moves::{DropOn, MoveCheck};
-    use crate::board::questions::{AnsweredVia, Choice, format_answer};
+    use crate::board::questions::{Choice, format_answer};
     use crate::review::ReturnOutcome;
     use crate::session::deliveries::Delivery;
     let board = &shared.board;
@@ -1983,11 +1983,7 @@ async fn send_back_on_request(
     match outcome {
         Ok(ReturnOutcome::Done { .. }) => {
             board
-                .close_question(
-                    &question.id,
-                    Some(&format_answer(&question, &Choice::SendBack)),
-                    AnsweredVia::Box,
-                )
+                .record_send_back_answer(&question.id, &format_answer(&question, &Choice::SendBack))
                 .await?;
             publish_ticket_changed(shared, &ticket.key).await;
             Ok(Delivery::Sent { count: 1 })
