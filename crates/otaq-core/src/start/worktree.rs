@@ -10,10 +10,12 @@
 //! over: the ticket's branch is the next free name, `otaq/SHOP-1-2` ([`free_branch`]), stored before it is made. Nothing is
 //! written into the user's repository except git's own branch refs and worktree metadata under `.git/`.
 //!
-//! A new ticket's start that fails leaves nothing half-made: the worktree it added (a post-checkout hook may refuse
-//! after git made it) is removed and unregistered, and the branch it created is deleted while it still points where
-//! it was made ([`discard`]), so Retry start does the whole start again and the start's hooks run again. A reopened
-//! ticket's worktree holds earlier work and is never removed; nor is a worktree or branch an earlier start made.
+//! A new ticket's start that fails before its worktree is ready leaves nothing half-made: the worktree it added (a
+//! post-checkout hook may refuse after git made it) is removed and unregistered, and the branch it created is deleted
+//! while it still points where it was made ([`discard`]), so Retry start does the whole start again and the start's
+//! hooks run again. A start that fails only later (its ports, launching the agent) keeps the ready worktree. A
+//! reopened ticket's worktree holds earlier work and is never removed; nor is a worktree or branch an earlier start
+//! made.
 
 use std::path::{Path, PathBuf};
 
@@ -201,7 +203,8 @@ pub(crate) async fn discard(
     let cleared = sqlx::query(
         "UPDATE tickets SET worktree_path = CASE WHEN ? THEN NULL ELSE worktree_path END,
                             base_sha = CASE WHEN ? THEN NULL ELSE base_sha END,
-                            branch_name = CASE WHEN ? THEN NULL ELSE branch_name END
+                            branch_name = CASE WHEN ? THEN NULL ELSE branch_name END,
+                            worktree_ready = FALSE
          WHERE id = ?",
     )
     .bind(made.worktree)

@@ -388,6 +388,85 @@ async fn without_a_launch_context_the_launch_step_stops() {
     assert!(sessions.in_memory().is_empty());
 }
 
+/// A start that fails only at launching the agent (every start hook and setup already ran) keeps the ready worktree
+/// and its branch; Retry start launches in it without running post-checkout or setup again.
+#[tokio::test]
+async fn a_failed_launch_keeps_the_ready_worktree_and_retry_only_launches() {
+    let f = Fixture::shop().await;
+    let hooks = f.home.path().join("hooks.log");
+    let setups = f.home.path().join("setups.log");
+    let hook = repo(&f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\necho ran >> '{}'\n", hooks.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    set_project(
+        &f,
+        ProjectSettings {
+            setup_command: format!("echo setup>> \"{}\"", setups.display()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let t = queued(&f, "Launch").await;
+    let runs = |log: &Path| {
+        std::fs::read_to_string(log)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+
+    // No launch context: the start goes through the worktree, its hook and setup, and fails at the launch.
+    let (_, unlaunched, data) = starter_for(&f, None);
+    let outcome = unlaunched
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            outcome,
+            StartOutcome::Interrupted {
+                step: StartStep::Launch,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    let worktree = data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(
+        worktree.join("file1.txt").is_file(),
+        "the ready worktree stays"
+    );
+    assert!(registered(&f, &worktree));
+    assert!(branch_exists(&f, "otaq/SHOP-1"));
+    let row = f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.branch_name.as_deref(), Some("otaq/SHOP-1"));
+    assert!(row.worktree_path.is_some());
+    assert_eq!((runs(&hooks), runs(&setups)), (1, 1));
+
+    // Retry start reuses it and only launches: no post-checkout, no setup again.
+    let (sessions, starter, _) = starter_for(&f, Some(stand_in()));
+    starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert_eq!((runs(&hooks), runs(&setups)), (1, 1));
+    assert_eq!(f.ticket("SHOP-1").await.status, Status::Working);
+    assert_eq!(
+        git(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "otaq/SHOP-1"
+    );
+    sessions.shutdown().await;
+}
+
 /// A post-checkout hook that refuses after git made the worktree fails the start and leaves nothing half-made; Retry
 /// start does the whole start again, the hook runs again, and the ticket starts.
 #[tokio::test]

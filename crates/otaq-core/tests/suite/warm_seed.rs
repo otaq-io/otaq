@@ -1,7 +1,8 @@
 //! Seeding a new worktree at start (T-0298, T-0307; WRM-04, SES-01, SES-02, M19-b, d0082, d0085) against temporary
 //! repositories, with a temporary data folder, on a disk that can clone (the build is cloned) and one that can't (it
 //! is renamed out of the stock): from the warm build, from the checkout only where the disk can clone (env files left
-//! out, its uncommitted changes marked changed), nothing to seed, a returning ticket not seeded and a retried start seeded afresh,
+//! out, its uncommitted changes marked changed), nothing to seed, a returning ticket and a start retried after a failed launch
+//! not seeded again and one retried after a failed setup seeded afresh,
 //! the timestamp trick, a failed clone or rename, the recorded times (Q71), Clear waiting for a running seed, the
 //! nearest build, three starts taking three builds, and a returning ticket whose build was freed at Review getting it
 //! back (T-0309). Builds are fake: files the test writes. Where the test disk
@@ -118,6 +119,8 @@ struct World {
     warm: WarmBuilds,
     stock: Stock,
     starter: Starter,
+    /// The same starter with no launch context: its starts go as far as the launch and fail there.
+    unlaunched: Starter,
     /// The cloner and the mover.
     hand: Arc<Recording>,
 }
@@ -151,7 +154,7 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
     change(&mut hand);
     let hand = Arc::new(hand);
     // A stand-in for `claude` that exits at once: every start goes past seeding, env files and setup and launches. (A
-    // start that failed would remove the worktree it made.)
+    // start that failed before its worktree was ready would remove the worktree it made.)
     let sessions = Sessions::new(f.board.store().clone(), events.clone());
     let launch = LaunchContext {
         bin_dir: "/opt/cb/bin".into(),
@@ -162,25 +165,30 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
             config_dir: None,
         },
     };
-    let starter = Starter::new(
-        f.board.clone(),
-        data.clone(),
-        PortPool::new(f.board.store().clone()),
-        sessions.clone(),
-        otaq_core::agent_tools::Adapters::launching_only(Some(launch), data.clone()),
-        events.clone(),
-    );
     let seeder = Seeder::new(warm.clone(), stock.clone(), hand.clone(), hand.clone());
-    starter.set_seeder(seeder.clone());
-    // A returning ticket whose build was freed gets it back through the ticket environment (M19-c).
-    starter.set_ticket_env(TicketEnv::new(
-        f.board.clone(),
-        data.clone(),
-        warm.clone(),
-        seeder,
-        sessions,
-        events,
-    ));
+    let starter_with = |launch: Option<LaunchContext>| {
+        let starter = Starter::new(
+            f.board.clone(),
+            data.clone(),
+            PortPool::new(f.board.store().clone()),
+            sessions.clone(),
+            otaq_core::agent_tools::Adapters::launching_only(launch, data.clone()),
+            events.clone(),
+        );
+        starter.set_seeder(seeder.clone());
+        // A returning ticket whose build was freed gets it back through the ticket environment (M19-c).
+        starter.set_ticket_env(TicketEnv::new(
+            f.board.clone(),
+            data.clone(),
+            warm.clone(),
+            seeder.clone(),
+            sessions.clone(),
+            events.clone(),
+        ));
+        starter
+    };
+    let starter = starter_with(Some(launch));
+    let unlaunched = starter_with(None);
     // The fake build writes `out/`; `.env.local` is the env file. Both are gitignored.
     let repo = f.repo();
     std::fs::create_dir_all(repo.join("src")).unwrap();
@@ -193,6 +201,7 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
         warm,
         stock,
         starter,
+        unlaunched,
         hand,
     }
 }
@@ -488,12 +497,12 @@ async fn nothing_is_seeded_without_a_seed_or_with_the_switch_off() {
 }
 
 #[tokio::test]
-async fn a_retried_start_is_seeded_afresh_and_a_returning_ticket_is_not() {
+async fn a_start_retried_after_a_failed_setup_is_seeded_afresh() {
     for mode in MODES {
         let w = world(mode).await;
         w.keep(&head(&w.repo())).await;
         w.settings(|s| s.setup_command = "exit 1".into()).await;
-        let t = w.queued("SHOP-1").await;
+        w.queued("SHOP-1").await;
         assert!(matches!(
             w.start("SHOP-1").await,
             StartOutcome::Interrupted {
@@ -518,7 +527,41 @@ async fn a_retried_start_is_seeded_afresh_and_a_returning_ticket_is_not() {
             "{}",
             w.log("SHOP-1")
         );
+    }
+}
+
+#[tokio::test]
+async fn a_start_retried_after_a_failed_launch_and_a_returning_ticket_are_not_seeded_again() {
+    for mode in MODES {
+        let w = world(mode).await;
+        w.keep(&head(&w.repo())).await;
+        w.settings(|s| s.setup_command = "echo set up".into()).await;
+        let t = w.queued("SHOP-1").await;
+        assert!(matches!(
+            w.unlaunched
+                .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+                .await
+                .unwrap(),
+            StartOutcome::Interrupted {
+                step: StartStep::Launch,
+                ..
+            }
+        ));
+        assert_eq!(w.calls().len(), 1);
+        let wt = w.worktree("SHOP-1");
+        assert!(wt.join("out").exists(), "the ready worktree is kept");
+        let log = w.log("SHOP-1");
+        assert!(log.contains("set up"), "{log}");
         std::fs::remove_dir_all(wt.join("out")).unwrap();
+        // Another build in the stock, so a second seed would find one.
+        w.keep(&head(&w.repo())).await;
+
+        // Retry start reuses the ready worktree and only launches: not seeded twice (SES-02), no setup again.
+        w.starter.retry("SHOP-1", &me()).await.unwrap();
+        went_on(&w.start("SHOP-1").await);
+        assert_eq!(w.calls().len(), 1);
+        assert!(!wt.join("out").exists());
+        assert_eq!(w.log("SHOP-1"), log, "setup didn't run again");
 
         // A returning (parked) ticket keeps its worktree as it is.
         sqlx::query("UPDATE tickets SET parked = TRUE WHERE id = ?")
@@ -528,7 +571,7 @@ async fn a_retried_start_is_seeded_afresh_and_a_returning_ticket_is_not() {
             .unwrap();
         w.f.force_status(&t, Status::Queued).await;
         went_on(&w.start("SHOP-1").await);
-        assert_eq!(w.calls().len(), 2);
+        assert_eq!(w.calls().len(), 1);
         assert!(!wt.join("out").exists());
     }
 }
