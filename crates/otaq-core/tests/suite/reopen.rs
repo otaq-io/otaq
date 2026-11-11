@@ -190,6 +190,81 @@ async fn a_failed_start_of_a_reopened_ticket_keeps_its_worktree() {
     w.stop().await;
 }
 
+/// A reopened ticket whose kept worktree has uncommitted work starts even when the project's hooks would refuse
+/// Otaq's temporary save of it (a message rule that wants `feat:`, a lint that refuses a TODO): the save runs no
+/// hook, and the files are back uncommitted when the agent starts.
+#[tokio::test]
+async fn a_reopened_ticket_with_uncommitted_work_starts_past_hooks_that_would_refuse_the_save() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let t = w.create("SHOP", "Coupon codes").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "coupon.ts", "ticket\n");
+    std::fs::write(wt.join("coupon.ts"), "ticket\n// TODO: expiry\n").unwrap();
+    std::fs::write(wt.join("notes.md"), "TODO: ask about expiry\n").unwrap();
+    w.record_ended_agent(&t, "0199-old-conversation").await;
+    w.force_status(&t, Status::Working).await;
+    w.review.close("SHOP-1", true, &me()).await.unwrap();
+    assert!(wt.join("notes.md").is_file(), "the worktree is kept");
+    let log = repo.parent().unwrap().join("hooks.log");
+    for (name, body) in [
+        (
+            "pre-commit",
+            "git diff --cached | grep -q TODO && { echo 'lint: no TODOs' >&2; exit 1; }\nexit 0",
+        ),
+        (
+            "commit-msg",
+            "grep -qE '^feat:' \"$1\" || { echo 'commit-msg: use feat:' >&2; exit 1; }",
+        ),
+        ("prepare-commit-msg", "exit 0"),
+        ("post-commit", "exit 0"),
+    ] {
+        let hook = repo.join(".git/hooks").join(name);
+        std::fs::write(
+            &hook,
+            format!("#!/bin/sh\necho {name} >> '{}'\n{body}\n", log.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let before = git(&wt, &["status", "--porcelain=v1", "--untracked-files=all"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::Working).await;
+
+    assert!(!log.exists(), "no hook ran on the temporary save");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "nothing committed");
+    assert_eq!(
+        git(&wt, &["status", "--porcelain=v1", "--untracked-files=all"]),
+        before,
+        "the files are back uncommitted"
+    );
+    assert_eq!(
+        std::fs::read_to_string(wt.join("coupon.ts")).unwrap(),
+        "ticket\n// TODO: expiry\n"
+    );
+    let log_all = git(&wt, &["log", "--all", "--format=%s"]);
+    assert!(!log_all.contains("paused by"), "{log_all}");
+    if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Agent) {
+        w.sessions.stop(&s.id).await.unwrap();
+    }
+    w.stop().await;
+}
+
 #[tokio::test]
 async fn a_conflicting_merge_is_announced_through_prime_and_the_agent_still_starts() {
     let w = world().await;

@@ -1169,7 +1169,8 @@ impl Starter {
     /// A reopened ticket's old branch is first brought up to date with no tokens: the current base is merged into
     /// it, never rebased (GIT-06; the checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded.
     /// A conflict leaves the branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still
-    /// starts. A hook that refuses the checkpoint or the merge commit stops the start (GIT-02).
+    /// starts. A hook that refuses the merge commit stops the start (GIT-02); the checkpoint that keeps uncommitted
+    /// files for a moment runs no hook, so half-done work or its message never stops a start.
     async fn update_reopened(
         &self,
         ticket: &Ticket,
@@ -1178,7 +1179,7 @@ impl Starter {
         actor: &Actor,
     ) -> Result<(), StartError> {
         use crate::board::conflicts::{Conflict, ConflictReason};
-        use crate::git::checkpoint::{UpdateError, UpdateOutcome, checkpoint_rejected_message};
+        use crate::git::checkpoint::{UpdateError, UpdateOutcome};
         let board = &self.inner.board;
         let git = &board.project_git(ticket.key.project.as_str()).await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
@@ -1192,11 +1193,6 @@ impl Starter {
         };
         let outcome = match git.merge_with_checkpoint(&worktree.path, rev).await {
             Ok(outcome) => outcome,
-            Err(UpdateError::CheckpointRejected { .. }) => {
-                return Err(StartError::Other(checkpoint_rejected_message(
-                    &ticket.key.to_string(),
-                )));
-            }
             Err(UpdateError::Git(e)) => return Err(e.into()),
         };
         let payload = match outcome {
