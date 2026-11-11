@@ -380,7 +380,8 @@ pub enum ApproveCheck {
     Changed {
         new_commits: Vec<NewCommit>,
         files: Vec<crate::git::diff::ChangedFile>,
-        /// The reviewed head, for `diff.file` of only the new commits.
+        /// The reviewed head, for `diff.file` of only the new commits: a commit, or the tree of the reviewed head
+        /// with what the target brought in since merged in.
         reviewed: String,
         head: String,
     },
@@ -397,7 +398,9 @@ pub fn changed_message(key: &str, commits: usize) -> String {
 }
 
 impl Board {
-    /// The check before any approve: new commits on the branch since its review head.
+    /// The check before any approve: new commits on the branch since its review head. What the target brought in
+    /// when its branch was merged into the ticket's since the review (Otaq bringing the branch up to date) isn't a
+    /// change: the reviewed head is compared as if it had the same target commits merged in.
     pub async fn approve_check(&self, key: &str) -> Result<ApproveCheck, BoardError> {
         let ticket = self.ticket(key).await?;
         let Some(row) = self.store.ticket(&ticket.id).await? else {
@@ -415,10 +418,19 @@ impl Board {
         if head == reviewed {
             return Ok(ApproveCheck::Unchanged);
         }
-        let range = format!("{reviewed}..{head}");
-        let log = git
-            .run(repo, &["log", "--reverse", "--format=%H%x09%s", &range])
+        let target = self.merge_target(&ticket).await?.target;
+        let (from, brought_in) = self
+            .reviewed_with_target(repo, &reviewed, &head, &target)
             .await?;
+        let range = format!("{reviewed}..{head}");
+        let mut args = vec!["log", "--reverse", "--format=%H%x09%s", range.as_str()];
+        let not;
+        if let Some(brought_in) = &brought_in {
+            // Only the branch's own commits: not the target's, nor the merge that brought them in.
+            not = format!("^{brought_in}");
+            args.extend(["--no-merges", not.as_str()]);
+        }
+        let log = git.run(repo, &args).await?;
         let new_commits: Vec<NewCommit> = log
             .lines()
             .filter_map(|l| l.split_once('\t'))
@@ -428,7 +440,7 @@ impl Board {
             })
             .collect();
         let files = git
-            .changed_files(repo, &crate::git::diff::DiffSpec::between(&reviewed, &head))
+            .changed_files(repo, &crate::git::diff::DiffSpec::between(&from, &head))
             .await?;
         if new_commits.is_empty() && files.is_empty() {
             return Ok(ApproveCheck::Unchanged);
@@ -436,15 +448,61 @@ impl Board {
         Ok(ApproveCheck::Changed {
             new_commits,
             files,
-            reviewed,
+            reviewed: from,
             head,
         })
     }
 
-    /// After Otaq itself rebased the ticket's branch from `old_head` to `new_head` (GIT-05): the rebase
-    /// isn't a change to review. The reviewed head moves to its rebased counterpart: the new head when nothing
-    /// was added after the review, else the commit as many commits below the new head as were added.
-    pub async fn record_otaq_rebase(
+    /// What `head` is compared with: the reviewed head, or, when target commits were merged into the branch after
+    /// the review, the tree of the reviewed head with those same commits merged in (and the newest of them). A merge
+    /// that wouldn't be clean compares with the reviewed head as it is.
+    async fn reviewed_with_target(
+        &self,
+        repo: &Path,
+        reviewed: &str,
+        head: &str,
+        target: &str,
+    ) -> Result<(String, Option<String>), BoardError> {
+        let git = self.git()?;
+        let Some(target_at) = git.resolve(repo, &format!("refs/heads/{target}")).await? else {
+            return Ok((reviewed.to_owned(), None));
+        };
+        let Ok(merge_base) = git.run(repo, &["merge-base", head, &target_at]).await else {
+            return Ok((reviewed.to_owned(), None));
+        };
+        let brought_in = merge_base.trim().to_owned();
+        let already = git
+            .run(repo, &["merge-base", "--is-ancestor", &brought_in, reviewed])
+            .await
+            .is_ok();
+        if already {
+            return Ok((reviewed.to_owned(), None));
+        }
+        // A read-only test merge (it writes only unreferenced objects): exit 0 and the merged tree when clean.
+        let merged = git
+            .run_with_code(
+                repo,
+                &["merge-tree", "--write-tree", "--no-messages", reviewed, &brought_in],
+            )
+            .await?;
+        match merged {
+            (0, out) => match out.lines().next().map(str::trim) {
+                Some(tree) if !tree.is_empty() => Ok((tree.to_owned(), Some(brought_in))),
+                _ => Ok((reviewed.to_owned(), None)),
+            },
+            _ => Ok((reviewed.to_owned(), None)),
+        }
+    }
+
+    /// After Otaq itself moved the ticket's branch from `old_head` to `new_head` with no change of its own (GIT-05):
+    /// the target merged into it, the PR flow's reworded messages, the host's commits taken off again. It isn't a
+    /// change to review:
+    /// - the reviewed head was `old_head`: it becomes `new_head`;
+    /// - `new_head` merged something into `old_head` (its first parent) after commits were added since the review:
+    ///   the reviewed head stays, and [`Board::approve_check`] leaves out what the merge brought in;
+    /// - otherwise (the same commits rewritten one for one): the commit as many first-parent commits below the new
+    ///   head as were added after the review.
+    pub async fn record_otaq_update(
         &self,
         ticket_id: &str,
         old_head: &str,
@@ -468,23 +526,32 @@ impl Board {
         let project = self.project(&project_key).await?;
         let repo = Path::new(&project.repo_path);
         let git = self.git()?;
-        let added: u32 = if reviewed == old_head {
-            0
+        let moved_to = if reviewed == old_head {
+            new_head.to_owned()
         } else {
+            let parents = git
+                .run(repo, &["rev-list", "--parents", "-n", "1", new_head])
+                .await?;
+            let parents: Vec<&str> = parents.split_whitespace().skip(1).collect();
+            if parents.len() > 1 && parents[0] == old_head {
+                return Ok(());
+            }
             let range = format!("{reviewed}..{old_head}");
-            match git.run(repo, &["rev-list", "--count", &range]).await {
+            let added: u32 = match git
+                .run(repo, &["rev-list", "--first-parent", "--count", &range])
+                .await
+            {
                 Ok(n) => n.trim().parse().unwrap_or(0),
                 // The reviewed head isn't on the branch any more: leave it, the check reports the change.
                 Err(_) => return Ok(()),
-            }
+            };
+            git.run(repo, &["rev-parse", &format!("{new_head}~{added}")])
+                .await?
+                .trim()
+                .to_owned()
         };
-        let rebased = git
-            .run(repo, &["rev-parse", &format!("{new_head}~{added}")])
-            .await?
-            .trim()
-            .to_owned();
         sqlx::query("UPDATE tickets SET review_head_sha = ? WHERE id = ?")
-            .bind(rebased)
+            .bind(moved_to)
             .bind(ticket_id)
             .execute(self.store.pool())
             .await?;

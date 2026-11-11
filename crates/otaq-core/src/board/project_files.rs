@@ -287,7 +287,7 @@ pub struct LineSpan {
 }
 
 /// Owners on one base changing the file (FIL-06): "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58).
-/// Whichever merges second will rebase on the other."
+/// Whichever merges second will merge the other in first."
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct SameFile {
     pub base_branch: String,
@@ -700,8 +700,8 @@ fn same_file_note(base_branch: &str, owners: &[(&TicketKey, Option<&[Change]>)])
     }
 }
 
-/// "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58). Whichever merges second will rebase on the
-/// other." / "SHOP-19 and SHOP-29 both change this file."; three or more: "SHOP-19, SHOP-29 and SHOP-33 all …".
+/// "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58). Whichever merges second will merge the other
+/// in first." / "SHOP-19 and SHOP-29 both change this file."; three or more: "SHOP-19, SHOP-29 and SHOP-33 all …".
 fn note_text(keys: &[TicketKey], spans: &[LineSpan], function: Option<&str>) -> String {
     let keys: Vec<String> = keys.iter().map(ToString::to_string).collect();
     let (names, all) = match keys.split_last() {
@@ -732,9 +732,9 @@ fn note_text(keys: &[TicketKey], spans: &[LineSpan], function: Option<&str>) -> 
         None => lines,
     };
     let then = if all {
-        "Each one that merges later will rebase on the ones before it."
+        "Each one that merges later will merge the ones before it in first."
     } else {
-        "Whichever merges second will rebase on the other."
+        "Whichever merges second will merge the other in first."
     };
     format!("{names} {both} edit {what}. {then}")
 }
@@ -1681,7 +1681,7 @@ mod tests {
         let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
         assert_eq!(
             note.note,
-            "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will rebase on the other."
+            "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will merge the other in first."
         );
         assert_eq!(
             note.spans,
@@ -1705,7 +1705,7 @@ mod tests {
         let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
         assert_eq!(
             note.note,
-            "SHOP-19 and SHOP-29 both edit lines 41\u{2013}58 and 70\u{2013}71. Whichever merges second will rebase on the other."
+            "SHOP-19 and SHOP-29 both edit lines 41\u{2013}58 and 70\u{2013}71. Whichever merges second will merge the other in first."
         );
         assert_eq!(note.function, None);
 
@@ -1715,7 +1715,7 @@ mod tests {
         let note = same_file_note("main", &[(&k19, Some(&a[..])), (&k29, Some(&b[..]))]);
         assert_eq!(
             note.note,
-            "SHOP-19 and SHOP-29 both edit line 5. Whichever merges second will rebase on the other."
+            "SHOP-19 and SHOP-29 both edit line 5. Whichever merges second will merge the other in first."
         );
     }
 
@@ -1748,7 +1748,7 @@ mod tests {
         );
         assert_eq!(
             note.note,
-            "SHOP-29, SHOP-33 and SHOP-19 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
+            "SHOP-29, SHOP-33 and SHOP-19 all edit round (lines 4\u{2013}6). Each one that merges later will merge the ones before it in first."
         );
         let plain = same_file_note("main", &[(&k1, None), (&k2, None), (&k3, None)]);
         assert_eq!(

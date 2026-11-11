@@ -19,7 +19,7 @@ pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · checker";
 pub const NO_RESULT: &str = "Check ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
 pub const DISCARDED: &str = "Validation discarded: the checker changed files";
-/// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
+/// Merging the target into a Delivery's branch conflicted; the agent merges it in with `restack`, no click (FLW-17).
 pub const MERGE_CONFLICT_FIXING: &str = "Merge conflict · fixing";
 /// Local merge runs the project's Merge check on the merged result before the target moves (d0120).
 pub const MERGE_CHECK_RUNNING: &str = "Merging · running the merge check";
@@ -29,7 +29,7 @@ pub const MERGE_CHECK_FAILED_FIXING: &str = "Merge check failed · fixing";
 pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
 
 /// "Conflicts with main · fixing": the test merge after another ticket merged found a conflict while this one waited
-/// in Review, and its agent rebases with `restack`, no click (d0127). `target` is the branch it merges into.
+/// in Review, and its agent merges the target in with `restack`, no click (d0127). `target` is the branch it merges into.
 pub fn conflicts_fixing(target: &str) -> String {
     format!("Conflicts with {target} \u{b7} fixing")
 }
@@ -113,20 +113,20 @@ pub fn keeps_failing_merge_check(target: &str) -> String {
 }
 
 /// The comment a failed Merge check posts, with the output attached (d0120, d0109): "Merge check `npm test` failed on
-/// the result rebased onto main (exit 1). Fix it, then submit again." `exit` is `None` when a signal ended it.
+/// the result with main merged in (exit 1). Fix it, then submit again." `exit` is `None` when a signal ended it.
 pub fn merge_check_failed(command: &str, target: &str, exit: Option<i32>) -> String {
     let exit = exit.map_or_else(|| "killed by a signal".to_owned(), |c| format!("exit {c}"));
     format!(
-        "Merge check `{command}` failed on the result rebased onto {target} ({exit}). Fix it, then submit again."
+        "Merge check `{command}` failed on the result with {target} merged in ({exit}). Fix it, then submit again."
     )
 }
 
 /// What a live agent session is typed after `restack` when the Merge check failed (CMT-05: the hand-over named, never
-/// its text): "SHOP-19's merge check failed on the result rebased onto `main`; the comment has its output. Run `otaq
+/// its text): "SHOP-19's merge check failed on the result with `main` merged in; the comment has its output. Run `otaq
 /// prime`."
 pub fn merge_check_failed_told(key: &super::TicketKey, target: &str) -> String {
     format!(
-        "{key}'s merge check failed on the result rebased onto `{target}`; the comment has its output. Run `{} prime`.",
+        "{key}'s merge check failed on the result with `{target}` merged in; the comment has its output. Run `{} prime`.",
         crate::naming::COMMAND_NAME
     )
 }

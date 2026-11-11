@@ -166,7 +166,7 @@ async fn a_rebase_keeps_new_commits_new() {
         .unwrap();
     let new_head = git(&wt, &["rev-parse", "HEAD"]);
     w.board
-        .record_otaq_rebase(&t.id, &old_head, &new_head)
+        .record_otaq_update(&t.id, &old_head, &new_head)
         .await
         .unwrap();
 

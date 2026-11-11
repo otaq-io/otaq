@@ -93,7 +93,7 @@ pub struct TicketRow {
     /// Backlog, waiting to begin and Done (STG-04).
     pub stage_id: Option<String>,
     /// T-0491 (migration 0059): the next Local merge runs the Merge check even when the branch is current: an
-    /// earlier one rebased it onto new commits and no check passed on them (d0120).
+    /// earlier one merged new commits into it and no check passed on them (d0120).
     pub merge_check_due: bool,
 }
 

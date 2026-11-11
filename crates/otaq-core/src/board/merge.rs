@@ -10,7 +10,7 @@
 //!   (Move on anyway, Skip this check, Move to next stage or a drag past it), never turns it into a click. When a
 //!   check didn't pass in its latest run (skipped, moved past, or none at all), the automatic delivery records
 //!   "Delivered without all checks" ([`without_checks`]) for the card, Review and History.
-//! - **Conflicts** (FLW-17, d0108 smaller rule 1): the rebase onto the target conflicted, in either mode. The ticket
+//! - **Conflicts** (FLW-17, d0108 smaller rule 1): merging the target into the branch conflicted, in either mode. The ticket
 //!   goes to the last Agent stage it runs, whose session fixes it with `restack` with no click ("Merge conflict ·
 //!   fixing"); the conflicts count in a row and the third stops it there, turquoise ("Keeps conflicting with
 //!   `main`"). A merge resets the count.
@@ -217,7 +217,7 @@ impl Board {
     }
 
     /// After a Local merge: Done · Merged with the squash commit, and the review action recorded. `onto` is the
-    /// target's commit the branch was rebased onto: the ticket's diff stays its own changes.
+    /// target's commit merged into the branch: the ticket's diff stays its own changes.
     pub async fn record_local_merge(
         &self,
         ticket: &Ticket,

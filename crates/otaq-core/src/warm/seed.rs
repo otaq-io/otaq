@@ -432,7 +432,7 @@ impl Seeder {
         leave_out: Vec<PathBuf>,
         own: bool,
     ) -> Option<SeededFrom> {
-        // The base for a new ticket, the rebased commit for a reopened one, the ticket's own when it comes back.
+        // The base for a new ticket, the updated branch for a reopened one, the ticket's own when it comes back.
         let target = match git.resolve(worktree, "HEAD").await {
             Ok(Some(target)) => target,
             Ok(None) => return None,

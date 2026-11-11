@@ -807,7 +807,7 @@ impl Starter {
             .map_err(|e| (StartStep::Worktree, e.into()))?
             .is_some_and(|row| row.reopened)
         {
-            self.rebase_reopened(ticket, &worktree, repo, actor)
+            self.update_reopened(ticket, &worktree, repo, actor)
                 .await
                 .map_err(at(StartStep::Worktree))?;
         }
@@ -1119,11 +1119,11 @@ impl Starter {
         Ok(session)
     }
 
-    /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
-    /// checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded. A conflict leaves the
-    /// branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still starts. A
-    /// hook that refuses the checkpoint stops the start (GIT-02).
-    async fn rebase_reopened(
+    /// A reopened ticket's old branch is first brought up to date with no tokens: the current base is merged into
+    /// it, never rebased (GIT-06; the checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded.
+    /// A conflict leaves the branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still
+    /// starts. A hook that refuses the checkpoint or the merge commit stops the start (GIT-02).
+    async fn update_reopened(
         &self,
         ticket: &Ticket,
         worktree: &super::Worktree,
@@ -1131,21 +1131,29 @@ impl Starter {
         actor: &Actor,
     ) -> Result<(), StartError> {
         use crate::board::conflicts::{Conflict, ConflictReason};
-        use crate::git::checkpoint::{RebaseError, RebaseOutcome, checkpoint_rejected_message};
+        use crate::git::checkpoint::{UpdateError, UpdateOutcome, checkpoint_rejected_message};
         let board = &self.inner.board;
         let git = &board.project_git(ticket.key.project.as_str()).await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
-        let outcome = match git.rebase_with_checkpoint(&worktree.path, &onto).await {
+        // By the base's name while it points at `onto`: the merge message is git's plain "Merge branch 'main' into …".
+        let local = git
+            .resolve(repo, &format!("refs/heads/{}", worktree.base_branch))
+            .await?;
+        let rev = match local {
+            Some(at) if at == onto => worktree.base_branch.as_str(),
+            _ => onto.as_str(),
+        };
+        let outcome = match git.merge_with_checkpoint(&worktree.path, rev).await {
             Ok(outcome) => outcome,
-            Err(RebaseError::CheckpointRejected { .. }) => {
+            Err(UpdateError::CheckpointRejected { .. }) => {
                 return Err(StartError::Other(checkpoint_rejected_message(
                     &ticket.key.to_string(),
                 )));
             }
-            Err(RebaseError::Git(e)) => return Err(e.into()),
+            Err(UpdateError::Git(e)) => return Err(e.into()),
         };
         let payload = match outcome {
-            RebaseOutcome::Clean => {
+            UpdateOutcome::Clean => {
                 sqlx::query("UPDATE tickets SET base_sha = ? WHERE id = ?")
                     .bind(&onto)
                     .bind(&ticket.id)
@@ -1153,9 +1161,9 @@ impl Starter {
                     .await
                     .map_err(crate::store::StoreError::from)?;
                 board.clear_conflict(&ticket.id).await?;
-                json!({ "onto": worktree.base_branch, "sha": onto })
+                json!({ "onto": worktree.base_branch, "sha": onto, "how": "merge" })
             }
-            RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files } => {
+            UpdateOutcome::Conflict { files } | UpdateOutcome::UndoConflict { files } => {
                 board
                     .set_conflict(
                         &ticket.id,
@@ -1167,7 +1175,7 @@ impl Starter {
                         },
                     )
                     .await?;
-                json!({ "onto": worktree.base_branch, "conflict": files })
+                json!({ "onto": worktree.base_branch, "conflict": files, "how": "merge" })
             }
         };
         let mut tx = board
@@ -1175,7 +1183,7 @@ impl Starter {
             .begin_write()
             .await
             .map_err(crate::store::StoreError::from)?;
-        record_event(&mut tx, &ticket.id, EventKind::Rebased, actor, payload).await?;
+        record_event(&mut tx, &ticket.id, EventKind::UpdatedFromBase, actor, payload).await?;
         tx.commit().await.map_err(crate::store::StoreError::from)?;
         Ok(())
     }

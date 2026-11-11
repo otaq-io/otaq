@@ -526,7 +526,7 @@ impl Default for TerminalRenderer {
 pub struct ProjectSettings {
     pub setup_command: String,
     /// "Merge check" (d0120): the command Local merge runs on the merged result in its scratch worktree before the
-    /// target branch moves, when the rebase brought in new commits (`npm test`). Empty by default; never guessed
+    /// target branch moves, when merging it in brought in new commits (`npm test`). Empty by default; never guessed
     /// (d0023). Read it with [`Self::merge_check`].
     pub merge_check: Option<String>,
     /// The project's apps (agents run the app, monorepos): each a named run command with its Open URL, run in a ticket's worktree

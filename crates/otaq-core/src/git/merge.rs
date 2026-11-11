@@ -7,10 +7,11 @@
 //!    a base branch up to date: fetch, fast-forward if only behind, refuse if diverged (a local-only target, such as
 //!    a ticket's own branch, skips this). A fetch that fails goes on into the local target when the request allows it (d0121);
 //!    otherwise it is the error;
-//! 3. **free rebase** of the ticket's branch onto the target: in its worktree with the checkpoint rule, or in the
-//!    scratch worktree when the branch has no worktree; a conflict merges nothing;
+//! 3. **bring the branch up to date**: the target is merged into the ticket's branch, never rebased onto it (a team's
+//!    pre-rebase hook or rule never stops it), in its worktree or in the scratch worktree when the branch has no
+//!    worktree. The merge commit runs the project's hooks: a refusal merges nothing; a conflict merges nothing;
 //! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
-//! 5. the project's **Merge check** (d0120), when it has one and the rebase brought in commits the branch didn't
+//! 5. the project's **Merge check** (d0120), when it has one and the update brought in commits the branch didn't
 //!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
 //!    then the scratch worktree is cleaned. A failure or the user's Stop merges nothing;
 //! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere.
@@ -21,7 +22,6 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::checkpoint::RebaseOutcome;
 use super::{BaseSync, FetchFailure, Git, GitError};
 
 /// One Local merge.
@@ -48,8 +48,8 @@ pub struct MergeRequest {
     pub message: String,
     /// The project's Merge check, if it has one (d0120).
     pub check: Option<MergeCheck>,
-    /// Run the check even when the rebase brings in nothing new: an earlier merge of this branch rebased it onto
-    /// new commits and ended before a check passed on them (failed, stopped, refused, or the target didn't move).
+    /// Run the check even when the update brings in nothing new: an earlier merge of this branch merged new commits
+    /// into it and ended before a check passed on them (failed, stopped, refused, or the target didn't move).
     pub recheck: bool,
 }
 
@@ -97,8 +97,8 @@ impl fmt::Debug for MergeCheck {
 /// What a Local merge did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeOutcome {
-    /// Merged as `commit` on top of `onto` (the target's commit the branch was rebased onto). `brought_in`: the
-    /// rebase brought in commits the branch didn't have; `checked`: the Merge check ran and passed.
+    /// Merged as `commit` on top of `onto` (the target's commit merged into the branch). `brought_in`: the
+    /// update brought in commits the branch didn't have; `checked`: the Merge check ran and passed.
     Merged {
         commit: String,
         onto: String,
@@ -117,7 +117,7 @@ pub enum MergeOutcome {
     RefusedDirtyCheckout {
         message: String,
     },
-    /// The free rebase conflicted on these files: nothing was merged.
+    /// Merging the target into the branch conflicted on these files: nothing was merged.
     Conflict {
         files: Vec<String>,
     },
@@ -197,14 +197,14 @@ impl Git {
                 stderr: format!("the branch `{}` doesn't exist", m.target),
             })?;
 
-        // 3. The free rebase onto the target. It brings in new commits unless the branch already has `onto`.
+        // 3. Merge the target into the branch. It brings in new commits unless the branch already has `onto`.
         let branch_ref = format!("refs/heads/{}", m.branch);
         let brought_in = match self.resolve(&m.repo, &branch_ref).await? {
             Some(head) => !self.is_ancestor(&m.repo, &onto, &head).await?,
             None => true,
         };
         self.ensure_scratch(&m.repo, &m.scratch, &onto).await?;
-        if let Some(files) = self.rebase_branch(m, &onto).await? {
+        if let Some(files) = self.update_branch(m, &onto).await? {
             return Ok(MergeOutcome::Conflict { files });
         }
 
@@ -310,54 +310,34 @@ impl Git {
         }
     }
 
-    /// Rebases the branch onto `onto`; `Some(files)` on a conflict (everything is as before then).
-    async fn rebase_branch(
+    /// Brings the branch up to date by merging the target into it, never by rebasing; `Some(files)` on a conflict
+    /// (everything is as before then). The merge commit runs the project's hooks; a refusal is the error, with
+    /// nothing merged.
+    async fn update_branch(
         &self,
         m: &MergeRequest,
         onto: &str,
     ) -> Result<Option<Vec<String>>, GitError> {
+        // By the target's name while it still points at `onto`, so the message is git's plain "Merge branch 'main'
+        // into otaq/SHOP-18"; otherwise by the commit.
+        let target_ref = format!("refs/heads/{}", m.target);
+        let rev = match self.resolve(&m.repo, &target_ref).await? {
+            Some(at) if at == onto => m.target.as_str(),
+            _ => onto,
+        };
         if let Some(worktree) = m.worktree.as_deref().filter(|w| w.is_dir()) {
-            return match self.rebase_with_checkpoint(worktree, onto).await {
-                Ok(RebaseOutcome::Clean) => Ok(None),
-                Ok(
-                    RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files },
-                ) => Ok(Some(files)),
-                Err(super::checkpoint::RebaseError::Git(e)) => Err(e),
-                // The worktree was checked clean in step 1, so no checkpoint was made.
-                Err(e) => Err(GitError::Failed {
-                    args: "rebase".into(),
-                    code: None,
-                    stderr: e.to_string(),
-                }),
-            };
+            // The worktree was checked clean in step 1: nothing to keep aside.
+            return self.merge_in(worktree, rev).await;
         }
-        // No worktree holds the branch: rebase it in the scratch worktree, then let go of it.
+        // No worktree holds the branch: merge in the scratch worktree, then let go of it.
         let scratch = m.scratch.as_path();
         self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
             .await?;
-        let rebased = self
-            .run(scratch, &["rebase", "--no-autostash", "--quiet", onto])
-            .await;
-        let conflict = if rebased.is_err() {
-            let files: Vec<String> = self
-                .run(scratch, &["diff", "--name-only", "--diff-filter=U"])
-                .await?
-                .lines()
-                .map(str::to_owned)
-                .collect();
-            let _ = self.run(scratch, &["rebase", "--abort"]).await;
-            if files.is_empty() {
-                self.run(scratch, &["checkout", "--quiet", "--detach"])
-                    .await?;
-                return Err(rebased.expect_err("failed"));
-            }
-            Some(files)
-        } else {
-            None
-        };
+        self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
+        let merged = self.merge_in(scratch, rev).await;
         self.run(scratch, &["checkout", "--quiet", "--detach"])
             .await?;
-        Ok(conflict)
+        merged
     }
 
     /// Creates the scratch worktree (detached at `at`) or reuses it.

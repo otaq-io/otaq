@@ -1,5 +1,5 @@
 //! **The Merge check** (d0120, Q475): the project's command (`npm test`) that Local merge runs on the merged result
-//! in Otaq's scratch worktree before the target moves, when the rebase brought in commits the branch didn't have
+//! in Otaq's scratch worktree before the target moves, when merging the target in brought in commits the branch didn't have
 //! ([`crate::git::merge`] decides when; this module runs it).
 //!
 //! - **The build:** the scratch worktree is seeded copy-on-write from the ticket's worktree build, else the warm

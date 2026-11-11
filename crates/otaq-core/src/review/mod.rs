@@ -65,7 +65,7 @@ use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
-/// The skill a Delivery's conflict runs, with no click: rebase onto the target and resolve the conflicts (GIT-03,
+/// The skill a Delivery's conflict runs, with no click: merge the target in and resolve the conflicts (GIT-03,
 /// FLW-17).
 pub const RESTACK_SKILL: &str = "restack";
 
@@ -119,7 +119,7 @@ pub enum LocalMergeOutcome {
     RefusedDiverged { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry."
     RefusedDirtyCheckout { message: String },
-    /// The free rebase conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
+    /// Merging the target into the branch conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
     /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
     /// (FLW-17).
     Conflict { target: String, files: Vec<String> },
@@ -393,9 +393,9 @@ impl Review {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project.name.clone());
-        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
+        // With the project's variables: the merge of the target into the branch, the commit and the checkouts run the user's hooks (ENV-02).
         let git = &board.project_git(&project.key).await?;
-        // The rebase and the squash commit both sign with the user's name and email: without them git fails half
+        // The merge into the branch and the squash commit both sign with the user's name and email: without them git fails half
         // way with "Author identity unknown", so they are asked for first, in plain words.
         if let Some(has) = git.missing_identity(&repo).await? {
             tracing::warn!(ticket = %ticket.key, "not merged: git has no name and email for commits");
@@ -437,15 +437,15 @@ impl Review {
         let branch_ref = format!("refs/heads/{}", target.branch);
         let head_before = git.resolve(&request.repo, &branch_ref).await?;
         let outcome = git.local_merge(&request).await;
-        // The free rebase isn't a change to review (GIT-05), even when a later step failed.
+        // Merging the target into the branch isn't a change to review (GIT-05), even when a later step failed.
         if !matches!(outcome, Ok(MergeOutcome::Merged { .. }))
             && let (Some(before), Ok(Some(after))) = (
                 head_before.as_deref(),
                 git.resolve(&request.repo, &branch_ref).await,
             )
         {
-            board.record_otaq_rebase(&ticket.id, before, &after).await?;
-            // Rebased onto new commits and no check passed on them: the next merge checks even so (d0120).
+            board.record_otaq_update(&ticket.id, before, &after).await?;
+            // New commits merged in and no check passed on them: the next merge checks even so (d0120).
             if before != after {
                 board.set_merge_check_due(&ticket.id, true).await?;
             }

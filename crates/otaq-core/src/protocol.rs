@@ -361,7 +361,7 @@ pub enum Request {
     /// [`Reply::Helper`].
     #[serde(rename = "helper.back")]
     HelperBack(HelperNoteParams),
-    /// `otaq helper merge <n>`: the free rebase and the squash into the ticket's branch. Answered with
+    /// `otaq helper merge <n>`: the ticket's branch merged into the helper's, and the squash into the ticket's branch. Answered with
     /// [`Reply::Helper`].
     #[serde(rename = "helper.merge")]
     HelperMerge(HelperPieceParams),
