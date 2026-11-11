@@ -70,6 +70,8 @@ pub struct App {
     reports: api::OpenReports,
     /// When the user last looked at each Project agent conversation, for the Noyan button's "New reply" dot (SHB-03).
     looked: std::sync::Mutex<otaq_view::view_models::noyan_button::Looked>,
+    /// Settings → Git & pull requests as its last check found it, drawn at once the next time the pane opens.
+    git_settings: std::sync::Mutex<Option<otaq_view::view_models::git_settings::View>>,
     /// The installed fonts, read once (d0117 point 5).
     fonts: fonts::Fonts,
     /// Where the app runs from: outside an Applications folder a macOS release shows only the Move window (T-0579).
@@ -215,6 +217,7 @@ fn main() {
         run_commands: Default::default(),
         window_focus: Default::default(),
         reports: Default::default(),
+        git_settings: Default::default(),
         looked: std::sync::Mutex::new(otaq_view::view_models::noyan_button::Looked::new(
             otaq_core::store::now_ms(),
         )),

@@ -361,7 +361,8 @@ the open topic's page as sections of rows, each row worded with its control (`ot
 `settings.edit` takes one `field` and its value, applies it with that module's rules and answers with the fresh view.
 The screen registers one component per section id it draws (`ui/src/app/registry/settings.ts`); a later section is
 added in `settings_page.rs` and registered under its id the same way. The slow parts load on their own:
-`settings.tools`, `settings.branches`.
+`settings.tools`, `settings.branches`, `settings.git` (Git & pull requests is drawn at once from `settings.git_shown`:
+the last check's page, or every row "Checking…" before the first).
 
 A project's settings are its own page, the view switch's Settings in the project's main area
 (`ui/src/screens/project_settings/`, `otaq_view::view_models::project_settings`): `project_settings.view` sends the
