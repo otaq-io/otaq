@@ -9,4 +9,12 @@ export type FlowBoardDrafting = {
 /**
  * "Needs you" while the agent waits on the user; `None` while it drafts.
  */
-needs_you: string | null, text: string, agent: string, show: string, };
+needs_you: string | null, 
+/**
+ * One line: a waiting prompt or question shows its first line only, cut with "…".
+ */
+text: string, 
+/**
+ * While it waits: the line with the prompt or question whole (up to a few hundred characters), for its tooltip.
+ */
+tooltip: string | null, agent: string, show: string, };

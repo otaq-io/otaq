@@ -49,7 +49,7 @@ use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, HandOffKind, MergeCheckState, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
-use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale, tool_error};
+use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale, prompt_line, tool_error};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -246,16 +246,26 @@ impl CardExtras {
             return self;
         };
         if ticket.status.is_needs_you_family() {
+            // A permission prompt shows its first line: a command that writes a whole file would fill the card (the
+            // ticket's Overview and its terminal have it whole).
+            let prompt = matches!(ticket.status, Status::NeedsYou | Status::CheckerNeedsYou);
+            let shown = |text: &str| {
+                if prompt {
+                    prompt_line(text)
+                } else {
+                    text.to_owned()
+                }
+            };
             match signal
                 .text
                 .as_deref()
                 .and_then(|t| t.strip_prefix(HELPER_PROMPT_PREFIX))
             {
-                Some(prompt) => {
+                Some(text) => {
                     self.helper_agent = true;
-                    self.question = Some(prompt.to_owned());
+                    self.question = Some(shown(text));
                 }
-                None => self.question = signal.text.clone(),
+                None => self.question = signal.text.as_deref().map(shown),
             }
         } else if ticket.status == Status::WorkingInBackground {
             match (&signal.text, signal.wakeup_at) {
@@ -4397,6 +4407,29 @@ mod tests {
         assert_eq!(vm.one_line.line.as_ref().unwrap().text, "Idle");
         assert_eq!(vm.one_line.edge, Some(Tone::Attention));
         assert_eq!(vm.one_line.action.as_ref().unwrap().label, "Answer");
+    }
+
+    /// A permission prompt for a command that writes a whole file (`@' … '@ | Set-Content`) shows the command's
+    /// first line on the card, cut with "…", for the agent and for the checker.
+    #[test]
+    fn a_long_commands_prompt_shows_its_first_line() {
+        let body = "Update the docs for the ticket. ".repeat(60);
+        let command = format!(
+            "Run command: @'\n---\nname: update-docs\n---\n\n{body}\n'@ | Set-Content -LiteralPath SKILL.md"
+        );
+        for status in [Status::NeedsYou, Status::CheckerNeedsYou] {
+            let vm = from_signal(&live("SHOP-1", status, Some(&command), 0), NOW);
+            let line = &vm.one_line.line.as_ref().unwrap().text;
+            assert!(
+                !line.contains('\n') && !line.contains("update-docs"),
+                "{line}"
+            );
+            assert!(line.ends_with("@' \u{2026}"), "{line}");
+        }
+        let helper = format!("{HELPER_PROMPT_PREFIX}{command}");
+        let x =
+            main_project().with_signal(&live("SHOP-1", Status::NeedsYou, Some(&helper), 0), NOW);
+        assert_eq!(x.question.as_deref(), Some("Run command: @' \u{2026}"));
     }
 
     /// T-0075: the live signal states map to the card.

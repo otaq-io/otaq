@@ -362,10 +362,17 @@ pub fn opens(ticket: &Ticket) -> Option<String> {
 }
 
 /// The card's line while a helper waits for the user (d0133 audit 3, `s30-02`): "40.2 asks: keep the heart filled
-/// after sign-out?", "40.3 needs you: allow pnpm install?"; `None` otherwise.
+/// after sign-out?", "40.3 needs you: allow pnpm install?"; `None` otherwise. A permission prompt shows its first
+/// line, so a command that writes a whole file doesn't fill the card.
 pub fn wait_line(ticket: &Ticket) -> Option<String> {
     let wait = ticket.flags.piece_wait.as_ref()?;
-    matches!(ticket.status, Status::AsksYou | Status::NeedsYou).then(|| wait.line.clone())
+    match ticket.status {
+        Status::NeedsYou if wait.kind == otaq_core::domain::PieceWaitKind::NeedsYou => {
+            Some(otaq_core::signals::prompt_line(&wait.line))
+        }
+        Status::AsksYou | Status::NeedsYou => Some(wait.line.clone()),
+        _ => None,
+    }
 }
 
 /// "2 helpers", "1 helper".
@@ -1281,6 +1288,19 @@ mod tests {
         let pieces = card.pieces.unwrap();
         assert_eq!(pieces.rows[2].status, "needs you · a command");
         assert_eq!(pieces.opens.as_deref(), Some("40.3"));
+
+        // A command that writes a whole file: its first line, cut with "…" (the helper's terminal has it whole).
+        let (mut wait, helpers) = waiting(false);
+        wait.line = otaq_core::helpers::waits::needs_you_line(
+            "40.3",
+            "Run command: @'\n---\nname: update-docs\n---\n'@ | Set-Content SKILL.md",
+        );
+        let mut t = shop40(Status::NeedsYou);
+        t.flags.piece_wait = Some(wait);
+        assert_eq!(
+            card_of(&t, helpers).status.unwrap().text,
+            "40.3 needs you: Run command: @' \u{2026}"
+        );
     }
 
     #[test]
