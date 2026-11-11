@@ -4,6 +4,7 @@
 // component (they may portal into the overlay host, `OVERLAY_HOST_ID`).
 import type { ComponentType } from "react";
 
+import type { AgentToolSignIn } from "../../generated/AgentToolSignIn";
 import type { ApproveChoice } from "../../generated/ApproveChoice";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
@@ -58,6 +59,9 @@ export interface OverlayParams {
   terminals: undefined;
   /** The after-restart summary (T-0235, T-0244). */
   after_restart: undefined;
+  /** An agent tool's Sign in… terminal, opened from a tool problem (the sheet, the agent panel, a notice): the same
+   * dialog Settings → Agents shows. The drawer lists only the project's own terminals, so it can't show this one. */
+  sign_in: AgentToolSignIn;
   /** The Activity popover of the header, ⇧⌘U (T-0329; the agent limits since T-0219). */
   activity: undefined;
   /** Add project (T-0233), with a folder already picked or dropped on the window. */
@@ -140,6 +144,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   cleanup: true,
   terminals: false,
   after_restart: true,
+  sign_in: true,
   activity: false,
   add_project: true,
   onboarding: true,
