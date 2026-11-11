@@ -1288,23 +1288,27 @@ fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         title.to_owned(),
         Some(hook.line()),
         event_mark(e, facts),
-        Opens {
-            label: output.label.to_uppercase(),
-            caption: None,
-            lines: output
-                .output
-                .lines()
-                .map(|line| DiffLine {
-                    kind: LineKind::Same,
-                    sign: String::new(),
-                    text: line.to_owned(),
-                })
-                .collect(),
-            thumbnails: Vec::new(),
-            attachments: Vec::new(),
-        },
+        hook_output_opens(&output.label, &output.output),
         kind_of(e.kind),
     ))
+}
+
+/// What a hook's row opens: "OUTPUT OF YOUR POST-MERGE HOOK" and its output, line by line.
+fn hook_output_opens(label: &str, output: &str) -> Opens {
+    Opens {
+        label: label.to_uppercase(),
+        caption: None,
+        lines: output
+            .lines()
+            .map(|line| DiffLine {
+                kind: LineKind::Same,
+                sign: String::new(),
+                text: line.to_owned(),
+            })
+            .collect(),
+        thumbnails: Vec::new(),
+        attachments: Vec::new(),
+    }
 }
 
 /// The user's post-merge hook that ran in their own folder as a merge moved the target there: "Your post-merge hook
@@ -1332,20 +1336,7 @@ fn post_merge_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         hook.sentence(),
         last,
         event_mark(e, facts),
-        Opens {
-            label: "OUTPUT OF YOUR POST-MERGE HOOK".to_owned(),
-            caption: None,
-            lines: output
-                .lines()
-                .map(|line| DiffLine {
-                    kind: LineKind::Same,
-                    sign: String::new(),
-                    text: line.to_owned(),
-                })
-                .collect(),
-            thumbnails: Vec::new(),
-            attachments: Vec::new(),
-        },
+        hook_output_opens("Output of your post-merge hook", output),
         kind_of(e.kind),
     ))
 }
