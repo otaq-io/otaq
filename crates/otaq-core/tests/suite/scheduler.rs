@@ -69,6 +69,7 @@ fn held(key: &str, step: StartStep) -> Ticket {
     ticket.start_problem = Some(StartProblem {
         step,
         message: "Claude Code limit reached".into(),
+        hook: None,
     });
     ticket
 }

@@ -282,12 +282,39 @@ describe("what it needs from you, at the top of Overview", () => {
         hide_log: "Hide the setup log",
         retry_heading: "RETRY START DOES",
         retry_does: ["Runs the whole start again"],
+        hook: null,
       },
     });
     for (const text of ["Waits for SHOP-18", "Conflicts with main", "RETRY START DOES"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");
+    expect(html).not.toContain("sheet-hook-output");
+  });
+
+  it("a start a hook refused: the hook's whole output under the message, then Retry start's list", () => {
+    const html = render({
+      ...VIEW,
+      start_problem: {
+        heading: "Start failed: post-checkout hook refused the start",
+        message: "Your post-checkout hook refused the start when Otaq made the ticket\u2019s worktree.",
+        has_log: false,
+        show_log: "View the setup log",
+        hide_log: "Hide the setup log",
+        retry_heading: "RETRY START DOES",
+        retry_does: ["Runs the whole start again"],
+        hook: {
+          name: "post-checkout",
+          label: "Output of your post-checkout hook",
+          note: null,
+          output: "npm install\nERR! missing ~/.npmrc",
+        },
+      },
+    });
+    expect(html).toContain("Start failed: post-checkout hook refused the start");
+    expect(html).toContain("Output of your post-checkout hook");
+    expect(html).toContain("ERR! missing ~/.npmrc");
+    expect(html.indexOf("sheet-hook-output")).toBeLessThan(html.indexOf("RETRY START DOES"));
   });
 
   it("a permission prompt: the command above Answer in terminal", () => {

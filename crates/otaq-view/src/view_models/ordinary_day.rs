@@ -63,6 +63,7 @@ pub fn tickets() -> Vec<Ticket> {
     badge.start_problem = Some(StartProblem {
         step: StartStep::Setup,
         message: "pnpm install exited 1".into(),
+        hook: None,
     });
     let mut wishlist = at(
         "SHOP-27",

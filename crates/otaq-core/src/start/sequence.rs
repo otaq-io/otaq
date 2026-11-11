@@ -87,6 +87,32 @@ use crate::ticket_env::resources::{Resources, command_vars};
 use crate::tools::Os;
 use crate::warm::seed::Seeder;
 
+/// Why a reopened ticket's update from its base stopped its start: a hook that refused the merge of the base into its
+/// branch is kept with its whole output; the branch and its files are as they were.
+fn update_refused(e: crate::git::checkpoint::UpdateError, key: &str, base: &str) -> StartError {
+    use crate::git::checkpoint::UpdateError;
+    use crate::git::{GitError, GitStep, RefusedHook};
+    match e {
+        UpdateError::Git(GitError::HookRefused(refusal)) => {
+            let hook = RefusedHook::of(
+                &refusal,
+                GitStep::UpdateBranch,
+                format!("the update from {base}"),
+            );
+            let message = format!(
+                "Your {} hook refused the merge of {base} into {key}\u{2019}s branch. The branch and its files are \
+                 as they were. Fix what the hook says, then Retry start.",
+                hook.name
+            );
+            StartError::HookRefused {
+                hook: Box::new(hook),
+                message,
+            }
+        }
+        UpdateError::Git(e) => e.into(),
+    }
+}
+
 /// The agent's terminal size until a client attaches and resizes it.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
     cols: 120,
@@ -309,7 +335,8 @@ impl Starter {
     /// next service start and shown as Start interrupted instead of being run again silently (SES-02).
     async fn mark_step(&self, ticket: &Ticket, step: StartStep) {
         let result = sqlx::query(
-            "UPDATE tickets SET start_problem_step = ?, start_problem_message = NULL WHERE id = ?",
+            "UPDATE tickets SET start_problem_step = ?, start_problem_message = NULL, start_problem_hook = NULL
+             WHERE id = ?",
         )
         .bind(step.as_str())
         .bind(&ticket.id)
@@ -436,6 +463,7 @@ impl Starter {
         end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+                                start_problem_hook = NULL,
                                 started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -611,13 +639,21 @@ impl Starter {
             }
             Err((step, e)) => {
                 let message = e.to_string();
-                self.set_state(
+                // A hook's refusal is kept with its whole output, on the ticket and in its History, though a new
+                // ticket's worktree it ran in is gone by now.
+                let hook = e.refused_hook();
+                let mut payload = json!({ "step": step, "message": message });
+                if let Some(hook) = &hook {
+                    payload["hook"] = json!(hook);
+                }
+                self.set_state_with_hook(
                     ticket,
                     Status::StartInterrupted,
                     Some((step, &message)),
+                    hook.as_ref(),
                     actor,
                     EventKind::StartInterrupted,
-                    json!({ "step": step, "message": message }),
+                    payload,
                 )
                 .await?;
                 tracing::warn!(ticket = %key, %step, %message, "start interrupted");
@@ -1169,7 +1205,7 @@ impl Starter {
     /// A reopened ticket's old branch is first brought up to date with no tokens: the current base is merged into
     /// it, never rebased (GIT-06; the checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded.
     /// A conflict leaves the branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still
-    /// starts. A hook that refuses the merge commit stops the start (GIT-02); the checkpoint that keeps uncommitted
+    /// starts. A hook that refuses the merge commit stops the start, kept on the ticket with its output (GIT-02); the checkpoint that keeps uncommitted
     /// files for a moment runs no hook, so half-done work or its message never stops a start.
     async fn update_reopened(
         &self,
@@ -1179,7 +1215,7 @@ impl Starter {
         actor: &Actor,
     ) -> Result<(), StartError> {
         use crate::board::conflicts::{Conflict, ConflictReason};
-        use crate::git::checkpoint::{UpdateError, UpdateOutcome};
+        use crate::git::checkpoint::UpdateOutcome;
         let board = &self.inner.board;
         let git = &board.project_git(ticket.key.project.as_str()).await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
@@ -1193,7 +1229,13 @@ impl Starter {
         };
         let outcome = match git.merge_with_checkpoint(&worktree.path, rev).await {
             Ok(outcome) => outcome,
-            Err(UpdateError::Git(e)) => return Err(e.into()),
+            Err(e) => {
+                return Err(update_refused(
+                    e,
+                    &ticket.key.to_string(),
+                    &worktree.base_branch,
+                ));
+            }
         };
         let payload = match outcome {
             UpdateOutcome::Clean => {
@@ -1248,6 +1290,23 @@ impl Starter {
         kind: EventKind,
         payload: Value,
     ) -> Result<Ticket, BoardError> {
+        self.set_state_with_hook(ticket, status, problem, None, actor, kind, payload)
+            .await
+    }
+
+    /// [`Starter::set_state`], with the hook that refused the start kept beside its problem.
+    #[allow(clippy::too_many_arguments)]
+    async fn set_state_with_hook(
+        &self,
+        ticket: &Ticket,
+        status: Status,
+        problem: Option<(StartStep, &str)>,
+        hook: Option<&crate::git::RefusedHook>,
+        actor: &Actor,
+        kind: EventKind,
+        payload: Value,
+    ) -> Result<Ticket, BoardError> {
+        let hook = hook.and_then(|h| serde_json::to_string(h).ok());
         let board = &self.inner.board;
         let now = now_ms();
         // Started: into the Agent stage it waited before (the first one it runs while waiting to begin), past the stages
@@ -1262,7 +1321,7 @@ impl Starter {
         }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
-                                start_problem_message = ?, updated_by = ?, updated_at = ?, ",
+                                start_problem_message = ?, start_problem_hook = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -1270,6 +1329,7 @@ impl Starter {
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))
+        .bind(hook)
         .bind(actor.to_string())
         .bind(now)
         .bind(status.as_str())

@@ -594,3 +594,21 @@
   font: 400 13px/1.5 var(--font-ui);
   white-space: pre-wrap;
 }
+
+/* A hook's refusal: its label, a sentence when the hook needs one, and its whole output (`HookOutput.tsx`). */
+.sheet-hook-output {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sheet-hook-output-label {
+  color: var(--text-secondary);
+  font: 600 11px/normal var(--font-ui);
+}
+
+.sheet-hook-output-note {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-ui);
+}

@@ -20,7 +20,7 @@ use std::path::{Path, PathBuf};
 use super::StartError;
 use crate::board::Board;
 use crate::data_dir::DataDir;
-use crate::git::{Git, GitError, GitStep};
+use crate::git::{Git, GitError, GitStep, RefusedHook};
 use crate::naming;
 use crate::store::now_ms;
 
@@ -124,7 +124,7 @@ pub async fn prepare_worktree(
                 made.worktree = is_registered(git, &repo, &path).await;
                 discard(board, &ticket.id, git, &repo, &path, &branch, &made).await;
             }
-            return Err(e);
+            return Err(refused_worktree(e, reopened));
         }
     }
     if reopened {
@@ -152,6 +152,29 @@ pub async fn prepare_worktree(
         base_sha,
         made,
     })
+}
+
+/// A hook's refusal of `worktree add` (post-checkout), kept with its whole output: the worktree it ran in is gone by
+/// now for a new ticket, the refusal isn't. Any other error as it is.
+fn refused_worktree(e: StartError, reopened: bool) -> StartError {
+    let StartError::Git(GitError::HookRefused(refusal)) = &e else {
+        return e;
+    };
+    let hook = RefusedHook::of(refusal, GitStep::AddWorktree, "the start");
+    let kept = match reopened {
+        true => "The branch and its earlier work are kept.",
+        false => "Nothing it made is kept, so Retry start runs the hook again.",
+    };
+    let message = format!(
+        "Your {} hook refused the start when {} made the ticket\u{2019}s worktree. {kept} Fix what the hook says, \
+         then Retry start.",
+        hook.name,
+        naming::PRODUCT_NAME
+    );
+    StartError::HookRefused {
+        hook: Box::new(hook),
+        message,
+    }
 }
 
 /// Removes what a failed start of a new ticket made ([`Made`]), and nothing else: the worktree at `path`, removed

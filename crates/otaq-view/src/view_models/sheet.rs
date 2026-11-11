@@ -530,6 +530,34 @@ pub fn neighbour(tickets: &[Ticket], current: &TicketKey, step: i32) -> Option<T
 pub struct StartProblem {
     pub heading: String,
     pub message: String,
+    /// The hook that refused the start: its whole output under the message.
+    pub hook: Option<HookOutput>,
+}
+
+/// A hook's refusal on the sheet: which hook, and its whole output (paths under the home already shortened). The
+/// same box for every one of Otaq's git steps a hook refuses.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct HookOutput {
+    /// `post-checkout`.
+    pub name: String,
+    /// "Output of your post-checkout hook".
+    pub label: String,
+    /// A sentence above the output, for a hook that needs more than its output says; none yet.
+    pub note: Option<String>,
+    pub output: String,
+}
+
+/// [`HookOutput`] of a kept refusal.
+pub fn hook_output(hook: &otaq_core::git::RefusedHook) -> HookOutput {
+    HookOutput {
+        name: hook.name.clone(),
+        label: format!("Output of your {} hook", hook.name),
+        note: None,
+        output: match hook.output.trim() {
+            "" => "(the hook printed nothing)".to_owned(),
+            _ => hook.output.clone(),
+        },
+    }
 }
 
 /// What Retry start does, under the callout.
@@ -545,10 +573,16 @@ pub fn start_problem(ticket: &Ticket) -> Option<StartProblem> {
     }
     Some(match &ticket.start_problem {
         Some(p) => StartProblem {
-            heading: format!("Start failed: {}", p.step.failure_label()),
+            heading: match &p.hook {
+                // "Start failed: post-checkout hook refused the start".
+                Some(hook) => format!("Start failed: {}", hook.line()),
+                None => format!("Start failed: {}", p.step.failure_label()),
+            },
             message: p.message.clone(),
+            hook: p.hook.as_ref().map(hook_output),
         },
         None => StartProblem {
+            hook: None,
             heading: "Start failed".to_owned(),
             message: format!(
                 "{} stopped before its agent session started, so there is nothing to resume.",
@@ -1084,11 +1118,36 @@ mod tests {
         t.start_problem = Some(otaq_core::board::tickets::StartProblem {
             step: otaq_core::domain::StartStep::SyncBase,
             message: "main has diverged".into(),
+            hook: None,
         });
         let p = start_problem(&t).unwrap();
         assert!(p.heading.starts_with("Start failed: "));
         assert_eq!(p.message, "main has diverged");
         assert_eq!(start_problem(&ticket("SHOP-1", "t", Status::Working)), None);
+    }
+
+    #[test]
+    fn a_start_a_hook_refused_names_the_hook_and_shows_its_whole_output() {
+        let mut t = ticket("HOOK-3", "Add divide", Status::StartInterrupted);
+        t.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Worktree,
+            message: "Your post-checkout hook refused the start.".into(),
+            hook: Some(otaq_core::git::RefusedHook {
+                name: "post-checkout".into(),
+                step: Some(otaq_core::git::GitStep::AddWorktree),
+                what: "the start".into(),
+                output: "npm install failed\nsee ~/logs/npm.log".into(),
+            }),
+        });
+        let p = start_problem(&t).unwrap();
+        assert_eq!(
+            p.heading,
+            "Start failed: post-checkout hook refused the start"
+        );
+        let hook = p.hook.unwrap();
+        assert_eq!(hook.label, "Output of your post-checkout hook");
+        assert_eq!(hook.output, "npm install failed\nsee ~/logs/npm.log");
+        assert_eq!(hook.note, None);
     }
 
     #[test]

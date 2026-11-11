@@ -339,9 +339,11 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         project_base: input.project_base.map(str::to_owned),
         start_failure: (t.status == Status::StartInterrupted)
             .then(|| {
-                t.start_problem
-                    .as_ref()
-                    .map(|p| p.step.failure_label().to_owned())
+                t.start_problem.as_ref().map(|p| match &p.hook {
+                    // "post-checkout hook refused the start": the hook and what it stopped, in place of the step.
+                    Some(hook) => hook.line(),
+                    None => p.step.failure_label().to_owned(),
+                })
             })
             .flatten(),
         held_reason: (t.status == Status::Held)
@@ -981,6 +983,36 @@ mod tests {
             "Waits for a free agent \u{b7} next in line"
         );
         assert_eq!(line("SHOP-31"), "Waits for a free agent \u{b7} 2nd in line");
+    }
+
+    /// A start a hook refused: the card names the hook and what it stopped, where another failure names its step.
+    #[test]
+    fn a_start_a_hook_refused_names_the_hook_on_the_card() {
+        let mut refused = ticket("HOOK-3", "Add divide", Status::StartInterrupted);
+        refused.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Worktree,
+            message: "Your post-checkout hook refused the start.".into(),
+            hook: Some(otaq_core::git::RefusedHook {
+                name: "post-checkout".into(),
+                step: Some(otaq_core::git::GitStep::AddWorktree),
+                what: "the start".into(),
+                output: "npm ERR!".into(),
+            }),
+        });
+        let mut setup = ticket("HOOK-4", "Add modulo", Status::StartInterrupted);
+        setup.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Setup,
+            message: "setup command failed (exit 1)".into(),
+            hook: None,
+        });
+        let tickets = vec![refused, setup];
+        let columns = build(&input(&tickets, None));
+        let line = |key: &str| find_card(&columns, key).one_line.line.unwrap().text;
+        assert_eq!(
+            line("HOOK-3"),
+            "Start failed \u{b7} post-checkout hook refused the start"
+        );
+        assert_eq!(line("HOOK-4"), "Start failed \u{b7} setup command failed");
     }
 
     #[test]

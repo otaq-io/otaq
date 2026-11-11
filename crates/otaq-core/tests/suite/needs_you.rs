@@ -86,6 +86,7 @@ fn shop_web() -> Vec<Ticket> {
     start.start_problem = Some(StartProblem {
         step: StartStep::Setup,
         message: "setup command failed (exit 1)".into(),
+        hook: None,
     });
     vec![
         needs_you(

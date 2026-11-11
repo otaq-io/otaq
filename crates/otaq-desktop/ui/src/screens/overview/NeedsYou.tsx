@@ -38,6 +38,7 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions";
+import { HookOutput } from "../sheet/HookOutput";
 import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 
@@ -471,6 +472,7 @@ function StartProblem({ view, problem }: { view: SheetView; problem: SheetStartP
         )}
       </div>
       {shown && log !== null && <pre className="sheet-setup-log">{log}</pre>}
+      {problem.hook !== null && <HookOutput hook={problem.hook} />}
       <div className="sheet-start-does">
         <span className="sheet-start-does-heading">{problem.retry_heading}</span>
         <ul>

@@ -3922,6 +3922,22 @@
         }
       }
     },
+    "GitStep": {
+      "kind": "enum",
+      "variants": {
+        "add_worktree": {},
+        "commit": {},
+        "merge_check": {},
+        "move_target": {},
+        "prepare_scratch": {},
+        "restore_uncommitted": {},
+        "reword": {},
+        "save_uncommitted": {},
+        "squash": {},
+        "update_branch": {},
+        "update_target": {}
+      }
+    },
     "GlobalSettings": {
       "kind": "struct",
       "attrs": [
@@ -7676,6 +7692,27 @@
         }
       }
     },
+    "RefusedHook": {
+      "kind": "struct",
+      "fields": {
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "output": {
+          "ty": "String",
+          "required": true
+        },
+        "step": {
+          "ty": "Option<GitStep>",
+          "omittable": true
+        },
+        "what": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "RemoteWarning": {
       "kind": "struct",
       "fields": {
@@ -10341,6 +10378,10 @@
     "StartProblem": {
       "kind": "struct",
       "fields": {
+        "hook": {
+          "ty": "Option<RefusedHook>",
+          "omittable": true
+        },
         "message": {
           "ty": "String",
           "required": true

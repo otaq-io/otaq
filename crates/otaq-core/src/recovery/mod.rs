@@ -1010,7 +1010,7 @@ impl Recovery {
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
             "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
-                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
+                                start_problem_hook = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"

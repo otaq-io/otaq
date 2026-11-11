@@ -693,6 +693,7 @@ mod tests {
             step: otaq_core::domain::StartStep::SyncBase,
             message: "`develop` and `origin/develop` have diverged. Push or pull, then retry"
                 .into(),
+            hook: None,
         });
         assert_eq!(buttons(&held)[0], (A::RetryStart, Look::Primary));
     }

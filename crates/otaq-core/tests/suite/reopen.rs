@@ -190,6 +190,85 @@ async fn a_failed_start_of_a_reopened_ticket_keeps_its_worktree() {
     w.stop().await;
 }
 
+/// A hook that refuses the merge of main into a reopened ticket's branch stops its start, and the ticket keeps which
+/// hook, what it stopped and its whole output; the branch is as it was.
+#[tokio::test]
+async fn a_hook_refusing_the_update_from_main_shows_on_the_reopened_ticket() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (t, _) = closed(&w, "coupon.ts").await;
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    commit(&repo, "moved.ts", "main moved\n");
+    let branch = naming::branch("SHOP-1");
+    let before = git(&repo, &["rev-parse", &branch]);
+    let hook = repo.join(".git/hooks/pre-merge-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\necho 'pre-merge-commit: merges need a ticket review' >&2\necho 'see docs/merging.md' >&2\nexit 1\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::StartInterrupted).await;
+
+    let problem = w
+        .board
+        .ticket("SHOP-1")
+        .await
+        .unwrap()
+        .start_problem
+        .unwrap();
+    assert!(
+        problem
+            .message
+            .starts_with("Your pre-merge-commit hook refused the merge of main into SHOP-1"),
+        "{}",
+        problem.message
+    );
+    let hook = problem.hook.expect("the hook is kept on the ticket");
+    assert_eq!(
+        hook.line(),
+        "pre-merge-commit hook refused the update from main"
+    );
+    assert_eq!(hook.step, Some(otaq_core::git::GitStep::UpdateBranch));
+    assert!(
+        hook.output
+            .contains("pre-merge-commit: merges need a ticket review\nsee docs/merging.md"),
+        "{}",
+        hook.output
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "the branch is as it was"
+    );
+    let (payload,): (String,) = sqlx::query_as(
+        "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = 'start_interrupted'",
+    )
+    .bind(&t.id)
+    .fetch_one(w.board.store().pool())
+    .await
+    .unwrap();
+    assert!(
+        payload.contains("merges need a ticket review"),
+        "History keeps it: {payload}"
+    );
+    w.stop().await;
+}
+
 /// A reopened ticket whose kept worktree has uncommitted work starts even when the project's hooks would refuse
 /// Otaq's temporary save of it (a message rule that wants `feat:`, a lint that refuses a TODO): the save runs no
 /// hook, and the files are back uncommitted when the agent starts.

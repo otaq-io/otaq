@@ -1263,6 +1263,39 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     }
 }
 
+/// A start a hook refused: "Start failed" · "post-checkout hook refused the start", opening the hook's whole output,
+/// kept after the worktree it ran in is gone. `None` for any other event.
+fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    if e.kind != EventKind::StartInterrupted {
+        return None;
+    }
+    let hook: otaq_core::git::RefusedHook =
+        serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
+    let output = super::sheet::hook_output(&hook);
+    Some(told(
+        e,
+        "Start failed".to_owned(),
+        Some(hook.line()),
+        event_mark(e, facts),
+        Opens {
+            label: output.label.to_uppercase(),
+            caption: None,
+            lines: output
+                .output
+                .lines()
+                .map(|line| DiffLine {
+                    kind: LineKind::Same,
+                    sign: String::new(),
+                    text: line.to_owned(),
+                })
+                .collect(),
+            thumbnails: Vec::new(),
+            attachments: Vec::new(),
+        },
+        kind_of(e.kind),
+    ))
+}
+
 #[cfg(test)]
 fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
     event_row_in(e, &Facts::default())
@@ -1270,6 +1303,9 @@ fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
 
 fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     if let Some(row) = comment_row(e, facts) {
+        return Some(row);
+    }
+    if let Some(row) = refused_hook_row(e, facts) {
         return Some(row);
     }
     let p = &e.payload;
@@ -1912,6 +1948,45 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// A start a hook refused stays in History with the hook's whole output, which the row opens; a start that failed
+    /// for another reason keeps its one line.
+    #[test]
+    fn a_start_a_hook_refused_keeps_the_hooks_output() {
+        let row = event_row(&event(
+            EventKind::StartInterrupted,
+            0,
+            serde_json::json!({
+                "step": "worktree",
+                "message": "Your post-checkout hook refused the start.",
+                "hook": {
+                    "name": "post-checkout",
+                    "step": "add_worktree",
+                    "what": "the start",
+                    "output": "npm install\nERR! missing ~/.npmrc",
+                },
+            }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "Start failed");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("post-checkout hook refused the start")
+        );
+        assert_eq!(row.mark, Mark::Otaq);
+        let opens = row.opens.unwrap();
+        assert_eq!(opens.label, "OUTPUT OF YOUR POST-CHECKOUT HOOK");
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(lines, ["npm install", "ERR! missing ~/.npmrc"]);
+
+        let plain = event_row(&event(
+            EventKind::StartInterrupted,
+            0,
+            serde_json::json!({ "step": "setup", "message": "setup command failed (exit 1)" }),
+        ))
+        .unwrap();
+        assert_eq!(plain.opens, None);
+    }
 
     /// d0133 (`s30-03`): a helper's rows name the agent in charge then, under the Stages filter: "Developer started a
     /// helper for 40.3" · "Wishlist page", "Developer sent 40.3 back: no empty state", "Developer merged 40.1",

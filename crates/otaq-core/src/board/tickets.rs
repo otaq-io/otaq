@@ -201,6 +201,9 @@ pub(crate) const NO_PR_PROVIDER_MARK: &str = "no_pr_provider";
 pub struct StartProblem {
     pub step: StartStep,
     pub message: String,
+    /// The user's hook that refused the start, with its whole output; `None` for any other problem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<crate::git::RefusedHook>,
 }
 
 impl Ticket {
@@ -1305,6 +1308,11 @@ impl Board {
                     .map(|step| StartProblem {
                         step,
                         message: row.start_problem_message.unwrap_or_default(),
+                        hook: row
+                            .start_problem_hook
+                            .as_deref()
+                            .filter(|_| status == Status::StartInterrupted)
+                            .and_then(|j| serde_json::from_str(j).ok()),
                     });
                 let interrupted_from = row
                     .interrupted_from

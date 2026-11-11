@@ -8,7 +8,7 @@ use std::fmt;
 
 use crate::board::BoardError;
 use crate::data_dir::DataDirError;
-use crate::git::GitError;
+use crate::git::{GitError, GitStep, RefusedHook};
 use crate::store::StoreError;
 
 pub use sequence::{StartOutcome, Starter, own_agent_session};
@@ -22,7 +22,28 @@ pub enum StartError {
     Git(GitError),
     Store(StoreError),
     Path(DataDirError),
+    /// One of the user's hooks refused a git step of the start: `message` says what happened and the way on, `hook`
+    /// is what the ticket keeps of it (which hook, the step, its whole output).
+    HookRefused {
+        hook: Box<RefusedHook>,
+        message: String,
+    },
     Other(String),
+}
+
+impl StartError {
+    /// What the ticket keeps of a hook's refusal, when one stopped the start. A refusal no step named (a git command
+    /// of the start that isn't one of its own hook steps) is kept as a refusal of the start.
+    pub fn refused_hook(&self) -> Option<RefusedHook> {
+        match self {
+            Self::HookRefused { hook, .. } => Some(hook.as_ref().clone()),
+            Self::Git(GitError::HookRefused(refusal)) => Some(RefusedHook {
+                step: refusal.step(),
+                ..RefusedHook::of(refusal, GitStep::AddWorktree, "the start")
+            }),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for StartError {
@@ -32,6 +53,7 @@ impl fmt::Display for StartError {
             Self::Git(e) => write!(f, "{e}"),
             Self::Store(e) => write!(f, "{e}"),
             Self::Path(e) => write!(f, "{e}"),
+            Self::HookRefused { message, .. } => f.write_str(message),
             Self::Other(message) => f.write_str(message),
         }
     }

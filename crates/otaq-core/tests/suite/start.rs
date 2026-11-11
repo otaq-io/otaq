@@ -309,7 +309,8 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
         after.start_problem,
         Some(StartProblem {
             step: StartStep::Setup,
-            message: message.clone()
+            message: message.clone(),
+            hook: None,
         })
     );
     // Nothing half-made stays: the worktree and branch this start made are gone; no session, no ports yet.
@@ -406,7 +407,37 @@ async fn a_post_checkout_refusal_leaves_nothing_and_retry_runs_the_hook_again() 
         panic!("{outcome:?}")
     };
     assert_eq!(*step, StartStep::Worktree);
-    assert!(message.contains("failing on purpose"), "{message}");
+    assert!(
+        message.starts_with("Your post-checkout hook refused the start"),
+        "{message}"
+    );
+    // The ticket names the hook and keeps its whole output, though the worktree it ran in is gone.
+    let problem = s.f.ticket("SHOP-1").await.start_problem.unwrap();
+    let hook = problem.hook.expect("the hook is kept on the ticket");
+    assert_eq!(hook.name, "post-checkout");
+    assert_eq!(hook.step, Some(otaq_core::git::GitStep::AddWorktree));
+    assert_eq!(hook.line(), "post-checkout hook refused the start");
+    assert!(
+        hook.output.contains("post-checkout: failing on purpose"),
+        "{}",
+        hook.output
+    );
+    // History keeps it with its output.
+    let (payload,): (String,) = sqlx::query_as(
+        "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = 'start_interrupted'",
+    )
+    .bind(&t.id)
+    .fetch_one(s.f.board.store().pool())
+    .await
+    .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(payload["hook"]["name"], "post-checkout");
+    assert!(
+        payload["hook"]["output"]
+            .as_str()
+            .unwrap()
+            .contains("failing on purpose")
+    );
     let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
     assert!(!worktree.exists(), "the half-made worktree is gone");
     assert!(!registered(&s.f, &worktree), "and git no longer lists it");
