@@ -280,6 +280,18 @@ async fn answered(
                 None => Ok(dialog(app, key)),
             }
         }
+        // A hook refused a commit message: the refusal is on the ticket, the dialog closes, and the toast only points
+        // there (a click on it opens the ticket).
+        Ok(Reply::PrOutcome(PrOutcome::HookRefused { message, .. })) => {
+            forget(app, key);
+            let (title, text) =
+                otaq_view::view_models::hook_refusal::toast(key, &message);
+            app.notices.toast(NewToast {
+                ticket: Some(key.to_owned()),
+                ..NewToast::new(ToastLevel::Error, title, Some(text))
+            });
+            Ok(Answer::Closed)
+        }
         Ok(other) => Err(unexpected("ticket.open_pr", &other)),
         Err(e) => {
             // The built-in skill can't open a PR on this remote: the message says to name your own Open PR skill as

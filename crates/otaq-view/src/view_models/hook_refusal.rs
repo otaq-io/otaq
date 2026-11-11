@@ -1,5 +1,5 @@
-//! A project's git hook refused Approve & merge (the user's click or the flow's automatic delivery): how the ticket
-//! shows it. The card's Needs you flag and line come from [`super::card::hook_refusal`]; this module has the sheet's
+//! A project's git hook refused Approve & merge (the user's click or the flow's automatic delivery), or one of the
+//! commit messages Approve & open PR was to write: how the ticket shows it. The card's Needs you flag and line come from [`super::card::hook_refusal`]; this module has the sheet's
 //! callout (which hook, the step, the hook's whole output in the same box as a refused start's, and the way on) and
 //! the toast that only points to the ticket. History's row is the refused start's ([`super::history`]).
 
@@ -16,20 +16,40 @@ pub struct HookRefusalView {
     pub step: Option<String>,
     /// The hook's whole output, with the slot for a sentence above it ([`HookOutput::note`]).
     pub hook: HookOutput,
+    /// The commit message it refused, when it checked one of the PR's.
+    pub message: Option<RefusedMessage>,
     /// "Nothing was merged … Edit the message so the hook accepts it, or fix what it found, then merge again."
     pub way_on: String,
 }
 
-/// The sheet's callout for a refused merge. `base` is the branch the ticket merges into ("main").
+/// The commit message a hook refused, above its output.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct RefusedMessage {
+    /// "The message it refused".
+    pub label: String,
+    pub text: String,
+}
+
+/// The sheet's callout for a refused merge or PR. `base` is the branch the ticket merges into ("main").
 pub fn view(refused: &RefusedHook, base: &str) -> HookRefusalView {
+    let pr = refused.step == Some(GitStep::Reword);
     HookRefusalView {
         heading: format!("Your {}", refused.line()),
         step: refused.step.map(|s| step_sentence(s, base)),
         hook: hook_output(refused),
-        way_on: format!(
-            "Nothing was merged: {base}, the branch and the worktree are as they were. Edit the message so the hook \
-             accepts it, or fix what it found, then merge again."
-        ),
+        message: refused.message.as_ref().map(|text| RefusedMessage {
+            label: "The message it refused".to_owned(),
+            text: text.clone(),
+        }),
+        way_on: match pr {
+            true => "Nothing was rewritten or pushed: the branch and the worktree are as they were. Edit the \
+                     message so the hook accepts it, then open the PR again; your edits are kept."
+                .to_owned(),
+            false => format!(
+                "Nothing was merged: {base}, the branch and the worktree are as they were. Edit the message so the \
+                 hook accepts it, or fix what it found, then merge again."
+            ),
+        },
     }
 }
 
@@ -46,7 +66,7 @@ pub fn step_sentence(step: GitStep, base: &str) -> String {
         GitStep::Commit => "the squash commit".to_owned(),
         GitStep::MergeCheck => "the merge check".to_owned(),
         GitStep::MoveTarget => format!("moving {base} to the new commit"),
-        GitStep::Reword => "the new commit messages".to_owned(),
+        GitStep::Reword => "a commit message of the PR".to_owned(),
     };
     format!("It refused {what}.")
 }
@@ -70,6 +90,7 @@ mod tests {
             step,
             what: "the merge".into(),
             output: "commitlint: type must be one of [feat, fix]\n".into(),
+            message: None,
         }
     }
 
@@ -97,6 +118,34 @@ mod tests {
         );
     }
 
+    /// A PR's commit message the commit-msg hook refused: the message itself, the hook's output, and the PR dialog
+    /// as the way on.
+    #[test]
+    fn a_refused_pr_message_shows_the_message() {
+        let pr = RefusedHook {
+            step: Some(GitStep::Reword),
+            what: "the PR".into(),
+            ..refused(None)
+        }
+        .with_message("update stuff");
+        let v = view(&pr, "main");
+        assert_eq!(v.heading, "Your commit-msg hook refused the PR");
+        assert_eq!(
+            v.step.as_deref(),
+            Some("It refused a commit message of the PR.")
+        );
+        let message = v.message.expect("the refused message");
+        assert_eq!(message.text, "update stuff");
+        assert_eq!(message.label, "The message it refused");
+        assert!(
+            v.way_on.starts_with("Nothing was rewritten or pushed"),
+            "{}",
+            v.way_on
+        );
+        assert!(v.way_on.contains("open the PR again"), "{}", v.way_on);
+        assert_eq!(view(&refused(None), "main").message, None);
+    }
+
     #[test]
     fn a_hook_that_asks_in_the_terminal_is_named_as_such_above_its_output() {
         let refused = RefusedHook {
@@ -105,6 +154,7 @@ mod tests {
             what: "the merge".into(),
             output: "~/shop/.git/hooks/pre-commit: line 3: /dev/tty: No such device or address"
                 .into(),
+            message: None,
         };
         let v = view(&refused, "main");
         assert_eq!(

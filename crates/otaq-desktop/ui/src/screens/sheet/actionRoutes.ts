@@ -18,7 +18,7 @@ export type ActionRoute =
   | { kind: "diff" }
   | { kind: "edit" }
   | { kind: "parent" }
-  | { kind: "overlay"; id: "local_merge" | "send_back" | "send_back_pr" | "start_from_scratch" }
+  | { kind: "overlay"; id: "local_merge" | "open_pr" | "send_back" | "send_back_pr" | "start_from_scratch" }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
@@ -66,6 +66,9 @@ export function actionRoute(action: SheetAction): ActionRoute {
     case "approve":
     case "edit_message":
       return { kind: "overlay", id: "local_merge" };
+    // Edit messages and retry (a hook refused a PR's commit message): Approve & open PR again, on the edited messages.
+    case "edit_pr_messages":
+      return { kind: "overlay", id: "open_pr" };
     case "send_back":
       return { kind: "overlay", id: "send_back" };
     case "pass":

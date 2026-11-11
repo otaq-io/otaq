@@ -5,7 +5,7 @@
 
 use std::path::Path;
 
-use super::{Git, GitError, GitStep};
+use super::{Git, GitError, GitStep, HookRefusal};
 
 /// One commit of a range.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -22,6 +22,15 @@ impl CommitInfo {
     pub fn subject(&self) -> &str {
         self.message.lines().next().unwrap_or_default()
     }
+}
+
+/// What the project's commit-msg hook made of a message ([`Git::commit_msg_hook`]).
+#[derive(Debug)]
+pub enum MessageCheck {
+    /// Accepted: the message as the hook left it (a hook may add a line), or as it was without a hook.
+    Passed(String),
+    /// Refused: which hook and its whole output.
+    Refused(Box<HookRefusal>),
 }
 
 impl Git {
@@ -121,6 +130,78 @@ impl Git {
             parent = new.trim().to_owned();
         }
         Ok(parent)
+    }
+
+    /// Puts `message` through the project's commit-msg hook in `worktree`, as `git commit` would before it writes a
+    /// commit, without making one: `git hook run commit-msg` (git 2.36 or newer) runs the user's own hook, found as
+    /// git finds it (`core.hooksPath`, hooks set in the config), in the worktree's top folder, with the message in the
+    /// worktree's `COMMIT_EDITMSG` and the variables a commit gives it (`GIT_INDEX_FILE`, and `GIT_EDITOR=:` since no
+    /// editor opens). No commit-msg hook: it passes as it is. The hook may rewrite the file, as a hook adding a
+    /// `Change-Id` does; a commit keeps what it wrote, and so does the answer. A git too old for `git hook` can't run
+    /// it: the message passes unchecked, as before.
+    pub async fn commit_msg_hook(
+        &self,
+        worktree: &Path,
+        message: &str,
+    ) -> Result<MessageCheck, GitError> {
+        self.step(GitStep::Reword);
+        let paths = self
+            .run(
+                worktree,
+                &[
+                    "rev-parse",
+                    "--path-format=absolute",
+                    "--git-path",
+                    "COMMIT_EDITMSG",
+                    "--git-path",
+                    "index",
+                ],
+            )
+            .await?;
+        let mut paths = paths.lines();
+        let (Some(file), Some(index)) = (paths.next(), paths.next()) else {
+            return Ok(MessageCheck::Passed(message.to_owned()));
+        };
+        let file = std::path::PathBuf::from(file.trim());
+        let write = |e: std::io::Error| GitError::Spawn {
+            args: format!("hook run commit-msg -- {}", file.display()),
+            error: e,
+        };
+        tokio::fs::write(&file, format!("{}\n", message.trim()))
+            .await
+            .map_err(write)?;
+        let file_arg = file.display().to_string();
+        let ran = self
+            .run_with_env(
+                worktree,
+                &[
+                    "hook",
+                    "run",
+                    "--ignore-missing",
+                    "commit-msg",
+                    "--",
+                    &file_arg,
+                ],
+                &[("GIT_INDEX_FILE", index.trim()), ("GIT_EDITOR", ":")],
+            )
+            .await;
+        match ran {
+            Ok(_) => {
+                let kept = tokio::fs::read_to_string(&file).await.map_err(write)?;
+                Ok(MessageCheck::Passed(match kept.trim() {
+                    "" => message.trim().to_owned(),
+                    kept => kept.to_owned(),
+                }))
+            }
+            Err(GitError::HookRefused(refusal)) => Ok(MessageCheck::Refused(refusal)),
+            Err(GitError::Failed { stderr, .. }) if stderr.contains("is not a git command") => {
+                tracing::warn!(
+                    "git has no `git hook` (it needs 2.36): the PR's messages weren't checked by commit-msg"
+                );
+                Ok(MessageCheck::Passed(message.trim().to_owned()))
+            }
+            Err(e) => Err(e),
+        }
     }
 
     /// The tree of a commit.

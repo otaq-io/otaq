@@ -1210,3 +1210,89 @@ async fn an_automatic_pr_with_no_provider_says_so_on_the_card() {
     }
     w.stop().await;
 }
+
+/// An automatic PR Delivery whose proposed commit message the project's commit-msg hook refuses: nothing is
+/// rewritten or pushed, the agent is told to stop, and the Delivery stops for the user with the hook's output and the
+/// message, as a refused merge does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hook_refusing_an_automatic_prs_message_is_on_the_ticket() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_pr_delivery)
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    let _agent = w.agent_shell(&t).await;
+    let as_agent = Actor::Agent(t.key.clone());
+    let hook = repo.join(".git/hooks/commit-msg");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\ngrep -qE '^(feat|fix):' \"$1\" || { echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    pass(&w, &t).await;
+    let branch = naming::branch(&key);
+    let before = git(&repo, &["rev-parse", &branch]);
+    let ids = commits(&repo, &format!("main..{branch}"));
+    let proposal = serde_json::json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &ids[0][..7], "message": "SHOP-1: redirect after login"}],
+        "title": "SHOP-1 Login redirect",
+        "description": "Returns to the page you came from."
+    });
+
+    let err = w
+        .prs
+        .propose(&key, &proposal.to_string(), &as_agent)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("commit-msg hook refused"), "{err}");
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "nothing rewritten"
+    );
+    assert!(
+        git(&repo, &["branch", "--list", "feature/*"])
+            .trim()
+            .is_empty(),
+        "nothing renamed"
+    );
+    let after = w.board.ticket(&key).await.unwrap();
+    assert_eq!(after.status, Status::DeliveryStopped);
+    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    let refused = after.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.step, Some(otaq_core::git::GitStep::Reword));
+    assert_eq!(
+        refused.message.as_deref(),
+        Some("SHOP-1: redirect after login")
+    );
+    assert!(refused.output.contains("commitlint"), "{}", refused.output);
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    w.stop().await;
+}

@@ -354,16 +354,26 @@ impl From<sheet::HookOutput> for HookOutput {
     }
 }
 
-/// A project's git hook refused Approve & merge (the click or the automatic delivery): "Your commit-msg hook refused
-/// the merge", the step, the hook's output in the same box as a refused start's, and the way on (the bar's Edit
-/// message and retry).
+/// A project's git hook refused Approve & merge (the click or the automatic delivery), or a PR's commit message: "Your
+/// commit-msg hook refused the merge", the step, the refused message, the hook's output in the same box as a refused
+/// start's, and the way on (the bar's Edit message and retry, or Edit messages and retry).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetHookRefusal")]
 pub struct HookRefusal {
     pub heading: String,
     pub step: Option<String>,
     pub hook: HookOutput,
+    /// The PR's commit message the commit-msg hook refused, above its output.
+    pub message: Option<RefusedMessage>,
     pub way_on: String,
+}
+
+/// "The message it refused" and the message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetRefusedMessage")]
+pub struct RefusedMessage {
+    pub label: String,
+    pub text: String,
 }
 
 impl From<hook_refusals::HookRefusalView> for HookRefusal {
@@ -372,6 +382,10 @@ impl From<hook_refusals::HookRefusalView> for HookRefusal {
             heading: v.heading,
             step: v.step,
             hook: v.hook.into(),
+            message: v.message.map(|m| RefusedMessage {
+                label: m.label,
+                text: m.text,
+            }),
             way_on: v.way_on,
         }
     }

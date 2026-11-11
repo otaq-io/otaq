@@ -1274,31 +1274,48 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
 /// A start a hook refused: "Start failed" · "post-checkout hook refused the start", opening the hook's whole output,
 /// kept after the worktree it ran in is gone. `None` for any other event.
 fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
-    // A start, or Approve & merge (the click or the automatic delivery): the same row, its title naming what stopped.
-    let title = match e.kind {
-        EventKind::StartInterrupted => "Start failed",
-        EventKind::HookRefused => "Merge didn\u{2019}t go through",
-        _ => return None,
-    };
+    // A start, Approve & merge (the click or the automatic delivery) or a PR's commit message: the same row, its
+    // title naming what stopped.
+    if !matches!(e.kind, EventKind::StartInterrupted | EventKind::HookRefused) {
+        return None;
+    }
     let hook: otaq_core::git::RefusedHook =
         serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
+    let title = match e.kind {
+        EventKind::StartInterrupted => "Start failed",
+        _ if hook.step == Some(otaq_core::git::GitStep::Reword) => "PR didn\u{2019}t go through",
+        _ => "Merge didn\u{2019}t go through",
+    };
     let output = super::sheet::hook_output(&hook);
     Some(told(
         e,
         title.to_owned(),
         Some(hook.line()),
         event_mark(e, facts),
-        hook_output_opens(&output.label, output.note.as_deref(), &output.output),
+        hook_output_opens(
+            &output.label,
+            // The message it refused, when it checked a PR's.
+            hook.message
+                .as_deref()
+                .map(|m| format!("The message it refused: \u{201c}{}\u{201d}", m.trim())),
+            output.note.as_deref(),
+            &output.output,
+        ),
         kind_of(e.kind),
     ))
 }
 
 /// What a hook's row opens: "OUTPUT OF YOUR POST-MERGE HOOK" and its output, line by line. A sentence above the
 /// output (a hook that asks in the terminal) comes first, set apart by an empty line.
-fn hook_output_opens(label: &str, note: Option<&str>, output: &str) -> Opens {
+fn hook_output_opens(
+    label: &str,
+    caption: Option<String>,
+    note: Option<&str>,
+    output: &str,
+) -> Opens {
     Opens {
         label: label.to_uppercase(),
-        caption: None,
+        caption,
         lines: note
             .into_iter()
             .flat_map(|note| [note, ""])
@@ -1339,7 +1356,7 @@ fn post_merge_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         hook.sentence(),
         last,
         event_mark(e, facts),
-        hook_output_opens("Output of your post-merge hook", None, output),
+        hook_output_opens("Output of your post-merge hook", None, None, output),
         kind_of(e.kind),
     ))
 }
@@ -2446,6 +2463,29 @@ mod tests {
                 "commitlint: type must be one of [feat, fix]"
             ]
         );
+    }
+
+    /// A PR's commit message the commit-msg hook refused: its own title, and the message above the hook's output.
+    #[test]
+    fn a_refused_pr_message_keeps_the_message() {
+        let row = event_row(&event(
+            EventKind::HookRefused,
+            MIN,
+            json!({ "hook": { "name": "commit-msg", "step": "reword", "what": "the PR",
+                    "output": "commitlint: type must be one of [feat, fix]", "message": "update stuff" } }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "PR didn\u{2019}t go through");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("commit-msg hook refused the PR")
+        );
+        let opens = row.opens.unwrap();
+        assert_eq!(
+            opens.caption.as_deref(),
+            Some("The message it refused: \u{201c}update stuff\u{201d}")
+        );
+        assert_eq!(opens.lines.len(), 1);
     }
 
     /// A failed round that sent the ticket back names its check and where it went (d0131), the nearest stage or not.

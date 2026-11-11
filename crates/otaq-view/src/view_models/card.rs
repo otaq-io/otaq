@@ -1082,8 +1082,11 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Some(AutoMergeStop::PushNotLanded) => {
                     ("Needs you".to_owned(), "Branch not on the remote")
                 }
-                // A project's git hook refused Approve & merge: "Needs you", its text "commit-msg hook refused the
-                // merge" (the stop's own).
+                // A project's git hook refused Approve & merge, or a PR's commit message: "Needs you", its text
+                // "commit-msg hook refused the merge" (the stop's own).
+                Some(AutoMergeStop::HookRefused) if refused_pr_message(ticket) => {
+                    ("Needs you".to_owned(), "Hook refused the PR")
+                }
                 Some(AutoMergeStop::HookRefused) => {
                     ("Needs you".to_owned(), "Hook refused the merge")
                 }
@@ -2451,6 +2454,12 @@ pub fn hook_refusal(ticket: &Ticket) -> Option<&otaq_core::git::RefusedHook> {
 /// "Needs you · commit-msg hook refused the merge": the card's line while a hook's refusal waits for the user.
 pub fn hook_refusal_line(ticket: &Ticket) -> Option<String> {
     hook_refusal(ticket).map(|r| format!("Needs you \u{b7} {}", r.line()))
+}
+
+/// The hook refused one of the PR's commit messages (Approve & open PR), not a step of the merge: the way on is the PR
+/// dialog again, on the user's kept edits.
+pub fn refused_pr_message(ticket: &Ticket) -> bool {
+    hook_refusal(ticket).is_some_and(|r| r.step == Some(otaq_core::git::GitStep::Reword))
 }
 
 /// "Couldn't update main from origin · started from your local main" (or "· merged into your local main"): the fetch
@@ -4892,6 +4901,7 @@ mod tests {
             step: Some(otaq_core::git::GitStep::Commit),
             what: "the merge".into(),
             output: "lint failed".into(),
+            message: None,
         };
         t.flags.hook_refusal = Some(refused.clone());
         let x = CardExtras {

@@ -997,6 +997,7 @@ mod tests {
                 step: Some(otaq_core::git::GitStep::AddWorktree),
                 what: "the start".into(),
                 output: "npm ERR!".into(),
+                message: None,
             }),
         });
         let mut setup = ticket("HOOK-4", "Add modulo", Status::StartInterrupted);
