@@ -63,12 +63,88 @@ fn permission_prompt(payload: &Value) -> String {
         .map(str::trim)
         .filter(|c| !c.is_empty())
     {
-        return format!("Run command: {command}");
+        return format!("{RUN_COMMAND}{command}");
     }
     match text(payload, "tool_name") {
         Some(tool) => format!("Use {tool}"),
         None => "Codex asks for approval".to_owned(),
     }
+}
+
+/// How a command's prompt starts: "Run command: curl …".
+const RUN_COMMAND: &str = "Run command: ";
+
+/// Codex's approval dialog on screen (the hands-on screens of re-test 5, Codex CLI 0.166):
+///
+/// ```text
+///   Would you like to run the following command?
+///
+///   Environment: local
+///
+///   $ git diff -- README.md
+///
+/// › 1. Yes, proceed (y)
+///   2. Yes, and don't ask again for commands that start with `git diff -- README.md` (p)
+///   3. No, and tell Codex what to do differently (esc)
+///
+///   Press enter to confirm or esc to cancel
+/// ```
+///
+/// Once answered, Codex replaces it with "✓ You approved codex to run … this time" and the title is gone. Commands it
+/// asks for at once show as "• Running …" lines above the dialog, so only the dialog itself says which is drawn.
+pub(super) struct Dialog;
+
+/// The title every Codex approval dialog starts with ("… run the following command?", "… make the following edits?").
+const DIALOG_TITLE: &str = "Would you like to ";
+
+/// How much of a command is compared: a long one may wrap or be cut on screen.
+const COMPARED: usize = 40;
+
+impl crate::agent_tools::PromptScreen for Dialog {
+    fn dialog<'s>(&self, screen: &'s str) -> Option<&'s str> {
+        let mut at = None;
+        let mut offset = 0;
+        for line in screen.split_inclusive('\n') {
+            if line.trim_start().starts_with(DIALOG_TITLE) {
+                at = Some(offset);
+            }
+            offset += line.len();
+        }
+        at.map(|at| &screen[at..])
+    }
+
+    fn recognises(&self, prompt: &str) -> bool {
+        prompt.starts_with(RUN_COMMAND)
+    }
+
+    fn shows(&self, dialog: &str, prompt: &str) -> bool {
+        let Some(command) = prompt.strip_prefix(RUN_COMMAND) else {
+            return false;
+        };
+        let asked = squashed(command);
+        // The dialog's command: from "$ " to the blank line after it (a long one wraps over several lines).
+        let lines: Vec<&str> = dialog.lines().map(str::trim).collect();
+        let shown = match lines.iter().position(|l| l.starts_with("$ ")) {
+            Some(at) => squashed(
+                &lines[at..]
+                    .iter()
+                    .take_while(|l| !l.is_empty())
+                    .map(|l| l.strip_prefix("$ ").unwrap_or(l))
+                    .collect::<Vec<_>>()
+                    .join(" "),
+            ),
+            None => return false,
+        };
+        let head = |s: &str| s.chars().take(COMPARED).collect::<String>();
+        !asked.is_empty()
+            && !shown.is_empty()
+            && (shown.contains(&head(&asked)) || asked.contains(&head(&shown)))
+    }
+}
+
+/// `text` without any whitespace, so a command wrapped over lines compares with the one-line command.
+fn squashed(text: &str) -> String {
+    text.chars().filter(|c| !c.is_whitespace()).collect()
 }
 
 /// A non-empty string field.
@@ -163,6 +239,38 @@ mod tests {
             "Use apply_patch"
         );
         assert_eq!(ask(serde_json::json!({})), "Codex asks for approval");
+    }
+
+    /// The dialog drawn is the last one on screen, and it shows the command it asks for, wrapped or not; a command only
+    /// named in a "• Running" line above it isn't the one it asks for.
+    #[test]
+    fn the_dialog_on_screen_names_its_command() {
+        use crate::agent_tools::PromptScreen;
+        let screen = "\
+• Running Get-Content package.json; Get-Content docs/one.txt
+• Running git show --stat --oneline 718a765
+
+  Would you like to run the following command?
+
+  Environment: local
+
+  $ Get-Content package.json; Get-Content docs/one.txt; Get-Content
+  docs/two.txt
+
+› 1. Yes, proceed (y)
+  2. Yes, and don't ask again for commands that start with `Get-Content docs/one.txt` (p)
+  3. No, and tell Codex what to do differently (esc)
+
+  Press enter to confirm or esc to cancel";
+        let dialog = Dialog.dialog(screen).expect("a dialog");
+        assert!(dialog.trim_start().starts_with("Would you like to run"));
+        let first = "Run command: Get-Content package.json; Get-Content docs/one.txt; Get-Content docs/two.txt";
+        assert!(Dialog.shows(dialog, first));
+        assert!(!Dialog.shows(dialog, "Run command: git show --stat --oneline 718a765"));
+        assert!(!Dialog.shows(dialog, "Use apply_patch"));
+
+        let answered = "✓ You approved codex to run git log -1 --oneline this time\n\n• Ran git log -1 --oneline\n› ";
+        assert_eq!(Dialog.dialog(answered), None);
     }
 
     /// An event Otaq doesn't map is logged raw at debug level (ADP-11), so a hand check can capture it.

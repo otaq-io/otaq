@@ -93,8 +93,10 @@ struct Inner {
     quiet_timing: Mutex<quiet::QuietTiming>,
     /// One reminder before Idle (d0042 2026-10-28).
     reminders: reminder::Reminders,
-    /// Each ticket session's open permission prompt, whatever its ticket's status ([`asks`]).
-    asks: Mutex<HashMap<String, String>>,
+    /// Each agent session's open permission prompts and the one on screen ([`asks`]).
+    asks: Mutex<HashMap<String, asks::OpenPrompts>>,
+    /// What applies a prompt the screen shows later (set once at service start, [`asks`]).
+    on_shown: OnceLock<asks::OnShown>,
 }
 
 /// One session's current turn.
@@ -123,6 +125,7 @@ impl Signals {
                 quiet_timing: Mutex::new(quiet::QuietTiming::default()),
                 reminders: reminder::Reminders::default(),
                 asks: Mutex::new(HashMap::new()),
+                on_shown: OnceLock::new(),
             }),
         }
     }
@@ -209,7 +212,7 @@ impl Signals {
             .map_hook(event, payload, context);
         self.tool_reported(caller, &events);
         if events.is_empty() {
-            return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
+            return Ok(vec![self.on_signal(caller, tool, Signal::Ignored).await?]);
         }
         self.apply_events_from(caller, reporter, tool, &events)
             .await
@@ -278,7 +281,7 @@ impl Signals {
                             .model_refused(caller, tool, session, model.as_deref(), message)
                             .await?
                     {
-                        signals.push(self.on_signal(caller, signal).await?);
+                        signals.push(self.on_signal(caller, tool, signal).await?);
                     }
                     continue;
                 }
@@ -315,14 +318,39 @@ impl Signals {
                 {
                     self.turn_got_through(session).await?;
                 }
-                signals.push(self.on_signal(caller, signal).await?);
+                signals.push(self.on_signal(caller, tool, signal).await?);
             }
         }
         Ok(signals)
     }
 
-    /// Applies one signal of `caller`'s hook and returns it as applied.
-    async fn on_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
+    /// Applies one signal of `caller`'s hook from `tool` and returns it as applied: a permission prompt only once it is
+    /// the one on its session's screen ([`asks`]).
+    async fn on_signal(
+        &self,
+        caller: &Caller,
+        tool: Tool,
+        signal: Signal,
+    ) -> Result<Signal, BoardError> {
+        let signal = match session_of(caller) {
+            Some(session) => {
+                let (signal, changed) = self.track_prompts(caller, tool, session, signal);
+                if changed
+                    && let Caller::Agent {
+                        ticket, ticket_id, ..
+                    } = caller
+                {
+                    self.prompt_changed(ticket, ticket_id);
+                }
+                signal
+            }
+            None => signal,
+        };
+        self.apply_signal(caller, signal).await
+    }
+
+    /// Applies one signal of `caller` and returns it as applied.
+    async fn apply_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
         // A validator's hook only says where its turn is; its effect on the ticket is the validation's.
         if let Caller::Validator { .. } = caller {
             return Ok(signal);
@@ -340,16 +368,13 @@ impl Signals {
             return Ok(signal);
         }
         let Caller::Agent {
-            ticket,
-            ticket_id,
-            session,
+            ticket_id, session, ..
         } = caller
         else {
             tracing::info!("hook from outside an agent session ignored");
             return Ok(Signal::Ignored);
         };
         self.track_turn(session, &signal);
-        self.track_prompt(ticket, ticket_id, session, &signal);
         // Helpers still at their pieces: the agent in charge waits for them, Working in background (d0133).
         let signal = self.with_helpers_at_work(ticket_id, signal).await?;
         // A stage still open at the turn's end: one reminder first, Idle only if it is ignored (d0042 2026-10-28).

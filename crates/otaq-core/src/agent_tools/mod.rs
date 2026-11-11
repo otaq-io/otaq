@@ -734,6 +734,20 @@ pub struct InputQuirks {
 }
 
 /// One agent CLI (d0088). Each group of methods answers one of d0088's seven questions.
+/// A tool's permission dialog as its session's screen shows it ([`AgentTool::prompt_screen`]).
+pub trait PromptScreen: Send + Sync {
+    /// The permission dialog drawn on `screen` (the session's visible screen as text), from its title to the screen's
+    /// end, if one is drawn.
+    fn dialog<'s>(&self, screen: &'s str) -> Option<&'s str>;
+
+    /// Whether `dialog` asks for `prompt` (the line the tool's hook gave, "Run command: git diff").
+    fn shows(&self, dialog: &str, prompt: &str) -> bool;
+
+    /// Whether a dialog can be told to ask for `prompt` (a command's). One that can't (an edit's) is taken as the one
+    /// drawn when the dialog names none of the session's open prompts.
+    fn recognises(&self, prompt: &str) -> bool;
+}
+
 pub trait AgentTool: Send + Sync {
     /// Which tool this adapter is.
     fn tool(&self) -> Tool;
@@ -948,6 +962,13 @@ pub trait AgentTool: Send + Sync {
     /// Codex.
     fn key_alone_approves_prompt(&self) -> bool {
         false
+    }
+
+    /// How to read the tool's permission dialog off its session's screen, for a tool that may ask several permissions
+    /// at once and draw them one at a time (Codex): the screen says which of a session's open prompts is the one drawn
+    /// ([`crate::signals::asks`]). `None`: the newest open prompt is taken as the one on screen.
+    fn prompt_screen(&self) -> Option<&dyn PromptScreen> {
+        None
     }
 
     // Turn ends and models (ADP-12, AGT-05).

@@ -305,6 +305,11 @@ impl AgentTool for Codex {
         true
     }
 
+    /// Codex fires the hooks of the commands it runs at once together but draws their approval dialogs one at a time.
+    fn prompt_screen(&self) -> Option<&dyn crate::agent_tools::PromptScreen> {
+        Some(&hooks::Dialog)
+    }
+
     fn turn_end_reports_background(&self) -> bool {
         false
     }

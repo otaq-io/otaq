@@ -201,6 +201,13 @@ async fn answered(
     line: Option<&str>,
 ) -> Result<(), BoardError> {
     let session = info.id.as_str();
+    // The prompt on its screen closes; the next one open reads Needs you once drawn (a helper's closes in its own).
+    if matches!(
+        info.kind,
+        SessionKind::ProjectAgent | SessionKind::Validator
+    ) {
+        shared.signals.answer_shown(session);
+    }
     match info.kind {
         // Or its passed-on question (d0133 audit 3, d0119).
         SessionKind::Helper => shared.helpers.enter(session, line).await,

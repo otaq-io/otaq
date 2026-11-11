@@ -98,6 +98,7 @@ mod no_ui_dependency;
 mod notifications;
 mod one_check_agent;
 mod one_draft;
+mod open_prompts;
 mod open_questions;
 mod option_notes;
 mod order;

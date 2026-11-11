@@ -80,7 +80,13 @@ impl Helpers {
                 Signal::NeedsYou { prompt } => {
                     store::set_prompt(pool, &helper.id, prompt).await?;
                     tracing::info!(ticket = %helper.ticket, piece = helper.piece, "a helper's prompt waits for the user");
-                    self.wait_changed(ticket_id, None).await?;
+                    // Another prompt now on its screen: the ticket's line naming the one before ends too.
+                    let ended = helper
+                        .prompt
+                        .as_deref()
+                        .filter(|before| *before != prompt)
+                        .map(|before| needs_you_line(&helper.label(), before));
+                    self.wait_changed(ticket_id, ended).await?;
                 }
                 Signal::Ignored => {}
                 other => {
@@ -143,6 +149,10 @@ impl Helpers {
             return Ok(());
         };
         if helper.prompt.is_some() {
+            // The one on its screen; the next one open shows once drawn.
+            if let Some(signals) = self.inner.signals.get() {
+                signals.answer_shown(session);
+            }
             return self.prompt_closed(&helper).await;
         }
         let Some(line) = line.map(str::trim).filter(|l| !l.is_empty()) else {

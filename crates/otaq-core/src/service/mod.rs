@@ -284,6 +284,23 @@ impl Shared {
         )
     }
 
+    /// What applies a permission prompt its session's screen now shows ([`crate::signals::asks`]): to the session's
+    /// kind as its hook's would be.
+    fn on_shown(shared: &Arc<Self>) -> crate::signals::asks::OnShown {
+        let weak = Arc::downgrade(shared);
+        Arc::new(move |caller: Caller, tool: Tool, signal: Signal| {
+            let weak = weak.clone();
+            Box::pin(async move {
+                if let Some(shared) = weak.upgrade() {
+                    match shared.signals.prompt_shown(&caller, signal).await {
+                        Ok(signal) => shared.after_signals(&caller, tool, &[signal]).await,
+                        Err(e) => tracing::warn!(error = %e, "can't apply the prompt drawn"),
+                    }
+                }
+            })
+        })
+    }
+
     async fn watched(&self, watched: Watched) {
         let Watched {
             caller,
@@ -1206,6 +1223,8 @@ impl Service {
         });
         // Codex's session file (ADP-07): watched like a hook while its agent runs, again after a restart.
         shared.signals.set_watcher(Shared::watcher(&shared));
+        // A permission prompt queued behind another, applied once its session's screen draws it.
+        shared.signals.set_on_shown(Shared::on_shown(&shared));
         shared.signals.rewatch_running();
         tracing::info!(
             pid = std::process::id(),

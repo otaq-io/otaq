@@ -72,6 +72,8 @@ pub struct TestService {
     pub models: crate::agent_tools::models::ModelLists,
     stopper: Stopper,
     task: tokio::task::JoinHandle<()>,
+    /// The running service's state, for applying a tool's events as it does.
+    shared: std::sync::Weak<super::Shared>,
 }
 
 impl TestService {
@@ -671,6 +673,7 @@ impl TestService {
             service.recovery(),
             service.stopper(),
         );
+        let shared = std::sync::Arc::downgrade(&service.shared);
         let task = tokio::spawn(service.serve());
         Self {
             home,
@@ -707,7 +710,26 @@ impl TestService {
             models,
             stopper,
             task,
+            shared,
         }
+    }
+
+    /// Applies `caller`'s events from `tool` as the service applies a hook's: the signals, then what follows them for
+    /// a checker, a helper or a Project agent.
+    pub async fn tool_events(
+        &self,
+        caller: &crate::caller::Caller,
+        tool: crate::agent_tools::Tool,
+        events: Vec<crate::agent_tools::ToolEvent>,
+    ) {
+        let shared = self.shared.upgrade().expect("the service runs");
+        shared
+            .watched(crate::signals::watch::Watched {
+                caller: caller.clone(),
+                tool,
+                events,
+            })
+            .await;
     }
 }
 
