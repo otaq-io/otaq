@@ -15,6 +15,7 @@ mod agent_session_facts;
 mod agent_tool_requests;
 mod agents;
 mod answer_resume;
+mod answer_session_prompts;
 mod apply_now;
 mod base_sync;
 mod before_restart;

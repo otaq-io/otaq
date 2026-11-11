@@ -7522,6 +7522,14 @@
     "PromptTurn": {
       "kind": "enum",
       "variants": {
+        "answering": {
+          "fields": {
+            "asking": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        },
         "open_pr": {},
         "push_to_pr": {}
       }

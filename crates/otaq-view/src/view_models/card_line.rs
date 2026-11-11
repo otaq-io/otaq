@@ -208,6 +208,12 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
     if held(ticket, status, x).is_some() && !status.is_needs_you_family() {
         return None;
     }
+    // A finished ticket started again to answer another ticket's question: "answering SHOP-36" while it runs, and
+    // "Needs you · answering SHOP-36" with the Needs you edge while it waits at a prompt. The card keeps its status
+    // and its place in Done, and its finished time.
+    if let Some(words) = answering(ticket, status) {
+        return Some(words);
+    }
     let question = || x.question.as_deref().map(lowered);
     match status {
         Status::Backlog => plain(NOT_STARTED, Palette::Queued),
@@ -364,6 +370,23 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
         Status::ClosedNotMerged => plain(DONE_NOT_MERGED_LINE, Palette::Done),
     }
 }
+
+/// A finished card's answer session: "answering SHOP-36", or "Needs you · answering SHOP-36" at a prompt. `None` for
+/// any other card.
+fn answering(ticket: &Ticket, status: Status) -> Option<Words> {
+    let finished = ticket.place.is_done() || status == Status::MergedInto;
+    if !finished {
+        return None;
+    }
+    if let Some((_, asking)) = ticket.answering_prompt() {
+        return asks(format!("{NEEDS_YOU} \u{b7} answering {asking}"));
+    }
+    let asking = ticket.flags.answering.as_ref()?;
+    plain(format!("answering {asking}"), Palette::Working)
+}
+
+/// The front of a line that waits at a prompt: "Needs you · answering SHOP-36".
+pub const NEEDS_YOU: &str = "Needs you";
 
 /// A card whose tool stopped on an error: "Stopped · login expired", "Stopped · API Error: 500".
 pub fn stopped_line(error: &str) -> String {

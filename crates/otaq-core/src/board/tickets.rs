@@ -230,9 +230,26 @@ impl Ticket {
         self.flags.session_prompt.as_ref()
     }
 
+    /// A session prompt that reads as the ticket's own Needs you where it waits (Review, To deliver): its card, pill
+    /// and place in its column read Needs you. Not an answer session's: a finished card answering another ticket's
+    /// question only says so on its line ([`Self::answering_prompt`]).
+    pub fn prompt_in_place(&self) -> Option<&crate::domain::SessionPrompt> {
+        self.session_prompt().filter(|p| p.turn.asking().is_none())
+    }
+
+    /// The prompt an answer session of this finished ticket waits at, with the ticket whose question it holds up
+    /// ("Needs you · answering SHOP-36"). The card stays in Done with its status, never floats and never reads live;
+    /// the prompt gets its own Needs you item, notification and sheet prompt.
+    pub fn answering_prompt(
+        &self,
+    ) -> Option<(&crate::domain::SessionPrompt, &crate::domain::TicketKey)> {
+        let prompt = self.session_prompt()?;
+        Some((prompt, prompt.turn.asking()?))
+    }
+
     /// The ticket as Needs you shows it while a session prompt is shown without changing its status: Needs you, with
-    /// the prompt as its signal since it was drawn. `None` without one. For what the user reads (the card, the
-    /// Overview's prompt, the Needs you item), never for what the ticket can do.
+    /// the prompt as its signal since it was drawn. `None` without one. For what the user reads (the card of a ticket
+    /// waiting in place, the Overview's prompt, the Needs you item), never for what the ticket can do.
     pub fn as_needs_you(&self) -> Option<Ticket> {
         let prompt = self.session_prompt()?;
         Some(Ticket {
@@ -253,19 +270,20 @@ impl Ticket {
     }
 
     /// Turquoise as the user sees it: the agent waits. Also while its terminal has focus: being there holds back
-    /// only the alert ([`crate::domain::Flags::your_turn`]), never the card's state.
+    /// only the alert ([`crate::domain::Flags::your_turn`]), never the card's state. A finished ticket answering
+    /// another's question at a prompt isn't: its card stays where Done keeps it.
     pub fn shows_needs_you(&self) -> bool {
         self.status.is_needs_you_family()
             || self.stopped_in_place().is_some()
-            || self.session_prompt().is_some()
+            || self.prompt_in_place().is_some()
     }
 
     /// Whether the ticket waits for the user where they can see it: turquoise or Needs you's second group. Such cards
-    /// float to the top of Dev, focused terminal or not.
+    /// float to the top of Dev, focused terminal or not. A finished card's answer session prompt doesn't float it.
     pub fn needs_user(&self) -> bool {
         super::order::needs_user(self.status)
             || self.stopped_in_place().is_some()
-            || self.session_prompt().is_some()
+            || self.prompt_in_place().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
@@ -1362,7 +1380,8 @@ impl Board {
                     .cloned();
                 flags.missing_skill = missing_skills.remove(&row.id);
                 // Its sessions' prompts on screen; one in a delivery skill turn reads Needs you while the ticket keeps
-                // its status. Being in that terminal holds back only its alert, as for any prompt.
+                // its status, and so does one in a finished ticket's answer session ("answering SHOP-36"). Being in
+                // that terminal holds back only its alert, as for any prompt.
                 let drawn = self.session_prompts().of_ticket(&row.id);
                 flags.prompts_drawn_in = drawn.iter().map(|p| p.session.clone()).collect();
                 flags.session_prompt = drawn.into_iter().find_map(|p| {
@@ -1370,6 +1389,7 @@ impl Board {
                         status,
                         p.kind,
                         flows.get(&row.id).copied(),
+                        flags.answering.as_ref(),
                     )?;
                     Some(crate::domain::SessionPrompt {
                         session: p.session,

@@ -18,7 +18,7 @@ use otaq_core::protocol::{
 };
 use otaq_core::recovery::BeforeRestart;
 use otaq_core::session::deliveries::Delivery;
-use otaq_core::session::{SessionInfo, SessionState};
+use otaq_core::session::{SessionInfo, SessionKind, SessionState};
 use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::terminal::Phase;
@@ -557,7 +557,10 @@ async fn project_name(app: &App, key: &TicketKey) -> Result<String, RequestError
 /// only while messages wait for that session, the one time the hint says it (reading the line replays its screen).
 /// A service too old to answer is taken at its word that the notes wait for the line.
 async fn unsent_line(app: &App, ticket: &Ticket, sessions: &[SessionInfo]) -> bool {
-    let Some(session) = session_tab::agent_session(sessions).filter(|s| s.is_running()) else {
+    // Notes wait for the agent session only, never a finished ticket's answer session.
+    let Some(session) = session_tab::agent_session(sessions)
+        .filter(|s| s.is_running() && s.kind == SessionKind::Agent)
+    else {
         return false;
     };
     if ticket.flags.messages_waiting == 0 {
@@ -784,6 +787,29 @@ mod tests {
         list.push(session("live", SessionState::Running, 5));
         assert_eq!(session_tab::agent_session(&list).unwrap().id, "live", "the running one");
         assert_eq!(session_tab::agent_session(&[]), None);
+    }
+
+    /// Re-test 6: SHOP-35's Session tab showed its old ended Dev session while its answer session ran. A running
+    /// answer session is reached while no agent session runs, its prompt reads "Waiting for you" on the merged ticket,
+    /// and typing goes to it; a running agent session comes first, and an ended answer session is never shown.
+    #[test]
+    fn the_tab_reaches_a_running_answer_session() {
+        let mut answer = session("answer", SessionState::Running, 30);
+        answer.kind = SessionKind::Answer;
+        let mut list = vec![session("dev", SessionState::Ended, 10), answer.clone()];
+        assert_eq!(session_tab::agent_session(&list).unwrap().id, "answer");
+        let mut t = ticket(Status::Merged);
+        t.flags.prompts_drawn_in = vec!["answer".into()];
+        let view = view_of(&t, &list, &[], "shop-web", None);
+        assert_eq!(view.session.as_deref(), Some("answer"));
+        assert_eq!(strip(&view, Phase::Live, false).state.label, "Waiting for you");
+        assert!(view.typing.is_some(), "typing goes to it");
+        list.push(session("live", SessionState::Running, 40));
+        assert_eq!(session_tab::agent_session(&list).unwrap().id, "live", "the agent's first");
+        let mut ended = answer;
+        ended.state = SessionState::Ended;
+        let list = [session("dev", SessionState::Ended, 10), ended];
+        assert_eq!(session_tab::agent_session(&list).unwrap().id, "dev");
     }
 
     #[test]
