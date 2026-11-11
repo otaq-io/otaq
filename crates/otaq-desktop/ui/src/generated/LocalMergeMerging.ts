@@ -12,7 +12,12 @@ current: number,
  * While one of the user's hooks runs: "running your pre-commit hook · 40 s", under the current step. The page
  * asks again every second meanwhile.
  */
-hook: string | null, label: string, note: string, 
+hook: string | null, 
+/**
+ * "Stop" while a step runs that can be stopped (the Merge check's included), beside the current step; none once
+ * the target moves (the merge has landed). Sends `stop_git_step`.
+ */
+stop: string | null, label: string, note: string, 
 /**
  * The dialog can be closed while it runs; the merge finishes on its own (d0120).
  */

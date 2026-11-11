@@ -787,6 +787,12 @@ pub(super) async fn handle(
                 .await
                 .map(|()| Reply::Ok)
         }),
+        // Not queued behind the project's changes: the merge or start it stops holds them.
+        Request::TicketGitStop(p) => {
+            boxed(
+                move || async move { shared.board.stop_git_step(&p.key).await.map(|()| Reply::Ok) },
+            )
+        }
         Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(

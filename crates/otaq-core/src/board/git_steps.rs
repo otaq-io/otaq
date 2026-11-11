@@ -4,13 +4,17 @@
 //!
 //! [`GitSteps::begin`] marks the ticket and gives the [`GitWatch`] its `git` reports to
 //! ([`crate::board::Board::ticket_git`]); every new step and every hook that starts or ends tells clients the ticket
-//! changed, so the card and the dialog follow it with the dialog closed or open. The guard ends it. Nothing here stops
-//! a step or sets it a time limit: a slow hook runs as long as it takes.
+//! changed, so the card and the dialog follow it with the dialog closed or open. The guard ends it.
+//!
+//! [`GitSteps::stop`] is the user's Stop on the card or in the Merging dialog ([`Board::stop_git_step`]): the git
+//! command running then ends with its hook, and the operation leaves things as a refusal does. Nothing here sets a
+//! step a time limit: a slow hook runs as long as it takes, and a hanging one until the user stops it.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex, OnceLock};
 
 use super::tickets::Ticket;
+use super::{Board, BoardError, Refusal};
 use crate::domain::{GitHookRunning, GitOperation, GitProgress};
 use crate::git::{GitWatch, shorten_home};
 use crate::protocol::Event;
@@ -75,6 +79,12 @@ impl GitSteps {
             .map(|o| o.watch.clone())
     }
 
+    /// The user's Stop of the operation the ticket with this id runs now ([`GitWatch::stop`]). `false` when it runs
+    /// none, or is on a step that can't be stopped (the target branch's move, once the merge has landed).
+    pub fn stop(&self, ticket_id: &str) -> bool {
+        self.watch(ticket_id).is_some_and(|watch| watch.stop())
+    }
+
     /// Where the operation the ticket with this id runs now is, if it runs one.
     pub fn progress(&self, ticket_id: &str) -> Option<GitProgress> {
         let running = self.running.lock().expect("git steps");
@@ -128,5 +138,26 @@ impl Drop for Running {
             .expect("git steps")
             .remove(&self.ticket.id);
         self.steps.changed(&self.ticket);
+    }
+}
+
+impl Board {
+    /// **Stop** on a ticket running Approve & merge or a start: the Merge check when it is the one running (it has
+    /// its own Stop), else the git step running now, with its hook. The merge or start then ends as after a refusal:
+    /// main, the branch and the worktree as they were, the ticket where it was. Refused when it runs nothing that
+    /// can be stopped.
+    pub async fn stop_git_step(&self, key: &str) -> Result<(), BoardError> {
+        let ticket = self.ticket(key).await?;
+        if self.merge_checks().stop(&ticket.id) || self.git_steps().stop(&ticket.id) {
+            tracing::info!(ticket = %ticket.key, "git step stopped by the user");
+            return Ok(());
+        }
+        Err(BoardError::refused(
+            Refusal::MoveRefused,
+            format!(
+                "{} isn\u{2019}t running a step that can be stopped",
+                ticket.key
+            ),
+        ))
     }
 }

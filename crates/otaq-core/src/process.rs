@@ -637,6 +637,15 @@ impl Group {
         self.end();
     }
 
+    /// Lets the group be: what still runs in it keeps running once this is dropped. On Windows the job no longer
+    /// ends its processes when it is closed; on macOS and Linux nothing ends a group on drop anyway.
+    pub fn let_go(self) {
+        #[cfg(windows)]
+        if let Some(job) = &self.job {
+            job.keep_on_close();
+        }
+    }
+
     /// Whether `pid` runs in this group's job (Windows). A job holds every process started inside it, however it
     /// was started, so this also finds what Git Bash starts through its own `exec`, which doesn't keep the Windows
     /// parent chain. macOS and Linux answer by ancestry alone (`false` here).
@@ -792,6 +801,21 @@ mod job {
                     .filter_map(|id| u32::try_from(*id).ok())
                     .collect();
             }
+        }
+
+        /// The job's processes keep running when it is closed.
+        pub fn keep_on_close(&self) {
+            // SAFETY: a plain structure; zero means no limits.
+            let limits: JOBOBJECT_EXTENDED_LIMIT_INFORMATION = unsafe { std::mem::zeroed() };
+            // SAFETY: the structure and its size match the information class.
+            unsafe {
+                SetInformationJobObject(
+                    self.0,
+                    JobObjectExtendedLimitInformation,
+                    (&raw const limits).cast(),
+                    u32::try_from(std::mem::size_of_val(&limits)).expect("small"),
+                )
+            };
         }
 
         pub fn terminate(&self) {

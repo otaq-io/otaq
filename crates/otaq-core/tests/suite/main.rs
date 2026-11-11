@@ -67,6 +67,7 @@ mod free;
 mod git;
 mod git_hooks;
 mod git_identity_start;
+mod git_stop;
 mod hand_off_pending;
 mod hand_overs;
 mod handoffs;

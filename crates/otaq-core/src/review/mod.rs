@@ -143,6 +143,9 @@ pub enum LocalMergeOutcome {
     },
     /// The user stopped the Merge check (Q475): nothing was merged and the ticket stays where it was.
     CheckStopped { target: String },
+    /// The user stopped one of its git steps (a hook that hung, or ran too long for them): nothing was merged, the
+    /// target, the branch and its worktree are as they were and the ticket stays where it was.
+    Stopped { target: String },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
     Changed { check: ApproveCheck },
@@ -367,8 +370,28 @@ impl Review {
     }
 
     /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
-    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket.
+    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket. The user's Stop on one
+    /// of its git steps is [`LocalMergeOutcome::Stopped`]: nothing merged, the ticket where it was.
     async fn merge(
+        &self,
+        key: &str,
+        message: &str,
+        approve_anyway: bool,
+        actor: &Actor,
+    ) -> Result<Merge, BoardError> {
+        match self.merge_steps(key, message, approve_anyway, actor).await {
+            Err(BoardError::Git(e)) if e.is_stopped() => {
+                let board = &self.inner.board;
+                let ticket = board.ticket(key).await?;
+                let target = board.merge_target(&ticket).await?.target;
+                tracing::info!(ticket = %key, error = %e, "merge stopped by the user: nothing merged");
+                Ok(LocalMergeOutcome::Stopped { target }.into())
+            }
+            merged => merged,
+        }
+    }
+
+    async fn merge_steps(
         &self,
         key: &str,
         message: &str,

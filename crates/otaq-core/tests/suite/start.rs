@@ -616,6 +616,106 @@ async fn a_start_shows_its_git_step_and_the_running_hook() {
     s.sessions.shutdown().await;
 }
 
+/// A post-checkout that hangs runs until the user's Stop (no time limit); Stop ends git, the hook and what it started,
+/// and the start ends as after a refusal: Start failed in its column with Retry start, nothing half-made kept, and
+/// Retry start does the whole start again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hanging_post_checkout_is_stopped_and_leaves_nothing() {
+    let s = setup().await;
+    let marks = tempfile::tempdir().unwrap();
+    let pids = marks.path().join("pids");
+    let hook = repo(&s.f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\necho $$ >> '{p}'\nsleep 1000 &\necho $! >> '{p}'\nsleep 1000\n",
+            p = pids.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let t = queued(&s.f, "Checkout").await;
+    let starter = s.starter.clone();
+    let start = tokio::spawn(async move {
+        starter
+            .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+            .await
+    });
+    let written = || {
+        std::fs::read_to_string(&pids)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while written().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the post-checkout hook started");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!start.is_finished(), "no time limit");
+
+    s.f.board.stop_git_step("SHOP-1").await.unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(20), start)
+        .await
+        .expect("the start ends at Stop")
+        .unwrap()
+        .unwrap();
+    let StartOutcome::Interrupted { step, message } = &outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(*step, StartStep::Worktree);
+    assert_eq!(
+        message,
+        "You stopped the start while your post-checkout hook was running. Retry start starts it again."
+    );
+    #[cfg(unix)]
+    for pid in written() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+            {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("process {pid} is left"));
+    }
+    let after = s.f.ticket("SHOP-1").await;
+    assert_eq!(after.status, Status::StartInterrupted);
+    assert_eq!(after.flags.git, None);
+    let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(!worktree.exists(), "the half-made worktree is gone");
+    assert!(!registered(&s.f, &worktree), "and git no longer lists it");
+    assert!(
+        !branch_exists(&s.f, "otaq/SHOP-1"),
+        "the new branch is gone"
+    );
+    let row = s.f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.worktree_path, None);
+
+    std::fs::remove_file(&hook).unwrap();
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    s.sessions.shutdown().await;
+}
+
 /// A failed start removes only what it made: a branch an earlier start made, with work on it, stays where it is.
 #[tokio::test]
 async fn a_failed_start_keeps_a_branch_it_did_not_make() {

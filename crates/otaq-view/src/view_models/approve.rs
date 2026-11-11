@@ -501,6 +501,8 @@ pub enum MergeView {
     },
     /// The user's Stop of the Merge check (Q475): nothing merged, the ticket where it was.
     CheckStopped { message: String },
+    /// The user's Stop of one of its git steps (a hook that hangs): nothing merged, the ticket where it was.
+    Stopped { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry." (Retry).
     DirtyCheckout { message: String },
     /// The base diverged from its remote (Retry).
@@ -604,6 +606,12 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
         },
         LocalMergeOutcome::CheckStopped { target } => MergeView::CheckStopped {
             message: format!("The merge check was stopped; nothing was merged into {target}."),
+        },
+        LocalMergeOutcome::Stopped { target } => MergeView::Stopped {
+            message: format!(
+                "You stopped the merge. Nothing was merged into {target}; the branch and its worktree are as they \
+                 were."
+            ),
         },
     }
 }

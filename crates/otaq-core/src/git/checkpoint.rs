@@ -94,13 +94,16 @@ impl Git {
     /// the branch checked out in the **clean** `worktree`. `Ok(None)`: merged (or already up to date, or
     /// fast-forwarded); `Ok(Some(files))`: it conflicted on these files and was aborted. Any other failure (a hook
     /// refused the merge commit) is the error, with the merge aborted too: either way the branch, the index and the
-    /// files are as they were.
+    /// files are as they were. So after the user's Stop, even once the merge commit was made (its post-merge hook
+    /// running): the branch goes back to where it was.
     pub async fn merge_in(
         &self,
         worktree: &Path,
         onto: &str,
     ) -> Result<Option<Vec<String>>, GitError> {
         self.step(GitStep::UpdateBranch);
+        let before = self.run(worktree, &["rev-parse", "HEAD"]).await?;
+        let before = before.trim();
         let merged = self
             .run(
                 worktree,
@@ -118,6 +121,16 @@ impl Git {
         let Err(e) = merged else {
             return Ok(None);
         };
+        if e.is_stopped() {
+            if self.merge_in_progress(worktree).await? {
+                self.run(worktree, &["merge", "--abort"]).await?;
+            }
+            // Stopped before git wrote its merge state (during pre-merge-commit the index already holds the merge)
+            // or after the commit: the worktree was clean, so the branch's head as it was is the whole of it.
+            self.run(worktree, &["reset", "--quiet", "--hard", before])
+                .await?;
+            return Err(e);
+        }
         let files = self.conflicted_files(worktree).await?;
         // Abort if git left a merge in progress: a conflict, or a hook that refused the merge commit. It may also have
         // refused to start.

@@ -1324,6 +1324,7 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             format!("{key} can\u{2019}t be moved to Review"),
         ),
         Action::StopMergeCheck => return stop_merge_check(app, &key).await,
+        Action::StopGitStep => return stop_git_step(app, &key).await,
         Action::OpenPrInBrowser => {
             let url = ticket(app, &key)
                 .await?
@@ -1351,6 +1352,25 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Ok(_) => Ok(()),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// Stop on a running git step of Approve & merge or a start ("Merging · running your pre-commit hook · 3 min"): on a
+/// connection of its own, since the merge or start it stops may be waiting on the shared one. The merge answers that
+/// nothing was merged, a start becomes Start failed; a step that already ended is a toast.
+async fn stop_git_step(app: &App, key: &str) -> Result<(), RequestError> {
+    match app
+        .service
+        .send_alone(Request::TicketGitStop(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s git step can\u{2019}t be stopped"), &e);
             Err(e)
         }
     }
@@ -1746,6 +1766,7 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             return action(app, panel_action(Action::MarkMerged)).await.map(|()| Sent::Done);
         }
         CardActionKind::StopMergeCheck => return stop_merge_check(app, &params.key).await.map(|()| Sent::Done),
+        CardActionKind::StopGitStep => return stop_git_step(app, &params.key).await.map(|()| Sent::Done),
         CardActionKind::DeliverNow => (
             strip::deliver_now_request(
                 &key,

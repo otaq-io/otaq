@@ -700,6 +700,13 @@ pub enum Request {
     /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
     #[serde(rename = "ticket.merge_check_stop")]
     TicketMergeCheckStop(KeyParams),
+    /// **Stop** on a ticket running Approve & merge or a start: the git step running then ends with the user's hook
+    /// and whatever the hook started (the Merge check, when it is the one running), and the merge or start leaves
+    /// things as a refusal does; the Local merge request answers [`LocalMergeOutcome::Stopped`], a start becomes
+    /// Start failed with Retry start. Never a time limit: only this ends a slow hook. Answered with [`Reply::Ok`];
+    /// refused when the ticket runs nothing that can be stopped (the target's move once the merge has landed).
+    #[serde(rename = "ticket.git_stop")]
+    TicketGitStop(KeyParams),
     /// The check before any approve (REV-06): new commits since the review? Answered with
     /// [`Reply::ApproveCheck`].
     #[serde(rename = "ticket.approve_check")]
@@ -2182,6 +2189,7 @@ impl Request {
             Self::TicketMergeIntoHosts(_) => "ticket.merge_into_hosts",
             Self::TicketMergeInto(_) => "ticket.merge_into",
             Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
+            Self::TicketGitStop(_) => "ticket.git_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendBackPr(_) => "ticket.send_back_pr",

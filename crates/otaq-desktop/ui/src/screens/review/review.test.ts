@@ -69,6 +69,7 @@ const VIEW: ApproveView = {
     steps: ["Merge main into the branch"],
     current: 0,
     hook: null,
+    stop: null,
     label: "Merging…",
     note: "",
     close: "Close",
@@ -93,6 +94,13 @@ describe("the review screen", () => {
     );
     expect(quiet).not.toContain("running your");
     expect(quiet.match(/data-current="true"/g)).toHaveLength(1);
+    expect(quiet).not.toContain("Stop");
+    const stoppable = renderToStaticMarkup(
+      createElement(MergingSteps, { merging: { ...merging, stop: "Stop" } }),
+    );
+    expect(stoppable).toMatch(
+      /running your pre-commit hook · 40 s<\/span><button[^>]*>.*?<span>Stop<\/span>/,
+    );
   });
 
   it("registers both dialogs and ⌘↵ / ⌘⌫", () => {

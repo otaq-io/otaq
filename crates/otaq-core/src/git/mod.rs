@@ -2,6 +2,11 @@
 //! (d0055, P4). Every call is logged at debug level.
 //!
 //! There is deliberately no stash helper: Otaq never stashes and never touches a dirty checkout (P3, d0038).
+//!
+//! No git command has a time limit: a slow hook runs as long as it takes. A command of a watched step ends early only
+//! at the user's Stop ([`GitWatch::stop`]), and then with everything it started: git runs in its own process group
+//! (macOS, Linux) or job object (Windows), and the whole group or job ends, the user's hook and whatever the hook
+//! started included.
 
 pub mod checkpoint;
 pub mod diff;
@@ -22,7 +27,7 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
-use std::time::Duration;
+use std::time::{Duration, SystemTime};
 
 use tokio::io::AsyncReadExt;
 
@@ -115,6 +120,12 @@ impl Git {
     ) -> (Result<String, GitError>, Vec<HookRun>) {
         // git's events say which hook runs and how it ended: read for the commands that can run one, and for every
         // command of a followed step. Without them git still runs; only the hook goes unnamed.
+        // A Stop that came between two commands ends the next one before it starts.
+        if let Some(watch) = &self.watch
+            && watch.take_stop()
+        {
+            return (Err(self.stopped(args, None)), Vec::new());
+        }
         let mut trace = if self.watch.is_some() || hooks::runs_hooks(args) {
             HookTrace::new()
                 .inspect_err(|e| tracing::debug!(error = %e, "no folder for git's events"))
@@ -137,14 +148,21 @@ impl Git {
         for (key, value) in env {
             command.env(key, value);
         }
+        // A watched step can be stopped: git leads a process group of its own, so its hooks can be ended with it.
+        #[cfg(unix)]
+        if self.watch.is_some() {
+            command.process_group(0);
+        }
         let spawn_error = |error| GitError::Spawn {
             args: join(args),
             error,
         };
+        let began = SystemTime::now();
         let mut child = match command.spawn() {
             Ok(child) => child,
             Err(e) => return (Err(spawn_error(e)), Vec::new()),
         };
+        let mut tree = self.watch.as_ref().map(|_| Tree::of(child.id()));
         let (mut stdout, mut stderr) = (
             child.stdout.take().expect("piped"),
             child.stderr.take().expect("piped"),
@@ -166,10 +184,42 @@ impl Git {
             };
             tokio::join!(read_stdout, read_stderr, child.wait())
         };
-        let (stdout, chunks, status) = match (&self.watch, trace.as_mut()) {
-            (Some(watch), Some(trace)) => follow(ran, trace, watch, cwd).await,
-            _ => ran.await,
+        let ran = async {
+            match (&self.watch, trace.as_mut()) {
+                (Some(watch), Some(trace)) => follow(ran, trace, watch, cwd).await,
+                _ => ran.await,
+            }
         };
+        let stop = async {
+            match &self.watch {
+                Some(watch) => watch.stopped().await,
+                None => std::future::pending().await,
+            }
+        };
+        let ended = tokio::select! {
+            ended = ran => Some(ended),
+            () = stop => None,
+        };
+        let Some((stdout, chunks, status)) = ended else {
+            // The user's Stop: git, its hook and whatever the hook started end.
+            let hook = self
+                .watch
+                .as_ref()
+                .and_then(|w| w.activity().hook)
+                .map(|h| h.name);
+            if let Some(tree) = tree.take() {
+                tree.end(&mut child).await;
+            }
+            if let Some(watch) = &self.watch {
+                watch.set_running(None);
+            }
+            tracing::info!(cwd = %cwd.display(), args = %join(args), ?hook, "git stopped by the user");
+            self.clear_locks(cwd, began).await;
+            return (Err(self.stopped(args, hook)), Vec::new());
+        };
+        if let Some(tree) = tree.take() {
+            tree.let_go();
+        }
         let status = match status {
             Ok(status) => status,
             Err(e) => return (Err(spawn_error(e)), Vec::new()),
@@ -213,6 +263,72 @@ impl Git {
             },
         };
         (Err(error), runs)
+    }
+
+    fn stopped(&self, args: &[&str], hook: Option<String>) -> GitError {
+        GitError::Stopped {
+            args: join(args),
+            hook,
+        }
+    }
+
+    /// Moves on to `step`, which a Stop can't end ([`GitStep::stoppable`]); [`GitError::Stopped`] when the user stopped
+    /// before it, with nothing of it done.
+    pub fn step_unstoppable(&self, step: GitStep) -> Result<(), GitError> {
+        match &self.watch {
+            Some(watch) if !watch.enter_unstoppable(step) => Err(self.stopped(&[], None)),
+            _ => Ok(()),
+        }
+    }
+
+    /// After a stopped command: the lock files it held in the repository of `cwd` go, so the steps that put things
+    /// back (and the next merge or start) aren't refused with "index.lock exists". Only those made since `began`, by
+    /// the command that was just ended: git removes its own when it is asked to end, but a forced end (Windows)
+    /// leaves them.
+    async fn clear_locks(&self, cwd: &Path, began: SystemTime) {
+        let dirs = match self
+            .run_with_code(
+                cwd,
+                &["rev-parse", "--absolute-git-dir", "--git-common-dir"],
+            )
+            .await
+        {
+            Ok((0, dirs)) => dirs,
+            Ok((code, _)) => {
+                tracing::debug!(code, "can't find the repository of a stopped git command");
+                return;
+            }
+            Err(e) => {
+                tracing::debug!(error = %e, "can't find the repository of a stopped git command");
+                return;
+            }
+        };
+        let mut lines = dirs.lines().map(|l| cwd.join(l.trim()));
+        let (Some(git_dir), Some(common)) = (lines.next(), lines.next()) else {
+            return;
+        };
+        let since = began.checked_sub(Duration::from_secs(1)).unwrap_or(began);
+        let mut locks = Vec::new();
+        locks_in(&git_dir, false, &mut locks);
+        locks_in(&common, false, &mut locks);
+        locks_in(&common.join("refs"), true, &mut locks);
+        locks.sort();
+        locks.dedup();
+        for lock in locks {
+            let fresh = std::fs::metadata(&lock)
+                .and_then(|m| m.modified())
+                .is_ok_and(|at| at >= since);
+            if fresh {
+                match std::fs::remove_file(&lock) {
+                    Ok(()) => {
+                        tracing::info!(lock = %lock.display(), "removed a stopped git command's lock")
+                    }
+                    Err(e) => {
+                        tracing::warn!(lock = %lock.display(), error = %e, "can't remove a stopped git command's lock")
+                    }
+                }
+            }
+        }
     }
 
     /// Runs `git <args>` and returns its exit code and standard output, for commands whose non-zero codes carry
@@ -384,6 +500,70 @@ impl Git {
     }
 }
 
+/// The `*.lock` files in `dir` (and its subfolders when `deep`).
+fn locks_in(dir: &Path, deep: bool, found: &mut Vec<PathBuf>) {
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
+    for entry in entries.flatten() {
+        let path = entry.path();
+        match entry.file_type() {
+            Ok(kind) if kind.is_dir() && deep => locks_in(&path, true, found),
+            Ok(kind) if kind.is_file() && path.extension().is_some_and(|e| e == "lock") => {
+                found.push(path);
+            }
+            _ => {}
+        }
+    }
+}
+
+/// A watched git command and everything it starts ([`crate::process::Group`]): its own process group on macOS and
+/// Linux, a job object on Windows. Ended at the user's Stop, or if the command is dropped while it runs.
+struct Tree {
+    group: Option<crate::process::Group>,
+}
+
+impl Tree {
+    fn of(pid: Option<u32>) -> Self {
+        Self {
+            group: Some(crate::process::Group::of_leader(pid)),
+        }
+    }
+
+    /// Ends git and everything it started. git is asked first (a hang-up, which lets it remove its lock files), and
+    /// whatever is left a moment later is ended outright: a hook that ignores the hang-up included.
+    async fn end(mut self, child: &mut tokio::process::Child) {
+        let Some(group) = self.group.take() else {
+            return;
+        };
+        group.hang_up();
+        if tokio::time::timeout(Duration::from_secs(2), child.wait())
+            .await
+            .is_err()
+        {
+            tracing::info!("git didn't end at the hang-up: ending it");
+        }
+        group.kill();
+        let _ = child.wait().await;
+    }
+
+    /// git ended on its own: whatever a hook left running on purpose (a background job) is let be, as git leaves it.
+    fn let_go(mut self) {
+        if let Some(group) = self.group.take() {
+            group.let_go();
+        }
+    }
+}
+
+impl Drop for Tree {
+    /// The command was dropped while git ran (the service ending): git and what it started end with it.
+    fn drop(&mut self) {
+        if let Some(group) = self.group.take() {
+            group.kill();
+        }
+    }
+}
+
 /// Waits for a git command while telling `watch` which hook runs, from git's events read a few times a second.
 async fn follow<T>(
     ran: impl std::future::Future<Output = T>,
@@ -459,6 +639,9 @@ pub enum GitError {
     },
     /// `git` ran and one of the user's hooks refused it: which one, and its whole output.
     HookRefused(Box<HookRefusal>),
+    /// The user stopped the step ([`GitWatch::stop`]): git and the hook running then (`hook`) were ended. No time
+    /// limit ever ends one.
+    Stopped { args: String, hook: Option<String> },
 }
 
 impl GitError {
@@ -468,6 +651,11 @@ impl GitError {
             Self::HookRefused(refusal) => Some(refusal),
             _ => None,
         }
+    }
+
+    /// Whether the user stopped it.
+    pub fn is_stopped(&self) -> bool {
+        matches!(self, Self::Stopped { .. })
     }
 }
 
@@ -481,6 +669,13 @@ impl fmt::Display for GitError {
             Self::Spawn { args, error } => write!(f, "can't run git {args}: {error}"),
             Self::Failed { args, code, stderr } => failed(f, args, *code, stderr),
             Self::HookRefused(refusal) => failed(f, &refusal.args, refusal.code, &refusal.stderr),
+            Self::Stopped {
+                hook: Some(hook), ..
+            } => {
+                write!(f, "you stopped it while your {hook} hook was running")
+            }
+            Self::Stopped { args, hook: None } if args.is_empty() => f.write_str("you stopped it"),
+            Self::Stopped { args, hook: None } => write!(f, "you stopped git {args}"),
         }
     }
 }

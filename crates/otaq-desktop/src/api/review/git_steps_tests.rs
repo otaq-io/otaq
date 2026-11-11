@@ -156,11 +156,14 @@ async fn a_running_hook_shows_on_the_card_and_in_the_merging_dialog() {
             line.starts_with("Merging \u{b7} running your pre-commit hook \u{b7} "),
             "{line}"
         );
-        assert_eq!(card(&view, "SHOP-1").unwrap()["action"], Value::Null);
+        // Stop is the card's one action: there is no time limit.
+        let stop = &card(&view, "SHOP-1").unwrap()["action"];
+        assert_eq!((&stop["kind"], &stop["label"]), (&json!("stop_git_step"), &json!("Stop")));
 
         // The dialog: the squash step, the hook under it, its time growing.
         let open = quick(&app, "review.approve", json!({ "key": "SHOP-1" })).await;
         assert_eq!(open["merging"]["current"], 2, "{}", open["merging"]);
+        assert_eq!(open["merging"]["stop"], "Stop", "beside the running step");
         let first = open["merging"]["hook"].as_str().unwrap().to_owned();
         assert!(
             first.starts_with("running your pre-commit hook \u{b7} "),
@@ -193,6 +196,75 @@ async fn a_running_hook_shows_on_the_card_and_in_the_merging_dialog() {
     assert_eq!(after.flags.git, None, "nothing says it once it landed");
     let view = quick(&app, "board.view", board).await;
     assert_eq!(view["seconds"], false);
+}
+
+/// A pre-commit that never ends: the card's Stop (on a connection of its own, while the merge waits on the shared
+/// one) ends it, the Merging dialog's request answers "Merge stopped", main is unchanged and the ticket is back in
+/// Review with nothing to answer. The sheet offers Stop alone meanwhile.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_cards_stop_ends_a_hanging_hook_and_nothing_is_merged() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let t = w.create("SHOP", "Card").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "card.ts", "card\n");
+    w.force_status(&t, Status::WaitingForYou).await;
+    let marks = tempfile::tempdir().unwrap();
+    let started = marks.path().join("started");
+    // Never released: only Stop ends it.
+    slow_pre_commit(&repo, &started, &marks.path().join("never"));
+    let main = git(&repo, &["rev-parse", "main"]);
+    let app = app(&w).await;
+
+    let merge = request(
+        &app,
+        "review.local_merge",
+        json!({ "key": "SHOP-1", "message": "SHOP-1: Card" }),
+    );
+    let stop = async {
+        until("the pre-commit hook started", || started.exists()).await;
+        let sheet = quick(&app, "sheet.view", json!({ "key": "SHOP-1" })).await;
+        let buttons: Vec<&Value> = sheet["view"]["buttons"]
+            .as_array()
+            .unwrap_or_else(|| panic!("{sheet}"))
+            .iter()
+            .map(|b| &b["action"])
+            .collect();
+        assert_eq!(buttons, [&json!("stop_git_step")]);
+        let sent = quick(
+            &app,
+            "sheet.card",
+            json!({ "key": "SHOP-1", "kind": "stop_git_step" }),
+        )
+        .await;
+        assert_eq!(sent, json!({ "outcome": "done" }));
+    };
+    let (merged, ()) = tokio::time::timeout(Duration::from_secs(30), async {
+        tokio::join!(merge, stop)
+    })
+    .await
+    .expect("the merge ends after Stop");
+    let merged = merged.unwrap();
+    assert_eq!(
+        (&merged["kind"], &merged["title"]),
+        (&json!("stopped"), &json!("Merge stopped"))
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "nothing merged");
+    let after = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(after.status, Status::WaitingForYou, "back in Review");
+    assert_eq!(after.auto_merge_stop, None, "a Stop isn't a refusal");
+    assert_eq!(after.flags.git, None);
+    // Nothing runs any more: a second Stop is refused (a toast).
+    assert!(
+        request(
+            &app,
+            "sheet.card",
+            json!({ "key": "SHOP-1", "kind": "stop_git_step" }),
+        )
+        .await
+        .is_err()
+    );
 }
 
 /// A post-merge hook that, only in the user's own folder (main checked out), touches `started`, runs until `release`

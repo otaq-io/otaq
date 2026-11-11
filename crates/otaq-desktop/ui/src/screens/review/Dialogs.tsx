@@ -574,7 +574,13 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           }
         >
           <div className="review-body">
-            <MergingSteps merging={view.merging} />
+            <MergingSteps
+              merging={view.merging}
+              onStop={() => {
+                // Ends the git step and its hook (or the Merge check): the merge answers that nothing was merged.
+                request("sheet.action", { key: ticket, action: "stop_git_step" }).catch(ignore);
+              }}
+            />
             <p className="review-muted">{view.merging.note}</p>
           </div>
         </Dialog>
@@ -593,8 +599,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
 }
 
 /** The merge's steps: the one git is really on turns, the ones before it are done; while one of the user's hooks
- * runs, a line under it says which one and for how long ("running your pre-commit hook · 40 s"). */
-export function MergingSteps({ merging }: { merging: ApproveView["merging"] }) {
+ * runs, a line under it says which one and for how long ("running your pre-commit hook · 40 s"), with Stop beside it
+ * while the step can be stopped (there is no time limit: a hanging hook runs until it is stopped). */
+export function MergingSteps({ merging, onStop }: { merging: ApproveView["merging"]; onStop?: () => void }) {
   return (
     <>
       {merging.steps.map((s, i) => (
@@ -610,10 +617,13 @@ export function MergingSteps({ merging }: { merging: ApproveView["merging"] }) {
             />
             <span>{s}</span>
           </div>
-          {i === merging.current && merging.hook !== null && (
-            // The running step's own line; its Stop belongs beside it.
+          {i === merging.current && (merging.hook !== null || merging.stop !== null) && (
+            // The running step's own line, with its Stop.
             <div className="review-step-hook">
-              <span>{merging.hook}</span>
+              {merging.hook !== null && <span>{merging.hook}</span>}
+              {merging.stop !== null && (
+                <Button variant="ghost" compact icon="square" label={merging.stop} onClick={onStop} />
+              )}
             </div>
           )}
         </div>

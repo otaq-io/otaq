@@ -63,7 +63,7 @@ pub enum Delivered {
     /// The PR Delivery's agent was started with its skill, no dialog.
     PrStarted,
     /// Left waiting in the Delivery for the user's click: uncommitted files in the worktree (never auto-fixed),
-    /// the user stopped the Merge check, or the PR couldn't start.
+    /// the user stopped the Merge check or another git step, or the PR couldn't start.
     Left,
     /// Not an automatic Delivery: the ticket isn't waiting in one, or its Delivery is click mode.
     NotAutomatic,
@@ -193,6 +193,7 @@ impl Review {
             }
             LocalMergeOutcome::Changed { .. }
             | LocalMergeOutcome::CheckStopped { .. }
+            | LocalMergeOutcome::Stopped { .. }
             | LocalMergeOutcome::CheckFailed { .. } => Delivered::Left,
         })
     }

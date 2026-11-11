@@ -13,15 +13,17 @@
 //! gets everything up to git's end, so its output is whole, with anything git printed after it ("The pre-rebase hook
 //! refused to rebase."). Paths under the user's home are shortened (`~/…`, `~\…`) so the user's name never shows.
 //!
-//! Nothing here stops a hook or sets it a time limit: dropping the future of a git command ends that git process,
-//! and a hook it started may outlive it.
+//! Nothing here sets a hook a time limit: a slow one runs as long as it takes. Only the user's Stop
+//! ([`GitWatch::stop`]) ends a watched step: the git command running then ends with everything it started, the user's
+//! hook and whatever the hook started included ([`super::Git::run_with_hooks`]).
 
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{SystemTime, UNIX_EPOCH};
 
 use serde::{Deserialize, Serialize};
-use tokio::sync::watch;
+use tokio::sync::{Notify, watch};
 
 /// A step of one of Otaq's own git operations: a start, a reopened ticket's update, Local merge, a helper's merge,
 /// the PR flow's rewording.
@@ -228,9 +230,19 @@ impl RefusedHook {
 }
 
 /// Follows one git operation: give it to [`Git::watched`](super::Git::watched) and every command that `Git` runs
-/// reports here. Cloning shares it.
+/// reports here, and the user's Stop ([`GitWatch::stop`]) reaches the command running then. Cloning shares it.
 #[derive(Debug, Clone)]
-pub struct GitWatch(Arc<watch::Sender<GitActivity>>);
+pub struct GitWatch {
+    activity: Arc<watch::Sender<GitActivity>>,
+    stop: Arc<StopSignal>,
+}
+
+/// The user's Stop, waiting for the git command it ends: taken by the one running, or by the next one to start.
+#[derive(Debug, Default)]
+struct StopSignal {
+    pending: AtomicBool,
+    notify: Notify,
+}
 
 impl Default for GitWatch {
     fn default() -> Self {
@@ -240,25 +252,89 @@ impl Default for GitWatch {
 
 impl GitWatch {
     pub fn new() -> Self {
-        Self(Arc::new(watch::channel(GitActivity::default()).0))
+        Self {
+            activity: Arc::new(watch::channel(GitActivity::default()).0),
+            stop: Arc::default(),
+        }
     }
 
     /// What it is doing now.
     pub fn activity(&self) -> GitActivity {
-        self.0.borrow().clone()
+        self.activity.borrow().clone()
     }
 
     /// Wakes on every change: a new step, a hook that starts or ends.
     pub fn subscribe(&self) -> watch::Receiver<GitActivity> {
-        self.0.subscribe()
+        self.activity.subscribe()
+    }
+
+    /// Whether the step it is on can be stopped ([`GitStep::stoppable`]; before the first step, it can).
+    pub fn can_stop(&self) -> bool {
+        self.activity.borrow().step.is_none_or(GitStep::stoppable)
+    }
+
+    /// The user's Stop: the git command running now ends, with its hook and whatever the hook started; with none
+    /// running, the next one ends before it starts. The operation then leaves things as a refusal does. `false` on a
+    /// step that can't be stopped. Otaq never calls it by itself: a hook has no time limit.
+    pub fn stop(&self) -> bool {
+        let mut stopped = false;
+        // Under the activity's lock, so a step that can't be stopped never begins with a Stop still waiting.
+        self.activity.send_if_modified(|a| {
+            if a.step.is_none_or(GitStep::stoppable) {
+                self.stop.pending.store(true, Ordering::SeqCst);
+                stopped = true;
+            }
+            false
+        });
+        if stopped {
+            self.stop.notify.notify_waiters();
+        }
+        stopped
+    }
+
+    /// Takes a waiting Stop: `true` once per Stop.
+    pub(super) fn take_stop(&self) -> bool {
+        self.stop.pending.swap(false, Ordering::SeqCst)
+    }
+
+    /// Resolves at the user's Stop, taking it.
+    pub(super) async fn stopped(&self) {
+        loop {
+            let notified = self.stop.notify.notified();
+            tokio::pin!(notified);
+            notified.as_mut().enable();
+            if self.take_stop() {
+                return;
+            }
+            notified.await;
+        }
+    }
+
+    /// Moves on to `step`, one that can't be stopped, unless a Stop came first: `false` then, and the Stop is taken.
+    pub(super) fn enter_unstoppable(&self, step: GitStep) -> bool {
+        let mut entered = false;
+        self.activity.send_if_modified(|a| {
+            if self.stop.pending.swap(false, Ordering::SeqCst) {
+                return false;
+            }
+            entered = true;
+            if a.step == Some(step) {
+                return false;
+            }
+            if let Some(was) = a.step.replace(step) {
+                a.earlier.push(was);
+            }
+            true
+        });
+        entered
     }
 
     pub(super) fn step(&self) -> Option<GitStep> {
-        self.0.borrow().step
+        self.activity.borrow().step
     }
 
     pub(super) fn set_step(&self, step: GitStep) {
-        self.0.send_if_modified(|a| {
+        self.activity.send_if_modified(|a| {
             if a.step == Some(step) {
                 return false;
             }
@@ -270,7 +346,7 @@ impl GitWatch {
     }
 
     pub(super) fn set_running(&self, hook: Option<RunningHook>) {
-        self.0.send_if_modified(|a| {
+        self.activity.send_if_modified(|a| {
             let changed = a.hook != hook;
             a.hook = hook;
             changed
@@ -278,7 +354,7 @@ impl GitWatch {
     }
 
     pub(super) fn add_runs(&self, runs: &[HookRun]) {
-        self.0.send_modify(|a| {
+        self.activity.send_modify(|a| {
             a.hook = None;
             a.hooks.extend_from_slice(runs);
         });
@@ -595,6 +671,27 @@ fn shorten_home_with(text: &str, home: &str) -> String {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Stop is taken once; it is refused once the target moves, and a Stop that came just before the move keeps the
+    /// move from starting.
+    #[test]
+    fn a_stop_is_taken_once_and_never_on_the_targets_move() {
+        let watch = GitWatch::new();
+        watch.set_step(GitStep::Commit);
+        assert!(watch.can_stop());
+        assert!(watch.stop());
+        assert!(
+            !watch.enter_unstoppable(GitStep::MoveTarget),
+            "the Stop came first"
+        );
+        assert!(!watch.take_stop(), "taken once");
+        assert_eq!(watch.activity().step, Some(GitStep::Commit));
+
+        assert!(watch.enter_unstoppable(GitStep::MoveTarget));
+        assert!(!watch.can_stop());
+        assert!(!watch.stop(), "nothing to undo once the target moves");
+        assert!(!watch.take_stop());
+    }
 
     #[test]
     fn the_home_folder_is_shortened_in_every_form() {
