@@ -208,6 +208,7 @@ async fn action_for(
         | R::StartupReport
         | R::Subscribe(_)
         | R::ToolsCheck
+        | R::GitToolsCheck
         | R::GitMissingIdentity(_)
         | R::OnboardingState
         | R::NotificationsState

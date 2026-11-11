@@ -437,6 +437,11 @@ async fn respond(
             report.agent_tools = shared.connected.list().tools;
             (Reply::ToolsCheck(report), Then::Continue)
         }
+        // Settings → Git & pull requests checks only git and the PR providers' tools: the agent tools aren't on it.
+        Request::GitToolsCheck => (
+            Reply::ToolsCheck(tools::check(&shared.config.tools).await),
+            Then::Continue,
+        ),
         Request::OnboardingState => match onboarding_state(shared).await {
             Ok(state) => (Reply::OnboardingState(state), Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),

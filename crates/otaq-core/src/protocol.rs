@@ -180,6 +180,10 @@ pub enum Request {
     /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
     #[serde(rename = "tools.check")]
     ToolsCheck,
+    /// Settings → Git & pull requests' check: git and the PR providers' tools only, without checking the agent tools
+    /// again; answered with [`Reply::ToolsCheck`] (its `agent_tools` empty).
+    #[serde(rename = "tools.check_git")]
+    GitToolsCheck,
     /// A checklist row's **Install** or **Log in** (git, gh, az): its command in a terminal of no project (the
     /// running one if there is one). Answered with [`Reply::Session`]; attach with `session.attach {session}`.
     #[serde(rename = "tools.terminal")]
@@ -2054,6 +2058,7 @@ impl Request {
             Self::StartupReport => "service.startup_report",
             Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
+            Self::GitToolsCheck => "tools.check_git",
             Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::GitSetIdentity(_) => "tools.git_identity",
             Self::GitMissingIdentity(_) => "git.missing_identity",
@@ -2908,6 +2913,7 @@ mod tests {
             Message::request(3, Request::ServiceStop),
             Message::request(6, Request::Subscribe(SubscribeParams::default())),
             Message::request(7, Request::ToolsCheck),
+            Message::request(7, Request::GitToolsCheck),
             Message::request(8, Request::OnboardingState),
             Message::request(9, Request::DismissTrustNote),
             Message::request(
