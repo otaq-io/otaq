@@ -290,6 +290,11 @@ pub struct Flags {
     /// stage still waits; not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_skill: Option<MissingSkill>,
+    /// A project's git hook refused one of Otaq's own git steps on the ticket: which hook, its whole output and the
+    /// operation it refused, for the card's Needs you flag and the sheet. Not a flag of its own: the stop it put the
+    /// ticket in shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_refusal: Option<crate::git::RefusedHook>,
 }
 
 /// The tool a held stage would have run on and the skill that tool doesn't have.
@@ -462,6 +467,12 @@ mod tests {
             missing_skill: Some(MissingSkill {
                 tool: crate::agent_tools::Tool::Codex,
                 skill: "team-validate".into(),
+            }),
+            hook_refusal: Some(crate::git::RefusedHook {
+                name: "commit-msg".into(),
+                step: Some(crate::git::GitStep::Commit),
+                what: "the merge".into(),
+                output: "subject must start with feat:".into(),
             }),
         }
     }

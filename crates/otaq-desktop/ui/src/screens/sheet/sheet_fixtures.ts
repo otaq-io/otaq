@@ -105,6 +105,7 @@ export const VIEW: SheetView = {
   approve_more: null,
   approve_opens_menu: false,
   stop_message: null,
+  hook_refusal: null,
   answer_agent: null,
   parent: null,
   menu: [],

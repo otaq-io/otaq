@@ -101,8 +101,13 @@ async fn an_edited_merge_message_outlives_a_refusal_and_a_restart_until_it_lands
     let main = git(&repo, &["rev-parse", "main"]);
     let refused = w.review.local_merge("SHOP-1", EDIT, false, &me()).await;
     assert!(
-        format!("{refused:?}").contains("must start with fix:"),
+        matches!(refused, Ok(LocalMergeOutcome::HookRefused { .. })),
         "the hook refused it: {refused:?}"
+    );
+    let output = w.board.ticket("SHOP-1").await.unwrap().flags.hook_refusal;
+    assert!(
+        output.is_some_and(|r| r.output.contains("must start with fix:")),
+        "its output is on the ticket"
     );
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
     let again = proposal(&w).await;

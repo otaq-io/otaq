@@ -356,6 +356,11 @@ pub enum MergeResult {
     Merged {
         toasts: Vec<ToastText>,
     },
+    /// A project's git hook refused a step: the refusal is on the ticket (Needs you, the hook's output, Edit message
+    /// and retry), not in the dialog, which closes; `toast` only points to the ticket.
+    OnTicket {
+        toast: ToastText,
+    },
     /// *Merge conflict during Local merge*: the files, what happens now (the agent fixes it with no click, FLW-17),
     /// the worktree.
     Conflict {
@@ -590,6 +595,12 @@ pub fn merge_result(
             view: "View",
             send_back: crate::view_models::sheet_actions::SEND_BACK,
             cancel: "Cancel",
+        },
+        MergeView::HookRefused { title, text } => MergeResult::OnTicket {
+            toast: ToastText {
+                title,
+                text: Some(text),
+            },
         },
         MergeView::NeedsIdentity { has } => MergeResult::Identity {
             form: crate::view_models::git_identity::form(&has),

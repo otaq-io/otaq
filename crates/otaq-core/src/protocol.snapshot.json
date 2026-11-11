@@ -982,6 +982,7 @@
         "base_diverged",
         "checkout_dirty",
         "delivery_failed",
+        "hook_refused",
         "keeps_conflicting",
         "keeps_failing_merge_check",
         "push_not_landed"
@@ -3046,6 +3047,7 @@
         "fixed_created_ticket",
         "held",
         "helper",
+        "hook_refused",
         "host_closed",
         "interrupted",
         "landed",
@@ -3554,6 +3556,10 @@
         },
         "helpers_to_resume": {
           "ty": "Vec<String>",
+          "omittable": true
+        },
+        "hook_refusal": {
+          "ty": "Option<RefusedHook>",
           "omittable": true
         },
         "in_line": {
@@ -4859,6 +4865,22 @@
             "target": {
               "ty": "String",
               "required": true
+            }
+          }
+        },
+        "hook_refused": {
+          "fields": {
+            "hook": {
+              "ty": "String",
+              "required": true
+            },
+            "message": {
+              "ty": "String",
+              "required": true
+            },
+            "step": {
+              "ty": "Option<GitStep>",
+              "omittable": true
             }
           }
         },
