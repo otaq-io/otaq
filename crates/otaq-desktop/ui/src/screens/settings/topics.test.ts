@@ -1,18 +1,20 @@
 // @vitest-environment happy-dom
 // App settings is about you and your machine: eight topics in the nav, no projects, a line saying where project
 // settings are; Settings opens at a topic's id (`git`, which the PR dialog and the project's Repository card link to);
-// Git & pull requests shows git and one row per PR provider with its sign-in state.
+// Git & pull requests shows git and one row per PR provider with its sign-in state, and is drawn at once, each row
+// "Checking…", while the tools check runs.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import { RegistriesContext, registerScreens } from "../../app/registry";
+import type { GitSettingsRow } from "../../generated/GitSettingsRow";
 import type { GitSettingsView } from "../../generated/GitSettingsView";
 import type { GlobalSectionId } from "../../generated/GlobalSectionId";
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsView } from "../../generated/SettingsView";
 import { request } from "../../tauri";
-import { GitBody } from "./Git";
+import { GitBody, GitSection } from "./Git";
 import { Settings } from "./Settings";
 
 vi.mock("../../tauri", async (original) => ({
@@ -246,5 +248,74 @@ describe("Git & pull requests", () => {
     ]);
     expect(texts("button").filter((t) => t === "Sign in…")).toHaveLength(1);
     expect(texts("button")).toContain("Re-check");
+  });
+
+  it("draws its rows at once, each Checking…, while the tools check runs, then fills them in", async () => {
+    const checkingRow = (tool: string, name: string, detail: string): GitSettingsRow => ({
+      tool,
+      name,
+      detail,
+      state: "Checking…",
+      look: "checking",
+      command: null,
+      button: null,
+      note: null,
+      identity: null,
+    });
+    const shown: GitSettingsView = {
+      ...view,
+      git: checkingRow("git", "git", ""),
+      providers: [checkingRow("gh", "GitHub", "uses gh"), checkingRow("az", "Azure DevOps", "uses az")],
+    };
+    let answer: (v: GitSettingsView) => void = () => undefined;
+    vi.mocked(request).mockImplementation((method: string) => {
+      if (method === "settings.git_shown") return Promise.resolve(shown);
+      if (method === "settings.git")
+        return new Promise((resolve) => {
+          answer = resolve;
+        });
+      return Promise.reject(new Error(method));
+    });
+    const states = () =>
+      [...host.querySelectorAll(".settings-git-row .settings-git-state")].map((e) => e.textContent);
+    act(() => {
+      root.render(createElement(GitSection));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    expect(texts(".settings-section-title")).toEqual(["Git", "Pull request providers"]);
+    expect(states()).toEqual(["Checking…", "Checking…", "Checking…"]);
+    expect(host.querySelector(".settings-git-row")?.getAttribute("data-look")).toBe("checking");
+    await act(async () => {
+      answer(view);
+      await Promise.resolve();
+    });
+    expect(states()).toEqual(["Needed by every project", "Signed in as nt", "Not signed in"]);
+  });
+
+  it("keeps the check's answer when the at-once page arrives after it", async () => {
+    let late: (v: GitSettingsView) => void = () => undefined;
+    vi.mocked(request).mockImplementation((method: string) => {
+      if (method === "settings.git") return Promise.resolve(view);
+      if (method === "settings.git_shown")
+        return new Promise((resolve) => {
+          late = resolve;
+        });
+      return Promise.reject(new Error(method));
+    });
+    act(() => {
+      root.render(createElement(GitSection));
+    });
+    await act(async () => {
+      await Promise.resolve();
+    });
+    await act(async () => {
+      late({ ...view, git: view.git && { ...view.git, state: "Checking…", look: "checking" } });
+      await Promise.resolve();
+    });
+    expect(host.querySelector(".settings-git-row .settings-git-state")?.textContent).toBe(
+      "Needed by every project",
+    );
   });
 });

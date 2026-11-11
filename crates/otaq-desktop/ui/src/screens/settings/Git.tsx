@@ -1,8 +1,10 @@
 // Settings → Git & pull requests (the topic id `git`): git on this machine (its version and where it is, Re-check),
 // then one row per pull request provider with the tool it uses and whether that tool is signed in. Install and
 // Sign in… run in a terminal under the row, as the agent tools' do; when the command ends the tools are checked again.
-// Everything comes from `settings.git`, which runs the tools check each time it is asked.
-import { useCallback, useEffect, useState } from "react";
+// Everything comes from `settings.git`, which runs the tools check each time it is asked. That can take seconds (process
+// starts are slow on Windows), so the pane is drawn at once from `settings.git_shown`: the last check's page, or every
+// row "Checking…" before the first; the check's answer replaces it.
+import { useCallback, useEffect, useRef, useState } from "react";
 
 import { Button, IconButton } from "../../components";
 import type { GitSettingsRow } from "../../generated/GitSettingsRow";
@@ -17,6 +19,7 @@ import { GitIdentityBox } from "./GitIdentity";
 
 /** A row's icon by its look; a missing git is an error, a missing provider only muted. */
 export function rowIcon(row: GitSettingsRow, required: boolean): IconName {
+  if (row.look === "checking") return "circle-dashed";
   if (row.look === "ready") return "circle-check";
   if (row.look === "attention") return "circle-alert";
   return required ? "circle-x" : "circle-minus";
@@ -142,10 +145,13 @@ export function GitSection() {
   const [view, setView] = useState<GitSettingsView | null>(null);
   const [failure, setFailure] = useState<string | null>(null);
   const [checking, setChecking] = useState(true);
+  // Set once the check has answered, so the at-once page never covers it.
+  const answered = useRef(false);
   const run = useCallback(
     () =>
       request("settings.git").then(
         (v) => {
+          answered.current = true;
           setView(v as GitSettingsView);
           setFailure(null);
           setChecking(false);
@@ -158,6 +164,12 @@ export function GitSection() {
     [],
   );
   useEffect(() => {
+    void request("settings.git_shown").then(
+      (v) => {
+        if (!answered.current) setView(v as GitSettingsView);
+      },
+      () => undefined,
+    );
     void run();
   }, [run]);
   const check = useCallback(() => {

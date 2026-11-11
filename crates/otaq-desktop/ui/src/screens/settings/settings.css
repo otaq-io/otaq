@@ -444,7 +444,8 @@
   color: var(--st-error);
 }
 
-.settings-tool[data-look="missing_optional"] > .icon {
+.settings-tool[data-look="missing_optional"] > .icon,
+.settings-tool[data-look="checking"] > .icon {
   color: var(--text-muted);
 }
 

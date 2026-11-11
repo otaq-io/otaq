@@ -3,4 +3,4 @@
 /**
  * How a row's state looks.
  */
-export type GitRowLook = "ready" | "attention" | "missing";
+export type GitRowLook = "ready" | "attention" | "missing" | "checking";
