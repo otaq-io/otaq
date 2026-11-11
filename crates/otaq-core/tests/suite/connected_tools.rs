@@ -272,6 +272,75 @@ async fn a_logged_out_tool_shows_signed_out_and_recheck_updates_it() {
     w.stop().await;
 }
 
+/// An agent that stops because its tool's login expired has the tool read signed out at once, with Sign in…,
+/// without a check of the tools: Claude Code's `auth status` (which would still say signed in here) isn't run again,
+/// and the row keeps its last check's time. Another error leaves the tool Connected. Seen in re-test 5: the stopped
+/// ticket offered Sign in… only once Settings → Agents had checked the tools again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_login_expired_stop_reads_signed_out_at_once() {
+    let tools = Tools::new();
+    let asked = tools.dir.path().join("asked");
+    tools.claude_with_status(&format!(
+        r#"echo x >> '{}'; echo '{{"loggedIn": true, "authMethod": "claude.ai"}}'"#,
+        asked.display()
+    ));
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let before = recheck(&client).await;
+    assert!(row(&before, Tool::Claude).state.is_connected());
+    let checks = || {
+        std::fs::read_to_string(&asked)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+    let checked = checks();
+
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Order email").await;
+    w.force_status(&ticket, otaq_core::domain::Status::Working)
+        .await;
+    let agent = w.agent_shell(&ticket).await;
+    let stop = async |error: &str, message: &str| {
+        let payload = json!({"hook_event_name": "StopFailure", "error": error,
+            "last_assistant_message": message});
+        let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request":
+            {"method": "hook", "params": {"tool": "claude", "event": "StopFailure", "payload": payload}}});
+        let ran = agent
+            .send_raw(&w.data.socket_path(), &request.to_string())
+            .await;
+        assert!(ran.stdout.contains("\"reply\":\"ok\""), "{ran:?}");
+    };
+
+    // Another error of the tool's own: still Connected.
+    stop("server_error", "API Error: 500").await;
+    assert!(w.connected.status(Tool::Claude).state.is_connected());
+
+    w.force_status(&ticket, otaq_core::domain::Status::Working)
+        .await;
+    stop(
+        "authentication_failed",
+        "Login expired \u{b7} Please run /login",
+    )
+    .await;
+    let claude = w.connected.list().tools.remove(0);
+    assert_eq!(claude.tool, Tool::Claude);
+    assert_eq!(
+        claude.state,
+        AgentToolState::FoundNotSignedIn {
+            version: Some("Claude Code 2.1.4".into())
+        }
+    );
+    assert!(claude.can_sign_in, "Sign in… offered");
+    assert_eq!(claude.checked_at, row(&before, Tool::Claude).checked_at);
+    assert_eq!(checks(), checked, "no check of the tool");
+    assert_eq!(
+        w.connected.is_available(Tool::Claude).unwrap_err().reason,
+        "signed out"
+    );
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_launch_rechecks_only_its_tool() {
     let tools = Tools::new();

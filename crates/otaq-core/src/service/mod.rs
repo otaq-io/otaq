@@ -257,11 +257,28 @@ impl Shared {
             {
                 tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
             }
+            self.sign_in_after(tool, signal);
             self.after_signal(caller, tool, signal);
         }
         // A helper's prompt and its Idle (d0133 audit 3).
         if let Err(e) = self.helpers.after_signals(caller, signals).await {
             tracing::warn!(error = %e, "can't apply the helper's hook");
+        }
+    }
+
+    /// A stop of `tool`'s, whoever's agent it came from, because its sign-in ran out or is missing ("Login expired")
+    /// has the tool read signed out at once, so Sign in… is offered straight away rather than after a check of the
+    /// tools. The next check (after Sign in…'s terminal, Re-check, a failed launch) takes the tool's own answer.
+    fn sign_in_after(&self, tool: Tool, signal: &Signal) {
+        let Signal::Failed { error, message } = signal else {
+            return;
+        };
+        let text = crate::signals::tool_error_text(error, message.as_deref());
+        if crate::signals::tool_error(&text)
+            .is_some_and(|stop| crate::signals::ToolStop::of(stop).needs_sign_in())
+        {
+            tracing::info!(%tool, "the tool stopped on its sign-in: signed out");
+            self.connected.signed_out(tool);
         }
     }
 
