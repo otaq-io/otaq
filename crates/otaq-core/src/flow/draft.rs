@@ -195,7 +195,8 @@ pub enum DraftEdit {
     Entry { proposal: u32 },
     /// Start from the flow in use: the draft goes back to it.
     FlowInUse,
-    /// **Ask the agent to write it** (FED-06): the stage's skill is being written by the Project agent `agent`.
+    /// **Ask the agent to write it** (FED-06): the stage's skill is being written by the Project agent `agent`. An
+    /// earlier request to the same agent for another stage goes when it named no folder yet, and stays once it did.
     SkillWriting {
         stage: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -442,6 +443,14 @@ impl Board {
                     .map(|w| (w.folder.clone(), w.made.clone()))
                     .unwrap_or_default();
                 row.draft.writing.retain(|w| w.stage_id != id);
+                // A newer request replaces an older one to the same agent that never started (named no folder), so
+                // an abandoned request doesn't block this one and its stage stops reading "Being written…". One
+                // already writing in its folder is left alone: no half-written skill is dropped silently.
+                if agent.is_some() {
+                    row.draft
+                        .writing
+                        .retain(|w| w.agent != *agent || w.folder.is_some());
+                }
                 row.draft.writing.push(SkillWriting {
                     stage_id: id,
                     agent: agent.clone(),

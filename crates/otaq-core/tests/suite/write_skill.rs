@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::{AgentModel, FixedModels};
-use otaq_core::flow::draft::DraftEdit;
+use otaq_core::flow::draft::{Draft, DraftEdit};
 use otaq_core::flow::proposal::ApplyChoices;
 use otaq_core::flow::write_skill::saved_text;
 use otaq_core::flow::{FlowFile, Stage, StageKind, yaml};
@@ -743,4 +743,112 @@ async fn a_tickets_agent_cant_write_a_stages_skill() {
     assert!(!w.data.root().join("skill-writes").exists());
     let draft = w.board.draft(&key, &models()).await.unwrap();
     assert!(draft.writing.is_empty(), "nothing is being written");
+}
+
+/// A newer Ask the agent to write it replaces an older one to the same agent that never started: asked for Plan's
+/// skill and then, with no folder named, for Dev's, the agent gets Dev's folder and Plan no longer reads "Being
+/// written…". The agent still writes only the stage it was asked for. Once Plan's folder is named, a request for Dev
+/// leaves Plan's alone, folder and all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_newer_request_replaces_one_that_never_started() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    with_plan(&w, &key).await;
+    let ask = |stage: &str| DraftEdit::SkillWriting {
+        stage: stage.into(),
+        agent: Some("pa-1".into()),
+    };
+    let stop = |stage: &str| DraftEdit::StopWriting {
+        stage: stage.into(),
+    };
+    let stages = |draft: &Draft| {
+        let mut ids: Vec<String> = draft.writing.iter().map(|w| w.stage_id.clone()).collect();
+        ids.sort();
+        ids
+    };
+
+    // Plan's request is abandoned before a folder is named; Dev's comes next and goes through.
+    w.board
+        .update_draft(&key, &ask("plan"), &models())
+        .await
+        .unwrap();
+    let draft = w
+        .board
+        .update_draft(&key, &ask("dev"), &models())
+        .await
+        .unwrap();
+    assert_eq!(
+        stages(&draft),
+        ["dev"],
+        "Plan no longer reads Being written"
+    );
+
+    // The agent may still only write the stage it was asked for.
+    let wrong = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(wrong.contains("flow write-skill dev"), "{wrong}");
+    assert!(!checkout.join(".claude/skills/plan-ticket").exists());
+
+    let given = w
+        .board
+        .skill_folder(&key, "dev", Some("dev-steps"), Some("pa-1"))
+        .await
+        .unwrap();
+    assert_eq!(given.stage, "Dev");
+    assert!(Path::new(&given.folder).is_dir());
+    w.board
+        .update_draft(&key, &stop("dev"), &models())
+        .await
+        .unwrap();
+
+    // Plan's request started: its folder is named. A request for Dev leaves it alone, folder and all.
+    w.board
+        .update_draft(&key, &ask("plan"), &models())
+        .await
+        .unwrap();
+    let plan = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap();
+    let draft = w
+        .board
+        .update_draft(&key, &ask("dev"), &models())
+        .await
+        .unwrap();
+    assert_eq!(
+        stages(&draft),
+        ["dev", "plan"],
+        "Plan is still being written"
+    );
+    assert_eq!(
+        draft
+            .writing
+            .iter()
+            .find(|w| w.stage_id == "plan")
+            .and_then(|w| w.folder.as_deref()),
+        Some(".claude/skills/plan-ticket")
+    );
+    assert!(Path::new(&plan.folder).is_dir());
+
+    // A request to another agent leaves the first agent's alone, even one that never started.
+    let draft = w
+        .board
+        .update_draft(
+            &key,
+            &DraftEdit::SkillWriting {
+                stage: "plan".into(),
+                agent: Some("pa-2".into()),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stages(&draft), ["dev", "plan"]);
 }
