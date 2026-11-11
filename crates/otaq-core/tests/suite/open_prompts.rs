@@ -12,7 +12,7 @@ use otaq_core::agent_tools::{Tool, ToolEvent};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::Status;
+use otaq_core::domain::{MergeCheckState, Status};
 use otaq_core::protocol::{InputParams, Request, encode_bytes};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
@@ -352,5 +352,107 @@ async fn a_project_agents_second_prompt_reads_needs_you_once_drawn() {
     until_waits(Some(SECOND)).await;
     key_in(&client, &session, b"y").await;
     until_waits(None).await;
+    w.stop().await;
+}
+
+/// A ticket whose agent fixes a delivery problem: "Merge check failed · fixing" (`merge_check`), else "Conflicts
+/// with main · fixing".
+async fn fixing(w: &TestService, ticket: &Ticket, reason: &str) {
+    w.force_status(ticket, Status::MergeConflictFixing).await;
+    sqlx::query("UPDATE tickets SET conflicts_with = 'main', conflict_reason = ? WHERE id = ?")
+        .bind(reason)
+        .bind(&ticket.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+}
+
+/// Whether the strip lists the ticket as Needs you naming `command`.
+async fn on_the_strip(w: &TestService, ticket: &Ticket, command: &str) -> bool {
+    w.board
+        .needs_you_items(i64::MAX / 2)
+        .await
+        .unwrap()
+        .iter()
+        .any(|item| {
+            item.id == ticket.id && item.status == Status::NeedsYou && item.reason.contains(command)
+        })
+}
+
+/// Re-test 5: SHOP-32's agent stopped at Codex prompts while its ticket read "Merge check failed · fixing", and the
+/// card and the strip kept "fixing". Each prompt reads Needs you on the card and the strip, naming its command; after
+/// "y" the ticket reads "fixing" again, the failed Merge check still on it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prompt_while_a_merge_check_is_fixed_reads_needs_you() {
+    let (w, ticket, client) = world().await;
+    fixing(&w, &ticket, "merge_check").await;
+    let session = codex_session(&w, &ticket, SessionKind::Agent).await;
+    let agent = Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    let merge_check = async || {
+        w.board
+            .ticket(&ticket.key.to_string())
+            .await
+            .unwrap()
+            .flags
+            .merge_check
+    };
+    assert_eq!(merge_check().await, Some(MergeCheckState::Failed));
+
+    draw(&w, &session, FIRST).await;
+    both_asked(&w, &agent).await;
+    until(&w, &ticket, Status::NeedsYou, Some(FIRST)).await;
+    assert!(on_the_strip(&w, &ticket, FIRST).await);
+
+    key_in(&client, &session, b"y").await;
+    until(&w, &ticket, Status::MergeConflictFixing, None).await;
+    assert_eq!(merge_check().await, Some(MergeCheckState::Failed));
+    assert!(!on_the_strip(&w, &ticket, FIRST).await);
+    stays(&w, &ticket, Status::MergeConflictFixing).await;
+    draw(&w, &session, SECOND).await;
+    until(&w, &ticket, Status::NeedsYou, Some(SECOND)).await;
+    assert!(on_the_strip(&w, &ticket, SECOND).await);
+
+    key_in(&client, &session, b"y").await;
+    until(&w, &ticket, Status::MergeConflictFixing, None).await;
+    assert_eq!(merge_check().await, Some(MergeCheckState::Failed));
+    // The agent's turn end leaves it fixing.
+    let stop = ToolEvent::TurnEnded {
+        background: Default::default(),
+        last_message: None,
+    };
+    w.tool_events(&agent, Tool::Codex, vec![stop]).await;
+    stays(&w, &ticket, Status::MergeConflictFixing).await;
+    w.stop().await;
+}
+
+/// The same while a conflict is fixed ("Conflicts with main · fixing").
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prompt_while_a_conflict_is_fixed_reads_needs_you() {
+    let (w, ticket, client) = world().await;
+    fixing(&w, &ticket, "test_merge").await;
+    let session = codex_session(&w, &ticket, SessionKind::Agent).await;
+    let agent = Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+
+    draw(&w, &session, FIRST).await;
+    let prompt = ToolEvent::NeedsYou {
+        prompt: format!("Run command: {FIRST}"),
+        helper_agent: false,
+    };
+    w.tool_events(&agent, Tool::Codex, vec![prompt]).await;
+    until(&w, &ticket, Status::NeedsYou, Some(FIRST)).await;
+    assert!(on_the_strip(&w, &ticket, FIRST).await);
+
+    key_in(&client, &session, b"y").await;
+    until(&w, &ticket, Status::MergeConflictFixing, None).await;
+    let after = w.board.ticket(&ticket.key.to_string()).await.unwrap();
+    assert_eq!(after.flags.conflicts_with.as_deref(), Some("main"));
     w.stop().await;
 }
