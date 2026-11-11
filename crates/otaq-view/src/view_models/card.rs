@@ -242,6 +242,9 @@ impl CardExtras {
     /// a needs-you ticket (and whether a helper agent asks), or what a ticket works on in the background with how
     /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
     pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
+        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's.
+        let waiting = ticket.as_needs_you();
+        let ticket = waiting.as_ref().unwrap_or(ticket);
         let Some(signal) = &ticket.signal else {
             return self;
         };
@@ -1641,6 +1644,10 @@ fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
 
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
+        // A session's prompt shown without changing the ticket's status reads as any Needs you card: the turquoise
+        // edge, the prompt's command and Open. Only the card reads so; the ticket and its actions are as they are.
+        let waiting = ticket.as_needs_you();
+        let ticket = waiting.as_ref().unwrap_or(ticket);
         Self::build(ticket, extras, now_ms, extras.several_tools)
     }
 
@@ -4662,6 +4669,37 @@ mod tests {
             assert_eq!(flag_of(&unfocused), Some(pill.as_str()), "{status:?}");
             assert_eq!(unfocused.outline, Outline::Attention, "{status:?}");
         }
+    }
+
+    /// Re-test 6: Push to PR's skill stopped at a Codex prompt while the card still read "Ready for you". A session's
+    /// prompt shown without changing the ticket's status reads Needs you naming the command, with the turquoise edge;
+    /// answered, the card is the Review card it was.
+    #[test]
+    fn a_skill_turns_prompt_in_review_reads_needs_you() {
+        let mut t = ticket("SHOP-35", "Push the fix", Status::WaitingForYou);
+        t.flags.pr_number = Some(2);
+        let calm = card(&t);
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: NOW - 60_000,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        let text = vm
+            .one_line
+            .line
+            .as_ref()
+            .map(|l| l.text.clone())
+            .unwrap_or_default();
+        assert!(text.contains("git push origin main"), "{text}");
+        assert_eq!(t.status, Status::WaitingForYou, "only the card reads so");
+        assert_eq!(status::shown(&t), Status::NeedsYou);
+        t.flags.session_prompt = None;
+        assert_eq!(card(&t), calm);
     }
 
     /// An interrupted question keeps its flag and is answered, not resumed, from the card (d0045).

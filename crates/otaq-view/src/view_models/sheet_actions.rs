@@ -286,6 +286,16 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         }
         return bar;
     }
+    // A session's prompt shown without changing the ticket's status: Answer in terminal first, and every action the
+    // ticket has where it waits stays as it is.
+    if ticket.session_prompt().is_some() {
+        let mut plain = ticket.clone();
+        plain.flags.session_prompt = None;
+        let mut bar = all_buttons_in(&plain, custom, skippable);
+        bar.retain(|(action, _)| *action != A::AnswerInTerminal);
+        bar.insert(0, (A::AnswerInTerminal, Secondary));
+        return bar;
+    }
     // A hook refused the merge or a PR's commit message, or the push didn't land: the ticket waits where it was
     // (Review, To deliver) and its retry leads, the merge or the PR dialog again on the user's kept edits, or Push to
     // PR again. Send back and Run stay as in Review.
@@ -560,6 +570,23 @@ mod tests {
 
     fn all(status: Status) -> Vec<(Action, Look)> {
         all_buttons(&ticket("SHOP-1", "t", status))
+    }
+
+    /// A session's prompt shown without changing the ticket's status: Answer in terminal comes first, and Review's
+    /// Approve and Send back stay as they are.
+    #[test]
+    fn a_skill_turns_prompt_in_review_adds_answer_in_terminal() {
+        let mut t = ticket("SHOP-1", "t", Status::WaitingForYou);
+        let review = all_buttons(&t);
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: 0,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        let waiting = all_buttons(&t);
+        assert_eq!(waiting[0], (Action::AnswerInTerminal, Look::Secondary));
+        assert_eq!(waiting[1..], review[..]);
     }
 
     /// DEC-05: the label for 0, 1 and 3 open decisions; with any, Local merge and Open PR are the ▾ menu's choices.

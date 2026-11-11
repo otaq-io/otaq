@@ -5,7 +5,7 @@ import { describe, expect, it } from "vitest";
 import { createRegistries, registered } from "../../app/registry";
 import type { PrDialogView } from "../../generated/PrDialogView";
 import { pr } from ".";
-import { Intro, OpenBox, Proposed, Waiting } from "./Dialogs";
+import { Intro, OpenBox, Proposed, SkillWaits, Waiting } from "./Dialogs";
 import { checkDue, fieldsOf, isStale, polls, proposalArrived } from "./logic";
 
 const VIEW: PrDialogView = {
@@ -39,6 +39,7 @@ const VIEW: PrDialogView = {
   prepared: null,
   writing: null,
   asks: null,
+  waits: null,
   set_up: null,
   merge_instead: null,
   filled: 1,
@@ -180,6 +181,22 @@ describe("the PR screen", () => {
       }),
     );
     expect(still).not.toContain("Answer in terminal");
+  });
+
+  it("says the skill's agent waits for permission, with its command and Answer in terminal", () => {
+    const html = renderToStaticMarkup(
+      createElement(SkillWaits, {
+        waits: {
+          line: "The agent is waiting for your permission to run a command",
+          text: "git push origin otaq/SHOP-18",
+          command: true,
+          asks: { session: "s-push", answer: "Answer in terminal", terminal_title: "SHOP-18 · Push to PR" },
+        },
+      }),
+    );
+    expect(html).toContain("The agent is waiting for your permission to run a command");
+    expect(html).toContain("$ git push origin otaq/SHOP-18");
+    expect(html).toContain("Answer in terminal");
   });
 
   it("locks the branch and drops title and description on Push to PR", () => {

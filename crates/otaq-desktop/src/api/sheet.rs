@@ -558,6 +558,18 @@ fn stopped_callout(f: &Facts) -> Option<Callout> {
 /// The permission prompt the ticket waits at, named by the agent of the session that asks: the checker's for a
 /// checker's prompt, else the ticket's agent's ("Developer wants to run a command").
 fn permission_prompt_of(f: &Facts) -> Option<PermissionPrompt> {
+    // A session's prompt shown without changing the ticket's status shows as any prompt, named by that session's
+    // agent.
+    if let Some(waiting) = f.ticket.as_needs_you() {
+        let session = f.ticket.session_prompt().map(|p| p.session.as_str());
+        let agent = f
+            .sessions
+            .iter()
+            .find(|s| Some(s.id.as_str()) == session)
+            .and_then(|s| s.agent.as_ref())
+            .map(|a| a.name.as_str());
+        return otaq_view::view_models::permission_prompt::of(&waiting, agent);
+    }
     let kind = if f.ticket.status == otaq_core::domain::Status::CheckerNeedsYou {
         SessionKind::Validator
     } else {
@@ -717,11 +729,9 @@ pub fn view_of(f: &Facts) -> View {
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
             // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (being there
-            // holds back only the alert), as its card. A Delivery stop that kept it in Review reads as its card does.
-            let mut pill = PillView::of(match ticket.stopped_in_place() {
-                Some(_) => otaq_core::domain::Status::DeliveryStopped,
-                None => ticket.status,
-            });
+            // holds back only the alert), as its card. A Delivery stop that kept it in Review, or a session's prompt
+            // shown without changing its status, reads as its card does.
+            let mut pill = PillView::of(otaq_view::view_models::status::shown(ticket));
             // Its tool stopped on an error: red with why, as its card ("Stopped · login expired").
             if let Some(error) = otaq_core::signals::stopped_on_error(ticket) {
                 pill = PillView {
@@ -1643,6 +1653,15 @@ pub struct Unsent {
 
 impl Unsent {
     pub(super) fn of(prompt: &UnsentPrompt) -> Self {
+        // Over a permission prompt: it says so, and only Keep it and cancel (a clear would answer it).
+        if let Some(note) = prompt.note().filter(|_| prompt.prompt.is_some()) {
+            return Self {
+                title: prompt.title(),
+                body: note,
+                clear: None,
+                cancel: "Keep it and cancel",
+            };
+        }
         Self::asking(
             prompt.title(),
             format!("{} {}.", prompt.explanation(), prompt.sending),
@@ -2173,7 +2192,7 @@ mod tests {
             (Some("Clear it and send"), "Cancel")
         );
         assert!(both.body.ends_with("The address-review skill."), "{}", both.body);
-        let only = Unsent::of(&prompt.unclearable_by(Some("Codex".into())));
+        let only = Unsent::of(&prompt.clone().unclearable_by(Some("Codex".into())));
         assert_eq!((only.clear, only.cancel), (None, "Keep it and cancel"));
         assert_eq!(
             only.body,
@@ -2181,6 +2200,14 @@ mod tests {
         );
         let asking = Unsent::asking("Noyan".into(), "…".into(), Some("Copilot"));
         assert_eq!(asking.clear, None);
+        // Over a permission prompt: it names the prompt, never "unsent text", and only Keep it and cancel.
+        let over = Unsent::of(&prompt.over_prompt(Some("Run command: git push origin main".into())));
+        assert_eq!(
+            over.title,
+            "A permission prompt is waiting in SHOP-18\u{2019}s terminal"
+        );
+        assert!(over.body.contains("`git push origin main`"), "{}", over.body);
+        assert_eq!((over.clear, over.cancel), (None, "Keep it and cancel"));
     }
 
     fn agent(state: SessionState) -> SessionInfo {

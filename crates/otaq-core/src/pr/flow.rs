@@ -133,6 +133,10 @@ pub struct PrFlowView {
     /// service fills it in).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_in: Option<String>,
+    /// The agent running the PR's skill waits at a permission prompt (the ticket reads Needs you meanwhile): the
+    /// prompt and the session whose terminal answers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waits: Option<crate::domain::SessionPrompt>,
     /// The user's own edit of the title, description and commit messages, kept on the ticket until the PR is opened
     /// or pushed with it, or the user chooses Use the proposed message: the dialog shows it over the proposal.
     #[serde(
@@ -266,6 +270,7 @@ impl Board {
             pr_url: row.pr_url,
             message: self.delivery_message(&ticket.id).await?,
             asks_in: None,
+            waits: ticket.flags.session_prompt.clone(),
             edited: self.edited_message(&ticket.id).await?,
             key: ticket.key,
         })

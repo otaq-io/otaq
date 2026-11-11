@@ -152,6 +152,8 @@ pub struct DialogView {
     pub writing: Option<String>,
     /// The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
     pub asks: Option<super::review_page::WriterAsks>,
+    /// While the skill prepares or pushes: its agent waits at a permission prompt, with Answer in terminal.
+    pub waits: Option<SkillWaits>,
     /// The provider isn't set up on this machine.
     pub set_up: Option<SetUpView>,
     /// "Or merge into main instead", when the flow delivers either way.
@@ -161,6 +163,46 @@ pub struct DialogView {
     /// "Use the proposed message" while the title, description or a commit message differs from the proposal (the
     /// user's edit, kept on the ticket until the PR is opened or pushed with it).
     pub use_proposed: Option<&'static str>,
+}
+
+/// The PR's skill waits at a permission prompt while the dialog says Preparing or Pushing: what it waits for, and
+/// Answer in terminal, which opens its session's terminal over the dialog. The ticket reads Needs you meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PrSkillWaits")]
+pub struct SkillWaits {
+    /// "The agent is waiting for your permission to run a command"
+    pub line: String,
+    /// The command, or the tool's prompt as it said it.
+    pub text: String,
+    /// `text` is a shell command: drawn as code after a `$`.
+    pub command: bool,
+    pub asks: super::review_page::WriterAsks,
+}
+
+/// [`SkillWaits`] for the dialog's stage: only while it says Preparing or Pushing.
+fn skill_waits(d: &PrDialog) -> Option<SkillWaits> {
+    if !matches!(d.stage, Stage::Preparing | Stage::Pushing) {
+        return None;
+    }
+    let waits = d.waits.as_ref()?;
+    let line = otaq_core::signals::prompt_line(&waits.prompt);
+    let (text, command) = match line.strip_prefix("Run command: ").map(str::trim) {
+        Some(c) if !c.is_empty() => (c.to_owned(), true),
+        _ => (line.clone(), false),
+    };
+    Some(SkillWaits {
+        line: if command {
+            "The agent is waiting for your permission to run a command".to_owned()
+        } else {
+            "The agent is waiting for your permission".to_owned()
+        },
+        text,
+        command,
+        asks: super::review_page::WriterAsks::in_session(
+            &waits.session,
+            format!("{} \u{b7} {}", d.key, waits.turn.label()),
+        ),
+    })
 }
 
 fn provider_name(d: &PrDialog) -> Option<&str> {
@@ -293,6 +335,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .as_deref()
             .zip(d.asks_in.as_deref())
             .map(|(agent, session)| super::review_page::WriterAsks::new(session, agent, &d.key)),
+        waits: skill_waits(d),
         set_up: d
             .not_set_up
             .as_deref()
@@ -530,6 +573,7 @@ mod tests {
             skill: "open-pr".to_owned(),
             message: None,
             asks_in: None,
+            waits: None,
             edited: Default::default(),
         }
     }
@@ -677,6 +721,44 @@ mod tests {
         let v = dialog_view(&d);
         assert!(v.writing.unwrap().starts_with("Developer is still writing"));
         assert_eq!(v.asks, None);
+    }
+
+    /// The PR's skill waits at a permission prompt: while the dialog says Preparing or Pushing it says so, with the
+    /// command and Answer in terminal on the skill's session; not over the proposal.
+    #[test]
+    fn a_skill_waiting_for_permission_shows_while_preparing_or_pushing() {
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let waits = otaq_core::domain::SessionPrompt {
+            session: "s-push".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: 0,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        };
+        let preparing = PrFlowView {
+            waits: Some(waits.clone()),
+            ..flow(FlowState::Preparing, Some(481))
+        };
+        d.update(&preparing);
+        let v = dialog_view(&d).waits.expect("said while preparing");
+        assert_eq!(
+            v.line,
+            "The agent is waiting for your permission to run a command"
+        );
+        assert_eq!((v.text.as_str(), v.command), ("git push origin main", true));
+        assert_eq!(
+            (v.asks.answer, v.asks.session.as_str()),
+            ("Answer in terminal", "s-push")
+        );
+        d.update(&PrFlowView {
+            waits: Some(waits.clone()),
+            ..flow(FlowState::Pushing, Some(481))
+        });
+        assert!(dialog_view(&d).waits.is_some(), "and while pushing");
+        d.update(&PrFlowView {
+            waits: None,
+            ..flow(FlowState::Pushing, Some(481))
+        });
+        assert_eq!(dialog_view(&d).waits, None, "answered");
     }
 
     #[test]

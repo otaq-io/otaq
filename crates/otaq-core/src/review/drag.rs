@@ -305,6 +305,13 @@ impl Review {
             }
             _ => None,
         };
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if let Some(id) = &keep
+            && !answers.clear_first
+            && let Some(asks) = super::prompt_first(board, ticket, id)
+        {
+            return Ok(asks);
+        }
         if let Some(id) = &keep
             && !answers.clear_first
             && inner.sessions.has_unsent_input(id).map_err(super::other)?
@@ -312,6 +319,7 @@ impl Review {
             return Ok(ReturnOutcome::NeedsConfirmation {
                 ticket: ticket.key.clone(),
                 unclearable_by: inner.deliveries.unclearable_by(id).map_err(super::other)?,
+                prompt: None,
             });
         }
         let in_human_check = here(flow, ticket).is_some_and(Stage::is_human_check);

@@ -223,6 +223,30 @@ impl Ticket {
         })
     }
 
+    /// A ticket's session prompt, shown without changing its status: the permission prompt one of its sessions waits
+    /// at while the ticket stays where it is ([`crate::domain::SessionPrompt`]). Read like a Delivery stop that kept
+    /// its place: Needs you on the card, the pill, the strip and in notifications; its status and actions as they are.
+    pub fn session_prompt(&self) -> Option<&crate::domain::SessionPrompt> {
+        self.flags.session_prompt.as_ref()
+    }
+
+    /// The ticket as Needs you shows it while a session prompt is shown without changing its status: Needs you, with
+    /// the prompt as its signal since it was drawn. `None` without one. For what the user reads (the card, the
+    /// Overview's prompt, the Needs you item), never for what the ticket can do.
+    pub fn as_needs_you(&self) -> Option<Ticket> {
+        let prompt = self.session_prompt()?;
+        Some(Ticket {
+            status: Status::NeedsYou,
+            signal: Some(AgentSignal {
+                text: Some(prompt.prompt.clone()),
+                since: Some(prompt.since),
+                wakeup_at: None,
+            }),
+            status_since: Some(prompt.since),
+            ..self.clone()
+        })
+    }
+
     /// Has this ticket ever been to Dev? Never-started tickets can be deleted (d0060).
     pub fn has_started(&self) -> bool {
         self.started_at.is_some()
@@ -231,13 +255,17 @@ impl Ticket {
     /// Turquoise as the user sees it: the agent waits. Also while its terminal has focus: being there holds back
     /// only the alert ([`crate::domain::Flags::your_turn`]), never the card's state.
     pub fn shows_needs_you(&self) -> bool {
-        self.status.is_needs_you_family() || self.stopped_in_place().is_some()
+        self.status.is_needs_you_family()
+            || self.stopped_in_place().is_some()
+            || self.session_prompt().is_some()
     }
 
     /// Whether the ticket waits for the user where they can see it: turquoise or Needs you's second group. Such cards
     /// float to the top of Dev, focused terminal or not.
     pub fn needs_user(&self) -> bool {
-        super::order::needs_user(self.status) || self.stopped_in_place().is_some()
+        super::order::needs_user(self.status)
+            || self.stopped_in_place().is_some()
+            || self.session_prompt().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
@@ -1010,6 +1038,31 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // The PR flows under way, read only while a ticket's session shows a prompt: which turn the prompt came in.
+        let flows: std::collections::HashMap<String, super::session_prompts::FlowUnderWay> =
+            if self.session_prompts().is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
+                    "SELECT f.ticket_id, f.kind, f.state, f.automatic FROM pr_flows f
+                     JOIN tickets t ON t.id = f.ticket_id WHERE t.project_id = ?",
+                )
+                .bind(project_id)
+                .fetch_all(pool)
+                .await?;
+                rows.into_iter()
+                    .filter_map(|(id, kind, state, automatic)| {
+                        Some((
+                            id,
+                            super::session_prompts::FlowUnderWay {
+                                kind: kind.parse().ok()?,
+                                state: state.parse().ok()?,
+                                automatic,
+                            },
+                        ))
+                    })
+                    .collect()
+            };
         // "answering SHOP-42" (MSG-03): the asker of the question a running answer session serves.
         let answering: std::collections::HashMap<String, String> = sqlx::query_as(
             "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
@@ -1308,6 +1361,26 @@ impl Board {
                     .filter(|_| status == Status::MergedInto)
                     .cloned();
                 flags.missing_skill = missing_skills.remove(&row.id);
+                // Its sessions' prompts on screen; one in a delivery skill turn reads Needs you while the ticket keeps
+                // its status. Being in that terminal holds back only its alert, as for any prompt.
+                let drawn = self.session_prompts().of_ticket(&row.id);
+                flags.prompts_drawn_in = drawn.iter().map(|p| p.session.clone()).collect();
+                flags.session_prompt = drawn.into_iter().find_map(|p| {
+                    let turn = super::session_prompts::shown_without_status(
+                        status,
+                        p.kind,
+                        flows.get(&row.id).copied(),
+                    )?;
+                    Some(crate::domain::SessionPrompt {
+                        session: p.session,
+                        prompt: p.prompt,
+                        since: p.since,
+                        turn,
+                    })
+                });
+                if flags.session_prompt.is_some() {
+                    flags.your_turn = self.focus.covers(&row.id, Status::NeedsYou);
+                }
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,

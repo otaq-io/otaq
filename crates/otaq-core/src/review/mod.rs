@@ -83,7 +83,24 @@ pub enum ReturnOutcome {
         ticket: TicketKey,
         #[serde(default)]
         unclearable_by: Option<String>,
+        /// It isn't text: the session waits at this permission prompt, answered in its terminal first. Nothing is
+        /// typed over a prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
+}
+
+/// The ticket's live `session` waits at a permission prompt: the question a click that would type into it asks
+/// instead of the unsent-text one, since typing there would answer the prompt.
+pub(crate) fn prompt_first(board: &Board, ticket: &Ticket, session: &str) -> Option<ReturnOutcome> {
+    board
+        .session_prompts()
+        .on_screen(session)
+        .map(|prompt| ReturnOutcome::NeedsConfirmation {
+            ticket: ticket.key.clone(),
+            unclearable_by: None,
+            prompt: Some(prompt),
+        })
 }
 
 /// The answer to a Pass on a human check (FLW-14).
@@ -730,6 +747,14 @@ impl Review {
             }
             None => inner.sessions.running_of(&ticket.id, SessionKind::Agent),
         };
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if !full
+            && !clear_first
+            && let Some(session) = &live
+            && let Some(asks) = prompt_first(&inner.board, ticket, &session.id)
+        {
+            return Ok(asks);
+        }
         if !full
             && !clear_first
             && let Some(session) = &live
@@ -744,6 +769,7 @@ impl Review {
                     .deliveries
                     .unclearable_by(&session.id)
                     .map_err(other)?,
+                prompt: None,
             });
         }
         let key = ticket.key.to_string();

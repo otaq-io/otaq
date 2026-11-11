@@ -119,6 +119,44 @@ pub struct RunningApp {
     pub started_by: Option<String>,
 }
 
+/// The turn of a ticket's session whose permission prompt reads Needs you while the ticket keeps its status
+/// ([`SessionPrompt`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptTurn {
+    /// The Open PR skill, once the user confirmed the PR, or an automatic PR's.
+    OpenPr,
+    /// The Push skill: Push to PR, its Retry, or an automatic PR's push to an open PR.
+    PushToPr,
+}
+
+impl PromptTurn {
+    /// "Open PR", "Push to PR".
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::OpenPr => "Open PR",
+            Self::PushToPr => "Push to PR",
+        }
+    }
+}
+
+/// A ticket's session prompt, shown without changing its status: the permission prompt on the screen of one of the
+/// ticket's own sessions while the ticket waits where it is (in Review, To deliver). The card, the pill, the strip and
+/// the notifications read Needs you naming it, as for any prompt, but the ticket keeps its column and its status, so
+/// every action on it stays as it was; once the prompt is answered it reads as before. Kept in memory
+/// ([`crate::board::session_prompts`]); a restart shows none. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPrompt {
+    /// The session whose terminal answers it.
+    pub session: String,
+    /// The tool's prompt as its hook said it ("Run command: git push origin otaq/SHOP-18").
+    pub prompt: String,
+    /// When it was drawn, in Unix milliseconds: the Needs you item's age.
+    pub since: i64,
+    /// The turn it came in.
+    pub turn: PromptTurn,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
     /// When the ticket was pinned, in Unix milliseconds (d0047). Pinned is not a status.
@@ -296,6 +334,14 @@ pub struct Flags {
     /// ticket in shows it.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub hook_refusal: Option<crate::git::RefusedHook>,
+    /// A ticket's session prompt, shown without changing its status (the Push skill waits at a permission prompt
+    /// while the ticket stays in Review): see [`SessionPrompt`]. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_prompt: Option<SessionPrompt>,
+    /// The ticket's own sessions with a permission prompt on screen now, whatever the ticket shows: each one's header
+    /// reads "Waiting for you". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts_drawn_in: Vec<String>,
 }
 
 /// The tool a held stage would have run on and the skill that tool doesn't have.
@@ -476,6 +522,13 @@ mod tests {
                 output: "subject must start with feat:".into(),
                 message: None,
             }),
+            session_prompt: Some(SessionPrompt {
+                session: "s1".into(),
+                prompt: "Run command: git push origin main".into(),
+                since: 9,
+                turn: PromptTurn::PushToPr,
+            }),
+            prompts_drawn_in: vec!["s1".into()],
         }
     }
 

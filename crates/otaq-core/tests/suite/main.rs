@@ -146,6 +146,7 @@ mod sessions;
 mod settings;
 mod shell;
 mod signals;
+mod skill_turn_prompts;
 mod stage_choices;
 mod stage_delivery;
 mod stage_end;

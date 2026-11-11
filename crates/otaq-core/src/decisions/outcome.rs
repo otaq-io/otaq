@@ -178,6 +178,7 @@ pub async fn change_and_send_back(
         ReturnOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
+            ..
         } => {
             return Ok(ChangeOutcome::NeedsConfirmation {
                 ticket,

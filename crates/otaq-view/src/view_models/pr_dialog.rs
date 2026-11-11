@@ -113,6 +113,8 @@ pub struct PrDialog {
     pub writing: Option<String>,
     /// The agent still writing them waits for permission: its session, whose terminal answers the prompt.
     pub asks_in: Option<String>,
+    /// The agent running the PR's skill waits at a permission prompt: the prompt and its session.
+    pub waits: Option<otaq_core::domain::SessionPrompt>,
     /// The user typed in the title, description or branch: a message arriving later doesn't replace them.
     pub typed: bool,
     /// Counts each time the fields were filled for the user (the proposal, then the agent's message): the page takes
@@ -188,6 +190,7 @@ impl PrDialog {
             prepared_by: None,
             writing: None,
             asks_in: None,
+            waits: None,
             typed: false,
             filled: 0,
         }
@@ -204,6 +207,7 @@ impl PrDialog {
         self.branch_locked = view.branch_locked;
         self.pr_number = view.pr_number;
         self.asks_in = view.asks_in.clone();
+        self.waits = view.waits.clone();
         let Some(flow) = &view.flow else {
             return;
         };
@@ -571,6 +575,7 @@ mod tests {
             skill: "open-pr".to_owned(),
             message: None,
             asks_in: None,
+            waits: None,
             edited: Default::default(),
         }
     }

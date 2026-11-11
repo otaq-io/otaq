@@ -12,6 +12,7 @@ import type { PrAnswer } from "../../generated/PrAnswer";
 import type { PrDialogView } from "../../generated/PrDialogView";
 import type { PrOpenBox } from "../../generated/PrOpenBox";
 import type { PrPushIntro } from "../../generated/PrPushIntro";
+import type { PrSkillWaits } from "../../generated/PrSkillWaits";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -48,6 +49,25 @@ function CodeBox({ text }: { text: string }) {
       >
         <Icon name="copy" size={13} />
       </button>
+    </div>
+  );
+}
+
+/** While the skill prepares or pushes, its agent waits at a permission prompt: what it asks, and Answer in terminal,
+ * which opens its terminal over the dialog. The words are Rust's (`PrSkillWaits`). */
+export function SkillWaits({ waits }: { waits: PrSkillWaits }) {
+  return (
+    <div className="pr-waits" role="status">
+      <div className="pr-waits-line">
+        <Icon name="hand" size={14} />
+        <span>{waits.line}</span>
+      </div>
+      {waits.command ? (
+        <code className="pr-mono pr-waits-text">$ {waits.text}</code>
+      ) : (
+        <p className="pr-waits-text">{waits.text}</p>
+      )}
+      <AnswerInTerminal asks={waits.asks} />
     </div>
   );
 }
@@ -527,6 +547,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
                 <span>{s.text}</span>
               </div>
             ))}
+            {view.waits !== null && <SkillWaits waits={view.waits} />}
           </div>
         </Dialog>
       );
@@ -581,6 +602,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
                     <span className="pr-mono pr-muted">{stage.detail}</span>
                   </div>
                 </div>
+                {view.waits !== null && <SkillWaits waits={view.waits} />}
                 <Waiting view={view} />
               </>
             ) : (

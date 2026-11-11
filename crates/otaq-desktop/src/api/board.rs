@@ -618,7 +618,11 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
         }))
         .await;
     match sent? {
-        Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. }) => {
+        Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        }) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     ticket.key.clone(),
@@ -626,7 +630,8 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
                     sb::sending(0),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         // A refusal comes back as the error: the dialog shows it and stays open.
