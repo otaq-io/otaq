@@ -103,3 +103,26 @@ describe("Edit flow never goes blank", () => {
     expect([...host.querySelectorAll("button")].some((b) => b.textContent === "Close")).toBe(true);
   });
 });
+
+describe("Needs you on the drafting line", () => {
+  it("names a long command on one line, with the command whole in its tooltip", async () => {
+    const view: FlowBoardView = {
+      ...(CHECK_FIRST as unknown as FlowBoardView),
+      drafting: {
+        needs_you: "Needs you",
+        text: "Docs stage skill wants your permission: Run command: @' …",
+        tooltip:
+          "Docs stage skill wants your permission: Run command: @'\n---\nname: update-docs\n---\n'@ | Set-Content SKILL.md",
+        agent: "c1",
+        show: "Answer",
+      },
+    };
+    await mount(() => Promise.resolve(view));
+    const line = host.querySelector(".fb-drafting");
+    expect(line?.hasAttribute("data-needs-you")).toBe(true);
+    const text = line?.querySelector(".fb-drafting-text");
+    expect(text?.textContent).toBe("Docs stage skill wants your permission: Run command: @' …");
+    expect(text?.closest(".tooltip-anchor")).not.toBeNull();
+    expect(line?.textContent).not.toContain("update-docs");
+  });
+});

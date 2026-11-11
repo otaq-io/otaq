@@ -426,7 +426,13 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           {view.drafting.needs_you !== null && (
             <strong className="fb-needs-you">{view.drafting.needs_you}</strong>
           )}
-          <span>{view.drafting.text}</span>
+          {view.drafting.tooltip !== null ? (
+            <Tooltip text={view.drafting.tooltip}>
+              <span className="fb-drafting-text">{view.drafting.text}</span>
+            </Tooltip>
+          ) : (
+            <span className="fb-drafting-text">{view.drafting.text}</span>
+          )}
           <button
             type="button"
             className="fb-link"

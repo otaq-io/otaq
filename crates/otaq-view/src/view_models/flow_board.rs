@@ -28,6 +28,7 @@ use otaq_core::flow::presets::presets;
 use otaq_core::flow::proposal::{Change, ProposedBy};
 use otaq_core::flow::templates::templates;
 use otaq_core::project_agents::AgentState;
+use otaq_core::signals::prompt_line;
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -347,7 +348,10 @@ pub struct Suggestion {
 pub struct Drafting {
     /// "Needs you" while the agent waits on the user; `None` while it drafts.
     pub needs_you: Option<&'static str>,
+    /// One line: a waiting prompt or question shows its first line only, cut with "…".
     pub text: String,
+    /// While it waits: the line with the prompt or question whole (up to a few hundred characters), for its tooltip.
+    pub tooltip: Option<String>,
     pub agent: String,
     pub show: &'static str,
 }
@@ -850,25 +854,45 @@ fn drafting(f: &Facts) -> Option<Drafting> {
     if !drafting {
         return None;
     }
+    // The line stays one line: what it waits on shows its first line (a command that writes a whole file would
+    // otherwise push the board down), and the tooltip has it whole.
     let waiting = match (&agent.question, &agent.needs_you) {
-        (Some(q), _) => Some(format!("{} asks: {}", agent.name, q.text)),
-        (None, Some(prompt)) => Some(format!("{} wants your permission: {prompt}", agent.name)),
+        (Some(q), _) => Some((format!("{} asks: ", agent.name), q.text.as_str())),
+        (None, Some(prompt)) => Some((
+            format!("{} wants your permission: ", agent.name),
+            prompt.as_str(),
+        )),
         (None, None) => None,
     };
     Some(match waiting {
-        Some(text) => Drafting {
+        Some((lead, what)) => Drafting {
             needs_you: Some("Needs you"),
-            text,
+            text: format!("{lead}{}", prompt_line(what)),
+            tooltip: Some(format!("{lead}{}", tooltip_text(what))),
             agent: agent.id.clone(),
             show: "Answer",
         },
         None => Drafting {
             needs_you: None,
             text: drafting_text(&agent.name, f.project_name),
+            tooltip: None,
             agent: agent.id.clone(),
             show: "Show",
         },
     })
+}
+
+/// The most of a waiting prompt the Needs you line's tooltip shows: a whole SKILL.md would be taller than the window;
+/// the terminal has it all.
+const TOOLTIP_MAX_CHARS: usize = 600;
+
+/// What the agent waits on, whole for the tooltip, cut with "…" past [`TOOLTIP_MAX_CHARS`].
+fn tooltip_text(what: &str) -> String {
+    let what = what.trim();
+    match what.char_indices().nth(TOOLTIP_MAX_CHARS) {
+        Some((cut, _)) => format!("{}\u{2026}", what[..cut].trim_end()),
+        None => what.to_owned(),
+    }
 }
 
 /// "Strong is drafting a flow for shop-web…".
@@ -1662,6 +1686,83 @@ mod tests {
         );
         a.question = None;
         assert_eq!(line(&a), (None, drafting_line, "Show", busy));
+    }
+
+    /// A permission prompt for a long, many-line command (Codex writing a whole SKILL.md with
+    /// `@' … '@ | Set-Content`) keeps Needs you on one line: the command's first line with "…", and the tooltip
+    /// has it whole.
+    #[test]
+    fn needs_you_for_a_long_command_stays_one_line() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let d = drafting(&Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            })
+            .unwrap();
+            (d.text, d.tooltip.unwrap_or_default())
+        };
+        let body = "Update the docs for the ticket. ".repeat(60);
+        let mut a = agent("c1", "Docs stage skill", 0);
+        a.mid_turn = true;
+        a.needs_you = Some(format!(
+            "Run command: @'\n---\nname: update-docs\ndescription: Update project documentation\n---\n\n{body}\n'@ \
+             | Set-Content -LiteralPath .agents\\skills\\update-docs\\SKILL.md -Encoding utf8"
+        ));
+        let (text, tooltip) = line(&a);
+        assert_eq!(
+            text,
+            "Docs stage skill wants your permission: Run command: @' \u{2026}"
+        );
+        // The tooltip has the command on its lines, up to a height that fits the window.
+        assert!(
+            tooltip.starts_with(
+                "Docs stage skill wants your permission: Run command: @'\n---\nname: update-docs\n"
+            ),
+            "{tooltip}"
+        );
+        assert!(tooltip.ends_with('\u{2026}'), "{tooltip}");
+        assert!(tooltip.chars().count() < 700, "{tooltip}");
+        // A short one is whole in the tooltip.
+        a.needs_you = Some("Run command: git status\ngit diff".into());
+        assert_eq!(
+            line(&a),
+            (
+                "Docs stage skill wants your permission: Run command: git status \u{2026}"
+                    .to_owned(),
+                "Docs stage skill wants your permission: Run command: git status\ngit diff"
+                    .to_owned()
+            )
+        );
+
+        // One long line: cut with "…" to a bounded length.
+        a.needs_you = Some(format!("Run command: {}", body.trim()));
+        let (text, _) = line(&a);
+        assert!(!text.contains('\n'), "{text}");
+        assert!(text.ends_with('\u{2026}'), "{text}");
+        assert!(text.chars().count() < 250, "{text}");
     }
 
     #[test]

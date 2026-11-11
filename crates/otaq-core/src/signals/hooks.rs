@@ -35,6 +35,23 @@ pub fn tool_error_text(error: &str, message: Option<&str>) -> String {
     format!("{TOOL_ERROR_PREFIX}{short}")
 }
 
+/// The longest prompt a one-line place shows (its first line, cut with "…").
+pub const PROMPT_LINE_MAX_CHARS: usize = 160;
+
+/// An agent's waiting prompt for a place that has one line for it (the Edit flow's Needs you line, a card, a
+/// notification): its first non-empty line, at most [`PROMPT_LINE_MAX_CHARS`], with "…" when anything was left out.
+/// A command that writes a whole file reads "Run command: @' …"; the full prompt stays in the terminal, on the
+/// ticket's Overview and in the line's tooltip.
+pub fn prompt_line(text: &str) -> String {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or_default();
+    match first.char_indices().nth(PROMPT_LINE_MAX_CHARS) {
+        Some((cut, _)) => format!("{}\u{2026}", first[..cut].trim_end()),
+        None if lines.next().is_some() => format!("{first} \u{2026}"),
+        None => first.to_owned(),
+    }
+}
+
 /// The tool's message in an Idle's stored text that a failed turn left; `None` for any other text.
 pub fn tool_error(text: &str) -> Option<&str> {
     text.strip_prefix(TOOL_ERROR_PREFIX)
@@ -253,6 +270,25 @@ mod tests {
 
     fn none() -> TurnFacts {
         TurnFacts::default()
+    }
+
+    /// A command that writes a whole SKILL.md (Codex's `@' … '@ | Set-Content`) shows its first line in a one-line
+    /// place; a long single line is cut with "…"; a short one-line prompt stays as it is.
+    #[test]
+    fn a_prompt_line_is_its_first_line_cut_to_fit() {
+        let skill = "Run command: @'\n---\nname: update-docs\ndescription: Update the docs\n---\n\n# Update the docs\n\
+                     1. Read the ticket.\n'@ | Set-Content -LiteralPath .agents\\skills\\update-docs\\SKILL.md";
+        assert_eq!(prompt_line(skill), "Run command: @' \u{2026}");
+        let long = format!("Run command: {}", "echo a && ".repeat(40));
+        let line = prompt_line(&long);
+        assert!(line.chars().count() <= PROMPT_LINE_MAX_CHARS + 1, "{line}");
+        assert!(line.starts_with("Run command: echo a && echo a"), "{line}");
+        assert!(line.ends_with('\u{2026}') && !line.contains('\n'), "{line}");
+        assert_eq!(
+            prompt_line("\n  Run command: npm install  \n"),
+            "Run command: npm install"
+        );
+        assert_eq!(prompt_line(""), "");
     }
 
     fn turn_ended(background: BackgroundWork, last_message: Option<&str>) -> ToolEvent {

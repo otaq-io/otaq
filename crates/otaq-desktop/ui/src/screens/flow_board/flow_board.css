@@ -107,6 +107,24 @@
   font-weight: 600;
 }
 
+/* The line stays one line: what the agent waits on is cut with "…" to fit (the tooltip and its terminal have it all). */
+.fb-drafting > .tooltip-anchor {
+  min-width: 0;
+}
+
+.fb-drafting-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-drafting > svg,
+.fb-needs-you,
+.fb-drafting > .fb-link {
+  flex: none;
+}
+
 .fb-board {
   display: flex;
   flex: 1;
