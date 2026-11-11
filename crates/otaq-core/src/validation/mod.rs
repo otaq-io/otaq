@@ -862,10 +862,11 @@ impl Validation {
                 self.asking_of(ticket_id, |asking| {
                     asking.insert(session.to_owned());
                 });
+                // Also from Needs you: the prompt now on screen replaces the one answered or not drawn.
                 let set = board
                     .set_validation_status(
                         ticket_id,
-                        &[Status::Checking],
+                        &[Status::Checking, Status::CheckerNeedsYou],
                         Status::CheckerNeedsYou,
                         Some(prompt),
                         false,
@@ -941,6 +942,10 @@ impl Validation {
             id: ticket.id.clone(),
             key: ticket.key.clone(),
         });
+        // Another prompt on screen changes only the line.
+        if ticket.status == status {
+            return;
+        }
         self.inner.events.publish(Event::CardStatusChanged {
             project,
             id: ticket.id.clone(),

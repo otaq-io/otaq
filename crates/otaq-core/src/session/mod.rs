@@ -691,6 +691,8 @@ struct Live {
     input: Mutex<InputTracker>,
     /// The last read of the input line on screen ([`input_line`]), for the output and size it was read at.
     input_line: Mutex<Option<(u64, TerminalSize, input_line::InputLine)>>,
+    /// The last read of the visible screen ([`Sessions::visible_screen`]), for the output and size it was read at.
+    screen: Mutex<Option<(u64, TerminalSize, Arc<str>)>>,
     /// Set when Otaq stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -1004,6 +1006,7 @@ impl Sessions {
             }),
             input: Mutex::new(InputTracker::new()),
             input_line: Mutex::new(None),
+            screen: Mutex::new(None),
             stop_reason: Mutex::new(None),
             ended,
             colors: theme.terminal_colors(),
@@ -1183,6 +1186,26 @@ impl Sessions {
             input_line::InputLine::Blank => keys && multi_line,
             input_line::InputLine::Unknown => keys,
         })
+    }
+
+    /// The session's screen as the user sees it now, as plain text without the lines above it ([`screen::render`]),
+    /// read again only after new output or a resize. `None` once the session is gone from memory.
+    pub fn visible_screen(&self, id: &str) -> Option<Arc<str>> {
+        let live = self.live(id).ok()?;
+        let (bytes, end, size) = {
+            let output = live.output.lock().expect("session output");
+            let (end, size) = (output.scrollback.end(), output.size);
+            if let Some((at, at_size, text)) = &*live.screen.lock().expect("session screen")
+                && *at == end
+                && *at_size == size
+            {
+                return Some(text.clone());
+            }
+            (output.scrollback.contents().0, end, size)
+        };
+        let text: Arc<str> = screen::render_above(&bytes, size, 0).into();
+        *live.screen.lock().expect("session screen") = Some((end, size, text.clone()));
+        Some(text)
     }
 
     /// Whether the unsent text may run over several lines (SES-07, ADP-06).
