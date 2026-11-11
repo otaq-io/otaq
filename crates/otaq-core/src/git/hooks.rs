@@ -351,7 +351,9 @@ struct Event {
 
 impl HookTrace {
     pub(super) fn new() -> std::io::Result<Self> {
-        let dir = tempfile::Builder::new().prefix("otaq-git-").tempdir()?;
+        let dir = tempfile::Builder::new()
+            .prefix(&format!("{}-git-", crate::naming::COMMAND_NAME))
+            .tempdir()?;
         let file = dir.path().join("events.json");
         Ok(Self {
             _dir: dir,
@@ -597,11 +599,8 @@ mod tests {
         );
         let windows = r"C:\Users\ana";
         assert_eq!(
-            shorten_home_with(
-                r"C:\Users\ana\otaq-reltest\hooks\pre-commit failed",
-                windows
-            ),
-            r"~\otaq-reltest\hooks\pre-commit failed"
+            shorten_home_with(r"C:\Users\ana\hooksproj\hooks\pre-commit failed", windows),
+            r"~\hooksproj\hooks\pre-commit failed"
         );
         assert_eq!(
             shorten_home_with(

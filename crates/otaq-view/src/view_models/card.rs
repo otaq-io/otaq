@@ -5228,7 +5228,7 @@ mod tests {
             earlier: vec![GitStep::UpdateTarget],
             hook: Some(GitHookRunning {
                 name: "post-checkout".into(),
-                folder: "~/.otaq/worktrees/shop-web/SHOP-3".into(),
+                folder: "~/worktrees/shop-web/SHOP-3".into(),
                 since_ms: NOW - 3_000,
             }),
         });
