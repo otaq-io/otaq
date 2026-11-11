@@ -10,8 +10,9 @@
 //!
 //! **An open question holds Needs you until it is closed** (d0119). A question closes ([`AnsweredVia`]) when the user
 //! answers it from the answer box, presses Enter on a line in that agent's terminal (or the Ask bar's Continue to a
-//! Project agent), when the same agent asks a new question (the older one is replaced), or when its ticket is
-//! closed, parked or delivered (a trigger, migration 0058). One agent has at most one open question.
+//! Project agent), when the same agent asks a new question (the older one is replaced), when its ticket is
+//! closed, parked or delivered (a trigger, migration 0058), or when its ticket is sent back to an earlier stage
+//! ([`close_on_send_back`]): the stage that asked is left behind. One agent has at most one open question.
 //!
 //! **A send-back question** ([`SendBackTo`]) names an earlier stage of the ticket's flow, the question being the
 //! agent's reason: its two ways out are fixed, the user sends the ticket back there ([`Choice::SendBack`]) or answers
@@ -33,7 +34,7 @@ stored_enum! {
         Terminal = "terminal",
         /// The same agent asked a new question.
         Replaced = "replaced",
-        /// Its ticket was closed, parked or delivered.
+        /// Its ticket was closed, parked, delivered or sent back to an earlier stage.
         Closed = "closed",
     }
 }
@@ -238,6 +239,26 @@ impl From<QuestionRow> for HumanQuestion {
     }
 }
 
+/// The ticket was sent back to an earlier stage (a human check's Send back, a drag back, an accepted send-back
+/// question), inside the move's transaction: its agent's open question for the user closes as `closed`, so it leaves
+/// Needs you and the earlier stage's agent starts without it. A helper's questions are its helper's own (they go when
+/// it ends).
+pub(crate) async fn close_on_send_back(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    ticket_id: &str,
+) -> Result<(), BoardError> {
+    sqlx::query(
+        "UPDATE human_questions SET answered_at = ?, answered_via = ?
+         WHERE ticket_id = ? AND answered_at IS NULL AND helper_id IS NULL",
+    )
+    .bind(now_ms())
+    .bind(AnsweredVia::Closed.as_str())
+    .bind(ticket_id)
+    .execute(&mut **tx)
+    .await?;
+    Ok(())
+}
+
 impl Board {
     /// Stores a question of `ticket_id` (options already validated).
     pub async fn store_question(
@@ -387,6 +408,28 @@ impl Board {
         .execute(self.store().pool())
         .await?;
         Ok(done.rows_affected() == 1)
+    }
+
+    /// The user's Send back on a send-back question: the send back already closed it ([`close_on_send_back`]), and
+    /// the user's answer is recorded on it as the answer box's.
+    pub(crate) async fn record_send_back_answer(
+        &self,
+        question_id: &str,
+        answer: &str,
+    ) -> Result<(), BoardError> {
+        sqlx::query(
+            "UPDATE human_questions SET answer = ?, answered_via = ?,
+                                        answered_at = COALESCE(answered_at, ?)
+             WHERE id = ? AND answer IS NULL AND (answered_at IS NULL OR answered_via = ?)",
+        )
+        .bind(answer)
+        .bind(AnsweredVia::Box.as_str())
+        .bind(now_ms())
+        .bind(question_id)
+        .bind(AnsweredVia::Closed.as_str())
+        .execute(self.store().pool())
+        .await?;
+        Ok(())
     }
 
     #[allow(clippy::too_many_arguments)]

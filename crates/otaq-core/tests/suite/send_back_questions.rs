@@ -9,16 +9,19 @@
 use std::path::Path;
 use std::time::Duration;
 
-use otaq_core::agent_tools::LaunchContext;
 use otaq_core::agent_tools::claude::ClaudeLaunch;
+use otaq_core::agent_tools::{LaunchContext, Tool};
+use otaq_core::board::moves::DropOn;
 use otaq_core::board::questions::Choice;
 use otaq_core::board::ticket_comments::{CommentAuthor, TicketComment};
 use otaq_core::board::tickets::{EventKind, Ticket};
+use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
-use otaq_core::domain::{Place, Status};
+use otaq_core::domain::{Actor, Place, Status};
 use otaq_core::flow::{FlowFile, yaml};
 use otaq_core::git::testing::commit;
 use otaq_core::protocol::{NeedsYouAnswerParams, Reply, Request};
+use otaq_core::review::drag::DragAnswers;
 use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{AgentShell, TestService, path_without_build_folders};
 use otaq_core::session::SessionKind;
@@ -438,5 +441,137 @@ async fn a_checker_asks_and_the_ticket_goes_back_from_its_check() {
         "the checker stopped"
     );
     agents_reason(&w, "SHOP-1", "Reviewer", "validate").await;
+    w.stop().await;
+}
+
+/// The ticket's open question for the user, if any.
+async fn open_text(w: &TestService, t: &Ticket) -> Option<String> {
+    w.board.open_question(&t.id).await.unwrap().map(|q| q.text)
+}
+
+/// The agent's turn ends in `shell`'s session, as its Stop hook says.
+async fn turn_ends(w: &TestService, t: &Ticket, shell: &AgentShell) {
+    let me = Caller::Agent {
+        ticket: t.key.clone(),
+        ticket_id: t.id.clone(),
+        session: shell.session.clone(),
+    };
+    w.signals
+        .hook(
+            &me,
+            Tool::Claude,
+            "Stop",
+            &json!({"last_assistant_message": "Waiting for your answer."}),
+        )
+        .await
+        .unwrap();
+}
+
+/// Dev's agent asks the user something, then the ticket moves on to Validate, where the agent check runs.
+async fn asked_in_dev_now_in_validate(w: &TestService) -> (Ticket, AgentShell) {
+    let (t, shell) = in_dev(w, "Refunds").await;
+    let asked = send(
+        w,
+        &shell,
+        "ticket.ask_human",
+        json!({"key": t.key, "question": "Which refund window?"}),
+    )
+    .await;
+    assert!(asked.get("error").is_none(), "{asked}");
+    assert_eq!(w.status("SHOP-1").await, Status::AsksYou);
+    let checker = w.shell(&t, SessionKind::Validator).await;
+    w.validating_with(&t, &checker.session).await;
+    place_in(w, &t, "validate", Status::Checking).await;
+    (t, shell)
+}
+
+fn confirmed() -> DragAnswers<'static> {
+    DragAnswers {
+        confirmed: true,
+        ..Default::default()
+    }
+}
+
+/// A drag back closes the question the ticket's agent held for the user: it leaves Needs you, and the earlier
+/// stage's agent ending its turn there doesn't bring Asks you back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_drag_back_closes_the_open_question() {
+    let w = world().await;
+    let (t, shell) = asked_in_dev_now_in_validate(&w).await;
+    let me = Actor::User("me".into());
+    w.review
+        .drag(
+            "SHOP-1",
+            &DropOn::stage("dev"),
+            confirmed(),
+            &w.validation,
+            &me,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        w.board.ticket("SHOP-1").await.unwrap().place,
+        Place::stage_of("dev")
+    );
+    assert_eq!(open_text(&w, &t).await, None);
+    assert_eq!(last_answer(&w, &t).await, (None, Some("closed".into())));
+    assert!(!in_needs_you(&w, "SHOP-1").await);
+    turn_ends(&w, &t, &shell).await;
+    assert_ne!(w.status("SHOP-1").await, Status::AsksYou);
+    assert!(!in_needs_you(&w, "SHOP-1").await);
+    w.stop().await;
+}
+
+/// A human check's Send back (Fail) closes it too, and so does a drag back onto a check.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_human_checks_send_back_or_a_drag_onto_a_check_closes_it() {
+    let w = world().await;
+    let me = Actor::User("me".into());
+    let (t, shell) = asked_in_dev_now_in_validate(&w).await;
+    place_in(&w, &t, "qa", Status::WaitingForYou).await;
+    assert_eq!(
+        open_text(&w, &t).await.as_deref(),
+        Some("Which refund window?")
+    );
+    w.review
+        .fail("SHOP-1", "Refunds need a window", Vec::new(), false, &me)
+        .await
+        .unwrap();
+    assert_ne!(
+        w.board.ticket("SHOP-1").await.unwrap().place,
+        Place::stage_of("qa"),
+        "sent back"
+    );
+    assert_eq!(open_text(&w, &t).await, None);
+    assert_eq!(last_answer(&w, &t).await, (None, Some("closed".into())));
+    assert!(!in_needs_you(&w, "SHOP-1").await);
+    turn_ends(&w, &t, &shell).await;
+    assert_ne!(w.status("SHOP-1").await, Status::AsksYou);
+
+    // QA → Validate: the check runs again, and the question asked meanwhile closes.
+    let t2 = w.create("SHOP", "Store credit").await;
+    let wt = w.start_worktree(&t2).await;
+    commit(&wt, "notes.txt", "Store credit\n");
+    place_in(&w, &t2, "qa", Status::WaitingForYou).await;
+    w.board
+        .store_question(&t2.id, "Which expiry?", &[], &[], None)
+        .await
+        .unwrap();
+    w.review
+        .drag(
+            "SHOP-2",
+            &DropOn::stage("validate"),
+            confirmed(),
+            &w.validation,
+            &me,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        w.board.ticket("SHOP-2").await.unwrap().place,
+        Place::stage_of("validate")
+    );
+    assert_eq!(open_text(&w, &t2).await, None);
+    assert_eq!(last_answer(&w, &t2).await, (None, Some("closed".into())));
     w.stop().await;
 }
