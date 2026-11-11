@@ -32,7 +32,7 @@ use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, HandOffKind, Status, TicketKey};
+use crate::domain::{Actor, AutoMergeStop, HandOffKind, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
 use crate::protocol::Event;
@@ -618,12 +618,34 @@ impl Prs {
                 Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
             )
         {
-            board.record_pr_open(&ticket, actor).await?;
             // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05). An
             // automatic Delivery isn't an approval and keeps nothing, as Auto-merge didn't.
             if !automatic {
                 crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
             }
+            // The agent's word isn't enough: the remote must have the branch at the commit it should. When it
+            // doesn't, the Delivery stops turquoise with what the remote has, and its retry only pushes again.
+            let not_landed = board
+                .check_delivery_push(&ticket)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(key = %ticket.key, error = %e, "can't check the delivery's push");
+                    None
+                });
+            if let Some(not_landed) = not_landed {
+                tracing::warn!(key = %ticket.key, branch = %not_landed.branch, remote = ?not_landed.remote,
+                               "the delivery reported a push the remote doesn't have");
+                board
+                    .delivery_stopped(
+                        &ticket.id,
+                        AutoMergeStop::PushNotLanded,
+                        &not_landed.message(),
+                        false,
+                    )
+                    .await?;
+                return board.ticket(key).await;
+            }
+            board.record_pr_open(&ticket, actor).await?;
         }
         // The pushed content must be what the user reviewed (REV-10 step 4); reworded commits don't count.
         match board.verify_pushed(&ticket).await {

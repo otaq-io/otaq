@@ -504,6 +504,127 @@ async fn extra_pushed_content_shows_the_changed_since_review_warning() {
     s.w.stop().await;
 }
 
+/// Opens SHOP-1's PR flow and confirms its two commits under `feature/SHOP-1-login`: the delivery's agent would push
+/// now.
+async fn confirmed(s: &Setup) {
+    let w = &s.w;
+    w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let first = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &first[0].0, "message": "SHOP-1: one"}, {"sha": &first[1].0, "message": "SHOP-1: two"}],
+        "title": "SHOP-1 Login redirect"
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+}
+
+/// The delivery agent's report isn't taken alone: `pr opened` with nothing pushed leaves the ticket in Needs you with
+/// "The branch isn't on the remote as expected" and what the remote has. The reworded commits stay on the local
+/// branch, and Retry push brings the ticket back to its Push to PR, which only pushes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_push_the_remote_does_not_have_needs_you() {
+    use otaq_core::domain::{AutoMergeStop, ValidationAction};
+    let s = setup().await;
+    let w = &s.w;
+    confirmed(&s).await;
+    let reworded = commits(&s.repo, "main..feature/SHOP-1-login");
+    // The agent says it is done without having pushed.
+    let ran = s
+        .agent
+        .run(&format!(
+            "'{CB}' pr opened https://github.com/acme/shop-web/pull/7 --json"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::DeliveryStopped);
+    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::PushNotLanded));
+    let said = "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has no branch \
+                `feature/SHOP-1-login`";
+    assert_eq!(
+        ticket.signal.as_ref().and_then(|s| s.text.as_deref()),
+        Some(said)
+    );
+    let items = w
+        .board
+        .needs_you_items(otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.key == ticket.key)
+        .expect("in Needs you");
+    assert!(
+        item.reason
+            .contains("the branch isn\u{2019}t on the remote as expected"),
+        "{}",
+        item.reason
+    );
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    // Nothing undone: the reworded commits are still the local branch's.
+    assert_eq!(commits(&s.repo, "main..feature/SHOP-1-login"), reworded);
+
+    // Retry push: back to the Delivery's click, which is now Push to PR; the push and its report land.
+    let back = w
+        .validation
+        .user_action("SHOP-1", ValidationAction::RetryMerge, "", &me())
+        .await
+        .unwrap();
+    assert_eq!(back.status, Status::WaitingForYou);
+    assert_eq!(back.flags.pr_number, Some(7));
+    assert_eq!(back.auto_merge_stop, None);
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let ticket = w
+        .prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
+        .await
+        .unwrap();
+    assert_eq!(ticket.status, Status::PrOpen);
+    assert_eq!(ticket.auto_merge_stop, None);
+    s.w.stop().await;
+}
+
+/// A push that left the remote behind the local branch (a commit made after it) is a mismatch too, naming both
+/// commits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_branch_behind_the_local_one_needs_you() {
+    let s = setup().await;
+    let w = &s.w;
+    confirmed(&s).await;
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let pushed = git(&s.repo, &["rev-parse", "feature/SHOP-1-login"]);
+    commit(&s.worktree, "late.txt", "after the push\n");
+    let local = git(&s.repo, &["rev-parse", "feature/SHOP-1-login"]);
+    let ticket = w
+        .prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
+        .await
+        .unwrap();
+    assert_eq!(ticket.status, Status::DeliveryStopped);
+    assert_eq!(
+        ticket.signal.as_ref().and_then(|s| s.text.clone()),
+        Some(format!(
+            "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has `feature/SHOP-1-login` at {}, \
+             not {}",
+            &pushed.trim()[..7],
+            &local.trim()[..7]
+        ))
+    );
+    s.w.stop().await;
+}
+
 /// T-0149: a skill that can't push reports it with `ask human`; during the flow that goes to the dialog (the
 /// ticket stays in Ready for Review), and Retry asks the skill again.
 #[tokio::test(flavor = "multi_thread")]
