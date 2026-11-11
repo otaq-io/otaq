@@ -266,6 +266,9 @@ stored_enum! {
         CheckoutDirty = "checkout_dirty",
         /// A git step of the automatic Delivery failed (a hook refused the commit): "Couldn't deliver · …" (d0121).
         DeliveryFailed = "delivery_failed",
+        /// A PR delivery's agent reported its push or PR done, but the remote doesn't have the ticket's branch at the
+        /// commit it should: "The branch isn't on the remote as expected · <what the remote has>".
+        PushNotLanded = "push_not_landed",
     }
 }
 

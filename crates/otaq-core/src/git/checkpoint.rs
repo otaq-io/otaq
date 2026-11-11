@@ -14,12 +14,13 @@
 //! `--no-autostash`, so not even the user's `merge.autoStash` setting makes one.
 //!
 //! The user's git config and hooks apply (P4): a hook that rejects the checkpoint stops the update with an error
-//! ([`UpdateError::CheckpointRejected`]); nothing passes `--no-verify`.
+//! ([`UpdateError::CheckpointRejected`], naming the hook when one refused); nothing passes `--no-verify`. A hook
+//! that refuses the merge commit is the error ([`GitError::HookRefused`]), with the merge aborted.
 
 use std::fmt;
 use std::path::Path;
 
-use super::{Git, GitError};
+use super::{Git, GitError, GitStep, HookRefusal};
 use crate::naming;
 
 /// The checkpoint commit's message: `wip: paused by Otaq`.
@@ -41,9 +42,10 @@ pub enum UpdateOutcome {
 #[derive(Debug)]
 pub enum UpdateError {
     /// The user's hooks (or config) refused the checkpoint commit; the files are as they were. `message` is
-    /// git's output.
+    /// git's output; `refusal` says which hook refused, with its whole output, when one did.
     CheckpointRejected {
         message: String,
+        refusal: Option<Box<HookRefusal>>,
     },
     Git(GitError),
 }
@@ -51,7 +53,7 @@ pub enum UpdateError {
 impl fmt::Display for UpdateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
-            Self::CheckpointRejected { message } => {
+            Self::CheckpointRejected { message, .. } => {
                 write!(f, "the checkpoint commit was rejected: {message}")
             }
             Self::Git(e) => write!(f, "{e}"),
@@ -96,6 +98,7 @@ impl Git {
         worktree: &Path,
         onto: &str,
     ) -> Result<Option<Vec<String>>, GitError> {
+        self.step(GitStep::UpdateBranch);
         let merged = self
             .run(
                 worktree,
@@ -138,6 +141,7 @@ impl Git {
                 Some(files) => UpdateOutcome::Conflict { files },
             });
         }
+        self.step(GitStep::SaveUncommitted);
         let saved = self.checkpoint(worktree).await?;
         // The branch goes back to its own head, with the files of that head: the checkpoint holds the changes.
         self.run(worktree, &["reset", "--quiet", "--hard", &saved.head])
@@ -145,15 +149,18 @@ impl Git {
         let merged = match self.merge_in(worktree, onto).await {
             Ok(merged) => merged,
             Err(e) => {
+                self.step(GitStep::RestoreUncommitted);
                 self.back_to_checkpoint(worktree, &saved).await?;
                 return Err(UpdateError::Git(e));
             }
         };
         if let Some(files) = merged {
+            self.step(GitStep::RestoreUncommitted);
             self.back_to_checkpoint(worktree, &saved).await?;
             return Ok(UpdateOutcome::Conflict { files });
         }
 
+        self.step(GitStep::RestoreUncommitted);
         // The changes go back on top of the merge, uncommitted; a conflict with what came in puts everything back.
         let merge = self
             .run(worktree, &["rev-parse", "HEAD"])
@@ -219,9 +226,14 @@ impl Git {
             // Put the index back as it was; the files never changed.
             self.run(worktree, &["read-tree", &index]).await?;
             return Err(match e {
-                GitError::Failed { stderr, .. } => {
-                    UpdateError::CheckpointRejected { message: stderr }
-                }
+                GitError::Failed { stderr, .. } => UpdateError::CheckpointRejected {
+                    message: stderr,
+                    refusal: None,
+                },
+                GitError::HookRefused(refusal) => UpdateError::CheckpointRejected {
+                    message: refusal.stderr.clone(),
+                    refusal: Some(refusal),
+                },
                 e => UpdateError::Git(e),
             });
         }

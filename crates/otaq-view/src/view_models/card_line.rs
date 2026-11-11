@@ -48,6 +48,9 @@ pub const READY_FOR_YOU: &str = "Ready for you";
 pub const WORKING: &str = "Working";
 /// An agent check's checker at work.
 pub const CHECKING: &str = "Checking";
+/// A PR delivery's agent reported a push the remote doesn't have.
+pub const PUSH_NOT_LANDED_LINE: &str =
+    "Needs you \u{b7} the branch isn\u{2019}t on the remote as expected";
 
 /// The line and the edge [`words`] give a card.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -266,6 +269,11 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
         Status::Idle => asks("Idle"),
         Status::Interrupted => broke(STOPPED_BY_RESTART),
         Status::ResumeFailed => broke(COULDNT_RESUME),
+        // The delivery agent reported a push the remote doesn't have: the user decides (what the remote has is the
+        // sheet's).
+        Status::DeliveryStopped if ticket.auto_merge_stop == Some(AutoMergeStop::PushNotLanded) => {
+            asks(PUSH_NOT_LANDED_LINE)
+        }
         Status::DeliveryStopped => broke(match ticket.auto_merge_stop {
             Some(AutoMergeStop::BaseDiverged) => "Held \u{b7} base diverged".to_owned(),
             Some(AutoMergeStop::CheckoutDirty) => {

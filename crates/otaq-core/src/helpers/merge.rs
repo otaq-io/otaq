@@ -170,6 +170,7 @@ pub(crate) async fn squash(
             .run(worktree, &["reset", "--quiet", "--hard", "HEAD"])
             .await;
     };
+    git.step(crate::git::GitStep::Squash);
     if let Err(e) = git
         .run(worktree, &["merge", "--quiet", "--squash", branch])
         .await
@@ -190,6 +191,7 @@ pub(crate) async fn squash(
         })
     })?;
     let path = file.path().display().to_string();
+    git.step(crate::git::GitStep::Commit);
     if let Err(e) = git.run(worktree, &["commit", "--quiet", "-F", &path]).await {
         undo().await;
         return Err(e.into());

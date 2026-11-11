@@ -22,7 +22,7 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::{BaseSync, FetchFailure, Git, GitError};
+use super::{BaseSync, FetchFailure, Git, GitError, GitStep};
 
 /// One Local merge.
 #[derive(Debug, Clone)]
@@ -159,6 +159,7 @@ impl Git {
         }
         let mut fetch_failed = None;
         if m.sync_target {
+            self.step(GitStep::UpdateTarget);
             match self.sync_base(&m.repo, &m.target).await? {
                 BaseSync::FetchFailed(failure) if m.goes_on_without_remote => {
                     fetch_failed = Some(failure);
@@ -210,12 +211,14 @@ impl Git {
 
         // 4. Squash-merge in the scratch worktree, then move the target.
         let scratch = m.scratch.as_path();
+        self.step(GitStep::PrepareScratch);
         self.run(
             scratch,
             &["checkout", "--quiet", "--force", "--detach", &onto],
         )
         .await?;
         self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
+        self.step(GitStep::Squash);
         self.run(scratch, &["merge", "--quiet", "--squash", &m.branch])
             .await?;
         let message_file = tempfile::NamedTempFile::new().map_err(|e| GitError::Spawn {
@@ -227,6 +230,7 @@ impl Git {
             error: e,
         })?;
         let message_path = message_file.path().display().to_string();
+        self.step(GitStep::Commit);
         if let Err(e) = self
             .run(
                 scratch,
@@ -249,6 +253,7 @@ impl Git {
         // 5. The Merge check on the merged result, before anything moves (d0120).
         let checked = match &m.check {
             Some(check) if brought_in || m.recheck => {
+                self.step(GitStep::MergeCheck);
                 let ran = (check.0)(m.scratch.clone()).await;
                 // Cleaned whatever happened: the seeded build and anything the command wrote go.
                 let at = match &ran {
@@ -269,6 +274,7 @@ impl Git {
         };
 
         // 6. Move the target.
+        self.step(GitStep::MoveTarget);
         match &checkout {
             Some(folder) => {
                 if self
@@ -331,6 +337,7 @@ impl Git {
         }
         // No worktree holds the branch: merge in the scratch worktree, then let go of it.
         let scratch = m.scratch.as_path();
+        self.step(GitStep::UpdateBranch);
         self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
             .await?;
         self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
@@ -356,6 +363,7 @@ impl Git {
         if registered && scratch.is_dir() {
             return Ok(());
         }
+        self.step(GitStep::PrepareScratch);
         if let Some(parent) = scratch.parent() {
             crate::data_dir::DataDir::ensure_dir(parent).map_err(|e| GitError::Spawn {
                 args: "worktree add".into(),

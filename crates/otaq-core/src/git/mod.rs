@@ -5,11 +5,13 @@
 
 pub mod checkpoint;
 pub mod diff;
+pub mod hooks;
 pub mod merge;
 pub mod reword;
 mod sync;
 pub mod testing;
 
+pub use hooks::{GitActivity, GitStep, GitWatch, HookRefusal, HookRun, RunningHook, shorten_home};
 pub use sync::{BaseSync, FetchFailure};
 
 use std::ffi::OsStr;
@@ -17,8 +19,12 @@ use std::fmt;
 use std::io;
 use std::path::{Path, PathBuf};
 use std::process::Stdio;
+use std::time::Duration;
+
+use tokio::io::AsyncReadExt;
 
 use crate::tools::find_on_path;
+use hooks::HookTrace;
 
 /// The user's `git` program.
 #[derive(Debug, Clone)]
@@ -26,6 +32,8 @@ pub struct Git {
     program: PathBuf,
     /// Set in every command, before a call's own variables (a project's variables, ENV-02).
     env: Vec<(String, String)>,
+    /// Told the step and the hooks of every command, when one of Otaq's own git steps is followed.
+    watch: Option<GitWatch>,
 }
 
 impl Git {
@@ -40,6 +48,7 @@ impl Git {
             .map(|program| Self {
                 program,
                 env: Vec::new(),
+                watch: None,
             })
             .ok_or(GitError::NotFound)
     }
@@ -54,6 +63,27 @@ impl Git {
         Self {
             program: self.program.clone(),
             env,
+            watch: self.watch.clone(),
+        }
+    }
+
+    /// The same `git`, reporting to `watch` the step it is on and every hook its commands run, while they run.
+    pub fn watched(&self, watch: &GitWatch) -> Self {
+        Self {
+            watch: Some(watch.clone()),
+            ..self.clone()
+        }
+    }
+
+    /// The watch this `git` reports to, if any.
+    pub fn watch(&self) -> Option<&GitWatch> {
+        self.watch.as_ref()
+    }
+
+    /// Says which step of an operation the next commands belong to; nothing without a watch.
+    pub fn step(&self, step: GitStep) {
+        if let Some(watch) = &self.watch {
+            watch.set_step(step);
         }
     }
 
@@ -69,6 +99,15 @@ impl Git {
         args: &[&str],
         env: &[(&str, &str)],
     ) -> Result<String, GitError> {
+        // git's events say which hook runs and how it ended: read for the commands that can run one, and for every
+        // command of a followed step. Without them git still runs; only the hook goes unnamed.
+        let mut trace = if self.watch.is_some() || hooks::runs_hooks(args) {
+            HookTrace::new()
+                .inspect_err(|e| tracing::debug!(error = %e, "no folder for git's events"))
+                .ok()
+        } else {
+            None
+        };
         let mut command = tokio::process::Command::new(&self.program);
         command
             .args(args)
@@ -78,31 +117,81 @@ impl Git {
             .stderr(Stdio::piped())
             .kill_on_drop(true)
             .envs(self.env.iter().map(|(k, v)| (k, v)));
+        if let Some(trace) = &trace {
+            command.envs(trace.env());
+        }
         for (key, value) in env {
             command.env(key, value);
         }
-        let output = command.output().await.map_err(|e| GitError::Spawn {
+        let spawn_error = |error| GitError::Spawn {
             args: join(args),
-            error: e,
-        })?;
-        let stdout = String::from_utf8_lossy(&output.stdout).into_owned();
-        let stderr = String::from_utf8_lossy(&output.stderr).trim().to_owned();
+            error,
+        };
+        let mut child = command.spawn().map_err(spawn_error)?;
+        let (mut stdout, mut stderr) = (
+            child.stdout.take().expect("piped"),
+            child.stderr.take().expect("piped"),
+        );
+        let ran = async {
+            let read_stdout = async {
+                let mut bytes = Vec::new();
+                let _ = stdout.read_to_end(&mut bytes).await;
+                bytes
+            };
+            // Each piece with the moment it arrived, to tell which hook printed it.
+            let read_stderr = async {
+                let mut chunks = Vec::new();
+                let mut buf = vec![0u8; 8192];
+                while let Ok(n @ 1..) = stderr.read(&mut buf).await {
+                    chunks.push((hooks::now_us(), buf[..n].to_vec()));
+                }
+                chunks
+            };
+            tokio::join!(read_stdout, read_stderr, child.wait())
+        };
+        let (stdout, chunks, status) = match (&self.watch, trace.as_mut()) {
+            (Some(watch), Some(trace)) => follow(ran, trace, watch, cwd).await,
+            _ => ran.await,
+        };
+        let status = status.map_err(spawn_error)?;
+        let stdout = String::from_utf8_lossy(&stdout).into_owned();
+        let stderr_bytes: Vec<u8> = chunks.iter().flat_map(|(_, b)| b.iter().copied()).collect();
+        let stderr = String::from_utf8_lossy(&stderr_bytes).trim().to_owned();
+        let runs = match trace.as_mut() {
+            Some(trace) => {
+                trace.read();
+                let step = self.watch.as_ref().and_then(GitWatch::step);
+                trace.runs(&chunks, step, cwd)
+            }
+            None => Vec::new(),
+        };
+        if let Some(watch) = &self.watch {
+            watch.add_runs(&runs);
+        }
         tracing::debug!(
             cwd = %cwd.display(),
             args = %join(args),
-            code = output.status.code(),
+            code = status.code(),
             stderr = %stderr,
+            hooks = ?runs.iter().map(|r| (r.name.as_str(), r.exit)).collect::<Vec<_>>(),
             "git"
         );
-        if output.status.success() {
-            Ok(stdout)
-        } else {
-            Err(GitError::Failed {
-                args: join(args),
-                code: output.status.code(),
-                stderr,
-            })
+        if status.success() {
+            return Ok(stdout);
         }
+        if let Some(hook) = HookTrace::refusing(&runs) {
+            return Err(GitError::HookRefused(Box::new(HookRefusal {
+                hook: hook.clone(),
+                args: join(args),
+                code: status.code(),
+                stderr: shorten_home(&stderr),
+            })));
+        }
+        Err(GitError::Failed {
+            args: join(args),
+            code: status.code(),
+            stderr,
+        })
     }
 
     /// Runs `git <args>` and returns its exit code and standard output, for commands whose non-zero codes carry
@@ -274,6 +363,31 @@ impl Git {
     }
 }
 
+/// Waits for a git command while telling `watch` which hook runs, from git's events read a few times a second.
+async fn follow<T>(
+    ran: impl std::future::Future<Output = T>,
+    trace: &mut HookTrace,
+    watch: &GitWatch,
+    cwd: &Path,
+) -> T {
+    let mut tick = tokio::time::interval(Duration::from_millis(100));
+    tokio::pin!(ran);
+    loop {
+        tokio::select! {
+            done = &mut ran => return done,
+            _ = tick.tick() => {
+                trace.read();
+                watch.set_running(trace.running().map(|(name, since_ms)| RunningHook {
+                    name: name.to_owned(),
+                    step: watch.step(),
+                    folder: cwd.to_path_buf(),
+                    since_ms,
+                }));
+            }
+        }
+    }
+}
+
 fn join(args: &[&str]) -> String {
     args.join(" ")
 }
@@ -322,6 +436,18 @@ pub enum GitError {
         code: Option<i32>,
         stderr: String,
     },
+    /// `git` ran and one of the user's hooks refused it: which one, and its whole output.
+    HookRefused(Box<HookRefusal>),
+}
+
+impl GitError {
+    /// The hook that refused, when one did.
+    pub fn hook_refusal(&self) -> Option<&HookRefusal> {
+        match self {
+            Self::HookRefused(refusal) => Some(refusal),
+            _ => None,
+        }
+    }
 }
 
 impl fmt::Display for GitError {
@@ -332,18 +458,22 @@ impl fmt::Display for GitError {
                 "git isn't installed or isn't on PATH; install it and try again"
             ),
             Self::Spawn { args, error } => write!(f, "can't run git {args}: {error}"),
-            Self::Failed { args, code, stderr } => {
-                write!(f, "git {args} failed")?;
-                if let Some(code) = code {
-                    write!(f, " (exit {code})")?;
-                }
-                if !stderr.is_empty() {
-                    write!(f, ": {stderr}")?;
-                }
-                Ok(())
-            }
+            Self::Failed { args, code, stderr } => failed(f, args, *code, stderr),
+            Self::HookRefused(refusal) => failed(f, &refusal.args, refusal.code, &refusal.stderr),
         }
     }
+}
+
+/// "git commit --quiet -F … failed (exit 1): …", with the home folder shortened so the user's name never shows.
+fn failed(f: &mut fmt::Formatter<'_>, args: &str, code: Option<i32>, stderr: &str) -> fmt::Result {
+    write!(f, "git {args} failed")?;
+    if let Some(code) = code {
+        write!(f, " (exit {code})")?;
+    }
+    if !stderr.is_empty() {
+        write!(f, ": {}", shorten_home(stderr))?;
+    }
+    Ok(())
 }
 
 impl std::error::Error for GitError {}

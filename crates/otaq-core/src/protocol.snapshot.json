@@ -983,7 +983,8 @@
         "checkout_dirty",
         "delivery_failed",
         "keeps_conflicting",
-        "keeps_failing_merge_check"
+        "keeps_failing_merge_check",
+        "push_not_landed"
       ]
     },
     "Base": {
