@@ -50,7 +50,9 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger};
+use crate::domain::{
+    Actor, AutoMergeStop, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger,
+};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
 use crate::git::merge::{HookChanges, MergeOutcome, MergeRequest};
@@ -147,6 +149,15 @@ pub enum LocalMergeOutcome {
     /// git doesn't know the user's name and email, so it can't make the merge's commits: nothing was done. `has` is
     /// what git has so far, to fill in; the user sets them and merges again.
     NeedsIdentity { has: crate::git::Identity },
+    /// A project's git hook refused a step: nothing was merged and main, the branch and the worktree are as they were.
+    /// The refusal is on the ticket (its Delivery stopped, the card's Needs you, the sheet's output, History),
+    /// whether the user's click or the automatic delivery merged; `message` is "pre-commit hook refused the merge".
+    HookRefused {
+        hook: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<crate::git::GitStep>,
+        message: String,
+    },
 }
 
 /// Runs review actions. Cheap to clone.
@@ -368,7 +379,10 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
-        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
+        // A merge a hook refused is merged again from where it stopped, with the message the user edited.
+        let refused_merge = ticket.status == Status::DeliveryStopped
+            && ticket.auto_merge_stop == Some(AutoMergeStop::HookRefused);
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) && !refused_merge {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -465,8 +479,21 @@ impl Review {
         if matches!(outcome, Ok(MergeOutcome::CheckFailed { .. })) {
             board.set_merge_check_due(&ticket.id, true).await?;
         }
+        // A hook refused a step: the refusal goes on the ticket, the same for the click and the automatic delivery.
+        let outcome = match outcome {
+            Err(crate::git::GitError::HookRefused(refusal)) => {
+                let refused = board.merge_refused_by_hook(&ticket.id, &refusal).await?;
+                return Ok(LocalMergeOutcome::HookRefused {
+                    message: refused.line(),
+                    hook: refused.name,
+                    step: refused.step,
+                }
+                .into());
+            }
+            outcome => outcome?,
+        };
         let mut failed = None;
-        let outcome = match outcome? {
+        let outcome = match outcome {
             MergeOutcome::Merged {
                 commit,
                 onto,

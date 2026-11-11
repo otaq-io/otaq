@@ -106,6 +106,37 @@
   overflow-wrap: anywhere;
 }
 
+/* A project's git hook refused one of Otaq's own git steps: which hook, its whole output, the way on. */
+.sheet-hook-refusal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--st-attn);
+  border-radius: var(--r-md);
+}
+
+.sheet-hook-refusal-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font: 600 13px/normal var(--font-ui);
+}
+
+.sheet-hook-refusal-heading .icon {
+  flex: none;
+  color: var(--st-attn);
+}
+
+.sheet-hook-refusal-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
 .sheet-stop-message {
   display: flex;
   align-items: flex-start;

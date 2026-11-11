@@ -287,6 +287,11 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
         Status::DeliveryStopped if ticket.auto_merge_stop == Some(AutoMergeStop::PushNotLanded) => {
             asks(PUSH_NOT_LANDED_LINE)
         }
+        // A project's git hook refused Approve & merge: "Needs you · commit-msg hook refused the merge" (its output
+        // and the way on are the sheet's).
+        Status::DeliveryStopped if let Some(line) = super::card::hook_refusal_line(ticket) => {
+            asks(line)
+        }
         Status::DeliveryStopped => broke(match ticket.auto_merge_stop {
             Some(AutoMergeStop::BaseDiverged) => "Held \u{b7} base diverged".to_owned(),
             Some(AutoMergeStop::CheckoutDirty) => {

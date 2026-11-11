@@ -65,6 +65,7 @@ pub mod git_progress;
 pub mod git_settings;
 pub mod hint;
 pub mod history;
+pub mod hook_refusal;
 pub mod keyboard_map;
 pub mod keyboard_page;
 pub mod layout;

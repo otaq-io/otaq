@@ -1082,6 +1082,11 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Some(AutoMergeStop::PushNotLanded) => {
                     ("Needs you".to_owned(), "Branch not on the remote")
                 }
+                // A project's git hook refused Approve & merge: "Needs you", its text "commit-msg hook refused the
+                // merge" (the stop's own).
+                Some(AutoMergeStop::HookRefused) => {
+                    ("Needs you".to_owned(), "Hook refused the merge")
+                }
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -2432,6 +2437,20 @@ fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
         );
     }
     parts
+}
+
+/// The hook refusal of Approve & merge the ticket shows now: a project's git hook refused a step of the merge and the
+/// ticket's Delivery is still stopped for it (a refused start keeps its hook on its Start interrupted problem). The
+/// card's Needs you line and the sheet's callout read it from here.
+pub fn hook_refusal(ticket: &Ticket) -> Option<&otaq_core::git::RefusedHook> {
+    let stopped = ticket.status == Status::DeliveryStopped
+        && ticket.auto_merge_stop == Some(otaq_core::domain::AutoMergeStop::HookRefused);
+    ticket.flags.hook_refusal.as_ref().filter(|_| stopped)
+}
+
+/// "Needs you · commit-msg hook refused the merge": the card's line while a hook's refusal waits for the user.
+pub fn hook_refusal_line(ticket: &Ticket) -> Option<String> {
+    hook_refusal(ticket).map(|r| format!("Needs you \u{b7} {}", r.line()))
 }
 
 /// "Couldn't update main from origin · started from your local main" (or "· merged into your local main"): the fetch
@@ -4859,6 +4878,52 @@ mod tests {
             "Couldn\u{2019}t deliver \u{b7} git commit failed (exit 1): lint"
         );
         assert_eq!(vm.outline, Outline::Attention);
+    }
+
+    /// A project's git hook refused Approve & merge (the click or the automatic delivery): Needs you, naming the hook
+    /// and the step; the sheet offers Edit message and retry.
+    #[test]
+    fn a_hook_that_refused_the_merge() {
+        use otaq_core::domain::AutoMergeStop;
+        let mut t = ticket("HOOK-1", "Add subtract", Status::DeliveryStopped);
+        t.auto_merge_stop = Some(AutoMergeStop::HookRefused);
+        let refused = otaq_core::git::RefusedHook {
+            name: "pre-commit".into(),
+            step: Some(otaq_core::git::GitStep::Commit),
+            what: "the merge".into(),
+            output: "lint failed".into(),
+        };
+        t.flags.hook_refusal = Some(refused.clone());
+        let x = CardExtras {
+            question: Some(refused.line()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(
+            (flag_of(&vm), line(&vm)),
+            (Some("Needs you"), Some("pre-commit hook refused the merge"))
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            hook_refusal_line(&t).as_deref(),
+            Some("Needs you \u{b7} pre-commit hook refused the merge")
+        );
+        assert_eq!(
+            crate::view_models::sheet_actions::all_buttons(&t),
+            [
+                (
+                    crate::view_models::sheet_actions::Action::EditMessage,
+                    crate::view_models::sheet_actions::Look::Primary
+                ),
+                (
+                    crate::view_models::sheet_actions::Action::MoveToReview,
+                    crate::view_models::sheet_actions::Look::Secondary
+                ),
+            ]
+        );
+        // Once the ticket left the stop, the refusal kept on it shows nowhere.
+        t.status = Status::WaitingForYou;
+        assert_eq!(hook_refusal(&t), None);
     }
 
     /// A PR delivery's agent reported a push the remote doesn't have: "Needs you: the branch isn't on the remote as

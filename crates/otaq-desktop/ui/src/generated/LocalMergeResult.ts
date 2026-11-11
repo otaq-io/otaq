@@ -6,7 +6,7 @@ import type { ReviewToast } from "./ReviewToast";
 /**
  * How a Local merge ended, as the dialog shows it. A merge that went through closes the dialog (the toasts say it).
  */
-export type LocalMergeResult = { "kind": "merged", toasts: Array<ReviewToast>, } | { "kind": "conflict", title: string, text: string, files: Array<string>, 
+export type LocalMergeResult = { "kind": "merged", toasts: Array<ReviewToast>, } | { "kind": "on_ticket", toast: ReviewToast, } | { "kind": "conflict", title: string, text: string, files: Array<string>, 
 /**
  * A failed Merge check's output, its end when long; `None` for a conflict or a check that printed nothing.
  */

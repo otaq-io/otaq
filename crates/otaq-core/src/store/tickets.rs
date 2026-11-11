@@ -97,6 +97,8 @@ pub struct TicketRow {
     /// T-0491 (migration 0059): the next Local merge runs the Merge check even when the branch is current: an
     /// earlier one merged new commits into it and no check passed on them (d0120).
     pub merge_check_due: bool,
+    /// Migration 0119: JSON [`crate::git::RefusedHook`], a hook refused one of Otaq's own git steps.
+    pub hook_refusal: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`

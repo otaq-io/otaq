@@ -285,6 +285,13 @@ describe("the approve flow", () => {
 
   it("closes after a merge and shows every other answer", () => {
     expect(afterMerge({ kind: "merged", toasts: [] })).toEqual({ kind: "done" });
+    // A hook refused it: the refusal is on the ticket, the dialog closes.
+    expect(
+      afterMerge({
+        kind: "on_ticket",
+        toast: { title: "HOOK-1: your commit-msg hook refused the merge", text: null },
+      }),
+    ).toEqual({ kind: "done" });
     expect(afterMerge({ kind: "changed", changed: CHANGED })).toEqual({
       kind: "changed",
       changed: CHANGED,

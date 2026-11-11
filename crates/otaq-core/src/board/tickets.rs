@@ -441,6 +441,11 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         /// The Delivery stopped (FLW-17; AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
+        /// A project's git hook refused a step of Approve & merge (the click or the automatic delivery): payload
+        /// `hook`, a [`crate::git::RefusedHook`] (`name`, `step`, `what`, `output`), and the stop's `stop` and
+        /// `message`. History reads "Merge didn't go through" · "pre-commit hook refused the merge" and opens the
+        /// hook's output, as a refused start's row does.
+        HookRefused = "hook_refused",
         /// `otaq decision record` (DEC-02, d0084): payload `ordinal`, `question`, `built`, `other_options`, `why`.
         /// History reads "Recorded a decision: <question>" · "Built: … · Other option: …".
         DecisionRecorded = "decision_recorded",
@@ -1234,6 +1239,10 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    hook_refusal: row
+                        .hook_refusal
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok()),
                     delivered_without_checks: row.delivered_without_checks
                         && status == Status::Merged,
                     delivering_automatically: delivering.contains(&row.id),
