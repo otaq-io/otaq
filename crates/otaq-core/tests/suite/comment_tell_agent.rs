@@ -11,6 +11,7 @@ use otaq_core::domain::Status;
 use otaq_core::protocol::{Reply, Request, TicketCommentPostParams};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::SessionKind;
+use otaq_core::session::deliveries::DeliveryKind;
 use serde_json::json;
 
 fn comment(key: &str, body: &str, tell_agent: bool) -> Request {
@@ -229,5 +230,131 @@ async fn nothing_without_the_flag_from_an_agent_or_with_no_session() {
         0
     );
     drop(app);
+    w.stop().await;
+}
+
+async fn eventually(what: &str, mut check: impl AsyncFnMut() -> bool) {
+    tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while !check().await {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .unwrap_or_else(|_| panic!("{what} never happened"));
+}
+
+/// The re-test finding: a ticked comment's line waited for the round's check, the check ended and the ticket went
+/// back to Dev, and its agent session's header read "1 message waiting · Deliver now" until the merge, for a line
+/// that could never go. The check's line goes with the check, and the agent's header never counts it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checks_line_ends_with_the_check_and_never_waits_in_the_agents_header() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Price table").await;
+    let agent = w.agent_shell(&shop1).await;
+    let checker = w.shell(&shop1, SessionKind::Validator).await;
+    w.validating_with(&shop1, &checker.session).await;
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    app.request(comment("SHOP-1", "Check the mobile widths too.", true))
+        .await
+        .unwrap();
+    assert_eq!(
+        w.deliveries.pending(&checker.session).await.unwrap().len(),
+        1
+    );
+    assert_eq!(
+        w.board
+            .ticket("SHOP-1")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        0,
+        "the agent's header doesn't count the check's line"
+    );
+
+    // The check ends and the ticket is sent back to Dev.
+    w.sessions.stop(&checker.session).await.unwrap();
+    w.force_status(&shop1, Status::Working).await;
+    eventually("the check's line dropped", async || {
+        w.deliveries
+            .pending(&checker.session)
+            .await
+            .unwrap()
+            .is_empty()
+    })
+    .await;
+    assert!(
+        w.deliveries
+            .pending(&agent.session)
+            .await
+            .unwrap()
+            .is_empty(),
+        "a check's line isn't the agent's"
+    );
+    assert_eq!(
+        w.board
+            .ticket("SHOP-1")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        0
+    );
+
+    // Queued for a check that has already ended: it doesn't wait either.
+    w.deliveries
+        .queue_delivery(
+            &checker.session,
+            DeliveryKind::TicketChange,
+            &tell_agent_line(2),
+        )
+        .await
+        .unwrap();
+    assert!(
+        w.deliveries
+            .pending(&checker.session)
+            .await
+            .unwrap()
+            .is_empty()
+    );
+    drop(app);
+    w.stop().await;
+}
+
+/// A line for the ticket's agent that comes for its agent session after that session ended (its end and a restart
+/// crossed it) goes to the ticket's live agent session.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_line_for_an_ended_agent_session_goes_to_the_live_one() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let shop1 = w.create("SHOP", "Price table").await;
+    w.force_status(&shop1, Status::Working).await;
+    let old = w.agent_shell(&shop1).await;
+    w.sessions.stop(&old.session).await.unwrap();
+    let live = w.agent_shell(&shop1).await;
+
+    w.deliveries
+        .queue_delivery(
+            &old.session,
+            DeliveryKind::TicketChange,
+            &tell_agent_line(1),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.pending(&old.session).await.unwrap().is_empty());
+    let moved = w.deliveries.pending(&live.session).await.unwrap();
+    assert_eq!(moved.len(), 1, "{moved:?}");
+    assert_eq!(moved[0].text, tell_agent_line(1));
+    assert_eq!(
+        w.board
+            .ticket("SHOP-1")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        1
+    );
     w.stop().await;
 }

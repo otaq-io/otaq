@@ -986,9 +986,15 @@ impl Board {
         .bind(project_id)
         .fetch_all(pool)
         .await?;
+        // "1 message waiting · Deliver now": only what waits for the ticket's live agent session (its newest running
+        // one), the one its header shows and its Deliver now types into; never a check's or an ended session's.
         let waiting: std::collections::HashMap<String, i64> = sqlx::query_as(
             "SELECT s.ticket_id, COUNT(*) FROM pending_deliveries d JOIN sessions s ON s.id = d.session_id
-             WHERE s.project_id = ? AND s.ticket_id IS NOT NULL GROUP BY s.ticket_id",
+             WHERE s.project_id = ? AND s.ticket_id IS NOT NULL
+               AND s.id = (SELECT a.id FROM sessions a
+                           WHERE a.ticket_id = s.ticket_id AND a.kind = 'agent' AND a.state = 'running'
+                           ORDER BY a.started_at DESC, a.id DESC LIMIT 1)
+             GROUP BY s.ticket_id",
         )
         .bind(project_id)
         .fetch_all(pool)
