@@ -224,13 +224,15 @@ impl Board {
     }
 
     /// After a Local merge: Done · Merged with the squash commit, and the review action recorded. `onto` is the
-    /// target's commit merged into the branch: the ticket's diff stays its own changes.
+    /// target's commit merged into the branch: the ticket's diff stays its own changes. `hook_changed`: a hook changed
+    /// the commit's files, which History's Merged row says, with Show changes.
     pub async fn record_local_merge(
         &self,
         ticket: &Ticket,
         target: &str,
         commit: &str,
         onto: &str,
+        hook_changed: Option<&crate::git::merge::HookChanges>,
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let now = now_ms();
@@ -278,14 +280,11 @@ impl Board {
             .bind(&ticket.id)
             .execute(&mut *tx)
             .await?;
-        record_event(
-            &mut tx,
-            &ticket.id,
-            EventKind::Merged,
-            actor,
-            json!({ "from": ticket.status, "target": target, "commit": commit }),
-        )
-        .await?;
+        let mut payload = json!({ "from": ticket.status, "target": target, "commit": commit });
+        if let Some(changes) = hook_changed {
+            payload["hook_changed"] = json!(changes);
+        }
+        record_event(&mut tx, &ticket.id, EventKind::Merged, actor, payload).await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, target, commit, "merged locally");
         self.ticket_by_id(&ticket.id).await

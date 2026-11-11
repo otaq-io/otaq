@@ -338,8 +338,13 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
     let result = page::merge_result(&ticket, &target, &outcome, &all);
     match &result {
         page::MergeResult::Merged { toasts } => {
+            // The merged toast, the first, has Show changes when a hook changed what landed.
+            let mut link = page::merged_toast_link(&key, &outcome);
             for t in toasts {
-                toast(app, ToastLevel::Success, t.title.clone(), t.text.clone());
+                app.notices.toast(NewToast {
+                    link: link.take(),
+                    ..NewToast::new(ToastLevel::Success, t.title.clone(), t.text.clone())
+                });
             }
         }
         // A hook refused it: the refusal is on the ticket; the toast only points there, and a click on it opens it.

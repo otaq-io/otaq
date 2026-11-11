@@ -362,6 +362,55 @@ async fn a_merge_cleans_up_and_starts_the_waiting_tickets() {
     w.stop().await;
 }
 
+/// A formatter's pre-commit changes what an automatic Delivery lands: it lands as the hook left it and the toast says
+/// so, with what Show changes needs.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_automatic_merge_a_hook_changed_says_so() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    auto_merge(&w).await;
+    let hook = repo.join(".git/hooks/pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nfor f in $(git diff --cached --name-only --diff-filter=ACM -- '*.js'); do\n  { echo '// formatted'; cat \"$f\"; } > \"$f.tmp\" && mv \"$f.tmp\" \"$f\"\n  git add \"$f\"\ndone\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let t = working(&w, "Calc", "calc.js").await;
+
+    let mut listener = w.events.listen();
+    let merged = pass(&w, &t).await;
+    assert_eq!(merged.status, Status::Merged);
+    let (message, changes) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(otaq_core::protocol::Event::MergedAutomatically {
+                message,
+                hook_changed,
+                ..
+            }) = listener.receiver.recv().await
+            {
+                return (message, hook_changed);
+            }
+        }
+    })
+    .await
+    .expect("the merge's toast");
+    assert!(
+        message.ends_with(" · Your pre-commit hook changed 1 file"),
+        "{message}"
+    );
+    let changes = changes.expect("Show changes");
+    assert_eq!(changes.files, ["calc.js"]);
+    assert_eq!(changes.landed, git(&repo, &["rev-parse", "main"]));
+    assert!(git(&repo, &["show", "main:calc.js"]).starts_with("// formatted\n"));
+    w.stop().await;
+}
+
 /// FLW-17: a conflict goes to Dev's session with restack, no click ("Merge conflict · fixing"); the third in a row
 /// stops there, turquoise; Retry merge runs the automatic Delivery again, and a merge resets the count.
 #[tokio::test(flavor = "multi_thread")]

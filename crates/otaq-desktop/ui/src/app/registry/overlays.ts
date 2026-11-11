@@ -10,6 +10,7 @@ import type { CommentThumbnail } from "../../generated/CommentThumbnail";
 import type { ConfirmRow } from "../../generated/ConfirmRow";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import type { GitIdentityForm } from "../../generated/GitIdentityForm";
+import type { HookChangesView } from "../../generated/HookChangesView";
 import type { IconName } from "../../generated/IconName";
 import type { OnboardingStepId } from "../../generated/OnboardingStepId";
 import type { ReportOpenParams } from "../../generated/ReportOpenParams";
@@ -92,6 +93,9 @@ export interface OverlayParams {
   local_merge: { ticket: string; menu?: boolean; choice?: ApproveChoice };
   /** Merge into another ticket…: the picker of tickets whose branch can take this one's (Approve ▾). */
   merge_into: { ticket: string };
+  /** Show changes after "Your pre-commit hook changed 2 files" (the merged toast, History's Merged row): what a hook
+   * changed in the commit that landed, from what was reviewed. */
+  hook_changes: { ticket: string; changes: HookChangesView };
   /** "Done, don't merge" (Approve ▾, a branch with commits): the confirmation naming what won't land. */
   done_not_merged: { ticket: string };
   /** The Open PR / Push to PR dialog (T-0227). `approveAnyway`: the user already chose Approve anyway after "changed
@@ -159,6 +163,7 @@ export const OVERLAY_MODAL: Record<OverlayId, boolean> = {
   change_decision: true,
   local_merge: true,
   merge_into: true,
+  hook_changes: true,
   done_not_merged: true,
   open_pr: true,
   confirm: true,

@@ -1360,6 +1360,9 @@ pub struct DiffFileParams {
     /// Only what changed after this commit (the reviewed head: "changed since you reviewed it", REV-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
+    /// With `since`: up to this commit instead of the branch's head (a hook's changes to what landed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
 }
 
 /// `{"key": "SHOP-22", "path": "src/middleware.ts"}`: a file or folder of the ticket's Files tab.
@@ -2659,6 +2662,9 @@ pub enum Event {
         key: TicketKey,
         title: String,
         message: String,
+        /// A hook changed what landed (the message says so): the toast's Show changes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hook_changed: Option<crate::git::merge::HookChanges>,
     },
     /// A toast (UI-07, d0063): a validation was cancelled because the code or the description changed
     /// ("Validation cancelled: SHOP-29’s code changed" · "Round not counted · the agent was told to submit again").
