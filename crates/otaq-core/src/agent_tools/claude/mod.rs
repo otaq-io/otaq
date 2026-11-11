@@ -508,6 +508,7 @@ impl AgentTool for ClaudeCode {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: b"",
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: true,
@@ -626,6 +627,7 @@ mod tests {
     fn input_quirks() {
         let quirks = fixture().adapter.input();
         assert_eq!(quirks.clear_line, b"\x05\x15");
+        assert_eq!(quirks.after_text, b"");
         assert_eq!(quirks.enter_delay, Duration::ZERO);
         assert!(quirks.multi_line_clearable);
     }

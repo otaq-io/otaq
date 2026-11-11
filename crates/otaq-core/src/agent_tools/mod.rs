@@ -724,6 +724,9 @@ pub struct InputQuirks {
     /// The bytes that clear the input line before Otaq types. Never Ctrl+C: it quits Codex and OpenCode on an
     /// empty line and arms exit in Copilot.
     pub clear_line: &'static [u8],
+    /// Bytes typed right after the text, in the same write, or none: what the tool needs after a line Otaq typed
+    /// so that its one Enter sends it (Codex: a space, which closes the skill popup a bare `$name` leaves open).
+    pub after_text: &'static [u8],
     /// The pause between the text and Enter.
     pub enter_delay: Duration,
     /// Keys sent after the text and before Enter's pause, or none: a key the tool takes as the end of what was

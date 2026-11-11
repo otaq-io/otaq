@@ -283,6 +283,7 @@ impl AgentTool for OpenCode {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: b"",
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: false,

@@ -636,16 +636,18 @@ impl Deliveries {
             .remove(delivery);
     }
 
-    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message), then the tool's
-    /// keys before Enter, if any, then Enter.
+    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message) with the tool's
+    /// bytes after the text, if any, then the tool's keys before Enter, if any, then one Enter.
     async fn type_and_submit(&self, session: &str, text: &str) -> Result<(), SessionError> {
-        let typed = if text.contains('\n') {
-            format!("\x1b[200~{text}\x1b[201~")
-        } else {
-            text.to_owned()
-        };
         let input = self.input(session);
-        self.sessions.write(session, typed.as_bytes())?;
+        let mut typed = if text.contains('\n') {
+            format!("\x1b[200~{text}\x1b[201~").into_bytes()
+        } else {
+            text.as_bytes().to_vec()
+        };
+        // In the same write, so the tool takes it as part of what was typed.
+        typed.extend_from_slice(input.after_text);
+        self.sessions.write(session, &typed)?;
         if !input.before_enter.is_empty() {
             tokio::time::sleep(SUBMIT_PAUSE).await;
             self.sessions.write(session, input.before_enter)?;

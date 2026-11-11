@@ -325,6 +325,8 @@ mod tests {
             line("\x1b[3;1H> /he\x1b[2mlp\x1b[22m\x1b[3;5H"),
             InputLine::Typed
         );
+        // A line ending in a space (a skill typed into Codex, `$push ` left unsent), the cursor after the space.
+        assert_eq!(line("\x1b[3;1H\u{203a} $push "), InputLine::Typed);
         // Punctuation the user typed isn't a marker.
         assert_eq!(line("\x1b[3;1H/"), InputLine::Unknown);
         assert_eq!(line("\x1b[3;1H> /"), InputLine::Typed);
