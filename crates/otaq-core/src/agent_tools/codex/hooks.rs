@@ -6,7 +6,10 @@
 //! - `PermissionRequest` (the approval dialog shows) → needs you, with the command (`tool_input.command`);
 //! - `Stop` → the turn ended, with `last_assistant_message` (no background work reported: Otaq checks the process
 //!   tree, ADP-12);
-//! - `Interrupt` (Esc at the approval dialog or during a turn) → the turn ended;
+//! - `Interrupt` (Esc at the approval dialog or during a turn) → nothing: Codex sends it as the Esc is pressed, while
+//!   it is still stopping the turn, and text typed then is taken in as the next turn *and* put back in its input line
+//!   (re-tests 2 and 3: Otaq's stage reminder sent once and typed a second time while Codex worked). The turn ends
+//!   when Codex writes `turn_aborted` to its session file ([`super::session_file`]);
 //! - `UserPromptSubmit` → a new turn, with its `prompt`;
 //! - `SessionEnd` → nothing (the session's own end says it).
 //!
@@ -41,10 +44,8 @@ pub(super) fn map_hook(
             background: Default::default(),
             last_message: text(payload, "last_assistant_message"),
         }],
-        "Interrupt" => vec![ToolEvent::TurnEnded {
-            background: Default::default(),
-            last_message: None,
-        }],
+        // Not the turn's end yet: see the module's notes.
+        "Interrupt" => Vec::new(),
         "UserPromptSubmit" => vec![ToolEvent::NewTurn {
             prompt: text(payload, "prompt"),
         }],
@@ -121,7 +122,7 @@ mod tests {
             }]
         );
         assert_eq!(map("Stop.json"), [turn_ended(Some("PONG"))]);
-        assert_eq!(map("Interrupt.json"), [turn_ended(None)]);
+        assert_eq!(map("Interrupt.json"), []);
         assert_eq!(
             map("UserPromptSubmit.json"),
             [ToolEvent::NewTurn {
