@@ -17,7 +17,7 @@
 //!   stages again. The third conflict in a row stops it there, turquoise: "Keeps conflicting with `<target>`". A
 //!   merge in between resets the count.
 //! - **A failed Merge check** (d0120, [`Review::delivery_check_failed`]): the same path, with a comment "Merge check
-//!   `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again." holding the output as
+//!   `npm test` failed on the result with main merged in (exit 1). Fix it, then submit again." holding the output as
 //!   its report (d0109): "Merge check failed · fixing". It counts toward the same three in a row; when the third is a
 //!   failed check the stop says "Merge check keeps failing on `<target>`".
 //! - **Send back with PR comments** ([`Review::send_back_pr`]): a card whose PR is open goes back to its nearest
@@ -186,7 +186,7 @@ impl Review {
         })
     }
 
-    /// A Delivery's rebase conflicted with `target` (FLW-17), in either mode: the nearest earlier Agent stage's
+    /// Merging `target` into the branch for a Delivery conflicted (FLW-17), in either mode: the nearest earlier Agent stage's
     /// session fixes it with `restack`, no click; the third conflict in a row stops it, turquoise.
     pub(crate) async fn delivery_conflict(
         &self,
@@ -198,7 +198,7 @@ impl Review {
     }
 
     /// The Merge check failed on the merged result (d0120), in either mode: as a conflict ([`Self::delivery_conflict`])
-    /// with the comment "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit
+    /// with the comment "Merge check `npm test` failed on the result with main merged in (exit 1). Fix it, then submit
     /// again." and the output as its report (d0109), posted as the user's (the click or the flow is their go-ahead).
     pub(crate) async fn delivery_check_failed(
         &self,

@@ -1,9 +1,9 @@
 //! "conflicts with `main`" (GIT-03, GIT-04, GIT-06; d0038, d0044, d0051): a fact about a ticket's branch and the
 //! branch it merges into, shown on the card and in the sheet, and named by `otaq prime`.
 //!
-//! It comes from a Delivery's free rebase (the ticket goes to its agent with `restack`, no click, FLW-17),
+//! It comes from merging the target into a Delivery's branch (the ticket goes to its agent with `restack`, no click, FLW-17),
 //! from the read-only test merge after another ticket merged (T-0096; the ticket goes to its agent the same way,
-//! d0127), or from the rebase of a reopened ticket on its way to Dev (T-0101). It clears when the agent submits
+//! d0127), or from merging the base into a reopened ticket's branch on its way to Dev (T-0101). It clears when the agent submits
 //! again, or when the next test merge is clean.
 
 use serde::{Deserialize, Serialize};
@@ -28,13 +28,13 @@ fn parse_log(log: &str) -> Vec<(String, Vec<String>)> {
 stored_enum! {
     /// Where a conflict was found.
     pub enum ConflictReason ("conflict reason") {
-        /// A Delivery's rebase: its agent fixes it with `restack`.
+        /// Merging the target into a Delivery's branch: its agent fixes it with `restack`.
         Merge = "merge",
         /// The read-only test merge after another ticket merged, while this one waited in Review (GIT-04, d0127):
         /// its agent fixes it with `restack`, no click, unless its PR is open or the project is paused. The card says
         /// "Conflicts with main · fixing".
         TestMerge = "test_merge",
-        /// The rebase of a reopened ticket on its way to Dev: the agent resolves it first.
+        /// Merging the base into a reopened ticket's branch on its way to Dev: the agent resolves it first.
         Reopen = "reopen",
         /// Local merge's Merge check failed on the merged result (d0120): no conflicting files; its agent fixes what
         /// failed with `restack`. The card says "Merge check failed · fixing", never "conflicts with".
@@ -94,7 +94,7 @@ impl Board {
     }
 
     /// Whether the ticket's next Local merge runs the Merge check even when its branch is current (d0120): an earlier
-    /// merge rebased it onto new commits, or its check failed, and no check passed since.
+    /// merge brought new commits into it, or its check failed, and no check passed since.
     pub async fn merge_check_due(&self, ticket_id: &str) -> Result<bool, BoardError> {
         Ok(self
             .store

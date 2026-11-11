@@ -288,7 +288,7 @@ impl Board {
     }
 
     /// **Reopen** (CLS-03; d0044): Done · Closed → Backlog. Merged tickets are locked. A ticket that has been to
-    /// Dev is marked reopened: its next start rebases its old branch onto the current base and starts a new
+    /// Dev is marked reopened: its next start merges the current base into its old branch and starts a new
     /// agent session (GIT-06).
     pub async fn reopen(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;

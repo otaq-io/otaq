@@ -3,9 +3,10 @@
 //!
 //! 1. Refused while the ticket's worktree or the helper's has uncommitted files ("SHOP-40 has 2 uncommitted files",
 //!    "40.3 has 1 uncommitted file"): nothing is checkpointed or stashed.
-//! 2. **Free rebase** of the helper's branch onto the ticket's branch, in the helper's worktree, no tokens (d0038). A
-//!    conflict puts everything back and merges nothing: the reply tells the agent in charge to send the helper back to
-//!    rebase (`otaq helper back <n>`, with the sentence the restack skill would say).
+//! 2. **The ticket's branch is merged into the helper's**, in the helper's worktree, no tokens (d0038); never a rebase.
+//!    The merge commit runs the project's hooks. A conflict puts everything back and merges nothing: the reply tells
+//!    the agent in charge to send the helper back to merge it in (`otaq helper back <n>`, with the sentence the
+//!    restack skill would say).
 //! 3. **Squash-merge** into the ticket's branch in the ticket's worktree (clean, by step 1): one commit named after the
 //!    piece, the user's hooks running as for any commit; a hook that refuses it leaves the worktree as it was.
 //! 4. The helper is `merged`: its session ends, its worktree is removed and its port freed; its branch stays until the
@@ -17,7 +18,6 @@ use super::store;
 use super::{HelperReply, HelperStatus, Helpers, ticket_branch, ticket_worktree};
 use crate::board::{BoardError, Refusal};
 use crate::caller::Caller;
-use crate::git::checkpoint::{RebaseError, RebaseOutcome};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
 
@@ -27,9 +27,9 @@ pub fn conflict_text(label: &str, piece: u32, against: &str, files: &[String]) -
     let files = files.join(", ");
     let cmd = naming::COMMAND_NAME;
     format!(
-        "{label} conflicts with {against} in {files}: nothing was merged. Send its helper back to rebase: `{cmd} helper back \
-         {piece} --stdin` with \"Your branch conflicts with {against}. Rebase onto it (`git rebase {against}`), resolve the \
-         conflicts in {files}, commit, then hand back with `{cmd} helper done --stdin`.\""
+        "{label} conflicts with {against} in {files}: nothing was merged. Send its helper back to merge it in: `{cmd} helper \
+         back {piece} --stdin` with \"Your branch conflicts with {against}. Merge it in (`git merge {against}`, never a \
+         rebase), resolve the conflicts in {files}, commit the merge, then hand back with `{cmd} helper done --stdin`.\""
     )
 }
 
@@ -88,7 +88,8 @@ impl Helpers {
             }
         }
 
-        // 2. The free rebase onto the ticket's branch, in the helper's worktree.
+        // 2. The ticket's branch merged into the helper's, in the helper's worktree (clean, by step 1): by its name, so the
+        // message is git's plain "Merge branch …"; the merge commit runs the hooks and a refusal is the error.
         let onto = git
             .resolve(repo, &format!("refs/heads/{against}"))
             .await?
@@ -98,23 +99,18 @@ impl Helpers {
                     format!("{}'s branch {against} is gone", ticket.key),
                 )
             })?;
-        match git.rebase_with_checkpoint(helper_wt, &onto).await {
-            Ok(RebaseOutcome::Clean) => {}
-            Ok(RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files }) => {
-                return Err(BoardError::refused(
-                    Refusal::MoveRefused,
-                    conflict_text(&label, piece, &against, &files),
-                ));
-            }
-            Err(RebaseError::Git(e)) => return Err(e.into()),
-            // Step 1 found it clean: no checkpoint was made.
-            Err(e) => {
-                return Err(BoardError::refused(Refusal::MoveRefused, e.to_string()));
-            }
+        if let Some(files) = git.merge_in(helper_wt, &against).await? {
+            return Err(BoardError::refused(
+                Refusal::MoveRefused,
+                conflict_text(&label, piece, &against, &files),
+            ));
         }
         let range = format!("{onto}..{}", helper.branch);
         let subjects = git
-            .run(repo, &["log", "--reverse", "--format=%s", &range])
+            .run(
+                repo,
+                &["log", "--reverse", "--no-merges", "--format=%s", &range],
+            )
             .await?;
         if subjects.trim().is_empty() {
             return Err(BoardError::refused(

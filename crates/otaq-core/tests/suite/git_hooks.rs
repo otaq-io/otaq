@@ -4,7 +4,7 @@
 use std::path::{Path, PathBuf};
 use std::time::Duration;
 
-use otaq_core::git::checkpoint::RebaseError;
+use otaq_core::git::checkpoint::UpdateError;
 use otaq_core::git::merge::{MergeOutcome, MergeRequest};
 use otaq_core::git::testing::{TempRepos, commit, git};
 use otaq_core::git::{Git, GitError, GitStep, GitWatch};
@@ -158,7 +158,7 @@ async fn a_refusing_commit_msg_is_named_without_a_watch_too() {
 }
 
 #[tokio::test]
-async fn a_refusing_pre_rebase_is_named_with_its_reason() {
+async fn a_refusing_pre_merge_commit_on_the_merge_of_main_is_named_and_changes_nothing() {
     let repos = TempRepos::new();
     let (repo, hooks) = setup(&repos);
     let wt = repos.root().join("wt");
@@ -173,36 +173,45 @@ async fn a_refusing_pre_rebase_is_named_with_its_reason() {
         ],
     );
     commit(&repo, "main.txt", "moved on\n");
+    let log = repos.root().join("hooks.log");
     hook(
         &hooks,
         "pre-rebase",
-        "echo \"pre-rebase: published branches are never rebased (see $HOME/team/rules.md)\" >&2\nexit 1",
+        &format!("echo pre-rebase >> '{}'\nexit 1", log.display()),
     );
+    hook(
+        &hooks,
+        "pre-merge-commit",
+        "echo \"pre-merge-commit: merges need a review (see $HOME/team/rules.md)\" >&2\nexit 1",
+    );
+    let head = git(&wt, &["rev-parse", "HEAD"]);
     let watch = GitWatch::new();
 
     let err = Git::find()
         .unwrap()
         .watched(&watch)
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap_err();
 
-    let RebaseError::Git(GitError::HookRefused(refusal)) = err else {
+    let UpdateError::Git(GitError::HookRefused(refusal)) = err else {
         panic!("expected a hook's refusal, got {err}");
     };
-    assert_eq!(refusal.name(), "pre-rebase");
+    assert_eq!(refusal.name(), "pre-merge-commit");
     assert_eq!(refusal.step(), Some(GitStep::UpdateBranch));
-    // The hook's own reason first, then git's line about it.
-    let mut lines = refusal.output().lines();
-    assert_eq!(
-        lines.next(),
-        Some("pre-rebase: published branches are never rebased (see ~/team/rules.md)")
-    );
     assert!(
-        lines
-            .next()
-            .is_some_and(|l| l.contains("pre-rebase hook refused"))
+        refusal
+            .output()
+            .contains("pre-merge-commit: merges need a review (see ~/team/rules.md)"),
+        "{}",
+        refusal.output()
     );
+    // Nothing merged: the branch, the index and the files as they were, no merge left in progress.
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+    let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+    assert!(!wt.join(merge_head).exists(), "no merge in progress");
+    assert!(!log.exists(), "pre-rebase never ran");
 }
 
 #[tokio::test]

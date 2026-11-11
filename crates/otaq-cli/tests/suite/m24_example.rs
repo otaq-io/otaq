@@ -36,7 +36,7 @@ use otaq_core::service::ServiceConfig;
 use otaq_core::service::testing::{TestService, path_without_build_folders};
 
 const NOTE: &str = "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will \
-                    rebase on the other.";
+                    merge the other in first.";
 
 /// The stand-in `claude`. Every start is logged to `state/starts` (`<ticket> <arguments>`). A ticket's agent waits
 /// for `state/go-<KEY>`, then adds `src/lib/tier.ts`, commits everything in its worktree and marks

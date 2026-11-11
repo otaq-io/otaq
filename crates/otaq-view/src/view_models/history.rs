@@ -1523,7 +1523,15 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             };
             (title, Some(removed(p, detail)))
         }
-        EventKind::Rebased => (
+        // Main merged into the branch; events from before Otaq stopped rebasing say so.
+        EventKind::UpdatedFromBase if text(p, "how").as_deref() == Some("merge") => (
+            "Brought up to date".to_owned(),
+            text(p, "onto").map(|b| match p.get("conflict") {
+                Some(_) => format!("{b} conflicts: the agent merges it in first"),
+                None => format!("merged {b} in"),
+            }),
+        ),
+        EventKind::UpdatedFromBase => (
             "Rebased".to_owned(),
             text(p, "onto").map(|b| match p.get("conflict") {
                 Some(_) => format!("onto {b}: conflicts, the agent resolves them first"),
@@ -1753,7 +1761,7 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::AutoMergeStopped
             | EventKind::ValidationEnded
             | EventKind::SentToFix
-            | EventKind::Rebased
+            | EventKind::UpdatedFromBase
     );
     if otaq {
         return Mark::Otaq;

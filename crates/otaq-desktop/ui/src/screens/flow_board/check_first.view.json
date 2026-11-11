@@ -330,7 +330,7 @@
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with a short comment through `otaq stage next`.",
+            "hint": "Otaq’s · Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, merge the target it names into your branch, resolve the conflicts, commit the merge, then end your stage with a short comment through `otaq stage next`.",
             "separated": false,
             "checked": false,
             "header": false

@@ -11,7 +11,7 @@ use super::{Git, GitError, GitStep};
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct CommitInfo {
     pub sha: String,
-    /// More than one parent: a merge commit, which the PR flow doesn't reword.
+    /// More than one parent: a merge commit (main merged into the branch); rewording keeps its other parents.
     pub merge: bool,
     /// The full message, trimmed.
     pub message: String,
@@ -64,7 +64,8 @@ impl Git {
     }
 
     /// Builds the chain `parent` ← `commits[0]` ← … with the given messages and returns its tip. Trees and authors
-    /// stay; a commit whose message and parent are unchanged keeps its ID. Fails on a merge commit.
+    /// stay; a commit whose message and parent are unchanged keeps its ID. A merge commit (main merged into the branch)
+    /// keeps its other parents.
     pub async fn reword(
         &self,
         repo: &Path,
@@ -75,16 +76,6 @@ impl Git {
         let mut parent = parent.to_owned();
         let mut changed = false;
         for (commit, message) in commits {
-            if commit.merge {
-                return Err(GitError::Failed {
-                    args: format!("reword {}", commit.sha),
-                    code: None,
-                    stderr: format!(
-                        "{} is a merge commit; it can't be reworded",
-                        short(&commit.sha)
-                    ),
-                });
-            }
             let message = message.trim();
             if !changed && message == commit.message {
                 parent = commit.sha.clone();
@@ -105,10 +96,21 @@ impl Git {
                 author.next().unwrap_or_default().to_owned(),
                 author.next().unwrap_or_default().to_owned(),
             );
+            let mut args = vec!["commit-tree", tree.trim(), "-p", parent.as_str()];
+            let parents = if commit.merge {
+                self.run(repo, &["rev-list", "--parents", "-n", "1", &commit.sha])
+                    .await?
+            } else {
+                String::new()
+            };
+            for other in parents.split_whitespace().skip(2) {
+                args.extend(["-p", other]);
+            }
+            args.extend(["-m", message]);
             let new = self
                 .run_with_env(
                     repo,
-                    &["commit-tree", tree.trim(), "-p", &parent, "-m", message],
+                    &args,
                     &[
                         ("GIT_AUTHOR_NAME", &name),
                         ("GIT_AUTHOR_EMAIL", &email),
@@ -130,8 +132,4 @@ impl Git {
             .trim()
             .to_owned())
     }
-}
-
-fn short(sha: &str) -> &str {
-    &sha[..sha.len().min(7)]
 }

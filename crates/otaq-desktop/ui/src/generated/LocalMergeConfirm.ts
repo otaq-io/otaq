@@ -51,7 +51,7 @@ proposed: string,
  */
 use_proposed: string, note: string, 
 /**
- * "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
+ * "Conflicts with release/2.3. Otaq merges the latest …" while the ticket is flagged (GIT-04).
  */
 conflict: string | null, 
 /**

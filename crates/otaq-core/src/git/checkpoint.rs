@@ -1,15 +1,21 @@
-//! The checkpoint commit around Otaq's own rebases (GIT-02; d0005, d0038).
+//! Bringing a branch up to date in an agent's worktree, and the checkpoint commit around it (GIT-02; d0005, d0038).
 //!
-//! Before Otaq rebases a branch in an agent's worktree (Local merge's free rebase, a reopened ticket's
-//! rebase), the agent's uncommitted changes are kept in a **checkpoint commit**, `wip: paused by Otaq`; after
-//! the rebase `git reset --soft HEAD~1` takes it out again, and the index is put back as it was, so staged,
-//! unstaged and untracked files all come back exactly as they were (rebased). This is the only commit Otaq
-//! makes by itself (GIT-08) and it is always undone. **Never a stash**: rebases run with `--no-autostash`, so not
-//! even the user's `rebase.autoStash` setting makes one.
+//! Otaq brings a branch up to date by **merging** the newer branch into it, never by rebasing, so a team's
+//! pre-rebase hook or rule against rebasing never stops it ([`Git::merge_in`]). The merge commit is a real commit on
+//! the branch: the project's hooks run on it (prepare-commit-msg, commit-msg, pre-merge-commit) and its message is
+//! git's own plain merge message. A conflict or a refusal merges nothing and leaves the branch, the index and the
+//! files exactly as they were.
 //!
-//! The user's git config and hooks apply (P4): a hook that rejects the checkpoint stops the operation with an
-//! error ([`RebaseError::CheckpointRejected`], naming the hook when one refused); nothing passes `--no-verify`. A conflict, in the rebase or in
-//! putting the files back, leaves the branch, the index and the files exactly as they were before.
+//! When the worktree has uncommitted changes (only a reopened ticket's start brings such a worktree up to date: every
+//! other update refuses uncommitted files first), they are kept in a **checkpoint commit**, `wip: paused by Otaq`,
+//! for a moment: the branch goes back to its head, main is merged in, and the checkpoint's changes are put back on
+//! top of the merge as uncommitted files, with the index as it was, so staged, unstaged and untracked files all come
+//! back exactly as they were. The checkpoint is never left on the branch. **Never a stash**: the merge runs with
+//! `--no-autostash`, so not even the user's `merge.autoStash` setting makes one.
+//!
+//! The user's git config and hooks apply (P4): a hook that rejects the checkpoint stops the update with an error
+//! ([`UpdateError::CheckpointRejected`], naming the hook when one refused); nothing passes `--no-verify`. A hook
+//! that refuses the merge commit is the error ([`GitError::HookRefused`]), with the merge aborted.
 
 use std::fmt;
 use std::path::Path;
@@ -22,19 +28,19 @@ pub fn checkpoint_message() -> String {
     format!("wip: paused by {}", naming::PRODUCT_NAME)
 }
 
-/// How [`Git::rebase_with_checkpoint`] ended.
+/// How [`Git::merge_with_checkpoint`] ended.
 #[derive(Debug, Clone, PartialEq, Eq)]
-pub enum RebaseOutcome {
-    /// Rebased; any uncommitted files are back as they were.
+pub enum UpdateOutcome {
+    /// Up to date; any uncommitted files are back as they were.
     Clean,
-    /// The rebase conflicted on these files; it was aborted and everything is as before.
-    RebaseConflict { files: Vec<String> },
-    /// The rebase worked but the staged changes didn't fit on the new base; everything was put back as before.
+    /// The merge conflicted on these files; it was aborted and everything is as before.
+    Conflict { files: Vec<String> },
+    /// The merge worked but the uncommitted changes didn't fit on top of it; everything was put back as before.
     UndoConflict { files: Vec<String> },
 }
 
 #[derive(Debug)]
-pub enum RebaseError {
+pub enum UpdateError {
     /// The user's hooks (or config) refused the checkpoint commit; the files are as they were. `message` is
     /// git's output; `refusal` says which hook refused, with its whole output, when one did.
     CheckpointRejected {
@@ -44,7 +50,7 @@ pub enum RebaseError {
     Git(GitError),
 }
 
-impl fmt::Display for RebaseError {
+impl fmt::Display for UpdateError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Self::CheckpointRejected { message, .. } => {
@@ -55,9 +61,9 @@ impl fmt::Display for RebaseError {
     }
 }
 
-impl std::error::Error for RebaseError {}
+impl std::error::Error for UpdateError {}
 
-impl From<GitError> for RebaseError {
+impl From<GitError> for UpdateError {
     fn from(e: GitError) -> Self {
         Self::Git(e)
     }
@@ -82,51 +88,99 @@ struct Saved {
 }
 
 impl Git {
-    /// Rebases the branch checked out in `worktree` onto `onto`, keeping uncommitted files with a checkpoint
-    /// commit. A clean worktree skips the checkpoint.
-    pub async fn rebase_with_checkpoint(
+    /// Merges `onto` (a branch name, so the message is git's plain "Merge branch 'main' into …", or a commit) into
+    /// the branch checked out in the **clean** `worktree`. `Ok(None)`: merged (or already up to date, or
+    /// fast-forwarded); `Ok(Some(files))`: it conflicted on these files and was aborted. Any other failure (a hook
+    /// refused the merge commit) is the error, with the merge aborted too: either way the branch, the index and the
+    /// files are as they were.
+    pub async fn merge_in(
         &self,
         worktree: &Path,
         onto: &str,
-    ) -> Result<RebaseOutcome, RebaseError> {
-        let saved = if self.uncommitted_files(worktree).await?.is_empty() {
-            None
-        } else {
-            self.step(GitStep::SaveUncommitted);
-            Some(self.checkpoint(worktree).await?)
-        };
-
+    ) -> Result<Option<Vec<String>>, GitError> {
         self.step(GitStep::UpdateBranch);
-        let rebase = self
-            .run(worktree, &["rebase", "--no-autostash", "--quiet", onto])
+        let merged = self
+            .run(
+                worktree,
+                &[
+                    "merge",
+                    "--quiet",
+                    "--no-edit",
+                    "--no-autostash",
+                    "--ff",
+                    "--no-squash",
+                    onto,
+                ],
+            )
             .await;
-        if rebase.is_err() {
-            let files = self.conflicted_files(worktree).await?;
-            // Abort if git left a rebase in progress (it may also have refused to start).
-            if self.rebase_in_progress(worktree).await? {
-                self.run(worktree, &["rebase", "--abort"]).await?;
-            }
-            if let Some(saved) = &saved {
+        let Err(e) = merged else {
+            return Ok(None);
+        };
+        let files = self.conflicted_files(worktree).await?;
+        // Abort if git left a merge in progress: a conflict, or a hook that refused the merge commit. It may also have
+        // refused to start.
+        if self.merge_in_progress(worktree).await? {
+            self.run(worktree, &["merge", "--abort"]).await?;
+        }
+        if files.is_empty() {
+            return Err(e);
+        }
+        Ok(Some(files))
+    }
+
+    /// Brings the branch checked out in `worktree` up to date by merging `onto` into it ([`Git::merge_in`]),
+    /// keeping uncommitted files with a checkpoint commit. A clean worktree skips the checkpoint.
+    pub async fn merge_with_checkpoint(
+        &self,
+        worktree: &Path,
+        onto: &str,
+    ) -> Result<UpdateOutcome, UpdateError> {
+        if self.uncommitted_files(worktree).await?.is_empty() {
+            return Ok(match self.merge_in(worktree, onto).await? {
+                None => UpdateOutcome::Clean,
+                Some(files) => UpdateOutcome::Conflict { files },
+            });
+        }
+        self.step(GitStep::SaveUncommitted);
+        let saved = self.checkpoint(worktree).await?;
+        // The branch goes back to its own head, with the files of that head: the checkpoint holds the changes.
+        self.run(worktree, &["reset", "--quiet", "--hard", &saved.head])
+            .await?;
+        let merged = match self.merge_in(worktree, onto).await {
+            Ok(merged) => merged,
+            Err(e) => {
                 self.step(GitStep::RestoreUncommitted);
-                self.restore(worktree, saved).await?;
+                self.back_to_checkpoint(worktree, &saved).await?;
+                return Err(UpdateError::Git(e));
             }
-            if files.is_empty() {
-                // Not a conflict: report git's own error.
-                return Err(RebaseError::Git(rebase.expect_err("failed")));
-            }
-            return Ok(RebaseOutcome::RebaseConflict { files });
+        };
+        if let Some(files) = merged {
+            self.step(GitStep::RestoreUncommitted);
+            self.back_to_checkpoint(worktree, &saved).await?;
+            return Ok(UpdateOutcome::Conflict { files });
         }
 
-        let Some(saved) = saved else {
-            return Ok(RebaseOutcome::Clean);
-        };
         self.step(GitStep::RestoreUncommitted);
-        // Take the checkpoint out again: its changes stay in the files.
-        self.run(worktree, &["reset", "--quiet", "--soft", "HEAD~1"])
-            .await?;
+        // The changes go back on top of the merge, uncommitted; a conflict with what came in puts everything back.
+        let merge = self
+            .run(worktree, &["rev-parse", "HEAD"])
+            .await?
+            .trim()
+            .to_owned();
+        if self
+            .run(worktree, &["cherry-pick", "--no-commit", &saved.checkpoint])
+            .await
+            .is_err()
+        {
+            let files = self.conflicted_files(worktree).await?;
+            tracing::warn!(
+                "uncommitted changes don't fit the updated branch; putting everything back"
+            );
+            self.back_to_checkpoint(worktree, &saved).await?;
+            return Ok(UpdateOutcome::UndoConflict { files });
+        }
         // The index holds everything now; put back only what was staged, so untracked files are untracked again.
-        let new_base = self.run(worktree, &["rev-parse", "HEAD"]).await?;
-        self.run(worktree, &["reset", "--quiet", "--mixed", new_base.trim()])
+        self.run(worktree, &["reset", "--quiet", "--mixed", &merge])
             .await?;
         let staged = self
             .run(
@@ -146,18 +200,15 @@ impl Git {
                 .lines()
                 .map(str::to_owned)
                 .collect();
-            tracing::warn!(error = %e, "staged changes don't fit the rebased branch; putting everything back");
-            // Back to the checkpoint's files, then to the old HEAD and index.
-            self.run(worktree, &["reset", "--quiet", "--hard", &saved.checkpoint])
-                .await?;
-            self.restore(worktree, &saved).await?;
-            return Ok(RebaseOutcome::UndoConflict { files });
+            tracing::warn!(error = %e, "staged changes don't fit the updated branch; putting everything back");
+            self.back_to_checkpoint(worktree, &saved).await?;
+            return Ok(UpdateOutcome::UndoConflict { files });
         }
-        Ok(RebaseOutcome::Clean)
+        Ok(UpdateOutcome::Clean)
     }
 
     /// Commits every uncommitted file (untracked ones too) as the checkpoint.
-    async fn checkpoint(&self, worktree: &Path) -> Result<Saved, RebaseError> {
+    async fn checkpoint(&self, worktree: &Path) -> Result<Saved, UpdateError> {
         let head = self
             .run(worktree, &["rev-parse", "HEAD"])
             .await?
@@ -175,15 +226,15 @@ impl Git {
             // Put the index back as it was; the files never changed.
             self.run(worktree, &["read-tree", &index]).await?;
             return Err(match e {
-                GitError::Failed { stderr, .. } => RebaseError::CheckpointRejected {
+                GitError::Failed { stderr, .. } => UpdateError::CheckpointRejected {
                     message: stderr,
                     refusal: None,
                 },
-                GitError::HookRefused(refusal) => RebaseError::CheckpointRejected {
+                GitError::HookRefused(refusal) => UpdateError::CheckpointRejected {
                     message: refusal.stderr.clone(),
                     refusal: Some(refusal),
                 },
-                e => RebaseError::Git(e),
+                e => UpdateError::Git(e),
             });
         }
         let checkpoint = self
@@ -198,8 +249,10 @@ impl Git {
         })
     }
 
-    /// From the checkpoint (HEAD, with its files in the worktree) back to the old HEAD and index.
-    async fn restore(&self, worktree: &Path, saved: &Saved) -> Result<(), GitError> {
+    /// Back to where the update started: the checkpoint's files in the worktree, then the old HEAD and index.
+    async fn back_to_checkpoint(&self, worktree: &Path, saved: &Saved) -> Result<(), GitError> {
+        self.run(worktree, &["reset", "--quiet", "--hard", &saved.checkpoint])
+            .await?;
         self.run(worktree, &["reset", "--quiet", "--soft", &saved.head])
             .await?;
         self.run(worktree, &["read-tree", &saved.index]).await?;
@@ -230,21 +283,16 @@ impl Git {
             .collect())
     }
 
-    async fn rebase_in_progress(&self, worktree: &Path) -> Result<bool, GitError> {
-        for dir in ["rebase-merge", "rebase-apply"] {
-            let path = self
-                .run(worktree, &["rev-parse", "--git-path", dir])
-                .await?;
-            let path = Path::new(path.trim());
-            let path = if path.is_absolute() {
-                path.to_path_buf()
-            } else {
-                worktree.join(path)
-            };
-            if path.exists() {
-                return Ok(true);
-            }
-        }
-        Ok(false)
+    async fn merge_in_progress(&self, worktree: &Path) -> Result<bool, GitError> {
+        let path = self
+            .run(worktree, &["rev-parse", "--git-path", "MERGE_HEAD"])
+            .await?;
+        let path = Path::new(path.trim());
+        let path = if path.is_absolute() {
+            path.to_path_buf()
+        } else {
+            worktree.join(path)
+        };
+        Ok(path.exists())
     }
 }

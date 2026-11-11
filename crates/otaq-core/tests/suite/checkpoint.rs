@@ -1,10 +1,10 @@
-//! The checkpoint commit around Otaq's rebases (T-0088, GIT-02), against temporary repositories. Every test
-//! checks that no stash was ever made.
+//! Bringing a branch up to date by merging main into it, and the checkpoint commit around it (T-0088, GIT-02),
+//! against temporary repositories. Every test checks that no stash was ever made.
 
 use std::path::{Path, PathBuf};
 
 use otaq_core::git::Git;
-use otaq_core::git::checkpoint::{RebaseError, RebaseOutcome, checkpoint_message};
+use otaq_core::git::checkpoint::{UpdateError, UpdateOutcome, checkpoint_message};
 use otaq_core::git::testing::{TempRepos, commit, git};
 
 /// `main` checked out in the repository, `feature` (one commit on `feature.txt`) in a worktree beside it.
@@ -44,7 +44,7 @@ fn no_checkpoint_in_history(wt: &Path) {
 }
 
 #[tokio::test]
-async fn a_clean_worktree_rebases_without_a_checkpoint() {
+async fn a_clean_worktree_merges_main_in_without_a_checkpoint() {
     let repos = TempRepos::new();
     let (repo, wt) = setup(&repos);
     commit(&repo, "main.txt", "moved on\n");
@@ -52,11 +52,16 @@ async fn a_clean_worktree_rebases_without_a_checkpoint() {
 
     let outcome = Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap();
-    assert_eq!(outcome, RebaseOutcome::Clean);
-    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main, "on top of main");
+    assert_eq!(outcome, UpdateOutcome::Clean);
+    assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), main, "main merged in");
+    assert_eq!(
+        git(&wt, &["log", "-1", "--format=%s"]),
+        "Merge branch 'main' into feature",
+        "git's plain merge message"
+    );
     assert_eq!(status(&wt), "");
     // No checkpoint was made at all: the reflog has no commit with its message.
     let reflog = git(&wt, &["reflog", "--format=%gs"]);
@@ -84,10 +89,10 @@ async fn staged_unstaged_and_untracked_files_come_back_as_they_were() {
 
     let outcome = Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap();
-    assert_eq!(outcome, RebaseOutcome::Clean);
+    assert_eq!(outcome, UpdateOutcome::Clean);
     assert_eq!(status(&wt), before);
     assert_eq!(
         git(&wt, &["diff", "--cached"]),
@@ -97,13 +102,13 @@ async fn staged_unstaged_and_untracked_files_come_back_as_they_were() {
     assert_eq!(read(&wt, "feature.txt"), "feature staged\nand unstaged\n");
     assert_eq!(read(&wt, "both.txt"), "1\n2 changed\n3\n");
     assert_eq!(read(&wt, "notes/todo.md"), "untracked\n");
-    assert!(wt.join("main.txt").is_file(), "rebased onto main");
+    assert!(wt.join("main.txt").is_file(), "main merged in");
     no_checkpoint_in_history(&wt);
     no_stash(&repo);
 }
 
 #[tokio::test]
-async fn a_rebase_conflict_puts_everything_back() {
+async fn a_merge_conflict_puts_everything_back() {
     let repos = TempRepos::new();
     let (repo, wt) = setup(&repos);
     commit(&wt, "lib.txt", "feature version\n");
@@ -115,12 +120,12 @@ async fn a_rebase_conflict_puts_everything_back() {
 
     let outcome = Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap();
     assert_eq!(
         outcome,
-        RebaseOutcome::RebaseConflict {
+        UpdateOutcome::Conflict {
             files: vec!["lib.txt".into()]
         }
     );
@@ -138,12 +143,12 @@ async fn a_rebase_conflict_puts_everything_back() {
 }
 
 #[tokio::test]
-async fn staged_changes_that_dont_fit_the_new_base_put_everything_back() {
+async fn staged_changes_that_dont_fit_the_merged_branch_put_everything_back() {
     let repos = TempRepos::new();
     let (repo, wt) = setup(&repos);
     commit(&wt, "y.txt", "a\nb\nc\n");
     // main changes the line the staged change touches; the working file is back to the committed text, so the
-    // checkpoint itself has nothing for y.txt and the rebase is clean.
+    // checkpoint itself has nothing for y.txt and the merge is clean.
     git(&repo, &["merge", "--quiet", "--no-edit", "feature"]);
     commit(&repo, "y.txt", "a\nX\nc\n");
     std::fs::write(wt.join("y.txt"), "a\nB\nc\n").unwrap();
@@ -156,12 +161,12 @@ async fn staged_changes_that_dont_fit_the_new_base_put_everything_back() {
 
     let outcome = Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap();
     assert_eq!(
         outcome,
-        RebaseOutcome::UndoConflict {
+        UpdateOutcome::UndoConflict {
             files: vec!["y.txt".into()]
         }
     );
@@ -194,11 +199,11 @@ async fn a_rejecting_pre_commit_hook_stops_with_an_error_and_changes_nothing() {
 
     let err = Git::find()
         .unwrap()
-        .rebase_with_checkpoint(&wt, "main")
+        .merge_with_checkpoint(&wt, "main")
         .await
         .unwrap_err();
     match err {
-        RebaseError::CheckpointRejected { message, refusal } => {
+        UpdateError::CheckpointRejected { message, refusal } => {
             assert!(message.contains("lint failed"));
             let refusal = refusal.expect("the hook is named");
             assert_eq!(refusal.name(), "pre-commit");
@@ -206,7 +211,130 @@ async fn a_rejecting_pre_commit_hook_stops_with_an_error_and_changes_nothing() {
         }
         other => panic!("expected a rejected checkpoint, got {other}"),
     }
-    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "not rebased");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "not merged");
     assert_eq!(status(&wt), before);
+    no_stash(&repo);
+}
+
+/// A hook script in the repository's `.git/hooks` (shared by its worktrees).
+fn hook(repo: &Path, name: &str, body: &str) {
+    let path = repo.join(".git/hooks").join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+#[tokio::test]
+async fn a_pre_rebase_hook_that_refuses_never_runs() {
+    let repos = TempRepos::new();
+    let (repo, wt) = setup(&repos);
+    commit(&repo, "main.txt", "moved on\n");
+    let log = repos.root().join("hooks.log");
+    hook(
+        &repo,
+        "pre-rebase",
+        &format!(
+            "echo pre-rebase >> '{}'\necho 'merge instead' >&2\nexit 1",
+            log.display()
+        ),
+    );
+    std::fs::write(wt.join("feature.txt"), "dirty\n").unwrap();
+
+    let outcome = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap();
+    assert_eq!(outcome, UpdateOutcome::Clean);
+    assert!(wt.join("main.txt").is_file(), "main merged in");
+    assert_eq!(read(&wt, "feature.txt"), "dirty\n");
+    assert!(!log.exists(), "pre-rebase never ran");
+    no_checkpoint_in_history(&wt);
+    no_stash(&repo);
+}
+
+#[tokio::test]
+async fn the_merge_commit_runs_the_hooks_and_a_refusal_changes_nothing() {
+    let repos = TempRepos::new();
+    let (repo, wt) = setup(&repos);
+    commit(&repo, "main.txt", "moved on\n");
+    // A Conventional Commits rule: git's plain "Merge branch …" message doesn't pass.
+    hook(
+        &repo,
+        "commit-msg",
+        "grep -qE '^(feat|fix|wip):' \"$1\" || { echo 'not a conventional message' >&2; exit 1; }",
+    );
+    std::fs::write(wt.join("feature.txt"), "staged\n").unwrap();
+    git(&wt, &["add", "feature.txt"]);
+    std::fs::write(wt.join("loose.txt"), "untracked\n").unwrap();
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let before = status(&wt);
+    let staged_before = git(&wt, &["diff", "--cached"]);
+
+    let err = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("not a conventional message"),
+        "{err}"
+    );
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "not merged");
+    assert_eq!(status(&wt), before);
+    assert_eq!(git(&wt, &["diff", "--cached"]), staged_before);
+    assert_eq!(read(&wt, "loose.txt"), "untracked\n");
+    assert!(!wt.join("main.txt").exists());
+    no_checkpoint_in_history(&wt);
+    no_stash(&repo);
+
+    // A clean worktree: the same refusal, and no merge left in progress.
+    git(&wt, &["reset", "--quiet", "--hard"]);
+    std::fs::remove_file(wt.join("loose.txt")).unwrap();
+    let err = Git::find()
+        .unwrap()
+        .merge_in(&wt, "main")
+        .await
+        .unwrap_err();
+    assert!(
+        err.to_string().contains("not a conventional message"),
+        "{err}"
+    );
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(status(&wt), "");
+    let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+    assert!(!wt.join(merge_head).exists(), "no merge in progress");
+}
+
+#[tokio::test]
+async fn uncommitted_changes_that_conflict_with_main_put_everything_back() {
+    let repos = TempRepos::new();
+    let (repo, wt) = setup(&repos);
+    commit(&wt, "lib.txt", "base\n");
+    git(&repo, &["merge", "--quiet", "--no-edit", "feature"]);
+    commit(&repo, "lib.txt", "main version\n");
+    std::fs::write(wt.join("lib.txt"), "my uncommitted version\n").unwrap();
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let before = status(&wt);
+
+    let outcome = Git::find()
+        .unwrap()
+        .merge_with_checkpoint(&wt, "main")
+        .await
+        .unwrap();
+    assert_eq!(
+        outcome,
+        UpdateOutcome::UndoConflict {
+            files: vec!["lib.txt".into()]
+        }
+    );
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head);
+    assert_eq!(status(&wt), before);
+    assert_eq!(read(&wt, "lib.txt"), "my uncommitted version\n");
+    no_checkpoint_in_history(&wt);
     no_stash(&repo);
 }

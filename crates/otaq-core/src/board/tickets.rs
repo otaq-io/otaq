@@ -400,8 +400,9 @@ stored_enum! {
         Reopened = "reopened",
         /// Park: Dev → Backlog with the work kept (T-0104); payload `from`, `to` and `stage_id`, the stage it left.
         Parked = "parked",
-        /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
-        Rebased = "rebased",
+        /// A reopened ticket's branch brought up to date with the current base on its way to Dev (GIT-06): the base is
+        /// merged into it (payload `how: "merge"`); events from before that say a rebase. Stored as `rebased`.
+        UpdatedFromBase = "rebased",
         /// The agent's session ended while it was at work: Interrupted (REC-01). The payload has the reason
         /// (`restart` or the session's end) and the status before.
         Interrupted = "interrupted",

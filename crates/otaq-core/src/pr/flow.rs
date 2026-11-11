@@ -446,12 +446,21 @@ impl Board {
         let git = self.git()?;
         let repo = commits.repo.as_path();
         let parent = match commits.pushed {
-            0 => self
-                .store()
-                .ticket(&ticket.id)
-                .await?
-                .and_then(|r| r.base_sha)
-                .ok_or_else(|| no_commits(&ticket.key))?,
+            // The first commit's own parent: after the base was merged into the branch, its first commits still stand
+            // on the base they left, not on `base_sha`.
+            0 => match commits.commits.first() {
+                Some(first) => git
+                    .run(repo, &["rev-parse", &format!("{}^1", first.sha)])
+                    .await?
+                    .trim()
+                    .to_owned(),
+                None => self
+                    .store()
+                    .ticket(&ticket.id)
+                    .await?
+                    .and_then(|r| r.base_sha)
+                    .ok_or_else(|| no_commits(&ticket.key))?,
+            },
             n => commits.commits[n - 1].sha.clone(),
         };
         let pairs: Vec<(CommitInfo, String)> = commits
@@ -491,7 +500,7 @@ impl Board {
             return Err(e.into());
         }
         // The reviewed head follows the reworded commits (no new content, GIT-05).
-        self.record_otaq_rebase(&ticket.id, &commits.head, &tip)
+        self.record_otaq_update(&ticket.id, &commits.head, &tip)
             .await?;
         let mut tx = self.store().begin_write().await?;
         sqlx::query(

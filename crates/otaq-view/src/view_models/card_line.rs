@@ -352,7 +352,7 @@ pub fn stopped_line(error: &str) -> String {
     format!("{STOPPED} \u{b7} {}", ToolStop::of(error).reason())
 }
 
-/// The first sentence of a longer message ("Base diverged. Rebase it…" → "Base diverged").
+/// The first sentence of a longer message ("Base diverged. Pull it…" → "Base diverged").
 fn first_sentence(text: &str) -> &str {
     text.split_once(". ")
         .map_or(text, |(first, _)| first)

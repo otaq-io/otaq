@@ -66,7 +66,7 @@ Backlog ──► Dev ───────────────────�
 5. **You review.** The ticket arrives in Review and opens on Overview: what the agent did, what the checker found and
    every decision the agent recorded; the Changes tab has the diff. Comment on lines and **Send back**, or approve.
 6. **Deliver.** How work leaves the flow is the flow's own setting, shown on Done ("Merge or PR · on Approve").
-   **Approve & merge into main** squashes the branch into your base branch (rebasing first if the base moved).
+   **Approve & merge into main** squashes the branch into your base branch (merging the base into the branch first if it moved; Otaq never rebases).
    **Approve & open PR** pushes and opens a pull request, with a dialog where you edit the branch name, title and
    description first; the ticket then waits in Review as "PR open" until you **Mark merged** (Otaq doesn't watch the
    PR). Once it's merged, tickets that were waiting for it start on their own.

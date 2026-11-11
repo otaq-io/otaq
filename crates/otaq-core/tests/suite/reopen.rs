@@ -1,7 +1,7 @@
-//! Reopen (T-0101, CLS-03, GIT-06): only Closed tickets reopen; on the way back to Dev the old branch is rebased
-//! onto the current base with no tokens and a NEW agent session starts (never `--resume`); a conflict is
+//! Reopen (T-0101, CLS-03, GIT-06): only Closed tickets reopen; on the way back to Dev the current base is merged
+//! into the old branch with no tokens (never a rebase) and a NEW agent session starts (never `--resume`); a conflict is
 //! announced through `otaq prime`. `claude` stands in as an `sh` printing its arguments. Where builds are renamed, the
-//! reopened ticket's new worktree takes the build nearest to its rebased commit (T-0309, M19-c).
+//! reopened ticket's new worktree takes the build nearest to its updated branch (T-0309, M19-c).
 
 use crate::common::freed;
 use otaq_core::service::testing::said;
@@ -76,11 +76,27 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 }
 
 #[tokio::test]
-async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
+async fn a_reopened_ticket_merges_main_in_and_starts_a_new_session() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     let (t, wt) = closed(&w, "coupon.ts").await;
+    // A team that forbids rebasing: the update never meets it.
+    let log = repo.parent().unwrap().join("hooks.log");
+    let hook = repo.join(".git/hooks/pre-rebase");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\necho pre-rebase >> '{}'\nexit 1\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 
     let reopened = w.board.reopen("SHOP-1", &me()).await.unwrap();
     assert_eq!(reopened.status, Status::Backlog);
@@ -102,11 +118,9 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
         wt.join("coupon.ts").is_file(),
         "worktree recreated on the old branch"
     );
-    assert!(
-        wt.join("moved.ts").is_file(),
-        "rebased onto the current main"
-    );
-    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main);
+    assert!(wt.join("moved.ts").is_file(), "the current main merged in");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), main);
+    assert!(!log.exists(), "pre-rebase never ran");
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.base_sha.as_deref(), Some(main.as_str()));
     assert!(!row.reopened);
@@ -177,7 +191,7 @@ async fn a_failed_start_of_a_reopened_ticket_keeps_its_worktree() {
 }
 
 #[tokio::test]
-async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_starts() {
+async fn a_conflicting_merge_is_announced_through_prime_and_the_agent_still_starts() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -218,7 +232,7 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     );
     assert!(
         prime.contains(
-            "Reopened: the rebase onto `main` conflicted. Resolve it first with the restack skill"
+            "Reopened: merging `main` into this branch conflicted. Resolve it first with the restack skill"
         ),
         "{prime}"
     );
@@ -241,10 +255,10 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     w.stop().await;
 }
 
-/// Prepare on reopen: the new worktree is seeded after the rebase, so the build nearest to the rebased commit is
-/// taken (one built at the current `main`), not the ticket's own build of its old commit.
+/// Prepare on reopen: the new worktree is seeded after main is merged in, so the build nearest to the updated
+/// branch is taken (one built at the current `main`), not the ticket's own build of its old commit.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
+async fn a_reopened_ticket_takes_the_nearest_build_after_the_update() {
     use otaq_core::board::settings::{AgentLimits, GlobalSettings};
     use otaq_core::warm::store::WarmRecord;
 
@@ -308,11 +322,11 @@ async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
         .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
 
-    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main, "rebased");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), main, "main merged in");
     assert_eq!(
         freed::app_bin(&wt).as_deref(),
         Some("main build"),
-        "the build nearest to the rebased commit"
+        "the build nearest to the updated branch"
     );
     let log = freed::setup_log(&w, "SHOP-1");
     assert!(log.starts_with("Took shop-web's build"), "{log}");

@@ -1,5 +1,5 @@
 //! The Merge check (T-0491; d0120, Q475) against temporary repositories: Local merge runs the project's command on
-//! the merged result in Otaq's scratch worktree before the target moves, only when the rebase brought in commits the
+//! the merged result in Otaq's scratch worktree before the target moves, only when merging the target in brought in commits the
 //! branch didn't have. The repository's own folder stands for the user's checkout; the commands are plain `sh`
 //! scripts, and the ticket's agent is an `sh` session.
 
@@ -116,7 +116,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     let comment = comments.last().expect("a comment");
     assert_eq!(
         comment.body,
-        "Merge check `sh test.sh` failed on the result rebased onto main (exit 1). Fix it, then submit again."
+        "Merge check `sh test.sh` failed on the result with main merged in (exit 1). Fix it, then submit again."
     );
     let report = w
         .board
@@ -132,7 +132,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     assert!(typed.contains(&claude_skill("restack")), "{typed}");
     assert!(
         typed.ends_with(&format!(
-            "SHOP-2's merge check failed on the result rebased onto `main`; the comment has its output. Run `{} \
+            "SHOP-2's merge check failed on the result with `main` merged in; the comment has its output. Run `{} \
              prime`.",
             naming::COMMAND_NAME
         )),
@@ -155,7 +155,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     );
     assert!(
         prime.contains(
-            "The project's merge check failed on this branch rebased onto the latest `main`"
+            "The project's merge check failed on this branch with the latest `main` merged in"
         ),
         "{prime}"
     );
@@ -416,7 +416,7 @@ async fn sees_the_variables_and_leaves_nothing_behind(w: TestService) {
 }
 
 /// The third failure in a row (conflicts and failed checks count together) stops turquoise: "Merge check keeps
-/// failing on `main`". A branch already rebased by a failed check is checked again on its next merge.
+/// failing on `main`". A branch that already took in main for a failed check is checked again on its next merge.
 #[tokio::test(flavor = "multi_thread")]
 async fn three_failures_in_a_row_stop_turquoise() {
     let w = TestService::start().await;
@@ -467,7 +467,7 @@ async fn three_failures_in_a_row_stop_turquoise() {
 }
 
 /// The user's Stop of a running check (Q475): nothing is merged, the ticket stays where it was, and its next merge
-/// runs the check again although the branch is already rebased.
+/// runs the check again although main is already merged into the branch.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stopped_check_merges_nothing_and_runs_again_next_time() {
     let w = TestService::start().await;
