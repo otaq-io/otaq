@@ -63,6 +63,7 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
     // A hook refused Approve & merge: its confirmation again, on the kept edit.
     expect(actionRoute("edit_message")).toEqual({ kind: "overlay", id: "local_merge" });
+    expect(actionRoute("edit_pr_messages")).toEqual({ kind: "overlay", id: "open_pr" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
     // Your check in another flow (FLW-14) and an open PR (FLW-16).
     expect(actionRoute("pass")).toEqual({ kind: "pass" });

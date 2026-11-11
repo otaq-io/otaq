@@ -683,3 +683,131 @@ async fn a_reported_problem_goes_to_the_dialog_and_retry_asks_again() {
     assert!(typed >= 2, "typed {typed} times");
     s.w.stop().await;
 }
+
+/// A project's `feat:`/`fix:` commit-msg hook checks every confirmed message before Otaq rewords: "update stuff" is
+/// refused, nothing is rewritten, renamed or pushed, the ticket shows the hook's output and the message, and the
+/// user's edits stay; fixed to `fix: …`, the PR goes on with the message as the hook left it (its `Change-Id`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
+    use otaq_core::board::tickets::EventKind;
+    use otaq_core::domain::AutoMergeStop;
+    use otaq_core::git::GitStep;
+    use otaq_core::pr::message::MessageEdit;
+    let s = setup().await;
+    let w = &s.w;
+    let hook = s.repo.join(".git/hooks/commit-msg");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\n\
+         grep -qE '^(feat|fix):' \"$1\" || { echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }\n\
+         grep -q '^Change-Id:' \"$1\" || printf '\\nChange-Id: I0123\\n' >> \"$1\"\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let branch = naming::branch("SHOP-1");
+    let before = commits(&s.repo, &format!("main..{branch}"));
+
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let mut edits = w
+        .board
+        .pr_flow(&s.ticket.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    edits.branch = "feature/SHOP-1-login".into();
+    edits.commits[0].message = "update stuff".into();
+    edits.commits[1].message = "fix: cover deep links".into();
+    // The dialog keeps the user's edits as they type.
+    let kept = w
+        .board
+        .keep_edited_message(
+            "SHOP-1",
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: edits
+                    .commits
+                    .iter()
+                    .map(|c| (c.sha.clone(), c.message.clone()))
+                    .collect(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    let PrOutcome::HookRefused { hook, message } = outcome else {
+        panic!("refused: {outcome:?}");
+    };
+    assert_eq!(hook, "commit-msg");
+    assert_eq!(message, "commit-msg hook refused the PR");
+    // Nothing rewritten, renamed or pushed.
+    assert_eq!(commits(&s.repo, &format!("main..{branch}")), before);
+    assert!(
+        git(&s.origin, &["branch", "--list", "feature/*"])
+            .trim()
+            .is_empty()
+    );
+    assert!(
+        git(&s.worktree, &["status", "--porcelain"])
+            .trim()
+            .is_empty(),
+        "the worktree is clean"
+    );
+    // On the ticket: its Delivery stopped with the hook, its output and the message; History keeps it.
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::DeliveryStopped);
+    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    assert!(!ticket.work.as_ref().unwrap().branch_locked);
+    let refused = ticket
+        .flags
+        .hook_refusal
+        .clone()
+        .expect("kept on the ticket");
+    assert_eq!(refused.name, "commit-msg");
+    assert_eq!(refused.step, Some(GitStep::Reword));
+    assert_eq!(refused.message.as_deref(), Some("update stuff"));
+    assert!(
+        refused
+            .output
+            .contains("commitlint: type must be one of [feat, fix]"),
+        "{}",
+        refused.output
+    );
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::HookRefused));
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    // The user's edits stay to fix it.
+    assert_eq!(w.board.edited_message(&s.ticket.id).await.unwrap(), kept);
+
+    // Edit messages and retry: the dialog opens again from the stop; fixed, the PR goes on.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    edits.commits[0].message = "fix: redirect after login".into();
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let after = commits(&s.repo, "main..feature/SHOP-1-login");
+    assert_eq!(
+        after.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(),
+        ["fix: redirect after login", "fix: cover deep links"]
+    );
+    assert_eq!(
+        git(&s.repo, &["log", "-1", "--format=%B", &after[0].0]).trim(),
+        "fix: redirect after login\n\nChange-Id: I0123",
+        "as the hook left it"
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert_eq!(ticket.auto_merge_stop, None);
+    assert_eq!(ticket.flags.hook_refusal, None);
+    w.wait_for_output(&s.agent.session, "The user confirmed the pull request")
+        .await;
+    s.w.stop().await;
+}

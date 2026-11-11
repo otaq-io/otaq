@@ -443,8 +443,9 @@ function Refusal({ refusal }: { refusal: SheetRefusal }) {
   );
 }
 
-/** A project's git hook refused Approve & merge, above the bar whose primary button is the way on (Edit message and
- * retry): which hook and step, the hook's output in the same box as a refused start's, the way on. */
+/** A project's git hook refused Approve & merge or a PR's commit message, above the bar whose primary button is the way
+ * on (Edit message(s) and retry): which hook and step, the refused message, the hook's output in the same box as a
+ * refused start's, the way on. */
 export function HookRefusal({ refusal }: { refusal: SheetHookRefusal }) {
   return (
     <div className="sheet-hook-refusal" role="alert">
@@ -453,6 +454,12 @@ export function HookRefusal({ refusal }: { refusal: SheetHookRefusal }) {
         <span>{refusal.heading}</span>
       </div>
       {refusal.step !== null && <p className="sheet-hook-refusal-text">{refusal.step}</p>}
+      {refusal.message !== null && (
+        <div className="sheet-hook-refusal-message">
+          <span className="sheet-hook-refusal-message-label">{refusal.message.label}</span>
+          <pre className="sheet-hook-refusal-message-text">{refusal.message.text}</pre>
+        </div>
+      )}
       <HookOutput hook={refusal.hook} />
       <p className="sheet-hook-refusal-text">{refusal.way_on}</p>
     </div>

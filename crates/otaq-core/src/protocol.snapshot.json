@@ -6456,6 +6456,18 @@
             }
           }
         },
+        "hook_refused": {
+          "fields": {
+            "hook": {
+              "ty": "String",
+              "required": true
+            },
+            "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "needs_confirmation": {
           "fields": {
             "ticket": {
@@ -7803,6 +7815,10 @@
     "RefusedHook": {
       "kind": "struct",
       "fields": {
+        "message": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "name": {
           "ty": "String",
           "required": true

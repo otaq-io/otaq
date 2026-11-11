@@ -473,6 +473,7 @@ mod tests {
                 step: Some(crate::git::GitStep::Commit),
                 what: "the merge".into(),
                 output: "subject must start with feat:".into(),
+                message: None,
             }),
         }
     }

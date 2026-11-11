@@ -502,6 +502,27 @@ impl Board {
         Ok(refused)
     }
 
+    /// The project's commit-msg hook refused a message the PR's commits were to get (the user's Approve & open PR, or
+    /// the automatic delivery's): nothing was rewritten or pushed. The Delivery stops as a refused merge does, with
+    /// "commit-msg hook refused the PR" as its text and `refused` (the hook's output and the message) kept on the
+    /// ticket and in History. The way on is to fix the message and open the PR again, on the user's kept edits.
+    pub(crate) async fn pr_refused_by_hook(
+        &self,
+        ticket_id: &str,
+        refused: &RefusedHook,
+    ) -> Result<(), BoardError> {
+        self.stop_delivery(
+            ticket_id,
+            AutoMergeStop::HookRefused,
+            &refused.line(),
+            false,
+            Some(refused),
+        )
+        .await?;
+        tracing::warn!(ticket = ticket_id, hook = %refused.name, "a hook refused the PR's commit messages");
+        Ok(())
+    }
+
     /// [`Self::delivery_stopped`], with the hook's refusal that stopped it, if one did: kept on the ticket, and
     /// History's line is the refusal's.
     async fn stop_delivery(

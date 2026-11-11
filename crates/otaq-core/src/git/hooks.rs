@@ -145,6 +145,9 @@ pub struct RefusedHook {
     pub what: String,
     /// The hook's whole output, paths under the home shortened; git's own output when the hook printed nothing.
     pub output: String,
+    /// The commit message it refused, when it checked one the user can fix (a PR's reworded message).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub message: Option<String>,
 }
 
 impl RefusedHook {
@@ -159,6 +162,15 @@ impl RefusedHook {
             step: Some(refusal.step().unwrap_or(step)),
             what: what.into(),
             output: shorten_home(output),
+            message: None,
+        }
+    }
+
+    /// With the commit message it refused.
+    pub fn with_message(self, message: impl Into<String>) -> Self {
+        Self {
+            message: Some(message.into()),
+            ..self
         }
     }
 

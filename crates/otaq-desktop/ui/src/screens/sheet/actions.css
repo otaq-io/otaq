@@ -137,6 +137,26 @@
   line-height: 1.45;
 }
 
+/* The PR's commit message the commit-msg hook refused, as it was written. */
+.sheet-hook-refusal-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sheet-hook-refusal-message-label {
+  color: var(--text-secondary);
+  font: 600 11px/normal var(--font-ui);
+}
+
+.sheet-hook-refusal-message-text {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 11px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sheet-stop-message {
   display: flex;
   align-items: flex-start;

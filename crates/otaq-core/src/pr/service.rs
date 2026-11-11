@@ -62,6 +62,10 @@ pub enum PrOutcome {
     RefusedUncommitted { files: Vec<String>, message: String },
     /// New commits since the review (REV-06): approve again with `approve_anyway`, or Send back.
     Changed { check: ApproveCheck },
+    /// The project's commit-msg hook refused a confirmed commit message: nothing was rewritten or pushed, the dialog
+    /// closes and the refusal is on the ticket (its Delivery stopped, the card's Needs you, the sheet's output and
+    /// the message, History). `message` is "commit-msg hook refused the PR".
+    HookRefused { hook: String, message: String },
 }
 
 /// Runs the PR flows. Cheap to clone.
@@ -211,7 +215,10 @@ impl Prs {
     ) -> Result<PrOutcome, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
+        // A PR whose message a hook refused opens again from where it stopped, on the messages the user edited.
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
+            && !refused_pr(&ticket)
+        {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -354,9 +361,20 @@ impl Prs {
         if flow.kind == FlowKind::Open {
             self.skill_runs_in(&ticket, live.as_ref()).await?;
         }
-        board
+        if let Some(refused) = board
             .apply_confirmed(&ticket, flow.kind, &checked, actor)
-            .await?;
+            .await?
+        {
+            return Ok(PrOutcome::HookRefused {
+                message: refused.line(),
+                hook: refused.name,
+            });
+        }
+        // Every message passed: a ticket stopped by an earlier refusal waits in its Delivery again while the skill
+        // pushes.
+        if refused_pr(&ticket) {
+            board.back_to_delivery(&ticket, actor).await?;
+        }
         // Approve & open PR is an approve, as a merge is: the first one shows the box for new work and the hints that
         // follow the first approve.
         if flow.kind == FlowKind::Open
@@ -503,9 +521,21 @@ impl Prs {
                 format!("Commit {} has no message", &e.sha[..7.min(e.sha.len())]),
             ));
         }
-        board
+        // A message the project's commit-msg hook refuses stops the Delivery for the user, as a refused merge does:
+        // the agent is told so and stops there.
+        if let Some(refused) = board
             .apply_confirmed(&ticket, flow.kind, &proposal, &Actor::current_user())
-            .await?;
+            .await?
+        {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "The project's {} hook refused a commit message, so nothing was rewritten or pushed. {} now waits \
+                     for the user, who fixes the message on the ticket. Stop here.",
+                    refused.name, ticket.key
+                ),
+            ));
+        }
         let live = self.live_session(&ticket).await;
         self.run_in_session(
             &ticket,
@@ -1351,6 +1381,18 @@ impl Board {
 }
 
 /// The ticket's worktree folder.
+/// The ticket's Delivery stopped because a hook refused one of its PR's commit messages: Approve & open PR is
+/// offered again.
+fn refused_pr(ticket: &Ticket) -> bool {
+    ticket.status == Status::DeliveryStopped
+        && ticket.auto_merge_stop == Some(crate::domain::AutoMergeStop::HookRefused)
+        && ticket
+            .flags
+            .hook_refusal
+            .as_ref()
+            .is_some_and(|r| r.step == Some(crate::git::GitStep::Reword))
+}
+
 fn worktree_of(ticket: &Ticket) -> Result<PathBuf, BoardError> {
     ticket
         .work

@@ -1137,6 +1137,7 @@ mod tests {
                 step: Some(otaq_core::git::GitStep::AddWorktree),
                 what: "the start".into(),
                 output: "npm install failed\nsee ~/logs/npm.log".into(),
+                message: None,
             }),
         });
         let p = start_problem(&t).unwrap();

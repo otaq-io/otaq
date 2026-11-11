@@ -398,3 +398,109 @@ fn now_ms() -> i64 {
         .unwrap()
         .as_millis() as i64
 }
+
+/// A PR's reworded message goes through the project's own commit-msg hook as a commit's would, without a commit: in
+/// the ticket's worktree, with the message in its `COMMIT_EDITMSG` and the variables a commit gives the hook. A
+/// refusal names the hook with its output; a passing hook's rewrite is kept; no hook passes the message as it is.
+#[tokio::test]
+async fn a_message_goes_through_the_commit_msg_hook_without_a_commit() {
+    use otaq_core::git::reword::MessageCheck;
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    let worktree = repos.root().join("wt");
+    git(
+        &repo,
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            worktree.to_str().unwrap(),
+            "otaq/HOOK-1",
+        ],
+    );
+    let head = git(&worktree, &["rev-parse", "HEAD"]);
+    let git_ = Git::find().unwrap();
+
+    // No commit-msg hook: as it is.
+    let MessageCheck::Passed(kept) = git_
+        .commit_msg_hook(&worktree, "update stuff")
+        .await
+        .unwrap()
+    else {
+        panic!("no hook refuses nothing");
+    };
+    assert_eq!(kept, "update stuff");
+
+    let seen = repos.root().join("seen");
+    hook(
+        &hooks,
+        "commit-msg",
+        &format!(
+            "printf '%s\\n%s\\n%s\\n%s\\n' \"$1\" \"$(pwd)\" \"$GIT_EDITOR\" \"$GIT_INDEX_FILE\" > '{}'\n\
+             grep -qE '^(feat|fix):' \"$1\" || {{ echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }}\n\
+             echo 'Change-Id: I0123' >> \"$1\"",
+            seen.display()
+        ),
+    );
+    let MessageCheck::Refused(refusal) = git_
+        .commit_msg_hook(&worktree, "update stuff")
+        .await
+        .unwrap()
+    else {
+        panic!("the hook refuses");
+    };
+    assert_eq!(refusal.name(), "commit-msg");
+    assert!(
+        refusal
+            .output()
+            .contains("commitlint: type must be one of [feat, fix]"),
+        "{}",
+        refusal.output()
+    );
+    let seen_lines: Vec<String> = std::fs::read_to_string(&seen)
+        .unwrap()
+        .lines()
+        .map(str::to_owned)
+        .collect();
+    let path_of = |name: &str| {
+        git(
+            &worktree,
+            &["rev-parse", "--path-format=absolute", "--git-path", name],
+        )
+        .trim()
+        .to_owned()
+    };
+    assert_eq!(
+        seen_lines[0],
+        path_of("COMMIT_EDITMSG"),
+        "the worktree's COMMIT_EDITMSG"
+    );
+    assert_eq!(
+        std::fs::canonicalize(&seen_lines[1]).unwrap(),
+        std::fs::canonicalize(&worktree).unwrap(),
+        "run in the worktree"
+    );
+    assert_eq!(seen_lines[2], ":", "no editor, as with git commit -F");
+    assert_eq!(seen_lines[3], path_of("index"), "the worktree's index");
+
+    let MessageCheck::Passed(kept) = git_
+        .commit_msg_hook(&worktree, "fix: redirect after login\n")
+        .await
+        .unwrap()
+    else {
+        panic!("the hook accepts it");
+    };
+    assert_eq!(
+        kept, "fix: redirect after login\nChange-Id: I0123",
+        "the hook's rewrite is kept"
+    );
+    assert_eq!(
+        git(&worktree, &["rev-parse", "HEAD"]),
+        head,
+        "no commit made"
+    );
+    assert!(
+        git(&worktree, &["status", "--porcelain"]).trim().is_empty(),
+        "the worktree is clean"
+    );
+}

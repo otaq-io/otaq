@@ -79,6 +79,9 @@ pub enum Action {
     /// A project's git hook refused Approve & merge: the Approve & merge confirmation again, on the message the user
     /// edited, to change it and merge from where it stopped.
     EditMessage,
+    /// The project's commit-msg hook refused one of the PR's commit messages: the Approve & open PR dialog again, on
+    /// the messages the user edited, to fix it and open the PR from where it stopped.
+    EditPrMessages,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
@@ -139,6 +142,7 @@ impl Action {
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
             Self::EditMessage => "Edit message and retry",
+            Self::EditPrMessages => "Edit messages and retry",
             Self::OpenAgent => "Open agent\u{2026}",
             Self::StopMergeCheck => crate::view_models::card::STOP,
         }
@@ -155,7 +159,7 @@ impl Action {
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
             Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
-            Self::EditMessage => IconName::Pencil,
+            Self::EditMessage | Self::EditPrMessages => IconName::Pencil,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::SendAgain => IconName::Send,
             Self::Run => IconName::Play,
@@ -205,7 +209,8 @@ impl Action {
             | Self::RetryValidation
             | Self::RetryMerge
             | Self::MoveToReview
-            | Self::EditMessage => None,
+            | Self::EditMessage
+            | Self::EditPrMessages => None,
         }
     }
 }
@@ -340,6 +345,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
             vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         }
         Status::CheckNoResult => vec![(A::RetryValidation, Primary)],
+        // A hook refused a PR's commit message: the PR dialog again, opened from where it stopped.
+        Status::DeliveryStopped if card::refused_pr_message(ticket) => {
+            vec![(A::EditPrMessages, Primary), (A::MoveToReview, Secondary)]
+        }
         // A hook refused the merge: the message again, merged from where it stopped.
         Status::DeliveryStopped if card::hook_refusal(ticket).is_some() => {
             vec![(A::EditMessage, Primary), (A::MoveToReview, Secondary)]
