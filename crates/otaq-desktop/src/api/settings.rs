@@ -38,14 +38,15 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "settings.view" => reply(&view(app).await?),
         "settings.edit" => edit(app, parse(params)?).await,
-        // Settings → Git & pull requests: git and the PR providers' tools, checked again on each call (Re-check).
+        // Settings → Git & pull requests: git and the PR providers' tools, checked again on each call (Re-check); not
+        // the agent tools, which the page doesn't show.
         // Settings → Git & pull requests runs the tools check, which can take seconds (process starts are slow on
         // Windows). `settings.git_shown` answers at once with what to draw meanwhile: the last check's page, or
         // every row "Checking…" before the first.
         "settings.git" => {
-            let view = git_settings::view(match app.service.send(Request::ToolsCheck).await {
+            let view = git_settings::view(match app.service.send(Request::GitToolsCheck).await {
                 Ok(Reply::ToolsCheck(report)) => Ok(report),
-                Ok(other) => Err(unexpected("tools.check", &other).message),
+                Ok(other) => Err(unexpected("tools.check_git", &other).message),
                 Err(e) => Err(e.message),
             });
             if view.error.is_none() {

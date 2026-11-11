@@ -4,8 +4,8 @@
 //! built-in GitHub and Azure DevOps; each project picks its own in its Repository settings. Otaq pushes and opens
 //! pull requests through them and never watches them.
 //!
-//! Everything comes from the tools check (`tools.check`), the same one onboarding runs: the rows only say what it
-//! found.
+//! Everything comes from the git tools check (`tools.check_git`, onboarding's check without the agent tools): the
+//! rows only say what it found.
 
 use otaq_core::tools::{Tool, ToolStatus, ToolsReport};
 use serde::Serialize;

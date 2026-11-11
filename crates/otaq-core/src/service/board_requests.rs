@@ -1678,6 +1678,7 @@ pub(super) async fn handle(
         | Request::ServiceStopAgents
         | Request::Subscribe(_)
         | Request::ToolsCheck
+        | Request::GitToolsCheck
         | Request::OnboardingState
         | Request::DismissTrustNote
         | Request::SessionList(_)

@@ -8685,6 +8685,7 @@
           "newtype": "ResumeAllParams"
         },
         "tools.check": {},
+        "tools.check_git": {},
         "tools.git_identity": {
           "newtype": "GitIdentityParams"
         },

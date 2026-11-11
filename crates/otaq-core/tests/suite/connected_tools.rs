@@ -519,6 +519,45 @@ async fn the_first_run_needs_one_connected_agent_tool() {
     w.stop().await;
 }
 
+/// Settings → Git & pull requests' check looks at git, gh and az only: a tool installed since the last agent-tools
+/// check stays as it was found until something checks the agent tools again.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_git_check_leaves_the_agent_tools_alone() {
+    let tools = Tools::new();
+    tools.stub("git", r#"echo "git version 2.46.0""#);
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert!(
+        !row(&recheck(&client).await, Tool::Codex)
+            .state
+            .is_connected()
+    );
+
+    tools.codex();
+    let report = match client.request(Request::GitToolsCheck).await.unwrap() {
+        Reply::ToolsCheck(report) => report,
+        other => panic!("{other:?}"),
+    };
+    assert!(report.agent_tools.is_empty());
+    let git = report
+        .tools
+        .iter()
+        .find(|t| t.tool == otaq_core::tools::Tool::Git)
+        .unwrap();
+    assert_eq!(git.version.as_deref(), Some("2.46.0"));
+    let listed = list(ask(&client, "agent_tools.list", Value::Null).await.unwrap());
+    assert!(
+        !row(&listed, Tool::Codex).state.is_connected(),
+        "the git check ran the agent tools' check"
+    );
+
+    // Onboarding's check does look again.
+    client.request(Request::ToolsCheck).await.unwrap();
+    let listed = list(ask(&client, "agent_tools.list", Value::Null).await.unwrap());
+    assert!(row(&listed, Tool::Codex).state.is_connected());
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn opencode_with_free_models_only_is_connected_and_still_offers_sign_in() {
     let tools = Tools::new();
