@@ -66,6 +66,13 @@ const CLEAR_LINE: &[u8] = b"\x05\x15";
 /// Codex takes text typed at once as a paste; Enter right after it is part of the paste, so it waits (ADP-06).
 const ENTER_DELAY: Duration = Duration::from_millis(100);
 
+/// A space after the typed text, in the same write. A skill typed alone (`$otaq:push`) leaves Codex's skill popup
+/// open, and Enter in that popup only inserts the item ("enter insert · esc close"): nothing is sent. Text after the
+/// name closes the popup first, so `$otaq:push ` and its Enter start the skill's turn (Codex 0.166.0, Windows ConPTY;
+/// the popup isn't OS-specific). A multi-line paste followed by the space is sent whole. Never a second Enter: it
+/// could land on a permission prompt and pick its default.
+const AFTER_TEXT: &[u8] = b" ";
+
 /// End, between the text and Enter on Windows. Codex's TUI joins an Enter to the typed text while its paste burst
 /// is still open (`newline_should_insert_instead_of_submit` in its `paste_burst.rs`), and on Windows the ConPTY
 /// hands it the text and the later Enter together, so no pause closes the burst first: the hand-off line stayed
@@ -289,6 +296,7 @@ impl AgentTool for Codex {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: AFTER_TEXT,
             enter_delay: ENTER_DELAY,
             before_enter: BEFORE_ENTER,
             multi_line_clearable: false,

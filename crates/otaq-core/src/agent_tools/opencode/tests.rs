@@ -41,6 +41,7 @@ fn input_quirks() {
     let adapter = opencode(bin.path(), None);
     let quirks = adapter.input();
     assert_eq!(quirks.clear_line, b"\x05\x15");
+    assert_eq!(quirks.after_text, b"");
     assert_eq!(quirks.enter_delay, Duration::ZERO);
     assert!(!quirks.multi_line_clearable);
     assert!(!adapter.typed_key_answers_prompt());

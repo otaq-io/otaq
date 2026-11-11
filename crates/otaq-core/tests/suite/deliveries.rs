@@ -9,7 +9,7 @@ use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::Duration;
 
 use crate::common::Fixture;
-use otaq_core::agent_tools::Adapters;
+use otaq_core::agent_tools::{Adapters, Tool};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::Event;
 use otaq_core::service::EventBus;
@@ -41,6 +41,16 @@ async fn setup() -> Setup {
 }
 
 async fn setup_with(program: &str, args: Vec<String>, size: TerminalSize) -> Setup {
+    setup_on(None, program, args, size).await
+}
+
+/// `program` as a session on `tool` (`None`: a new session's tool).
+async fn setup_on(
+    tool: Option<Tool>,
+    program: &str,
+    args: Vec<String>,
+    size: TerminalSize,
+) -> Setup {
     let f = Fixture::shop().await;
     let t = f.create("Split user full name").await;
     let bus = EventBus::new(256);
@@ -70,7 +80,7 @@ async fn setup_with(program: &str, args: Vec<String>, size: TerminalSize) -> Set
             cwd: f.repos.root(),
             env: vec![],
             size,
-            tool: None,
+            tool,
             tool_session_id: None,
             model: None,
             agent: None,
@@ -276,6 +286,59 @@ async fn text_codex_shows_in_its_input_line_still_holds_the_note() {
         .unwrap();
     assert_eq!(s.waiting().await, 1, "held: the user's text is there");
     s.sessions.shutdown().await;
+}
+
+/// The bytes Otaq types for a message, per tool, as the program reads them: `sh` with raw input running `cat -v`,
+/// which shows Esc as `^[` (the terminal turns Enter into a line end). Codex gets the text, a space in the same
+/// write and (on Windows) End, then one Enter: a skill typed alone (`$otaq:push`) leaves Codex's skill popup open
+/// and Enter there only inserts the item, while text after the name closes it first (real Codex 0.166.0 in Windows'
+/// ConPTY; `codex_typing` runs it against the real tool). A multi-line message is a bracketed paste with the space
+/// after it. Claude Code gets the text and Enter alone.
+#[tokio::test]
+async fn the_bytes_typed_for_each_tool() {
+    let end = if cfg!(windows) { "^[[F" } else { "" };
+    let cases = [
+        (Tool::Codex, "$otaq:push", format!("$otaq:push {end}\r\n")),
+        (
+            Tool::Codex,
+            "line one\nline two",
+            format!("^[[200~line one\r\nline two^[[201~ {end}\r\n"),
+        ),
+        (Tool::Claude, "/otaq:push", "/otaq:push\r\n".to_owned()),
+        (
+            Tool::Claude,
+            "line one\nline two",
+            "^[[200~line one\r\nline two^[[201~\r\n".to_owned(),
+        ),
+    ];
+    for (tool, text, read) in cases {
+        let script = "stty -icanon -echo; echo 'REA''DY'; exec cat -v";
+        let s = setup_on(
+            Some(tool),
+            "sh",
+            vec!["-c".into(), script.into()],
+            TerminalSize::default(),
+        )
+        .await;
+        s.output_with("READY").await;
+        s.idle.0.store(true, Ordering::SeqCst);
+        s.deliveries
+            .queue_delivery(&s.session, DeliveryKind::AgentMessage, text)
+            .await
+            .unwrap();
+        assert_eq!(s.waiting().await, 0, "{tool:?}: typed at once");
+        let out = s.output_with(&read).await;
+        // Nothing after the one Enter.
+        tokio::time::sleep(Duration::from_millis(300)).await;
+        let after = s.output();
+        let typed = &after[after.find("READY").unwrap() + "READY".len()..];
+        assert_eq!(
+            typed.trim_start_matches(['\r', '\n']),
+            read,
+            "{tool:?}: {out:?}"
+        );
+        s.sessions.shutdown().await;
+    }
 }
 
 #[tokio::test]
@@ -507,7 +570,6 @@ async fn wait_until(what: &str, check: impl Fn() -> bool) {
 /// again. When the answer changes with a note waiting, `messages_waiting` goes out so the tab looks again.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_key_a_closing_prompt_took_leaves_no_unsent_text_and_the_note_goes() {
-    use otaq_core::agent_tools::Tool;
     use otaq_core::caller::Caller;
     use otaq_core::client::{Client, ClientConfig};
     use otaq_core::protocol::{InputParams, Reply, Request, SessionIdParams, encode_bytes};
