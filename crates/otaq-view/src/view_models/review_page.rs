@@ -911,7 +911,10 @@ mod tests {
         assert_eq!(view.merging.label, "Merging\u{2026}");
         assert_eq!(
             view.merging.note,
-            "Works in Otaq\u{2019}s own scratch worktree; only the last step moves main in your folder."
+            format!(
+                "Works in {}\u{2019}s own scratch worktree; only the last step moves main in your folder.",
+                otaq_core::naming::PRODUCT_NAME
+            )
         );
         let develop = approve_view(facts(&t, &all, "develop", &ApproveCheck::Unchanged));
         assert!(
