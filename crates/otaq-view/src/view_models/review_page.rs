@@ -51,7 +51,12 @@ pub struct ConfirmView {
     /// The base is the ticket's own (a hotfix on `release/2.3`), locked since it started (d0051).
     pub locked: bool,
     pub message_label: &'static str,
+    /// The message the box starts from: the user's kept edit, else the proposal.
     pub message: String,
+    /// The proposal (the agent's, else the plain one): Use the proposed message puts it back.
+    pub proposed: String,
+    /// "Use the proposed message", shown while the box differs from `proposed`.
+    pub use_proposed: &'static str,
     pub note: String,
     /// "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
     pub conflict: Option<String>,
@@ -171,7 +176,10 @@ pub struct ApproveFacts<'a> {
     pub ticket: &'a Ticket,
     pub tickets: &'a [Ticket],
     pub target: &'a str,
+    /// The proposed message.
     pub message: &'a str,
+    /// The user's kept edit of it, shown instead until the ticket lands.
+    pub edited: Option<&'a str>,
     pub repo: &'a str,
     /// The project's own base branch (a ticket on another one shows it locked).
     pub project_base: &'a str,
@@ -265,7 +273,9 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             repo: crate::shell::tilde(f.repo),
             locked: other_base,
             message_label: "Commit message",
-            message: f.message.to_owned(),
+            message: f.edited.unwrap_or(f.message).to_owned(),
+            proposed: f.message.to_owned(),
+            use_proposed: ap::USE_THE_PROPOSED_MESSAGE,
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
                 format!(
@@ -731,6 +741,7 @@ mod tests {
             tickets: all,
             target,
             message: "SHOP-18: Checkout API",
+            edited: None,
             repo: "/nowhere/code/shop-web",
             project_base: "main",
             check,
@@ -870,6 +881,24 @@ mod tests {
         );
         assert_eq!(writing.confirm.prepared, None);
         assert_eq!(writing.confirm.asks, None);
+    }
+
+    /// The user's kept edit opens the box instead of the proposal, which stays at hand for Use the proposed message.
+    #[test]
+    fn a_kept_edit_opens_the_box_with_the_proposal_at_hand() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let plain = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
+        assert_eq!(plain.confirm.message, plain.confirm.proposed);
+        let kept = approve_view(ApproveFacts {
+            edited: Some("feat: checkout API (SHOP-18)"),
+            prepared_by: Some("Strong"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        let c = &kept.confirm;
+        assert_eq!(c.message, "feat: checkout API (SHOP-18)");
+        assert_eq!(c.proposed, "SHOP-18: Checkout API");
+        assert_eq!(c.use_proposed, "Use the proposed message");
     }
 
     /// The writer waits for permission: the line says so in plain words, and Answer in terminal opens its session's

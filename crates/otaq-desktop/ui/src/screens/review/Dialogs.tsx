@@ -36,6 +36,8 @@ import {
   afterMerge,
   CHANGED_FILES_SHOWN,
   firstStep,
+  isEdited,
+  KEEP_AFTER_MS,
   messageAfter,
   type Step,
 } from "./logic";
@@ -284,12 +286,31 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   /** The confirmation as last shown, for the agent's message arriving. */
   const shown = useRef<ApproveView["confirm"] | null>(null);
   const messageBox = useRef<HTMLTextAreaElement>(null);
+  /** The message as the user left it, not kept on the ticket yet (it is, a moment after the last key, and when the
+   * dialog closes): Approve & merge opens on it again after a refusal, a close or a restart. */
+  const unkept = useRef<string | null>(null);
+  const keepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepNow = useCallback(() => {
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    keepTimer.current = null;
+    if (unkept.current === null) return;
+    request("review.keep_message", { key: ticket, message: unkept.current }).catch(ignore);
+    unkept.current = null;
+  }, [ticket]);
+  const keepSoon = (text: string) => {
+    unkept.current = text;
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    keepTimer.current = setTimeout(keepNow, KEEP_AFTER_MS);
+  };
+  useEffect(() => keepNow, [keepNow]);
 
   useEffect(() => {
     if (!view) return;
     if (!started.current) {
       started.current = true;
       setMessage(view.confirm.message);
+      // A kept edit is the user's typing: the agent's message arriving later doesn't replace it.
+      typed.current = isEdited(view.confirm.message, view.confirm.proposed);
       setStep(firstStep(view, menu, choice));
     } else {
       const next = messageAfter(shown.current, view.confirm, typed.current);
@@ -321,6 +342,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   }, [error, view, close]);
 
   const merge = (approveAnyway = anyway) => {
+    // The merge keeps the message it is given itself.
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    unkept.current = null;
     setStep({ kind: "merging" });
     (
       request("review.local_merge", {
@@ -497,8 +521,24 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               onChange={(e) => {
                 typed.current = true;
                 setMessage(e.target.value);
+                keepSoon(e.target.value);
               }}
             />
+            {isEdited(message, c.proposed) && (
+              <button
+                type="button"
+                className="review-link review-use-proposed"
+                onClick={() => {
+                  // The proposal again, and nothing kept: the agent's message still fills in if it arrives.
+                  typed.current = false;
+                  setMessage(c.proposed);
+                  keepSoon(c.proposed);
+                  keepNow();
+                }}
+              >
+                {c.use_proposed}
+              </button>
+            )}
             {c.writing !== null ? (
               <p className="review-muted review-writing">
                 <Icon name={c.asks === null ? "loader-circle" : "square-terminal"} size={13} />

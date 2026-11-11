@@ -76,6 +76,12 @@
   cursor: pointer;
 }
 
+/* Use the proposed message, under the message box while it holds the user's edit. */
+.review-use-proposed {
+  align-self: flex-start;
+  font-size: 12px;
+}
+
 .review-link:hover {
   text-decoration: underline;
 }

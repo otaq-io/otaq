@@ -60,4 +60,9 @@ merge_instead: string | null,
 /**
  * Grows each time the fields were filled for the user: the page takes them again.
  */
-filled: number, };
+filled: number, 
+/**
+ * "Use the proposed message" while the title, description or a commit message differs from the proposal (the
+ * user's edit, kept on the ticket until the PR is opened or pushed with it).
+ */
+use_proposed: string | null, };

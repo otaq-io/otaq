@@ -722,6 +722,12 @@ pub(super) async fn handle(
             }
             Ok(Reply::MergeProposal(proposal))
         }),
+        Request::TicketKeepMessage(p) => boxed(move || async move {
+            board
+                .keep_edited_message(&p.key, p.edit)
+                .await
+                .map(|_| Reply::Ok)
+        }),
         Request::TicketLocalMerge(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(

@@ -132,6 +132,13 @@ pub struct PrFlowView {
     /// service fills it in).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_in: Option<String>,
+    /// The user's own edit of the title, description and commit messages, kept on the ticket until the PR is opened
+    /// or pushed with it, or the user chooses Use the proposed message: the dialog shows it over the proposal.
+    #[serde(
+        default,
+        skip_serializing_if = "super::message::EditedMessage::is_empty"
+    )]
+    pub edited: super::message::EditedMessage,
 }
 
 /// The answer to a live branch-name check (REV-10).
@@ -258,6 +265,7 @@ impl Board {
             pr_url: row.pr_url,
             message: self.delivery_message(&ticket.id).await?,
             asks_in: None,
+            edited: self.edited_message(&ticket.id).await?,
             key: ticket.key,
         })
     }

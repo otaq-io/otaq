@@ -16,6 +16,7 @@ const TABLES: &[&str] = &[
     "comment_attachments",
     "decisions",
     "delivery_messages",
+    "edited_messages",
     "events",
     "flow_proposals",
     "flow_waiting",
@@ -544,6 +545,15 @@ async fn one_row_round_trips_through_every_table() {
     sqlx::query(
         "INSERT INTO delivery_messages (ticket_id, state, agent, head, title, description, updated_at) \
          VALUES (?, 'ready', 'Developer', 'abc', 'SHOP-18 Checkout API', 'Retries once.', ?)",
+    )
+    .bind(&t18.id)
+    .bind(at)
+    .execute(pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO edited_messages (ticket_id, merge_message, pr_commits, updated_at) \
+         VALUES (?, 'feat: checkout API (SHOP-18)', '{\"abc\":\"feat: retry\"}', ?)",
     )
     .bind(&t18.id)
     .bind(at)

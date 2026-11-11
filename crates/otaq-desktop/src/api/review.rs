@@ -8,9 +8,10 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::Decision;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::decisions::outcome::ChangeOutcome;
+use otaq_core::pr::message::MessageEdit;
 use otaq_core::protocol::{
-    CommentsParams, DecisionChangeParams, KeyParams, LocalMergeParams, ProjectParams, Reply,
-    Request,
+    CommentsParams, DecisionChangeParams, KeepMessageParams, KeyParams, LocalMergeParams,
+    ProjectParams, Reply, Request,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::approve::{self, DoneNotMergedView, MergeIntoPicker};
@@ -35,6 +36,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.available" => reply(&available(app, parse(params)?).await?),
         "review.approve" => reply(&approve(app, parse(params)?).await?),
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
+        "review.keep_message" => reply(&keep_message(app, parse(params)?).await?),
         "review.merge_into_view" => reply(&merge_into_view(app, parse(params)?).await?),
         "review.merge_into" => reply(&merge_into(app, parse(params)?).await?),
         "review.done" => reply(&done(app, parse(params)?).await?),
@@ -176,6 +178,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         tickets: &all,
         target: &proposal.target,
         message: &proposal.message,
+        edited: proposal.edited.as_deref(),
         repo: &repo,
         project_base: &project_base,
         check: &check,
@@ -242,9 +245,55 @@ pub struct MergeParams {
     pub approve_anyway: bool,
 }
 
+/// The merge message as the user left it in Approve & merge: kept on the ticket until it lands, so the dialog opens on
+/// it again after a refusal, a close or a restart. The proposal itself (Use the proposed message) keeps nothing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KeepParams {
+    pub key: String,
+    pub message: String,
+}
+
+pub async fn keep_message(app: &App, params: KeepParams) -> Result<(), RequestError> {
+    let proposal = match app
+        .service
+        .send(Request::TicketMergeProposal(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await?
+    {
+        Reply::MergeProposal(p) => p,
+        other => return Err(unexpected("ticket.merge_proposal", &other)),
+    };
+    match app
+        .service
+        .send(Request::TicketKeepMessage(KeepMessageParams {
+            key: params.key,
+            edit: MessageEdit::Merge {
+                message: approve::kept_edit(&proposal.message, &params.message),
+            },
+        }))
+        .await?
+    {
+        Reply::Ok => Ok(()),
+        other => Err(unexpected("ticket.keep_message", &other)),
+    }
+}
+
 pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeResult, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let key = ticket.key.clone();
+    // The message merged is kept first: if a hook refuses the merge, Approve & merge opens on it again.
+    if let Err(e) = keep_message(
+        app,
+        KeepParams {
+            key: params.key.clone(),
+            message: params.message.clone(),
+        },
+    )
+    .await
+    {
+        eprintln!("can't keep {key}'s edited merge message: {}", e.message);
+    }
     // On a connection of its own: while it runs the Merge check (minutes, d0120) the board keeps its answers and
     // Stop reaches the service.
     let outcome = match app

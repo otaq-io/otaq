@@ -138,6 +138,10 @@ pub struct MergeProposal {
     /// fills it in; the ticket in Review stays calm meanwhile).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub asks_in: Option<String>,
+    /// The user's own edit of `message`, kept on the ticket until it lands or the user chooses Use the proposed
+    /// message: Approve & merge shows it instead of `message`.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub edited: Option<String>,
 }
 
 impl Board {
@@ -179,6 +183,7 @@ impl Board {
             None => (None, None),
         };
         let commits = self.commits_beyond_base(&ticket).await?;
+        let edited = self.edited_message(&ticket.id).await?.merge;
         Ok(MergeProposal {
             key: ticket.key,
             target: target.target,
@@ -187,6 +192,7 @@ impl Board {
             prepared_by,
             writing,
             asks_in: None,
+            edited,
         })
     }
 
@@ -266,6 +272,11 @@ impl Board {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+        // It landed: the user's kept edit of its message goes with it.
+        sqlx::query(crate::pr::message::FORGET_EDITED)
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
         record_event(
             &mut tx,
             &ticket.id,
@@ -332,6 +343,11 @@ impl Board {
         .bind(now)
         .execute(&mut *tx)
         .await?;
+        // It finished: the user's kept edit of its message goes with it.
+        sqlx::query(crate::pr::message::FORGET_EDITED)
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
         let mut payload = json!({ "from": ticket.status });
         if let Some(reason) = nothing_to_merge {
             payload["nothing_to_merge"] = json!(true);

@@ -156,6 +156,9 @@ pub struct DialogView {
     pub merge_instead: Option<String>,
     /// Grows each time the fields were filled for the user: the page takes them again.
     pub filled: u64,
+    /// "Use the proposed message" while the title, description or a commit message differs from the proposal (the
+    /// user's edit, kept on the ticket until the PR is opened or pushed with it).
+    pub use_proposed: Option<&'static str>,
 }
 
 fn provider_name(d: &PrDialog) -> Option<&str> {
@@ -298,6 +301,8 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .filter(|_| !push)
             .map(|target| format!("Or merge into {target} instead")),
         filled: d.filled,
+        use_proposed: (d.stage == Stage::Proposed && d.is_edited())
+            .then_some(super::approve::USE_THE_PROPOSED_MESSAGE),
     }
 }
 
@@ -522,6 +527,7 @@ mod tests {
             skill: "open-pr".to_owned(),
             message: None,
             asks_in: None,
+            edited: Default::default(),
         }
     }
 

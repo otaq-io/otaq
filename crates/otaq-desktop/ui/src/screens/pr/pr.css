@@ -230,6 +230,13 @@
   outline: none;
 }
 
+/* Use the proposed message, under the fields while they hold the user's edit. */
+.pr-use-proposed {
+  align-self: flex-start;
+  color: var(--accent);
+  font-size: 12px;
+}
+
 .pr-open-note {
   display: flex;
   gap: 6px;

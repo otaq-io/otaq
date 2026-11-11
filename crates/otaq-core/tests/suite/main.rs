@@ -51,6 +51,7 @@ mod diff;
 mod done_cleanup;
 mod done_without_merge;
 mod drags;
+mod edited_message;
 mod events;
 mod every_request;
 mod fails_go_to;

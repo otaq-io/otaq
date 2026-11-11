@@ -54,6 +54,8 @@ const VIEW: ApproveView = {
     locked: false,
     message_label: "Squash commit message",
     message: "SHOP-18: Checkout API",
+    proposed: "SHOP-18: Checkout API",
+    use_proposed: "Use the proposed message",
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
     merge_check: { text: "No merge check · ", link: "set one in project settings", project: "SHOP" },
