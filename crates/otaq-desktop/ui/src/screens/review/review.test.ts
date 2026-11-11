@@ -8,7 +8,7 @@ import type { ReviewChanged } from "../../generated/ReviewChanged";
 import { review } from ".";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import { passOverlay } from "./CheckDialogs";
-import { ChangeDecisionBody, ResultDialog } from "./Dialogs";
+import { ChangeDecisionBody, MergingSteps, ResultDialog } from "./Dialogs";
 import { isSubmitKey } from "../../components/logic";
 import { afterApproveAnyway, afterChoice, afterMerge, firstStep, messageAfter } from "./logic";
 
@@ -67,6 +67,8 @@ const VIEW: ApproveView = {
   merging: {
     title: "Local merge SHOP-18 Checkout API",
     steps: ["Merge main into the branch"],
+    current: 0,
+    hook: null,
     label: "Merging…",
     note: "",
     close: "Close",
@@ -75,6 +77,24 @@ const VIEW: ApproveView = {
 };
 
 describe("the review screen", () => {
+  it("shows the step git is on and the hook that runs under it, not the first step for the whole merge", () => {
+    const merging: ApproveView["merging"] = {
+      ...VIEW.merging,
+      steps: ["Fetch main and bring it up to date", "Merge main into the branch", "Squash into main"],
+      current: 2,
+      hook: "running your pre-commit hook · 40 s",
+    };
+    const html = renderToStaticMarkup(createElement(MergingSteps, { merging }));
+    expect(html.match(/data-done="true"/g)).toHaveLength(2);
+    expect(html).toMatch(/data-current="true">.*?<span>Squash into main<\/span>/);
+    expect(html).toContain("running your pre-commit hook · 40 s");
+    const quiet = renderToStaticMarkup(
+      createElement(MergingSteps, { merging: { ...merging, current: 0, hook: null } }),
+    );
+    expect(quiet).not.toContain("running your");
+    expect(quiet.match(/data-current="true"/g)).toHaveLength(1);
+  });
+
   it("registers both dialogs and ⌘↵ / ⌘⌫", () => {
     const app = createRegistries();
     review(app);

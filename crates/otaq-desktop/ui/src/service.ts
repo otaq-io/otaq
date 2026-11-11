@@ -1,7 +1,7 @@
 // The page's side of the service link (T-0211): one event stream shared by every screen, a view that loads once and
 // refetches on named events, and the connection state. Screens use the hooks; the plain functions under them hold the
 // logic and are what the tests drive.
-import { useEffect, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 
 import type { PageEvent } from "./generated/PageEvent";
 import type { RequestError } from "./generated/RequestError";
@@ -148,6 +148,21 @@ export function useServiceView<T>(load: () => Promise<T>, refetchOn: readonly st
   const names = refetchOn.join(" ");
   useEffect(() => watchView(load, names.split(" "), setState), [load, names]);
   return state;
+}
+
+/**
+ * Bumps `tick` every second while `on`: a view that shows a time in seconds (a running hook's) loads again with it.
+ */
+export function useEverySecond(on: boolean, tick: Dispatch<SetStateAction<number>>): void {
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => {
+      tick((t) => t + 1);
+    }, 1_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [on, tick]);
 }
 
 /** The link to the service; `undefined` until its state is known. */

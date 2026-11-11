@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{TicketKey, stored_enum};
+use crate::git::GitStep;
 
 /// "Sent back · 3 comments · round 2" (d0034); "Sent back · 1 decision changed · round 2" (DEC-06).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +34,47 @@ impl MergeCheckState {
             Self::Failed => super::validation::MERGE_CHECK_FAILED_FIXING,
         }
     }
+}
+
+/// Which of Otaq's own git operations runs on a ticket ([`GitProgress`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitOperation {
+    /// Approve & merge, or an automatic Delivery's Local merge.
+    Merge,
+    /// A start: the base brought up to date, the worktree made, a reopened ticket's update from its base.
+    Start,
+}
+
+/// One of Otaq's own git operations running on the ticket now: the step git is really on and the user's hook that
+/// runs, if one does ("running your pre-commit hook · 40 s"). Kept in memory while it runs
+/// ([`crate::board::git_steps`]); a restart shows none. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitProgress {
+    pub operation: GitOperation,
+    /// The branch it merges into, or the base a start brings up to date: `main`.
+    pub target: String,
+    /// The step it is on, once it has said one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<GitStep>,
+    /// The steps it was on before, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier: Vec<GitStep>,
+    /// The user's hook that runs right now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<GitHookRunning>,
+}
+
+/// The user's hook that runs right now, in a [`GitProgress`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitHookRunning {
+    /// `pre-commit`.
+    pub name: String,
+    /// Where git runs it, the home shortened (`~/code/shop-web`): the user's own folder when the target branch moves
+    /// there.
+    pub folder: String,
+    /// When it started, in Unix milliseconds.
+    pub since_ms: i64,
 }
 
 /// What a helper of the ticket waits for the user with (d0133 audit 3): its question, once the agent in charge passed
@@ -209,6 +251,10 @@ pub struct Flags {
     /// fixing" while the agent fixes what it found. Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merge_check: Option<MergeCheckState>,
+    /// Approve & merge or a start running its git steps now: the step and the hook that runs ("Merging · running
+    /// your pre-commit hook · 40 s"). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitProgress>,
     /// A Backlog ticket whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
@@ -387,6 +433,17 @@ mod tests {
             done_without_merge: true,
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             merge_check: Some(MergeCheckState::Failed),
+            git: Some(GitProgress {
+                operation: GitOperation::Merge,
+                target: "main".into(),
+                step: Some(GitStep::Commit),
+                earlier: vec![GitStep::UpdateTarget, GitStep::UpdateBranch],
+                hook: Some(GitHookRunning {
+                    name: "pre-commit".into(),
+                    folder: "~/code/shop-web".into(),
+                    since_ms: 7,
+                }),
+            }),
             ready_to_start: true,
             in_line: Some(2),
             your_turn: true,

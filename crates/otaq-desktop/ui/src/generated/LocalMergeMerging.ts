@@ -3,7 +3,16 @@
 /**
  * *Local merge · merging*: the steps while it runs.
  */
-export type LocalMergeMerging = { title: string, steps: Array<string>, label: string, note: string, 
+export type LocalMergeMerging = { title: string, steps: Array<string>, 
+/**
+ * The step git is really on, an index into `steps`.
+ */
+current: number, 
+/**
+ * While one of the user's hooks runs: "running your pre-commit hook · 40 s", under the current step. The page
+ * asks again every second meanwhile.
+ */
+hook: string | null, label: string, note: string, 
 /**
  * The dialog can be closed while it runs; the merge finishes on its own (d0120).
  */

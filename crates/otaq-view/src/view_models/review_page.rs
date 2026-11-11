@@ -106,6 +106,11 @@ impl MergeCheckNote {
 pub struct MergingView {
     pub title: String,
     pub steps: Vec<String>,
+    /// The step git is really on, an index into `steps`.
+    pub current: usize,
+    /// While one of the user's hooks runs: "running your pre-commit hook · 40 s", under the current step. The page
+    /// asks again every second meanwhile.
+    pub hook: Option<String>,
     pub label: &'static str,
     pub note: String,
     /// The dialog can be closed while it runs; the merge finishes on its own (d0120).
@@ -195,6 +200,8 @@ pub struct ApproveFacts<'a> {
     pub writing: Option<&'a str>,
     /// The writer's session, when it waits for permission.
     pub asks_in: Option<&'a str>,
+    /// Now, for how long a running hook has run.
+    pub now_ms: i64,
 }
 
 /// The message's writer waits for permission (its tool asks before a command): the dialog says so and offers its
@@ -244,6 +251,7 @@ pub fn wants_to_run(agent: &str) -> String {
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
     let ticket = f.ticket;
     let other_base = f.target != f.project_base;
+    let merging = merging_view(&f);
     ApproveView {
         key: ticket.key.to_string(),
         menu: f.menu,
@@ -299,17 +307,36 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             cancel: "Cancel",
             hint: format!("cancel \u{b7} {} merge", submit_keys()),
         },
-        merging: MergingView {
-            title: ap::confirm_title(ticket),
-            steps: ap::merging_steps(f.target),
-            label: "Merging\u{2026}",
-            note: format!(
-                "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
-                otaq_core::naming::PRODUCT_NAME
-            ),
-            close: "Close",
-        },
+        merging,
         changed: changed_view(&ticket.key, f.check),
+    }
+}
+
+/// *Local merge · merging*: its steps, the one git is really on and the hook that runs.
+fn merging_view(f: &ApproveFacts) -> MergingView {
+    let ticket = f.ticket;
+    let check = f.merge_check.is_some_and(|c| !c.trim().is_empty());
+    let progress = ticket
+        .flags
+        .git
+        .as_ref()
+        .filter(|g| g.operation == otaq_core::domain::GitOperation::Merge);
+    MergingView {
+        title: ap::confirm_title(ticket),
+        steps: ap::merging_steps(f.target, check),
+        current: ap::merging_step(progress, check),
+        hook: progress.and_then(|g| {
+            let hook = g.hook.as_ref()?;
+            Some(crate::view_models::git_progress::hook_line(
+                hook, g.step, f.now_ms,
+            ))
+        }),
+        label: "Merging\u{2026}",
+        note: format!(
+            "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
+            otaq_core::naming::PRODUCT_NAME
+        ),
+        close: "Close",
     }
 }
 
@@ -758,6 +785,7 @@ mod tests {
             prepared_by: None,
             writing: None,
             asks_in: None,
+            now_ms: 0,
         }
     }
 
@@ -784,7 +812,11 @@ mod tests {
         assert_eq!(c.conflict, None);
         assert!(c.hint.starts_with("cancel \u{b7} "));
         assert_eq!(view.merging.label, "Merging\u{2026}");
-        assert_eq!(view.merging.steps.len(), 4);
+        assert_eq!(view.merging.steps.len(), 5);
+        assert_eq!(
+            (view.merging.current, view.merging.hook.as_ref()),
+            (0, None)
+        );
         assert!(view.changed.is_none());
         assert!(!view.push_to_pr);
         assert_eq!(view.menu.items[0].title, "Approve & merge into main");

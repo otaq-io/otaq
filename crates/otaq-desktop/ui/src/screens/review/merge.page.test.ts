@@ -114,6 +114,8 @@ const VIEW: ApproveView = {
   merging: {
     title: "Local merge SHOP-18 Checkout API",
     steps: [],
+    current: 0,
+    hook: null,
     label: "Merging…",
     note: "",
     close: "Close",

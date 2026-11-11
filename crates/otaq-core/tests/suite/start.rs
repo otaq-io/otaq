@@ -441,6 +441,71 @@ async fn a_post_checkout_refusal_leaves_nothing_and_retry_runs_the_hook_again() 
     s.sessions.shutdown().await;
 }
 
+/// While a start runs its git steps the ticket says the step git is really on and the user's hook that runs (a slow
+/// post-checkout on `worktree add`), for its card; once the worktree is made nothing says it any more. Otaq waits for
+/// the hook however long it takes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_shows_its_git_step_and_the_running_hook() {
+    let s = setup().await;
+    let marks = tempfile::tempdir().unwrap();
+    let started = marks.path().join("started");
+    let release = marks.path().join("release");
+    let hook = repo(&s.f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nwhile [ ! -e '{}' ]; do sleep 0.05; done\n",
+            started.display(),
+            release.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    queued(&s.f, "Checkout").await;
+    let starter = s.starter.clone();
+    let start = tokio::spawn(async move {
+        starter
+            .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+            .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !started.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the post-checkout hook started");
+    let progress = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(git) = s.f.ticket("SHOP-1").await.flags.git
+                && git.hook.is_some()
+            {
+                return git;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the running hook shows on the ticket");
+    assert_eq!(progress.operation, otaq_core::domain::GitOperation::Start);
+    assert_eq!(progress.target, "main");
+    assert_eq!(progress.step, Some(otaq_core::git::GitStep::AddWorktree));
+    let hook = progress.hook.unwrap();
+    assert_eq!(hook.name, "post-checkout");
+    assert!(hook.since_ms <= otaq_core::store::now_ms());
+
+    std::fs::write(&release, "").unwrap();
+    let outcome = start.await.unwrap().unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert_eq!(s.f.ticket("SHOP-1").await.flags.git, None);
+    s.sessions.shutdown().await;
+}
+
 /// A failed start removes only what it made: a branch an earlier start made, with work on it, stays where it is.
 #[tokio::test]
 async fn a_failed_start_keeps_a_branch_it_did_not_make() {

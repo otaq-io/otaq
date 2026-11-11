@@ -1195,6 +1195,7 @@ impl Board {
                     } else {
                         None
                     },
+                    git: self.git_steps().progress(&row.id),
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),

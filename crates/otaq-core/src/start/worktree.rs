@@ -62,8 +62,8 @@ pub async fn prepare_worktree(
 ) -> Result<Worktree, StartError> {
     let ticket = board.ticket(key).await?;
     let project = board.project(ticket.key.project.as_str()).await?;
-    // With the project's variables: `worktree add` runs the user's hooks (ENV-02).
-    let git = &board.project_git(&project.key).await?;
+    // With the project's variables: `worktree add` runs the user's hooks (ENV-02). A start's card follows its steps.
+    let git = &board.ticket_git(&project.key, &ticket.id).await?;
     let repo = PathBuf::from(&project.repo_path);
 
     // Step 1: the base.

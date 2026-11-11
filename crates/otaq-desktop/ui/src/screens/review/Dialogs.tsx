@@ -24,7 +24,7 @@ import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
 import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackView } from "../../generated/SendBackView";
-import { asRequestError, useServiceView } from "../../service";
+import { asRequestError, useEverySecond, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "../editor/CommentBox";
@@ -272,12 +272,16 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   const ticket = params.ticket;
   const menu = params.menu ?? false;
   const choice = params.choice;
+  const [step, setStep] = useState<Step | null>(null);
+  const [tick, setTick] = useState(0);
   const load = useCallback(
     () => request("review.approve", { key: ticket }) as Promise<ApproveView>,
-    [ticket],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: the hook's time moves on
+    [ticket, tick],
   );
   const { view, error } = useServiceView(load, MESSAGE_EVENTS);
-  const [step, setStep] = useState<Step | null>(null);
+  // While a hook runs during the merge its time grows: the view is asked again every second.
+  useEverySecond(step?.kind === "merging" && view?.merging.hook != null, setTick);
   const [message, setMessage] = useState("");
   const [anyway, setAnyway] = useState(false);
   const started = useRef(false);
@@ -570,12 +574,7 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           }
         >
           <div className="review-body">
-            {view.merging.steps.map((s, i) => (
-              <div key={s} className="review-step" data-first={i === 0 || undefined}>
-                <Icon name={i === 0 ? "loader-circle" : "circle"} size={14} />
-                <span>{s}</span>
-              </div>
-            ))}
+            <MergingSteps merging={view.merging} />
             <p className="review-muted">{view.merging.note}</p>
           </div>
         </Dialog>
@@ -591,6 +590,36 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
         />
       );
   }
+}
+
+/** The merge's steps: the one git is really on turns, the ones before it are done; while one of the user's hooks
+ * runs, a line under it says which one and for how long ("running your pre-commit hook · 40 s"). */
+export function MergingSteps({ merging }: { merging: ApproveView["merging"] }) {
+  return (
+    <>
+      {merging.steps.map((s, i) => (
+        <div key={s} className="review-step-row">
+          <div
+            className="review-step"
+            data-current={i === merging.current || undefined}
+            data-done={i < merging.current || undefined}
+          >
+            <Icon
+              name={i === merging.current ? "loader-circle" : i < merging.current ? "circle-check" : "circle"}
+              size={14}
+            />
+            <span>{s}</span>
+          </div>
+          {i === merging.current && merging.hook !== null && (
+            // The running step's own line; its Stop belongs beside it.
+            <div className="review-step-hook">
+              <span>{merging.hook}</span>
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function ResultDialog({
