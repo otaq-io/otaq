@@ -171,6 +171,24 @@ pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     }
 }
 
+/// The project's cards' named agents (`board.agents`): where each waiting ticket starts, which every view naming a
+/// ticket's column reads so a held ticket is in the stage it starts at. None when they can't be read.
+pub(crate) async fn agents(
+    app: &App,
+    project: &str,
+) -> Option<otaq_core::agents::facts::BoardAgents> {
+    match app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::BoardAgents(agents)) => Some(*agents),
+        _ => None,
+    }
+}
+
 /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows on the card, the sheet's Session list.
 /// None when they can't be read (the cards look as they would without).
 pub(crate) async fn helpers(app: &App, project: &str) -> Vec<otaq_core::helpers::Helper> {

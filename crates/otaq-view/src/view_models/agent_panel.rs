@@ -43,7 +43,6 @@ use crate::key_labels::KeyLabels;
 use crate::keymap::{KeyAction, Platform};
 use crate::view_models::board::BoardInput;
 use crate::view_models::card::tokens_label;
-use crate::view_models::flow_columns::Columns;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::project_agent_page::{self as agent_page, Recent, ResumeButton};
 use crate::view_models::tool_avatar::{AvatarTool, ToolAvatarView};
@@ -296,7 +295,7 @@ pub struct Whereabouts {
 /// Where each of `keys` is on the board `input` draws: its column and its card's status line, the same words the
 /// board's card says, so a ticket started from the panel tells where it went or why it waits.
 pub fn whereabouts(input: &BoardInput, keys: &[TicketKey]) -> Vec<Whereabouts> {
-    let columns = Columns::of(input.flow);
+    let columns = crate::view_models::board::columns(input);
     keys.iter()
         .filter_map(|key| {
             let t = input.tickets.iter().find(|t| t.key == *key)?;

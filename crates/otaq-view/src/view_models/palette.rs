@@ -339,6 +339,9 @@ pub struct Inputs<'a> {
     pub projects: &'a [ProjectInfo],
     /// Every project's tickets.
     pub tickets: &'a [Ticket],
+    /// Every project's board columns by its key, knowing where each held ticket starts (`board::columns`); a project
+    /// missing here reads the default flow's.
+    pub boards: &'a [(String, Columns<'a>)],
     pub recent: &'a [RecentItem],
     pub context: Context,
     /// What ⌘J opens now from where the palette was opened: a ticket's key, or a Noyan conversation's name; `None`
@@ -407,10 +410,18 @@ fn action_row(action: KeyAction, inputs: &Inputs) -> Row {
     }
 }
 
-/// "Review", "Dev · Needs you": the board column it is in, and Needs you when it waits on the user.
-pub fn place(ticket: &Ticket) -> String {
-    // The default flow's column names; every project's flow has the same columns until M33.
-    let columns = Columns::of(&otaq_core::flow::default_file().flow);
+/// "Review", "Dev · Needs you": the column its card shows in on its project's board (a held ticket in the stage it
+/// starts at), and Needs you when it waits on the user.
+pub fn place(ticket: &Ticket, inputs: &Inputs) -> String {
+    let project = ticket.key.project.to_string();
+    let default;
+    let columns = match inputs.boards.iter().find(|(key, _)| *key == project) {
+        Some((_, columns)) => columns,
+        None => {
+            default = Columns::of(&otaq_core::flow::default_file().flow);
+            &default
+        }
+    };
     let column = columns.column_of(ticket).title.as_str();
     if ticket.status.is_needs_you_family() {
         format!("{column} \u{b7} Needs you")
@@ -436,7 +447,7 @@ fn ticket_row(ticket: &Ticket, inputs: &Inputs) -> Row {
             title: ticket.title.clone(),
             project,
             other_project,
-            place: place(ticket),
+            place: place(ticket, inputs),
         },
     }
 }
@@ -827,6 +838,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
                 recent: &recent,
                 context,
                 next_needs_you: Some("SHOP-22"),
+                boards: &[],
             },
         ),
     };
@@ -907,6 +919,7 @@ mod tests {
             recent,
             context: Context::default(),
             next_needs_you: None,
+            boards: &[],
         }
     }
 
@@ -995,6 +1008,9 @@ mod tests {
 
     #[test]
     fn a_ticket_row_says_its_column_and_needs_you() {
+        let (projects, tickets, bindings) = example();
+        let i = inputs(&projects, &tickets, &bindings, &[]);
+        let place = |t: &Ticket| place(t, &i);
         assert_eq!(place(&ticket("API-1", "t", Status::Working)), "Dev");
         assert_eq!(
             place(&ticket("API-1", "t", Status::NeedsYou)),
@@ -1004,6 +1020,32 @@ mod tests {
             place(&ticket("API-1", "t", Status::WaitingForYou)),
             "Review"
         );
+    }
+
+    /// A held ticket that skips Spec first's planning says Dev, the stage it starts at, as the board shows it; queued,
+    /// it waits at the top of the first stage.
+    #[test]
+    fn a_held_ticket_row_names_the_stage_it_starts_at() {
+        use crate::view_models::flow_columns::held_fixture::{spec_first, starts_at_dev, waiting};
+        let (projects, _, bindings) = example();
+        let file = spec_first();
+        let agents = starts_at_dev();
+        let boards = [(
+            "NOTE".to_owned(),
+            Columns::of(&file.flow).knowing(Some(&agents)),
+        )];
+        let held = waiting(Status::Held);
+        let tickets = vec![held.clone()];
+        let i = Inputs {
+            boards: &boards,
+            ..inputs(&projects, &tickets, &bindings, &[])
+        };
+        assert_eq!(place(&held, &i), "Dev");
+        let Item::Ticket { place: shown, .. } = &view("export", &i).rows[0].item else {
+            panic!("the ticket's row first")
+        };
+        assert_eq!(shown, "Dev");
+        assert_eq!(place(&waiting(Status::Queued), &i), "Product spec");
     }
 
     #[test]
@@ -1165,6 +1207,7 @@ mod tests {
         let (projects, tickets, bindings) = example();
         let i = Inputs {
             next_needs_you: Some("NOTE-1"),
+            boards: &[],
             ..inputs(&projects, &tickets, &bindings, &[])
         };
         let v = view("", &i);
@@ -1199,6 +1242,7 @@ mod tests {
             "",
             &Inputs {
                 next_needs_you: Some("NOTE-1"),
+                boards: &[],
                 ..inputs(&running, &tickets, &bindings, &[])
             },
         );

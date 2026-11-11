@@ -11,6 +11,7 @@ use otaq_core::store::recents::{RecentItem, RecentUse};
 use otaq_view::keymap::{self, KeyAction, Platform};
 use otaq_view::keymap_edit;
 use otaq_view::view_models::needs_you_strip::{self as strip_vm, Item as StripItem, Open};
+use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::palette::{self, Context, Inputs, OpenTicket, View};
 use serde::Deserialize;
 use serde_json::Value;
@@ -102,9 +103,21 @@ async fn recent(app: &App, record: Option<RecentUse>) -> Result<Vec<RecentItem>,
 pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
     let projects = projects(app).await?;
     let mut all = Vec::new();
+    // Each project's flow and cards' agents, so a ticket's row names the column its card shows in there.
+    let mut flows = Vec::with_capacity(projects.len());
     for p in &projects {
-        all.extend(tickets(app, &p.key).await.unwrap_or_default());
+        let (list, flow, agents) = tokio::join!(
+            tickets(app, &p.key),
+            super::board::flow(app, &p.key),
+            super::board::agents(app, &p.key)
+        );
+        all.extend(list.unwrap_or_default());
+        flows.push((p.key.clone(), flow, agents));
     }
+    let boards: Vec<(String, Columns)> = flows
+        .iter()
+        .map(|(key, flow, agents)| (key.clone(), Columns::of(flow).knowing(agents.as_ref())))
+        .collect();
     let recent = recent(app, None).await.unwrap_or_default();
     let keyboard = super::keyboard::global_settings(app)
         .await
@@ -151,6 +164,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<View, RequestError> {
             files_view,
         },
         next_needs_you: next_label.as_deref(),
+        boards: &boards,
     };
     Ok(palette::view(&params.query, &inputs))
 }
