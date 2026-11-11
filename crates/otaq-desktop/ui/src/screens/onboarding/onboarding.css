@@ -369,6 +369,13 @@
   border: none;
 }
 
+/* The legend isn't one of the fieldset's flex items, so the gap doesn't reach it: its own space keeps it off the
+   first option. */
+.add-project-flow > legend {
+  margin-bottom: 10px;
+  padding: 0;
+}
+
 .add-project-flow-option {
   display: flex;
   flex-direction: column;
