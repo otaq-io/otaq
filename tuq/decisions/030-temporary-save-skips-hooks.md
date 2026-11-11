@@ -17,6 +17,9 @@ the hooks.
   were afterwards.
 - The project's hooks (pre-commit, commit-msg and the rest) don't run on that save, so half-done work or the save's
   own message can't stop a ticket from starting or merging.
+- The temporary save isn't signed either, for the same reason: it never lands, and a signing key with a passphrase or
+  on a hardware token needs an answer Otaq, with no terminal, can't give, so a reopened ticket couldn't start. Every
+  commit that lands is still signed as the user's git config says.
 - This is the **only** exception. Every commit that reaches the branch, main or a remote, whether Otaq's or an
   agent's, runs the project's hooks, and agents still never bypass a hook.
 - A hook that refuses another of Otaq's steps (the update itself, the merge commit) still shows on the ticket (026).
@@ -29,3 +32,7 @@ hook. A lint pre-commit would refuse half-done work the same way. Nothing of thi
 to protect there. The user accepted this one exception to "Otaq never bypasses a hook". Turned down: keeping the
 hooks and making the save's message follow the project's rules (lint hooks would still refuse it, and the user would
 have to commit or throw away the work by hand).
+
+## Changelog
+
+- 2026-11-11: refined: the temporary save also skips commit signing; every commit that lands is still signed.

@@ -24,7 +24,14 @@
 //! **Every commit that lands still runs the hooks**: the merge commit that brings the branch up to date runs
 //! prepare-commit-msg, commit-msg and pre-merge-commit, and a hook that refuses it is the error
 //! ([`GitError::HookRefused`]), with the merge aborted and the files back as they were. Nothing here passes
-//! `--no-verify`. The rest of the user's git config applies to the checkpoint too (its identity, commit signing).
+//! `--no-verify`.
+//!
+//! **The checkpoint isn't signed either**: it is never kept and never lands, and a signing key with a passphrase or on
+//! a hardware token asks for an answer that Otaq, with no terminal, can't give, so signing it would stop a reopened
+//! ticket from starting just as a hook would. `commit-tree` doesn't read `commit.gpgSign`; `--no-gpg-sign` says so
+//! outright, so a change to how the save is made (`commit` would sign) can't bring signing back unnoticed. Every
+//! commit that lands (the merge commit here, the agent's own) is still signed as the user's git config says. The rest of the user's config applies to the
+//! checkpoint too (its identity).
 
 use std::fmt;
 use std::path::Path;
@@ -50,7 +57,7 @@ pub enum UpdateOutcome {
 
 /// Why [`Git::merge_with_checkpoint`] stopped. The checkpoint runs no hook, so a hook can only refuse the merge
 /// commit ([`GitError::HookRefused`]); the checkpoint itself fails only when git can't write it (for example a
-/// broken index, no identity, or commit signing that fails), with git's own error.
+/// broken index or no identity), with git's own error.
 #[derive(Debug)]
 pub enum UpdateError {
     Git(GitError),
@@ -228,7 +235,7 @@ impl Git {
         })
     }
 
-    /// Stages everything and writes it as a commit on top of `head` with plumbing, which runs no hook.
+    /// Stages everything and writes it as a commit on top of `head` with plumbing, which runs no hook, unsigned.
     async fn checkpoint_commit(&self, worktree: &Path, head: &str) -> Result<String, GitError> {
         self.run(worktree, &["add", "-A"]).await?;
         let tree = self.run(worktree, &["write-tree"]).await?.trim().to_owned();
@@ -237,6 +244,7 @@ impl Git {
                 worktree,
                 &[
                     "commit-tree",
+                    "--no-gpg-sign",
                     &tree,
                     "-p",
                     head,
