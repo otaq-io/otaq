@@ -1,9 +1,8 @@
-// The app's own way of carrying out a tool problem's button (`toolProblems.ts`): the service, Settings, the Terminals
-// drawer, the agent row's picker and the agent panel.
+// The app's own way of carrying out a tool problem's button (`toolProblems.ts`): the service, Settings, Sign in…'s
+// terminal dialog, the agent row's picker and the agent panel.
 import { openOverlay } from "../../app/overlays";
 import type { ToolProblemAction } from "../../generated/ToolProblemAction";
 import { request } from "../../tauri";
-import { showDrawerTab } from "../terminals";
 import { runToolProblemAction, type ToolProblemPlace, type ToolProblemRunner } from "./toolProblems";
 
 export const APP_RUNNER: ToolProblemRunner = {
@@ -11,7 +10,9 @@ export const APP_RUNNER: ToolProblemRunner = {
   openSettings: (params) => {
     openOverlay("settings", params);
   },
-  showDrawerTab,
+  showSignIn: (signIn) => {
+    openOverlay("sign_in", signIn);
+  },
   changeAgent: (ticket) => {
     openOverlay("change_agent", { ticket });
   },

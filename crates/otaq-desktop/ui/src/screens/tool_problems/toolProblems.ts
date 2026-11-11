@@ -16,7 +16,7 @@ export interface ToolProblemPlace {
 export type ToolProblemStep =
   /** A request to the service. */
   | { kind: "request"; method: string; params: unknown }
-  /** The tool's own login in a terminal of the Terminals drawer (`agent_tools.sign_in`). */
+  /** The tool's own login in its terminal's dialog (`agent_tools.sign_in`), as Settings → Agents shows it. */
   | { kind: "sign_in"; tool: string }
   | { kind: "settings"; params: NonNullable<OverlayParams["settings"]> }
   /** Change agent…'s dialog for the ticket's stage that waits for its tool. */
@@ -57,8 +57,9 @@ export function toolProblemStep(action: ToolProblemAction, place: ToolProblemPla
 export interface ToolProblemRunner {
   request: (method: string, params?: unknown) => Promise<unknown>;
   openSettings: (params: NonNullable<OverlayParams["settings"]>) => void;
-  /** Opens the drawer on the tab the pending request answers with. */
-  showDrawerTab: (pending: Promise<unknown>) => void;
+  /** Shows Sign in…'s terminal where the user can see it: its own dialog. (Not the Terminals drawer: that lists only
+   * the project's terminals, and a sign-in belongs to no project, so the drawer said "Nothing open".) */
+  showSignIn: (signIn: AgentToolSignIn) => void;
   /** Opens Change agent…'s dialog on the ticket. */
   changeAgent: (ticket: string) => void;
 }
@@ -74,10 +75,11 @@ export function runToolProblemAction(
       run.request(step.method, step.params).catch(() => undefined);
       return;
     case "sign_in":
-      run.showDrawerTab(
-        run
-          .request("agent_tools.sign_in", { tool: step.tool })
-          .then((signIn) => (signIn as AgentToolSignIn).tab),
+      run.request("agent_tools.sign_in", { tool: step.tool }).then(
+        (signIn) => {
+          run.showSignIn(signIn as AgentToolSignIn);
+        },
+        () => undefined,
       );
       return;
     case "settings":
