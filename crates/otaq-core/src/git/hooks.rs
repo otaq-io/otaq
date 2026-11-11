@@ -101,6 +101,34 @@ impl HookRun {
     pub fn passed(&self) -> bool {
         self.exit == Some(0)
     }
+
+    /// It failed because it tried to read from the terminal: see [`needs_terminal`].
+    pub fn needs_terminal(&self) -> bool {
+        !self.passed() && needs_terminal(&self.output)
+    }
+}
+
+/// A hook's output says it failed because it tried to read from the terminal (`exec < /dev/tty`, a "commit anyway?
+/// [y/N]" read from `/dev/tty`). Otaq runs git with no terminal, so opening `/dev/tty` fails, and every shell and
+/// platform says so in its own words on a line naming `/dev/tty`:
+/// - bash (Linux, and Git for Windows' sh): "pre-commit: line 3: /dev/tty: No such device or address";
+/// - dash: "pre-commit: 3: cannot open /dev/tty: No such device or address"; busybox ash: "can't open '/dev/tty'";
+/// - macOS, where the same error reads "Device not configured": bash and sh "/dev/tty: Device not configured", zsh
+///   "device not configured: /dev/tty", ksh "/dev/tty: cannot open [Device not configured]";
+/// - Python "[Errno 6] No such device or address: '/dev/tty'", Node "ENXIO: no such device or address, open
+///   '/dev/tty'".
+pub fn needs_terminal(output: &str) -> bool {
+    const FAILURES: [&str; 5] = [
+        "no such device or address",
+        "device not configured",
+        "enxio",
+        "cannot open",
+        "can't open",
+    ];
+    output.lines().any(|line| {
+        let line = line.to_lowercase();
+        line.contains("/dev/tty") && FAILURES.iter().any(|f| line.contains(f))
+    })
 }
 
 /// A git command a hook refused: [`GitError::HookRefused`](super::GitError::HookRefused).
@@ -160,6 +188,11 @@ impl RefusedHook {
             what: what.into(),
             output: shorten_home(output),
         }
+    }
+
+    /// It refused because it tried to read from the terminal: see [`needs_terminal`].
+    pub fn needs_terminal(&self) -> bool {
+        needs_terminal(&self.output)
     }
 
     /// "post-checkout hook refused the start".
@@ -607,5 +640,44 @@ mod tests {
             HookTrace::refusing(&runs).map(|r| r.name.as_str()),
             Some("pre-commit")
         );
+    }
+
+    #[test]
+    fn a_hook_that_needs_a_terminal_is_told_by_what_each_shell_prints() {
+        // Each as the shell or platform prints it with no terminal: Git for Windows' sh as the release test and the
+        // Windows VM showed it, macOS's shells as they print it, Linux's bash, dash and busybox, Python and Node.
+        for output in [
+            "C:/Users/ana/shop/.git/hooks/pre-commit: line 3: /dev/tty: No such device or address",
+            "/usr/bin/dash: 1: cannot open /dev/tty: No such device or address",
+            ".git/hooks/pre-push: line 2: /dev/tty: Device not configured",
+            ".git/hooks/pre-commit:2: device not configured: /dev/tty",
+            ".git/hooks/pre-commit[2]: /dev/tty: cannot open [Device not configured]",
+            "sh: can't open '/dev/tty': No such device or address",
+            "lint: 3 problems\nOSError: [Errno 6] Device not configured: '/dev/tty'",
+            "Error: ENXIO: no such device or address, open '/dev/tty'",
+        ] {
+            assert!(needs_terminal(output), "{output}");
+        }
+        for output in [
+            "",
+            "lint: TODO found in src/calc.js:3",
+            "commit anyway? [y/N] (no answer: refusing)",
+            "reading the answer from /dev/tty",
+            "No such device or address",
+        ] {
+            assert!(!needs_terminal(output), "{output}");
+        }
+        let run = |exit, output: &str| HookRun {
+            name: "pre-commit".into(),
+            step: None,
+            folder: PathBuf::new(),
+            started_ms: 0,
+            ended_ms: 0,
+            exit,
+            output: output.into(),
+        };
+        let tty = ".git/hooks/pre-commit: line 2: /dev/tty: No such device or address";
+        assert!(run(Some(1), tty).needs_terminal());
+        assert!(!run(Some(0), tty).needs_terminal(), "it passed after all");
     }
 }

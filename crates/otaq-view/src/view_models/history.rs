@@ -1290,9 +1290,12 @@ fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         Opens {
             label: output.label.to_uppercase(),
             caption: None,
+            // The sheet's sentence above the output (a hook that asks in the terminal), set apart by an empty line.
             lines: output
-                .output
-                .lines()
+                .note
+                .iter()
+                .flat_map(|note| [note.as_str(), ""])
+                .chain(output.output.lines())
                 .map(|line| DiffLine {
                     kind: LineKind::Same,
                     sign: String::new(),
@@ -2008,6 +2011,35 @@ mod tests {
         assert_eq!(opens.label, "OUTPUT OF YOUR POST-CHECKOUT HOOK");
         let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
         assert_eq!(lines, ["npm install", "ERR! missing ~/.npmrc"]);
+
+        // A merge refused by a hook that asks in the terminal: the sheet's sentence above the output.
+        let tty = event_row(&event(
+            EventKind::HookRefused,
+            0,
+            serde_json::json!({
+                "hook": {
+                    "name": "pre-push",
+                    "what": "the merge",
+                    "output": ".git/hooks/pre-push: line 3: /dev/tty: Device not configured",
+                },
+            }),
+        ))
+        .unwrap();
+        let lines: Vec<String> = tty
+            .opens
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                crate::view_models::sheet::terminal_note("pre-push").as_str(),
+                "",
+                ".git/hooks/pre-push: line 3: /dev/tty: Device not configured",
+            ]
+        );
 
         let plain = event_row(&event(
             EventKind::StartInterrupted,

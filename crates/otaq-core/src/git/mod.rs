@@ -12,7 +12,8 @@ mod sync;
 pub mod testing;
 
 pub use hooks::{
-    GitActivity, GitStep, GitWatch, HookRefusal, HookRun, RefusedHook, RunningHook, shorten_home,
+    GitActivity, GitStep, GitWatch, HookRefusal, HookRun, RefusedHook, RunningHook, needs_terminal,
+    shorten_home,
 };
 pub use sync::{BaseSync, FetchFailure};
 

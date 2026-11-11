@@ -98,6 +98,27 @@ mod tests {
     }
 
     #[test]
+    fn a_hook_that_asks_in_the_terminal_is_named_as_such_above_its_output() {
+        let refused = RefusedHook {
+            name: "pre-commit".into(),
+            step: Some(GitStep::Commit),
+            what: "the merge".into(),
+            output: "~/shop/.git/hooks/pre-commit: line 3: /dev/tty: No such device or address"
+                .into(),
+        };
+        let v = view(&refused, "main");
+        assert_eq!(
+            v.hook.note,
+            Some(format!(
+                "Your pre-commit hook asks a question in the terminal; {} can\u{2019}t answer it. Make the hook \
+                 skip its question when there\u{2019}s no terminal, or do this step by hand.",
+                otaq_core::naming::PRODUCT_NAME
+            ))
+        );
+        assert_eq!(v.hook.output, refused.output, "the output stays whole");
+    }
+
+    #[test]
     fn the_toast_points_to_the_ticket() {
         let (title, text) = toast("HOOK-1", &refused(None).line());
         assert_eq!(title, "HOOK-1: your commit-msg hook refused the merge");

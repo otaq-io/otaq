@@ -34,8 +34,15 @@ any file is uncommitted, and the user reviews and merges only what is committed.
 
 5. The user's git hooks and settings apply. If a hook rejects the commit, fix the problem and commit again; never use
    `--no-verify`.
+   A hook that asks a question in the terminal (it reads from `/dev/tty`: its output says "/dev/tty: No such device
+   or address", "Device not configured" or "cannot open /dev/tty") can't pass here, as nothing can answer it: don't
+   retry. Ask the user with `otaq ask human --stdin`, starting with "Your pre-commit hook asks a question in the
+   terminal; Otaq can't answer it. Make the hook skip its question when there's no terminal, or do this step by hand."
+   (with the real hook's name), then what the hook said, and ask how to go on.
 6. Check that `git status` is clean. **Don't push unless the user asks**, in the ticket, a comment or a message in
    this session: a plain request is enough. When you push, wait for `git push` to finish, however long the project's
    pre-push hook takes, and report what it really said; if your shell stopped waiting first, check what reached the
    remote (`git ls-remote origin <branch>`) before you report. If a pre-push hook refuses the push, never use
-   `--no-verify`: tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+   `--no-verify`: tell the user what the hook said and ask how to go on with `otaq ask human --stdin`. A pre-push hook
+   that asks a question in the terminal is told as step 5 says: "Your pre-push hook asks a question in the
+   terminal; …".
