@@ -22,6 +22,8 @@ it. It no longer lives only in a toast.
 - The refusal is written to the ticket's **History** with its output, so it stays after it is dealt with.
 - It works the same whether the Merging dialog is still open or was closed: the ticket is the one place it shows. A
   toast may still announce it, but only points to the ticket.
+- The ticket stays in the stage it was in (Review for Approve & merge and Approve & open PR); a refusal isn't the
+  agent's work going wrong.
 
 ## Why
 
@@ -31,3 +33,7 @@ Since v0.2 Otaq's git steps run in the background (the Merging dialog can be clo
 lost the hook's reason, showed the user's full path and left nothing on the ticket. Turned down: also switching an
 open Merging dialog to the refusal (two places to build and keep in step), and a better toast with a History line (no
 Needs you, easy to miss).
+
+## Changelog
+
+- 2026-11-11: refined: a refusal keeps the ticket where it was (Review), not moved to the Agent stage.

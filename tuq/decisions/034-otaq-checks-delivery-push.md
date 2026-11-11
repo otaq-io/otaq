@@ -17,6 +17,8 @@ checks that the branch is on the remote at the right commit, and shows a mismatc
 - When the agent reports the push or the PR as done, Otaq checks that the remote has the ticket's branch at the commit
   it should. If it doesn't, the ticket shows Needs you: "The branch isn't on the remote as expected", with what the
   remote has.
+- The ticket stays in Review (where the user approved it, or wherever the Delivery started) on such a mismatch; a push
+  that didn't land isn't the agent's work going wrong. Retry push is Push to PR from there.
 - When a push is refused, the messages Otaq reworded for the PR stay reworded on the local branch (nothing was sent),
   and the user's edits are kept (031). Trying again only pushes again.
 
@@ -28,3 +30,7 @@ remote catches a wrong report without splitting delivery between Otaq and the ag
 (agreed earlier the same day, never committed) had Otaq run the push itself. On a step back the user dropped it: it
 split delivery in two, added a background step with its own refusal path, and left open what a refused push does to
 the reworded history. Also turned down: trusting the agent's report as today.
+
+## Changelog
+
+- 2026-11-11: refined: a push mismatch keeps the ticket where it was (Review), not moved to the Agent stage.

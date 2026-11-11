@@ -53,7 +53,8 @@ stored_enum! {
         MergeConflictFixing = "merge_conflict_fixing",
         /// Turquoise: the Delivery stopped (keeps conflicting, base diverged, checkout dirty; d0064, FLW-17). It stays
         /// in the Agent stage whose session would fix it, as today's card does in Dev (d0108 second gap review rule
-        /// 12).
+        /// 12). A hook's refusal and a push that didn't land aren't the agent's to fix: they keep the ticket where it
+        /// was, with the stop on it ([`crate::domain::AutoMergeStop::keeps_place`]).
         DeliveryStopped = "auto_merge_stopped",
 
         // An agent check

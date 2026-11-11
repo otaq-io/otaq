@@ -9,7 +9,9 @@
 //!   With a check before it not passed (skipped, moved past) or none at all, the ticket records "Delivered without
 //!   checks"; a skipped or moved-past check never stops it. A base that diverged or the
 //!   user's dirty checkout stops it, turquoise, with the Local merge's message; Retry merge and Move to Review are
-//!   the user's ([`crate::board::merge`]).
+//!   the user's ([`crate::board::merge`]). A project's hook refusing the merge or a PR's commit message, or a push
+//!   that didn't land, keeps the ticket where it was (To deliver, or Review for the user's click) with Needs you and
+//!   its retry: none of them is the agent's to fix.
 //! - **Click mode** stays the user's Local merge or Open PR (0050's dialog).
 //! - **A conflict**, in either mode ([`Review::delivery_conflict`]): nothing merged; the ticket's nearest earlier
 //!   Agent stage takes it back and its session gets `restack` **without a click** (typed once its input line is
@@ -185,7 +187,7 @@ impl Review {
                     .await?;
                 Delivered::Stopped(AutoMergeStop::DeliveryFailed)
             }
-            // Stopped already, with the refusal on the ticket, as after the user's click.
+            // Stopped already, waiting To deliver with the refusal on it, as after the user's click.
             LocalMergeOutcome::HookRefused { .. } => Delivered::Stopped(AutoMergeStop::HookRefused),
             LocalMergeOutcome::RefusedUncommitted { message, .. } => {
                 tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");

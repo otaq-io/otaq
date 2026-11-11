@@ -489,14 +489,14 @@ impl Board {
         message: &str,
         conflicted: bool,
     ) -> Result<(), BoardError> {
-        self.stop_delivery(ticket_id, stop, message, conflicted, None)
+        self.stop_delivery(ticket_id, stop, message, conflicted)
             .await
     }
 
     /// A project's git hook refused a step of Approve & merge, the user's click or the automatic delivery alike: the
-    /// Delivery stops as any other stop does, with "pre-commit hook refused the merge" as its text, the hook's
-    /// whole output kept on the ticket for its sheet, and History's line holding that output. The way on is to edit
-    /// the message and merge again (Approve & merge opens on the user's kept edit), or Move to Review.
+    /// ticket stays where it was ([`Self::stop_in_place`]), with "pre-commit hook refused the merge" as its text, the
+    /// hook's whole output kept on the ticket for its sheet, and History's line holding that output. The way on is to
+    /// edit the message and merge again (Approve & merge opens on the user's kept edit).
     pub(crate) async fn merge_refused_by_hook(
         &self,
         ticket_id: &str,
@@ -504,11 +504,10 @@ impl Board {
     ) -> Result<RefusedHook, BoardError> {
         // Watched, git says the step; else the squash commit, where a refusal most often comes.
         let refused = RefusedHook::of(refusal, GitStep::Commit, "the merge");
-        self.stop_delivery(
+        self.stop_in_place(
             ticket_id,
             AutoMergeStop::HookRefused,
             &refused.line(),
-            false,
             Some(&refused),
         )
         .await?;
@@ -517,19 +516,18 @@ impl Board {
     }
 
     /// The project's commit-msg hook refused a message the PR's commits were to get (the user's Approve & open PR, or
-    /// the automatic delivery's): nothing was rewritten or pushed. The Delivery stops as a refused merge does, with
-    /// "commit-msg hook refused the PR" as its text and `refused` (the hook's output and the message) kept on the
-    /// ticket and in History. The way on is to fix the message and open the PR again, on the user's kept edits.
+    /// the automatic delivery's): nothing was rewritten or pushed. The ticket stays where it was, as after a refused
+    /// merge, with "commit-msg hook refused the PR" as its text and `refused` (the hook's output and the message) kept
+    /// on the ticket and in History. The way on is to fix the message and open the PR again, on the user's kept edits.
     pub(crate) async fn pr_refused_by_hook(
         &self,
         ticket_id: &str,
         refused: &RefusedHook,
     ) -> Result<(), BoardError> {
-        self.stop_delivery(
+        self.stop_in_place(
             ticket_id,
             AutoMergeStop::HookRefused,
             &refused.line(),
-            false,
             Some(refused),
         )
         .await?;
@@ -537,15 +535,80 @@ impl Board {
         Ok(())
     }
 
-    /// [`Self::delivery_stopped`], with the hook's refusal that stopped it, if one did: kept on the ticket, and
-    /// History's line is the refusal's.
+    /// The delivery's agent reported its push or PR done but the remote doesn't have the branch where it should: the
+    /// ticket waits where the Delivery started ([`Self::stop_in_place`]), with `message` (what the remote has) as its
+    /// text. The way on is to push again (Push to PR).
+    pub(crate) async fn push_not_landed(
+        &self,
+        ticket: &Ticket,
+        message: &str,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        // Reported again on an open PR, the ticket goes back to where its Delivery is offered first.
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
+            self.to_delivery(ticket, actor).await?;
+        }
+        self.stop_in_place(&ticket.id, AutoMergeStop::PushNotLanded, message, None)
+            .await
+    }
+
+    /// A Delivery stop that keeps the ticket where it is ([`AutoMergeStop::keeps_place`]): a hook's refusal or a push
+    /// that didn't land. Its stage and status stay (the user's check, or To deliver); the stop, its text and the
+    /// hook's refusal, if one, are kept on the ticket, which shows Needs you, and History's line is the refusal's or
+    /// the stop's. The three share this one shape. A move on clears it, and so does the retry that goes through.
+    async fn stop_in_place(
+        &self,
+        ticket_id: &str,
+        stop: AutoMergeStop,
+        message: &str,
+        refused: Option<&RefusedHook>,
+    ) -> Result<(), BoardError> {
+        debug_assert!(stop.keeps_place());
+        let now = now_ms();
+        let mut tx = self.store.begin_write().await?;
+        sqlx::query(
+            "UPDATE tickets SET auto_merge_stop = ?, signal_text = ?, signal_since = ?, hook_refusal = ?,
+                                updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(stop.as_str())
+        .bind(message)
+        .bind(now)
+        .bind(refused.map(|r| serde_json::to_string(r).expect("serializable")))
+        .bind(now)
+        .bind(ticket_id)
+        .execute(&mut *tx)
+        .await?;
+        record_stop(&mut tx, ticket_id, stop, message, refused).await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// Clears a stop that kept the ticket where it was ([`Self::stop_in_place`]): its retry goes through now (every
+    /// PR message passed, the push goes again). Nothing for a ticket without one.
+    pub(crate) async fn clear_stop_in_place(&self, ticket: &Ticket) -> Result<(), BoardError> {
+        if ticket.stopped_in_place().is_none() {
+            return Ok(());
+        }
+        sqlx::query(
+            "UPDATE tickets SET auto_merge_stop = NULL, hook_refusal = NULL, signal_text = NULL,
+                                signal_since = NULL, updated_at = ?
+             WHERE id = ?",
+        )
+        .bind(now_ms())
+        .bind(&ticket.id)
+        .execute(self.store.pool())
+        .await?;
+        Ok(())
+    }
+
+    /// [`Self::delivery_stopped`]: turquoise in the Agent stage whose session would fix it.
     async fn stop_delivery(
         &self,
         ticket_id: &str,
         stop: AutoMergeStop,
         message: &str,
         conflicted: bool,
-        refused: Option<&RefusedHook>,
     ) -> Result<(), BoardError> {
         let now = now_ms();
         let to = Status::DeliveryStopped;
@@ -559,7 +622,7 @@ impl Board {
         let mut tx = self.store.begin_write().await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, auto_merge_stop = ?, signal_text = ?, signal_since = ?,
-                                auto_merge_conflicts = auto_merge_conflicts + ?, hook_refusal = ?, updated_at = ?, ",
+                                auto_merge_conflicts = auto_merge_conflicts + ?, hook_refusal = NULL, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -569,24 +632,13 @@ impl Board {
         .bind(message)
         .bind(now)
         .bind(i64::from(conflicted))
-        .bind(refused.map(|r| serde_json::to_string(r).expect("serializable")))
         .bind(now)
         .bind(to.as_str())
         .bind(now)
         .bind(ticket_id)
         .execute(&mut *tx)
         .await?;
-        let (kind, payload) = match refused {
-            Some(refused) => (
-                EventKind::HookRefused,
-                json!({ "hook": refused, "stop": stop, "message": message }),
-            ),
-            None => (
-                EventKind::AutoMergeStopped,
-                json!({ "stop": stop, "message": message }),
-            ),
-        };
-        record_event(&mut tx, ticket_id, kind, &Actor::current_user(), payload).await?;
+        record_stop(&mut tx, ticket_id, stop, message, None).await?;
         tx.commit().await?;
         Ok(())
     }
@@ -710,6 +762,28 @@ impl Board {
         tx.commit().await?;
         self.ticket_by_id(&ticket.id).await
     }
+}
+
+/// History's line for a Delivery stop: the hook's refusal with its output, or the stop and its text.
+async fn record_stop(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    ticket_id: &str,
+    stop: AutoMergeStop,
+    message: &str,
+    refused: Option<&RefusedHook>,
+) -> Result<(), BoardError> {
+    let (kind, payload) = match refused {
+        Some(refused) => (
+            EventKind::HookRefused,
+            json!({ "hook": refused, "stop": stop, "message": message }),
+        ),
+        None => (
+            EventKind::AutoMergeStopped,
+            json!({ "stop": stop, "message": message }),
+        ),
+    };
+    record_event(tx, ticket_id, kind, &Actor::current_user(), payload).await?;
+    Ok(())
 }
 
 #[cfg(test)]

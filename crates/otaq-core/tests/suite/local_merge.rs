@@ -616,7 +616,7 @@ async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
     assert_eq!(hook, "commit-msg");
     assert_eq!(step, Some(GitStep::UpdateBranch));
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
-    let refused = ticket.flags.hook_refusal.unwrap();
+    let refused = ticket.flags.hook_refusal.clone().unwrap();
     assert!(
         refused
             .output
@@ -632,15 +632,19 @@ async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
     assert_eq!(git(&wt, &["status", "--porcelain"]), "");
     let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
     assert!(!wt.join(merge_head).exists(), "no merge left in progress");
-    assert_eq!(ticket.status, Status::DeliveryStopped);
+    // Still in Review: a refusal isn't the agent's work going wrong.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
     no_stash(&repo);
     w.stop().await;
 }
 
 /// A hook that refuses Approve & merge's squash commit (the user's click, the dialog since closed): the refusal is on
-/// the ticket, not only in a toast. Its Delivery stops with "commit-msg hook refused the merge" (the card's Needs
-/// you), the hook's whole output is kept for the sheet, History lists it with that output, and main, the branch and
-/// the worktree are as they were. Edited to pass, the merge goes through from there and the refusal goes.
+/// the ticket, not only in a toast. The ticket stays in Review with "commit-msg hook refused the merge" (the card's
+/// Needs you, in Needs you's turquoise group), the hook's whole output is kept for the sheet, History lists it with
+/// that output, and main, the branch and the worktree are as they were. Edited to pass, the merge goes through from
+/// Review and the refusal goes.
 #[tokio::test]
 async fn a_hook_refusing_approve_and_merge_shows_on_the_ticket() {
     let w = TestService::start().await;
@@ -677,9 +681,31 @@ async fn a_hook_refusing_approve_and_merge_shows_on_the_ticket() {
     assert_eq!(message, "commit-msg hook refused the merge");
 
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(ticket.status, Status::DeliveryStopped);
+    // Kept in Review, where the user approved it: not moved back to the agent's stage.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
     assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
     assert!(ticket.shows_needs_you(), "Needs you");
+    let items = w
+        .board
+        .needs_you_items(otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.key == ticket.key)
+        .expect("in Needs you");
+    assert_eq!(
+        item.group,
+        otaq_core::board::needs_you::NeedsYouGroup::Family
+    );
+    assert_eq!(item.status, Status::DeliveryStopped);
+    assert!(
+        item.reason.contains("commit-msg hook refused the merge"),
+        "{}",
+        item.reason
+    );
     assert_eq!(
         ticket.signal.and_then(|s| s.text).as_deref(),
         Some("commit-msg hook refused the merge")
@@ -720,7 +746,7 @@ async fn a_hook_refusing_approve_and_merge_shows_on_the_ticket() {
     assert_eq!(user_files(&repo), user, "the user's checkout unchanged");
     no_stash(&repo);
 
-    // Edit the message and retry, from where it stopped.
+    // Edit the message and retry, from Review.
     let merged = w
         .review
         .local_merge("SHOP-1", "feat: checkout API (SHOP-1)", false, &me())

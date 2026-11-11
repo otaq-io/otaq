@@ -61,7 +61,7 @@ pub fn token_split(ticket: &Ticket, usage: &TicketUsage) -> Option<String> {
 /// Why Auto-merge stopped, under the action bar (*Auto-merge stop · messages*): "Keeps conflicting with
 /// otaq/SHOP-40 (3 tries in a row).", or the Local merge's own message.
 pub fn stop_message(ticket: &Ticket) -> Option<String> {
-    if ticket.status != Status::DeliveryStopped {
+    if ticket.status != Status::DeliveryStopped && ticket.stopped_in_place().is_none() {
         return None;
     }
     if let (Some(AutoMergeStop::KeepsConflicting), Some(target)) =

@@ -82,6 +82,8 @@ pub enum Action {
     /// The project's commit-msg hook refused one of the PR's commit messages: the Approve & open PR dialog again, on
     /// the messages the user edited, to fix it and open the PR from where it stopped.
     EditPrMessages,
+    /// The delivery's agent reported a push the remote doesn't have: Push to PR again, which only pushes.
+    RetryPush,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
@@ -146,6 +148,7 @@ impl Action {
             Self::MoveToReview => "Move to Review",
             Self::EditMessage => "Edit message and retry",
             Self::EditPrMessages => "Edit messages and retry",
+            Self::RetryPush => "Retry push",
             Self::OpenAgent => "Open agent\u{2026}",
             Self::StopMergeCheck | Self::StopGitStep => crate::view_models::card::STOP,
         }
@@ -161,7 +164,9 @@ impl Action {
             | Self::AnswerValidator => IconName::SquareTerminal,
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
-            Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
+            Self::AnotherRound | Self::RetryValidation | Self::RetryMerge | Self::RetryPush => {
+                IconName::RotateCcw
+            }
             Self::EditMessage | Self::EditPrMessages => IconName::Pencil,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::SendAgain => IconName::Send,
@@ -213,7 +218,8 @@ impl Action {
             | Self::RetryMerge
             | Self::MoveToReview
             | Self::EditMessage
-            | Self::EditPrMessages => None,
+            | Self::EditPrMessages
+            | Self::RetryPush => None,
         }
     }
 }
@@ -278,6 +284,22 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         if s == Status::Working {
             bar.push((A::Run, Secondary));
         }
+        return bar;
+    }
+    // A hook refused the merge or a PR's commit message, or the push didn't land: the ticket waits where it was
+    // (Review, To deliver) and its retry leads, the merge or the PR dialog again on the user's kept edits, or Push to
+    // PR again. Send back and Run stay as in Review.
+    if let Some(stop) = ticket.stopped_in_place() {
+        let retry = match stop {
+            otaq_core::domain::AutoMergeStop::PushNotLanded => A::RetryPush,
+            _ if card::refused_pr_message(ticket) => A::EditPrMessages,
+            _ => A::EditMessage,
+        };
+        let mut bar = vec![(retry, Primary)];
+        if s == Status::WaitingForYou {
+            bar.push((A::SendBack, Secondary));
+        }
+        bar.push((A::Run, Secondary));
         return bar;
     }
     match s {
@@ -357,14 +379,6 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
             vec![(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]
         }
         Status::CheckNoResult => vec![(A::RetryValidation, Primary)],
-        // A hook refused a PR's commit message: the PR dialog again, opened from where it stopped.
-        Status::DeliveryStopped if card::refused_pr_message(ticket) => {
-            vec![(A::EditPrMessages, Primary), (A::MoveToReview, Secondary)]
-        }
-        // A hook refused the merge: the message again, merged from where it stopped.
-        Status::DeliveryStopped if card::hook_refusal(ticket).is_some() => {
-            vec![(A::EditMessage, Primary), (A::MoveToReview, Secondary)]
-        }
         Status::DeliveryStopped => vec![(A::RetryMerge, Primary), (A::MoveToReview, Secondary)],
         // The agent fixes the Auto-merge conflict in its own terminal.
         Status::MergeConflictFixing => vec![(A::OpenTerminal, Secondary)],

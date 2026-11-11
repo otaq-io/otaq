@@ -267,12 +267,23 @@ stored_enum! {
         /// A git step of the automatic Delivery failed (a hook refused the commit): "Couldn't deliver · …" (d0121).
         DeliveryFailed = "delivery_failed",
         /// A PR delivery's agent reported its push or PR done, but the remote doesn't have the ticket's branch at the
-        /// commit it should: "The branch isn't on the remote as expected · <what the remote has>".
+        /// commit it should: "The branch isn't on the remote as expected · <what the remote has>". The ticket stays
+        /// where the Delivery started ([`AutoMergeStop::keeps_place`]); the way on is to push again.
         PushNotLanded = "push_not_landed",
-        /// A project's git hook refused a step of Approve & merge, the user's click or the automatic delivery alike:
-        /// "pre-commit hook refused the merge", the hook's output on the ticket
-        /// ([`crate::domain::Flags::hook_refusal`]); the way on is to edit the message and retry.
+        /// A project's git hook refused a step of Approve & merge, or a commit message of Approve & open PR, the
+        /// user's click or the automatic delivery alike: "pre-commit hook refused the merge", the hook's output on
+        /// the ticket ([`crate::domain::Flags::hook_refusal`]). The ticket stays where it was
+        /// ([`AutoMergeStop::keeps_place`]); the way on is to edit the message and retry.
         HookRefused = "hook_refused",
+    }
+}
+
+impl AutoMergeStop {
+    /// A hook's refusal and a push that didn't land keep the ticket where the Delivery started: in the user's check
+    /// (Review) or waiting To deliver, with the stop on it, because neither is the agent's work going wrong. Every
+    /// other stop is the Delivery stopped, in the Agent stage whose session would fix it.
+    pub fn keeps_place(self) -> bool {
+        matches!(self, Self::HookRefused | Self::PushNotLanded)
     }
 }
 

@@ -317,7 +317,7 @@ pub(crate) async fn return_to_dev(
                             queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
                             last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                            review_entry = NULL,
+                            review_entry = NULL, auto_merge_stop = NULL, hook_refusal = NULL,
                             updated_by = ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"

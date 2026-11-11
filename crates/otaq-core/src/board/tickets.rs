@@ -213,6 +213,16 @@ impl Ticket {
         self.status.set().board_group()
     }
 
+    /// The Delivery stop the ticket waits with where the Delivery started, in the user's check or To deliver: a
+    /// hook refused its merge or a PR's commit message, or its push didn't land
+    /// ([`crate::domain::AutoMergeStop::keeps_place`]). The card shows Needs you, the sheet the stop and its retry,
+    /// as for any Delivery stop. `None` once the ticket moved on.
+    pub fn stopped_in_place(&self) -> Option<crate::domain::AutoMergeStop> {
+        self.auto_merge_stop.filter(|stop| {
+            stop.keeps_place() && matches!(self.status, Status::WaitingForYou | Status::ToDeliver)
+        })
+    }
+
     /// Has this ticket ever been to Dev? Never-started tickets can be deleted (d0060).
     pub fn has_started(&self) -> bool {
         self.started_at.is_some()
@@ -220,13 +230,15 @@ impl Ticket {
 
     /// Turquoise as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
     pub fn shows_needs_you(&self) -> bool {
-        self.status.is_needs_you_family() && !self.flags.your_turn
+        (self.status.is_needs_you_family() && !self.flags.your_turn)
+            || self.stopped_in_place().is_some()
     }
 
     /// Whether the ticket waits for the user where they can see it: turquoise (unless its terminal has focus) or
     /// Needs you's second group. Such cards float to the top of Dev and count in the project's needs-you number.
     pub fn needs_user(&self) -> bool {
-        super::order::needs_user(self.status) && !self.flags.your_turn
+        (super::order::needs_user(self.status) && !self.flags.your_turn)
+            || self.stopped_in_place().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
@@ -1335,14 +1347,20 @@ impl Board {
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
                     .filter(|s| s.is_needs_you_family() || *s == Status::Checking);
+                // A Delivery stop that kept the ticket where it was has its text there too.
+                let auto_merge_stop: Option<crate::domain::AutoMergeStop> =
+                    row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok());
+                let stopped_in_place = auto_merge_stop.is_some_and(|s| s.keeps_place())
+                    && matches!(status, Status::WaitingForYou | Status::ToDeliver);
                 let signal = (status.is_needs_you_family()
                     || status == Status::WorkingInBackground
-                    || interrupted_from.is_some())
-                .then_some(AgentSignal {
-                    text: row.signal_text,
-                    since: row.signal_since,
-                    wakeup_at: row.wakeup_at,
-                });
+                    || interrupted_from.is_some()
+                    || stopped_in_place)
+                    .then_some(AgentSignal {
+                        text: row.signal_text,
+                        since: row.signal_since,
+                        wakeup_at: row.wakeup_at,
+                    });
                 let question = (status == Status::AsksYou
                     || interrupted_from == Some(Status::AsksYou))
                 .then(|| questions.get(&row.id).map(|open| open.question.clone()))
@@ -1384,7 +1402,7 @@ impl Board {
                     ready_since: row.ready_since,
                     validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
-                    auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
+                    auto_merge_stop,
                     id: row.id,
                 })
             })

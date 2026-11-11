@@ -220,6 +220,19 @@ pub fn needs_you_items_with(
                 if ticket.flags.your_turn || suppression.hides(ticket) {
                     return None;
                 }
+                // A Delivery a hook refused, or whose push didn't land, waits where it was (Review, To deliver) and is
+                // listed as any Delivery stop: with the turquoise items, its stop's line and notification.
+                let stopped;
+                let ticket = match ticket.stopped_in_place() {
+                    Some(_) => {
+                        stopped = Ticket {
+                            status: Status::DeliveryStopped,
+                            ..ticket.clone()
+                        };
+                        &stopped
+                    }
+                    None => ticket,
+                };
                 // A needs-you ticket interrupted by a restart keeps its label (d0045): it stays with the turquoise
                 // items, where answering it resumes and delivers. An interrupted check is Interrupted (d0063). A
                 // stage held for its skill waits for the user too: only they can make the skill reach its tool.
