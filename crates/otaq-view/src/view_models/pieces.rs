@@ -493,8 +493,11 @@ pub fn header(f: &Facts, stage: &str) -> Option<String> {
     (working > 0).then(|| format!("{stage} \u{b7} {} working", helpers_count(working)))
 }
 
-/// The agent in charge's status in the Session list: "reviewing 40.3", "waiting for 40.2 and 40.3", "was working".
-pub fn in_charge_status(f: &Facts) -> String {
+/// The agent in charge's status in the Session list and its colour: "reviewing 40.3", "waiting for 40.2 and 40.3",
+/// "was working", "idle". `live`: its session runs. It works only in its own Agent stage (or while it delivers the
+/// ticket); in every later stage it is idle at its prompt, whatever the checker, the review or the delivery is doing
+/// (the ticket's status is theirs there, not its own), or ended once its session did.
+pub fn in_charge_status(f: &Facts, live: bool) -> (String, Tone) {
     let rows = rows(f);
     let names = |state: &[State]| -> Vec<String> {
         rows.iter()
@@ -507,21 +510,34 @@ pub fn in_charge_status(f: &Facts) -> String {
         [one] => one.clone(),
         [rest @ .., last] => format!("{} and {last}", rest.join(", ")),
     };
-    if f.ticket.status == Status::Interrupted {
-        return State::WasWorking.status_word().to_owned();
+    let status = f.ticket.status;
+    if status.set() != StatusSet::AgentStage {
+        let delivering =
+            status.set() == StatusSet::Delivery && f.ticket.flags.delivering_automatically;
+        return match (live, delivering) {
+            (false, _) => ("ended".to_owned(), Tone::Muted),
+            (true, true) => ("working".to_owned(), Tone::Working),
+            (true, false) => ("idle".to_owned(), Tone::Muted),
+        };
     }
-    if f.ticket.status.is_needs_you_family() {
-        return "needs you".to_owned();
+    if status == Status::Interrupted {
+        return (State::WasWorking.status_word().to_owned(), Tone::Warning);
+    }
+    if status == Status::Idle {
+        return ("idle".to_owned(), Tone::Attention);
+    }
+    if status.is_needs_you_family() {
+        return ("needs you".to_owned(), Tone::Attention);
     }
     let reviewing = names(&[State::BeingReviewed]);
     if !reviewing.is_empty() {
-        return format!("reviewing {}", and(reviewing));
+        return (format!("reviewing {}", and(reviewing)), Tone::Working);
     }
     let waiting = names(&[State::Working, State::SentBack, State::Fixing, State::Held]);
     if !waiting.is_empty() {
-        return format!("waiting for {}", and(waiting));
+        return (format!("waiting for {}", and(waiting)), Tone::Working);
     }
-    "working".to_owned()
+    ("working".to_owned(), Tone::Working)
 }
 
 impl State {
@@ -575,22 +591,19 @@ pub fn session_list_of(
         let model = s.model_ran.as_deref().or(s.model.as_deref());
         Some(crate::view_models::sheet::model_text(s.tool?, model))
     });
-    session_list(f, agent, on.as_deref())
+    let live = session.is_some_and(otaq_core::session::SessionInfo::is_running);
+    session_list(f, agent, on.as_deref(), live)
 }
 
 /// The Session list of a ticket that split; `None` without helpers (Session's switch stays as today). `agent`: the
-/// agent in charge's name, `on`: its tool and model ("Claude Code · sonnet").
-pub fn session_list(f: &Facts, agent: &str, on: Option<&str>) -> Option<SessionList> {
+/// agent in charge's name, `on`: its tool and model ("Claude Code · sonnet"), `live`: its session runs.
+pub fn session_list(f: &Facts, agent: &str, on: Option<&str>, live: bool) -> Option<SessionList> {
     if !f.split() {
         return None;
     }
     let rows = rows(f);
     let started = rows.iter().filter(|r| r.helper.is_some()).count();
-    let tone = match f.ticket.status {
-        Status::Interrupted => Tone::Warning,
-        s if s.is_needs_you_family() => Tone::Attention,
-        _ => Tone::Working,
-    };
+    let (status, tone) = in_charge_status(f, live);
     Some(SessionList {
         label: format!(
             "SESSIONS \u{b7} 1 IN CHARGE \u{b7} {}",
@@ -602,7 +615,7 @@ pub fn session_list(f: &Facts, agent: &str, on: Option<&str>) -> Option<SessionL
             piece: None,
             name: agent.to_owned(),
             title: on.unwrap_or_default().to_owned(),
-            status: in_charge_status(f),
+            status,
             tone,
             opens: true,
         },
@@ -988,7 +1001,7 @@ mod tests {
             Some("Working · 1 helper · 1 sent back")
         );
         // The Session list and the Plan's chip say it in their own words.
-        let list = session_list(&f, "Developer", Some("Claude Code · sonnet")).unwrap();
+        let list = session_list(&f, "Developer", Some("Claude Code · sonnet"), true).unwrap();
         assert_eq!(list.helpers[2].status, "sent back · fixing");
         assert_eq!(list.in_charge.status, "reviewing 40.2");
         assert_eq!(
@@ -1020,7 +1033,7 @@ mod tests {
         assert_eq!(card_line(&f).as_deref(), Some("Working · 1 helper"));
         assert_eq!(pieces_detail(&f).as_deref(), Some("1 of 3 merged"));
         assert_eq!(plan_status(&f, 3).unwrap().text, "dropped");
-        let list = session_list(&f, "Developer", None).unwrap();
+        let list = session_list(&f, "Developer", None, true).unwrap();
         assert_eq!(list.helpers[2].status, "dropped");
         assert_eq!(list.in_charge.status, "waiting for 40.2");
 
@@ -1061,7 +1074,7 @@ mod tests {
             ]
         );
         // The sheet lists every piece.
-        let list = session_list(&f, "Developer", None).unwrap();
+        let list = session_list(&f, "Developer", None, true).unwrap();
         assert_eq!(list.helpers.len(), 6);
         assert_eq!(list.label, "SESSIONS · 1 IN CHARGE · 5 HELPERS");
     }
@@ -1099,7 +1112,7 @@ mod tests {
         let f = Facts::new(&t, &[]);
         assert_eq!(card(&f, None), None);
         assert_eq!(card_line(&f), None);
-        assert_eq!(session_list(&f, "Developer", None), None);
+        assert_eq!(session_list(&f, "Developer", None, true), None);
         assert_eq!(plan_status(&f, 1), None);
         assert_eq!(pieces_detail(&f), None);
         // Another ticket's helpers don't count.
@@ -1157,7 +1170,55 @@ mod tests {
             Some("Interrupted · 3 helpers were working")
         );
         assert_eq!(card.rows[2].status, "was working");
-        assert_eq!(in_charge_status(&f), "was working");
+        assert_eq!(in_charge_status(&f, true).0, "was working");
+    }
+
+    /// The agent in charge, idle at its prompt after its build stage ended, reads idle in every later stage: the
+    /// ticket's status there is the checker's, the review's or the delivery's, not its own (NOTE-14 read "needs you"
+    /// while its checker asked, and "working" in Code review).
+    #[test]
+    fn an_idle_agent_in_charge_reads_idle_in_every_later_stage() {
+        let helpers: Vec<Helper> = (1..=4)
+            .map(|n| helper("SHOP-40", n, "x", HelperStatus::Merged))
+            .collect();
+        let row = |t: &Ticket, live: bool| {
+            let list = session_list(&Facts::new(t, &helpers), "Developer", None, live).unwrap();
+            (list.in_charge.status, list.in_charge.tone)
+        };
+        for status in [
+            Status::Checking,
+            Status::CheckerNeedsYou,
+            Status::CheckFailed,
+            Status::CheckNoResult,
+            Status::WaitingForYou,
+            Status::ToDeliver,
+            Status::PrOpen,
+            Status::Queued,
+        ] {
+            assert_eq!(
+                row(&shop40(status), true),
+                ("idle".to_owned(), Tone::Muted),
+                "{status:?}"
+            );
+        }
+        // Its session ended (merged, closed, parked): it isn't idle at a prompt any more.
+        for status in [Status::Merged, Status::ClosedNotMerged, Status::Parked] {
+            assert_eq!(row(&shop40(status), false).0, "ended", "{status:?}");
+        }
+        // While it opens or pushes the PR itself it works.
+        let mut delivering = shop40(Status::ToDeliver);
+        delivering.flags.delivering_automatically = true;
+        assert_eq!(
+            row(&delivering, true),
+            ("working".to_owned(), Tone::Working)
+        );
+        // In its own stage: idle at its prompt reads idle (as the card's "Idle"), a prompt needs you.
+        assert_eq!(
+            row(&shop40(Status::Idle), true),
+            ("idle".to_owned(), Tone::Attention)
+        );
+        assert_eq!(row(&shop40(Status::NeedsYou), true).0, "needs you");
+        assert_eq!(row(&shop40(Status::Working), true).0, "working");
     }
 
     #[test]
@@ -1189,7 +1250,7 @@ mod tests {
             Some("Dev · 2 helpers working")
         );
         assert_eq!(pieces_detail(&f).as_deref(), Some("1 of 4 merged"));
-        let list = session_list(&f, "Developer", Some("Claude Code · sonnet")).unwrap();
+        let list = session_list(&f, "Developer", Some("Claude Code · sonnet"), true).unwrap();
         assert_eq!(list.label, "SESSIONS · 1 IN CHARGE · 3 HELPERS");
         assert_eq!(list.in_charge.name, "Developer");
         assert_eq!(list.in_charge.title, "Claude Code · sonnet");
