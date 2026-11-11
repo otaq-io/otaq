@@ -64,8 +64,10 @@ export function actionRoute(action: SheetAction): ActionRoute {
     case "view_parent":
       return { kind: "parent" };
     // Edit message and retry (a hook refused Approve & merge): its confirmation again, on the message the user edited.
+    // Retry push (the delivery's push didn't land): Approve again, which on a ticket with a PR is Push to PR.
     case "approve":
     case "edit_message":
+    case "retry_push":
       return { kind: "overlay", id: "local_merge" };
     // Edit messages and retry (a hook refused a PR's commit message): Approve & open PR again, on the edited messages.
     case "edit_pr_messages":

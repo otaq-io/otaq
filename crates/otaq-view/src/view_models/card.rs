@@ -245,7 +245,7 @@ impl CardExtras {
         let Some(signal) = &ticket.signal else {
             return self;
         };
-        if ticket.status.is_needs_you_family() {
+        if ticket.status.is_needs_you_family() || ticket.stopped_in_place().is_some() {
             // A permission prompt shows its first line: a command that writes a whole file would fill the card (the
             // ticket's Overview and its terminal have it whole).
             let prompt = matches!(ticket.status, Status::NeedsYou | Status::CheckerNeedsYou);
@@ -2449,8 +2449,7 @@ fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
 /// ticket's Delivery is still stopped for it (a refused start keeps its hook on its Start interrupted problem). The
 /// card's Needs you line and the sheet's callout read it from here.
 pub fn hook_refusal(ticket: &Ticket) -> Option<&otaq_core::git::RefusedHook> {
-    let stopped = ticket.status == Status::DeliveryStopped
-        && ticket.auto_merge_stop == Some(otaq_core::domain::AutoMergeStop::HookRefused);
+    let stopped = ticket.stopped_in_place() == Some(otaq_core::domain::AutoMergeStop::HookRefused);
     ticket.flags.hook_refusal.as_ref().filter(|_| stopped)
 }
 
@@ -4901,12 +4900,14 @@ mod tests {
         assert_eq!(vm.outline, Outline::Attention);
     }
 
-    /// A project's git hook refused Approve & merge (the click or the automatic delivery): Needs you, naming the hook
-    /// and the step; the sheet offers Edit message and retry.
+    /// A project's git hook refused Approve & merge (the click or the automatic delivery): the ticket stays in Review
+    /// with Needs you, naming the hook and the step; the sheet offers Edit message and retry, and Send back and Run
+    /// as in Review.
     #[test]
     fn a_hook_that_refused_the_merge() {
+        use crate::view_models::sheet_actions::{Action as A, Look, all_buttons};
         use otaq_core::domain::AutoMergeStop;
-        let mut t = ticket("HOOK-1", "Add subtract", Status::DeliveryStopped);
+        let mut t = ticket("HOOK-1", "Add subtract", Status::WaitingForYou);
         t.auto_merge_stop = Some(AutoMergeStop::HookRefused);
         let refused = otaq_core::git::RefusedHook {
             name: "pre-commit".into(),
@@ -4931,30 +4932,40 @@ mod tests {
             Some("Needs you \u{b7} pre-commit hook refused the merge")
         );
         assert_eq!(
-            crate::view_models::sheet_actions::all_buttons(&t),
+            all_buttons(&t),
             [
-                (
-                    crate::view_models::sheet_actions::Action::EditMessage,
-                    crate::view_models::sheet_actions::Look::Primary
-                ),
-                (
-                    crate::view_models::sheet_actions::Action::MoveToReview,
-                    crate::view_models::sheet_actions::Look::Secondary
-                ),
+                (A::EditMessage, Look::Primary),
+                (A::SendBack, Look::Secondary),
+                (A::Run, Look::Secondary),
             ]
         );
-        // Once the ticket left the stop, the refusal kept on it shows nowhere.
-        t.status = Status::WaitingForYou;
+        // A PR's commit message refused: Edit messages and retry instead.
+        t.flags.hook_refusal = Some(otaq_core::git::RefusedHook {
+            step: Some(otaq_core::git::GitStep::Reword),
+            ..refused.clone()
+        });
+        assert!(refused_pr_message(&t));
+        assert_eq!(all_buttons(&t)[0], (A::EditPrMessages, Look::Primary));
+        // Waiting To deliver (an automatic delivery's refusal): the retry and Run.
+        t.flags.hook_refusal = Some(refused);
+        t.status = Status::ToDeliver;
+        assert_eq!(
+            all_buttons(&t),
+            [(A::EditMessage, Look::Primary), (A::Run, Look::Secondary)]
+        );
+        // Once the ticket left Review (sent back to the agent), the refusal kept on it shows nowhere.
+        t.status = Status::Working;
         assert_eq!(hook_refusal(&t), None);
     }
 
-    /// A PR delivery's agent reported a push the remote doesn't have: "Needs you: the branch isn't on the remote as
-    /// expected · the remote has …".
+    /// A PR delivery's agent reported a push the remote doesn't have: still in Review, "Needs you: the branch isn't on
+    /// the remote as expected · the remote has …", and Retry push leads the sheet's bar.
     #[test]
     fn a_push_that_did_not_land() {
+        use crate::view_models::sheet_actions::{Action as A, Look, all_buttons};
         use otaq_core::domain::AutoMergeStop;
         use otaq_core::pr::verify::PushNotLanded;
-        let mut t = ticket("SHOP-1", "Login redirect", Status::DeliveryStopped);
+        let mut t = ticket("SHOP-1", "Login redirect", Status::WaitingForYou);
         t.auto_merge_stop = Some(AutoMergeStop::PushNotLanded);
         let text = PushNotLanded {
             branch: "feature/SHOP-1-login".into(),
@@ -4982,6 +4993,14 @@ mod tests {
         );
         assert_eq!(one.tone, Tone::Attention);
         assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            all_buttons(&t),
+            [
+                (A::RetryPush, Look::Primary),
+                (A::SendBack, Look::Secondary),
+                (A::Run, Look::Secondary),
+            ]
+        );
     }
 
     #[test]

@@ -656,13 +656,6 @@ pub fn view_of(f: &Facts) -> View {
                     action.label().to_owned()
                 }
                 Action::Pass | Action::Approve => actions::approve_label(f.decisions),
-                // A delivery push that didn't land: trying again only pushes again.
-                Action::RetryMerge
-                    if ticket.auto_merge_stop
-                        == Some(otaq_core::domain::AutoMergeStop::PushNotLanded) =>
-                {
-                    "Retry push".to_owned()
-                }
                 Action::ViewParent => ticket.depends_on.first().map_or_else(
                     || action.label().to_owned(),
                     |p| format!("View parent {p}"),
@@ -724,8 +717,11 @@ pub fn view_of(f: &Facts) -> View {
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
             // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (the
-            // terminal's strip says "your turn" there).
-            let mut pill = PillView::of(ticket.status);
+            // terminal's strip says "your turn" there). A Delivery stop that kept it in Review reads as its card does.
+            let mut pill = PillView::of(match ticket.stopped_in_place() {
+                Some(_) => otaq_core::domain::Status::DeliveryStopped,
+                None => ticket.status,
+            });
             // Its tool stopped on an error: red with why, as its card ("Stopped · login expired").
             if let Some(error) = otaq_core::signals::stopped_on_error(ticket) {
                 pill = PillView {
@@ -2822,10 +2818,21 @@ mod tests {
             view.stop_message.as_deref(),
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
         );
-        // A delivery push the remote doesn't have: trying again pushes again.
+        // A delivery push the remote doesn't have: the ticket stays in Review, where Retry push pushes again (Send
+        // back is the review bar's).
+        stopped.status = Status::WaitingForYou;
         stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::PushNotLanded);
+        stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("The branch isn\u{2019}t on the remote as expected".into()),
+            ..Default::default()
+        });
         let view = view_of(&facts(&stopped, std::slice::from_ref(&stopped), &[]));
-        assert_eq!(labels(&view), ["Retry push", "Move to Review"]);
+        assert_eq!(labels(&view), ["Retry push"]);
+        assert_eq!(view.pill.label, "Delivery stopped");
+        assert_eq!(
+            view.stop_message.as_deref(),
+            Some("The branch isn\u{2019}t on the remote as expected.")
+        );
 
         // To deliver: Approve with its ▾ (in your check they are the review bar's).
         let deliver = fixture("SHOP-18", "Checkout API", Status::ToDeliver);

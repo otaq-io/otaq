@@ -201,7 +201,7 @@ impl Board {
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, review_head_sha = ?, review_entered_at = ?,
                                 conflicts_with = NULL, conflict_files = NULL, conflict_reason = NULL,
-                                updated_by = ?, updated_at = ?, ",
+                                auto_merge_stop = NULL, hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))

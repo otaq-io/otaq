@@ -50,9 +50,7 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{
-    Actor, AutoMergeStop, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger,
-};
+use crate::domain::{Actor, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
 use crate::git::merge::{HookChanges, MergeOutcome, MergeRequest};
@@ -153,7 +151,7 @@ pub enum LocalMergeOutcome {
     /// what git has so far, to fill in; the user sets them and merges again.
     NeedsIdentity { has: crate::git::Identity },
     /// A project's git hook refused a step: nothing was merged and main, the branch and the worktree are as they were.
-    /// The refusal is on the ticket (its Delivery stopped, the card's Needs you, the sheet's output, History),
+    /// The refusal is on the ticket, which stays where it was (the card's Needs you, the sheet's output, History),
     /// whether the user's click or the automatic delivery merged; `message` is "pre-commit hook refused the merge".
     HookRefused {
         hook: String,
@@ -402,10 +400,10 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
-        // A merge a hook refused is merged again from where it stopped, with the message the user edited.
-        let refused_merge = ticket.status == Status::DeliveryStopped
-            && ticket.auto_merge_stop == Some(AutoMergeStop::HookRefused);
-        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) && !refused_merge {
+        // A merge a hook refused waits where it was, in Review or To deliver, and is merged again from there with the
+        // message the user edited. A refused PR message or a push that didn't land waits there too: the ticket is in
+        // Review all the same, so either way of delivering may be tried, and the one that goes through clears it.
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(

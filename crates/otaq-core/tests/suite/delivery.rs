@@ -611,7 +611,8 @@ async fn an_unreachable_remote_still_merges_automatically() {
 }
 
 /// A hook that refuses the automatic Delivery's squash commit stops it as it stops the user's click: "pre-commit
-/// hook refused the merge", the hook's output on the ticket and in History, nothing merged.
+/// hook refused the merge", the hook's output on the ticket and in History, nothing merged, and the ticket waits To
+/// deliver where the Delivery started, not back with the agent.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_hook_refusing_the_automatic_delivery_is_on_the_ticket() {
     let w = world().await;
@@ -631,8 +632,10 @@ async fn a_hook_refusing_the_automatic_delivery_is_on_the_ticket() {
     let main = git(&repo, &["rev-parse", "main"]);
 
     let after = pass(&w, &t).await;
-    assert_eq!(after.status, Status::DeliveryStopped);
-    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    let after = w.board.ticket_by_id(&after.id).await.unwrap();
+    assert_eq!(after.status, Status::ToDeliver);
+    assert_eq!(after.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    assert!(after.shows_needs_you(), "Needs you");
     let text = after.signal.unwrap().text.unwrap();
     assert_eq!(text, "pre-commit hook refused the merge");
     let refused = after.flags.hook_refusal.expect("kept on the ticket");
@@ -1276,8 +1279,9 @@ async fn a_hook_refusing_an_automatic_prs_message_is_on_the_ticket() {
         "nothing renamed"
     );
     let after = w.board.ticket(&key).await.unwrap();
-    assert_eq!(after.status, Status::DeliveryStopped);
-    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    // Waits To deliver where the Delivery started: a refused message isn't the agent's work going wrong.
+    assert_eq!(after.status, Status::ToDeliver);
+    assert_eq!(after.stopped_in_place(), Some(AutoMergeStop::HookRefused));
     let refused = after.flags.hook_refusal.expect("kept on the ticket");
     assert_eq!(refused.step, Some(otaq_core::git::GitStep::Reword));
     assert_eq!(

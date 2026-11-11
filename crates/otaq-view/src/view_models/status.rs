@@ -9,10 +9,13 @@ use crate::icons::IconName;
 use crate::theme::{Palette, Status as Legend};
 
 /// The status a ticket shows: while its terminal has focus a waiting agent stays calm, "Agent Working" with a
-/// quiet "your turn" (ATT-03, d0042); otherwise its own status.
+/// quiet "your turn" (ATT-03, d0042); a Delivery stop that kept the ticket where it was (a hook's refusal, a push
+/// that didn't land) shows as any Delivery stop, Needs you; otherwise its own status.
 pub fn shown(ticket: &otaq_core::board::tickets::Ticket) -> Core {
     if ticket.flags.your_turn {
         Core::Working
+    } else if ticket.stopped_in_place().is_some() {
+        Core::DeliveryStopped
     } else {
         ticket.status
     }

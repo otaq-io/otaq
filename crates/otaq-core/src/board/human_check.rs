@@ -120,7 +120,7 @@ impl Board {
                                 queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
                                 ready_since = CASE WHEN ? THEN NULL ELSE ready_since END,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                updated_by = ?, updated_at = ?, ",
+                                auto_merge_stop = NULL, hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -177,7 +177,7 @@ impl Board {
                                 review_entered_at = ?, ready_since = NULL,
                                 start_problem_step = NULL, start_problem_message = NULL,
                                 signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                                updated_by = ?, updated_at = ?, ",
+                                auto_merge_stop = NULL, hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))

@@ -32,7 +32,7 @@ use crate::board::review::ApproveCheck;
 use crate::board::settings::WorkflowStep;
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
-use crate::domain::{Actor, AutoMergeStop, HandOffKind, Status, TicketKey};
+use crate::domain::{Actor, HandOffKind, Status, TicketKey};
 use crate::git::merge::uncommitted_files_message;
 use crate::naming;
 use crate::protocol::Event;
@@ -215,10 +215,9 @@ impl Prs {
     ) -> Result<PrOutcome, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
-        // A PR whose message a hook refused opens again from where it stopped, on the messages the user edited.
-        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
-            && !refused_pr(&ticket)
-        {
+        // A PR whose message a hook refused, or whose push didn't land, waits in Review and opens again from there,
+        // on the messages the user edited.
+        if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -370,11 +369,8 @@ impl Prs {
                 hook: refused.name,
             });
         }
-        // Every message passed: a ticket stopped by an earlier refusal waits in its Delivery again while the skill
-        // pushes.
-        if refused_pr(&ticket) {
-            board.back_to_delivery(&ticket, actor).await?;
-        }
+        // Every message passed: an earlier refusal, or a push that didn't land, is done with while the skill pushes.
+        board.clear_stop_in_place(&ticket).await?;
         // Approve & open PR is an approve, as a merge is: the first one shows the box for new work and the hints that
         // follow the first approve.
         if flow.kind == FlowKind::Open
@@ -654,7 +650,8 @@ impl Prs {
                 crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
             }
             // The agent's word isn't enough: the remote must have the branch at the commit it should. When it
-            // doesn't, the Delivery stops turquoise with what the remote has, and its retry only pushes again.
+            // doesn't, the ticket waits where its Delivery started with what the remote has, and its retry only pushes
+            // again.
             let not_landed = board
                 .check_delivery_push(&ticket)
                 .await
@@ -666,12 +663,7 @@ impl Prs {
                 tracing::warn!(key = %ticket.key, branch = %not_landed.branch, remote = ?not_landed.remote,
                                "the delivery reported a push the remote doesn't have");
                 board
-                    .delivery_stopped(
-                        &ticket.id,
-                        AutoMergeStop::PushNotLanded,
-                        &not_landed.message(),
-                        false,
-                    )
+                    .push_not_landed(&ticket, &not_landed.message(), actor)
                     .await?;
                 return board.ticket(key).await;
             }
@@ -1357,7 +1349,8 @@ impl Board {
             moved.record(&mut tx, &ticket.id, None).await?;
         }
         sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = ?, state = ?, interrupted_from = NULL, auto_merge_stop = NULL,
+                                hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
@@ -1381,18 +1374,6 @@ impl Board {
 }
 
 /// The ticket's worktree folder.
-/// The ticket's Delivery stopped because a hook refused one of its PR's commit messages: Approve & open PR is
-/// offered again.
-fn refused_pr(ticket: &Ticket) -> bool {
-    ticket.status == Status::DeliveryStopped
-        && ticket.auto_merge_stop == Some(crate::domain::AutoMergeStop::HookRefused)
-        && ticket
-            .flags
-            .hook_refusal
-            .as_ref()
-            .is_some_and(|r| r.step == Some(crate::git::GitStep::Reword))
-}
-
 fn worktree_of(ticket: &Ticket) -> Result<PathBuf, BoardError> {
     ticket
         .work

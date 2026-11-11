@@ -612,11 +612,15 @@ async fn a_message_goes_through_the_commit_msg_hook_without_a_commit() {
     assert_eq!(kept, "update stuff");
 
     let seen = repos.root().join("seen");
+    // Where the hook runs is told by a marker it leaves in its own folder: no path to compare, so it reads the same
+    // under Git for Windows' sh, whose `pwd` is an MSYS path.
+    let marker = "hook-ran-here";
     hook(
         &hooks,
         "commit-msg",
         &format!(
-            "printf '%s\\n%s\\n%s\\n%s\\n' \"$1\" \"$(pwd)\" \"$GIT_EDITOR\" \"$GIT_INDEX_FILE\" > '{}'\n\
+            "printf '%s\\n%s\\n%s\\n' \"$1\" \"$GIT_EDITOR\" \"$GIT_INDEX_FILE\" > '{}'\n\
+             : > {marker}\n\
              grep -qE '^(feat|fix):' \"$1\" || {{ echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }}\n\
              echo 'Change-Id: I0123' >> \"$1\"",
             seen.display()
@@ -655,13 +659,14 @@ async fn a_message_goes_through_the_commit_msg_hook_without_a_commit() {
         path_of("COMMIT_EDITMSG"),
         "the worktree's COMMIT_EDITMSG"
     );
-    assert_eq!(
-        std::fs::canonicalize(&seen_lines[1]).unwrap(),
-        std::fs::canonicalize(&worktree).unwrap(),
-        "run in the worktree"
+    assert!(worktree.join(marker).exists(), "run in the worktree");
+    assert!(
+        !repo.join(marker).exists(),
+        "not in the repository's folder"
     );
-    assert_eq!(seen_lines[2], ":", "no editor, as with git commit -F");
-    assert_eq!(seen_lines[3], path_of("index"), "the worktree's index");
+    std::fs::remove_file(worktree.join(marker)).unwrap();
+    assert_eq!(seen_lines[1], ":", "no editor, as with git commit -F");
+    assert_eq!(seen_lines[2], path_of("index"), "the worktree's index");
 
     let MessageCheck::Passed(kept) = git_
         .commit_msg_hook(&worktree, "fix: redirect after login\n")
@@ -674,6 +679,7 @@ async fn a_message_goes_through_the_commit_msg_hook_without_a_commit() {
         kept, "fix: redirect after login\nChange-Id: I0123",
         "the hook's rewrite is kept"
     );
+    std::fs::remove_file(worktree.join(marker)).expect("run in the worktree again");
     assert_eq!(
         git(&worktree, &["rev-parse", "HEAD"]),
         head,

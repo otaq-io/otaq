@@ -524,12 +524,12 @@ async fn confirmed(s: &Setup) {
     w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
 }
 
-/// The delivery agent's report isn't taken alone: `pr opened` with nothing pushed leaves the ticket in Needs you with
-/// "The branch isn't on the remote as expected" and what the remote has. The reworded commits stay on the local
-/// branch, and Retry push brings the ticket back to its Push to PR, which only pushes.
+/// The delivery agent's report isn't taken alone: `pr opened` with nothing pushed leaves the ticket in Review, in Needs
+/// you with "The branch isn't on the remote as expected" and what the remote has. The reworded commits stay on the
+/// local branch, and Retry push is Push to PR from Review, which only pushes.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_reported_push_the_remote_does_not_have_needs_you() {
-    use otaq_core::domain::{AutoMergeStop, ValidationAction};
+    use otaq_core::domain::AutoMergeStop;
     let s = setup().await;
     let w = &s.w;
     confirmed(&s).await;
@@ -543,8 +543,15 @@ async fn a_reported_push_the_remote_does_not_have_needs_you() {
         .await;
     assert_eq!(ran.status, 0, "{ran:?}");
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(ticket.status, Status::DeliveryStopped);
-    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::PushNotLanded));
+    // Still in Review, where the user approved it: a push that didn't land isn't the agent's work going wrong.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(
+        ticket.stopped_in_place(),
+        Some(AutoMergeStop::PushNotLanded)
+    );
+    assert!(ticket.shows_needs_you());
+    assert_eq!(ticket.flags.pr_number, Some(7));
     let said = "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has no branch \
                 `feature/SHOP-1-login`";
     assert_eq!(
@@ -570,15 +577,31 @@ async fn a_reported_push_the_remote_does_not_have_needs_you() {
     // Nothing undone: the reworded commits are still the local branch's.
     assert_eq!(commits(&s.repo, "main..feature/SHOP-1-login"), reworded);
 
-    // Retry push: back to the Delivery's click, which is now Push to PR; the push and its report land.
-    let back = w
-        .validation
-        .user_action("SHOP-1", ValidationAction::RetryMerge, "", &me())
-        .await
-        .unwrap();
-    assert_eq!(back.status, Status::WaitingForYou);
-    assert_eq!(back.flags.pr_number, Some(7));
-    assert_eq!(back.auto_merge_stop, None);
+    // Retry push: Approve from Review, which with a PR is Push to PR; confirmed, the push goes again and the stop
+    // clears; the push and its report land.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
+    assert_eq!(flow.kind, otaq_core::pr::flow::FlowKind::Push);
+    let again = commits(&s.repo, "main..feature/SHOP-1-login");
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": again.iter().map(|c| json!({"sha": &c.0, "message": &c.1})).collect::<Vec<_>>(),
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    let pushing = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        pushing.stopped_in_place(),
+        None,
+        "the stop clears as it pushes"
+    );
+    assert_eq!(pushing.status, Status::WaitingForYou);
     git(
         &s.repo,
         &["push", "--quiet", "origin", "feature/SHOP-1-login"],
@@ -612,7 +635,11 @@ async fn a_remote_branch_behind_the_local_one_needs_you() {
         .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
         .await
         .unwrap();
-    assert_eq!(ticket.status, Status::DeliveryStopped);
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert_eq!(
+        ticket.stopped_in_place(),
+        Some(otaq_core::domain::AutoMergeStop::PushNotLanded)
+    );
     assert_eq!(
         ticket.signal.as_ref().and_then(|s| s.text.clone()),
         Some(format!(
@@ -761,10 +788,11 @@ async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
             .is_empty(),
         "the worktree is clean"
     );
-    // On the ticket: its Delivery stopped with the hook, its output and the message; History keeps it.
+    // On the ticket, still in Review: the hook, its output and the message; History keeps it.
     let ticket = w.board.ticket("SHOP-1").await.unwrap();
-    assert_eq!(ticket.status, Status::DeliveryStopped);
-    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
     assert!(!ticket.work.as_ref().unwrap().branch_locked);
     let refused = ticket
         .flags
@@ -787,7 +815,7 @@ async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
     // The user's edits stay to fix it.
     assert_eq!(w.board.edited_message(&s.ticket.id).await.unwrap(), kept);
 
-    // Edit messages and retry: the dialog opens again from the stop; fixed, the PR goes on.
+    // Edit messages and retry: the dialog opens again from Review; fixed, the PR goes on.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
     edits.commits[0].message = "fix: redirect after login".into();
