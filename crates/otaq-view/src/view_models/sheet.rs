@@ -542,7 +542,8 @@ pub struct HookOutput {
     pub name: String,
     /// "Output of your post-checkout hook".
     pub label: String,
-    /// A sentence above the output, for a hook that needs more than its output says; none yet.
+    /// A sentence above the output, for a hook that needs more than its output says: [`terminal_note`] for a hook
+    /// that asks in the terminal.
     pub note: Option<String>,
     pub output: String,
 }
@@ -552,12 +553,22 @@ pub fn hook_output(hook: &otaq_core::git::RefusedHook) -> HookOutput {
     HookOutput {
         name: hook.name.clone(),
         label: format!("Output of your {} hook", hook.name),
-        note: None,
+        note: hook.needs_terminal().then(|| terminal_note(&hook.name)),
         output: match hook.output.trim() {
             "" => "(the hook printed nothing)".to_owned(),
             _ => hook.output.clone(),
         },
     }
+}
+
+/// Above the output of a hook that failed because it asks a question in the terminal: Otaq gives hooks no terminal,
+/// so such a hook can't pass in Otaq, and the user is told what to do instead.
+pub fn terminal_note(hook: &str) -> String {
+    format!(
+        "Your {hook} hook asks a question in the terminal; {} can\u{2019}t answer it. Make the hook skip its question \
+         when there\u{2019}s no terminal, or do this step by hand.",
+        otaq_core::naming::PRODUCT_NAME
+    )
 }
 
 /// What Retry start does, under the callout.

@@ -652,6 +652,33 @@ fn delivery_skills_wait_for_the_pre_push_hook_and_never_bypass_it() {
     }
 }
 
+/// A hook that asks in the terminal can't pass in an agent's session either: the skills that commit and push name it
+/// to the user in the words the ticket's refusal uses, and don't retry it.
+#[test]
+fn skills_name_a_hook_that_asks_in_the_terminal() {
+    let product = naming::PRODUCT_NAME;
+    for (name, hook) in [
+        ("commit", "pre-commit"),
+        ("commit", "pre-push"),
+        ("push", "pre-push"),
+        ("open-pr", "pre-push"),
+    ] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        for needle in [
+            format!("Your {hook} hook asks a question in the"),
+            format!(
+                "{product} can't answer it. Make the hook skip its question when there's no terminal, or do"
+            ),
+            "/dev/tty: No such device or address".to_owned(),
+            "Device not configured".to_owned(),
+            "don't retry".to_owned(),
+        ] {
+            assert!(text.contains(&needle), "{name} must say {needle:?}");
+        }
+    }
+}
+
 /// T-0140 (MSG-03, d0030): answer-question answers only and replies with `answer <ID> --stdin`.
 #[test]
 fn answer_question_changes_nothing_and_ends_with_answer() {

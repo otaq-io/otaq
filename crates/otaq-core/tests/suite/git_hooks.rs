@@ -7,7 +7,7 @@ use std::time::Duration;
 use otaq_core::git::checkpoint::UpdateError;
 use otaq_core::git::merge::{HookChanges, MergeOutcome, MergeRequest};
 use otaq_core::git::testing::{TempRepos, commit, git};
-use otaq_core::git::{Git, GitError, GitStep, GitWatch};
+use otaq_core::git::{Git, GitError, GitStep, GitWatch, RefusedHook};
 
 /// A repository with `main` and a branch `otaq/HOOK-1` one commit ahead, and the folder its hooks are read from.
 fn setup(repos: &TempRepos) -> (PathBuf, PathBuf) {
@@ -502,4 +502,79 @@ fn now_ms() -> i64 {
         .duration_since(std::time::UNIX_EPOCH)
         .unwrap()
         .as_millis() as i64
+}
+
+/// A pre-commit that asks in the terminal fails at once where there is none (Otaq gives hooks no terminal), and its
+/// refusal says it needs one. The test runner may have a terminal of its own (run from a shell): the hook then says
+/// so and the run proves nothing about the terminal, only that a plain refusal isn't taken for one.
+#[tokio::test]
+async fn a_pre_commit_that_asks_in_the_terminal_is_told_as_needing_one() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(
+        &hooks,
+        "pre-commit",
+        "exec < /dev/tty\necho 'a terminal was there' >&2\nexit 1",
+    );
+
+    let err = Git::find()
+        .unwrap()
+        .watched(&GitWatch::new())
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap_err();
+
+    let refusal = err.hook_refusal().expect("a hook refused");
+    assert_eq!(refusal.name(), "pre-commit");
+    let kept = RefusedHook::of(refusal, GitStep::Commit, "the merge");
+    if refusal.output().contains("a terminal was there") {
+        assert!(!refusal.hook.needs_terminal(), "{}", refusal.output());
+        assert!(!kept.needs_terminal());
+    } else {
+        assert!(
+            refusal.output().contains("/dev/tty"),
+            "{}",
+            refusal.output()
+        );
+        assert!(refusal.hook.needs_terminal(), "{}", refusal.output());
+        assert!(kept.needs_terminal(), "{}", kept.output);
+    }
+}
+
+/// The same, whatever the runner has: a hook printing what Git for Windows' sh prints when `/dev/tty` can't be
+/// opened.
+#[tokio::test]
+async fn a_pre_commit_failing_as_git_for_windows_prints_it_is_told_as_needing_a_terminal() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(
+        &hooks,
+        "pre-commit",
+        "echo '.git/hooks/pre-commit: line 2: /dev/tty: No such device or address' >&2\nexit 1",
+    );
+
+    let err = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap_err();
+
+    let refusal = err.hook_refusal().expect("a hook refused");
+    assert!(refusal.hook.needs_terminal(), "{}", refusal.output());
+    assert!(RefusedHook::of(refusal, GitStep::Commit, "the merge").needs_terminal());
+}
+
+#[tokio::test]
+async fn a_plain_refusal_is_not_taken_for_a_hook_needing_a_terminal() {
+    let repos = TempRepos::new();
+    let (repo, hooks) = setup(&repos);
+    hook(&hooks, "pre-commit", "echo 'lint: TODO found' >&2\nexit 1");
+
+    let err = Git::find()
+        .unwrap()
+        .local_merge(&request(&repos, &repo))
+        .await
+        .unwrap_err();
+
+    assert!(!err.hook_refusal().unwrap().hook.needs_terminal());
 }

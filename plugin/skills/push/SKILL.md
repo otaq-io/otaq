@@ -69,7 +69,11 @@ nothing is pushed.
    and report only what git really said; if your shell stopped waiting first, check what reached the remote
    (`git ls-remote origin <branch>` against `git rev-parse HEAD`) before you go on. If a pre-push hook refuses the
    push, never bypass it with `--no-verify`: tell the user what the hook said with `otaq ask human --stdin`, ask how
-   to go on, and end your turn.
+   to go on, and end your turn. When the hook failed because it asks a question in the terminal (it reads from
+   `/dev/tty`: its output says "/dev/tty: No such device or address", "Device not configured" or "cannot open
+   /dev/tty"), nothing can answer it here, so don't retry: start your message with "Your pre-push hook asks a
+   question in the terminal; Otaq can't answer it. Make the hook skip its question when there's no terminal, or do
+   this step by hand." (with the real hook's name).
 
    Use the user's own git credentials as they are; never store, print or ask for a token. If the push is rejected
    (for example because someone else pushed to the PR), don't force it and don't rebase: tell the user what git said
