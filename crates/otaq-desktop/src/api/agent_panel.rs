@@ -13,6 +13,7 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList, WhatChanged};
 use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
+    ProjectAgentUndoneParams,
     ProjectParams, Reply, Request, TicketChoicesParams,
 };
 use otaq_view::view_models::agent_panel::{self as vm, EditedTicket, AgentPanelView};
@@ -497,8 +498,9 @@ pub struct UndoParams {
 
 /// Undo on a CHANGED row (decision 013): takes Noyan's change back on the ticket through the board's own edit
 /// ([`vm::undo_request`]), so History records it as the user's. Only while that part still reads as Noyan left it
-/// ([`vm::still_as_left`]), checked again here: Undo never overwrites a later edit. Afterwards the part no longer reads
-/// as Noyan left it, so the row keeps what it says and loses Undo, as after any other edit of that part.
+/// ([`vm::still_as_left`]), checked again here: Undo never overwrites a later edit. Then the service records the Undo
+/// (`project_agent.undone`), so the row says it was undone ("Undone · SHOP-7 no longer waits for SHOP-6") with no Undo;
+/// a row whose part someone else changed keeps what it says and only loses Undo.
 pub async fn undo(app: &App, params: UndoParams) -> Result<(), RequestError> {
     const TITLE: &str = "Noyan\u{2019}s change wasn\u{2019}t undone";
     let result = async {
@@ -520,7 +522,15 @@ pub async fn undo(app: &App, params: UndoParams) -> Result<(), RequestError> {
         }
         let request = vm::undo_request(&ticket.key, &change.change, choices.as_ref())
             .ok_or_else(|| RequestError::plain("There is nothing to put back"))?;
-        app.service.send(request).await.map(|_| ())
+        app.service.send(request).await?;
+        app.service
+            .send(Request::ProjectAgentUndone(ProjectAgentUndoneParams {
+                id: params.agent.clone(),
+                ticket: params.ticket.clone(),
+                change: change.change.clone(),
+            }))
+            .await
+            .map(|_| ())
     }
     .await;
     if let Err(e) = &result {
@@ -786,14 +796,17 @@ mod tests {
             .find(|e| e.kind == EventKind::DependencyRemoved)
             .unwrap();
         assert!(matches!(removed.actor, Actor::User(_)), "{:?}", removed.actor);
-        // The row stays with what it says, without Undo.
+        // The row stays, says it was undone, and has no Undo.
         let created = created_of(&h.app, "n1").await.unwrap();
-        assert!(
+        let undone = |created: &CreatedAndChanged, key: &str| {
             created
                 .changes
                 .iter()
-                .any(|c| c.ticket.to_string() == *waits && vm::what_changed(&c.change) == row_says)
-        );
+                .find(|c| c.ticket.to_string() == key && vm::what_changed(&c.change) == row_says)
+                .map(|c| c.undone)
+        };
+        assert_eq!(undone(&created, waits), Some(true));
+        assert_eq!(undone(&created, also), Some(false));
         let edited = edited_of(&h.app, &created).await;
         assert!(!undoable(&edited, waits) && undoable(&edited, also));
 
@@ -808,6 +821,9 @@ mod tests {
             .unwrap();
         let edited = edited_of(&h.app, &created).await;
         assert!(!undoable(&edited, also));
+        // Not by Undo: the row keeps what it says.
+        let created = created_of(&h.app, "n1").await.unwrap();
+        assert_eq!(undone(&created, also), Some(false));
         let refused = table(
             &h.app,
             "agent_panel.undo",

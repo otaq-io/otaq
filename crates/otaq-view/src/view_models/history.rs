@@ -1276,7 +1276,9 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     let first_line = |s: String| s.lines().next().unwrap_or_default().to_owned();
     let (title, detail) = match e.kind {
         // The session row stands for a successful start.
-        EventKind::Started | EventKind::AgentEditsSeen => return None,
+        EventKind::Started | EventKind::AgentEditsSeen | EventKind::NoyanChangeUndone => {
+            return None;
+        }
         // Each drawn by `comment_row`.
         EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
             return None;

@@ -82,6 +82,11 @@ pub(super) async fn handle(
             .await
             .map(|c| Reply::CreatedAndChanged(Box::new(c)))
             .map_err(|e| error_body(&e)),
+        Request::ProjectAgentUndone(p) => agents
+            .undone(&p.id, &p.ticket, &p.change, &caller.actor(None))
+            .await
+            .map(|()| Reply::Ok)
+            .map_err(|e| error_body(&e)),
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a Project agent request", other.method()),

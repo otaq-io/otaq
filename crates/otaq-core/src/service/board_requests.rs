@@ -1721,6 +1721,7 @@ pub(super) async fn handle(
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)
         | Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

@@ -305,6 +305,10 @@ function CreatedRow({
   return (
     <div className="agent-panel-created-row" data-edited={row.edited || undefined}>
       <Icon name={row.icon} size={13} />
+      {row.undone !== null && (
+        // An undone change reads "Undone · SHOP-7 no longer waits for SHOP-6".
+        <span className="agent-panel-created-undone">{`${row.undone} ·`}</span>
+      )}
       <button
         type="button"
         className="agent-panel-created-key"
@@ -319,7 +323,7 @@ function CreatedRow({
           // A changed row says what changed ("SHOP-7 · now waits for SHOP-6"), a created one what it was given
           // ("SHOP-16 · waits for SHOP-15"); the title is its tooltip.
           <span className="agent-panel-created-title" title={row.title || undefined}>
-            {`· ${row.change}`}
+            {row.undone !== null ? row.change : `· ${row.change}`}
           </span>
         ) : (
           <span className="agent-panel-created-title">{row.title}</span>
