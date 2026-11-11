@@ -242,8 +242,9 @@ impl CardExtras {
     /// a needs-you ticket (and whether a helper agent asks), or what a ticket works on in the background with how
     /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
     pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
-        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's.
-        let waiting = ticket.as_needs_you();
+        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's. Not a
+        // finished card's answer session's: that card only says it answers.
+        let waiting = ticket.prompt_in_place().and_then(|_| ticket.as_needs_you());
         let ticket = waiting.as_ref().unwrap_or(ticket);
         let Some(signal) = &ticket.signal else {
             return self;
@@ -1645,8 +1646,9 @@ fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
         // A session's prompt shown without changing the ticket's status reads as any Needs you card: the turquoise
-        // edge, the prompt's command and Open. Only the card reads so; the ticket and its actions are as they are.
-        let waiting = ticket.as_needs_you();
+        // edge, the prompt's command and Open. Only the card reads so; the ticket and its actions are as they are. A
+        // finished card answering another ticket's question stays a finished card ([`card_line::words`]).
+        let waiting = ticket.prompt_in_place().and_then(|_| ticket.as_needs_you());
         let ticket = waiting.as_ref().unwrap_or(ticket);
         Self::build(ticket, extras, now_ms, extras.several_tools)
     }
@@ -4700,6 +4702,52 @@ mod tests {
         assert_eq!(status::shown(&t), Status::NeedsYou);
         t.flags.session_prompt = None;
         assert_eq!(card(&t), calm);
+    }
+
+    /// Re-test 6 (NEW-4): SHOP-35, merged and answering SHOP-36's question, read "Merged into main" while its answer
+    /// session waited at a Codex prompt. Its line reads "answering SHOP-36" while the session runs and "Needs you ·
+    /// answering SHOP-36" with the Needs you edge at a prompt; the card stays a finished card (its status, its pill,
+    /// its finished time, no float) and reads as before once the prompt is answered.
+    #[test]
+    fn a_finished_cards_answer_session_reads_answering() {
+        let mut t = ticket("SHOP-35", "Retest6 restack", Status::Merged);
+        t.status_since = Some(NOW - 60_000);
+        let merged = card(&t);
+        let asking: TicketKey = "SHOP-36".parse().unwrap();
+        t.flags.answering = Some(asking.clone());
+        let line_of = |vm: &CardViewModel| vm.one_line.line.as_ref().map(|l| l.text.clone());
+        let running = card(&t);
+        assert_eq!(line_of(&running).as_deref(), Some("answering SHOP-36"));
+        assert_eq!(running.one_line.edge, None);
+        assert_eq!(
+            running.one_line.time, merged.one_line.time,
+            "its finished time"
+        );
+        let answered_card = running.clone();
+
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "answer".into(),
+            prompt: "Run command: git show --stat HEAD".into(),
+            since: NOW - 5_000,
+            turn: otaq_core::domain::PromptTurn::Answering { asking },
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(
+            line_of(&vm).as_deref(),
+            Some("Needs you \u{b7} answering SHOP-36")
+        );
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.one_line.time, merged.one_line.time, "never reads live");
+        assert_eq!(vm.one_line.who, None);
+        assert_eq!(status::shown(&t), Status::Merged, "the pill keeps Merged");
+        assert!(!t.needs_user() && !t.shows_needs_you(), "it doesn't float");
+        assert_eq!(t.prompt_in_place(), None);
+        assert!(t.as_needs_you().is_some(), "its Needs you item reads it");
+
+        t.flags.session_prompt = None;
+        assert_eq!(card(&t), answered_card);
+        t.flags.answering = None;
+        assert_eq!(card(&t), merged);
     }
 
     /// An interrupted question keeps its flag and is answered, not resumed, from the card (d0045).

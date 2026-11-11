@@ -228,6 +228,31 @@ impl SessionInfo {
     }
 }
 
+/// The session a ticket's agent terminal shows, among the ticket's `sessions`: its running agent session, else a
+/// running answer session (a finished ticket's agent started again to answer another ticket's question, reached like
+/// any agent session: the Session tab, `otaq attach`), else its newest agent session.
+pub fn agent_terminal<'a>(
+    sessions: impl IntoIterator<Item = &'a SessionInfo>,
+) -> Option<&'a SessionInfo> {
+    let mut running_answer = None;
+    let mut newest: Option<&SessionInfo> = None;
+    for s in sessions {
+        match s.kind {
+            SessionKind::Agent if s.is_running() => return Some(s),
+            SessionKind::Agent => {
+                if newest.is_none_or(|n| s.started_at >= n.started_at) {
+                    newest = Some(s);
+                }
+            }
+            SessionKind::Answer if s.is_running() && running_answer.is_none() => {
+                running_answer = Some(s);
+            }
+            _ => {}
+        }
+    }
+    running_answer.or(newest)
+}
+
 /// The ticket a session belongs to.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct SessionTicket {

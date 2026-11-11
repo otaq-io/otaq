@@ -3,7 +3,8 @@
 //! confirmed request naming the items, each checked again against a fresh scan first.
 //!
 //! Groups:
-//! - **Sessions**: running sessions whose ticket is gone, finished (Done) or back in Backlog.
+//! - **Sessions**: running sessions whose ticket is gone, finished (Done) or back in Backlog. A finished ticket's running
+//!   answer session (it answers another ticket's question) is in use, and so are its worktree and ports.
 //! - **Worktrees**: folders under `<data>/wt/<repo>/` that no unfinished ticket uses. A helper's worktree (d0133) is in
 //!   use while its ticket is unfinished and its piece isn't merged; one left behind (a crash before its merge, a
 //!   finished ticket's with uncommitted files) is listed under its ticket.
@@ -28,7 +29,7 @@ use crate::data_dir::DataDir;
 use crate::domain::{BuildState, ResourceState, TicketKey};
 use crate::naming;
 use crate::ports::PortPool;
-use crate::session::Sessions;
+use crate::session::{SessionKind, Sessions};
 use crate::store::now_ms;
 use crate::ticket_env::TicketEnv;
 use crate::ticket_env::free::{FREED_IN, FreeOutcome};
@@ -174,6 +175,7 @@ impl Cleanup {
         tickets: &[Ticket],
     ) -> Result<Vec<(PathBuf, WorktreeOwner)>, BoardError> {
         let kept = self.kept_ids().await?;
+        let answering = self.answering();
         let with_worktree: Vec<(PathBuf, &Ticket)> = tickets
             .iter()
             .filter_map(|t| Some((normalized(t.work.as_ref()?.worktree.as_deref()?), t)))
@@ -193,7 +195,10 @@ impl Cleanup {
                     .find(|(at, t)| *at == path && which(t))
                     .map(|(_, t)| (*t).clone())
             };
-            let owner = if let Some(t) = owner(&|t| !t.place.is_done()) {
+            // A finished ticket answering another's question uses its re-made worktree while its answer session runs.
+            let owner = if let Some(t) =
+                owner(&|t| !t.place.is_done() || answering.contains(&t.key))
+            {
                 WorktreeOwner::Ticket(t)
             } else if let Some(t) = owner(&|t| kept.contains(&t.id)) {
                 WorktreeOwner::Kept(t)
@@ -225,8 +230,10 @@ impl Cleanup {
             tickets.extend(self.board.tickets(&project.key).await?);
         }
         let mut items = Vec::new();
+        let answering = self.answering();
 
-        // Sessions of tickets that are gone, done or in Backlog.
+        // Sessions of tickets that are gone, done or in Backlog. A finished ticket's running answer session is in use:
+        // it answers another ticket's question.
         for session in self.sessions.in_memory() {
             if !session.is_running() {
                 continue;
@@ -237,6 +244,7 @@ impl Cleanup {
             let owner = tickets.iter().find(|t| &t.key == key);
             let why = match owner {
                 None => format!("{key} no longer exists"),
+                Some(_) if session.kind == SessionKind::Answer => continue,
                 Some(t) if t.place.is_done() || t.place.is_backlog() => {
                     format!("{key} is {}", t.status.label())
                 }
@@ -361,7 +369,10 @@ impl Cleanup {
                 .into_iter()
                 .chain(work.app_ports.iter().map(|p| p.port))
                 .collect();
-            if ports.is_empty() || !(ticket.place.is_done() || ticket.place.is_backlog()) {
+            if ports.is_empty()
+                || !(ticket.place.is_done() || ticket.place.is_backlog())
+                || answering.contains(&ticket.key)
+            {
                 continue;
             }
             items.push(CleanupItem {
@@ -389,6 +400,9 @@ impl Cleanup {
 
         // Worktrees kept because of uncommitted changes.
         for (ticket, uncommitted) in self.kept_tickets(&tickets).await? {
+            if answering.contains(&ticket.key) {
+                continue;
+            }
             let Some(path) = ticket.work.as_ref().and_then(|w| w.worktree.clone()) else {
                 continue;
             };
@@ -636,6 +650,17 @@ impl Cleanup {
                 format!("can't remove {}: {e}", folder.display()),
             )
         })
+    }
+
+    /// The tickets a running answer session answers for: finished, but in use (their session, worktree and ports)
+    /// until it ends.
+    fn answering(&self) -> HashSet<TicketKey> {
+        self.sessions
+            .in_memory()
+            .into_iter()
+            .filter(|s| s.kind == SessionKind::Answer && s.is_running())
+            .filter_map(|s| s.ticket)
+            .collect()
     }
 
     /// The ids of the tickets whose worktree was kept (REC-05).

@@ -31,7 +31,8 @@ pub(super) async fn handle(
             Ok((Reply::Sessions(list), Then::Continue))
         }
         Request::SessionAttach(p) => {
-            let id = session_id(shared, p.target).await?;
+            // `otaq attach SHOP-35` reaches a finished ticket's running answer session like its agent's.
+            let id = session_id(shared, p.target, true).await?;
             let (attached, answers) = sessions
                 .attach_answering(&id, !p.quiet)
                 .map_err(session_error)?;
@@ -163,7 +164,7 @@ pub(super) async fn handle(
             Ok((Reply::Ok, Then::Continue))
         }
         Request::SessionSendAgain(p) => {
-            let id = session_id(shared, p.target).await?;
+            let id = session_id(shared, p.target, false).await?;
             let delivery = shared
                 .deliveries
                 .send_again(&id, p.clear_first)
@@ -178,7 +179,7 @@ pub(super) async fn handle(
             Ok((Reply::Ok, Then::Continue))
         }
         Request::SessionDeliverNow(p) => {
-            let id = session_id(shared, p.target).await?;
+            let id = session_id(shared, p.target, false).await?;
             let delivery = if p.clear_first {
                 shared.deliveries.clear_and_send(&id, None).await
             } else {
@@ -251,8 +252,15 @@ async fn answered(
 }
 
 /// A session by id, the newest session of a kind (agent by default) of a ticket by key or the one running its stage
-/// (FLW-20), or a project's Project terminal.
-async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, ErrorBody> {
+/// (FLW-20), or a project's Project terminal. `reach_answer`: a ticket's agent session asked for by key alone is its
+/// running answer session while no agent session of it runs (a finished ticket answering another's question); notes
+/// and hand-offs (`reach_answer` false) go to the agent session only.
+async fn session_id(
+    shared: &Shared,
+    target: SessionTarget,
+    reach_answer: bool,
+) -> Result<String, ErrorBody> {
+    let plain_agent = target.kind.is_none() && target.stage.is_none();
     let mut kind = target.kind.unwrap_or(SessionKind::Agent);
     match (target.session, target.key, target.project) {
         (Some(id), _, _) => Ok(id),
@@ -283,6 +291,16 @@ async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, Er
                 }
             }
             let ticket = ticket(shared, &key).await?;
+            if reach_answer
+                && plain_agent
+                && shared
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Agent)
+                    .is_none()
+                && let Some(answer) = shared.sessions.running_of(&ticket.id, SessionKind::Answer)
+            {
+                return Ok(answer.id);
+            }
             shared
                 .sessions
                 .latest_of(&ticket.id, kind)

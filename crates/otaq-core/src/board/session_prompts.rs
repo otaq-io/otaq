@@ -7,14 +7,15 @@
 //! in a turn the user is to be brought to while the ticket waits where it is becomes the ticket's
 //! [`crate::domain::SessionPrompt`]: a ticket's session prompt, shown without changing its status
 //! ([`shown_without_status`]). The message writer's prompt never does: Review stays calm and the Approve dialogs say
-//! so.
+//! so. A finished ticket's answer session's prompt does, as answering the asker's question: its own Needs you item,
+//! and "Needs you · answering SHOP-36" on the card, which stays in Done.
 //!
 //! In memory, like the open prompts: a session that ends takes its prompt with it, and a restart shows none.
 
 use std::collections::HashMap;
 use std::sync::{Arc, Mutex};
 
-use crate::domain::{PromptTurn, Status};
+use crate::domain::{PromptTurn, Status, StatusSet, TicketKey};
 use crate::pr::flow::{FlowKind, FlowState};
 use crate::session::SessionKind;
 use crate::store::now_ms;
@@ -105,11 +106,23 @@ pub struct FlowUnderWay {
 /// (an automatic PR) brings the user to its prompt: nothing else would, and the agent waits until someone looks. The
 /// message writer's turn doesn't: it runs while Review waits with no PR flow, or while a clicked Open PR's dialog
 /// shows its proposal before the confirm, and its prompt is met in the Approve dialogs.
+///
+/// A finished ticket's answer session, answering `asking`'s question, brings the user to its prompt too: nothing else
+/// would, and the question waits until someone answers it. The ticket stays finished.
 pub fn shown_without_status(
     status: Status,
     kind: SessionKind,
     flow: Option<FlowUnderWay>,
+    asking: Option<&TicketKey>,
 ) -> Option<PromptTurn> {
+    if kind == SessionKind::Answer {
+        let finished = status.set() == StatusSet::Done || status == Status::MergedInto;
+        return asking
+            .filter(|_| finished)
+            .map(|asking| PromptTurn::Answering {
+                asking: asking.clone(),
+            });
+    }
     if !matches!(kind, SessionKind::Agent | SessionKind::Delivery)
         || !matches!(
             status,
@@ -142,6 +155,57 @@ mod tests {
         })
     }
 
+    /// [`shown_without_status`] for a ticket no answer session answers for.
+    fn no_question(
+        status: Status,
+        kind: SessionKind,
+        flow: Option<FlowUnderWay>,
+    ) -> Option<PromptTurn> {
+        shown_without_status(status, kind, flow, None)
+    }
+
+    /// Re-test 6: a finished ticket's answer session stopped at a Codex prompt that showed nowhere. It reads Needs you
+    /// as answering the asker's question while the ticket is finished (Done, or merged into a parent); an answer
+    /// session with no open question (already answered) or of a ticket that isn't finished doesn't, nor does the
+    /// finished ticket's other sessions.
+    #[test]
+    fn a_finished_tickets_answer_session_reads_answering() {
+        let asking: TicketKey = "SHOP-36".parse().unwrap();
+        let answering = Some(PromptTurn::Answering {
+            asking: asking.clone(),
+        });
+        for status in [Status::Merged, Status::ClosedNotMerged, Status::MergedInto] {
+            assert_eq!(
+                shown_without_status(status, SessionKind::Answer, None, Some(&asking)),
+                answering,
+                "{status:?}"
+            );
+            assert_eq!(
+                shown_without_status(status, SessionKind::Answer, None, None),
+                None,
+                "no open question, {status:?}"
+            );
+            assert_eq!(
+                shown_without_status(status, SessionKind::Agent, None, Some(&asking)),
+                None,
+                "another session, {status:?}"
+            );
+        }
+        assert_eq!(
+            shown_without_status(
+                Status::WaitingForYou,
+                SessionKind::Answer,
+                None,
+                Some(&asking)
+            ),
+            None
+        );
+        assert_eq!(
+            answering.as_ref().and_then(PromptTurn::asking),
+            Some(&asking)
+        );
+    }
+
     /// Push to PR, its Retry and an automatic PR read Needs you at every step of their flow; a clicked Open PR only
     /// once confirmed; the message writer (no flow, or an Open PR's dialog before the confirm) never.
     #[test]
@@ -152,12 +216,12 @@ mod tests {
         let agent = SessionKind::Agent;
         for state in [Preparing, Proposed, Pushing] {
             assert_eq!(
-                shown_without_status(review, agent, flow(Push, state, false)),
+                no_question(review, agent, flow(Push, state, false)),
                 Some(PromptTurn::PushToPr),
                 "{state:?}"
             );
             assert_eq!(
-                shown_without_status(
+                no_question(
                     Status::ToDeliver,
                     SessionKind::Delivery,
                     flow(Open, state, true)
@@ -167,21 +231,17 @@ mod tests {
             );
         }
         assert_eq!(
-            shown_without_status(review, agent, flow(Open, Pushing, false)),
+            no_question(review, agent, flow(Open, Pushing, false)),
             Some(PromptTurn::OpenPr)
         );
         for state in [Preparing, Proposed] {
             assert_eq!(
-                shown_without_status(review, agent, flow(Open, state, false)),
+                no_question(review, agent, flow(Open, state, false)),
                 None,
                 "the writer, {state:?}"
             );
         }
-        assert_eq!(
-            shown_without_status(review, agent, None),
-            None,
-            "the writer"
-        );
+        assert_eq!(no_question(review, agent, None), None, "the writer");
     }
 
     /// Only a ticket waiting where it is, and only its agent's or delivery's session: a working ticket's prompt reads
@@ -189,14 +249,8 @@ mod tests {
     #[test]
     fn only_a_waiting_tickets_agent_or_delivery_session() {
         let push = flow(FlowKind::Push, FlowState::Preparing, false);
-        assert_eq!(
-            shown_without_status(Status::Working, SessionKind::Agent, push),
-            None
-        );
-        assert_eq!(
-            shown_without_status(Status::Merged, SessionKind::Agent, push),
-            None
-        );
+        assert_eq!(no_question(Status::Working, SessionKind::Agent, push), None);
+        assert_eq!(no_question(Status::Merged, SessionKind::Agent, push), None);
         for kind in [
             SessionKind::Validator,
             SessionKind::Helper,
@@ -204,7 +258,7 @@ mod tests {
             SessionKind::Shell,
         ] {
             assert_eq!(
-                shown_without_status(Status::WaitingForYou, kind, push),
+                no_question(Status::WaitingForYou, kind, push),
                 None,
                 "{kind:?}"
             );

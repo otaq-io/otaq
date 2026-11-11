@@ -128,20 +128,34 @@ pub enum PromptTurn {
     OpenPr,
     /// The Push skill: Push to PR, its Retry, or an automatic PR's push to an open PR.
     PushToPr,
+    /// A finished ticket's agent started again to answer `asking`'s question (an answer session). Unlike the delivery
+    /// turns, only the finished card's line ("Needs you · answering SHOP-36"), the Needs you item, its notification
+    /// and the sheet's prompt read it: the card stays in Done with its status, and neither floats nor reads live.
+    Answering { asking: TicketKey },
 }
 
 impl PromptTurn {
-    /// "Open PR", "Push to PR".
+    /// "Open PR", "Push to PR", "Answering".
     pub fn label(&self) -> &'static str {
         match self {
             Self::OpenPr => "Open PR",
             Self::PushToPr => "Push to PR",
+            Self::Answering { .. } => "Answering",
+        }
+    }
+
+    /// The ticket whose question an answer session's prompt holds up; `None` for a delivery turn.
+    pub fn asking(&self) -> Option<&TicketKey> {
+        match self {
+            Self::Answering { asking } => Some(asking),
+            Self::OpenPr | Self::PushToPr => None,
         }
     }
 }
 
 /// A ticket's session prompt, shown without changing its status: the permission prompt on the screen of one of the
-/// ticket's own sessions while the ticket waits where it is (in Review, To deliver). The card, the pill, the strip and
+/// ticket's own sessions while the ticket waits where it is (in Review, To deliver), or while a finished ticket answers
+/// another's question ([`PromptTurn::Answering`]). The card, the pill, the strip and
 /// the notifications read Needs you naming it, as for any prompt, but the ticket keeps its column and its status, so
 /// every action on it stays as it was; once the prompt is answered it reads as before. Kept in memory
 /// ([`crate::board::session_prompts`]); a restart shows none. Not a flag of its own.
