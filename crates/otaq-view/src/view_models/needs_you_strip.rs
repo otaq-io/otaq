@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::view_models::flow_board::tooltip_text;
 use crate::view_models::session_tab;
 use crate::view_models::sheet::Content;
 
@@ -545,7 +546,12 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         reason,
         icon,
         tone,
-        title: format!("{} {} \u{b7} {}", item.key, item.title, item.reason),
+        title: format!(
+            "{} {} \u{b7} {}",
+            item.key,
+            item.title,
+            tooltip_text(&item.reason)
+        ),
         target,
         asks: asks_popover(item),
         agent_asks: None,
@@ -562,7 +568,7 @@ pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         reason: reason.to_owned(),
         icon: IconName::Bot,
         tone: Tone::Investigate,
-        title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
+        title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, tooltip_text(&a.reason)),
         target,
         asks: None,
         agent_asks: a
@@ -889,6 +895,49 @@ mod tests {
         t.stopped = None;
         let chip = ticket_chip(&t, target).unwrap();
         assert_eq!((chip.reason.as_str(), chip.tone), ("idle", Tone::Attn));
+    }
+
+    /// A long waiting prompt (a whole SKILL.md written in one command) is cut with "…" in the chip's hover, as Edit
+    /// flow's Needs you line cuts it; a short one shows whole.
+    #[test]
+    fn a_chips_hover_caps_a_long_prompt_like_edit_flows() {
+        let long = format!(
+            "permission: Run command: {}",
+            "line of the skill ".repeat(200)
+        );
+        let t = ticket("SHOP-31", "Retest4", Status::NeedsYou, &long);
+        let title = ticket_chip(&t, item(t.clone()).target()).unwrap().title;
+        let lead = "SHOP-31 Retest4 \u{b7} ";
+        assert!(title.starts_with(lead), "{title}");
+        assert!(title.ends_with('\u{2026}'), "{title}");
+        assert_eq!(
+            title.chars().count(),
+            lead.chars().count() + tooltip_text(&long).chars().count()
+        );
+        assert!(
+            title.chars().count() <= lead.chars().count() + 601,
+            "{title}"
+        );
+
+        let mut a = agent();
+        a.status = Status::NeedsYou;
+        a.reason = long.clone();
+        let title = agent_chip(&a, item(t).target()).title;
+        assert!(title.ends_with('\u{2026}'), "{title}");
+        assert!(title.chars().count() < 700, "{title}");
+
+        let short = ticket(
+            "SHOP-22",
+            "Fix flaky login",
+            Status::NeedsYou,
+            "permission: x",
+        );
+        assert_eq!(
+            ticket_chip(&short, item(short.clone()).target())
+                .unwrap()
+                .title,
+            "SHOP-22 Fix flaky login \u{b7} permission: x"
+        );
     }
 
     /// OTQ-9: an open question (no options) is a free-text box; a permission prompt has no popover.

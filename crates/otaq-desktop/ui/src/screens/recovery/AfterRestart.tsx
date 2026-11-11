@@ -4,8 +4,8 @@
 // the service hasn't checked yet says "Checking Codex…" until the check answers, then updates. A row whose tool is
 // signed out has Sign in…, the same sign-in as Settings → Agents in a short terminal under the row; once it works the
 // tools change, the dialog is drawn again and the row is ticked ("Resume 2" → "Resume 3"). Resume 3
-// resumes the ticked rows; each row then says what its Resume did (resumed, or couldn't, with Retry and Start from
-// scratch). Not now (or Esc) closes it: the stopped tickets wait in Needs you, red with Resume. Nothing resumes without
+// resumes the ticked rows and, once every one of them resumed, closes; when one couldn't, the dialog stays and each row
+// says what its Resume did (resumed, or couldn't, with Retry and Start from scratch). Not now (or Esc) closes it: the stopped tickets wait in Needs you, red with Resume. Nothing resumes without
 // a click. What it says is `recovery.summary`'s (`after_restart.rs`).
 import { useCallback, useEffect, useRef, useState } from "react";
 
@@ -23,7 +23,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { RowTerminal, type RowTerminals, useRowTerminals } from "../onboarding/RowTerminal";
 import { agentStillOffered } from "../settings/AgentTools";
-import { setUnchecked } from "./logic";
+import { closesAfterResume, setUnchecked } from "./logic";
 
 export interface SummaryBodyProps {
   view: AfterRestartSummary;
@@ -197,6 +197,9 @@ export function AfterRestart({ close }: OverlayProps<"after_restart">) {
     setResuming((r) => new Set([...r, ...ids]));
     const params: RecoveryResumeParams = { keys: view.selected, agents: view.selected_agents };
     request("recovery.resume", params)
+      .then((resumed) => {
+        if (closesAfterResume(ids.length, resumed)) close();
+      })
       .catch(() => undefined)
       .finally(() => {
         setResuming((r) => {
