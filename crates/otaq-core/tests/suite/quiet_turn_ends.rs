@@ -13,7 +13,7 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::Status;
-use otaq_core::protocol::{InputParams, Request, encode_bytes};
+use otaq_core::protocol::{Event, InputParams, Request, encode_bytes};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
@@ -637,6 +637,111 @@ async fn y_at_a_codex_helpers_prompt_answers_it() {
         assert_eq!(prompt_of(piece).await, None, "{tool:?}: answered");
         assert_eq!(card(&w).await.0, Status::Working, "{tool:?}");
     }
+    w.stop().await;
+}
+
+/// The events the app was sent since the last call: the ticket changes (by key) and the card statuses.
+fn sent(events: &mut tokio::sync::broadcast::Receiver<Event>) -> (Vec<String>, Vec<Status>) {
+    let (mut changed, mut statuses) = (Vec::new(), Vec::new());
+    while let Ok(event) = events.try_recv() {
+        match event {
+            Event::TicketChanged { key, .. } => changed.push(key.to_string()),
+            Event::CardStatusChanged { status, .. } => statuses.push(status),
+            _ => {}
+        }
+    }
+    (changed, statuses)
+}
+
+/// A checker's Codex prompt reads Needs you at once (re-test 3: the card and the sheet read "Checking" for about 30 s
+/// while the prompt was drawn, until something else about the ticket changed): the app is told the moment its hook
+/// comes, and again when "y" makes it Validating… while the approved command runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checkers_codex_prompt_tells_the_app_at_once() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let ticket = w.create("SHOP", "Coupon field").await;
+    let key = ticket.key.to_string();
+    let validator = sh_of_kind(&w, &ticket, SessionKind::Validator, Tool::Codex).await;
+    w.validating_with(&ticket, &validator).await;
+    let mut events = w.events.subscribe();
+
+    w.validation
+        .validator_signal(&ticket.id, &validator, &permission_prompt())
+        .await
+        .unwrap();
+    assert_eq!(w.status(&key).await, Status::CheckerNeedsYou);
+    let (changed, statuses) = sent(&mut events);
+    assert!(changed.contains(&key), "the prompt: {changed:?}");
+    assert_eq!(statuses, [Status::CheckerNeedsYou]);
+
+    key_in(&client, &validator, b"y").await;
+    assert_eq!(w.status(&key).await, Status::Checking);
+    let (changed, statuses) = sent(&mut events);
+    assert!(changed.contains(&key), "the answer: {changed:?}");
+    assert_eq!(statuses, [Status::Checking]);
+    w.stop().await;
+}
+
+/// A helper's Codex prompt shows on its row at once while the ticket already shows another prompt (the agent in
+/// charge's own, which it keeps), and its row reads working again at once after "y" (re-test 3: the row read
+/// "working" for 4–14 s with the prompt drawn, and "needs you" for seconds after the answer, until something else
+/// about the ticket changed).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helpers_codex_prompt_tells_the_app_at_once_behind_another_prompt() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let in_charge = sh_on(&w, &ticket, Tool::Codex).await;
+    let own = ToolEvent::NeedsYou {
+        prompt: "Run command: git status".into(),
+        helper_agent: false,
+    };
+    event(&w, &in_charge, Tool::Codex, own).await;
+    assert_eq!(
+        card(&w).await,
+        (Status::NeedsYou, Some("Run command: git status".into()))
+    );
+    let session = sh_of_kind(&w, &ticket, SessionKind::Helper, Tool::Codex).await;
+    sqlx::query(
+        "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, session_id, status, started_at,
+                              updated_at)
+         VALUES ('helper-1', ?, 1, 'A piece', 'otaq/SHOP-1.1', '/nonexistent', ?, 'working', 1, 1)",
+    )
+    .bind(&ticket.id)
+    .bind(&session)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let helper = Caller::Helper {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    let prompt_of_helper = async || {
+        w.helpers.of_ticket(&ticket.id).await.unwrap()[0]
+            .prompt
+            .clone()
+    };
+    let mut events = w.events.subscribe();
+
+    w.helpers
+        .after_signals(&helper, &[permission_prompt()])
+        .await
+        .unwrap();
+    assert_eq!(
+        prompt_of_helper().await.as_deref(),
+        Some("Run command: npm test")
+    );
+    assert_eq!(
+        card(&w).await,
+        (Status::NeedsYou, Some("Run command: git status".into())),
+        "the agent in charge's prompt still shows on the card"
+    );
+    assert_eq!(sent(&mut events).0, ["SHOP-1"], "the helper's prompt");
+
+    key_in(&client, &session, b"y").await;
+    assert_eq!(prompt_of_helper().await, None);
+    assert_eq!(sent(&mut events).0, ["SHOP-1"], "the helper's answer");
     w.stop().await;
 }
 
