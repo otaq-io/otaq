@@ -304,6 +304,8 @@ struct Inner {
     adapters: crate::agent_tools::Adapters,
     /// One routing pass at a time.
     routing: tokio::sync::Mutex<()>,
+    /// The answer sessions whose current turn started (a turn end before that isn't one).
+    answer_turns: std::sync::Mutex<std::collections::HashSet<String>>,
 }
 
 impl Messages {
@@ -324,6 +326,7 @@ impl Messages {
                 data,
                 adapters,
                 routing: tokio::sync::Mutex::new(()),
+                answer_turns: std::sync::Mutex::default(),
             }),
         }
     }

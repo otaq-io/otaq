@@ -44,8 +44,10 @@ pub struct Thread {
     pub asked_at: i64,
     pub question: Line,
     pub answer: Option<Line>,
-    /// A question sent to the user (Needs you): answered here (the only thing the section lets the user do).
+    /// A question sent to the user (Needs you): answered here.
     pub answerable: bool,
+    /// "Resume SHOP-41" on a question sent to the user: the finished ticket answers it after all.
+    pub resume: Option<String>,
 }
 
 /// "Messages · 1 thread · linked tickets only".
@@ -94,6 +96,7 @@ pub fn all_threads(
             tone: Tone::Done,
         }),
         answerable: false,
+        resume: None,
     }));
     out.sort_by_key(|t| t.asked_at);
     out
@@ -102,6 +105,15 @@ pub fn all_threads(
 fn thread(m: &Message, now: i64) -> Thread {
     let state = m.state();
     let (status, icon, tone) = match (state, m.route) {
+        // Its answer session ended without the answer: it was resumed once (delivered), then sent to the user.
+        (MessageState::NeedsYou, _) if m.delivered_at.is_some() => (
+            format!(
+                "Sent to you \u{b7} {}\u{2019}s answer session ended without answering",
+                m.to
+            ),
+            IconName::Inbox,
+            Tone::Attention,
+        ),
         (MessageState::NeedsYou, _) => (
             format!(
                 "Sent to you \u{b7} {} doesn\u{2019}t answer while it\u{2019}s finished",
@@ -170,6 +182,7 @@ fn thread(m: &Message, now: i64) -> Thread {
         },
         answer,
         answerable: state == MessageState::NeedsYou,
+        resume: (state == MessageState::NeedsYou).then(|| format!("Resume {}", m.to)),
     }
 }
 
@@ -239,6 +252,24 @@ mod tests {
         assert_eq!(t.question.tone, Tone::Attention);
         assert_eq!(t.question.icon, IconName::Inbox);
         assert!(t.answerable);
+        assert_eq!(t.resume.as_deref(), Some("Resume SHOP-41"));
+        assert!(
+            t.question
+                .status
+                .ends_with("doesn\u{2019}t answer while it\u{2019}s finished")
+        );
+
+        // Its answer session ended without the answer: sent to the user after it was resumed once.
+        let mut ended = message(Some(Route::NeedsYou));
+        ended.delivered_at = Some(1);
+        let t = &threads(&[ended], 0)[0];
+        assert_eq!(
+            t.question.status,
+            "Sent to you \u{b7} SHOP-41\u{2019}s answer session ended without answering"
+        );
+        assert!(t.answerable);
+        assert_eq!(t.resume.as_deref(), Some("Resume SHOP-41"));
+        assert_eq!(threads(&[live.clone()], 0)[0].resume, None);
 
         // Answered but not delivered yet: the asker still waits (MSG-06).
         live.answer = Some("By price.".into());

@@ -5,4 +5,8 @@ export type MessageThreadView = { id: string, question: MessageLineView, answer:
 /**
  * Sent to the user (Needs you): answered here.
  */
-answerable: boolean, };
+answerable: boolean, 
+/**
+ * "Resume SHOP-41" on a question sent to the user: the finished ticket answers it after all.
+ */
+resume: string | null, };

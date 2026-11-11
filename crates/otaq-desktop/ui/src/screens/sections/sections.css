@@ -180,7 +180,8 @@
   color: var(--st-attn);
 }
 
-.message-reply {
+.message-reply,
+.message-actions {
   display: flex;
   gap: 8px;
 }
