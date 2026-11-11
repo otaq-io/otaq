@@ -11,9 +11,12 @@ use crate::theme::{Palette, Status as Legend};
 /// The status a ticket shows: a Delivery stop that kept the ticket where it was (a hook's refusal, a push that didn't
 /// land) shows as any Delivery stop, Needs you; otherwise its own status. A focused terminal changes nothing here:
 /// being in the agent's terminal holds back only the alert, so a waiting agent reads Needs you on the card like the
-/// sheet's pill.
+/// sheet's pill. A session's permission prompt shown without changing the ticket's status (a delivery skill's, in
+/// Review) reads Needs you, as any prompt.
 pub fn shown(ticket: &otaq_core::board::tickets::Ticket) -> Core {
-    if ticket.stopped_in_place().is_some() {
+    if ticket.session_prompt().is_some() {
+        Core::NeedsYou
+    } else if ticket.stopped_in_place().is_some() {
         Core::DeliveryStopped
     } else {
         ticket.status

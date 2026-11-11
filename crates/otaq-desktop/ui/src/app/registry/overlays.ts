@@ -33,6 +33,8 @@ export interface Confirmation {
   /** A third button before Cancel; it closes the dialog, then runs (the leave question's Discard changes, Q415). */
   extra?: { label: string; onClick: () => unknown };
   onConfirm: () => unknown;
+  /** Runs after Cancel (or Esc) closed it. */
+  onCancel?: () => unknown;
 }
 
 /** Each overlay id with what it is opened with (`undefined`: nothing). */

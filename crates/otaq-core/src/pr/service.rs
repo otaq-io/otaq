@@ -57,6 +57,9 @@ pub enum PrOutcome {
         ticket: TicketKey,
         #[serde(default)]
         unclearable_by: Option<String>,
+        /// It isn't text: the session waits at this permission prompt, answered in its terminal first.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back (REV-08).
     RefusedUncommitted { files: Vec<String>, message: String },
@@ -862,6 +865,16 @@ impl Prs {
         if clear_first {
             return Ok(None);
         }
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if let Some(session) = live
+            && let Some(prompt) = self.inner.board.session_prompts().on_screen(&session.id)
+        {
+            return Ok(Some(PrOutcome::NeedsConfirmation {
+                ticket: ticket.key.clone(),
+                unclearable_by: None,
+                prompt: Some(prompt),
+            }));
+        }
         if let Some(session) = live
             && self
                 .inner
@@ -876,6 +889,7 @@ impl Prs {
                     .deliveries
                     .unclearable_by(&session.id)
                     .map_err(other)?,
+                prompt: None,
             }));
         }
         Ok(None)

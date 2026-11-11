@@ -49,7 +49,10 @@ function ConfirmOverlay({ params, close }: OverlayProps<"confirm">) {
         close();
         void params.onConfirm();
       }}
-      onCancel={close}
+      onCancel={() => {
+        close();
+        void params.onCancel?.();
+      }}
     />
   );
 }

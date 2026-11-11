@@ -378,6 +378,9 @@ pub struct UnsentPrompt {
     pub click: Click,
     /// The text is a multi-line draft this tool can't clear ("Codex"): only Keep it and cancel (SES-07, Q-N).
     pub unclearable_by: Option<String>,
+    /// It isn't text: the agent waits at this permission prompt, which a clear would answer. The question says so and
+    /// offers only Keep it and cancel: the prompt is answered in the terminal first.
+    pub prompt: Option<String>,
 }
 
 /// The user's click that stopped at the unsent-text question (SES-07, d0048).
@@ -416,6 +419,7 @@ impl UnsentPrompt {
             sending,
             click,
             unclearable_by: None,
+            prompt: None,
         }
     }
 
@@ -431,6 +435,7 @@ impl UnsentPrompt {
             sending,
             click: Click::DeliverNow,
             unclearable_by: None,
+            prompt: None,
         }
     }
 
@@ -440,19 +445,31 @@ impl UnsentPrompt {
         self
     }
 
-    /// Whether "Clear it and send" is offered.
+    /// The same question over the permission prompt the agent waits at, when it is one.
+    pub fn over_prompt(mut self, prompt: Option<String>) -> Self {
+        self.prompt = prompt;
+        self
+    }
+
+    /// Whether "Clear it and send" is offered: never over a permission prompt, which a clear would answer.
     pub fn can_clear(&self) -> bool {
-        self.unclearable_by.is_none()
+        self.unclearable_by.is_none() && self.prompt.is_none()
     }
 
     /// Why only Keep it and cancel is offered: "Codex can't clear a multi-line draft. Clear it in the terminal, then
-    /// send again."
+    /// send again.", or the prompt the agent waits at.
     pub fn note(&self) -> Option<String> {
-        self.unclearable_by.as_deref().map(unclearable_note)
+        match &self.prompt {
+            Some(prompt) => Some(prompt_note(prompt)),
+            None => self.unclearable_by.as_deref().map(unclearable_note),
+        }
     }
 
     pub fn title(&self) -> String {
-        format!("{} has unsent text in its terminal", self.ticket)
+        match self.prompt {
+            Some(_) => prompt_title(&self.ticket),
+            None => format!("{} has unsent text in its terminal", self.ticket),
+        }
     }
 
     /// What the two choices do (also the Project agent's question, which has no ticket).
@@ -470,6 +487,23 @@ pub fn unclearable_note(tool: &str) -> String {
     format!(
         "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
     )
+}
+
+/// "A permission prompt is waiting in SHOP-35's terminal": the title of the question asked instead of the unsent-text
+/// one when the agent waits at a prompt.
+pub fn prompt_title(ticket: &TicketKey) -> String {
+    format!("A permission prompt is waiting in {ticket}\u{2019}s terminal")
+}
+
+/// "The agent wants to run `git push origin otaq/SHOP-35`. Answer it in its terminal, then try again; nothing was
+/// sent.": the body over a permission prompt, its command on one line.
+pub fn prompt_note(prompt: &str) -> String {
+    let line = otaq_core::signals::prompt_line(prompt);
+    let wants = match line.strip_prefix("Run command: ") {
+        Some(command) => format!("The agent wants to run `{}`.", command.trim()),
+        None => format!("The agent asks: {}.", line.trim().trim_end_matches('.')),
+    };
+    format!("{wants} Answer it in its terminal, then try again; nothing was sent.")
 }
 
 /// The user's answer to the prompt.
@@ -764,6 +798,38 @@ mod tests {
             Some(
                 "Codex can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
             )
+        );
+    }
+
+    /// Re-test 6 (NEW-6): Send back over an open Codex prompt said "unsent text in its terminal" over an empty line. It
+    /// says a permission prompt waits, names the command and offers only Keep it and cancel: a clear would answer it.
+    #[test]
+    fn a_click_over_a_permission_prompt_names_the_prompt() {
+        let prompt = UnsentPrompt::for_click(
+            key(),
+            None,
+            "The note".into(),
+            Click::SendBack {
+                note: "Keep the old URL".into(),
+            },
+        )
+        .over_prompt(Some("Run command: git push origin main".into()));
+        assert_eq!(
+            prompt.title(),
+            "A permission prompt is waiting in SHOP-23\u{2019}s terminal"
+        );
+        assert!(!prompt.can_clear());
+        assert_eq!(
+            prompt.note().as_deref(),
+            Some(
+                "The agent wants to run `git push origin main`. Answer it in its terminal, then try again; nothing \
+                 was sent."
+            )
+        );
+        assert_eq!(
+            prompt_note("Claude needs your permission to use Bash"),
+            "The agent asks: Claude needs your permission to use Bash. Answer it in its terminal, then try again; \
+             nothing was sent."
         );
     }
 

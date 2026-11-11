@@ -49,6 +49,7 @@ const VIEW: PrDialogView = {
   prepared: null,
   writing: null,
   asks: null,
+  waits: null,
   set_up: null,
   merge_instead: null,
   filled: 1,

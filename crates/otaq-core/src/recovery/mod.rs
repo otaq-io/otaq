@@ -849,6 +849,7 @@ impl Recovery {
             };
             match event {
                 Ok(Event::SessionState { session }) if !session.is_running() => {
+                    self.prompt_gone_with(&session);
                     if let Err(e) = self.agent_session_ended(&session).await {
                         tracing::warn!(session = session.id, error = %e, "can't record an agent's exit");
                     }
@@ -870,6 +871,19 @@ impl Recovery {
                 }
                 Err(broadcast::error::RecvError::Closed) => return,
             }
+        }
+    }
+
+    /// A ticket's session that ended takes the prompt on its screen with it: its ticket reads as before.
+    fn prompt_gone_with(&self, session: &SessionInfo) {
+        if let Some(ticket_id) = self.inner.board.session_prompts().gone(&session.id)
+            && let Some(key) = &session.ticket
+        {
+            self.inner.events.publish(Event::TicketChanged {
+                project: key.project.to_string(),
+                id: ticket_id,
+                key: key.clone(),
+            });
         }
     }
 

@@ -2008,6 +2008,7 @@ async fn send_back_on_request(
         Ok(ReturnOutcome::NeedsConfirmation {
             ticket: asked_ticket,
             unclearable_by,
+            ..
         }) => {
             undo().await;
             Ok(Delivery::NeedsConfirmation {

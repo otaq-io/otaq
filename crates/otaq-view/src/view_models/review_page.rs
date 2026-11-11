@@ -232,6 +232,15 @@ impl WriterAsks {
             terminal_title: format!("{agent} \u{b7} {key}\u{2019}s message"),
         }
     }
+
+    /// Answer in terminal for another session's prompt, its terminal titled `terminal_title`.
+    pub fn in_session(session: &str, terminal_title: String) -> Self {
+        Self {
+            session: session.to_owned(),
+            answer: ANSWER_IN_TERMINAL,
+            terminal_title,
+        }
+    }
 }
 
 /// "Strong is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready unless

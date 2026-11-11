@@ -131,6 +131,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
         ReturnOutcome::NeedsConfirmation {
             ticket: t.key.clone(),
             unclearable_by: None,
+            prompt: None,
         }
     );
     assert_eq!(world.status("SHOP-1").await, Status::WaitingForYou);

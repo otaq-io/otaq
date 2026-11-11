@@ -22,7 +22,9 @@
 //! For a ticket's own sessions (its agent, the delivery's message writer, a finished ticket's answer session) the one on
 //! screen shows whatever the ticket's status: the message writer works while the ticket waits in Review, where its
 //! prompt must not move the card, so Approve's dialogs ask here whether the writer waits for permission. A change tells
-//! clients the ticket changed, so an open dialog asks again.
+//! clients the ticket changed, so an open dialog asks again. The one on screen is mirrored into the board
+//! ([`crate::board::session_prompts`]): a session's header reads "Waiting for you" over it, and one in a delivery skill
+//! turn reads Needs you while the ticket keeps its status.
 
 use std::future::Future;
 use std::pin::Pin;
@@ -227,6 +229,7 @@ impl Signals {
                     let signal = entry.asked(&prompt, &dialog, screen);
                     (signal, entry.wants_look() && !entry.looking)
                 };
+                self.mirror(session);
                 if look {
                     self.look_soon(session);
                 }
@@ -236,7 +239,39 @@ impl Signals {
             Signal::Ignored => (signal, false),
             other => {
                 let closed = self.inner.asks.lock().expect("asks").remove(session);
+                self.mirror(session);
                 (other, closed.is_some_and(|p| p.shown.is_some()))
+            }
+        }
+    }
+
+    /// Mirrors the prompt on `session`'s screen into the board when the session is one of a ticket's own (its agent's,
+    /// its delivery's, an answer session), where the ticket reads it as it loads ([`crate::board::session_prompts`]).
+    fn mirror(&self, session: &str) {
+        let shown = self
+            .inner
+            .asks
+            .lock()
+            .expect("asks")
+            .get(session)
+            .and_then(|p| match (&p.caller, &p.shown) {
+                (Caller::Agent { ticket_id, .. }, Some(shown)) => {
+                    Some((ticket_id.clone(), shown.clone()))
+                }
+                _ => None,
+            });
+        let prompts = self.inner.board.session_prompts();
+        match shown {
+            Some((ticket_id, prompt)) => {
+                let kind = self
+                    .inner
+                    .sessions
+                    .info(session)
+                    .map_or(SessionKind::Agent, |info| info.kind);
+                prompts.drawn(&ticket_id, session, kind, &prompt);
+            }
+            None => {
+                prompts.gone(session);
             }
         }
     }
@@ -252,6 +287,7 @@ impl Signals {
             let answered = entry.answer(&dialog);
             (answered, entry.wants_look() && !entry.looking)
         };
+        self.mirror(session);
         if look {
             self.look_soon(session);
         }
@@ -361,6 +397,7 @@ impl Signals {
                         None => return,
                     }
                 };
+                signals.mirror(&session);
                 if let Some(signal) = shown {
                     tracing::debug!(session, ?signal, "a waiting prompt is drawn");
                     match signals.inner.on_shown.get() {
@@ -387,6 +424,8 @@ impl Signals {
         let mut asks = self.inner.asks.lock().expect("asks");
         if !running {
             asks.remove(session);
+            drop(asks);
+            self.inner.board.session_prompts().gone(session);
             return None;
         }
         let entry = asks.get_mut(session)?;

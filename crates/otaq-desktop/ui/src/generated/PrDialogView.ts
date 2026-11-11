@@ -2,6 +2,7 @@
 import type { PrBranchHint } from "./PrBranchHint";
 import type { PrCommitField } from "./PrCommitField";
 import type { PrSetUp } from "./PrSetUp";
+import type { PrSkillWaits } from "./PrSkillWaits";
 import type { PrStage } from "./PrStage";
 import type { WriterAsks } from "./WriterAsks";
 
@@ -49,6 +50,10 @@ writing: string | null,
  * The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
  */
 asks: WriterAsks | null, 
+/**
+ * While the skill prepares or pushes: its agent waits at a permission prompt, with Answer in terminal.
+ */
+waits: PrSkillWaits | null, 
 /**
  * The provider isn't set up on this machine.
  */

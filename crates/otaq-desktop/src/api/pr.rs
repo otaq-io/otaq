@@ -256,12 +256,14 @@ async fn answered(
         Ok(Reply::PrOutcome(PrOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
+            prompt,
         })) => {
             let sending = with(app, key, |d| d.skill.clone()).unwrap_or_default();
             Ok(Answer::Ask {
                 unsent: Unsent::of(
                     &UnsentPrompt::for_click(ticket, None, sending, click)
-                        .unclearable_by(unclearable_by),
+                        .unclearable_by(unclearable_by)
+                        .over_prompt(prompt),
                 ),
             })
         }

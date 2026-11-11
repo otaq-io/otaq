@@ -222,8 +222,14 @@ pub fn needs_you_items_with(
                 }
                 // A Delivery a hook refused, or whose push didn't land, waits where it was (Review, To deliver) and is
                 // listed as any Delivery stop: with the turquoise items, its stop's line and notification.
+                // A session's prompt shown without changing the ticket's status reads as any Needs you, from when it
+                // was drawn, naming the prompt.
                 let stopped;
                 let ticket = match ticket.stopped_in_place() {
+                    _ if let Some(waiting) = ticket.as_needs_you() => {
+                        stopped = waiting;
+                        &stopped
+                    }
                     Some(_) => {
                         stopped = Ticket {
                             status: Status::DeliveryStopped,

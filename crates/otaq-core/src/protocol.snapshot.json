@@ -3631,6 +3631,10 @@
           "ty": "bool",
           "omittable": true
         },
+        "prompts_drawn_in": {
+          "ty": "Vec<String>",
+          "omittable": true
+        },
         "ready_to_start": {
           "ty": "bool",
           "omittable": true
@@ -3649,6 +3653,10 @@
         },
         "sent_back": {
           "ty": "Option<SentBack>",
+          "omittable": true
+        },
+        "session_prompt": {
+          "ty": "Option<SessionPrompt>",
           "omittable": true
         },
         "submitted_by_you": {
@@ -6435,6 +6443,10 @@
         "target": {
           "ty": "String",
           "required": true
+        },
+        "waits": {
+          "ty": "Option<SessionPrompt>",
+          "omittable": true
         }
       }
     },
@@ -6479,6 +6491,10 @@
         },
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -7501,6 +7517,13 @@
           "ty": "ViewPrefs",
           "required": true
         }
+      }
+    },
+    "PromptTurn": {
+      "kind": "enum",
+      "variants": {
+        "open_pr": {},
+        "push_to_pr": {}
       }
     },
     "ProposalProblem": {
@@ -9055,6 +9078,10 @@
         },
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -9824,6 +9851,27 @@
         "key": {
           "ty": "Option<String>",
           "omittable": true
+        }
+      }
+    },
+    "SessionPrompt": {
+      "kind": "struct",
+      "fields": {
+        "prompt": {
+          "ty": "String",
+          "required": true
+        },
+        "session": {
+          "ty": "String",
+          "required": true
+        },
+        "since": {
+          "ty": "i64",
+          "required": true
+        },
+        "turn": {
+          "ty": "PromptTurn",
+          "required": true
         }
       }
     },

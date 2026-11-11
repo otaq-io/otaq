@@ -559,7 +559,11 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
         ))
         .await
     {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     key,
@@ -567,7 +571,8 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
                     sb::sending(params.comments as usize),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         Ok(_) => {
@@ -660,7 +665,11 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
         attachments: super::attachments::sources(&params.attachments),
     });
     match app.service.send(request).await {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     key,
@@ -668,7 +677,8 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
                     PR_COMMENTS_SENDING.to_owned(),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         Ok(_) => {

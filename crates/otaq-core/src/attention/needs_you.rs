@@ -360,6 +360,8 @@ impl NeedsYouQueue {
             let ticket = board.ticket_by_id(&item.id).await?;
             let text = if ticket.status == Status::CheckFailed {
                 ticket.flags.verdict.clone()
+            } else if let Some(waiting) = ticket.session_prompt() {
+                Some(waiting.prompt.clone())
             } else {
                 ticket
                     .question

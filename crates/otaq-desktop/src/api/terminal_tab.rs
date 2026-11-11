@@ -337,6 +337,12 @@ pub fn view_with(
     let running = session.is_some_and(SessionInfo::is_running);
     let recovering = recovery::shows_recovery(ticket, running);
     let flags = &ticket.flags;
+    // A permission prompt drawn in the session reads "Waiting for you" in its header, whatever the ticket shows (the
+    // message writer's in Review too).
+    let state_of = match session {
+        Some(s) if flags.prompts_drawn_in.contains(&s.id) => otaq_core::domain::Status::NeedsYou,
+        _ => ticket.status,
+    };
     let strips = PHASES
         .iter()
         .flat_map(|phase| [false, true].map(|focused| (phase.clone(), focused)))
@@ -344,7 +350,7 @@ pub fn view_with(
             state: if recovering {
                 strip::INTERRUPTED
             } else {
-                strip::tab_state(&phase, ticket.status)
+                strip::tab_state(&phase, state_of)
             },
             hint: if recovering {
                 strip::hint(
@@ -816,6 +822,33 @@ mod tests {
         assert_eq!(view.ended, None);
         assert_eq!(view.recovery, None);
         assert_eq!(view.background, None);
+    }
+
+    /// Re-test 6: a Codex prompt in a session of a ticket in Review left its header "Live". Any prompt drawn in the
+    /// session reads "Waiting for you", whatever the ticket shows (the message writer's in a calm Review too); once it
+    /// is answered the header is "Live" again.
+    #[test]
+    fn a_prompt_drawn_in_the_session_reads_waiting_for_you_in_review() {
+        let mut t = ticket(Status::WaitingForYou);
+        let sessions = [session("s1", SessionState::Running, 0)];
+        assert_eq!(
+            strip(&view_of(&t, &sessions, &[], "shop-web", None), Phase::Live, false)
+                .state
+                .label,
+            "Live"
+        );
+        t.flags.prompts_drawn_in = vec!["s1".into()];
+        let view = view_of(&t, &sessions, &[], "shop-web", None);
+        assert_eq!(strip(&view, Phase::Live, false).state.label, "Waiting for you");
+        assert_eq!(strip(&view, Phase::Live, true).state.label, "Waiting for you");
+        t.flags.prompts_drawn_in = vec!["another".into()];
+        assert_eq!(
+            strip(&view_of(&t, &sessions, &[], "shop-web", None), Phase::Live, false)
+                .state
+                .label,
+            "Live",
+            "another session's prompt"
+        );
     }
 
     /// Re-test 5: "Unsent text in the input line" showed over Codex's empty line because a note waited. It shows only

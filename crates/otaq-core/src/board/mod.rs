@@ -35,6 +35,7 @@ pub mod reports;
 pub mod review;
 pub mod send_back;
 pub mod send_back_question;
+pub mod session_prompts;
 pub mod settings;
 pub mod skill_tools;
 pub mod snapshot;
@@ -77,6 +78,8 @@ pub struct Board {
     git_steps: git_steps::GitSteps,
     /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
     hand_offs: HandOffs,
+    /// The permission prompts on tickets' own sessions' screens now (the signals mirror them here).
+    session_prompts: session_prompts::SessionPrompts,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
     /// Each ticket's changes for its Files tab and its sheet's count (one read serves the requests that arrive together).
@@ -106,6 +109,7 @@ impl Board {
             merge_checks: merge_check::MergeChecks::default(),
             git_steps: git_steps::GitSteps::default(),
             hand_offs: HandOffs::default(),
+            session_prompts: session_prompts::SessionPrompts::default(),
             project_files: Default::default(),
             ticket_changes_cache: Default::default(),
             trust: Trust::default(),
@@ -164,6 +168,11 @@ impl Board {
     /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.
     pub fn hand_offs(&self) -> &HandOffs {
         &self.hand_offs
+    }
+
+    /// The permission prompts on tickets' own sessions' screens now ([`session_prompts`]); the signals keep it.
+    pub fn session_prompts(&self) -> &session_prompts::SessionPrompts {
+        &self.session_prompts
     }
 
     /// The automatic Delivery's side of board moves (FLW-15).
