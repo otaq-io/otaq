@@ -917,8 +917,15 @@ pub async fn move_menu(app: &App, params: Params) -> Result<Vec<MenuItem>, Reque
         },
     )
     .await?;
-    let flow = super::board::flow(app, key.project.as_str()).await;
-    Ok(sheet::move_menu(&Columns::of(&flow), &answer))
+    let Some(ticket) = ticket(app, &params.key).await? else {
+        return Ok(Vec::new());
+    };
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, key.project.as_str()),
+        super::board::agents(app, key.project.as_str())
+    );
+    let columns = Columns::of(&flow).knowing(agents.as_ref());
+    Ok(sheet::move_menu(&columns, &ticket, &answer))
 }
 
 async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {

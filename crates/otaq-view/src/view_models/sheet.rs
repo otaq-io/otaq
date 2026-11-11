@@ -478,8 +478,11 @@ pub fn steps(ticket: &Ticket, agents: Option<&TicketAgents>) -> Vec<Step> {
 
 /// **Move…** (SHT-01): the board's columns as the drag sees them, each with the drag's verdict: its own column
 /// checked, an allowed one with what the drop does, a refused one disabled with why. A pick is a drop
-/// (`board.drop`), with the same dialogs.
-pub fn move_menu(columns: &Columns, answer: &DragAnswer) -> Vec<MenuItem> {
+/// (`board.drop`), with the same dialogs. Its own column is the one its card shows in on `columns` (knowing where a
+/// held ticket starts): a held ticket that skips the first stage has Dev checked, and the first stage, where the drag
+/// sees it wait, is only disabled.
+pub fn move_menu(columns: &Columns, ticket: &Ticket, answer: &DragAnswer) -> Vec<MenuItem> {
+    let own = columns.spot(ticket);
     let title = |target: &str| {
         columns
             .get(target)
@@ -491,7 +494,8 @@ pub fn move_menu(columns: &Columns, answer: &DragAnswer) -> Vec<MenuItem> {
         .map(|t| {
             let item = MenuItem::new(t.target.0.to_string(), title(&t.target.0));
             match &t.verdict {
-                Verdict::Home => item.checked(true).disabled(true),
+                _ if t.target.0 == own => item.checked(true).disabled(true),
+                Verdict::Home => item.disabled(true),
                 Verdict::Allowed { hint, .. } => item.hint(hint.clone()),
                 Verdict::Forbidden { title, .. } => item.disabled(true).hint(title.clone()),
             }
@@ -1064,7 +1068,7 @@ mod tests {
         let columns = Columns::of(flow);
         let t = ticket("SHOP-41", "Fix README typo", Status::Backlog);
         let answer = crate::view_models::board_page::drag_answer(&t, &[]);
-        let menu = move_menu(&columns, &answer);
+        let menu = move_menu(&columns, &t, &answer);
         let labels: Vec<_> = menu.iter().map(|i| i.label.as_str()).collect();
         assert_eq!(labels.first(), Some(&"Backlog"));
         assert!(
@@ -1075,6 +1079,49 @@ mod tests {
         let dev = menu.iter().find(|i| i.id == "dev").unwrap();
         assert!(!dev.disabled, "Backlog → Dev starts it");
         assert_eq!(column_of(&columns, &t), "backlog");
+    }
+
+    /// A held ticket that skips Spec first's planning is in Dev's column: Move… checks Dev, and Product spec, where
+    /// the drag sees it wait, is only disabled. Queued, it is at the top of Product spec.
+    #[test]
+    fn move_checks_the_stage_a_held_ticket_starts_at() {
+        use crate::view_models::flow_columns::held_fixture::{spec_first, starts_at_dev, waiting};
+        let file = spec_first();
+        let agents = starts_at_dev();
+        let columns = Columns::of(&file.flow).knowing(Some(&agents));
+        let held = waiting(Status::Held);
+        assert_eq!(column_of(&columns, &held), "dev");
+        let answer = crate::view_models::board_page::drag_answer_in(
+            &file.flow,
+            &held,
+            std::slice::from_ref(&held),
+            None,
+        );
+        let menu = move_menu(&columns, &held, &answer);
+        let item = |id: &str| menu.iter().find(|i| i.id == id).unwrap();
+        let checked: Vec<_> = menu
+            .iter()
+            .filter(|i| i.checked)
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(checked, ["dev"]);
+        assert!(item("dev").disabled);
+        assert!(item("product-spec").disabled && !item("product-spec").checked);
+        let queued = waiting(Status::Queued);
+        assert_eq!(column_of(&columns, &queued), "product-spec");
+        let answer = crate::view_models::board_page::drag_answer_in(
+            &file.flow,
+            &queued,
+            std::slice::from_ref(&queued),
+            None,
+        );
+        let menu = move_menu(&columns, &queued, &answer);
+        let checked: Vec<_> = menu
+            .iter()
+            .filter(|i| i.checked)
+            .map(|i| i.id.as_str())
+            .collect();
+        assert_eq!(checked, ["product-spec"]);
     }
 
     #[test]

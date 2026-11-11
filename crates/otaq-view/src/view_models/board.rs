@@ -416,16 +416,7 @@ fn next_stage(t: &Ticket, flow: &Flow) -> Option<String> {
 /// The board's columns for `input`, knowing where each waiting ticket starts (its card's agents): a held ticket shows
 /// in the column of the stage it starts at, not in one it skips.
 pub fn columns<'f>(input: &BoardInput<'f>) -> Columns<'f> {
-    let starts = input
-        .agents
-        .into_iter()
-        .flat_map(|a| &a.cards)
-        .filter_map(|card| {
-            card.starts
-                .as_ref()
-                .map(|start| (&card.key, start.stage.as_str()))
-        });
-    Columns::of(input.flow).with_starts(starts)
+    Columns::of(input.flow).knowing(input.agents)
 }
 
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {

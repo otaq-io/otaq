@@ -607,6 +607,42 @@ mod tests {
         );
     }
 
+    /// A held ticket that skips Spec first's planning is named at Dev, the stage it starts at, in the section of a
+    /// ticket waiting for it and in the hover tooltip; queued, at Product spec, the top of the first stage.
+    #[test]
+    fn a_held_blocker_is_named_at_the_stage_it_starts_at() {
+        use crate::view_models::flow_columns::held_fixture::{spec_first, starts_at_dev, waiting};
+        let file = spec_first();
+        let agents = starts_at_dev();
+        let columns = Columns::of(&file.flow).knowing(Some(&agents));
+        let held = waiting(Status::Held);
+        let mut blocked =
+            crate::view_models::card_fixtures::ticket("NOTE-20", "Import CSV", Status::Backlog);
+        blocked.depends_on = vec![held.key.clone()];
+        let all = vec![held.clone(), blocked.clone()];
+        assert_eq!(place_name(&columns, &held), "Dev");
+        let s = section(
+            &columns,
+            &blocked,
+            &all,
+            crate::view_models::card_fixtures::NOW,
+        )
+        .unwrap();
+        let place = &s.waits_for.rows[0].place;
+        assert!(
+            place == "Dev" || place.starts_with("Dev \u{b7} "),
+            "{place}"
+        );
+        assert_eq!(
+            tip(&columns, &blocked, &all).unwrap().detail,
+            "by NOTE-12 (Dev)"
+        );
+        assert_eq!(
+            place_name(&columns, &waiting(Status::Queued)),
+            "Product spec"
+        );
+    }
+
     #[test]
     fn the_sheet_lists_what_it_waits_for_and_what_waits_for_it() {
         let flow = shop_web();

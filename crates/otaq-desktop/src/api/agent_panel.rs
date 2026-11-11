@@ -119,7 +119,13 @@ async fn choices_for<'c>(
 /// read as Noyan left them (their rows have Undo); one that is gone is left out.
 async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> {
     let mut edited = Vec::new();
-    let mut flows: Vec<(String, otaq_core::flow::Flow)> = Vec::new();
+    // Each project's flow and cards' agents: a held ticket is named at the stage it starts at, as on the board.
+    type Board = (
+        String,
+        otaq_core::flow::Flow,
+        Option<otaq_core::agents::facts::BoardAgents>,
+    );
+    let mut flows: Vec<Board> = Vec::new();
     for key in &created.edited {
         if let Some(t) = ticket_of(app, &key.to_string()).await {
             let on_it = || {
@@ -135,14 +141,21 @@ async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> 
                 .cloned()
                 .collect();
             let project = t.key.project.to_string();
-            if !flows.iter().any(|(p, _)| *p == project) {
-                let flow = super::board::flow(app, &project).await;
-                flows.push((project.clone(), flow));
+            if !flows.iter().any(|(p, _, _)| *p == project) {
+                let (flow, agents) = tokio::join!(
+                    super::board::flow(app, &project),
+                    super::board::agents(app, &project)
+                );
+                flows.push((project.clone(), flow, agents));
             }
             let place = flows
                 .iter()
-                .find(|(p, _)| *p == project)
-                .map(|(_, flow)| t.place_name(flow))
+                .find(|(p, _, _)| *p == project)
+                .map(|(_, flow, agents)| {
+                    let columns = otaq_view::view_models::flow_columns::Columns::of(flow)
+                        .knowing(agents.as_ref());
+                    otaq_view::view_models::dependencies::place_name(&columns, &t)
+                })
                 .unwrap_or_default();
             edited.push(EditedTicket {
                 key: t.key,
