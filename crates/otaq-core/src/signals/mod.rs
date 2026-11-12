@@ -584,7 +584,9 @@ impl Signals {
     }
 
     /// `otaq ask human` for `ticket_id`: the ticket shows Asks you with the question (ATT-01). From the
-    /// ticket's agent, this turn's `Stop` won't turn it into Idle.
+    /// ticket's agent, this turn's `Stop` won't turn it into Idle. On a ticket waiting in a check of the user's its
+    /// status stays and the question reads Asks you over it (`Ticket::question_in_place`); the moved last signal
+    /// tells clients.
     pub async fn ask_human(
         &self,
         caller: &Caller,
@@ -786,6 +788,15 @@ impl Signals {
         };
         let after = transition(&before, input, now_ms());
         if after == before {
+            // While the ticket waits in a check of the user's, its agent's question reads Asks you without changing its
+            // status (`Ticket::question_in_place`): asking and answering (from the box or the terminal) change nothing stored
+            // here, so clients are told the ticket changed and it reads "Ready for you" again.
+            if status.set() == crate::domain::StatusSet::HumanCheck
+                && matches!(input, Input::AskHuman(_) | Input::Answered | Input::Enter)
+            {
+                let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+                self.publish(&ticket, false);
+            }
             return Ok(false);
         }
         // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no

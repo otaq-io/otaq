@@ -131,6 +131,7 @@ mod project_files;
 mod project_terminals;
 mod projects;
 mod protocol_snapshot;
+mod question_in_review;
 mod quiet_turn_ends;
 mod read_gate;
 mod reconcile;

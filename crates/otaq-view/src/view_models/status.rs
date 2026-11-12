@@ -13,10 +13,13 @@ use crate::theme::{Palette, Status as Legend};
 /// being in the agent's terminal holds back only the alert, so a waiting agent reads Needs you on the card like the
 /// sheet's pill. A session's permission prompt shown without changing the ticket's status (a delivery skill's, in
 /// Review) reads Needs you, as any prompt. A finished ticket's answer session at a prompt doesn't: the ticket keeps its
-/// finished status (its card's line says "Needs you · answering SHOP-36").
+/// finished status (its card's line says "Needs you · answering SHOP-36"). An agent's question while the ticket waits in
+/// a check of the user's reads Asks you, as it does at work, the ticket keeping its status.
 pub fn shown(ticket: &otaq_core::board::tickets::Ticket) -> Core {
     if ticket.prompt_in_place().is_some() {
         Core::NeedsYou
+    } else if ticket.question_in_place().is_some() {
+        Core::AsksYou
     } else if ticket.stopped_in_place().is_some() {
         Core::DeliveryStopped
     } else {

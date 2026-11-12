@@ -507,8 +507,12 @@ pub fn status_words(status: Status) -> &'static str {
 }
 
 /// [`status_words`] with what the ticket adds: "PR #481 open", "Merged into SHOP-18", "Done · nothing to merge" (as
-/// its card; `--status merged` still matches it by its status).
+/// its card; `--status merged` still matches it by its status). An agent's question while the ticket waits in a check
+/// of the user's reads "Asks you", as its card does.
 pub fn state_words(ticket: &Ticket) -> String {
+    if ticket.question_in_place().is_some() {
+        return status_words(Status::AsksYou).to_owned();
+    }
     match ticket.status {
         Status::PrOpen if let Some(number) = ticket.flags.pr_number => format!("PR #{number} open"),
         Status::MergedInto if let Some(into) = &ticket.flags.merged_into => {
@@ -624,6 +628,10 @@ pub fn show_text(
     flow: &Flow,
 ) -> String {
     let mut text = format!("{} · {}\n", ticket.key, ticket.title);
+    // An agent's question while the ticket waits in a check of the user's reads Asks you, with the question, as it
+    // does on its card; the ticket keeps its column.
+    let asking = ticket.as_asks_you();
+    let shown = asking.as_ref().unwrap_or(ticket);
     let status = state_words(ticket);
     let column = ticket.place_name(flow);
     // A state named like its column ("Done") says it once.
@@ -633,7 +641,7 @@ pub fn show_text(
         format!(" ({column})")
     };
     text.push_str(&format!("Status:      {status}{column}\n"));
-    if let Some(signal) = ticket.signal.as_ref().and_then(|s| s.text.as_deref()) {
+    if let Some(signal) = shown.signal.as_ref().and_then(|s| s.text.as_deref()) {
         text.push_str(&format!("Waiting on:  {signal}\n"));
     }
     text.push_str(&format!("Priority:    {}\n", ticket.priority));
@@ -878,6 +886,28 @@ mod tests {
         assert_eq!(status(&yours), "Status:      Ready for you (Review)");
         let done = ticket("SHOP-12", Status::Merged, Place::Done);
         assert_eq!(status(&done), "Status:      Merged (Done)");
+    }
+
+    /// Re-test 8 (NEW-b2): an agent's question on a ticket in Review reads Asks you in `otaq list` and `otaq show`,
+    /// with the question, as on its card; the ticket stays in Review.
+    #[test]
+    fn a_question_in_review_reads_asks_you() {
+        let flow = otaq_core::flow::default_flow();
+        let mut yours = ticket("SHOP-13", Status::WaitingForYou, Place::stage_of("review"));
+        yours.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q".into(),
+            text: "Should this show?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: Vec::new(),
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        assert!(line(&yours, &flow).contains("Review       Asks you "));
+        let text = show_text(&yours, &[], None, None, &flow);
+        assert!(text.contains("Status:      Asks you (Review)\n"), "{text}");
+        assert!(text.contains("Waiting on:  Should this show?\n"), "{text}");
     }
 
     /// Done without a merge reads as its card in `otaq list` and `otaq show` ("Done, nothing to merge" or `stage done`

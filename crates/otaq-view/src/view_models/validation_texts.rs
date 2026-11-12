@@ -37,8 +37,14 @@ pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
             &ticket.flags,
             Some(ticket.base.branch()),
         )),
-        // A human check in another flow than the default (FLW-14).
-        Status::WaitingForYou if custom_flow => Some(card::YOUR_CHECK.to_owned()),
+        // A human check in another flow than the default (FLW-14), while it reads as one: a question, a prompt or a
+        // Delivery stop shown in place keeps its own label.
+        Status::WaitingForYou
+            if custom_flow
+                && crate::view_models::status::shown(ticket) == Status::WaitingForYou =>
+        {
+            Some(card::YOUR_CHECK.to_owned())
+        }
         _ => None,
     }
 }

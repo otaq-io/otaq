@@ -658,11 +658,15 @@ export function NeedsYou({
   view,
   actions,
   aboveBar,
+  inReview = false,
 }: {
   view: SheetView;
   actions: SheetActions;
   /** Shown right above the action bar: the review's manual checks (d0125). */
   aboveBar?: ReactNode;
+  /** The ticket waits in a check of yours: an agent's question shows its box above the review's own rows and bar,
+   * which stay (Approve and Send back stay in the review bar under every tab). */
+  inReview?: boolean;
 }) {
   const app = useRegistries();
   const { press, busy, answering, setAnswering, cardAnswer } = actions;
@@ -690,7 +694,7 @@ export function NeedsYou({
             )}
           </div>
         )}
-        {view.answer ? (
+        {view.answer && (
           <AnswerBox
             key={view.answer.question}
             view={view}
@@ -698,7 +702,8 @@ export function NeedsYou({
             more={null}
             fromCard={cardAnswer}
           />
-        ) : (
+        )}
+        {(!view.answer || inReview) && (
           <>
             {view.permission_prompt && <PermissionPrompt prompt={view.permission_prompt} />}
             {view.refusal && <Refusal refusal={view.refusal} />}

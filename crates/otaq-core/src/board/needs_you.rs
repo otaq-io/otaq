@@ -225,9 +225,14 @@ pub fn needs_you_items_with(
                 // A session's prompt shown without changing the ticket's status reads as any Needs you, from when it
                 // was drawn, naming the prompt.
                 let stopped;
+                // An agent's question in a check of the user's reads as any Asks you, from when it was asked.
                 let ticket = match ticket.stopped_in_place() {
                     _ if let Some(waiting) = ticket.as_needs_you() => {
                         stopped = waiting;
+                        &stopped
+                    }
+                    _ if let Some(asking) = ticket.as_asks_you() => {
+                        stopped = asking;
                         &stopped
                     }
                     Some(_) => {
