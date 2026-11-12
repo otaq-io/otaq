@@ -52,7 +52,18 @@ vi.mock("@xterm/xterm", () => {
       made.push({
         press: (init, bytes) => {
           const e = new KeyboardEvent("keydown", { cancelable: true, ...init });
-          if (this.onKey(e)) this.onType(bytes);
+          if (this.onKey(e)) {
+            this.onType(bytes);
+            return;
+          }
+          // xterm.js 6's `_keyDown` returns at once when the custom handler says false, without `preventDefault`
+          // (CoreBrowserTerminal.ts); Ctrl+V's default action in WebView2 is then the browser's paste event on the
+          // textarea, which xterm.js's `handlePasteEvent` pastes too. So a Ctrl+V not prevented pastes again here.
+          if (!e.defaultPrevented && e.ctrlKey && !e.shiftKey && e.code === "KeyV") {
+            void navigator.clipboard.readText().then((text) => {
+              if (text) this.paste(text);
+            });
+          }
         },
         select: (text) => {
           this.selection = text;
@@ -86,6 +97,11 @@ vi.mock("@xterm/xterm", () => {
     /** xterm.js's `mousedrag`: moves with a button held, heard on the document, reported for "drag" and "any". */
     private drag = (e: MouseEvent) => {
       if (this.modes.mouseTrackingMode !== "none" && e.buttons) this.report();
+    };
+    /** xterm.js's `paste`: the text, bracketed while the program asked for it, to the program as typing (`onData`).
+     * The stand-in's programs don't ask, so it goes as it is. */
+    paste = (text: string) => {
+      this.onType(text);
     };
     hasSelection = () => this.selection !== "";
     getSelection = () => this.selection;
@@ -204,6 +220,8 @@ const CTRL_SHIFT_C: KeyboardEventInit = { key: "C", code: "KeyC", ctrlKey: true,
 let root: Root;
 let container: HTMLElement;
 const copied: string[] = [];
+/** What the clipboard holds as text ("" for an image or nothing), or the error reading it fails with. */
+let clipboard: string | Error = "";
 
 function platform(userAgent: string, map: Keymap) {
   Object.defineProperty(navigator, "userAgent", { value: userAgent, configurable: true });
@@ -221,7 +239,9 @@ beforeEach(() => {
         copied.push(text);
         return Promise.resolve();
       },
-      readText: () => Promise.resolve(""),
+      // As WebView2's (Chromium's) `readText`: the clipboard's text/plain, "" when it holds none (an image, a
+      // screenshot, nothing); it rejects when the clipboard can't be read.
+      readText: () => (clipboard instanceof Error ? Promise.reject(clipboard) : Promise.resolve(clipboard)),
     },
     configurable: true,
   });
@@ -232,6 +252,7 @@ beforeEach(() => {
   sent.length = 0;
   feeds.length = 0;
   copied.length = 0;
+  clipboard = "";
 });
 
 afterEach(() => {
@@ -342,6 +363,72 @@ describe("Ctrl+C in a terminal elsewhere", () => {
     await settle();
     expect(copied).toEqual(["ls -la"]);
     expect(typed()).toBe("\x03");
+  });
+});
+
+const CTRL_V: KeyboardEventInit = { key: "v", code: "KeyV", ctrlKey: true };
+const CTRL_SHIFT_V: KeyboardEventInit = { key: "V", code: "KeyV", ctrlKey: true, shiftKey: true };
+
+// Ctrl+V in a terminal on Windows pastes the clipboard's text, as in Windows Terminal; with no text on it (an image,
+// nothing) the program gets Ctrl+V's own key, which Codex reads as its image paste (Claude Code on Windows uses Alt+V).
+describe("Ctrl+V in a terminal on Windows", () => {
+  it("pastes the clipboard's text once, then sends the key once the clipboard holds no text", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    clipboard = "cargo test --workspace";
+    term.press(CTRL_V, "\x16");
+    await settle();
+    expect(typed()).toBe("cargo test --workspace");
+    sent.length = 0;
+    clipboard = "";
+    term.press(CTRL_V, "\x16");
+    await settle();
+    expect(typed()).toBe("\x16");
+  });
+
+  it("sends the key when the clipboard can't be read", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    clipboard = new Error("denied");
+    const warn = vi.spyOn(console, "warn").mockImplementation(() => undefined);
+    term.press(CTRL_V, "\x16");
+    await settle();
+    warn.mockRestore();
+    expect(typed()).toBe("\x16");
+  });
+
+  it("keeps Ctrl+Shift+V as paste; Ctrl+Alt+V goes to the program", async () => {
+    platform(WINDOWS_UA, WIN_LINUX_MAP);
+    const term = await live();
+    clipboard = "ls";
+    term.press(CTRL_SHIFT_V, "\x16");
+    await settle();
+    expect(typed()).toBe("ls");
+    sent.length = 0;
+    term.press({ ...CTRL_V, altKey: true }, "\x1b\x16");
+    await settle();
+    expect(typed()).toBe("\x1b\x16");
+  });
+});
+
+describe("Ctrl+V in a terminal elsewhere", () => {
+  it("on macOS goes to the program with text on the clipboard", async () => {
+    platform(MAC_UA, MAC_MAP);
+    const term = await live();
+    clipboard = "ls -la";
+    term.press(CTRL_V, "\x16");
+    await settle();
+    expect(typed()).toBe("\x16");
+  });
+
+  it("on Linux goes to the program with text on the clipboard; Ctrl+Shift+V pastes", async () => {
+    platform(LINUX_UA, WIN_LINUX_MAP);
+    const term = await live();
+    clipboard = "ls -la";
+    term.press(CTRL_V, "\x16");
+    term.press(CTRL_SHIFT_V, "\x16");
+    await settle();
+    expect(typed()).toBe("\x16ls -la");
   });
 });
 
