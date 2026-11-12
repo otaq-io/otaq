@@ -1942,7 +1942,7 @@ mod tests {
             std::slice::from_ref(&t),
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let bar = with_approve(bar, &menu, "Dev", Some((2, 9, 8)));
         let approve = bar.approve.as_ref().unwrap();

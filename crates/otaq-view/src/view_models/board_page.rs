@@ -945,9 +945,10 @@ pub fn approve_menu(
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
     commits: Option<u32>,
-    delivers: otaq_core::flow::Delivers,
+    flow: &otaq_core::flow::Flow,
 ) -> ApproveMenu {
-    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr, commits, delivers)
+    let delivers = flow.delivery.delivers;
+    let items: Vec<ApproveItem> = approve::options(ticket, target, tickets, pr, commits, flow)
         .into_iter()
         .zip(1..)
         .map(|(o, number)| ApproveItem {
@@ -2346,7 +2347,7 @@ mod tests {
             std::slice::from_ref(&review),
             Some(&no_provider),
             None,
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu.items.len(), 3);
         assert!(!menu.items[1].enabled);
@@ -2359,7 +2360,7 @@ mod tests {
             std::slice::from_ref(&review),
             Some(&no_provider),
             Some(1),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu.items.len(), 5);
         assert_eq!(menu.items[3].choice, ApproveChoice::Done);
@@ -2380,7 +2381,7 @@ mod tests {
             std::slice::from_ref(&pushed),
             None,
             Some(1),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu.direct, Some(ApproveChoice::PushToPr));
     }
@@ -2396,7 +2397,7 @@ mod tests {
             std::slice::from_ref(&review),
             None,
             Some(0),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let items: Vec<_> = menu
             .items
@@ -2436,7 +2437,7 @@ mod tests {
             std::slice::from_ref(&review),
             None,
             Some(1),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu.title, "Approve SHOP-18 Checkout API");
         assert_eq!(menu.items[0].choice, ApproveChoice::LocalMerge);

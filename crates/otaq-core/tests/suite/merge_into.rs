@@ -421,7 +421,8 @@ async fn closing_the_host_sends_the_ticket_merged_in_back_to_review() {
         w.board.approve_check("SHOP-20").await.unwrap(),
         otaq_core::board::review::ApproveCheck::Unchanged
     ));
-    assert!(otaq_core::board::merge_into::can_be_merged_in(&back));
+    let flow = w.board.effective_flow("SHOP").await.unwrap();
+    assert!(otaq_core::board::merge_into::can_be_merged_in(&back, &flow));
     let landed = w
         .review
         .local_merge("SHOP-20", "SHOP-20: Coupon codes", false, &me())
@@ -659,5 +660,85 @@ async fn nested_merges_land_together() {
     let history = w.board.history("SHOP-1").await.unwrap();
     assert_eq!(landed_line(&history).payload["with"], "SHOP-2");
     assert_eq!(started, ["SHOP-4".parse().unwrap()]);
+    w.stop().await;
+}
+
+/// A check of yours before Dev (a Spec review, before any code): a ticket waiting there is neither offered as a host
+/// nor merged in. A ticket in the review before the Delivery, or with a PR open, is offered.
+#[tokio::test]
+async fn a_ticket_in_a_spec_review_before_dev_is_not_offered() {
+    use otaq_core::board::merge_into::can_be_merged_in;
+    use otaq_core::flow::{CheckBy, Stage, StageKind};
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.stages.insert(
+                0,
+                Stage {
+                    id: "spec-review".into(),
+                    name: "Spec review".into(),
+                    kind: StageKind::Check { by: CheckBy::You },
+                    agent: None,
+                    skill: None,
+                    options: Vec::new(),
+                    rounds: None,
+                    fail_to: None,
+                    description: None,
+                },
+            );
+        })
+        .await;
+    let flow = w.board.effective_flow("SHOP").await.unwrap();
+    let (code, _) = reviewed(&w, "Checkout API", &[("api.ts", "api\n")]).await;
+    let (spec, _) = reviewed(&w, "Sign-in check", &[("spec.md", "spec\n")]).await;
+    w.force_stage(&spec, "spec-review", Status::WaitingForYou)
+        .await;
+    let spec = w.board.ticket("SHOP-2").await.unwrap();
+    assert_eq!(spec.place, Place::stage_of("spec-review"));
+    assert_eq!(code.place, Place::stage_of(REVIEW));
+
+    // In Spec review: not offered, and nothing merges into it.
+    let hosts = w.board.merge_into_hosts("SHOP-1").await.unwrap();
+    assert!(hosts.is_empty(), "{hosts:?}");
+    let refused = w
+        .review
+        .merge_into("SHOP-1", "SHOP-2", &me())
+        .await
+        .unwrap_err();
+    assert!(
+        refused.to_string().contains("SHOP-2 can't take SHOP-1"),
+        "{refused}"
+    );
+    // Nor is it merged in itself: its Approve menu doesn't show there.
+    assert!(!can_be_merged_in(&spec, &flow));
+    assert!(can_be_merged_in(&code, &flow));
+    let refused = w
+        .review
+        .merge_into("SHOP-2", "SHOP-1", &me())
+        .await
+        .unwrap_err();
+    assert!(
+        refused
+            .to_string()
+            .contains("in the review before its Delivery"),
+        "{refused}"
+    );
+
+    // In Code review, or with a PR open, it is.
+    let (pr, _) = reviewed(&w, "Cart page", &[("cart.ts", "cart\n")]).await;
+    w.force_status(&pr, Status::PrOpen).await;
+    sqlx::query("UPDATE tickets SET pr_number = 481 WHERE id = ?")
+        .bind(&pr.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    let hosts = w.board.merge_into_hosts("SHOP-1").await.unwrap();
+    let keys: Vec<String> = hosts.iter().map(|t| t.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-3"]);
+    w.force_stage(&spec, REVIEW, Status::WaitingForYou).await;
+    let hosts = w.board.merge_into_hosts("SHOP-1").await.unwrap();
+    let keys: Vec<String> = hosts.iter().map(|t| t.key.to_string()).collect();
+    assert_eq!(keys, ["SHOP-2", "SHOP-3"]);
     w.stop().await;
 }

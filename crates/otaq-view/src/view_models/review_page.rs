@@ -884,7 +884,7 @@ mod tests {
                 all,
                 None,
                 Some(1),
-                otaq_core::flow::Delivers::Either,
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
             ),
             merge_check: None,
             manual_unticked: 0,

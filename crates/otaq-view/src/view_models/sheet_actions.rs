@@ -608,7 +608,7 @@ mod tests {
             &[],
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )
         .into_iter()
         .map(|o| o.choice)
