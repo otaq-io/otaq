@@ -119,6 +119,29 @@ impl Setup {
         .unwrap_or_else(|_| panic!("{needle:?} never printed"))
     }
 
+    /// Waits until [`showing_bytes`]' capture is drawn whole: its script's [`DRAWN`] title, which comes through after
+    /// everything before it (at most 60 s: a loaded Windows runner's ConPTY takes over 10 s for a capture of an
+    /// animated screen), then nothing new for 300 ms.
+    async fn capture_drawn(&self) {
+        let printed = || self.sessions.attach(&self.session).unwrap().scrollback;
+        tokio::time::timeout(Duration::from_secs(60), async {
+            while !String::from_utf8_lossy(&printed()).contains(DRAWN) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+            let mut last = printed().len();
+            loop {
+                tokio::time::sleep(Duration::from_millis(300)).await;
+                let now = printed().len();
+                if now == last {
+                    return;
+                }
+                last = now;
+            }
+        })
+        .await
+        .expect("the capture was never drawn whole");
+    }
+
     fn output(&self) -> String {
         String::from_utf8_lossy(&self.sessions.attach(&self.session).unwrap().scrollback)
             .into_owned()
@@ -237,6 +260,9 @@ fn capture_bytes(capture: &str) -> Vec<u8> {
     std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
 }
 
+/// The window title [`showing_bytes`]' script sets once its capture is printed.
+const DRAWN: &str = "otaq-test-capture-drawn";
+
 /// A session that shows `screen` (a tool's output) and then reads nothing and echoes nothing, at the captures' size.
 async fn showing_bytes(screen: &[u8], shown: &str) -> Setup {
     let dir = tempfile::tempdir().unwrap();
@@ -245,10 +271,11 @@ async fn showing_bytes(screen: &[u8], shown: &str) -> Setup {
     let path = path.to_string_lossy().into_owned();
     // The session's `sh` reads the file at once; the folder stays until the test ends.
     std::mem::forget(dir);
-    let script = r#"stty -echo 2>/dev/null; cat "$1"; exec sleep 60"#;
+    let script =
+        format!(r#"stty -echo 2>/dev/null; cat "$1"; printf '\033]0;{DRAWN}\007'; exec sleep 60"#);
     let s = setup_with(
         "sh",
-        vec!["-c".into(), script.into(), "sh".into(), path],
+        vec!["-c".into(), script, "sh".into(), path],
         TerminalSize {
             cols: 120,
             rows: 30,
@@ -256,6 +283,10 @@ async fn showing_bytes(screen: &[u8], shown: &str) -> Setup {
     )
     .await;
     s.output_with(shown).await;
+    // A capture holds many frames (Codex's animated "Working" line among them), and `shown` is already in an early
+    // one: Windows' ConPTY draws them at its own pace, over 10 s on a loaded runner, its cursor meanwhile on rows such
+    // as an earlier prompt's `› Run the shell command…`, so a key or a check would meet a frame the test doesn't mean.
+    s.capture_drawn().await;
     s
 }
 
