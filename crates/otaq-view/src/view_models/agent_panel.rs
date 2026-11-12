@@ -182,7 +182,7 @@ pub fn new_agent_name(new_agent: Option<&Agent>, tools: &Tools) -> String {
 
 /// A Project agent's named agent, as its session saved it at start (T-0336); the tool's name for a session from
 /// before named agents.
-fn ran_on(agent: &ProjectAgent, tools: &Tools) -> String {
+pub(crate) fn ran_on(agent: &ProjectAgent, tools: &Tools) -> String {
     match agent.session.as_ref().and_then(|s| s.agent.as_ref()) {
         Some(named) => agent_name(&named.name, agent.tool, tools),
         None => AvatarTool::from(agent.tool).name().to_owned(),
@@ -1300,7 +1300,7 @@ fn sample_agent(name: &str, model: Option<&str>) -> Agent {
 }
 
 /// A Project agent's session started on the named agent `name`, for the gallery and tests.
-fn session_on(name: &str) -> otaq_core::session::SessionInfo {
+pub(crate) fn session_on(name: &str) -> otaq_core::session::SessionInfo {
     otaq_core::session::SessionInfo {
         id: "s1".into(),
         kind: otaq_core::session::SessionKind::ProjectAgent,
