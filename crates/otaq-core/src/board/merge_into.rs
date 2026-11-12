@@ -4,8 +4,10 @@
 //! - **Who can be merged in**: a ticket whose Approve menu shows, waiting in the human check whose Pass offers the
 //!   Delivery or at the Delivery, with a branch and no PR open (a ticket with an open PR only pushes to it).
 //! - **Who can take it** (the host): a ticket of the same project and base that isn't Done, has a branch, and has no
-//!   agent at work: it waits in a human check, at its Delivery, or with a PR open, and no automatic Delivery is under
-//!   way. A host at its Delivery needs a human check before the Delivery to go back to.
+//!   agent at work: it waits in the human check before its Delivery, at its Delivery, or with a PR open, and no
+//!   automatic Delivery is under way. A ticket in an earlier check of yours (a Spec review before any code) can't. A
+//!   host at its Delivery needs a human check before the Delivery to go back to; in a flow without one, a host waits
+//!   in any check of yours.
 //! - **Afterwards**: the ticket merged in waits as Merged into in its Delivery stage. It isn't Done, so tickets waiting
 //!   on it keep waiting. The host goes back to the human check before its Delivery (one waiting in a human check
 //!   stays there), its review starting again on the combined branch. The link is in the `merged_into` table
@@ -21,32 +23,46 @@ use serde_json::json;
 use super::tickets::{EventKind, Ticket, record_event};
 use super::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Outcome, Status};
+use crate::flow::Flow;
 use crate::flow::engine::{self, Move};
 use crate::store::merged_into::{self, MergedIn};
 use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 
-/// Whether `ticket` can be merged into another ticket now: its Approve menu shows (Ready for Review before the
+/// Whether `ticket` can be merged into another ticket now: its Approve menu shows (in the human check before the
 /// Delivery, or at the Delivery), it has a branch, and no PR is open for it.
-pub fn can_be_merged_in(ticket: &Ticket) -> bool {
-    matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
-        && ticket.flags.pr_number.is_none()
-        && branch_of(ticket).is_some()
+pub fn can_be_merged_in(ticket: &Ticket, flow: &Flow) -> bool {
+    in_final_review(ticket, flow) && ticket.flags.pr_number.is_none() && branch_of(ticket).is_some()
 }
 
-/// Whether `host` can take `ticket`'s branch, from what the tickets say: same project and base, not Done, a branch,
-/// and no agent at work (waiting in a human check, at its Delivery or with a PR open, with no automatic Delivery
-/// under way). [`Board::merge_into_hosts`] also needs a human check before the Delivery for a host at its Delivery.
-pub fn can_take(ticket: &Ticket, host: &Ticket) -> bool {
+/// Whether `host` can take `ticket`'s branch, from what the tickets and the flow say: same project and base, not
+/// Done, a branch, and no agent at work: waiting in the human check before the Delivery, at its Delivery or with a
+/// PR open, with no automatic Delivery under way. A host at its Delivery needs a human check before the Delivery to
+/// go back to. In a flow without such a check, a host waiting in any check of yours can take it.
+pub fn can_take(ticket: &Ticket, host: &Ticket, flow: &Flow) -> bool {
+    let back_to_review = engine::human_check_before_delivery(flow).is_some();
     host.id != ticket.id
         && host.key.project == ticket.key.project
         && host.base.branch() == ticket.base.branch()
-        && matches!(
-            host.status,
-            Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
-        )
+        && (in_final_review(host, flow) || host.status == Status::PrOpen)
+        && (back_to_review || host.status == Status::WaitingForYou)
         && !host.flags.delivering_automatically
         && branch_of(host).is_some()
+}
+
+/// Whether `ticket` waits where its work is finished: in the human check right before the Delivery, or at the
+/// Delivery. A check of yours earlier in the flow (a Spec review before Dev) comes before any code, so a ticket
+/// there is neither merged in nor takes another's branch. A flow without a human check before the Delivery keeps
+/// any check of yours.
+fn in_final_review(ticket: &Ticket, flow: &Flow) -> bool {
+    match ticket.status {
+        Status::ToDeliver => true,
+        Status::WaitingForYou => match engine::human_check_before_delivery(flow) {
+            Some(check) => ticket.place.stage() == Some(check.id.as_str()),
+            None => true,
+        },
+        _ => false,
+    }
 }
 
 fn branch_of(ticket: &Ticket) -> Option<&str> {
@@ -58,13 +74,11 @@ impl Board {
     pub async fn merge_into_hosts(&self, key: &str) -> Result<Vec<Ticket>, BoardError> {
         let ticket = self.ticket(key).await?;
         let flow = self.effective_flow(ticket.key.project.as_str()).await?;
-        let back_to_review = engine::human_check_before_delivery(&flow).is_some();
         let mut hosts: Vec<Ticket> = self
             .tickets(ticket.key.project.as_str())
             .await?
             .into_iter()
-            .filter(|host| can_take(&ticket, host))
-            .filter(|host| back_to_review || host.status == Status::WaitingForYou)
+            .filter(|host| can_take(&ticket, host, &flow))
             .collect();
         hosts.sort_by(|a, b| a.key.cmp(&b.key));
         Ok(hosts)

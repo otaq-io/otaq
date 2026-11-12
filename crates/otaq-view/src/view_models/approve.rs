@@ -8,7 +8,7 @@ use otaq_core::board::merge_into::{can_be_merged_in, can_take};
 use otaq_core::board::review::{ApproveCheck, changed_message};
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{GitOperation, GitProgress, Status, TicketKey};
-use otaq_core::flow::Delivers;
+use otaq_core::flow::{Delivers, Flow};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::review::merge_into::{MergeIntoOutcome, conflict_message};
@@ -168,8 +168,9 @@ pub fn options(
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
     commits: Option<u32>,
-    delivers: Delivers,
+    flow: &Flow,
 ) -> Vec<ApproveOption> {
+    let delivers = flow.delivery.delivers;
     if let Some(n) = ticket.flags.pr_number {
         let provider = pr
             .and_then(|p| p.provider)
@@ -223,7 +224,7 @@ pub fn options(
             enabled: blocked.is_none(),
         });
     }
-    out.push(merge_into_option(ticket, target, tickets));
+    out.push(merge_into_option(ticket, target, tickets, flow));
     let done = ApproveOption {
         choice: ApproveChoice::Done,
         title: DONE_NOTHING_TO_MERGE.to_owned(),
@@ -281,8 +282,14 @@ pub fn delivery_note(ticket: &Ticket, target: &str, delivers: Delivers) -> Strin
 }
 
 /// "Merge into another ticket…": enabled when another ticket can take this one's branch (the picker lists them).
-fn merge_into_option(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> ApproveOption {
-    let can = can_be_merged_in(ticket) && tickets.iter().any(|host| can_take(ticket, host));
+fn merge_into_option(
+    ticket: &Ticket,
+    target: &str,
+    tickets: &[Ticket],
+    flow: &Flow,
+) -> ApproveOption {
+    let can =
+        can_be_merged_in(ticket, flow) && tickets.iter().any(|host| can_take(ticket, host, flow));
     ApproveOption {
         choice: ApproveChoice::MergeInto,
         title: MERGE_INTO.to_owned(),
@@ -704,6 +711,14 @@ pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     )
 }
 
+/// Tests only: the default flow (Dev → Validate → Review), delivered by `delivers`.
+#[cfg(test)]
+pub(crate) fn test_flow(delivers: Delivers) -> Flow {
+    let mut flow = otaq_core::flow::default_flow();
+    flow.delivery.delivers = delivers;
+    flow
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -744,7 +759,7 @@ mod tests {
             &[],
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(only.len(), 1, "Local merge and Open PR are hidden");
         assert_eq!(only[0].choice, ApproveChoice::PushToPr);
@@ -771,7 +786,7 @@ mod tests {
             &tickets,
             Some(&pr),
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )[1];
         assert_eq!(open.title, "Approve & open PR");
         assert_eq!(open.detail, "PR provider not detected");
@@ -783,7 +798,7 @@ mod tests {
             &tickets,
             Some(&pr),
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )[1];
         assert_eq!(open.title, "Approve & open PR");
         assert_eq!(
@@ -814,7 +829,7 @@ mod tests {
             &all,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let merge = &menu[2];
         assert_eq!(merge.choice, ApproveChoice::MergeInto);
@@ -826,7 +841,7 @@ mod tests {
             std::slice::from_ref(&shop20),
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert!(!alone[2].enabled, "nothing can take it");
         assert_eq!(alone[2].detail, NO_HOST);
@@ -859,6 +874,61 @@ mod tests {
         );
     }
 
+    /// A flow with a Spec review before Dev: a ticket waiting there (before any code) can't take the branch, so the
+    /// choice is disabled with the empty picker's line; one in the review before the Delivery or with a PR open can.
+    #[test]
+    fn merge_into_skips_a_ticket_in_a_spec_review_before_dev() {
+        use otaq_core::flow::{CheckBy, Delivers, Stage, StageKind};
+        let mut flow = test_flow(Delivers::Either);
+        flow.stages.insert(
+            0,
+            Stage {
+                id: "spec-review".into(),
+                name: "Spec review".into(),
+                kind: StageKind::Check { by: CheckBy::You },
+                agent: None,
+                skill: None,
+                options: Vec::new(),
+                rounds: None,
+                fail_to: None,
+                description: None,
+            },
+        );
+        let with_branch = |key: &str, status: Status| {
+            let mut t = ticket(key, "Work", status);
+            t.work = Some(otaq_core::board::tickets::Work {
+                branch: Some(format!("otaq/{key}")),
+                ..Default::default()
+            });
+            t
+        };
+        let note26 = with_branch("NOTE-26", Status::WaitingForYou);
+        let mut note20 = with_branch("NOTE-20", Status::WaitingForYou);
+        note20.place = otaq_core::domain::Place::stage_of("spec-review");
+        let merge = |all: &[Ticket]| options(&note26, "main", all, None, Some(2), &flow)[2].clone();
+        let alone = merge(&[note20.clone(), note26.clone()]);
+        assert_eq!(alone.choice, ApproveChoice::MergeInto);
+        assert!(!alone.enabled, "a ticket in Spec review can't take it");
+        assert_eq!(alone.detail, NO_HOST);
+        // Nor can the one in Spec review be merged in: its Approve menu's choice stays off.
+        let own = options(
+            &note20,
+            "main",
+            &[note20.clone(), note26.clone()],
+            None,
+            Some(2),
+            &flow,
+        );
+        assert!(!own[2].enabled);
+
+        let mut review = with_branch("NOTE-21", Status::WaitingForYou);
+        review.place = otaq_core::domain::Place::stage_of(otaq_core::flow::default::REVIEW);
+        assert!(merge(&[note20.clone(), review, note26.clone()]).enabled);
+        let mut pr = with_branch("NOTE-22", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert!(merge(&[note20, pr, note26.clone()]).enabled);
+    }
+
     #[test]
     fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
@@ -868,7 +938,7 @@ mod tests {
             &tickets,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
@@ -888,10 +958,17 @@ mod tests {
         use otaq_core::flow::Delivers;
         let (shop18, tickets) = sample();
         let menu = |delivers| -> Vec<(ApproveChoice, String)> {
-            options(&shop18, "main", &tickets, None, Some(2), delivers)
-                .into_iter()
-                .map(|o| (o.choice, o.title))
-                .collect()
+            options(
+                &shop18,
+                "main",
+                &tickets,
+                None,
+                Some(2),
+                &test_flow(delivers),
+            )
+            .into_iter()
+            .map(|o| (o.choice, o.title))
+            .collect()
         };
         let merge = (
             ApproveChoice::LocalMerge,
@@ -929,7 +1006,7 @@ mod tests {
             &tickets,
             None,
             Some(0),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let choices: Vec<_> = menu.iter().map(|o| (o.choice, o.enabled)).collect();
         assert_eq!(
@@ -957,7 +1034,7 @@ mod tests {
             &tickets,
             None,
             Some(1),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let done = with
             .iter()
@@ -975,7 +1052,7 @@ mod tests {
             &tickets,
             None,
             None,
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(unknown[0].choice, ApproveChoice::LocalMerge);
         assert!(unknown.iter().all(|o| o.choice != ApproveChoice::Done));
@@ -992,7 +1069,7 @@ mod tests {
             &tickets,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let choices: Vec<_> = menu.iter().map(|o| o.choice).collect();
         assert_eq!(
@@ -1019,7 +1096,7 @@ mod tests {
                 &tickets,
                 None,
                 None,
-                otaq_core::flow::Delivers::Either
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either)
             )
             .iter()
             .all(|o| o.choice != ApproveChoice::DoneNotMerged)
@@ -1033,7 +1110,7 @@ mod tests {
                 &tickets,
                 None,
                 Some(2),
-                otaq_core::flow::Delivers::Either
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either)
             )
             .iter()
             .all(|o| o.choice != ApproveChoice::DoneNotMerged),

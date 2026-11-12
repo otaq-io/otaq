@@ -69,11 +69,12 @@ impl Review {
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
         let host = board.ticket(into).await?;
-        if !can_be_merged_in(&ticket) {
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        if !can_be_merged_in(&ticket, &flow) {
             let why = match ticket.flags.pr_number {
                 Some(n) => format!("{} has PR #{n} open; push to it instead", ticket.key),
                 None => format!(
-                    "{} is {}; Merge into another ticket works on a ticket in your review",
+                    "{} is {}; Merge into another ticket works on a ticket in the review before its Delivery",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -85,8 +86,8 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} can't take {}: it must be a ticket of the same project and base that waits in a review, \
-                     at its Delivery or with a PR open, with a branch",
+                    "{} can't take {}: it must be a ticket of the same project and base that waits in the review \
+                     before its Delivery, at its Delivery or with a PR open, with a branch",
                     host.key, ticket.key
                 ),
             ));
