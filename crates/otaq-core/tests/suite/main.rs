@@ -27,6 +27,7 @@ mod changed_since_review;
 mod check_counters;
 mod checkout_skills;
 mod checkpoint;
+mod claude_typing;
 mod cleanup;
 mod client;
 mod close;

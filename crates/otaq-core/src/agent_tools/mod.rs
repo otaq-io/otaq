@@ -734,6 +734,16 @@ pub struct InputQuirks {
     pub before_enter: &'static [u8],
     /// Whether [`Self::clear_line`] clears a multi-line draft. When not, SES-07 asks the user instead.
     pub multi_line_clearable: bool,
+    /// A one-line text longer than this many bytes is typed as a bracketed paste too, or none: only a text with line
+    /// breaks is. Claude Code needs it: the terminal hands a long write to the program in reads of about 1 KB, Claude
+    /// Code takes a read over 800 characters as a paste and a shorter read right after it as typing that replaces
+    /// the line, so only the last read of the text was left. A bracketed paste it joins whatever the reads are.
+    pub paste_line_over: Option<usize>,
+    /// Whether a pasted text that starts with `/name ` (a skill, `/otaq:address-review SHOP-18 …`) is typed as the
+    /// name, a space, then the rest as the paste. Claude Code: a paste over 800 characters becomes a paste block in
+    /// the message, so a whole pasted skill line was sent as a plain message and the skill never ran; with its name
+    /// typed it runs, the pasted rest as its arguments (checked against the real Claude Code 2.1.322).
+    pub command_before_paste: bool,
 }
 
 /// One agent CLI (d0088). Each group of methods answers one of d0088's seven questions.
