@@ -183,7 +183,15 @@ export async function suggest(
   return started.agent;
 }
 
-/** Ask for changes…: the user's words go back to the agent that made the suggestion. Nothing for empty words. */
+/**
+ * The box's Stop while Noyan's agent drafts: that conversation ends, as the agent panel's End agent does, without
+ * the panel's question (it is mid-turn by definition, and Stop is the user's answer). The draft keeps what it proposed.
+ */
+export function stopDrafting(project: string, agent: string, ask: Ask = request): Promise<unknown> {
+  return ask("agent_panel.end", { project, id: agent, confirm: true });
+}
+
+/** The box's send while a suggestion shows: the user's words go back to the agent that made it. Nothing for empty words. */
 export async function askForChanges(view: FlowBoardView, text: string, ask: Ask = request): Promise<boolean> {
   if (text.trim() === "") return false;
   await ask("flow_board.ask_changes", { project: view.project, proposal: view.proposal, text: text.trim() });

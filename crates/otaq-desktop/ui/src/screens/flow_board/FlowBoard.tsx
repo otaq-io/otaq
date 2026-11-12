@@ -71,6 +71,7 @@ import {
   restore,
   saveDraft,
   stepOf,
+  stopDrafting,
   suggest,
 } from "./logic";
 import { NoyanBox } from "./NoyanBox";
@@ -121,7 +122,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   const [startFrom, setStartFrom] = useState(false);
   const [more, setMore] = useState(false);
   const [watching, setWatching] = useState<Watching | null>(null);
-  const [asking, setAsking] = useState(false);
   const [writing, setWriting] = useState<{ stage: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const agents = useStore(editorAgents);
@@ -131,7 +131,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   // The first-time hint sits under Watch a ticket, which it names, so it never covers Backlog's column.
   const watchButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
-  const askButton = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
     const p: FlowBoardParams = {
@@ -340,42 +339,30 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           </div>
         </div>
         <span className="fb-spacer" />
+        <Button
+          ref={watchButton}
+          compact
+          variant="ghost"
+          icon="play"
+          label={view.watch.label}
+          onClick={() => {
+            setSelected(null);
+            setWatching(watching === null ? { fails: false, at: 0 } : null);
+          }}
+        />
         {suggestion !== null ? (
-          <>
-            <Button
-              ref={askButton}
-              compact
-              variant="secondary"
-              icon="message-square"
-              label={suggestion.ask}
-              onClick={() => {
-                setAsking(true);
-              }}
-            />
-            <Button
-              compact
-              variant="ghost"
-              label={suggestion.discard}
-              disabled={busy}
-              onClick={() => {
-                setHistory([]);
-                dropDraft(view).catch(toast);
-              }}
-            />
-          </>
+          <Button
+            compact
+            variant="ghost"
+            label={suggestion.discard}
+            disabled={busy}
+            onClick={() => {
+              setHistory([]);
+              dropDraft(view).catch(toast);
+            }}
+          />
         ) : (
           <>
-            <Button
-              ref={watchButton}
-              compact
-              variant="ghost"
-              icon="play"
-              label={view.watch.label}
-              onClick={() => {
-                setSelected(null);
-                setWatching(watching === null ? { fails: false, at: 0 } : null);
-              }}
-            />
             <Button
               ref={startButton}
               compact
@@ -418,34 +405,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           />
         </Tooltip>
       </div>
-      {view.drafting !== null && (
-        <div
-          className="fb-drafting"
-          role="status"
-          data-needs-you={view.drafting.needs_you !== null || undefined}
-        >
-          <Icon name={view.drafting.needs_you !== null ? "hand" : "loader-circle"} size={14} />
-          {view.drafting.needs_you !== null && (
-            <strong className="fb-needs-you">{view.drafting.needs_you}</strong>
-          )}
-          {view.drafting.tooltip !== null ? (
-            <Tooltip text={view.drafting.tooltip}>
-              <span className="fb-drafting-text">{view.drafting.text}</span>
-            </Tooltip>
-          ) : (
-            <span className="fb-drafting-text">{view.drafting.text}</span>
-          )}
-          <button
-            type="button"
-            className="fb-link"
-            onClick={() => {
-              if (view.drafting !== null) showAgentInPanel(project, view.drafting.agent);
-            }}
-          >
-            {view.drafting.show}
-          </button>
-        </div>
-      )}
       {view.bar.applies !== null && suggestion === null && (
         <p className="fb-applies">
           <Icon name="info" size={13} />
@@ -534,11 +493,20 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           <NoyanBox
             ask={view.ask}
             onSend={(text) =>
-              suggest(project, text).catch((error: unknown) => {
+              (view.ask.state.kind === "proposal"
+                ? askForChanges(view, text ?? "")
+                : suggest(project, text)
+              ).catch((error: unknown) => {
                 toast(error);
                 throw error;
               })
             }
+            onShow={(agent) => {
+              showAgentInPanel(project, agent);
+            }}
+            onStop={(agent) => {
+              stopDrafting(project, agent).catch(toast);
+            }}
           />
         </div>
         {watching !== null && step !== null ? (
@@ -770,21 +738,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
           onClose={() => {
             setMore(false);
-          }}
-        />
-      )}
-      {asking && suggestion !== null && (
-        <AskBox
-          anchor={askButton}
-          label={suggestion.ask}
-          placeholder={suggestion.ask_placeholder}
-          initial=""
-          onSend={(text) => {
-            setAsking(false);
-            askForChanges(view, text).catch(toast);
-          }}
-          onClose={() => {
-            setAsking(false);
           }}
         />
       )}
@@ -1320,7 +1273,7 @@ function DeliverySkillField({
   );
 }
 
-/** A small box for the user's words: Ask for changes…, or what Ask the agent to write it sends. */
+/** A small box for the user's words: what Ask the agent to write it sends. */
 function AskBox({
   anchor,
   label,

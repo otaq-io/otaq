@@ -4,7 +4,6 @@ import type { FlowBoardBar } from "./FlowBoardBar";
 import type { FlowBoardColumn } from "./FlowBoardColumn";
 import type { FlowBoardDelivery } from "./FlowBoardDelivery";
 import type { FlowBoardDetails } from "./FlowBoardDetails";
-import type { FlowBoardDrafting } from "./FlowBoardDrafting";
 import type { FlowBoardMore } from "./FlowBoardMore";
 import type { FlowBoardPalette } from "./FlowBoardPalette";
 import type { FlowBoardSaved } from "./FlowBoardSaved";
@@ -25,7 +24,7 @@ proposal: number,
 /**
  * The draft's document, for Undo.
  */
-yaml: string, bar: FlowBoardBar, columns: Array<FlowBoardColumn>, details: FlowBoardDetails | null, delivery: FlowBoardDelivery | null, palette: FlowBoardPalette, start_from: FlowBoardStartFrom, more: FlowBoardMore, ask: FlowBoardAsk, suggestion: FlowBoardSuggestion | null, drafting: FlowBoardDrafting | null, watch: FlowBoardWatch, saved: FlowBoardSaved, hint: HintId, 
+yaml: string, bar: FlowBoardBar, columns: Array<FlowBoardColumn>, details: FlowBoardDetails | null, delivery: FlowBoardDelivery | null, palette: FlowBoardPalette, start_from: FlowBoardStartFrom, more: FlowBoardMore, ask: FlowBoardAsk, suggestion: FlowBoardSuggestion | null, watch: FlowBoardWatch, saved: FlowBoardSaved, hint: HintId, 
 /**
  * The picks as Save sends them.
  */

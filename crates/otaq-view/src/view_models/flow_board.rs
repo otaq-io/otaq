@@ -12,9 +12,10 @@
 //! The bar on top says what is being edited and how many changes the draft holds, with Watch a ticket (a pretend
 //! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
 //! another project's and Import), ⋯ (Export, Import, Copy from another project, Go back to the previous flow), Cancel
-//! and Save flow. A box docked at the editor's foot asks Noyan's agent for a change in the user's words, or for a whole
-//! flow ([`Ask`]). A suggestion from Noyan's agent shows its changes marked on their columns, with Why these changes,
-//! Ask for changes…, Discard and Save flow.
+//! and Save flow. A box docked at the editor's foot follows Noyan's conversation ([`Ask`]): it asks Noyan's agent for a
+//! change in the user's words, or for a whole flow; while the agent drafts it says so, with Show and Stop; and while
+//! its suggestion shows, marked on the columns with Why these changes, the box asks for changes to it. The bar then
+//! has Watch a ticket, Discard and Save flow.
 //!
 //! Every edit goes to the project's draft as the overlay editor's did ([`super::flow_editor::edited`],
 //! `flow.draft_update`); nothing changes on the board until the user saves. What a saved change does to moving
@@ -271,25 +272,52 @@ pub struct Entry {
     pub pick: Pick,
 }
 
-/// The box docked at the editor's foot, the board's box for new work in Edit flow: the user asks Noyan's agent for a
-/// change in their own words (↵), or for a whole flow (the shortcut beside the words). `FlowBoardAsk` on the page.
+/// The box docked at the editor's foot, the board's box for new work in Edit flow. It follows Noyan's conversation
+/// ([`AskState`]): the user asks Noyan's agent for a change in their own words (↵), or for a whole flow (the shortcut
+/// beside the words); while the agent drafts, the box says so; while its suggestion shows, ↵ asks for changes to it.
+/// `FlowBoardAsk` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowBoardAsk")]
 pub struct Ask {
-    /// "Ask Noyan to change this flow…".
+    /// "Ask Noyan to change this flow…", or "Ask for changes to Strong's proposal…" while a suggestion shows.
     pub placeholder: String,
-    /// The whole-flow shortcut: "Suggest a whole flow".
-    pub whole: &'static str,
-    /// Why nothing can be asked now ("Strong is drafting a flow for shop-web…"); `None` when it can.
+    /// The whole-flow shortcut, "Suggest a whole flow"; `None` while a suggestion shows.
+    pub whole: Option<&'static str>,
+    /// Why the shortcut can't be asked now ("Strong is drafting one"); `None` when it can.
     pub off: Option<String>,
     /// Who answers: "Noyan · Strong · Claude Code".
     pub agent: String,
-    /// "Proposes a draft · nothing changes until you save".
+    /// "Proposes a draft · nothing changes until you save"; while the agent drafts, "Drag, + and × still work
+    /// meanwhile".
     pub line: &'static str,
-    /// The send button once something is typed: "Ask Noyan".
+    /// The send button once something is typed: "Ask Noyan", or "Ask for changes".
     pub send: String,
     /// The send key: "↵".
     pub keys: &'static str,
+    pub state: AskState,
+}
+
+/// Where Noyan's conversation is, as the box follows it. `FlowBoardAskState` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "FlowBoardAskState")]
+pub enum AskState {
+    /// The user asks for a change, or a whole flow: `flow_board.suggest`.
+    Change,
+    /// Noyan's agent drafts: the box shows it with Show and Stop, in the words' place.
+    Drafting(Drafting),
+    /// Its suggestion shows: the words go to the same conversation, `flow_board.ask_changes`.
+    Proposal(ProposalAsk),
+}
+
+/// The box while a suggestion shows: Show conversation opens the agent that made it. `FlowBoardProposalAsk` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowBoardProposalAsk")]
+pub struct ProposalAsk {
+    /// The agent that made the suggestion, for Show conversation.
+    pub agent: String,
+    pub show: &'static str,
 }
 
 /// Start from…. `FlowBoardStartFrom` on the page.
@@ -345,15 +373,13 @@ pub struct Suggestion {
     pub line: String,
     pub whys_title: &'static str,
     pub whys: Vec<Why>,
-    pub ask: &'static str,
-    /// "Tell Strong what to change…".
-    pub ask_placeholder: String,
     pub discard: &'static str,
 }
 
-/// While Noyan's agent drafts a flow: "Strong is drafting a flow for shop-web…", with Show (its conversation). While it
-/// waits on the user, at a permission prompt or a question, Needs you takes the line's place: "Needs you" with "Strong
-/// wants your permission: Allow npm test?" and Answer; the line comes back once it works again.
+/// While Noyan's agent drafts: "Strong is drafting a change to shop-web's flow…" in the box, with Show (its
+/// conversation) and Stop (it ends, and the draft keeps what it proposed). While it waits on the user, at a permission
+/// prompt or a question, Needs you takes the line's place: "Needs you" with "Strong wants your permission: Allow npm
+/// test?" and Answer; the line comes back once it works again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowBoardDrafting")]
 pub struct Drafting {
@@ -365,6 +391,7 @@ pub struct Drafting {
     pub tooltip: Option<String>,
     pub agent: String,
     pub show: &'static str,
+    pub stop: &'static str,
 }
 
 /// One step of Watch a ticket.
@@ -451,7 +478,6 @@ pub struct View {
     pub more: More,
     pub ask: Ask,
     pub suggestion: Option<Suggestion>,
-    pub drafting: Option<Drafting>,
     pub watch: Watch,
     pub saved: Saved,
     pub hint: HintId,
@@ -842,7 +868,9 @@ fn palette(f: &Facts) -> Palette {
     }
 }
 
-/// The box at the editor's foot. Noyan's agent drafts one change at a time: while it drafts, nothing more is asked.
+/// The box at the editor's foot, following Noyan's conversation. A suggestion on the columns comes first: its agent
+/// stays mid-turn while it waits for the answer, which the box sends. Noyan's agent drafts one change at a time: while
+/// it drafts, nothing more is asked.
 fn ask(f: &Facts) -> Ask {
     let (name, tool, _) = agent_panel::starts_on(f.new_agent, f.tools);
     let agent = if name.eq_ignore_ascii_case(tool.display_name()) {
@@ -850,15 +878,45 @@ fn ask(f: &Facts) -> Ask {
     } else {
         format!("{NOYAN} \u{b7} {name} \u{b7} {}", tool.display_name())
     };
-    Ask {
+    let change = Ask {
         placeholder: format!("Ask {NOYAN} to change this flow\u{2026}"),
-        whole: "Suggest a whole flow",
-        // Off while the agent drafts, waiting on the user or not.
-        off: drafting(f).and_then(|_| f.agent.map(|a| drafting_text(&a.name, f.project_name))),
+        whole: Some("Suggest a whole flow"),
+        off: None,
         agent,
         line: "Proposes a draft \u{b7} nothing changes until you save",
         send: format!("Ask {NOYAN}"),
         keys: "\u{21b5}",
+        state: AskState::Change,
+    };
+    if let Some((by, by_name)) = suggested_by(f).filter(|_| suggestion(f).is_some()) {
+        return Ask {
+            placeholder: format!("Ask for changes to {by_name}\u{2019}s proposal\u{2026}"),
+            whole: None,
+            line: "Goes to the same conversation \u{b7} nothing changes until you save",
+            send: "Ask for changes".to_owned(),
+            state: AskState::Proposal(ProposalAsk {
+                agent: by.to_owned(),
+                show: "Show conversation",
+            }),
+            ..change
+        };
+    }
+    match (drafting(f), f.agent) {
+        (Some(d), Some(a)) => Ask {
+            off: Some(format!("{} is drafting one", a.name)),
+            line: "Drag, + and \u{d7} still work meanwhile",
+            state: AskState::Drafting(d),
+            ..change
+        },
+        _ => change,
+    }
+}
+
+/// The Project agent that made the draft's proposal, and its name; `None` for the user's own.
+fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, &'a str)> {
+    match &f.proposal.proposed_by {
+        ProposedBy::ProjectAgent { agent, name, .. } => Some((agent.as_str(), name.as_str())),
+        ProposedBy::User => None,
     }
 }
 
@@ -899,6 +957,7 @@ fn drafting(f: &Facts) -> Option<Drafting> {
             tooltip: Some(format!("{lead}{}", tooltip_text(what))),
             agent: agent.id.clone(),
             show: "Answer",
+            stop: "Stop",
         },
         None => Drafting {
             needs_you: None,
@@ -906,6 +965,7 @@ fn drafting(f: &Facts) -> Option<Drafting> {
             tooltip: None,
             agent: agent.id.clone(),
             show: "Show",
+            stop: "Stop",
         },
     })
 }
@@ -923,9 +983,9 @@ pub(crate) fn tooltip_text(what: &str) -> String {
     }
 }
 
-/// "Strong is drafting a flow for shop-web…".
+/// "Strong is drafting a change to shop-web's flow…".
 fn drafting_text(agent: &str, project_name: &str) -> String {
-    format!("{agent} is drafting a flow for {project_name}\u{2026}")
+    format!("{agent} is drafting a change to {project_name}\u{2019}s flow\u{2026}")
 }
 
 fn start_from(b: &BoardFacts) -> StartFrom {
@@ -1085,8 +1145,6 @@ fn suggestion(f: &Facts) -> Option<Suggestion> {
         ),
         whys_title: "Why these changes",
         whys,
-        ask: "Ask for changes\u{2026}",
-        ask_placeholder: format!("Tell {name} what to change\u{2026}"),
         discard: "Discard",
     })
 }
@@ -1328,7 +1386,6 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         more: more(f, b),
         ask: ask(f),
         suggestion: suggestion(f),
-        drafting: drafting(f),
         watch: watch(f, b.base_branch),
         saved: saved(f),
         hint: HintId::FlowColumns,
@@ -1558,8 +1615,104 @@ mod tests {
         assert_eq!(warnings(&docs), (None, None));
     }
 
-    /// The "drafting a flow" line shows only while Noyan's agent works on the draft. After Discard or Save the draft
-    /// has no marks and the agent's turn has ended (its session stays open, idle): the line is gone, and Suggest can
+    /// The box follows Noyan's conversation: asking for a change, then the agent drafting it (Show and Stop, the
+    /// shortcut off with why), then its proposal on the columns, where the box asks for changes to it with no
+    /// shortcut, and Show conversation opens the agent that made it.
+    #[test]
+    fn the_box_follows_noyans_conversation() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+        use otaq_core::flow::draft::StageMark;
+
+        let file = shop_web();
+        let mut draft = proposal(&file, false);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let marks = [StageMark {
+            stage_id: "review".into(),
+            stage: "Review".into(),
+            mark: Mark::Changed,
+            by: "Strong".into(),
+            why: None,
+        }];
+        let facts = |draft: &'_ otaq_core::flow::proposal::Proposal,
+                     marks: &'_ [StageMark],
+                     a: Option<&otaq_core::project_agents::ProjectAgent>|
+         -> Ask {
+            ask(&Facts {
+                project: "SHOP",
+                project_name: "shop-web",
+                proposal: draft,
+                marks,
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: a,
+                new_agent: None,
+                choices: &choices,
+            })
+        };
+
+        let change = facts(&draft, &[], None);
+        assert_eq!(change.state, AskState::Change);
+        assert_eq!(change.placeholder, "Ask Noyan to change this flow\u{2026}");
+        assert_eq!(change.whole, Some("Suggest a whole flow"));
+        assert_eq!(change.off, None);
+
+        let mut a = agent("c1", "Strong", 0);
+        a.mid_turn = true;
+        let drafting = facts(&draft, &[], Some(&a));
+        let AskState::Drafting(d) = &drafting.state else {
+            panic!("{drafting:?}");
+        };
+        assert_eq!(
+            d.text,
+            "Strong is drafting a change to shop-web\u{2019}s flow\u{2026}"
+        );
+        assert_eq!((d.agent.as_str(), d.show, d.stop), ("c1", "Show", "Stop"));
+        assert_eq!(drafting.off.as_deref(), Some("Strong is drafting one"));
+        assert_eq!(drafting.line, "Drag, + and \u{d7} still work meanwhile");
+
+        // Its proposal shows: the agent stays mid-turn, waiting for the answer the box sends.
+        draft.proposed_by = ProposedBy::ProjectAgent {
+            agent: "c1".into(),
+            session: "s1".into(),
+            name: "Strong".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
+        };
+        let proposed = facts(&draft, &marks, Some(&a));
+        assert_eq!(
+            proposed.state,
+            AskState::Proposal(ProposalAsk {
+                agent: "c1".into(),
+                show: "Show conversation",
+            })
+        );
+        assert_eq!(
+            proposed.placeholder,
+            "Ask for changes to Strong\u{2019}s proposal\u{2026}"
+        );
+        assert_eq!(proposed.whole, None);
+        assert_eq!(proposed.off, None);
+        assert_eq!(proposed.send, "Ask for changes");
+
+        // Asked for changes: the proposal closes and the agent drafts again.
+        assert!(matches!(
+            facts(&draft, &[], Some(&a)).state,
+            AskState::Drafting(_)
+        ));
+    }
+
+    /// The box's drafting state shows only while Noyan's agent works on the draft. After Discard or Save the draft
+    /// has no marks and the agent's turn has ended (its session stays open, idle): the box asks again, and Suggest can
     /// be asked again.
     #[test]
     fn the_drafting_line_goes_when_the_draft_does() {
@@ -1598,7 +1751,7 @@ mod tests {
         a.mid_turn = true;
         assert_eq!(
             line(&a).0.as_deref(),
-            Some("Shop repo flow is drafting a flow for shop\u{2026}"),
+            Some("Shop repo flow is drafting a change to shop\u{2019}s flow\u{2026}"),
             "while its turn runs"
         );
         a.mid_turn = false;
@@ -1669,7 +1822,7 @@ mod tests {
     }
 
     /// While the drafting agent waits on the user, at a permission prompt or a question, Needs you takes the line's
-    /// place (Suggest stays off); once the user answers and it works again, "drafting a flow" comes back.
+    /// place (Suggest stays off); once the user answers and it works again, "drafting a change" comes back.
     #[test]
     fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
         use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
@@ -1703,8 +1856,9 @@ mod tests {
             let d = drafting(&f).unwrap();
             (d.needs_you, d.text, d.show, suggest_off(&f))
         };
-        let drafting_line = "Shop repo flow is drafting a flow for shop\u{2026}".to_owned();
-        let busy = Some(drafting_line.clone());
+        let drafting_line =
+            "Shop repo flow is drafting a change to shop\u{2019}s flow\u{2026}".to_owned();
+        let busy = Some("Shop repo flow is drafting one".to_owned());
 
         let mut a = agent("c1", "Shop repo flow", 0);
         a.mid_turn = true;

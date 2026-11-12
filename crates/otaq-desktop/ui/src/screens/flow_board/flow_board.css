@@ -84,7 +84,6 @@
   outline-offset: 1px;
 }
 
-.fb-drafting,
 .fb-applies {
   display: flex;
   flex: none;
@@ -97,8 +96,19 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
-/* The drafting agent waits on the user: Needs you, in its colour, instead of "drafting a flow". */
+/*
+ * Noyan's box while its agent drafts: the line takes the words' place, with Show and Stop. Waiting on the user, it
+ * says Needs you in that colour instead of "drafting a change".
+ */
+.fb-drafting {
+  color: var(--text-secondary);
+  font: 400 13px/1.4 var(--font-ui);
+}
+
 .fb-drafting[data-needs-you] {
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border-radius: 6px;
   background: var(--st-attn-bg);
   color: var(--text-primary);
 }
@@ -120,7 +130,6 @@
   white-space: nowrap;
 }
 
-.fb-drafting > svg,
 .fb-needs-you,
 .fb-drafting > .fb-link {
   flex: none;
