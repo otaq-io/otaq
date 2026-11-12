@@ -425,21 +425,26 @@ pub fn security_review() -> HumanQuestion {
     let note = |text: &str| Some(text.to_owned());
     HumanQuestion {
         id: "q-security-review".into(),
-        text: "Which agent should run the new Security review stage?\n\
+        text: format!(
+            "Which agent should run the new Security review stage?\n\
                \n\
                Your project has a security skill in `.claude/skills/security-review`, and it expects the code to \
                build first: it runs `npm audit` and reads the lockfile. Two things to weigh:\n\
                \n\
                - **Verifier** already runs Validate on Codex. Using it again keeps one checking agent, but Codex \
-               doesn't load `.claude/skills`, so it would fall back to Otaq's own review skill.\n\
+               doesn't load `.claude/skills`, so it would fall back to {app}'s own review skill.\n\
                - **Strong** (Claude Code) loads your skill as it is, but it's the agent that writes the code, so it \
                would review its own work.\n\
                \n\
-               A third agent costs a new connection in Settings \u{2192} Agents."
-            .into(),
+               A third agent costs a new connection in Settings \u{2192} Agents.",
+            app = otaq_core::naming::PRODUCT_NAME,
+        ),
         options: vec![
             "Strong, with your security-review skill".into(),
-            "Verifier, with Otaq's review skill".into(),
+            format!(
+                "Verifier, with {}'s review skill",
+                otaq_core::naming::PRODUCT_NAME
+            ),
             "A new agent".into(),
         ],
         recommended: vec![1],
