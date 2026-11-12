@@ -292,6 +292,7 @@ impl Review {
         let skill = super::RESTACK_SKILL;
         let full = self.limit_full().await?;
         let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        let back_at_work = live.is_some() && !full;
         match (&live, full) {
             (Some(session), false) => {
                 // A build freed at Review comes back first (M19-c); a queued or resumed ticket gets it at its start.
@@ -336,7 +337,34 @@ impl Review {
         }
         inner.board.count_delivery_conflict(&ticket.id).await?;
         tracing::info!(ticket = %ticket.key, %target, merge_check = check.is_some(), "conflict handed to the agent");
+        // The ticket is out of Review in a session that keeps running: a prompt Review kept calm there (the message
+        // writer's, still waiting) reads Needs you now, and the restack waits behind it until the user answers it.
+        if back_at_work {
+            let back = super::finish::FinishedTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+                status: Status::MergeConflictFixing,
+            };
+            let hooks = inner
+                .back_at_work_hooks
+                .lock()
+                .expect("back at work hooks")
+                .clone();
+            for hook in hooks {
+                hook(&back).await;
+            }
+        }
         Ok(())
+    }
+
+    /// Registers a hook run when a conflict or a failed Merge check sent the ticket back to its agent's running
+    /// session to be fixed.
+    pub fn on_back_at_work(&self, hook: super::finish::FinishedHook) {
+        self.inner
+            .back_at_work_hooks
+            .lock()
+            .expect("back at work hooks")
+            .push(hook);
     }
 
     /// **Send back with PR comments** (FLW-16): a ticket whose PR is open goes back to its nearest earlier Agent

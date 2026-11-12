@@ -7,7 +7,10 @@
 //! in a turn the user is to be brought to while the ticket waits where it is becomes the ticket's
 //! [`crate::domain::SessionPrompt`]: a ticket's session prompt, shown without changing its status
 //! ([`shown_without_status`]). The message writer's prompt never does: Review stays calm and the Approve dialogs say
-//! so. A finished ticket's answer session's prompt does, as answering the asker's question: its own Needs you item,
+//! so. The calm holds only while the ticket waits in Review: once a conflict or a failed Merge check sends it back to
+//! its agent's running session with the writer's prompt still open, that prompt is read again and reads Needs you
+//! through the ticket's own status, like any prompt of a working agent
+//! ([`crate::signals::Signals::back_at_work`]). A finished ticket's answer session's prompt does, as answering the asker's question: its own Needs you item,
 //! and "Needs you · answering SHOP-36" on the card, which stays in Done.
 //!
 //! In memory, like the open prompts: a session that ends takes its prompt with it, and a restart shows none.

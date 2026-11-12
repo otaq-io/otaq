@@ -427,7 +427,8 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
     // `create` appears only for a follow-up, never for the ticket's own work (decision 047).
     assert_eq!(
         plan.matches(&format!("{cmd} create")).count(),
-        plan.matches(&format!("{cmd} create \"Title\" --stdin")).count(),
+        plan.matches(&format!("{cmd} create \"Title\" --stdin"))
+            .count(),
         "milestone-plan files only follow-ups"
     );
     assert!(

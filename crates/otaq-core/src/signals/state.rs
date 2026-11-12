@@ -87,6 +87,10 @@ pub enum Input {
     Command,
     /// Enter pressed in the ticket's terminal (the relay, T-0051).
     Enter,
+    /// A permission prompt already on the agent's screen, read again as its ticket moved: one drawn while the ticket
+    /// waited in Review, where it kept its calm (the message writer's), reads Needs you like a prompt drawn now once
+    /// the ticket is back at work. Not a signal of the tool's: the last signal stays.
+    Drawn { prompt: String },
     /// The user answered from Needs you, the card or the sheet (ATT-02, ATT-08): clears like Enter.
     Answered,
     /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`: the line the ticket showed
@@ -99,7 +103,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     let mut next = state.clone();
     if !matches!(
         input,
-        Input::Enter | Input::Answered | Input::HelperWait { .. }
+        Input::Enter | Input::Answered | Input::HelperWait { .. } | Input::Drawn { .. }
     ) {
         next.last_signal_at = Some(now);
     }
@@ -129,7 +133,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
         }
     };
     match input {
-        Input::Hook(Signal::NeedsYou { prompt }) => {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } => {
             set(&mut next, Status::NeedsYou, Some(prompt.clone()), None);
         }
         Input::Hook(Signal::WorkingInBackground { work }) => {
@@ -252,7 +256,7 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
         next.wakeup_at = None;
     };
     match input {
-        Input::Hook(Signal::NeedsYou { prompt }) if open => {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } if open => {
             set(Status::NeedsYou, Some(prompt.clone()))
         }
         Input::AskHuman(question) if open => set(Status::AsksYou, Some(question.clone())),
@@ -296,7 +300,7 @@ fn fixing(next: &mut SignalState, input: &Input, now: i64) {
         None => set(Status::MergeConflictFixing, None),
     };
     match input {
-        Input::Hook(Signal::NeedsYou { prompt }) => {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } => {
             set(Status::NeedsYou, Some(prompt.clone()));
         }
         Input::AskHuman(question) => set(Status::AsksYou, Some(question.clone())),
@@ -906,6 +910,46 @@ mod tests {
         assert_eq!(
             transition(&ended, &input, 110).status,
             Status::MergeConflictFixing
+        );
+    }
+
+    /// A prompt drawn while the ticket waited in Review (the message writer's) kept its calm there; read again once a
+    /// conflict sends the ticket back to be fixed, it reads Needs you naming its command, and once answered the ticket
+    /// reads "fixing" again. Read again while the ticket still waits in Review, or a second time, it changes nothing,
+    /// not even the last signal: it isn't the tool's.
+    #[test]
+    fn a_prompt_drawn_in_review_reads_needs_you_once_read_again_at_work() {
+        let prompt = "Run command: git log --oneline main..HEAD";
+        let drawn = Input::Drawn {
+            prompt: prompt.into(),
+        };
+        let review = with(Status::WaitingForYou, "done");
+        assert_eq!(transition(&review, &drawn, 50), review, "Review stays calm");
+
+        let fixing = SignalState {
+            status: Status::MergeConflictFixing,
+            fixing: true,
+            since: Some(10),
+            last_signal_at: Some(10),
+            ..Default::default()
+        };
+        let waiting = transition(&fixing, &drawn, 50);
+        assert_eq!(
+            (waiting.status, waiting.text.as_deref(), waiting.since),
+            (Status::NeedsYou, Some(prompt), Some(50))
+        );
+        assert_eq!(waiting.last_signal_at, Some(10), "the last signal stays");
+        assert_eq!(transition(&waiting, &drawn, 60), waiting, "once");
+        let back = transition(&waiting, &Input::Answered, 70);
+        assert_eq!(
+            (back.status, back.text.as_deref()),
+            (Status::MergeConflictFixing, None)
+        );
+
+        let at_work = transition(&working(), &drawn, 50);
+        assert_eq!(
+            (at_work.status, at_work.text.as_deref()),
+            (Status::NeedsYou, Some(prompt))
         );
     }
 }
