@@ -140,7 +140,8 @@ impl Board {
     async fn diff_source(&self, ticket: &Ticket) -> Result<DiffSource, BoardError> {
         let project = self.project(ticket.key.project.as_str()).await?;
         let work = ticket.work.clone().unwrap_or_default();
-        let (Some(branch), Some(base_sha)) = (work.branch, work.base_sha) else {
+        let base_sha = self.current_base_sha(ticket).await?;
+        let (Some(branch), Some(base_sha)) = (work.branch, base_sha) else {
             return Err(BoardError::refused(
                 Refusal::NoBranch,
                 format!("{} has no branch yet: it hasn't started", ticket.key),

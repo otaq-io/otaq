@@ -856,7 +856,8 @@ impl Board {
         let Some(work) = &ticket.work else {
             return Ok(String::new());
         };
-        let (Some(worktree), Some(base)) = (&work.worktree, &work.base_sha) else {
+        let base = self.current_base_sha(ticket).await?;
+        let (Some(worktree), Some(base)) = (&work.worktree, &base) else {
             return Ok(String::new());
         };
         Ok(self

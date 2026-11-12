@@ -191,7 +191,8 @@ impl Board {
             .ticket(&ticket.id)
             .await?
             .ok_or_else(|| BoardError::NotFound(ticket.key.to_string()))?;
-        let (Some(branch), Some(base_sha)) = (row.branch_name, row.base_sha) else {
+        let base_sha = self.current_base_sha(ticket).await?.or(row.base_sha);
+        let (Some(branch), Some(base_sha)) = (row.branch_name, base_sha) else {
             return Err(BoardError::refused(
                 Refusal::NoBranch,
                 format!("{} has no branch to push", ticket.key),

@@ -594,8 +594,9 @@ impl Board {
         let git = self.git()?;
         let work = ticket.work.clone().unwrap_or_default();
         let base_branch = ticket.base.branch().to_owned();
+        let base_sha = self.current_base_sha(ticket).await?;
 
-        if let (Some(branch), Some(base_sha)) = (work.branch, work.base_sha) {
+        if let (Some(branch), Some(base_sha)) = (work.branch, base_sha) {
             let info = FilesSource {
                 key: ticket.key.clone(),
                 from: FilesFrom::Branch,

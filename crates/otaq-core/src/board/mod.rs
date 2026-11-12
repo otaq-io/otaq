@@ -3,6 +3,7 @@
 
 pub mod agent_created;
 pub mod agent_edits;
+pub mod base;
 pub mod batch;
 pub mod change_note;
 pub mod close;

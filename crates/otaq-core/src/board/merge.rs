@@ -202,7 +202,7 @@ impl Board {
         let Some(work) = &ticket.work else {
             return Ok(0);
         };
-        let Some(base) = &work.base_sha else {
+        let Some(base) = self.current_base_sha(ticket).await? else {
             return Ok(0);
         };
         let git = self.git()?;

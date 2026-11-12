@@ -441,7 +441,12 @@ impl Git {
     }
 
     /// Whether `ancestor` is an ancestor of (or is) `of`.
-    async fn is_ancestor(&self, repo: &Path, ancestor: &str, of: &str) -> Result<bool, GitError> {
+    pub(crate) async fn is_ancestor(
+        &self,
+        repo: &Path,
+        ancestor: &str,
+        of: &str,
+    ) -> Result<bool, GitError> {
         let args = ["merge-base", "--is-ancestor", ancestor, of];
         match self.run_with_code(repo, &args).await? {
             (0, _) => Ok(true),
