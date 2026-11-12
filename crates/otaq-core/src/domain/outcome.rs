@@ -19,3 +19,9 @@ stored_enum! {
         DoneWithoutMerge = "done_without_merge",
     }
 }
+
+/// A ticket finished without a merge ([`Outcome::DoneWithoutMerge`]) whose branch had nothing beyond its base, in the
+/// app's words: its card, its sheet's pill and line, History and `otaq list` all say it.
+pub const DONE_NOTHING_TO_MERGE: &str = "Done \u{b7} nothing to merge";
+/// A ticket finished without a merge whose branch had commits: they didn't land, the branch keeps them.
+pub const DONE_NOT_MERGED: &str = "Done \u{b7} not merged";

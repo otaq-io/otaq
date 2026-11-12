@@ -353,13 +353,7 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Palette::Approved,
         ),
         Status::Merged if flags.delivered_without_checks => None,
-        Status::Merged if flags.done_without_merge => plain(
-            match &flags.nothing_to_merge {
-                Some(_) => super::card::DONE_NOTHING_TO_MERGE.to_owned(),
-                None => DONE_NOT_MERGED_LINE.to_owned(),
-            },
-            Palette::Done,
-        ),
+        Status::Merged if flags.done_without_merge => plain(ticket.status_words(), Palette::Done),
         Status::Merged => plain(
             format!("Merged into {}", ticket.base.branch()),
             Palette::Approved,

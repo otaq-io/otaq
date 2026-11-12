@@ -86,6 +86,17 @@ impl PillView {
         let (legend, label) = pill(status);
         Self::legend(legend, Some(label))
     }
+
+    /// The pill a ticket shows ([`shown`]): a ticket finished without a merge keeps Merged's colour and icon and
+    /// says how it ended, as its card ("Done · nothing to merge").
+    pub fn of_ticket(ticket: &otaq_core::board::tickets::Ticket) -> Self {
+        let status = shown(ticket);
+        let mut pill = Self::of(status);
+        if status == Core::Merged && ticket.status == Core::Merged {
+            ticket.status_words().clone_into(&mut pill.label);
+        }
+        pill
+    }
 }
 
 #[cfg(test)]
