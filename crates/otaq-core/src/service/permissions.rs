@@ -585,7 +585,8 @@ mod tests {
             question: "Import closed issues too?".into(),
             options: Vec::new(),
             notes: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
         });
         assert_eq!(agent_activity(&ask, &Action::Read), AgentActivity::Acts);
     }

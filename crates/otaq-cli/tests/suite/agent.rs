@@ -215,7 +215,7 @@ async fn ask_human_with_answer_options() {
     assert_eq!(stored.id, q["id"].as_str().unwrap());
     assert_eq!(
         (stored.text.as_str(), stored.recommended),
-        (question, Some(1))
+        (question, vec![1])
     );
 
     // Free text still works, without options.
@@ -257,6 +257,86 @@ async fn ask_human_with_answer_options() {
     let ran = agent
         .run_with_stdin(
             &format!("'{CB}' ask SHOP-18 --option a --option b --stdin --json"),
+            question,
+        )
+        .await;
+    let e: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(
+        e["error"]["message"],
+        "Options are only for questions to the human"
+    );
+    w.stop().await;
+}
+
+/// `ask human --multiple`: the user may pick several of the options; `--recommended` may then name several, comma
+/// separated. Refused without options, with several recommendations but no `--multiple`, on `ask <KEY>` and with
+/// `--send-back`.
+#[tokio::test(flavor = "multi_thread")]
+async fn ask_human_multiple_lets_the_user_pick_several() {
+    let w = TestService::start().await;
+    w.shop_sample().await;
+    let shop21 = w.board.ticket("SHOP-21").await.unwrap();
+    w.force_status(&shop21, Status::Working).await;
+    let agent = w.agent_shell(&shop21).await;
+    let ask = |flags: &str| format!("'{CB}' ask human {flags} --stdin --json");
+    let question = "Which email providers should the fallback chain use?";
+
+    let ran = agent
+        .run_with_stdin(
+            &ask("--option Postmark --option SES --option Resend --multiple --recommended 1,3"),
+            question,
+        )
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(ticket["status"], "asks_you");
+    assert_eq!(ticket["question"]["multiple"], true);
+    assert_eq!(ticket["question"]["recommended"], json!([1, 3]));
+    let stored = w.board.open_question(&shop21.id).await.unwrap().unwrap();
+    assert_eq!((stored.recommended, stored.multiple), (vec![1, 3], true));
+
+    // One recommendation with --multiple, and none, are fine too.
+    for flags in [
+        "--option a --option b --multiple --recommended 2",
+        "--option a --option b --multiple",
+    ] {
+        let ran = agent.run_with_stdin(&ask(flags), question).await;
+        assert_eq!(ran.status, 0, "{flags}: {ran:?}");
+    }
+    // A single number keeps working without --multiple: one answer, as before.
+    let ran = agent
+        .run_with_stdin(&ask("--option a --option b --recommended 2"), question)
+        .await;
+    let ticket: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(ticket["question"]["recommended"], 2);
+    assert!(ticket["question"].get("multiple").is_none());
+
+    for (flags, message) in [
+        ("--multiple", "--multiple needs options to choose from"),
+        (
+            "--option a --option b --recommended 1,2",
+            "Recommend one option, or ask with --multiple to let the user pick several",
+        ),
+        (
+            "--option a --option b --multiple --recommended 1,3",
+            "--recommended must be between 1 and 2",
+        ),
+        (
+            "--send-back Plan --multiple",
+            "--send-back takes no --option",
+        ),
+    ] {
+        let ran = agent.run_with_stdin(&ask(flags), question).await;
+        assert_ne!(ran.status, 0, "{flags}");
+        let e: Value = serde_json::from_str(&ran.stdout).unwrap();
+        assert!(
+            e["error"]["message"].as_str().unwrap().starts_with(message),
+            "{flags}: {e}"
+        );
+    }
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' ask SHOP-18 --multiple --stdin --json"),
             question,
         )
         .await;

@@ -299,7 +299,8 @@ async fn answering_or_resuming_one_ticket_starts_only_it_and_the_pause_stays() {
             question,
             &["Yes".into(), "No".into()],
             &[],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();

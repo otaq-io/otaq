@@ -436,7 +436,8 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
 }
 
 /// What `agent_panel.answer` takes (OTQ-9): the conversation, its open question, the picked number (Other… is the
-/// last; none for an open question), the typed text, and whether the terminal's typed line is cleared first.
+/// last; none for an open question), the typed text, and whether the terminal's typed line is cleared first. A
+/// question that takes several answers sends every ticked number in `picks` instead.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "AgentAnswerParams")]
 pub struct AnswerParams {
@@ -446,6 +447,9 @@ pub struct AnswerParams {
     #[serde(default)]
     #[ts(optional)]
     pub pick: Option<u32>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub picks: Option<Vec<u32>>,
     #[serde(default)]
     pub other: String,
     #[serde(default)]
@@ -471,7 +475,11 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<super::sheet::Sen
         .as_ref()
         .filter(|q| q.id == params.question)
         .ok_or_else(changed)?;
-    let choice = answer_options::choice_for(question, params.pick, &params.other)
+    let picks = match params.picks.as_deref() {
+        Some(several) if !several.is_empty() => several,
+        _ => params.pick.as_slice(),
+    };
+    let choice = answer_options::choice_for(question, picks, &params.other)
         .ok_or_else(|| RequestError::plain("Pick an answer or type one"))?;
     let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
         id: agent.id.clone(),

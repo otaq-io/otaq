@@ -801,6 +801,33 @@ pub fn answer_text(
         }
         (Some(q), Choice::Other(_)) => format_answer(q, choice),
         (None, Choice::Other(text)) => text.trim().to_owned(),
+        // Several answers: only a question that takes them, each a real option, at least one ticked.
+        (Some(q), Choice::Several { options, other }) if q.multiple => {
+            if let Some(n) = options
+                .iter()
+                .find(|&&n| n == 0 || n as usize > q.options.len())
+            {
+                return Err(BoardError::refused(
+                    Refusal::BadQuestion,
+                    format!("There is no option {n} to choose"),
+                ));
+            }
+            if other.as_deref().is_some_and(|t| t.trim().is_empty())
+                || (options.is_empty() && other.is_none())
+            {
+                return Err(BoardError::refused(
+                    Refusal::EmptyField,
+                    "Write the answer first",
+                ));
+            }
+            format_answer(q, choice)
+        }
+        (_, Choice::Several { .. }) => {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "This question takes one answer",
+            ));
+        }
         // Sending back moves the ticket: the send-back question's own request, never a typed answer.
         (_, Choice::SendBack) => {
             return Err(BoardError::refused(

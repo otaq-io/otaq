@@ -1,5 +1,5 @@
 {
-  "protocol_version": 12,
+  "protocol_version": 13,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -148,6 +148,10 @@
     "AgentAskHumanParams": {
       "kind": "struct",
       "fields": {
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -161,8 +165,11 @@
           "required": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=crate::board::questions::one_or_many"
+          ]
         }
       }
     },
@@ -885,6 +892,10 @@
           "ty": "String",
           "required": true
         },
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -898,8 +909,11 @@
           "required": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=crate::board::questions::one_or_many"
+          ]
         },
         "send_back": {
           "ty": "Option<String>",
@@ -4469,6 +4483,10 @@
           "ty": "String",
           "required": true
         },
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -4478,8 +4496,11 @@
           "omittable": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=one_or_many"
+          ]
         },
         "send_back": {
           "ty": "Option<SendBackTo>",
@@ -12819,7 +12840,19 @@
         "other": {
           "newtype": "String"
         },
-        "send_back": {}
+        "send_back": {},
+        "several": {
+          "fields": {
+            "options": {
+              "ty": "Vec<u32>",
+              "required": true
+            },
+            "other": {
+              "ty": "Option<String>",
+              "omittable": true
+            }
+          }
+        }
       }
     },
     "crate::board::stage_choices::Choice": {

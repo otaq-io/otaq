@@ -1759,7 +1759,7 @@ impl CardViewModel {
             .then_some(ticket.question.as_ref())
             .flatten()
             .and_then(crate::view_models::answer_options::AnswerOptions::of);
-        let (action, second) = if options.as_ref().is_some_and(|o| o.pick.is_some()) {
+        let (action, second) = if options.as_ref().is_some_and(|o| o.has_pick()) {
             (
                 Some(CardAction {
                     kind: CardActionKind::SendAnswer,
@@ -4632,7 +4632,8 @@ mod tests {
             id: "q".into(),
             text: "Which email provider should the order confirmation use?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -4643,7 +4644,7 @@ mod tests {
         assert!(rows[0].recommended && rows[0].picked);
         assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
         // Without a recommendation: Reply, which opens the sheet.
-        t.question.as_mut().unwrap().recommended = None;
+        t.question.as_mut().unwrap().recommended.clear();
         assert_eq!(foot(&card(&t)).as_deref(), Some("[Reply]"));
         t.question.as_mut().unwrap().options.clear();
         assert!(card(&t).options.is_none());

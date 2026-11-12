@@ -523,6 +523,9 @@ QUESTION
 - A note is one or two short sentences, at most about 200 characters: what the option costs (time, a new dependency, setup) and what it changes for
   the user or for later work. Give every option one, so the user can weigh the side effects of each choice.
 - Recommend one with `--recommended N` (1-based) when there is a sensible default; leave it out when there isn't.
+- When the user may want several of the options at once (which pages get the change, which providers to support), add
+  `--multiple`: they tick any of them, and `--recommended` may name several (`--recommended 1,3`). The answer names
+  each pick.
 - Never invent options for an open question.
 - The question text always goes through stdin; only the short labels and notes are arguments.
 - The user's Agent instructions take precedence over this guidance.

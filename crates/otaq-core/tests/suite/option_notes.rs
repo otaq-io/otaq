@@ -145,7 +145,8 @@ async fn a_question_without_notes_stores_none() {
             "Which email provider?",
             &["Postmark".into(), "SES".into()],
             &[None, Some("  ".into())],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();
@@ -169,7 +170,8 @@ async fn a_question_without_notes_stores_none() {
             QUESTION,
             &["Markdown files".into(), "One ZIP".into(), "PDF".into()],
             &notes(&[None, Some(ZIP), None]),
-            None,
+            &[],
+            false,
         )
         .await
         .unwrap();

@@ -2,6 +2,7 @@
 
 /**
  * What `agent_panel.answer` takes (OTQ-9): the conversation, its open question, the picked number (Other… is the
- * last; none for an open question), the typed text, and whether the terminal's typed line is cleared first.
+ * last; none for an open question), the typed text, and whether the terminal's typed line is cleared first. A
+ * question that takes several answers sends every ticked number in `picks` instead.
  */
-export type AgentAnswerParams = { project: string, agent: string, question: string, pick?: number, other: string, clear: boolean, };
+export type AgentAnswerParams = { project: string, agent: string, question: string, pick?: number, picks?: Array<number>, other: string, clear: boolean, };

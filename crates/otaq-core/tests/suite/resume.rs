@@ -317,7 +317,14 @@ async fn a_needs_you_answer_whose_resume_failed_is_delivered_on_retry() {
         .unwrap();
     // The ticket was waiting for an answer to its open question when the restart interrupted it.
     w.board
-        .store_question(&t.id, "Which forms get the new field?", &[], &[], None)
+        .store_question(
+            &t.id,
+            "Which forms get the new field?",
+            &[],
+            &[],
+            &[],
+            false,
+        )
         .await
         .unwrap();
     sqlx::query("UPDATE tickets SET interrupted_from = 'asks_you' WHERE id = ?")

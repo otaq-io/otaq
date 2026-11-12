@@ -108,7 +108,8 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
             "Which email provider should I use?",
             &["Postmark".into(), "SES".into()],
             &[],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();
@@ -142,7 +143,7 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
         Some("Which email provider should I use?")
     );
     let question = t.question.unwrap();
-    assert_eq!((question.options.len(), question.recommended), (2, Some(1)));
+    assert_eq!((question.options.len(), question.recommended), (2, vec![1]));
     // Review: not Interrupted, no needs-you item of its own beyond Ready for Review, a History note.
     assert_eq!(w.status("SHOP-3").await, Status::WaitingForYou);
     assert_eq!(

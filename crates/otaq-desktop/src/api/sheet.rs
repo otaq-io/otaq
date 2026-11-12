@@ -1699,13 +1699,17 @@ pub enum Sent {
 }
 
 /// What `sheet.answer` takes: the open question, the picked number (Other… is the last), its text, and whether
-/// the terminal's typed line is cleared first.
+/// the terminal's typed line is cleared first. A question that takes several answers sends every ticked number in
+/// `picks` instead.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "SheetAnswerParams")]
 pub struct AnswerParams {
     pub key: String,
     pub question: String,
     pub pick: u32,
+    #[serde(default)]
+    #[ts(optional)]
+    pub picks: Option<Vec<u32>>,
     #[serde(default)]
     pub other: String,
     #[serde(default)]
@@ -1716,7 +1720,11 @@ pub struct AnswerParams {
 /// `None` when there is nothing to send.
 pub fn choice_of(ticket: &Ticket, params: &AnswerParams) -> Option<Choice> {
     let question = ticket.question.as_ref().filter(|q| q.id == params.question)?;
-    answer_options::choice_for(question, Some(params.pick), &params.other)
+    let picks = match params.picks.as_deref() {
+        Some(several) if !several.is_empty() => several,
+        _ => std::slice::from_ref(&params.pick),
+    };
+    answer_options::choice_for(question, picks, &params.other)
 }
 
 /// Send answer (ATT-12): typed into the session as the options word it.
@@ -2556,7 +2564,8 @@ mod tests {
             id: "q1".into(),
             text: "Which email provider?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -2571,6 +2580,7 @@ mod tests {
             key: "SHOP-21".into(),
             question: "q1".into(),
             pick,
+            picks: None,
             other: other.into(),
             clear: false,
         };
@@ -2590,6 +2600,59 @@ mod tests {
         asks.flags.your_turn = true;
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         assert_eq!(view.answer, None, "focused in its terminal: answered there");
+    }
+
+    /// A question that takes several answers: the box draws checkboxes with the recommended ones ticked, and
+    /// `picks` sends every ticked row; one `pick` still answers a question that takes one.
+    #[test]
+    fn several_answers_go_as_picks() {
+        let mut asks = fixture("SHOP-21", "Order confirmation email", Status::AsksYou);
+        asks.question = Some(HumanQuestion {
+            id: "q1".into(),
+            text: "Which email providers?".into(),
+            options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
+            recommended: vec![1, 3],
+            multiple: true,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
+        let answer = view.answer.unwrap();
+        assert!(answer.multiple);
+        let ticked: Vec<u32> = answer
+            .rows
+            .iter()
+            .filter(|r| r.picked)
+            .map(|r| r.number)
+            .collect();
+        assert_eq!(ticked, [1, 3]);
+        let params = |picks: Option<Vec<u32>>, other: &str| AnswerParams {
+            key: "SHOP-21".into(),
+            question: "q1".into(),
+            pick: 1,
+            picks,
+            other: other.into(),
+            clear: false,
+        };
+        assert_eq!(
+            choice_of(&asks, &params(Some(vec![1, 2, 4]), "Mailgun")),
+            Some(Choice::Several {
+                options: vec![1, 2],
+                other: Some("Mailgun".into())
+            })
+        );
+        assert_eq!(
+            choice_of(&asks, &params(None, "")),
+            Some(Choice::Several {
+                options: vec![1],
+                other: None
+            })
+        );
+        asks.question.as_mut().unwrap().multiple = false;
+        asks.question.as_mut().unwrap().recommended = vec![1];
+        assert_eq!(choice_of(&asks, &params(None, "")), Some(Choice::Option(1)));
+        assert_eq!(choice_of(&asks, &params(Some(vec![1, 2]), "")), None);
     }
 
     #[test]

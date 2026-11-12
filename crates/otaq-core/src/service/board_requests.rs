@@ -1859,10 +1859,10 @@ async fn ask_human(
             "Write the question on stdin",
         ));
     }
-    validate_options(&p.options, p.recommended)?;
+    validate_options(&p.options, &p.recommended, p.multiple)?;
     crate::board::questions::validate_notes(&p.options, &p.notes)?;
     if p.send_back.is_some() {
-        if !p.options.is_empty() || p.recommended.is_some() {
+        if !p.options.is_empty() || !p.recommended.is_empty() || p.multiple {
             return Err(BoardError::refused(
                 Refusal::BadQuestion,
                 "A send-back question takes no --option: its two ways out are Send back and Answer here",
@@ -1879,7 +1879,13 @@ async fn ask_human(
     if let Caller::Helper { session, .. } = caller {
         let reply = shared
             .helpers
-            .ask(caller, &p.question, &p.options, &p.notes, p.recommended)
+            .ask(
+                caller,
+                &p.question,
+                &p.options,
+                &p.notes,
+                (&p.recommended, p.multiple),
+            )
             .await?;
         shared.signals.mark_submitted_or_asked(session);
         return Ok(Reply::Helper(Box::new(reply)));
@@ -1907,7 +1913,14 @@ async fn ask_human(
         }
         None => {
             board
-                .store_question(&ticket.id, &p.question, &p.options, &p.notes, p.recommended)
+                .store_question(
+                    &ticket.id,
+                    &p.question,
+                    &p.options,
+                    &p.notes,
+                    &p.recommended,
+                    p.multiple,
+                )
                 .await?;
         }
     }

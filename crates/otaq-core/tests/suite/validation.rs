@@ -1037,7 +1037,7 @@ async fn a_question_asked_during_a_check_is_kept_after_a_restart() {
     }
     let question = "Should totals round per line or per order?";
     w.board
-        .store_question(&asks.id, question, &[], &[], None)
+        .store_question(&asks.id, question, &[], &[], &[], false)
         .await
         .unwrap();
     let caller = otaq_core::caller::Caller::Agent {

@@ -53,7 +53,13 @@ pub fn ask_note(piece: u32, question: &HumanQuestion) -> String {
             .enumerate()
             .map(|(n, label)| format!("{}. {label}", n + 1))
             .collect();
-        format!("{text} (options: {})", listed.join(", "))
+        // A question that takes several answers says so: the agent in charge may answer with several.
+        let any = if question.multiple {
+            ", any of them"
+        } else {
+            ""
+        };
+        format!("{text} (options{any}: {})", listed.join(", "))
     };
     if !asked.ends_with(['.', '?', '!']) {
         asked.push('.');
@@ -131,6 +137,8 @@ struct Row {
     question: String,
     options_json: String,
     recommended: Option<i64>,
+    recommended_json: Option<String>,
+    multiple: bool,
     option_notes_json: Option<String>,
     asked_at: i64,
     helper_state: String,
@@ -138,8 +146,8 @@ struct Row {
     answered_at: Option<i64>,
 }
 
-const SELECT: &str = "SELECT id, ticket_id, helper_id, question, options_json, recommended, option_notes_json, \
-                      asked_at, helper_state, pass_on_note, answered_at FROM human_questions";
+const SELECT: &str = "SELECT id, ticket_id, helper_id, question, options_json, recommended, recommended_json, \
+                      multiple, option_notes_json, asked_at, helper_state, pass_on_note, answered_at FROM human_questions";
 
 fn of_row(row: Row) -> Option<HelperQuestion> {
     Some(HelperQuestion {
@@ -147,7 +155,11 @@ fn of_row(row: Row) -> Option<HelperQuestion> {
             id: row.id,
             text: row.question,
             options: serde_json::from_str(&row.options_json).unwrap_or_default(),
-            recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
+            recommended: crate::board::questions::recommended_from(
+                row.recommended,
+                row.recommended_json.as_deref(),
+            ),
+            multiple: row.multiple,
             notes: crate::board::questions::notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
             send_back: None,
@@ -211,7 +223,7 @@ impl Helpers {
         text: &str,
         options: &[String],
         notes: &[Option<String>],
-        recommended: Option<u32>,
+        (recommended, multiple): (&[u32], bool),
     ) -> Result<super::HelperReply, BoardError> {
         let (ticket, helper) = self.helper_of(caller).await?;
         if text.trim().is_empty() {
@@ -220,7 +232,7 @@ impl Helpers {
                 "Write the question on stdin",
             ));
         }
-        crate::board::questions::validate_options(options, recommended)?;
+        crate::board::questions::validate_options(options, recommended, multiple)?;
         crate::board::questions::validate_notes(options, notes)?;
         let in_charge = self
             .inner
@@ -234,7 +246,8 @@ impl Helpers {
             id: new_id(),
             text: text.trim().to_owned(),
             options: options.iter().map(|o| o.trim().to_owned()).collect(),
-            recommended,
+            recommended: crate::board::questions::clean_recommended(recommended),
+            multiple,
             notes: crate::board::questions::clean_notes(notes),
             asked_at: now_ms(),
             send_back: None,
@@ -251,8 +264,8 @@ impl Helpers {
         .await?;
         sqlx::query(
             "INSERT INTO human_questions (id, ticket_id, helper_id, helper_state, question, options_json, recommended,
-                                          option_notes_json, asked_at, helper_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                          recommended_json, multiple, option_notes_json, asked_at, helper_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&question.id)
         .bind(&ticket.id)
@@ -260,7 +273,9 @@ impl Helpers {
         .bind(state.as_str())
         .bind(&question.text)
         .bind(serde_json::to_string(&question.options).expect("strings serialize"))
-        .bind(question.recommended.map(i64::from))
+        .bind(question.recommended.first().copied().map(i64::from))
+        .bind(crate::board::questions::recommended_json(&question.recommended))
+        .bind(question.multiple)
         .bind(crate::board::questions::notes_json(&question.notes))
         .bind(question.asked_at)
         .bind((state == HelperQuestionState::PassedOn).then_some(question.asked_at))
@@ -534,7 +549,8 @@ mod tests {
             id: "q7".into(),
             text: "Can guests save items without logging in?".into(),
             options: options.iter().map(|o| (*o).to_owned()).collect(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
