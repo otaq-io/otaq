@@ -231,3 +231,24 @@ known-issues list.
 | Clipboard | cleared |
 | Deleted | `otaq-build\piece3`, `otaq-build\Otaq_0.1.0_arm64-setup-r7p2-86016e3d.exe`, `Desktop\r10-14820575.bundle` |
 | `~\otaq-qbox` Otaq | untouched (PIDs 8380/18580 still running) |
+
+## Known issues after round 7 (maintainer, 2026-11-12)
+
+Fixed for the release by decisions 050 and 051 (narrow): Cancel in "Pushing…" always works (NEW-r10-1's locked
+window); the "session has ended" refusal in Review points to Send back with the answer (NEW-r10-2). Left for later:
+
+- An answer to a question asked in Review can't be given in place once the session ended: it costs a Send back (Dev
+  round). A writer's question answered that way reaches the Dev agent, which didn't ask. Planned: resume in place
+  (WIP worktree-agent-a538190ea1d74874d, aab83528).
+- After Cancel in "Pushing…", for the rest of that turn a permission prompt isn't labelled as the flow's (decision 044)
+  and `otaq prime` drops the confirmed pull request.
+- Otaq counts the main checkout's `.claude/skills` for Claude Code per skill name; Claude Code loads them only when the
+  worktree has no `.claude/skills` folder at all. A skill typed into a session that started before the skills folder
+  existed gets "Unknown command" (outside the PR dialog too).
+- Questions already open on Review tickets show as Asks you once round 7 lands.
+- Noyan's panel forgets its picks when you leave it.
+- Ctrl+V with an image does nothing in Claude Code on Windows (it pastes images with Alt+V); Codex pastes on Ctrl+V.
+- Ctrl+J on check-failed / check-no-result / parent-closed tickets still opens Session (not checked whether empty).
+- A long message starting with `/word ` has that word typed, the rest pasted.
+- "Closed · not merged" on the pill where the card says "nothing to merge".
+- NOTE-r10-3 to NOTE-r10-6 above.
