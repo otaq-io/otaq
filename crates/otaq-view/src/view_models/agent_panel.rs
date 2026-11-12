@@ -783,7 +783,9 @@ fn switcher_row(a: &ProjectAgent, shown: Option<&str>, tools: &Tools) -> Switche
     }
 }
 
-/// Newest first; closed conversations are under Recently ended (`recent`, as the service lists them).
+/// Newest first; closed conversations are under Recently ended (`recent`, as the service lists them). Each
+/// conversation is listed once: one ended but not closed (ended by a restart) is still open, so it stays in the top
+/// list and is left out of Recently ended here (the empty panel's Recently ended keeps the service's whole list).
 pub fn switcher(
     agents: &[ProjectAgent],
     recent: &[ProjectAgent],
@@ -801,6 +803,7 @@ pub fn switcher(
         recent_title: "RECENTLY ENDED",
         recent: recent
             .iter()
+            .filter(|r| !agents.iter().any(|a| a.id == r.id))
             .map(|a| switcher_row(a, None, tools))
             .collect(),
         new_label: TITLE,
@@ -2352,6 +2355,38 @@ mod tests {
             .collect();
         assert_eq!(recent, [("a4", "Ended by restart", Some("Resume"), false)]);
         assert!(!view_of(&list(Vec::new()), None).header.switcher);
+    }
+
+    /// The service lists a conversation ended by a restart (not closed) both as open and as recently ended (its
+    /// `list` contract: open = not closed, recent = not running): the switcher lists it once, in the top list, while
+    /// the empty panel's Recently ended still lists every ended one.
+    #[test]
+    fn the_switcher_lists_each_conversation_once() {
+        let running = agent("a1", "Import GitHub issues", 3);
+        let mut restarted = agent("a2", "Suggest shop flow", 2);
+        restarted.state = AgentState::EndedByRestart;
+        restarted.mid_turn = false;
+        let mut closed = agent("a3", "Add Docs stage", 1);
+        closed.state = AgentState::Ended;
+        closed.mid_turn = false;
+        closed.closed = true;
+        let mut agents = list(vec![running, restarted.clone()]);
+        agents.recent = vec![restarted, closed];
+        let v = view_of(&agents, None);
+        let top: Vec<&str> = v.switcher.rows.iter().map(|r| r.id.as_str()).collect();
+        let ended: Vec<&str> = v.switcher.recent.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(top, ["a1", "a2"]);
+        assert_eq!(
+            ended,
+            ["a3"],
+            "the one ended by restart is not listed again"
+        );
+        let empty: Vec<&str> = v.recent.rows.iter().map(|r| r.id.as_str()).collect();
+        assert_eq!(
+            empty,
+            ["a2", "a3"],
+            "the empty panel lists every ended conversation"
+        );
     }
 
     #[test]
