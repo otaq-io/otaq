@@ -161,13 +161,21 @@ function expectWide(popover: HTMLElement) {
   expect(["", "auto"]).toContain(style.height);
 }
 
-/** The question's line and context are one text that can shrink and scroll; `outside` stays out of it, unshrunk. */
+/** The question's line and context are one text that can shrink and scroll, before its options do; `outside` stays out
+ * of it, unshrunk. */
 function expectTextScrollsAlone(popover: HTMLElement, outside: Element[]): HTMLElement {
   const text = popover.querySelector<HTMLElement>(".sheet-answer-text");
   if (!text) throw new Error("no question text");
   expect(getComputedStyle(text).overflowY).toBe("auto");
   expect(Number.parseFloat(getComputedStyle(text).minHeight)).toBe(0);
-  expect(getComputedStyle(text).flexShrink).toBe("1");
+  // It gives way first, down to its floor (`QuestionText`); the options then scroll (NEW-d1, NEW-d2).
+  expect(Number(getComputedStyle(text).flexShrink)).toBeGreaterThanOrEqual(1000);
+  const options = popover.querySelector(".sheet-answer-options");
+  if (options) {
+    expect(text.contains(options)).toBe(false);
+    expect(getComputedStyle(options).flexShrink).toBe("1");
+    expect(getComputedStyle(options).overflowY).toBe("auto");
+  }
   for (const el of outside) {
     expect(text.contains(el)).toBe(false);
     expect(getComputedStyle(el).flexShrink).toBe("0");
@@ -187,7 +195,7 @@ describe("Noyan's long question in the strip", () => {
     const bar = popover.querySelector(".agent-question-bar");
     const foot = popover.querySelector(".strip-question-foot");
     if (!options || !bar || !foot) throw new Error("no options, Send or link");
-    const text = expectTextScrollsAlone(popover, [options, bar, foot]);
+    const text = expectTextScrollsAlone(popover, [bar, foot]);
     expect(text.querySelector(".sheet-answer-line")?.textContent).toBe(LONG.line);
     expect(text.querySelector(".sheet-answer-context")?.textContent).toContain("A third agent costs");
     expect(bar.contains(buttonIn(popover, "Send answer") ?? null)).toBe(true);

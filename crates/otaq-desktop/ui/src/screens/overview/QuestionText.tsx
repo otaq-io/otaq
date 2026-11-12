@@ -3,6 +3,7 @@
 // and the context are one text that scrolls together when its place caps it, while the options and Send stay in view.
 // The split itself is `otaq-view`'s (`SheetAnswer.line`, `.context`).
 import {
+  type CSSProperties,
   type ReactNode,
   type Ref,
   type RefObject,
@@ -85,7 +86,22 @@ function QuestionContext({ context }: { context: string }) {
   );
 }
 
-/** The question line and its context, one text that scrolls when its place caps it; the icon sits at its top. */
+/** How much of the question's text stays in view however tight its place: about six lines, or the whole text when it is
+ * shorter. Past it the options give way (they scroll), never the question. */
+export const QUESTION_FLOOR = 120;
+
+/** The text's floor for a text `whole` pixels tall. */
+export function questionFloor(whole: number): number {
+  return Math.min(QUESTION_FLOOR, Math.ceil(whole));
+}
+
+function setRef<T>(ref: Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === "function") ref(value);
+  else if (ref) ref.current = value;
+}
+
+/** The question line and its context, one text that scrolls when its place caps it; the icon sits at its top. Where
+ * the options don't leave it room, it keeps its floor (`questionFloor`) and the options scroll instead. */
 export function QuestionText({
   answer,
   textRef,
@@ -97,8 +113,36 @@ export function QuestionText({
   /** The text's cap in pixels, past which it scrolls; `null` for none of its own. */
   cap?: number | null;
 }) {
+  const own = useRef<HTMLDivElement | null>(null);
+  const [floor, setFloor] = useState(0);
+  useLayoutEffect(() => {
+    const words = own.current?.firstElementChild;
+    if (!(words instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = questionFloor(words.offsetHeight);
+      setFloor((current) => (current === next ? current : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(words);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  const style: CSSProperties = {
+    ...(cap !== null && { maxHeight: cap }),
+    ...(floor > 0 && { minHeight: floor }),
+  };
   return (
-    <div ref={textRef} className="sheet-answer-text" style={cap === null ? undefined : { maxHeight: cap }}>
+    <div
+      ref={(el) => {
+        own.current = el;
+        setRef(textRef, el);
+      }}
+      className="sheet-answer-text"
+      style={style}
+    >
       <div className="sheet-answer-question">
         <Icon name="message-circle-question-mark" size={16} />
         <div className="sheet-answer-words">

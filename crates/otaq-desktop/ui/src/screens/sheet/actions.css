@@ -288,16 +288,26 @@
 }
 
 /* The question's text: its line and its context, one text that scrolls together when its place caps it (a ticket's
-   Overview sets the cap only when Send would fall below the sheet; the agent panel caps its band). The options and
-   Send stay in view under it. */
+   Overview sets the cap only when Send would fall below the sheet; the agent panel and Edit flow's box cap their
+   band). It gives way first, the options and Send staying in view under it, but only down to its floor (about six
+   lines, `QuestionText`'s min-height): past that the options give way and scroll, never the question. */
 .sheet-answer-text {
-  flex: 0 1 auto;
+  flex: 0 1000 auto;
   min-height: 0;
   overflow-y: auto;
   overscroll-behavior: contain;
 }
 
-.sheet-answer-options,
+/* The options scroll once the text is down to its floor; the 3 px keep a focused option's ring in view. */
+.sheet-answer-options {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: -3px;
+  padding: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
 .sheet-answer > .sheet-answer-box,
 .sheet-answer > .agent-question-text {
   flex: none;
