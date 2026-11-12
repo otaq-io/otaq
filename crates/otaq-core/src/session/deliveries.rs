@@ -636,11 +636,22 @@ impl Deliveries {
             .remove(delivery);
     }
 
-    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message) with the tool's
-    /// bytes after the text, if any, then the tool's keys before Enter, if any, then one Enter.
+    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message, or when it is a
+    /// line longer than the tool takes typed, [`InputQuirks::paste_line_over`]; a pasted `/name args` keeps its
+    /// name typed in front of the paste when the tool asks, [`InputQuirks::command_before_paste`]) with the tool's
+    /// bytes after the text, if any, then the tool's keys before Enter, if any, then one Enter. The text is one
+    /// write: the program joins a bracketed paste however the terminal splits it into reads.
     async fn type_and_submit(&self, session: &str, text: &str) -> Result<(), SessionError> {
         let input = self.input(session);
-        let mut typed = if text.contains('\n') {
+        let paste =
+            text.contains('\n') || input.paste_line_over.is_some_and(|over| text.len() > over);
+        let command = text
+            .split_once(' ')
+            .filter(|(name, _)| name.starts_with('/') && !name.contains('\n'))
+            .filter(|_| paste && input.command_before_paste);
+        let mut typed = if let Some((name, rest)) = command {
+            format!("{name} \x1b[200~{rest}\x1b[201~").into_bytes()
+        } else if paste {
             format!("\x1b[200~{text}\x1b[201~").into_bytes()
         } else {
             text.as_bytes().to_vec()

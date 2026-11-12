@@ -293,11 +293,38 @@ async fn text_codex_shows_in_its_input_line_still_holds_the_note() {
 /// write and (on Windows) End, then one Enter: a skill typed alone (`$otaq:push`) leaves Codex's skill popup open
 /// and Enter there only inserts the item, while text after the name closes it first (real Codex 0.166.0 in Windows'
 /// ConPTY; `codex_typing` runs it against the real tool). A multi-line message is a bracketed paste with the space
-/// after it. Claude Code gets the text and Enter alone.
+/// after it. Claude Code gets the text and Enter alone, and a line over 512 bytes as a bracketed paste: the
+/// terminal hands a long write over in reads of about 1 KB, and real Claude Code 2.1.322 takes a read over 800
+/// characters as a paste and a shorter one right after it as typing that replaces the line, so unbracketed only the
+/// last read arrived (Windows' ConPTY and macOS; `claude_typing` runs it against the real tool). A long `/skill`
+/// line keeps the skill's name typed in front of the paste, since Claude Code sends a pasted one as a plain message.
+/// Codex's long line stays as it was.
 #[tokio::test]
 async fn the_bytes_typed_for_each_tool() {
     let end = if cfg!(windows) { "^[[F" } else { "" };
+    let long = "x".repeat(600);
+    let edge = "y".repeat(512);
+    let skill = format!("/otaq:address-review {long}");
     let cases = [
+        (Tool::Codex, long.as_str(), format!("{long} {end}\r\n")),
+        (Tool::Copilot, long.as_str(), format!("{long}\r\n")),
+        (Tool::OpenCode, long.as_str(), format!("{long}\r\n")),
+        (
+            Tool::Claude,
+            long.as_str(),
+            format!("^[[200~{long}^[[201~\r\n"),
+        ),
+        (Tool::Claude, edge.as_str(), format!("{edge}\r\n")),
+        (
+            Tool::Claude,
+            skill.as_str(),
+            format!("/otaq:address-review ^[[200~{long}^[[201~\r\n"),
+        ),
+        (
+            Tool::Claude,
+            "/otaq:restack SHOP-1\nconflicts",
+            "/otaq:restack ^[[200~SHOP-1\r\nconflicts^[[201~\r\n".to_owned(),
+        ),
         (Tool::Codex, "$otaq:push", format!("$otaq:push {end}\r\n")),
         (
             Tool::Codex,

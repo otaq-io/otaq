@@ -300,6 +300,8 @@ impl AgentTool for Codex {
             enter_delay: ENTER_DELAY,
             before_enter: BEFORE_ENTER,
             multi_line_clearable: false,
+            paste_line_over: None,
+            command_before_paste: false,
         }
     }
 

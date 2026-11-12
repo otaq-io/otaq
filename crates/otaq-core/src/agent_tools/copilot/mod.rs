@@ -285,6 +285,8 @@ impl AgentTool for Copilot {
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: true,
+            paste_line_over: None,
+            command_before_paste: false,
         }
     }
 

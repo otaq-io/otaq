@@ -143,6 +143,7 @@ fn user_text(content: &Value) -> Option<String> {
             .join("\n"),
         _ => return None,
     };
+    let text = without_paste_tags(&text);
     let text = text.trim();
     if let Some(name) = between(text, "<command-name>", "</command-name>") {
         let args = between(text, "<command-args>", "</command-args>").unwrap_or_default();
@@ -202,6 +203,42 @@ fn action_summary(tool: &str, input: &Value) -> String {
     };
     let summary = preferred.or_else(any).unwrap_or_default();
     cut(summary.lines().next().unwrap_or_default(), MAX_SUMMARY)
+}
+
+/// The opening of the tag Claude Code wraps pasted text in.
+const PASTE_OPEN: &str = "<pasted_content";
+/// The opening of its closing tag.
+const PASTE_CLOSE: &str = "</pasted_content";
+
+/// `text` with Claude Code's paste tags taken out, the pasted text kept. Claude Code (2.1.322) records a paste of
+/// over 800 characters, which every long message Otaq types is, as `\n\n<pasted_content id="…">\n` + the text +
+/// `\n</pasted_content id="…">\n` (checked against what the real tool saved on Windows and macOS). Text without
+/// the tags is returned as it is.
+pub fn without_paste_tags(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut rest = text;
+    loop {
+        let open = rest.find(PASTE_OPEN);
+        let close = rest.find(PASTE_CLOSE);
+        let (at, closing) = match (open, close) {
+            (Some(o), Some(c)) if c < o => (c, true),
+            (Some(o), _) => (o, false),
+            (None, Some(c)) => (c, true),
+            (None, None) => break,
+        };
+        let Some(end) = rest[at..].find('>').map(|e| at + e + 1) else {
+            break;
+        };
+        if closing {
+            out.push_str(rest[..at].strip_suffix('\n').unwrap_or(&rest[..at]));
+            rest = rest[end..].trim_start_matches('\n');
+        } else {
+            out.push_str(rest[..at].trim_end_matches('\n'));
+            rest = rest[end..].strip_prefix('\n').unwrap_or(&rest[end..]);
+        }
+    }
+    out.push_str(rest);
+    out
 }
 
 fn between<'a>(text: &'a str, open: &str, close: &str) -> Option<&'a str> {
@@ -476,6 +513,28 @@ mod tests {
             project_folder(Path::new("/Users/nevzat/.data/wt/shop_web/SHOP-25")),
             "-Users-nevzat--data-wt-shop-web-SHOP-25"
         );
+    }
+
+    /// A long message Otaq typed is saved inside Claude Code's paste tags (one block, or several when the terminal's
+    /// reads were each taken as a paste): the user's turn shows the message alone. The shapes are what the real
+    /// Claude Code 2.1.322 saved.
+    #[test]
+    fn a_pasted_message_shows_without_the_paste_tags() {
+        let turn = |content: &str| user_text(&Value::String(content.to_owned()));
+        assert_eq!(
+            turn("<pasted_content id=\"34fa\">\nDo nothing; reply OK.\n</pasted_content id=\"34fa\">\n").as_deref(),
+            Some("Do nothing; reply OK.")
+        );
+        assert_eq!(
+            turn(
+                "\n\n<pasted_content id=\"0f28\">\nDo noth\n</pasted_content id=\"0f28\">\n\n\n\
+                 <pasted_content id=\"0f28\">\ning; reply\nOK.\n</pasted_content id=\"0f28\">\n"
+            )
+            .as_deref(),
+            Some("Do nothing; reply\nOK.")
+        );
+        assert_eq!(turn("plain").as_deref(), Some("plain"));
+        assert_eq!(turn("<system-reminder>x</system-reminder>"), None);
     }
 
     #[test]

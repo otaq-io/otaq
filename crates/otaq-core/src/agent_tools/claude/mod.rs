@@ -41,6 +41,13 @@ use transcript::{Transcript, find_transcript, read_transcript};
 /// Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the real `claude`.
 const CLEAR_LINE: &[u8] = b"\x05\x15";
 
+/// A one-line text longer than this is typed as a bracketed paste ([`InputQuirks::paste_line_over`]). Well under
+/// both the terminal's read (1,024 bytes in Otaq's ConPTY on Windows, 1,022 on macOS) and Claude Code's
+/// 800-character paste threshold (2.1.322), so a text the terminal could split into a paste read and a typing read
+/// never goes in unbracketed. A bracketed short line arrives as plain text (checked against the real Claude Code
+/// 2.1.322 on Windows and macOS).
+const LONG_LINE: usize = 512;
+
 /// Claude Code's own folder under `home`: `$CLAUDE_CONFIG_DIR` (read with `var`; empty is unset, as Claude Code
 /// reads it, see [`trust::ClaudeConfig::locate`]), else `~/.claude`.
 pub fn config_folder(home: &Path, var: super::EnvVar<'_>) -> PathBuf {
@@ -512,6 +519,8 @@ impl AgentTool for ClaudeCode {
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: true,
+            paste_line_over: Some(LONG_LINE),
+            command_before_paste: true,
         }
     }
 
