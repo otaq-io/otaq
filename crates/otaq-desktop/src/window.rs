@@ -63,6 +63,9 @@ pub enum Action {
     Focus,
     /// Quits the app: the Move window's Quit, and after its move (T-0579), when nothing else runs.
     Quit,
+    /// Quit Otaq from the window's Ctrl+Q on Windows and Linux, as the icon menu's Quit Otaq and macOS's ⌘Q: asks first
+    /// while agents work, else quits at once (NEW-a2).
+    AskQuit,
 }
 
 /// A rectangle in logical pixels: a window's place, or a screen's.

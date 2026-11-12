@@ -5,7 +5,7 @@
 // nothing (d0126): what its first letter opened closes again and the typing hint shows (`typingHint`).
 import type { Keymap } from "../generated/Keymap";
 import { type PageEvents, pageEvents, watchView } from "../service";
-import { request } from "../tauri";
+import { request, windowAction } from "../tauri";
 import {
   type Burst,
   createBurst,
@@ -175,6 +175,11 @@ export function installKeys(app: Registries, target: Window = window): () => voi
           focused?.blur();
         },
         mac: navigator.userAgent.includes("Mac"),
+        quit: () => {
+          windowAction("ask_quit").catch((e: unknown) => {
+            console.error("Quit Otaq didn't start", e);
+          });
+        },
         waiting: sequenceWait.get,
         wait,
         burst,

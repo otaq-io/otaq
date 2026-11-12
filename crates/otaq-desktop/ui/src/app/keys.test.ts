@@ -120,6 +120,7 @@ const TERMINAL: KeyContext = { ...BOARD, inTerminal: true };
 function setup(map: Keymap | undefined, handled: KeyAction["action"][] = []) {
   const ran: string[] = [];
   let left = 0;
+  let quits = 0;
   let waiting = false;
   const d: Dispatch = {
     keymap: () => map,
@@ -130,13 +131,47 @@ function setup(map: Keymap | undefined, handled: KeyAction["action"][] = []) {
     },
     leaveTerminal: () => left++,
     mac: map?.platform === "mac",
+    quit: () => quits++,
     waiting: () => waiting,
     wait: (on) => {
       waiting = on;
     },
   };
-  return { d, ran, left: () => left, waiting: () => waiting };
+  return { d, ran, left: () => left, quits: () => quits, waiting: () => waiting };
 }
+
+describe("Ctrl+Q on Windows and Linux (NEW-a2)", () => {
+  const ctrlQ = key("q", "KeyQ", { ctrlKey: true });
+  it("quits from the board, a terminal and a dialog, and stops the key", () => {
+    for (const ctx of [BOARD, TERMINAL, { ...BOARD, modal: true, letters: "all" as const }]) {
+      const { d, quits } = setup(WIN);
+      const outcome = dispatchKey(d, ctrlQ, ctx);
+      expect(outcome).toEqual({ kind: "quit" });
+      expect(stopsEvent(outcome)).toBe(true);
+      expect(quits()).toBe(1);
+    }
+  });
+  it("ends the wait after g", () => {
+    const { d, quits, waiting } = setup(WIN);
+    dispatchKey(d, key("g", "KeyG"), BOARD);
+    dispatchKey(d, ctrlQ, BOARD);
+    expect(quits()).toBe(1);
+    expect(waiting()).toBe(false);
+  });
+  it("is left to a recording shortcut cell, which refuses it", () => {
+    const { d, quits } = setup(WIN);
+    expect(dispatchKey(d, ctrlQ, { ...BOARD, recording: true })).toEqual({ kind: "passed" });
+    expect(quits()).toBe(0);
+  });
+  it("doesn't quit on a Mac (⌘Q is the app menu's) or with another modifier", () => {
+    const mac = setup(MAC);
+    dispatchKey(mac.d, ctrlQ, BOARD);
+    expect(mac.quits()).toBe(0);
+    const win = setup(WIN);
+    dispatchKey(win.d, key("Q", "KeyQ", { ctrlKey: true, shiftKey: true }), BOARD);
+    expect(win.quits()).toBe(0);
+  });
+});
 
 describe("the key dispatcher on the board", () => {
   it("runs the handler of the bound action and stops the key", () => {

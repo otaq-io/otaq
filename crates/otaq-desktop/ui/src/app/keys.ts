@@ -70,6 +70,8 @@ export type KeyOutcome =
   | { kind: "burst" }
   /** Not in the map, but the webview would act on it: swallowed. */
   | { kind: "swallowed" }
+  /** Ctrl+Q on Windows and Linux: Quit Otaq, as ⌘Q on a Mac (NEW-a2). */
+  | { kind: "quit" }
   /** Neither: the page's elements get it as usual. */
   | { kind: "passed" };
 
@@ -357,6 +359,8 @@ export interface Dispatch {
   wait: (on: boolean) => void;
   /** Whether this is a Mac (only used before the map arrived). */
   mac: boolean;
+  /** Quit Otaq (asks first while agents work): Ctrl+Q on Windows and Linux. */
+  quit: () => void;
   /** The fast-typing guard (d0126); without one each key is judged alone. */
   burst?: Burst;
 }
@@ -455,6 +459,14 @@ function lettersRun(map: Keymap, ctx: KeyContext): boolean {
   return map.letters && !ctx.inTerminal && !ctx.modal && ctx.letters !== "all";
 }
 
+/**
+ * Ctrl+Q on Windows and Linux: Quit Otaq, everywhere in the window, a terminal and a dialog too, as ⌘Q on a Mac (whose
+ * app menu has it). It can't be recorded for an action (`keymap_edit.rs`).
+ */
+export function isQuitKey(e: KeyLike, mac: boolean): boolean {
+  return !mac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && letterOf(e) === "q";
+}
+
 /** Decides one key and does it (runs a handler, leaves the terminal, waits after `g`); the caller stops the event for
  * `ran`, `waiting`, `cancelled` and swallowed keys. */
 export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcome {
@@ -462,6 +474,11 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
   if (ctx.recording) {
     d.wait(false);
     return { kind: "passed" };
+  }
+  if (isQuitKey(e, map ? map.platform === "mac" : d.mac)) {
+    d.wait(false);
+    d.quit();
+    return { kind: "quit" };
   }
   if (d.waiting()) {
     d.wait(false);
@@ -515,6 +532,7 @@ export function stopsEvent(outcome: KeyOutcome): boolean {
     case "cancelled":
     case "burst":
     case "swallowed":
+    case "quit":
       return true;
     case "unhandled":
       return outcome.swallowed;
@@ -547,6 +565,8 @@ export function logLine(e: KeyLike, outcome: KeyOutcome): string {
       return `${name} → dropped (typed fast with nothing focused)`;
     case "swallowed":
       return `${name} → swallowed (webview key)`;
+    case "quit":
+      return `${name} → Quit Otaq`;
     case "passed":
       return `${name} → page`;
   }

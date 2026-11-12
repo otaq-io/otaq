@@ -184,6 +184,7 @@ fn os_keys(platform: Platform) -> &'static [(&'static str, &'static str)] {
         ]
     } else {
         &[
+            ("Ctrl+Q", "quits {app}"),
             ("Alt+F4", "closes the window"),
             ("Alt+Tab", "switches windows"),
             ("Ctrl+C", "copies text"),
@@ -806,7 +807,9 @@ mod tests {
                 "{key}"
             );
         }
+        let ctrl_quits = format!("Ctrl+Q quits {}. Press another key.", naming::PRODUCT_NAME);
         for (key, reason) in [
+            ("Ctrl+Q", ctrl_quits.as_str()),
             ("Alt+F4", "Alt+F4 closes the window. Press another key."),
             ("Ctrl+V", "Ctrl+V pastes text. Press another key."),
             (
@@ -820,8 +823,9 @@ mod tests {
                 "{key}"
             );
         }
-        // ⌘Q's Windows/Linux twin is free there; the webview's keys Otaq switches off are free.
-        ok(WIN, &fresh, record(KeyAction::OpenActivity, 0, "Ctrl+Q"));
+        // ⌘Q's Windows/Linux twin quits there too (Ctrl+Q, above); ⌘Q's twin on a Mac is free, and so are the
+        // webview's keys Otaq switches off.
+        ok(MAC, &fresh, record(KeyAction::OpenActivity, 0, "⌃Q"));
         ok(MAC, &fresh, record(KeyAction::OpenActivity, 0, "⌘R"));
     }
 

@@ -209,6 +209,10 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
             tauri::Manager::app_handle(&window).exit(0);
             Ok(())
         }
+        Action::AskQuit => {
+            quit_asked(tauri::Manager::app_handle(&window));
+            Ok(())
+        }
     }
     .map_err(|e| e.to_string())
 }
