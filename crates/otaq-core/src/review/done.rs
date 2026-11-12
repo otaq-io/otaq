@@ -109,6 +109,8 @@ impl Review {
         actor: &Actor,
     ) -> Result<DoneOutcome, BoardError> {
         let board = &self.inner.board;
+        // Its waiting children start below, from the fetched base, not in a pass the record sets off.
+        let _landing = self.inner.scheduler.landing(&ticket.key);
         let done = board
             .record_done_without_merge(ticket, nothing_to_merge, actor)
             .await?;

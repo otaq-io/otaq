@@ -212,13 +212,15 @@ async fn a_helper_codex_starts_mid_turn_is_not_background_work() {
     let agent = sh_on(&w, &ticket, Tool::Codex).await;
     event(&w, &agent, Tool::Codex, new_turn()).await;
     // A program named as Codex's host (a copy of `sleep`, signed again on macOS, which kills an unsigned copy of a
-    // system program), started in the turn and left running.
+    // system program), started in the turn and left running. Where `sleep` is a multi-call binary that picks its tool
+    // by its own name (uutils, Ubuntu 26.04's coreutils), the copy can't sleep by that name: it takes the tool first.
     run(
         &w,
         &agent,
         "cp \"$(command -v sleep)\" ./codex-code-mode-host; \
          command -v codesign >/dev/null && codesign -f -s - ./codex-code-mode-host 2>/dev/null; \
-         ./codex-code-mode-host 300 &",
+         if ./codex-code-mode-host 0 2>/dev/null; then ./codex-code-mode-host 300 & \
+         else ./codex-code-mode-host sleep 300 & fi",
         "STARTED",
     )
     .await;

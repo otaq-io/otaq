@@ -544,6 +544,8 @@ impl Review {
                 post_merge,
                 ..
             } => {
+                // Its waiting children start below, from the fetched base, not in a pass the record sets off.
+                let _landing = inner.scheduler.landing(&ticket.key);
                 let merged = board
                     .record_local_merge(
                         &ticket,

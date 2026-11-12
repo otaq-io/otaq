@@ -355,6 +355,22 @@ impl Setup {
     async fn leftover_request(&self) {
         self.w.sessions.stop(&self.writer.id).await.unwrap();
         self.writer_ends().await;
+        // The service handles the session's end a moment later, dropping the message it never wrote: the leftover
+        // row goes in after that, or that handling drops it too.
+        let handled = tokio::time::timeout(Duration::from_secs(20), async {
+            while self
+                .w
+                .board
+                .delivery_message(&self.ticket.id)
+                .await
+                .unwrap()
+                .is_some()
+            {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(handled.is_ok(), "the writer's end is handled");
         let head = otaq_core::git::testing::git(&self.worktree(), &["rev-parse", "HEAD"]);
         let head = head.trim().to_owned();
         sqlx::query(

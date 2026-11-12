@@ -203,6 +203,8 @@ async fn stop_the_merge_of_main_in(hook: &str) {
     let path = wt.clone();
     let merging = tokio::spawn(async move { git_.merge_with_checkpoint(&path, "main").await });
     wait_until("the hook to run", || pids_of(&pids).len() == 2).await;
+    // Stopped once the hook shows, as the user sees it: it is read on a tick, so a fast runner can get here first.
+    wait_until("the hook to show", || watch.activity().hook.is_some()).await;
     assert!(watch.stop());
 
     let err = tokio::time::timeout(Duration::from_secs(20), merging)

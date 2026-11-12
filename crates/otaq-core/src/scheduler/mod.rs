@@ -334,6 +334,31 @@ struct Inner {
     /// One pass at a time.
     pass: Mutex<()>,
     wake: Notify,
+    /// Parents recorded merged (or Done) whose [`Scheduler::on_parent_merged`] hasn't run yet ([`Scheduler::landing`]).
+    landing: std::sync::Mutex<HashSet<TicketKey>>,
+}
+
+/// Held while a parent is recorded merged and until its [`Scheduler::on_parent_merged`]: [`Scheduler::landing`].
+#[must_use = "the children wait only while it is held"]
+pub struct Landing {
+    inner: Arc<Inner>,
+    parent: TicketKey,
+}
+
+impl Drop for Landing {
+    fn drop(&mut self) {
+        let left = self
+            .inner
+            .landing
+            .lock()
+            .expect("landing lock")
+            .remove(&self.parent);
+        // `on_parent_merged` never ran (the merge stopped after its record): the children the passes left alone start
+        // in the next one, now rather than at the slow tick.
+        if left {
+            self.inner.wake.notify_one();
+        }
+    }
 }
 
 impl Scheduler {
@@ -351,6 +376,7 @@ impl Scheduler {
                 tick,
                 pass: Mutex::new(()),
                 wake: Notify::new(),
+                landing: std::sync::Mutex::default(),
             }),
         }
     }
@@ -358,6 +384,21 @@ impl Scheduler {
     /// Asks the loop for a pass soon (for changes that publish no ticket event, such as settings).
     pub fn wake(&self) {
         self.inner.wake.notify_one();
+    }
+
+    /// `parent` is about to be recorded merged (or Done): until [`Self::on_parent_merged`] runs for it (or the returned
+    /// guard drops), the passes the record's events set off leave its waiting children alone, so they start in
+    /// `on_parent_merged`, from the fetched base, and are among the tickets it says it started.
+    pub fn landing(&self, parent: &TicketKey) -> Landing {
+        self.inner
+            .landing
+            .lock()
+            .expect("landing lock")
+            .insert(parent.clone());
+        Landing {
+            inner: self.inner.clone(),
+            parent: parent.clone(),
+        }
     }
 
     /// Runs one pass now: applies the sub-state changes and starts the ready tickets, oldest first.
@@ -380,6 +421,12 @@ impl Scheduler {
         let _one_at_a_time = self.inner.pass.lock().await;
         let board = &self.inner.board;
         let parent = board.ticket(parent).await?;
+        // This pass is the one the children waited for ([`Self::landing`]).
+        self.inner
+            .landing
+            .lock()
+            .expect("landing lock")
+            .remove(&parent.key);
         let tickets = board.tickets(parent.key.project.as_str()).await?;
         let landed = landed_with(board, &parent, &tickets).await?;
         let starting = self.inner.starts.starting();
@@ -543,7 +590,7 @@ impl Scheduler {
                 .into_iter()
                 .map(|(key, _)| key)
                 .collect();
-        let plan = plan_with(
+        let mut plan = plan_with(
             &tickets,
             &self.busy().await?,
             &Gate { limits, needs_you },
@@ -552,6 +599,22 @@ impl Scheduler {
                 paused: &paused,
             },
         );
+        // The waiting children of a parent being recorded merged, or of a ticket that lands with it, start in its
+        // `on_parent_merged` ([`Self::landing`]).
+        let mut landing = self.inner.landing.lock().expect("landing lock").clone();
+        if !landing.is_empty() {
+            for parent in landing.clone() {
+                if let Some(parent) = tickets.iter().find(|t| t.key == parent) {
+                    landing.extend(landed_with(&self.inner.board, parent, &tickets).await?);
+                }
+            }
+            plan.start.retain(|start| {
+                !tickets
+                    .iter()
+                    .find(|t| t.id == start.id)
+                    .is_some_and(|t| t.depends_on.iter().any(|p| landing.contains(p)))
+            });
+        }
         for change in &plan.changes {
             if let Err(e) = self.apply(change).await {
                 tracing::warn!(ticket = %change.key, error = %e, "can't change the queued state");
