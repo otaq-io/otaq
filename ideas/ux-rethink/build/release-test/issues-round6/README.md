@@ -11,6 +11,22 @@ Codex in the VM). Decisions 044–046 settle the product questions; 010 and 042 
 - [04](04-answer-session-ends-unanswered.md) · A question whose answer session ended unanswered waits forever
 - [05](05-ctrl-c-codex-selection-lost.md) · In a Codex terminal on Windows, a Shift+drag selection is lost before Ctrl+C
 
+- R7 NEW-4 · A writer prompt left open when the ticket leaves Review stays calm (round 6 piece 6, fixed)
+
+## Open, for the maintainer to look at later (2026-11-12)
+- R7 NEW-12 · **Blocker as logged.** A long message Otaq types into Claude Code on Windows loses its first 1,024
+  bytes: the message writer's request (one line, 1,296 characters, crates/otaq-core/src/pr/message.rs `prompt`)
+  arrived as its last 272 characters, 2 of 2, so the written message never comes (the Approve dialog stays "still
+  writing"). Under 1 KB arrives whole; Codex gets it whole; round 6 didn't change Claude Code's bytes. Cause not found:
+  Otaq's write path has no 1,024 cut that was seen; Otaq's write, the ConPTY or Claude Code's read are the suspects.
+  Round 6 piece 7 was stopped before it found it; its unfinished probe tests are on branch
+  `round6-piece7-claude-1kb-wip` (c2a8d52e). Evidence: `../RESULTS-retest-7.md`, "Follow-up · Claude Code on Windows".
+- R7 NEW-10 · Ctrl+V pastes nothing into Claude Code on Windows (it takes the raw key as its image paste); Codex reads
+  the clipboard itself, so Otaq sees one keystroke, not the text. Decision 048 (accepted): on Windows, Ctrl+V with text
+  on the clipboard is the terminal's paste; with none it goes to the program. Round 6 piece 8 committed a fix
+  (branch `round6-piece8-ctrl-v-paste`, 04d9543e: the key always taken, text pasted, else the raw key sent) but was
+  stopped before its vitest run was confirmed and before any check in the app; not merged.
+
 ## Known issues (after release)
 - NEW-3 · Every "Ask the agent to write it" starts its own Noyan conversation, so decision 043 never applies.
 - NOTE-3 · Dragging a start-failed card over its own Dev column says "can't go to Dev yet · It starts by itself…".
@@ -38,6 +54,14 @@ Codex in the VM). Decisions 044–046 settle the product questions; 010 and 042 
 - R7 NEW-8 · After a Push to PR dialog closed with a proposal pending, the next Push to PR shows "Push skill is
   preparing…" forever: Codex ends its turn ("Otaq still shows commit … awaiting confirmation") and the dialog never
   notices the turn ended without a proposal; only Cancel works. Same family as NEW-3.
+- R7 NEW-9 · A Claude Code prompt's card reads "Asks you · claude needs your permission" without naming the command
+  (Codex cards name it).
+- R7 NEW-11 · A ticket whose Dev agent is switched to Claude Code still gets the flow's delivery agent as its message
+  writer; neither the Repository card nor the Done stage shows or changes that agent.
+- R7 NEW-13 · A flow accepts Claude Code as the delivery agent while the PR skill sits only in `.agents/skills/`; Open
+  PR is then refused ("Claude Code doesn't have the skill '/local-pr'").
+- R7 notes · A Codex checker sat at "Working" 2+ minutes showing nothing; an idle Claude Code session's header read
+  "Waiting for you" with no prompt open.
 - R7 5(b) · The question's Needs you item opens the asker's Session tab; Answer and Resume are only in History →
   Messages.
 

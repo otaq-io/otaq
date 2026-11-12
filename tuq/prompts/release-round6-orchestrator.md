@@ -4,7 +4,7 @@
 - **Date:** 2026-11-11
 - **Plan:** tuq/plans/release-round6.md
 - **Tech spec:** none (bug fixes; each issue's cause, fix direction and risks are in ideas/ux-rethink/build/release-test/issues-round6/)
-- **Decisions:** 044, 045, 046 (010 and 042 kept)
+- **Decisions:** 044, 045, 046, 048 (010 refined, 042 kept)
 
 release-round6 fixes the release blockers re-test 6 of release-fixes d0a165b5 found, so the release can go out.
 
@@ -22,6 +22,7 @@ Start a piece as soon as every piece it waits for is merged:
 - After 2: 3 An answer session can be seen and reached
 - After 3: 4 A question whose answer session ended unanswered goes to Needs you
 - After 4: 6 A writer prompt left open when the ticket leaves Review reads Needs you (added after re-test 7)
+- Side by side, waiting for nothing: 7 A long message Otaq types into Claude Code on Windows arrives whole, 8 On Windows, Ctrl+V in a terminal pastes text (added after re-test 7)
 
 <!-- tuq:order:end -->
 

@@ -328,3 +328,35 @@ These refine UX-10 and UX-13 and replace A35's "Deliver as" as drawn, A44's GitH
   Hovering a column header shows the stage's description. Add project (after the first) has a light Flow choice: Otaq
   default (selected) / Same as <project> / Suggest one for <new project> (drafted after the project is added, while
   its board runs on the default).
+- **UX-62 · An agent's question: the first line asks, the rest is context (2026-11-12).** Every agent question
+  (`otaq ask human`, from any agent) is drawn the same way wherever it shows (a ticket's Needs you, above Noyan's
+  terminal, the Needs you strip's popover, and the flow editor's box if it gets one). The question's **first line is
+  the question**, one sentence, in bold; **everything after it is context**, in regular weight, with its paragraphs and
+  line breaks kept and simple Markdown drawn (code, lists, bold), at a readable line length (about 70 characters, 60
+  in the agent panel). Nothing is cut short: in a long question the question line and its context scroll together as
+  one text, while the options (with their notes) and Send stay in view; the icon and the option radios sit at the top
+  of their text. Where it shows (as drawn, `question-box-1`…`8`): on a ticket's Overview it's first on the page with
+  no cap of its own, capping at half the page only when Send would fall below it; above Noyan's terminal it caps at
+  55% of the panel, the terminal keeping at least 200 px; the Needs you popover widens to 500 px for a question, caps
+  at 560 px and offers Open ticket (or Open in the agent panel). No separate context field: `otaq ask human` stays as it is. The rule for agents
+  ("first line: the question in one sentence; then the context; the reason for each choice goes in its option's
+  note") is said once, in `otaq ask human --help`, where every agent sees it. In the context, a code block is a
+  monospace block that scrolls sideways, a heading is a bold paragraph, and a table shows as plain text.
+- **UX-63 · In Edit flow, the board's box asks Noyan (2026-11-12; alternative A of `flow-noyan`; refines UX-61,
+  extends UX-22).** Edit flow keeps the board's docked box at its foot: "Ask Noyan to change this flow…" with a
+  **Suggest a whole flow** shortcut; ↵ sends the user's words to Noyan's agent on the `flow` skill. Start from… holds
+  only the presets and Import. While a proposal shows, the same box reads "Ask for changes to <agent>'s proposal…"
+  (the bar's Ask for changes… and its popover go); the bar keeps Watch a ticket, Discard and Save flow. While Noyan
+  drafts, the box shows it ("<agent> is drafting a change to <project>'s flow…") with Show (the agent panel) and Stop,
+  replacing the line under the bar; sending doesn't open the panel. When Noyan asks, the box becomes the answer box
+  (UX-62): it grows with the question up to 55% of the editor's height and scrolls past that; ⤢ opens it up to the
+  editor's full height over a scrim, and ⤡, Esc or sending brings it back.
+  The `flow` skill puts everything the user needs to decide in the question or in the stage's `why:`, never only in
+  its terminal. Box sizes and the expanded view: designer round `DESIGN-AGENT-BRIEF-question-box.md`.
+- **UX-64 · A question can take several answers (2026-11-12).** `otaq ask human` gets a flag that lets the user pick
+  more than one of its options. The answer box (UX-62, everywhere it shows) draws checkboxes instead of radios; the
+  recommended options are marked as today; Other… stays and can be ticked with the others; Send answer needs at least
+  one. The agent receives every picked option (and Other…'s text). Any skill can ask that way. Not now: drawing a
+  tool's own questions in Otaq (Claude Code's built-in question tool, which can be multi-select, and the other tools'
+  equivalents). They stay in the tool's terminal with "Answer in terminal"; that comes later, one tool at a time,
+  starting with Claude Code.

@@ -10,7 +10,7 @@
 
 Round 6 fixes the release blockers the Windows re-test of release-fixes d0a165b5 (re-test 6) found, logged one per
 file in ideas/ux-rethink/build/release-test/issues-round6/ (NN-….md, with each cause found and the fix's risks). It is
-built on release-fixes. Five pieces, and a sixth added after re-test 7. Every piece that changes how Otaq types into, reads or shows an agent's terminal
+built on release-fixes. Five pieces, and three more added after re-test 7. Every piece that changes how Otaq types into, reads or shows an agent's terminal
 is checked against the real tool (Codex in the Windows VM), not only a stand-in: rounds 4 and 5 passed their tests and
 failed in the app. The release bar after this round: no blocker on the core path (start a ticket, the agent works,
 Needs you when it waits, review, merge or open a PR) on each OS and tool; everything else is a known issue
@@ -72,5 +72,26 @@ Needs you when it waits, review, merge or open a PR) on each OS and tool; everyt
    Check: on real Codex in the VM, a writer prompt open at Approve & merge, then a conflict: card, pill and strip read
    Needs you in Dev naming the command; "y" lets the writer's turn end and the restack goes out. Tests for that, for a
    writer prompt staying calm in Review, and for a send back / park over an open writer prompt.
+
+7. A long message Otaq types into Claude Code on Windows arrives whole — waits for nothing (added after re-test 7;
+   stopped 2026-11-12, left for later: see issues-round6/README.md)
+   Re-test 7 NEW-12 (../RESULTS-retest-7.md, "Follow-up · Claude Code on Windows"). The message writer's request (one
+   line, 1,296 characters, crates/otaq-core/src/pr/message.rs `prompt`) reached Claude Code v2.1.322 on Windows as only
+   its last 272 characters, 2 of 2; under 1 KB arrives whole; Codex gets it whole. Find where the first 1,024 bytes go
+   first (Otaq's write to the ConPTY, the ConPTY, or Claude Code's read), on real Claude Code in the VM, with single
+   writes vs bracketed paste vs smaller writes, before choosing a fix; check the same message on macOS's Claude Code
+   in a test only (never the maintainer's session). Fix it in the tool's input quirks / `type_and_submit`; Codex's
+   bytes unchanged.
+   Check: on real Claude Code in the VM, the writer's request arrives whole and the Approve dialog fills with the
+   written message; a 3 KB single-line and a 3 KB multi-line message arrive whole; a test records the bytes per tool.
+8. On Windows, Ctrl+V in a terminal pastes text — waits for nothing (added after re-test 7; stopped 2026-11-12, left
+   for later: see issues-round6/README.md)
+   Decision 048, re-test 7 NEW-10. On Windows, Ctrl+V with text on the clipboard is the terminal's paste (as
+   Ctrl+Shift+V: `term.paste`); with no text it goes to the program as today. crates/otaq-desktop/ui/src/terminal/
+   (Terminal.tsx's key handler, a predicate in state.ts), crates/otaq-view/src/keymap.rs if the key list there must
+   name it (the keymap editor's reserved keys). macOS and Linux unchanged.
+   Check: in the VM on a release build: Ctrl+V pastes text into Claude Code and Codex sessions (Otaq's unsent-text
+   footer shows), an image on the clipboard still pastes as an image in Claude Code, PowerShell Ctrl+V pastes once
+   (not twice); a vitest whose clipboard stand-in holds text, then nothing.
 
 <!-- tuq:plan:end -->

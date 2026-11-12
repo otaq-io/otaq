@@ -400,3 +400,108 @@ token or sign-in URL on any of them). No Otaq code changed, nothing committed in
 
 At the end: e8ddb1b5 running with its service; one Codex process (HOOK-5's idle session); HOOK-4 unchanged (Needs you ·
 branch isn't on the remote); notes unchanged.
+
+## Follow-up · Claude Code on Windows (build e8ddb1b5)
+
+Date: 2026-11-12, 11:25–11:51 VM time (with a short pause for the maintainer at 11:43). Claude Code v2.1.322 signed in
+by the maintainer. Its default here is **auto mode**, which shows no permission prompts, so where a prompt was needed
+I switched that one session to manual mode with Shift+Tab. Screenshots `shots-retest-7/r7c-*.jpg` (no Windows user
+name, login, email, token or sign-in URL on them; the Copilot login is cropped off the Settings shot). No Otaq code
+changed, nothing committed in the repo, nothing pushed anywhere. Claude Code agent used: **Architect** (Claude Code,
+model default), picked per ticket or put on hooksproj's flow for the time of the test.
+
+| Check | Result |
+|---|---|
+| 1 Settings → Agents Claude Code Connected; `claude auth status` logged in | **PASS** (`v2.1.322 · signed in`, Connected; `loggedIn: true`) |
+| 2 Round 5 piece 7: NOTE-20 starts once signed in; "signed out" callout gone | **PARTLY**: NOTE-20 (back in Backlog since re-test 7) started at once, with no banner or callout, and ran Product spec → Tech spec → Milestone plan to Spec review in about 1 min. Resume *from the held state* not tried (the hold was gone; I can't sign out) |
+| 3 Round 5 check 1 on Claude Code: pasted text + one Backspace, conflict restack waits, then typed alone | **PASS** (paste with Ctrl+Shift+V; Ctrl+V pastes nothing, NEW-10) |
+| 4 Round 6 piece 1 on Claude Code: Push to PR / conflict restack start the skill's turn; a multi-line message is sent whole | **PARTLY / FAIL**: conflict restack **PASS** (`/otaq:restack` alone, submitted, worked); a 413-character two-line answer arrived whole (**PASS**); but the 1,296-character message-writer request arrived **without its first 1,024 characters** (2 of 2), **FAIL** → NEW-12. Push to PR not reachable (NEW-13) |
+| 5 Round 6 piece 2 on Claude Code: Push to PR skill prompt → Needs you in Review | **not tried**: no PR could be opened on Claude Code in this test data (NEW-13) |
+| 6 Round 6 piece 6 on Claude Code: writer prompt open at Approve & merge into a conflict | **not tried**: no writer prompt could be had. On Claude Code the writer ran no command at all (it got a fragment of its request, NEW-12); HOOK-7's writer ran on Codex (NEW-11) |
+| 7 Core path on Claude Code | **PASS** for start → Needs you at a prompt → review → Approve & merge with the hooks (HOOK-7, and HOOK-8/HOOK-9 too). Card text: NEW-9. Push to PR on the bare remote **not tried** (NEW-13) |
+
+### Details
+- **Check 1**: `r7c-settings-agents-claude-code-connected.jpg`.
+- **Check 2**: `r7c-note20-start-signed-in-working.jpg`, `r7c-note20-claude-code-ran-to-spec-review.jpg`. NOTE-20 is left
+  in Spec review.
+- **Core path, HOOK-7** ("Retest7c Claude Code merge", `otaq create --stage Dev=Architect`): dragged to Dev; session
+  switched to manual; Claude's first `git status …` prompt → pill **Needs you**, strip "HOOK-7 allow a command", card
+  "Asks you · claude needs your permission" (NEW-9); a click on the strip opened the session focused; "1" answered;
+  commit `fix: add retest 7c line (HOOK-7)` passed pre-commit/commit-msg. The Codex checker sat at "Working" for 2+ min
+  showing nothing, so I used Move → Review (skip Validate), here and for HOOK-8/9. Approve & merge with the first line
+  changed to `fix: …` (commit-msg hook) → **Merged 03a594b**; hook log 11:40:02–03: post-checkout, post-merge,
+  pre-commit, prepare-commit-msg, commit-msg, post-commit. `r7c-core-hook7-claude-prompt-session-needs-you.jpg`,
+  `r7c-core-hook7-card-asks-you-not-naming-command.jpg`, `r7c-core-hook7-merge-dialog-fix-message.jpg`,
+  `r7c-core-hook7-merged-with-hooks.jpg`
+- **Check 3** (HOOK-7 in Review, its Claude session idle): clipboard "unsent draft r7c please wait" (checked; the
+  shared Mac clipboard overwrote it twice, so a loop held it while pasting). **Ctrl+V pasted nothing** (3 tries,
+  NEW-10); **Ctrl+Shift+V** pasted it as one chunk; one Backspace → "unsent draft r7c please wai". Setup commit on main
+  d3af1ad (README last line) → Approve & merge → "Merging main in stopped — conflict · README.md", HOOK-7 in Dev
+  "Conflicts with main · fixing", header **"1 message waiting · Deliver now"**. After 15 s the line still held only my
+  text. Emptied with Backspace → **`/otaq:restack` alone, submitted** (transcript: the user turn is exactly
+  `/otaq:restack`); Claude's `git merge main …` prompt then read **Needs you** on the card and strip while "fixing"
+  (round 5 piece 3 on Claude Code: PASS); resolved as merge 2ad292f, `otaq stage next`.
+  `r7c-c3-pasted-ctrl-shift-v-one-backspace.jpg`, `r7c-c3-conflict-restack-1-message-waiting.jpg`,
+  `r7c-c3-15s-later-restack-not-typed-after-text.jpg`, `r7c-c3-c4-line-emptied-restack-typed-alone-submitted.jpg`,
+  `r7c-c4-restack-turn-merge-prompt.jpg`, `r7c-fixing-prompt-reads-needs-you-card-strip.jpg`
+- **Multi-line message** (check 4): HOOK-8's agent asked `otaq ask human`; my two-line, 413-character answer (pasted in
+  the Overview's answer box) arrived in Claude's transcript **whole**, both lines, ANS-START … ANS-END; Claude ran
+  `otaq stage next`. A "Tell Architect now" comment goes as a short notice ("The user added comment 2. Run `otaq
+  prime`"), which arrived whole.
+- Claude Code's grey suggestion in an empty line ("push it") was never taken for unsent text.
+- **Open PR** on HOOK-8 (after putting hooksproj's delivery agent on Architect): toast "Open PR for HOOK-8 didn't go
+  through · Claude Code doesn't have the skill '/local-pr'"; the ticket stayed in Review. `r7c-open-pr-claude-code-lacks-local-pr-skill.jpg`
+- HOOK-8 and HOOK-9 were merged with the plain message (first line set to `fix: …`): 898aff8, f980652.
+
+### New problems
+- **NEW-9 · A Claude Code permission prompt's card doesn't name the command.** The card reads "Asks you · claude needs
+  your permission" (strip "allow a command"), while a Codex prompt's card names it ("run command: git status --short;
+  …", `r7c-codex-checker-card-names-command-for-comparison.jpg`). Decision 040 says the card names the command on
+  screen. **Blocker: no**: Needs you shows and leads to the prompt; only the name is missing.
+- **NEW-10 · Ctrl+V doesn't paste text into a Claude Code session on Windows** (3 of 3; Ctrl+Shift+V works). Claude Code
+  takes Ctrl+V as its image paste; Codex pasted with Ctrl+V in re-test 5. **Blocker: no** (typing and Ctrl+Shift+V
+  work), but Ctrl+V is the habit on Windows.
+- **NEW-11 · A ticket that picks another Dev agent still gets the flow's delivery agent as its message writer.** HOOK-7
+  ran Dev on Architect (Claude Code), but in Review Otaq started a separate Codex "Developer" delivery session to write
+  the message (`delivery.agent: Developer`). Neither the Repository card nor the Done stage shows or changes that agent;
+  only `otaq flow propose` did. **Blocker: no** (the merge works and the writer is optional), but a user who chose
+  Claude Code gets Codex prompts in the Approve dialog.
+- **NEW-12 · A long message typed into Claude Code on Windows loses its first 1,024 characters.** The message-writer
+  request (`pr/message.rs` `prompt`, one line of 1,296 characters) reached Claude as a 272-character user turn starting
+  `escription": what changed and why…` (HOOK-8 and HOOK-9, **2 of 2**, the same cut each time; it is exactly the first
+  1,024 bytes that went missing). Claude then guessed: it printed a JSON reply instead of running `otaq pr message`, so
+  the Approve dialog stayed at "Architect is still writing the message" and only the plain message could be used.
+  Shorter messages arrived whole (413 characters, `/otaq:restack`, notices). The cause is likely chunked input on
+  Windows (ConPTY), or Claude Code's handling of a large burst. **Blocker: yes, release-critical, though merging still
+  works**: on Claude Code on Windows every review loses its written message (Codex got the same request whole in
+  re-test 7b), and an agent acting on the tail of an instruction could do the wrong thing. Any automatic message over
+  1 KB is affected. Merge still works with the plain message, so start → review → merge isn't stopped. The writer's
+  title and description feed Open PR, which I couldn't try (NEW-13). Check the same on macOS/Linux.
+  `r7c-writer-request-arrives-as-escription-hook8.jpg`, `r7c-writer-request-head-lost-hook9-json-reply.jpg`,
+  `r7c-writer-json-printed-dialog-still-writing.jpg`
+- **NEW-13 · The test project's PR skill can't be used by Claude Code.** hooksproj's `local-pr` lives in
+  `.agents/skills/` (where Codex finds it). With Claude Code as the delivery agent, Open PR refuses at once: "Claude
+  Code doesn't have the skill '/local-pr'". This is test data more than a bug, and Otaq says it clearly. But the flow
+  accepted a delivery agent whose tool can't see the delivery skill (through `otaq flow propose`) without a warning.
+  **Blocker: no** (clear message; a project set up for Claude Code would have the skill in `.claude/skills/`). It
+  blocked checks 4 (Push to PR), 5 and the PR half of 7.
+- NOTE-4 · Claude Code's default here is auto mode: no permission prompts at all, so Needs you at a prompt only shows in
+  manual mode. NOTE-5 · An idle Claude session in Validate showed the session header "Waiting for you" with no prompt
+  open (the card and pill were right).
+
+### Not tried
+- Push to PR, Retry push and a push-skill prompt on Claude Code (checks 4, 5, PR half of 7): blocked by NEW-13.
+- A writer prompt on Claude Code (check 6): the writer never ran a command (NEW-12).
+- Resume of a ticket held "signed out" (check 2): the hold was gone, and I can't sign out.
+
+### Setup changes and state left
+| Change | State now |
+|---|---|
+| hooksproj flow: Dev agent and delivery agent Developer → Architect (proposal 36) | **put back** to Developer (proposal 37, saved; `otaq flow show` lists Dev/delivery Developer) |
+| hooksproj main: setup commit d3af1ad; HOOK-7 03a594b, HOOK-9 f980652, HOOK-8 898aff8 merged | main clean at 898aff8 |
+| New tickets HOOK-7, HOOK-8, HOOK-9 | all Merged, worktrees gone, sessions ended |
+| NOTE-20 started | in **Spec review**, its Claude Code session idle (not moved back) |
+| `%TEMP%\r7c-flow*.yaml` | deleted |
+| VM clipboard | my test text or the Mac's |
+Running at the end: the e8ddb1b5 app and service, NOTE-20's idle Claude session, HOOK-5's idle Codex session. No
+scheduled task made. Claude Code stays signed in; nothing was signed in or out.
