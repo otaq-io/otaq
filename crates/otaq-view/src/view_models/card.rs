@@ -242,9 +242,10 @@ impl CardExtras {
     /// a needs-you ticket (and whether a helper agent asks), or what a ticket works on in the background with how
     /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
     pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
-        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's. Not a
-        // finished card's answer session's: that card only says it answers.
-        let waiting = ticket.prompt_in_place().and_then(|_| ticket.as_needs_you());
+        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's; a question
+        // in a check of the user's, the question, as any Asks you's. Not a finished card's answer session's: that card
+        // only says it answers.
+        let waiting = ticket.waiting_in_place();
         let ticket = waiting.as_ref().unwrap_or(ticket);
         let Some(signal) = &ticket.signal else {
             return self;
@@ -1647,8 +1648,10 @@ impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
         // A session's prompt shown without changing the ticket's status reads as any Needs you card: the turquoise
         // edge, the prompt's command and Open. Only the card reads so; the ticket and its actions are as they are. A
-        // finished card answering another ticket's question stays a finished card ([`card_line::words`]).
-        let waiting = ticket.prompt_in_place().and_then(|_| ticket.as_needs_you());
+        // finished card answering another ticket's question stays a finished card ([`card_line::words`]). An agent's
+        // question in a check of the user's reads as any Asks you card the same way: its question, options and Send
+        // answer.
+        let waiting = ticket.waiting_in_place();
         let ticket = waiting.as_ref().unwrap_or(ticket);
         Self::build(ticket, extras, now_ms, extras.several_tools)
     }
@@ -4700,6 +4703,49 @@ mod tests {
         assert_eq!(t.status, Status::WaitingForYou, "only the card reads so");
         assert_eq!(status::shown(&t), Status::NeedsYou);
         t.flags.session_prompt = None;
+        assert_eq!(card(&t), calm);
+    }
+
+    /// Re-test 8 (NEW-b2): an agent's question on a ticket waiting in Review was stored and shown nowhere. It reads
+    /// Asks you on the card, with the question, its options and Send answer, and the turquoise edge; the pill reads
+    /// Asks you; a prompt in place shows on top of it. Answered, the card is the Review card it was.
+    #[test]
+    fn a_question_in_review_reads_asks_you() {
+        let mut t = ticket("SHOP-13", "Hooks", Status::WaitingForYou);
+        let calm = card(&t);
+        t.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q".into(),
+            text: "Should this show?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: NOW - 60_000,
+            send_back: None,
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(flag_of(&vm), Some("Asks you"));
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.options.as_ref().map(|o| o.rows().len()), Some(3));
+        assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
+        assert_eq!(t.status, Status::WaitingForYou, "only the card reads so");
+        assert_eq!(status::shown(&t), Status::AsksYou);
+        assert_eq!(status::PillView::of_ticket(&t).label, "Asks you");
+        // A custom flow's "Your check" doesn't hide it.
+        assert_eq!(
+            crate::view_models::validation_texts::pill_label(&t, true),
+            None
+        );
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: NOW,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        assert_eq!(status::shown(&t), Status::NeedsYou, "a prompt on top");
+        t.flags.session_prompt = None;
+        t.question = None;
         assert_eq!(card(&t), calm);
     }
 

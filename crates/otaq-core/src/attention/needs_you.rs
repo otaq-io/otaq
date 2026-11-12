@@ -763,13 +763,19 @@ struct Answerable {
 }
 
 /// Whether the ticket takes an answer: Asks you and Idle (a permission prompt is answered in the terminal, and
-/// simply asks again after a resume).
+/// simply asks again after a resume), and a question asked while the ticket waits in a check of the user's, which
+/// reads Asks you there ([`Ticket::question_in_place`]).
 fn answerable(ticket: &Ticket) -> Option<Answerable> {
     let takes_answer = |s: Status| matches!(s, Status::AsksYou | Status::Idle);
     if takes_answer(ticket.status) {
         Some(Answerable {
             how: Waiting::Live,
             label: ticket.status,
+        })
+    } else if ticket.question_in_place().is_some() {
+        Some(Answerable {
+            how: Waiting::Live,
+            label: Status::AsksYou,
         })
     } else if ticket.status == Status::Interrupted
         && let Some(label) = ticket.interrupted_from.filter(|s| takes_answer(*s))

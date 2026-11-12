@@ -112,7 +112,8 @@ pub struct Ticket {
     /// What the agent waits for or runs in the background (needs-you family and Working in background, d0042).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<AgentSignal>,
-    /// Asks you: the open question with its answer options (d0061).
+    /// Asks you: the open question with its answer options (d0061). Also while the ticket waits in a check of the
+    /// user's, where it reads Asks you without changing its status ([`Self::question_in_place`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<super::questions::HumanQuestion>,
     /// After a push: the PR branch's content differs from what was reviewed (REV-06, T-0145).
@@ -279,6 +280,44 @@ impl Ticket {
         })
     }
 
+    /// The agent's open question while the ticket waits in a check of the user's (Review, Code review, Spec review):
+    /// read like a Delivery stop that kept its place, Asks you on the card, the pill, the strip and in notifications,
+    /// with its box on the Overview, while the ticket keeps its column, its status and its actions (Approve, Send back,
+    /// Move, dragging). Once the question is answered or closed it reads as before ("Ready for you"). `None` anywhere
+    /// else: at work, the question is the ticket's own Asks you.
+    pub fn question_in_place(&self) -> Option<&super::questions::HumanQuestion> {
+        self.question
+            .as_ref()
+            .filter(|_| self.status.set() == StatusSet::HumanCheck)
+    }
+
+    /// The ticket as the user reads it while its question shows without changing its status
+    /// ([`Self::question_in_place`]): Asks you, with the question as its signal since it was asked. `None` without
+    /// one. For what the user reads, never for what the ticket can do.
+    pub fn as_asks_you(&self) -> Option<Ticket> {
+        let question = self.question_in_place()?;
+        Some(Ticket {
+            status: Status::AsksYou,
+            signal: Some(AgentSignal {
+                text: Some(question.text.clone()),
+                since: Some(question.asked_at),
+                wakeup_at: None,
+            }),
+            status_since: Some(question.asked_at),
+            ..self.clone()
+        })
+    }
+
+    /// The ticket as the user reads it while it waits for them where it is, without changing its status: a session's
+    /// prompt in place reads Needs you ([`Self::prompt_in_place`]), shown on top of a question in place as a prompt is
+    /// on top of a question at work; else the question reads Asks you ([`Self::as_asks_you`]). `None` otherwise.
+    pub fn waiting_in_place(&self) -> Option<Ticket> {
+        match self.prompt_in_place() {
+            Some(_) => self.as_needs_you(),
+            None => self.as_asks_you(),
+        }
+    }
+
     /// Has this ticket ever been to Dev? Never-started tickets can be deleted (d0060).
     pub fn has_started(&self) -> bool {
         self.started_at.is_some()
@@ -291,6 +330,7 @@ impl Ticket {
         self.status.is_needs_you_family()
             || self.stopped_in_place().is_some()
             || self.prompt_in_place().is_some()
+            || self.question_in_place().is_some()
     }
 
     /// Whether the ticket waits for the user where they can see it: turquoise or Needs you's second group. Such cards
@@ -299,6 +339,7 @@ impl Ticket {
         super::order::needs_user(self.status)
             || self.stopped_in_place().is_some()
             || self.prompt_in_place().is_some()
+            || self.question_in_place().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
@@ -1474,10 +1515,13 @@ impl Board {
                         since: row.signal_since,
                         wakeup_at: row.wakeup_at,
                     });
+                // In a check of the user's an open question shows without changing the status
+                // ([`Ticket::question_in_place`]).
                 let question = (status == Status::AsksYou
-                    || interrupted_from == Some(Status::AsksYou))
-                .then(|| questions.get(&row.id).map(|open| open.question.clone()))
-                .flatten();
+                    || interrupted_from == Some(Status::AsksYou)
+                    || status.set() == StatusSet::HumanCheck)
+                    .then(|| questions.get(&row.id).map(|open| open.question.clone()))
+                    .flatten();
                 let pushed_differs: Option<crate::pr::verify::PushedDiff> = row
                     .pushed_differs
                     .as_deref()

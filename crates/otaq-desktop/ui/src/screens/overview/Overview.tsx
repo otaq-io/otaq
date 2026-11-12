@@ -233,6 +233,7 @@ export function OverviewTab({ ticket }: TicketProps) {
           <NeedsYou
             view={sheet.view}
             actions={sheet.actions}
+            inReview={inReview !== null}
             aboveBar={
               overview?.key === ticket && (
                 <>

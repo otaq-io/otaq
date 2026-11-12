@@ -585,8 +585,12 @@ fn permission_prompt_of(f: &Facts) -> Option<PermissionPrompt> {
     otaq_view::view_models::permission_prompt::of(f.ticket, agent)
 }
 
+/// The box of the ticket's open question: an Asks you's, and one asked while the ticket waits in a check of the
+/// user's, which reads Asks you there and shows its box above the review's actions.
 fn answer_of(ticket: &Ticket) -> Option<Answer> {
-    if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
+    let asks =
+        ticket.status == otaq_core::domain::Status::AsksYou || ticket.question_in_place().is_some();
+    if !asks || ticket.flags.your_turn {
         return None;
     }
     question_bar(ticket.question.as_ref()?)
@@ -2600,6 +2604,39 @@ mod tests {
         asks.flags.your_turn = true;
         let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
         assert_eq!(view.answer, None, "focused in its terminal: answered there");
+    }
+
+    /// Re-test 8 (NEW-b2): an agent's question on a ticket waiting in Review shows its box on the Overview, the pill
+    /// reads Asks you, and the Overview keeps what it has in Review (Approve and Send back are in the review bar).
+    #[test]
+    fn a_question_in_review_shows_its_box() {
+        let mut review = fixture("SHOP-13", "Hooks", Status::WaitingForYou);
+        let calm = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        assert_eq!(calm.answer, None);
+        review.question = Some(HumanQuestion {
+            id: "q1".into(),
+            text: "Should this show?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        let answer = view.answer.as_ref().expect("the question's box");
+        assert_eq!(answer.rows.len(), 3);
+        assert_eq!(view.pill.label, "Asks you");
+        assert_eq!(labels(&view), labels(&calm), "the Overview's actions stay");
+        let pick = AnswerParams {
+            key: "SHOP-13".into(),
+            question: "q1".into(),
+            pick: 2,
+            picks: None,
+            other: String::new(),
+            clear: false,
+        };
+        assert_eq!(choice_of(&review, &pick), Some(Choice::Option(2)));
     }
 
     /// A question that takes several answers: the box draws checkboxes with the recommended ones ticked, and
