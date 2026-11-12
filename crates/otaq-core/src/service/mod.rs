@@ -1103,6 +1103,19 @@ impl Service {
                 Box::pin(async move { validation.resume_interrupted(&id, start).await })
             }));
         }
+        // A prompt that kept its calm while the ticket waited in Review (the message writer's) reads Needs you once a
+        // conflict or a failed Merge check sends the ticket back to its agent's running session.
+        {
+            let signals = signals.clone();
+            review.on_back_at_work(Arc::new(move |ticket| {
+                let (signals, id) = (signals.clone(), ticket.id.clone());
+                Box::pin(async move {
+                    if let Err(e) = signals.back_at_work(&id).await {
+                        tracing::warn!(ticket = id, error = %e, "can't read the prompt left open again");
+                    }
+                })
+            }));
+        }
         // Park and Close stop the validator too; the validation is recorded as stopped (CLS-01, CLS-06).
         for parked in [false, true] {
             let validation = validation.clone();

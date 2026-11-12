@@ -24,7 +24,9 @@
 //! prompt must not move the card, so Approve's dialogs ask here whether the writer waits for permission. A change tells
 //! clients the ticket changed, so an open dialog asks again. The one on screen is mirrored into the board
 //! ([`crate::board::session_prompts`]): a session's header reads "Waiting for you" over it, and one in a delivery skill
-//! turn reads Needs you while the ticket keeps its status.
+//! turn reads Needs you while the ticket keeps its status. A prompt applied while the ticket's status kept it calm (the
+//! writer's, in Review) isn't applied again by itself when the status changes: a conflict that sends the ticket back
+//! to its agent's running session reads it again ([`Signals::back_at_work`]).
 
 use std::future::Future;
 use std::pin::Pin;
@@ -324,6 +326,24 @@ impl Signals {
             && self.status_of(ticket_id).await? == Some(Status::NeedsYou)
         {
             self.answered(ticket_id).await?;
+        }
+        Ok(())
+    }
+
+    /// The ticket went back to its agent's running session to be fixed (a conflict or a failed Merge check at Approve
+    /// & merge): a prompt already on that session's screen, drawn while the ticket waited in Review where it kept its
+    /// calm (the message writer's), is read again and reads Needs you like any open prompt, naming its command, until
+    /// the user answers it in the terminal. Nothing is typed into the session to end the writer's turn.
+    pub async fn back_at_work(&self, ticket_id: &str) -> Result<(), BoardError> {
+        let drawn = self.inner.board.session_prompts().of_ticket(ticket_id);
+        for drawn in drawn.into_iter().filter(|p| p.kind == SessionKind::Agent) {
+            self.apply(
+                ticket_id,
+                &super::Input::Drawn {
+                    prompt: drawn.prompt,
+                },
+            )
+            .await?;
         }
         Ok(())
     }

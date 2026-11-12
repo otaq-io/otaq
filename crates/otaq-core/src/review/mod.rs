@@ -202,6 +202,9 @@ struct Inner {
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run when a drag stopped the ticket's agent where the card was (d0133: its helpers stop with it).
     drag_stopped_hooks: Mutex<Vec<finish::FinishedHook>>,
+    /// Run when a conflict or a failed Merge check sent the ticket back to its agent's running session to be fixed (a
+    /// prompt left open there from Review reads Needs you).
+    back_at_work_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Resumes a ticket interrupted while it validated: a fresh validation, not the agent (d0063).
     validation_resume: Mutex<Option<resume::ValidationResume>>,
 }
@@ -228,6 +231,7 @@ impl Review {
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
                 drag_stopped_hooks: Mutex::new(Vec::new()),
+                back_at_work_hooks: Mutex::new(Vec::new()),
                 validation_resume: Mutex::new(None),
                 sessions,
                 deliveries,
