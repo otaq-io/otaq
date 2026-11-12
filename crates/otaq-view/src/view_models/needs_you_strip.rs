@@ -1179,7 +1179,7 @@ mod tests {
             (asks.project.as_str(), asks.agent.as_str()),
             ("SHOP", "pa3")
         );
-        assert_eq!(asks.answer.text, "Add an index on orders.created_at?");
+        assert_eq!(asks.answer.line, "Add an index on orders.created_at?");
         assert_eq!(
             asks.answer
                 .rows

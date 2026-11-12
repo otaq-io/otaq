@@ -191,7 +191,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q2",
-        text: "Which greeting should it print?",
+        line: "Which greeting should it print?",
+        context: null,
         rows: [],
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",
@@ -220,7 +221,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q1",
-        text: "Which email provider?",
+        line: "Which email provider?",
+        context: null,
         rows,
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",
@@ -242,7 +244,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q1",
-        text: "Which email provider?",
+        line: "Which email provider?",
+        context: null,
         rows: rows.map((r) => (r.number === 1 ? { ...r, note: long } : r)),
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",

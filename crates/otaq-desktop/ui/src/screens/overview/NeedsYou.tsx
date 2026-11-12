@@ -42,6 +42,7 @@ import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions"
 import { HookOutput } from "../sheet/HookOutput";
 import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
+import { QuestionText, useSendInView } from "./QuestionText";
 
 const ignore = () => undefined;
 
@@ -92,6 +93,8 @@ export function AnswerChoices({
   onOther,
   onSend,
   options,
+  textRef,
+  cap = null,
 }: {
   answer: SheetAnswer;
   pick: number | null;
@@ -100,19 +103,20 @@ export function AnswerChoices({
   onOther: (other: string) => void;
   onSend: () => void;
   options?: Ref<HTMLDivElement>;
+  /** The question's text: the part that scrolls when its place caps it. */
+  textRef?: Ref<HTMLDivElement>;
+  /** The text's cap in pixels, when its place sets one. */
+  cap?: number | null;
 }) {
   const noteId = useId();
   return (
     <div className="sheet-answer">
-      <div className="sheet-answer-question">
-        <Icon name="message-circle-question-mark" size={14} />
-        <span>{answer.text}</span>
-      </div>
+      <QuestionText answer={answer} textRef={textRef} cap={cap} />
       <div
         ref={options}
         className="sheet-answer-options"
         role="radiogroup"
-        aria-label={answer.text}
+        aria-label={answer.line}
         tabIndex={-1}
         onKeyDown={(e) => {
           const n = pickByKey(e.key, answer.rows);
@@ -196,18 +200,20 @@ function OpenAnswer({
   text,
   onText,
   onSend,
+  textRef,
+  cap = null,
 }: {
   answer: SheetAnswer;
   text: string;
   onText: (text: string) => void;
   onSend: () => void;
+  textRef?: Ref<HTMLDivElement>;
+  /** The text's cap in pixels, when its place sets one. */
+  cap?: number | null;
 }) {
   return (
     <div className="sheet-answer">
-      <div className="sheet-answer-question">
-        <Icon name="message-circle-question-mark" size={14} />
-        <span>{answer.text}</span>
-      </div>
+      <QuestionText answer={answer} textRef={textRef} cap={cap} />
       <textarea
         {...PROSE_TEXT}
         className="text-input text-area sheet-answer-box"
@@ -246,6 +252,7 @@ export function AnswerBox({
 }) {
   const [pick, setPick] = useState(() => initialPick(answer.rows));
   const options = useRef<HTMLDivElement>(null);
+  const { box, text, cap } = useSendInView();
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
   const open = answer.rows.length === 0;
@@ -280,10 +287,12 @@ export function AnswerBox({
     if (fromCard !== null) onCard(fromCard);
   }, [fromCard]);
   return (
-    <div className="sheet-question">
+    <div ref={box} className="sheet-question">
       {open ? (
         <OpenAnswer
           answer={answer}
+          textRef={text}
+          cap={cap}
           text={other}
           onText={setOther}
           onSend={() => {
@@ -301,6 +310,8 @@ export function AnswerBox({
             void send();
           }}
           options={options}
+          textRef={text}
+          cap={cap}
         />
       )}
       <div className="sheet-bar">
