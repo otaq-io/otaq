@@ -890,9 +890,10 @@ fn palette(f: &Facts) -> Palette {
     }
 }
 
-/// The box at the editor's foot, following Noyan's conversation. A suggestion on the columns comes first: its agent
-/// stays mid-turn while it waits for the answer, which the box sends. Noyan's agent drafts one change at a time: while
-/// it drafts, nothing more is asked.
+/// The box at the editor's foot, following Noyan's conversation. A question waits on the user first; then Noyan's agent
+/// drafting, also while its suggestion still shows on the columns (it redrafts on the user's Ask for changes, UX-63);
+/// then the suggestion, whose answer the box sends. Noyan's agent drafts one change at a time: while it drafts, nothing
+/// more is asked.
 fn ask(f: &Facts) -> Ask {
     let (name, tool, _) = agent_panel::starts_on(f.new_agent, f.tools);
     let agent = if name.eq_ignore_ascii_case(tool.display_name()) {
@@ -918,6 +919,14 @@ fn ask(f: &Facts) -> Ask {
             ..change
         };
     }
+    if let (Some(d), Some(a)) = (drafting(f), f.agent) {
+        return Ask {
+            off: Some(format!("{} is drafting one", a.name)),
+            line: "Drag, + and \u{d7} still work meanwhile",
+            state: AskState::Drafting(d),
+            ..change
+        };
+    }
     if let Some((by, by_name)) = suggested_by(f).filter(|_| suggestion(f).is_some()) {
         return Ask {
             placeholder: format!("Ask for changes to {by_name}\u{2019}s proposal\u{2026}"),
@@ -931,15 +940,7 @@ fn ask(f: &Facts) -> Ask {
             ..change
         };
     }
-    match (drafting(f), f.agent) {
-        (Some(d), Some(a)) => Ask {
-            off: Some(format!("{} is drafting one", a.name)),
-            line: "Drag, + and \u{d7} still work meanwhile",
-            state: AskState::Drafting(d),
-            ..change
-        },
-        _ => change,
-    }
+    change
 }
 
 /// The Project agent that made the draft's proposal, and its name; `None` for the user's own.
@@ -970,25 +971,27 @@ pub fn suggest_message(project_name: &str) -> String {
 }
 
 /// Noyan's agent is drafting a flow: the editor's agent is mid-turn (or waits on a prompt or a question it asked
-/// along the way) and nothing it proposed shows yet. An agent whose turn ended is idle, not drafting: its session
-/// stays open after it proposed, so once its suggestion is discarded or saved the line goes with it.
+/// along the way) and nothing shows yet, or what shows is its own proposal, which it redrafts on the user's Ask for
+/// changes (the proposal stays on the columns meanwhile, and Stop keeps it, UX-63). An agent whose turn ended is idle,
+/// not drafting: its session stays open after it proposed, so once its suggestion is discarded or saved the line goes
+/// with it.
 /// A waiting agent mustn't look busy: while it stops at a permission prompt or a question, the line says Needs you
 /// and what it waits on instead.
 fn drafting(f: &Facts) -> Option<Drafting> {
     let agent = f.agent?;
     let working = agent.mid_turn || agent.needs_you.is_some() || agent.question.is_some();
-    let drafting = matches!(agent.state, AgentState::Running) && working && f.marks.is_empty();
+    let its_own = suggested_by(f).is_some_and(|(by, _)| by == agent.id);
+    let drafting =
+        matches!(agent.state, AgentState::Running) && working && (f.marks.is_empty() || its_own);
     if !drafting {
         return None;
     }
+    let name = &agent.name;
     // The line stays one line: what it waits on shows its first line (a command that writes a whole file would
     // otherwise push the board down), and the tooltip has it whole.
     let waiting = match (&agent.question, &agent.needs_you) {
-        (Some(q), _) => Some((format!("{} asks: ", agent.name), q.text.as_str())),
-        (None, Some(prompt)) => Some((
-            format!("{} wants your permission: ", agent.name),
-            prompt.as_str(),
-        )),
+        (Some(q), _) => Some((format!("{name} asks: "), q.text.as_str())),
+        (None, Some(prompt)) => Some((format!("{name} wants your permission: "), prompt.as_str())),
         (None, None) => None,
     };
     Some(match waiting {
@@ -1002,7 +1005,7 @@ fn drafting(f: &Facts) -> Option<Drafting> {
         },
         None => Drafting {
             needs_you: None,
-            text: drafting_text(&agent.name, f.project_name),
+            text: drafting_text(name, f.project_name),
             tooltip: None,
             agent: agent.id.clone(),
             show: "Show",
@@ -1722,7 +1725,8 @@ mod tests {
         assert_eq!(drafting.off.as_deref(), Some("Strong is drafting one"));
         assert_eq!(drafting.line, "Drag, + and \u{d7} still work meanwhile");
 
-        // Its proposal shows: the agent stays mid-turn, waiting for the answer the box sends.
+        // Its proposal shows: the agent ended its turn, waiting for the answer the box sends.
+        a.mid_turn = false;
         draft.proposed_by = ProposedBy::ProjectAgent {
             agent: "c1".into(),
             session: "s1".into(),
@@ -1745,10 +1749,32 @@ mod tests {
         assert_eq!(proposed.off, None);
         assert_eq!(proposed.send, "Ask for changes");
 
-        // Asked for changes: the proposal closes and the agent drafts again.
+        // Asked for changes: the proposal stays on the columns (its marks too) while the agent redrafts it, and the
+        // box says so with Show and Stop (UX-63: Stop keeps what it proposed).
+        a.mid_turn = true;
+        let redrafting = facts(&draft, &marks, Some(&a));
+        let AskState::Drafting(d) = &redrafting.state else {
+            panic!("{redrafting:?}");
+        };
+        assert_eq!(
+            d.text,
+            "Strong is drafting a change to shop-web\u{2019}s flow\u{2026}"
+        );
+        assert_eq!((d.agent.as_str(), d.show, d.stop), ("c1", "Show", "Stop"));
+        assert_eq!(redrafting.whole, Some("Suggest a whole flow"));
+        assert_eq!(redrafting.off.as_deref(), Some("Strong is drafting one"));
+        // Another conversation at work (one writing a stage's skill) leaves the proposal's box as it is.
+        let mut other = agent("c2", "Strong", 0);
+        other.mid_turn = true;
         assert!(matches!(
-            facts(&draft, &[], Some(&a)).state,
-            AskState::Drafting(_)
+            facts(&draft, &marks, Some(&other)).state,
+            AskState::Proposal(_)
+        ));
+        // Stopped, or its turn ended: the proposal's box again.
+        a.state = AgentState::Ended;
+        assert!(matches!(
+            facts(&draft, &marks, Some(&a)).state,
+            AskState::Proposal(_)
         ));
     }
 

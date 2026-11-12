@@ -1500,10 +1500,11 @@ pub(super) async fn handle(
                 .ask_for_changes(&p.project, p.proposal, &p.text)
                 .await?;
             let key = board.project(&p.project).await?.key;
+            // The proposal stays open while the agent redrafts (UX-63): only the agent's turn changes.
             flow_event(
                 shared,
                 &key,
-                FlowEvent::ProposalClosed {
+                FlowEvent::DraftChanged {
                     proposal: p.proposal,
                 },
             );

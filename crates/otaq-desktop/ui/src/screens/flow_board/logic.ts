@@ -191,10 +191,19 @@ export function stopDrafting(project: string, agent: string, ask: Ask = request)
   return ask("agent_panel.end", { project, id: agent, confirm: true });
 }
 
-/** The box's send while a suggestion shows: the user's words go back to the agent that made it. Nothing for empty words. */
-export async function askForChanges(view: FlowBoardView, text: string, ask: Ask = request): Promise<boolean> {
+/**
+ * The box's send while a suggestion shows: the user's words go back to the agent that made it, which the editor then
+ * follows, so the box shows it redrafting while its proposal stays on the columns (UX-63). Nothing for empty words.
+ */
+export async function askForChanges(
+  view: FlowBoardView,
+  text: string,
+  ask: Ask = request,
+  agents: Store<Readonly<Record<string, string>>> = editorAgents,
+): Promise<boolean> {
   if (text.trim() === "") return false;
   await ask("flow_board.ask_changes", { project: view.project, proposal: view.proposal, text: text.trim() });
+  if (view.ask.state.kind === "proposal") showEditorAgent(view.project, view.ask.state.agent, agents);
   return true;
 }
 

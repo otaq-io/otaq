@@ -19,6 +19,7 @@ use otaq_core::agents::Agent;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
+use otaq_core::flow::proposal::ProposedBy;
 use otaq_core::flow::yaml;
 use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
 use otaq_core::protocol::{InputParams, ProjectParams, Reply, Request, encode_bytes};
@@ -267,7 +268,14 @@ impl Gathered {
             writing: &self.draft.writing,
             written: &self.draft.written,
             selected,
-            agent: agent.and_then(|id| self.open.iter().find(|a| a.id == id)),
+            // The conversation the page follows, else the one whose proposal the draft shows (the page forgot it,
+            // after a restart): the box names its agent and shows it redrafting (UX-63).
+            agent: agent
+                .or(match &self.draft.proposal.proposed_by {
+                    ProposedBy::ProjectAgent { agent, .. } => Some(agent.as_str()),
+                    ProposedBy::User => None,
+                })
+                .and_then(|id| self.open.iter().find(|a| a.id == id)),
             new_agent: self.new_agent.as_ref(),
             choices,
         }

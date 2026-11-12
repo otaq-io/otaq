@@ -41,6 +41,7 @@ const VIEW = {
   choices: { clashes: {}, models: {} },
   saved: { title: "Flow saved", text: "Applied now." },
   more: { export_title: "Export shop-web’s flow", export_file: "shop-web.flow.yaml", import_title: "Import" },
+  ask: { state: { kind: "proposal", agent: "c1", show: "Show conversation" } },
 } as unknown as FlowBoardView;
 
 describe("where Edit flow opens", () => {
@@ -170,13 +171,17 @@ describe("the draft's requests", () => {
     expect(calls).toEqual([["flow_board.export", { project: "SHOP", path: "/tmp/shop-web.flow.yaml" }]]);
   });
 
-  it("Ask for changes sends the user's words back to the agent; empty words send nothing", async () => {
+  it("Ask for changes sends the user's words back to the agent, which the editor then follows; empty words send nothing", async () => {
     const { calls, ask } = recorder();
-    expect(await askForChanges(VIEW, "   ", ask)).toBe(false);
-    expect(await askForChanges(VIEW, " Keep Review. ", ask)).toBe(true);
+    const agents = createStore<Readonly<Record<string, string>>>({ SHOP: "skill-writer" });
+    expect(await askForChanges(VIEW, "   ", ask, agents)).toBe(false);
+    expect(agents.get()).toEqual({ SHOP: "skill-writer" });
+    expect(await askForChanges(VIEW, " Keep Review. ", ask, agents)).toBe(true);
     expect(calls).toEqual([
       ["flow_board.ask_changes", { project: "SHOP", proposal: 7, text: "Keep Review." }],
     ]);
+    // The box shows the proposal's agent redrafting it (UX-63).
+    expect(agents.get()).toEqual({ SHOP: "c1" });
   });
 
   it("Undo puts back the document before the last edit", async () => {
