@@ -8,8 +8,8 @@
 //! - `flow_board.suggest`: the box at the editor's foot: Noyan's agent starts on the `flow` skill with the user's
 //!   words, or (Suggest a whole flow, no words) asked for a whole flow, and drafts into the draft, its changes marked
 //!   (today's flow-proposal path).
-//! - `flow_board.ask_changes`: Ask for changes… on a suggestion: the user's words go back to the agent that made it
-//!   (`flow.ask_for_changes`).
+//! - `flow_board.ask_changes`: the box's send while a suggestion shows: the user's words go back to the agent that
+//!   made it (`flow.ask_for_changes`).
 //! - `flow_board.export`: Export flow file…: the draft's document where the save dialog said; with no draft, the
 //!   flow in use as `otaq flow show` prints it.
 
@@ -87,7 +87,7 @@ pub struct SuggestParams {
     pub text: Option<String>,
 }
 
-/// Ask for changes… on the suggestion `proposal`.
+/// The box's send while the suggestion `proposal` shows.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowBoardAskChangesParams")]
 pub struct AskChangesParams {
@@ -633,7 +633,7 @@ mod tests {
         shop_web(&h, &repos).await;
         let v = load(&h, None).await;
         assert_eq!(v.ask.placeholder, "Ask Noyan to change this flow\u{2026}");
-        assert_eq!(v.ask.whole, "Suggest a whole flow");
+        assert_eq!(v.ask.whole, Some("Suggest a whole flow"));
         assert_eq!(
             v.ask.line,
             "Proposes a draft \u{b7} nothing changes until you save"

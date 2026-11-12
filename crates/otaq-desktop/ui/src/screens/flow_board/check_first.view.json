@@ -529,10 +529,12 @@
     "agent": "Noyan · Claude Code",
     "line": "Proposes a draft · nothing changes until you save",
     "send": "Ask Noyan",
-    "keys": "↵"
+    "keys": "↵",
+    "state": {
+      "kind": "change"
+    }
   },
   "suggestion": null,
-  "drafting": null,
   "watch": {
     "label": "Watch a ticket",
     "title": "Watch a ticket go through",
