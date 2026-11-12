@@ -545,11 +545,11 @@ pub async fn cancel(app: &App, params: Params) -> Result<Answer, RequestError> {
                 ..NewToast::new(
                     ToastLevel::Success,
                     format!("Stopped waiting for {}\u{2019}s PR", params.key),
-                    Some(
-                        "A push may still be running in the agent\u{2019}s session. If it opens the PR, Otaq \
-                         records it."
-                            .to_owned(),
-                    ),
+                    Some(format!(
+                        "A push may still be running in the agent\u{2019}s session. If it opens the PR, {} \
+                         records it.",
+                        otaq_core::naming::PRODUCT_NAME
+                    )),
                 )
             });
         }
