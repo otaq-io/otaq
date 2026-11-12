@@ -734,6 +734,8 @@
 /* A ticket's question, first on Overview: one turquoise-edged card with the question, its options or a box for your
    own words, and the hint with Answer in terminal and Send answer under them. */
 .sheet-question {
+  /* Overview's cap (Send in view) is the whole box's, its edge and padding included. */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -746,6 +748,12 @@
 .sheet-question .sheet-answer {
   padding: 0;
   background: none;
+}
+
+/* When Overview caps the box so Send stays in view, the question and its options give way inside it; the hint and
+   Send never do. */
+.sheet-question > .sheet-bar {
+  flex: none;
 }
 
 /* The answer box: a few lines of normal text, growing by hand; ↵ sends, ⇧↵ a new line. */

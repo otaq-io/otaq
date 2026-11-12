@@ -321,7 +321,7 @@ export function AnswerBox({
 }) {
   const { picks, press, pickRow } = useAnswerPicks(answer);
   const options = useRef<HTMLDivElement>(null);
-  const { box, text, cap } = useSendInView();
+  const { box, text, cap, boxCap } = useSendInView();
   const [other, setOther] = useState("");
   const { sending, once } = useSendOnce();
   const open = answer.rows.length === 0;
@@ -361,7 +361,7 @@ export function AnswerBox({
     if (fromCard !== null) onCard(fromCard);
   }, [fromCard]);
   return (
-    <div ref={box} className="sheet-question">
+    <div ref={box} className="sheet-question" style={boxCap === null ? undefined : { maxHeight: boxCap }}>
       {open ? (
         <OpenAnswer
           answer={answer}

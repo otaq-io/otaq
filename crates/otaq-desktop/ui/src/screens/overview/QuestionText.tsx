@@ -156,28 +156,38 @@ export function QuestionText({
 
 /**
  * On a ticket's Overview the question box is first on the page and has no cap of its own: the page scrolls. Only when
- * Send would fall below the sheet does the question's text cap at half the sheet's body and scroll, so the options
- * and Send stay in view. Outside a sheet (the Gallery) nothing caps. `box` goes on the whole box, `text` on the
- * question's text, `cap` on the text.
+ * Send would fall below the sheet does the box cap at the room left under its top, and its text at that room less the
+ * rest of the box (the options with their notes, the hint and Send), never under the text's floor; past the floor the
+ * options scroll instead. So the options and Send stay in view. Outside a sheet (the Gallery) nothing caps. `box`
+ * goes on the whole box (with `boxCap`), `text` on the question's text, `cap` on the text.
  */
 export function useSendInView(): {
   box: RefObject<HTMLDivElement | null>;
   text: RefObject<HTMLDivElement | null>;
   cap: number | null;
+  boxCap: number | null;
 } {
   const box = useRef<HTMLDivElement>(null);
   const text = useRef<HTMLDivElement>(null);
-  const [cap, setCap] = useState<number | null>(null);
+  const [caps, setCaps] = useState<Caps>(NO_CAPS);
   const measure = useCallback(() => {
     const b = box.current;
     const t = text.current;
     const body = b?.closest<HTMLElement>(".sheet-body");
     if (!b || !t || !body) return;
-    // The box's height with its text whole, wherever the cap is now.
-    const whole = b.offsetHeight - t.clientHeight + t.scrollHeight;
+    // The text whole and the rest of the box with its options whole, wherever the caps are now: measured from
+    // `scrollHeight`, so a cap set here doesn't change what the next measure finds.
+    const options = b.querySelector<HTMLElement>(".sheet-answer-options");
+    const optionsCut = options ? options.scrollHeight - options.clientHeight : 0;
+    const whole = t.scrollHeight;
+    const rest = b.offsetHeight - t.clientHeight + optionsCut;
     const top = b.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
-    const next = top + whole <= body.clientHeight ? null : Math.floor(body.clientHeight / 2);
-    setCap((current) => (current === next ? current : next));
+    const room = Math.floor(body.clientHeight - top);
+    const next =
+      rest + whole <= room
+        ? NO_CAPS
+        : { cap: Math.max(room - Math.ceil(rest), questionFloor(whole)), boxCap: room };
+    setCaps((current) => (current.cap === next.cap && current.boxCap === next.boxCap ? current : next));
   }, []);
   useLayoutEffect(() => {
     const b = box.current;
@@ -194,5 +204,13 @@ export function useSendInView(): {
   }, [measure]);
   // Measured once drawn too, before the first paint.
   useLayoutEffect(measure, [measure]);
-  return { box, text, cap };
+  return { box, text, ...caps };
 }
+
+/** The question box's caps on a ticket's Overview: its text's and the whole box's, in pixels. */
+interface Caps {
+  cap: number | null;
+  boxCap: number | null;
+}
+
+const NO_CAPS: Caps = { cap: null, boxCap: null };
