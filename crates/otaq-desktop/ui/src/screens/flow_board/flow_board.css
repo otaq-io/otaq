@@ -2,7 +2,8 @@
  * Edit flow on the board: the editor's bar where the toolbar was, then the flow's columns at the board's width (each
  * at least `--column-width`, 12 px apart with a + between two), their headers as the stages and their cards dimmed;
  * a stage's details, How work leaves the flow, Watch a ticket or Why these changes on the right. Backlog and Done are
- * locked (muted, a lock). A stage this draft adds is marked with the accent's dashed outline.
+ * locked (muted, a lock). A stage this draft adds is marked with the accent's dashed outline. Noyan's box sits under
+ * the columns.
  */
 .fb-screen {
   position: relative;
@@ -134,12 +135,147 @@
   overflow: hidden;
 }
 
+/* The columns over Noyan's box: the box takes its own room under them, so it never covers a card or Done's line. */
+.fb-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
 .fb-columns {
   display: flex;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/*
+ * Noyan's box (the board's box for new work, as Edit flow has it): 680 px, raised, 12 px corners, the focus colour
+ * around it while typing; the words and Suggest a whole flow (the investigate colour) on top, who answers and what it
+ * does under them. Theme variables only.
+ */
+.fb-noyan {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  align-self: center;
+  box-sizing: border-box;
+  width: min(680px, 100%);
+  padding: 10px 12px;
+  border-radius: 12px;
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 15%);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.fb-noyan:focus-within {
+  outline: 1.5px solid var(--focus);
+  outline-offset: -1.5px;
+}
+
+.fb-noyan-row,
+.fb-noyan-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fb-noyan-foot {
+  gap: 8px;
+  font: 400 11.5px/1.3 var(--font-ui);
+}
+
+.fb-noyan-row > .icon,
+.fb-noyan-foot > .kbd {
+  flex: none;
+}
+
+.fb-noyan-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13.5px/1.4 var(--font-ui);
+}
+
+.fb-noyan-input::placeholder {
+  color: var(--text-muted);
+}
+
+button.fb-noyan-whole,
+button.fb-noyan-send {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  border: none;
+  border-radius: 6px;
+  font: 500 12px/1.3 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.fb-noyan-whole {
+  padding: 4px 9px;
+  outline: 1.5px solid transparent;
+  outline-offset: -1.5px;
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+}
+
+button.fb-noyan-whole:hover:not(:disabled),
+button.fb-noyan-whole:focus-visible {
+  outline-color: var(--st-investigate);
+}
+
+button.fb-noyan-send {
+  height: 28px;
+  padding: 0 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+button.fb-noyan-send:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+button.fb-noyan-whole:disabled,
+button.fb-noyan-send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.fb-noyan-agent,
+.fb-noyan-line {
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fb-noyan-agent {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.fb-noyan-line[data-off] {
+  color: var(--text-secondary);
 }
 
 .fb-slot {
@@ -596,12 +732,6 @@
 .fb-pop-row:disabled {
   cursor: default;
   opacity: 0.6;
-}
-
-.fb-suggest {
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
 }
 
 .fb-pop-words {

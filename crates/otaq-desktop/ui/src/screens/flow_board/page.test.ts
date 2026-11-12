@@ -1,11 +1,13 @@
 // @vitest-environment happy-dom
 // Edit flow never goes blank: the editor draws the draft the release test was left with (Validate dragged in front of
 // Dev, its fails still going to Dev; the view is Rust's, `check_first.view.json`), and a view that doesn't come shows
-// what went wrong with Discard the draft and Close instead of an empty screen.
+// what went wrong with Discard the draft and Close instead of an empty screen. The box at its foot asks Noyan's agent
+// for a change in the user's words, or for a whole flow, without opening the agent panel.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
+import { shellLayout } from "../../app/layout";
 import { RegistriesContext, registerScreens } from "../../app/registry";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
 import { request } from "../../tauri";
@@ -124,5 +126,101 @@ describe("Needs you on the drafting line", () => {
     expect(text?.textContent).toBe("Docs stage skill wants your permission: Run command: @' …");
     expect(text?.closest(".tooltip-anchor")).not.toBeNull();
     expect(line?.textContent).not.toContain("update-docs");
+  });
+});
+
+describe("Edit flow's box asks Noyan", () => {
+  const VIEW = CHECK_FIRST as unknown as FlowBoardView;
+
+  /** The box's request starts an agent; every other call answers nothing. */
+  async function mountBox(view: FlowBoardView = VIEW) {
+    vi.mocked(request).mockImplementation((method: string) => {
+      if (method === "flow_board.view") return Promise.resolve(view);
+      if (method === "flow_board.suggest") return Promise.resolve({ agent: "c9" });
+      return Promise.resolve(null);
+    });
+    await act(async () => {
+      root.render(
+        createElement(
+          RegistriesContext,
+          { value: app },
+          createElement(FlowBoard, { open: { project: "SHOP" }, board: undefined }),
+        ),
+      );
+      await Promise.resolve();
+    });
+  }
+
+  const box = () => host.querySelector<HTMLElement>(".fb-noyan");
+  const button = (label: string) =>
+    [...document.querySelectorAll<HTMLButtonElement>("button")].find((b) => b.textContent === label);
+
+  function type(input: HTMLInputElement, value: string) {
+    act(() => {
+      Reflect.set(HTMLInputElement.prototype, "value", value, input);
+      input.dispatchEvent(new Event("input", { bubbles: true }));
+    });
+  }
+
+  it("↵ sends the typed words to Noyan's agent on the flow skill, and the agent panel stays closed", async () => {
+    shellLayout.set({ ...shellLayout.get(), agentOpen: false });
+    await mountBox();
+    const input = box()?.querySelector<HTMLInputElement>("input");
+    if (!input) throw new Error("no box");
+    expect(input.placeholder).toBe("Ask Noyan to change this flow…");
+    expect(box()?.textContent).toContain("Proposes a draft · nothing changes until you save");
+    type(input, "Add a security review after Validate");
+    // Typed: the send button takes the shortcut's place.
+    expect(button("Suggest a whole flow")).toBeUndefined();
+    expect(button("Ask Noyan")).toBeDefined();
+    await act(async () => {
+      input.dispatchEvent(new KeyboardEvent("keydown", { key: "Enter", bubbles: true }));
+      await Promise.resolve();
+      await Promise.resolve();
+    });
+    expect(request).toHaveBeenCalledWith("flow_board.suggest", {
+      project: "SHOP",
+      text: "Add a security review after Validate",
+    });
+    expect(shellLayout.get().agentOpen).toBe(false);
+    expect(input.value).toBe("");
+  });
+
+  it("Suggest a whole flow asks for a whole flow, without words", async () => {
+    await mountBox();
+    await act(async () => {
+      button("Suggest a whole flow")?.click();
+      await Promise.resolve();
+    });
+    expect(request).toHaveBeenCalledWith("flow_board.suggest", { project: "SHOP" });
+    expect(shellLayout.get().agentOpen).toBe(false);
+  });
+
+  it("while Noyan drafts, the shortcut is off and the box says why", async () => {
+    const drafting = "Strong is drafting a flow for shop-web…";
+    await mountBox({ ...VIEW, ask: { ...VIEW.ask, off: drafting } });
+    expect(button("Suggest a whole flow")?.disabled).toBe(true);
+    expect(box()?.textContent).toContain(drafting);
+  });
+
+  it("Start from… lists the presets and Import, no Suggest", async () => {
+    await mountBox();
+    await act(async () => {
+      button("Start from…")?.click();
+      await Promise.resolve();
+    });
+    const start = document.querySelector(".fb-start");
+    expect(start).not.toBeNull();
+    expect(start?.textContent).toContain(VIEW.start_from.import);
+    expect(start?.textContent).not.toMatch(/Suggest/);
+  });
+
+  it("sits under the columns in its own room, so it never covers the last card or Done's line", async () => {
+    // No layout engine here: what keeps the cards clear at 1280 × 800 (as at any size) is that the box is the
+    // columns' sibling below them in the editor's column, which gives the columns what is left, never drawn over them.
+    await mountBox();
+    const main = host.querySelector(".fb-main");
+    expect([...(main?.children ?? [])].map((c) => c.className)).toEqual(["fb-columns", "fb-noyan"]);
+    expect(host.querySelector(".fb-columns .fb-noyan")).toBeNull();
   });
 });

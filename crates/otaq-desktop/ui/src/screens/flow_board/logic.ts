@@ -166,15 +166,19 @@ export async function exportFile(
 }
 
 /**
- * Suggest a flow for <project>…: Noyan's agent starts on the `flow` skill and drafts one; the editor follows that
- * agent while it drafts. Resolves to the agent's id.
+ * The box's send: Noyan's agent starts on the `flow` skill with the user's words, or (`null`, Suggest a whole flow)
+ * asked for a whole flow, and drafts; the editor follows that agent while it drafts. The agent panel stays as it is.
+ * Resolves to the agent's id.
  */
 export async function suggest(
   project: string,
+  text: string | null = null,
   ask: Ask = request,
   agents: Store<Readonly<Record<string, string>>> = editorAgents,
 ): Promise<string> {
-  const started = (await ask("flow_board.suggest", { project })) as FlowEditorStarted;
+  const words = text?.trim() ?? "";
+  const params = text === null ? { project } : { project, text: words };
+  const started = (await ask("flow_board.suggest", params)) as FlowEditorStarted;
   showEditorAgent(project, started.agent, agents);
   return started.agent;
 }
