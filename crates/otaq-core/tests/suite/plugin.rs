@@ -262,7 +262,8 @@ fn work_ticket_teaches_answer_options() {
     );
 }
 
-/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question.
+/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question, the
+/// question on its first line and where they are in the questions after it.
 #[test]
 fn the_spec_skills_teach_answer_options() {
     assert_teaches_answer_options(
@@ -270,14 +271,14 @@ fn the_spec_skills_teach_answer_options() {
         "--option \"Anyone with the link\" --note \"Easy to send in a chat; anyone who gets the link sees the list.\" \
          --option \"Signed-in friends\" --note \"Private, but each friend needs an account first: fewer people will look.\" \
          --recommended 1",
-        "Question 2 of about 4.",
+        "Who asked for wishlist sharing, and what do they want to do with it?\nQuestion 2 of about 4.",
     );
     assert_teaches_answer_options(
         "tech-spec",
         "--option \"Links never expire\" --note \"Simplest; an old link keeps working until the list is deleted.\" \
          --option \"Expire after 30 days\" --note \"Safer, but friends get a 'link expired' page and ask for a new one.\" \
          --recommended 1",
-        "Question 2 of 2.",
+        "How many wishlists does your largest customer have today, roughly?\nQuestion 2 of 2.",
     );
     let (_, plan) = skill("milestone-plan");
     assert_every_ask_human_reads_stdin(&plan);

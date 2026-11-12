@@ -71,7 +71,8 @@ otaq ask human \
   --option "Yes" --note "Old bugs come back into view, but about 200 more Backlog tickets to sort." \
   --option "No" --note "A short, current Backlog; closed issues stay only in the tracker." \
   --recommended 2 --stdin <<'QUESTION'
-Import the closed issues too? There are 214 of them, most older than a year.
+Import the closed issues too?
+There are 214 of them, most older than a year.
 QUESTION
 ```
 
@@ -108,7 +109,8 @@ QUESTION
     --option "One ticket" --note "Split into pieces built in one tree and checked as they merge; one review." \
     --option "Separate tickets" --note "Each reviewed and merged on its own; a later one waits for the earlier ones." \
     --recommended 1 --stdin <<'QUESTION'
-  Paging, the order detail page and reorder are one feature. I recommend one ticket: the Milestone plan stage will plan it and split it into pieces. Or separate tickets?
+  One ticket for paging, the order detail page and reorder, or separate tickets?
+  They are one feature. I recommend one ticket: the Milestone plan stage will plan it and split it into pieces.
   QUESTION
   ```
 
