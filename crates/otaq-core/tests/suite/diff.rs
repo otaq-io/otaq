@@ -186,3 +186,31 @@ async fn a_branch_rebased_onto_the_remote_base_counts_from_there() {
     let paths: Vec<_> = changes.files.iter().map(|e| e.file.path.as_str()).collect();
     assert_eq!(paths, ["mine.ts"]);
 }
+
+/// The base merged into the branch outside Otaq (by hand or by the agent's `restack`), as Otaq's own update does:
+/// the base's newer commits aren't the ticket's, in the diff, the Files tab or the commit count.
+#[tokio::test]
+async fn a_base_merged_in_outside_otaq_counts_from_the_merged_base() {
+    let f = Fixture::shop().await;
+    let t = f.create("Checkout API").await;
+    let wt = f.start_worktree(&t).await;
+    let started_on = git(&f.repo(), &["rev-parse", "main"]);
+    commit(&wt, "mine_one.ts", "one\n");
+    // main moves on, and is merged into the branch outside Otaq; then one more commit of the ticket's own.
+    commit(&f.repo(), "theirs.ts", "theirs\n");
+    let main = git(&f.repo(), &["rev-parse", "main"]);
+    git(&wt, &["merge", "--quiet", "--no-edit", "main"]);
+    commit(&wt, "mine_two.ts", "two\n");
+
+    let diff = f.board.diff_summary("SHOP-1").await.unwrap();
+    let paths: Vec<_> = diff.files.iter().map(|f| f.path.as_str()).collect();
+    assert_eq!(paths, ["mine_one.ts", "mine_two.ts"]);
+    assert_eq!(diff.base_sha, main);
+    assert_ne!(diff.base_sha, started_on);
+    let changes = f.board.files_changes("SHOP-1").await.unwrap();
+    let paths: Vec<_> = changes.files.iter().map(|e| e.file.path.as_str()).collect();
+    assert_eq!(paths, ["mine_one.ts", "mine_two.ts"]);
+    // The ticket's two commits and the merge commit; main's commit isn't among them.
+    let ticket = f.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(f.board.commits_beyond_base(&ticket).await.unwrap(), 3);
+}

@@ -1,9 +1,10 @@
-//! Where a ticket's branch stands on its base now: the stored `base_sha` moved up after a rebase Otaq didn't make.
+//! Where a ticket's branch stands on its base now: the stored `base_sha` moved up after an update Otaq didn't make.
 //!
-//! `base_sha` is recorded when the ticket starts and after Otaq's own rebases, but a branch is also rebased by the
-//! agent (the `restack` skill), by the user by hand, or onto the base's remote branch. Then the stored commit is
-//! older than where the branch left its base, and everything counted from it (the Files tab, Open PR's commits,
-//! the agent's committed diff) shows the base's newer commits as the ticket's own.
+//! `base_sha` is recorded when the ticket starts and after Otaq brings the branch up to date (merging the base in),
+//! but the base is also merged in by the agent (the `restack` skill), by the user by hand (or the branch rebased),
+//! from the base's remote branch, or after a conflict Otaq left to resolve. Then the stored commit is older than
+//! where the branch last took in its base, and everything counted from it (the Files tab, Open PR's commits, the
+//! agent's committed diff) shows the base's newer commits as the ticket's own.
 //!
 //! The current base is the newest `merge-base` of the branch with its base branch (local, or a remote's) that is
 //! still a descendant of the stored `base_sha`; it is written back so every reader agrees. A Done ticket keeps
