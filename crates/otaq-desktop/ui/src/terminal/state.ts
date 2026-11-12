@@ -106,6 +106,33 @@ export function ctrlCCopies(windows: boolean, hasSelection: boolean, e: KeyLike)
   return windows && hasSelection && strokeMatches(CTRL_C, e);
 }
 
+/** Ctrl+V alone, as the layout types V (Ctrl+Shift+V stays the terminal's paste key on Windows and Linux). */
+const CTRL_V: Keystroke = {
+  key: "v",
+  code: "KeyV",
+  modifiers: { control: true, alt: false, shift: false, platform: false, function: false },
+};
+
+/**
+ * Whether the terminal takes Ctrl+V to read the clipboard first: on Windows, as in Windows Terminal. Text on it is
+ * pasted as Ctrl+Shift+V pastes it; anything else (an image, nothing) leaves Ctrl+V the program's key, so a tool's
+ * image paste still works (see `pasteOrKey`). macOS and Linux keep their own keys.
+ */
+export function ctrlVPastes(windows: boolean, e: KeyLike): boolean {
+  return windows && strokeMatches(CTRL_V, e);
+}
+
+/** What xterm.js sends for Ctrl+V: the control character SYN, which Claude Code and Codex read as their own paste. */
+export const CTRL_V_KEY = "\x16";
+
+/**
+ * What Ctrl+V on Windows does with what the clipboard gave: text is pasted; no text (an image, nothing, a clipboard
+ * that couldn't be read) sends the program Ctrl+V's own key, as it got before.
+ */
+export function pasteOrKey(text: string | undefined): { paste: string } | { key: string } {
+  return text ? { paste: text } : { key: CTRL_V_KEY };
+}
+
 /** What xterm.js says a program asked to hear of the mouse (`term.modes.mouseTrackingMode`). */
 export type MouseTracking = "none" | "x10" | "vt200" | "drag" | "any";
 

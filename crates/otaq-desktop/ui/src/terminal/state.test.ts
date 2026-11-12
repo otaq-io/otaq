@@ -5,6 +5,7 @@ import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
   clampFontSize,
   ctrlCCopies,
+  ctrlVPastes,
   findCount,
   fontSizeOf,
   jumpLabel,
@@ -12,6 +13,7 @@ import {
   NEW_LINE,
   onWindows,
   opaqueHex,
+  pasteOrKey,
   rendererFor,
   takesInput,
   terminalKey,
@@ -148,6 +150,21 @@ describe("the terminal's state", () => {
     expect(ctrlCCopies(true, true, key("c", "KeyC", { ctrlKey: true, altKey: true }))).toBe(false);
     expect(ctrlCCopies(true, true, key("c", "KeyC", {}))).toBe(false);
     expect(ctrlCCopies(true, true, key("x", "KeyX", { ctrlKey: true }))).toBe(false);
+  });
+
+  it("takes Ctrl+V to paste only on Windows; no text on the clipboard sends Ctrl+V's key", () => {
+    const ctrlV = key("v", "KeyV", { ctrlKey: true });
+    expect(ctrlVPastes(true, ctrlV)).toBe(true);
+    expect(ctrlVPastes(true, key("V", "KeyV", { ctrlKey: true }))).toBe(true);
+    // macOS and Linux keep their own keys.
+    expect(ctrlVPastes(false, ctrlV)).toBe(false);
+    // Ctrl+Shift+V is the terminal's paste key; other modifiers stay the program's.
+    expect(ctrlVPastes(true, key("V", "KeyV", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(ctrlVPastes(true, key("v", "KeyV", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(ctrlVPastes(true, key("v", "KeyV", {}))).toBe(false);
+    expect(pasteOrKey("ls -la")).toEqual({ paste: "ls -la" });
+    expect(pasteOrKey("")).toEqual({ key: "\x16" });
+    expect(pasteOrKey(undefined)).toEqual({ key: "\x16" });
   });
 
   it("keeps a plain mouse move from the program only on Windows, with a selection, while it hears every move", () => {

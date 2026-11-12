@@ -52,7 +52,9 @@ import {
   takesInput,
   type TerminalState,
   ctrlCCopies,
+  ctrlVPastes,
   keepsSelectionOnMove,
+  pasteOrKey,
   onWindows,
   terminalKey,
   typingIn,
@@ -459,6 +461,23 @@ export function Terminal({
         e.preventDefault();
         copySelection();
         term.clearSelection();
+        return false;
+      }
+      // On Windows Ctrl+V pastes the clipboard's text; with no text it is the program's key (a tool's image paste).
+      // The clipboard is read after the key is taken, so with no text the key itself is sent here. Taking the key
+      // also keeps the page from its own paste, which xterm.js would paste a second time.
+      if (ctrlVPastes(windows, e)) {
+        e.preventDefault();
+        const done = (text: string | undefined) => {
+          const next = pasteOrKey(text);
+          if ("paste" in next) term.paste(next.paste);
+          // Typing, as if xterm.js had sent it: the same ordered path, not a reply.
+          else sendInput(new TextEncoder().encode(next.key), false);
+        };
+        navigator.clipboard.readText().then(done, (err: unknown) => {
+          console.warn("paste failed", err);
+          done(undefined);
+        });
         return false;
       }
       const key = terminalKey(keymap.get(), e);
