@@ -447,14 +447,25 @@ async fn a_ctrl_v_that_pastes_nothing_leaves_claude_codes_line_empty() {
     let program = real_claude();
     if wanted("raw ctrl+v") {
         let claude = Claude::start(&program).await;
-        // A turn of two lines first: Claude Code's suggestion goes once a turn is stopped, and ↑ has an entry.
+        // A turn of two lines first, so ↑ has an entry of several lines. (Stopped with Esc, Claude Code would put
+        // the message back in its line.) Then the bare `❯` Claude Code shows once its suggestion is gone.
         claude
-            .deliver("Do nothing; reply with only the word OK.\nThis is the second line.")
+            .deliver("Do nothing and run nothing; reply with only the word PINEAPPLE.\nThis is the second line.")
             .await;
-        claude.turns().await;
-        tokio::time::sleep(Duration::from_secs(4)).await;
+        claude
+            .until("the reply", Duration::from_secs(120), |s| {
+                s.matches("PINEAPPLE").count() >= 2
+            })
+            .await;
+        let bare = |s: &str| input_row(s).trim() == "\u{276f}";
+        let start = Instant::now();
+        while !bare(&claude.screen()) && start.elapsed() < Duration::from_secs(180) {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
         let screen = claude.screen();
         println!("RESULT before: {:?}", input_row(&screen));
+        assert!(bare(&screen), "Claude Code's bare line:\n{screen}");
         claude.sessions.input(&claude.session, b"\x16").unwrap();
         tokio::time::sleep(Duration::from_secs(2)).await;
         let screen = claude.screen();
