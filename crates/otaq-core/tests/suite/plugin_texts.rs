@@ -380,8 +380,8 @@ fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
     );
 }
 
-/// T-0546 (d0129 as d0133 refines it): `milestone-plan` writes the ticket's Plan with `update --plan-file`, files no
-/// tickets, writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
+/// T-0546 (d0129 as d0133 refines it, and decision 047): `milestone-plan` writes the ticket's Plan with
+/// `update --plan-file`, keeps all the ticket's work on the ticket (a ticket only as a follow-up for something new), writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
 /// from the Plan as it is now, keeping the user's edits and changing only what the comment asks.
 #[test]
 fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
@@ -390,9 +390,13 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
     for step in [
         format!("{cmd} prime"),
         format!("{cmd} update SHOP-40 --plan-file \"$plan\""),
-        "**You file nothing.**".to_owned(),
-        "**File nothing**".to_owned(),
-        "they ask Noyan to file them".to_owned(),
+        // One ticket per scope (decision 047): the whole ticket becomes pieces, never several tickets; a ticket only
+        // as a follow-up for something new outside it.
+        "**The ticket stays one ticket.**".to_owned(),
+        "Never suggest splitting it into several tickets.".to_owned(),
+        "**Big work stays one ticket**".to_owned(),
+        "**No tickets for this ticket's work**".to_owned(),
+        format!("follow-up in Backlog with `{cmd} create \"Title\" --stdin`"),
         "**Start from the Plan as `prime` shows it now**".to_owned(),
         "**Keep the user's edits**".to_owned(),
         "unless their comment says otherwise".to_owned(),
@@ -420,9 +424,11 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
             "milestone-plan measures a piece by concrete signs, not time: {time:?}"
         );
     }
-    assert!(
-        !plan.contains(&format!("{cmd} create")),
-        "milestone-plan files nothing"
+    // `create` appears only for a follow-up, never for the ticket's own work (decision 047).
+    assert_eq!(
+        plan.matches(&format!("{cmd} create")).count(),
+        plan.matches(&format!("{cmd} create \"Title\" --stdin")).count(),
+        "milestone-plan files only follow-ups"
     );
     assert!(
         !plan.contains(&format!("{cmd} check ")),

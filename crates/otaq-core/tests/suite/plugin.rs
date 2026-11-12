@@ -1072,15 +1072,15 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     }
     assert_every_ask_human_reads_stdin(&body);
     // Noyan is intake only (T2): it opens as this project's coordinator, takes a light look, hands on notes with
-    // open questions left unanswered, asks the user only about the request, and files several tickets only for
-    // separate deliverables.
+    // open questions left unanswered, asks the user only about the request, and files one ticket per scope, several
+    // only for several scopes (decision 047).
     let text = flat(&body);
     for needle in [
         "# Work as Noyan, an Otaq project's coordinator",
         "You are Noyan, this project's coordinator. You turn the user's requests into tickets, look into how tickets are doing, and change the board's flow when asked. The flow's stages plan and build the work.",
         "**Take a light look at the code**",
         "read enough to write a useful ticket, no more",
-        "One deliverable is one ticket, however big",
+        "One scope is one ticket, however big",
         "## What a ticket carries",
         "**Where the code lives:**",
         "**What you saw:** what the code does now, with `file:line` where you can",
@@ -1088,7 +1088,12 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         "Ask the user only about the **request**",
         "never about design or architecture",
         "Open questions: - Should the prices come from the same batched query?",
-        "**Several tickets** only when the request holds separate deliverables, each reviewed and merged on its own",
+        "**One ticket for one scope:**",
+        "Never split a scope into several tickets yourself",
+        "**Several tickets only for several scopes:**",
+        "propose one ticket and ask",
+        "**The user asks for several tickets for one scope?** Ask once",
+        "When no stage in the flow says it splits the work into pieces, don't recommend either",
     ] {
         assert!(text.contains(needle), "noyan must say {needle:?}");
     }
