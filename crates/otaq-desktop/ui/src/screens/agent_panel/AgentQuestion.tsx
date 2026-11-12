@@ -10,7 +10,7 @@ import type { AgentAnswerParams } from "../../generated/AgentAnswerParams";
 import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { SheetSent } from "../../generated/SheetSent";
 import { request } from "../../tauri";
-import { AnswerChoices, picksParams, useAnswerPicks } from "../overview/NeedsYou";
+import { AnswerChoices, picksParams, useAnswerPicks, useSendOnce } from "../overview/NeedsYou";
 import { QuestionText } from "../overview/QuestionText";
 import { askUnsent } from "../sheet/actions";
 import { canSend } from "../sheet/actionRoutes";
@@ -57,20 +57,18 @@ export function AgentQuestionBox({ question, onTerminal, onSent, titled = false 
   const open = answer.rows.length === 0;
   const { picks, press } = useAnswerPicks(answer);
   const [other, setOther] = useState("");
-  const [sending, setSending] = useState(false);
+  const { sending, once } = useSendOnce();
   const ready = canAnswer(question, picks, other);
   const send = (clear = false): Promise<unknown> => {
-    if (!ready || sending) return Promise.resolve();
-    setSending(true);
-    return (request("agent_panel.answer", answerParams(question, picks, other, clear)) as Promise<SheetSent>)
-      .then((sent) => {
-        if (sent.outcome === "done") onSent?.();
-        askUnsent(sent, () => send(true));
-      })
-      .catch(ignore)
-      .finally(() => {
-        setSending(false);
-      });
+    if (!ready) return Promise.resolve();
+    return once(() =>
+      (request("agent_panel.answer", answerParams(question, picks, other, clear)) as Promise<SheetSent>)
+        .then((sent) => {
+          if (sent.outcome === "done") onSent?.();
+          askUnsent(sent, () => send(true));
+        })
+        .catch(ignore),
+    );
   };
   return (
     <div className="agent-question" role="group" aria-label={question.title}>

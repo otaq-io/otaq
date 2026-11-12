@@ -161,11 +161,13 @@ export function AnswerChoices({
         data-number-keys
         tabIndex={-1}
         onKeyDown={(e) => {
+          // A key typed in a text field (Other…'s) is the field's own: its digits type, its ↵ sends from there.
+          if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
           const n = pickByKey(e.key, answer.rows);
-          if (n !== null && !(e.target instanceof HTMLInputElement)) {
+          if (n !== null) {
             e.preventDefault();
             onPick(n);
-          } else if (e.key === "Enter" && !(e.target instanceof HTMLInputElement)) {
+          } else if (e.key === "Enter") {
             e.preventDefault();
             onSend();
           }
@@ -280,6 +282,25 @@ function OpenAnswer({
   );
 }
 
+/** An answer box's sending, one at a time: `once` runs a send only when none is going. Kept in a ref, not state, so
+ * two calls in the same event (or before the next render) send once; `sending` draws the button's spinner. */
+export function useSendOnce(): { sending: boolean; once: (go: () => Promise<unknown>) => Promise<unknown> } {
+  const going = useRef(false);
+  const [sending, setSending] = useState(false);
+  return {
+    sending,
+    once: (go) => {
+      if (going.current) return Promise.resolve();
+      going.current = true;
+      setSending(true);
+      return go().finally(() => {
+        going.current = false;
+        setSending(false);
+      });
+    },
+  };
+}
+
 /** Whether an answer can go: an open question's words, else a pick or at least one ticked row (and Other…'s text). */
 export function canAnswerQuestion(answer: SheetAnswer, picks: readonly number[], other: string): boolean {
   if (answer.rows.length === 0) return other.trim() !== "";
@@ -302,12 +323,11 @@ export function AnswerBox({
   const options = useRef<HTMLDivElement>(null);
   const { box, text, cap } = useSendInView();
   const [other, setOther] = useState("");
-  const [sending, setSending] = useState(false);
+  const { sending, once } = useSendOnce();
   const open = answer.rows.length === 0;
   const ready = canAnswerQuestion(answer, picks, other);
   const send = (clear = false): Promise<unknown> => {
-    if (!ready || sending) return Promise.resolve();
-    setSending(true);
+    if (!ready) return Promise.resolve();
     // An open question's words go as its answer; the pick is the options' only.
     const params = {
       key: view.key,
@@ -317,14 +337,13 @@ export function AnswerBox({
       other,
       clear,
     };
-    return (request("sheet.answer", params) as Promise<SheetSent>)
-      .then((sent) => {
-        askUnsent(sent, () => send(true));
-      })
-      .catch(ignore)
-      .finally(() => {
-        setSending(false);
-      });
+    return once(() =>
+      (request("sheet.answer", params) as Promise<SheetSent>)
+        .then((sent) => {
+          askUnsent(sent, () => send(true));
+        })
+        .catch(ignore),
+    );
   };
   // A card's option opens the list with it picked (sending stays one more click or ↵, ATT-12); its Send answer
   // sends the picked (recommended) option.
