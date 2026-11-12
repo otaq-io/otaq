@@ -15,6 +15,7 @@ use std::path::Path;
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::attention::notify;
+use otaq_core::board::Refusal;
 use otaq_core::board::needs_you::NeedsYouGroup;
 use otaq_core::board::questions::Choice;
 use otaq_core::board::tickets::Ticket;
@@ -275,5 +276,37 @@ async fn the_writers_prompt_stays_calm_beside_a_question_in_review() {
             format!("asks: {QUESTION}")
         )]
     );
+    w.stop().await;
+}
+
+/// The agent's session ended by a restart before the user answered its question asked in Review (re-test 10
+/// NEW-r10-2): the answer isn't sent, and the refusal says the session ended and points to Send back with the answer
+/// as the note. The question stays open and the ticket keeps its status and column.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_in_review_after_the_session_ended_points_to_send_back() {
+    let w = TestService::start().await;
+    let (t, shell) = in_review(&w).await;
+    asks(&w, &shell, &t).await;
+    let w = w.restart().await;
+
+    let refused = w
+        .needs_you
+        .answer("SHOP-1", &Choice::Option(1), false, &me())
+        .await
+        .expect_err("refused");
+    assert_eq!(refused.refusal(), Some(Refusal::SessionEnded));
+    assert_eq!(
+        refused.to_string(),
+        "SHOP-1's agent session has ended. Send the ticket back with your answer as the note."
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::WaitingForYou, "it keeps its status");
+    assert_eq!(ticket.place, Place::stage_of("review"), "and its column");
+    assert_eq!(
+        ticket.question_in_place().map(|q| q.text.as_str()),
+        Some(QUESTION),
+        "the question stays open"
+    );
+    assert_eq!(answered_via(&w, &t).await, None);
     w.stop().await;
 }

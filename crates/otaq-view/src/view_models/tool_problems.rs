@@ -299,8 +299,9 @@ fn missing_skill_hint(tool: Tool) -> String {
         " (a SKILL.md saved without a byte order mark: Windows PowerShell 5 writes one)"
     };
     format!(
-        "Nothing started. Link the skill into {}\u{2019}s skills folder{saved} or commit it to the project, then \
-         Check again; or give the stage an agent whose tool has it.",
+        "Nothing started. Link the skill into {}\u{2019}s skills folder{saved} or commit it to the project \
+         (a ticket already started needs it on its own branch), then Check again; or give the stage an agent whose \
+         tool has it.",
         tool_word(tool)
     )
 }
@@ -733,8 +734,8 @@ mod tests {
             c.text.as_deref(),
             Some(
                 "Nothing started. Link the skill into Codex\u{2019}s skills folder (a SKILL.md saved without a byte \
-                 order mark: Windows PowerShell 5 writes one) or commit it to the project, then Check again; or give \
-                 the stage an agent whose tool has it."
+                 order mark: Windows PowerShell 5 writes one) or commit it to the project (a ticket already started \
+                 needs it on its own branch), then Check again; or give the stage an agent whose tool has it."
             )
         );
         held.tool = CLAUDE;
@@ -742,8 +743,9 @@ mod tests {
         assert_eq!(
             c.text.as_deref(),
             Some(
-                "Nothing started. Link the skill into Claude Code\u{2019}s skills folder or commit it to the project, \
-                 then Check again; or give the stage an agent whose tool has it."
+                "Nothing started. Link the skill into Claude Code\u{2019}s skills folder or commit it to the project \
+                 (a ticket already started needs it on its own branch), then Check again; or give the stage an agent \
+                 whose tool has it."
             )
         );
     }

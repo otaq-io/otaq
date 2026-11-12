@@ -532,13 +532,16 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
           </div>
         </Dialog>
       );
+    // Cancel and Esc always work while pushing: Otaq stops waiting and the agent's session goes on (a delivery turn
+    // that never starts can't hold the window). A stray press outside doesn't cancel.
     case "pushing":
       return (
         <Dialog
           title={stage.title}
           width={480}
-          onCancel={ignore}
-          footer={<Button variant="ghost" label={view.cancel} disabled />}
+          keepOnOutsidePress
+          onCancel={cancel}
+          footer={<Button variant="ghost" label={view.cancel} onClick={cancel} />}
         >
           <div className="pr-body">
             {stage.steps.map((s) => (

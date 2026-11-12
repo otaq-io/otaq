@@ -598,10 +598,17 @@ impl NeedsYouQueue {
                 typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?
             }
             (Waiting::Live, None) => {
-                return Err(BoardError::refused(
-                    Refusal::SessionEnded,
-                    format!("{}'s session has ended", ticket.key),
-                ));
+                // Asked while the ticket waits in a check of the user's: Send back with the answer as the note is
+                // the way on (it closes the question).
+                let text = if ticket.question_in_place().is_some() {
+                    format!(
+                        "{}'s agent session has ended. Send the ticket back with your answer as the note.",
+                        ticket.key
+                    )
+                } else {
+                    format!("{}'s session has ended", ticket.key)
+                };
+                return Err(BoardError::refused(Refusal::SessionEnded, text));
             }
             (Waiting::Interrupted, _) => {
                 self.inner

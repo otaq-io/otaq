@@ -527,15 +527,32 @@ pub async fn retry(app: &App, params: StartParams) -> Result<Answer, RequestErro
     answered(app, &params.key, sent, Click::PrRetry).await
 }
 
-/// **Cancel** before pushing: the proposal is discarded; nothing was pushed.
+/// **Cancel**: the proposal is discarded. Before pushing nothing was pushed; while pushing Otaq only stops waiting,
+/// the agent's session goes on, and a toast says its push may still be running.
 pub async fn cancel(app: &App, params: Params) -> Result<Answer, RequestError> {
     if let Some(d) = forget(app, &params.key)
         && !matches!(d.stage, Stage::NotLoggedIn { .. })
     {
-        let _ = app
+        let sent = app
             .service
-            .send(Request::TicketPrCancel(KeyParams { key: params.key }))
+            .send(Request::TicketPrCancel(KeyParams {
+                key: params.key.clone(),
+            }))
             .await;
+        if d.stage == Stage::Pushing && sent.is_ok() {
+            app.notices.toast(NewToast {
+                ticket: Some(params.key.clone()),
+                ..NewToast::new(
+                    ToastLevel::Success,
+                    format!("Stopped waiting for {}\u{2019}s PR", params.key),
+                    Some(
+                        "A push may still be running in the agent\u{2019}s session. If it opens the PR, Otaq \
+                         records it."
+                            .to_owned(),
+                    ),
+                )
+            });
+        }
     }
     Ok(Answer::Closed)
 }
