@@ -17,8 +17,8 @@
 //!   is empty, whatever its words.
 //!
 //! A row with the prompt marker and nothing after it (Copilot's empty line has no placeholder) is
-//! [`InputLine::Blank`]: empty too, unless the draft may run over several lines, whose other lines can sit above
-//! the cursor. A row that starts with the prompt marker and has text after it that isn't faded is
+//! [`InputLine::Blank`]: empty too, unless lines of the draft may sit above the cursor (a typed line break, a
+//! history entry; not a program's own paste on Ctrl+V, which ends at the cursor). A row that starts with the prompt marker and has text after it that isn't faded is
 //! [`InputLine::Typed`]: the line holds text, whatever the keys say. Anything else, a hidden cursor (a menu, a
 //! permission prompt) or text on a row without a prompt marker (a shell's line) included, is
 //! [`InputLine::Unknown`]: the tracker's answer stands.

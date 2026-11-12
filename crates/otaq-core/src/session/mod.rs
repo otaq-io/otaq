@@ -1193,11 +1193,11 @@ impl Sessions {
     /// shell's line), the typed keys answer. Until the program has drawn a person's key, text they counted stands.
     pub fn has_unsent_input(&self, id: &str) -> Result<bool, SessionError> {
         let live = self.live(id)?;
-        let (keys, multi_line, settled) = {
+        let (keys, lines_above, settled) = {
             let input = live.input.lock().expect("session input");
             (
                 input.has_unsent_text(),
-                input.has_multi_line_text(),
+                input.may_have_lines_above_cursor(),
                 !input.typed_within(KEY_SETTLE),
             )
         };
@@ -1207,8 +1207,9 @@ impl Sessions {
         Ok(match live.input_line() {
             input_line::InputLine::Typed => true,
             input_line::InputLine::Placeholder => false,
-            // Lines of a draft may sit above a bare marker row.
-            input_line::InputLine::Blank => keys && multi_line,
+            // Lines of a draft may sit above a bare marker row (a line break, a history entry). A program's own
+            // paste on Ctrl+V ends at the cursor, so after it a bare marker means it pasted nothing.
+            input_line::InputLine::Blank => keys && lines_above,
             input_line::InputLine::Unknown => keys,
         })
     }

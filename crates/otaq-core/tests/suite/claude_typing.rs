@@ -426,3 +426,78 @@ async fn a_long_skill_line_still_runs_the_skill() {
         claude.stop().await;
     }
 }
+
+/// The row of Claude Code's input line (its `❯` marker), as the screen shows it.
+fn input_row(screen: &str) -> String {
+    screen
+        .lines()
+        .rfind(|l| l.trim_start().starts_with('\u{276f}'))
+        .unwrap_or_default()
+        .to_owned()
+}
+
+/// Ctrl+V reaches Claude Code as the raw key where the terminal has no text to paste (an image or nothing on the
+/// clipboard); finding no image to paste, Claude Code leaves its line as it was, and the line keeps reading empty
+/// for Otaq's notes and answers. A history entry of several lines (↑) and an image pasted with Alt+V
+/// (`[Image #1]`) still count as unsent text. The "image" case wants an image on the clipboard, set before the run
+/// (from PowerShell on Windows); "raw ctrl+v" wants none.
+#[tokio::test(flavor = "multi_thread")]
+#[ignore = "runs the real Claude Code: set OTAQ_REAL_CLAUDE"]
+async fn a_ctrl_v_that_pastes_nothing_leaves_claude_codes_line_empty() {
+    let program = real_claude();
+    if wanted("raw ctrl+v") {
+        let claude = Claude::start(&program).await;
+        // A turn of two lines first, so ↑ has an entry of several lines. (Stopped with Esc, Claude Code would put
+        // the message back in its line.) Then the bare `❯` Claude Code shows once its suggestion is gone.
+        claude
+            .deliver("Do nothing and run nothing; reply with only the word PINEAPPLE.\nThis is the second line.")
+            .await;
+        claude
+            .until("the reply", Duration::from_secs(120), |s| {
+                s.matches("PINEAPPLE").count() >= 2
+            })
+            .await;
+        let bare = |s: &str| input_row(s).trim() == "\u{276f}";
+        let start = Instant::now();
+        while !bare(&claude.screen()) && start.elapsed() < Duration::from_secs(180) {
+            tokio::time::sleep(Duration::from_millis(500)).await;
+        }
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let screen = claude.screen();
+        println!("RESULT before: {:?}", input_row(&screen));
+        assert!(bare(&screen), "Claude Code's bare line:\n{screen}");
+        claude.sessions.input(&claude.session, b"\x16").unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let screen = claude.screen();
+        println!("RESULT raw ctrl+v: {:?}", input_row(&screen));
+        assert!(
+            !claude.sessions.has_unsent_input(&claude.session).unwrap(),
+            "{screen}"
+        );
+        claude.sessions.input(&claude.session, b"\x1b[A").unwrap();
+        tokio::time::sleep(Duration::from_secs(2)).await;
+        let screen = claude.screen();
+        println!("RESULT history: {:?}\n{screen}", input_row(&screen));
+        assert!(
+            claude.sessions.has_unsent_input(&claude.session).unwrap(),
+            "{screen}"
+        );
+        claude.stop().await;
+    }
+    if wanted("image") {
+        let claude = Claude::start(&program).await;
+        claude.sessions.input(&claude.session, b"\x1bv").unwrap();
+        let screen = claude
+            .until("the pasted image", Duration::from_secs(10), |s| {
+                s.contains("[Image #1]")
+            })
+            .await;
+        tokio::time::sleep(Duration::from_secs(1)).await;
+        println!("RESULT image: {:?}", input_row(&screen));
+        assert!(
+            claude.sessions.has_unsent_input(&claude.session).unwrap(),
+            "{screen}"
+        );
+        claude.stop().await;
+    }
+}

@@ -18,6 +18,11 @@
 //! - A line break (`\n`, ESC + Enter, or one inside pasted text) makes the draft **multi-line**, as does a
 //!   history entry or a program's own paste, which may hold several lines. Some tools' clear-line keys clear only the current line of such a
 //!   draft (ADP-06), so it is the user's to clear (SES-07).
+//! - Whether lines of the draft **may sit above the cursor's row** is kept apart from that: a line break or a
+//!   history entry may leave the cursor on a row that shows only the prompt marker, with the draft's text above
+//!   it. A program's own paste on Ctrl+V doesn't: what it pastes ends where the cursor is (Codex's text, Claude
+//!   Code's `[Image #1]`), so a row with only the marker after it means it pasted nothing (Claude Code with no
+//!   image on the clipboard).
 //! - Keys that delete in other ways (Ctrl+U/K/W, Alt+Backspace, Ctrl+C, Esc) leave the flag as it is: the
 //!   tracker can't know what they removed. The next Enter or Otaq's [`clear_line`](InputTracker::clear_line)
 //!   resets it.
@@ -49,6 +54,9 @@ enum Line {
         exact: bool,
         /// The draft may run over several lines.
         multi_line: bool,
+        /// Lines of the draft may sit above the cursor's row (a line break, a history entry), not only after a
+        /// program's own paste.
+        lines_above: bool,
     },
 }
 
@@ -116,6 +124,18 @@ impl InputTracker {
         )
     }
 
+    /// Whether lines of the unsent text may sit above the row the cursor is on, so that a row showing only the
+    /// prompt marker doesn't mean the line is empty. A program's own paste (Ctrl+V) alone doesn't make it so.
+    pub fn may_have_lines_above_cursor(&self) -> bool {
+        matches!(
+            self.line,
+            Line::Text {
+                lines_above: true,
+                ..
+            }
+        )
+    }
+
     /// Whether a person typed within `window`.
     pub fn typed_within(&self, window: std::time::Duration) -> bool {
         self.last_key.is_some_and(|at| at.elapsed() < window)
@@ -165,9 +185,9 @@ impl InputTracker {
                 // Ctrl+A, Ctrl+E, Ctrl+B, Ctrl+F: cursor movement.
                 0x01 | 0x05 | 0x02 | 0x06 => self.cursor_moved(),
                 // Ctrl+P, Ctrl+N: history.
-                0x10 | 0x0e => self.filled_by_program(),
+                0x10 | 0x0e => self.recalled_from_history(),
                 // Ctrl+V: the program may paste the clipboard itself.
-                0x16 => self.filled_by_program(),
+                0x16 => self.filled_by_program(false),
                 // Ctrl+C, Ctrl+U: the text is gone from the line, though the flag can't trust it.
                 0x03 | 0x15 => self.text.clear(),
                 // Other control keys (Tab, …) don't add text and can't be trusted to remove it.
@@ -198,7 +218,7 @@ impl InputTracker {
                 if (0x40..=0x7e).contains(&b) {
                     self.parse = Parse::Ground;
                     match b {
-                        b'A' | b'B' => self.filled_by_program(),
+                        b'A' | b'B' => self.recalled_from_history(),
                         b'C' | b'D' | b'H' | b'F' => self.cursor_moved(),
                         b'~' if self.params == b"200" => self.parse = Parse::Paste,
                         // Home/End as `ESC [ 1 ~` / `ESC [ 4 ~` and friends.
@@ -214,7 +234,7 @@ impl InputTracker {
             Parse::Ss3 => {
                 self.parse = Parse::Ground;
                 match b {
-                    b'A' | b'B' => self.filled_by_program(),
+                    b'A' | b'B' => self.recalled_from_history(),
                     b'C' | b'D' | b'H' | b'F' => self.cursor_moved(),
                     _ => {}
                 }
@@ -266,15 +286,18 @@ impl InputTracker {
                 count: 1,
                 exact: true,
                 multi_line: line_break,
+                lines_above: line_break,
             },
             Line::Text {
                 count,
                 exact,
                 multi_line,
+                lines_above,
             } => Line::Text {
                 count: count + 1,
                 exact,
                 multi_line: multi_line || line_break,
+                lines_above: lines_above || line_break,
             },
         };
     }
@@ -286,6 +309,7 @@ impl InputTracker {
             count,
             exact: true,
             multi_line,
+            lines_above,
         } = self.line
         {
             self.line = if count <= 1 {
@@ -296,6 +320,7 @@ impl InputTracker {
                     count: count - 1,
                     exact: true,
                     multi_line,
+                    lines_above,
                 }
             };
         }
@@ -303,29 +328,42 @@ impl InputTracker {
 
     fn cursor_moved(&mut self) {
         if let Line::Text {
-            count, multi_line, ..
+            count,
+            multi_line,
+            lines_above,
+            ..
         } = self.line
         {
             self.line = Line::Text {
                 count,
                 exact: false,
                 multi_line,
+                lines_above,
             };
         }
     }
 
+    /// A history key: the program may put back an entry of several lines, with the cursor on a row of its own.
+    fn recalled_from_history(&mut self) {
+        self.filled_by_program(true);
+    }
+
     /// The program filled the line from somewhere the keys don't show (history, its own paste): text of unknown
-    /// length and lines.
-    fn filled_by_program(&mut self) {
+    /// length and lines. `lines_above`: whether that text may leave the cursor on a row below it that shows only
+    /// the prompt marker.
+    fn filled_by_program(&mut self, lines_above: bool) {
         self.recalled = true;
-        let count = match self.line {
-            Line::Empty => 1,
-            Line::Text { count, .. } => count,
+        let (count, above) = match self.line {
+            Line::Empty => (1, false),
+            Line::Text {
+                count, lines_above, ..
+            } => (count, lines_above),
         };
         self.line = Line::Text {
             count,
             exact: false,
             multi_line: true,
+            lines_above: above || lines_above,
         };
     }
 }
@@ -484,6 +522,14 @@ mod tests {
         let (t, _) = after(&[b"\x16"]);
         assert!(t.has_unsent_text());
         assert!(t.has_multi_line_text());
+        assert!(
+            !t.may_have_lines_above_cursor(),
+            "what the program pastes ends at the cursor"
+        );
+        let (t, _) = after(&[b"\x16", b"\x1b[A"]);
+        assert!(t.may_have_lines_above_cursor(), "then a history entry");
+        let (t, _) = after(&[b"one\ntwo", b"\x16"]);
+        assert!(t.may_have_lines_above_cursor(), "a line break typed before");
         let (t, _) = after(&[b"\x16", b"5", &[0x7f; 2]]);
         assert!(t.has_unsent_text(), "the typed 5 and one more off");
         let (t, _) = after(&[b"\x16", b"\r"]);
@@ -511,6 +557,7 @@ mod tests {
         ] {
             let (t, _) = after(&[keys]);
             assert!(t.has_multi_line_text(), "{keys:?}");
+            assert!(t.may_have_lines_above_cursor(), "{keys:?}");
         }
         let (t, _) = after(&[b"first\nsecond", b"\r"]);
         assert!(!t.has_multi_line_text(), "sent");
