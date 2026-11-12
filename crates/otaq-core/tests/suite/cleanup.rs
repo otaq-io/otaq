@@ -233,3 +233,49 @@ async fn scan_lists_leftovers_and_delete_removes_only_the_selection() {
     );
     w.stop().await;
 }
+
+/// NEW-d5: a finished ticket's worktree left on disk is a leftover; once Cleanup deletes it, the ticket no longer
+/// records it, so `prime --project` stops pointing agents at a folder that is gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn deleting_a_finished_tickets_worktree_drops_it_from_prime() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let done = w.create("SHOP", "Merged, worktree left").await;
+    let folder = w.start_worktree(&done).await;
+    sqlx::query("UPDATE tickets SET started_at = 1 WHERE id = ?")
+        .bind(&done.id)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+    w.force_status(&done, Status::Merged).await;
+    let prime = w.board.project_prime("SHOP", None).await.unwrap();
+    assert!(
+        prime.tickets[0].worktree.is_some(),
+        "listed while it exists"
+    );
+
+    let items = w.cleanup.scan().await.unwrap();
+    let outcome = w
+        .cleanup
+        .delete(&[target(&items, CleanupGroup::Worktrees, "SHOP-1")], true)
+        .await
+        .unwrap();
+    assert_eq!(outcome.deleted.len(), 1, "{outcome:?}");
+    assert!(!folder.exists());
+
+    let row = w.board.store().ticket(&done.id).await.unwrap().unwrap();
+    assert!(row.worktree_path.is_none());
+    let prime = w.board.project_prime("SHOP", None).await.unwrap();
+    assert_eq!(prime.tickets[0].worktree, None);
+    let text = otaq_core::project_agents::prime::render(&prime);
+    assert!(!text.contains("  worktree "), "{text}");
+    assert!(
+        w.cleanup
+            .scan()
+            .await
+            .unwrap()
+            .iter()
+            .all(|i| i.group != CleanupGroup::Worktrees)
+    );
+    w.stop().await;
+}
