@@ -226,10 +226,25 @@ async fn held_while_the_line_has_unsent_text() {
 /// A session that shows a tool's screen as it was captured in Windows' ConPTY (`tests/fixtures/input-line`) and
 /// then reads nothing and echoes nothing, at the capture's size.
 async fn showing(capture: &str, shown: &str) -> Setup {
+    showing_bytes(&capture_bytes(capture), shown).await
+}
+
+fn capture_bytes(capture: &str) -> Vec<u8> {
     let path = format!(
         "{}/tests/fixtures/input-line/{capture}.bin",
         env!("CARGO_MANIFEST_DIR")
     );
+    std::fs::read(&path).unwrap_or_else(|e| panic!("{path}: {e}"))
+}
+
+/// A session that shows `screen` (a tool's output) and then reads nothing and echoes nothing, at the captures' size.
+async fn showing_bytes(screen: &[u8], shown: &str) -> Setup {
+    let dir = tempfile::tempdir().unwrap();
+    let path = dir.path().join("screen.bin");
+    std::fs::write(&path, screen).unwrap();
+    let path = path.to_string_lossy().into_owned();
+    // The session's `sh` reads the file at once; the folder stays until the test ends.
+    std::mem::forget(dir);
     let script = r#"stty -echo 2>/dev/null; cat "$1"; exec sleep 60"#;
     let s = setup_with(
         "sh",
@@ -270,6 +285,71 @@ async fn a_told_comment_reaches_an_idle_codex_after_a_key_its_menu_took() {
         .unwrap();
     assert_eq!(s.waiting().await, 0, "delivered without Deliver now");
     s.sessions.shutdown().await;
+}
+
+/// Claude Code's idle screen with its input line as `after_marker` leaves it: the real capture (`claude-empty`,
+/// Windows' ConPTY), then what Claude Code draws over its faded suggestion, ending with erase-to-end-of-line as it
+/// does when it redraws the row (`claude-typed` is the same capture with `abc` drawn so). With nothing after the
+/// marker it is the bare `›` Claude Code shows once its suggestion is gone (re-test 9's screenshots).
+fn claude_line(after_marker: &str) -> Vec<u8> {
+    let mut bytes = capture_bytes("claude-empty");
+    bytes.extend_from_slice(after_marker.as_bytes());
+    bytes.extend_from_slice(b"\x1b[K");
+    bytes
+}
+
+/// Re-test 9: Ctrl+V reached Claude Code as the raw key (no text on the clipboard) and it pasted nothing, leaving
+/// its bare `›`. The key may have let the program fill the line, but what a program pastes ends at the cursor, so
+/// a row with only the marker is an empty line: an answer, Send back, Deliver now and Otaq's notes go through.
+#[tokio::test]
+async fn a_raw_ctrl_v_that_pasted_nothing_leaves_no_unsent_text() {
+    let s = showing_bytes(&claude_line(""), "/effort").await;
+    s.sessions.input(&s.session, b"\x16").unwrap();
+    assert!(
+        s.sessions.has_unsent_input(&s.session).unwrap(),
+        "just pressed: the screen may not show the paste yet"
+    );
+    tokio::time::sleep(Duration::from_millis(700)).await;
+    assert!(!s.sessions.has_unsent_input(&s.session).unwrap());
+    s.idle.0.store(true, Ordering::SeqCst);
+    s.deliveries
+        .queue_delivery(&s.session, DeliveryKind::AgentMessage, "from SHOP-18")
+        .await
+        .unwrap();
+    assert_eq!(s.waiting().await, 0, "delivered without Deliver now");
+    assert_eq!(
+        s.deliveries
+            .deliver_from_click(&s.session, "Alpha")
+            .await
+            .unwrap(),
+        Delivery::Sent { count: 1 },
+        "an answer from Overview asks nothing"
+    );
+    s.sessions.shutdown().await;
+}
+
+/// What a raw Ctrl+V or a history key did still counts where the screen shows it or can't rule it out: Claude
+/// Code's pasted image (`[Image #1]`) on the marker row, and a history entry of several lines whose cursor sits on
+/// a bare marker row below the entry's other lines.
+#[tokio::test]
+async fn a_paste_or_a_recalled_draft_still_counts_as_unsent_text() {
+    for (keys, screen, what) in [
+        (&b"\x16"[..], claude_line("[Image #1] "), "a pasted image"),
+        (
+            b"\x1bv",
+            claude_line("[Image #1] "),
+            "an image pasted on Alt+V",
+        ),
+        (b"\x1b[A", claude_line(""), "a recalled multi-line entry"),
+        (b"\x10", claude_line(""), "the same on Ctrl+P"),
+        (b"a\nb\x7f", claude_line(""), "a line break typed"),
+    ] {
+        let s = showing_bytes(&screen, "/effort").await;
+        s.sessions.input(&s.session, keys).unwrap();
+        tokio::time::sleep(Duration::from_millis(700)).await;
+        assert!(s.sessions.has_unsent_input(&s.session).unwrap(), "{what}");
+        s.sessions.shutdown().await;
+    }
 }
 
 /// Text the screen shows in the input line still holds the note.
