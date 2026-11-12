@@ -172,7 +172,11 @@ pub struct AnswerRow {
 #[ts(rename = "SheetAnswer")]
 pub struct Answer {
     pub question: String,
-    pub text: String,
+    /// The question itself: its text's first line, drawn bold.
+    pub line: String,
+    /// Everything after the first line, the question's context: regular weight, its paragraphs and line breaks kept
+    /// and simple Markdown drawn. `None` for a question of one line.
+    pub context: Option<String>,
     /// The options and Other…; empty for an open question.
     pub rows: Vec<AnswerRow>,
     pub recommended_label: &'static str,
@@ -180,6 +184,40 @@ pub struct Answer {
     pub hint: &'static str,
     pub in_terminal: &'static str,
     pub send: &'static str,
+}
+
+/// A question's text split into its question line (up to the first line break) and its context (the rest, without
+/// the blank lines around it; `None` when nothing is left). The stored question stays as the agent sent it: only the
+/// drawing splits it, here, so every place shows the same split.
+pub fn split_question(text: &str) -> (String, Option<String>) {
+    let text = text.trim_start();
+    let (line, rest) = text.split_once('\n').unwrap_or((text, ""));
+    let context = rest
+        .lines()
+        .skip_while(|l| l.trim().is_empty())
+        .collect::<Vec<_>>()
+        .join("\n");
+    let context = context.trim_end();
+    (
+        line.trim_end().to_owned(),
+        (!context.is_empty()).then(|| context.to_owned()),
+    )
+}
+
+/// The question line, its context and the words every answer box shares.
+fn answer(question: &HumanQuestion, rows: Vec<AnswerRow>, hint: &'static str) -> Answer {
+    let (line, context) = split_question(&question.text);
+    Answer {
+        question: question.id.clone(),
+        line,
+        context,
+        rows,
+        recommended_label: RECOMMENDED,
+        other_placeholder: "Type your answer",
+        hint,
+        in_terminal: "Answer in terminal",
+        send: "Send answer",
+    }
 }
 
 fn rows_of(options: &AnswerOptions) -> Vec<AnswerRow> {
@@ -214,16 +252,7 @@ pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
             "\u{21b5} sends \u{b7} \u{21e7}\u{21b5} new line",
         ),
     };
-    Some(Answer {
-        question: question.id.clone(),
-        text: question.text.clone(),
-        rows,
-        recommended_label: RECOMMENDED,
-        other_placeholder: "Type your answer",
-        hint,
-        in_terminal: "Answer in terminal",
-        send: "Send answer",
-    })
+    Some(answer(question, rows, hint))
 }
 
 /// A Project agent's question (d0119, d0068): its options like a ticket's, or no rows and a free-text box for an
@@ -233,16 +262,7 @@ pub fn agent_question(question: &HumanQuestion) -> Answer {
         Some(options) => (rows_of(&options), "1\u{2013}4 pick \u{b7} \u{21b5} sends"),
         None => (Vec::new(), "\u{21b5} sends"),
     };
-    Answer {
-        question: question.id.clone(),
-        text: question.text.clone(),
-        rows,
-        recommended_label: RECOMMENDED,
-        other_placeholder: "Type your answer",
-        hint,
-        in_terminal: "Answer in terminal",
-        send: "Send answer",
-    }
+    answer(question, rows, hint)
 }
 
 /// What a pick sends for `question`: an option, Other…'s text, or an open question's text; `None` when there is
@@ -267,8 +287,8 @@ pub fn heading(key: &impl std::fmt::Display) -> String {
 
 /// The Gallery's questions with notes (ATT-17; *m26-tickets.md → The example*): NOTE-1's four options, one note
 /// about 300 characters long and one option without a note; and a two-option question with notes
-/// (CHANGES-2026-10-18-ab §1).
-pub fn note_samples() -> [HumanQuestion; 2] {
+/// (CHANGES-2026-10-18-ab §1); and a long question with context (*question-box-4*).
+pub fn note_samples() -> [HumanQuestion; 3] {
     let note = |text: &str| Some(text.to_owned());
     let asks = HumanQuestion {
         id: "q-notes".into(),
@@ -307,7 +327,41 @@ pub fn note_samples() -> [HumanQuestion; 2] {
         asked_at: 0,
         send_back: None,
     };
-    [asks, invoice]
+    [asks, invoice, security_review()]
+}
+
+/// A long question with context, the kind Noyan's `flow` skill asks (*question-box-4*): its first line the question,
+/// then paragraphs with inline code, a list with bold words, and options with notes.
+pub fn security_review() -> HumanQuestion {
+    let note = |text: &str| Some(text.to_owned());
+    HumanQuestion {
+        id: "q-security-review".into(),
+        text: "Which agent should run the new Security review stage?\n\
+               \n\
+               Your project has a security skill in `.claude/skills/security-review`, and it expects the code to \
+               build first: it runs `npm audit` and reads the lockfile. Two things to weigh:\n\
+               \n\
+               - **Verifier** already runs Validate on Codex. Using it again keeps one checking agent, but Codex \
+               doesn't load `.claude/skills`, so it would fall back to Otaq's own review skill.\n\
+               - **Strong** (Claude Code) loads your skill as it is, but it's the agent that writes the code, so it \
+               would review its own work.\n\
+               \n\
+               A third agent costs a new connection in Settings \u{2192} Agents."
+            .into(),
+        options: vec![
+            "Strong, with your security-review skill".into(),
+            "Verifier, with Otaq's review skill".into(),
+            "A new agent".into(),
+        ],
+        recommended: Some(1),
+        notes: vec![
+            note("Uses your skill as written; reviews its own code."),
+            note("One checking agent for both checks; your skill isn't used."),
+            note("Separate reviewer; you set it up in Settings \u{2192} Agents first."),
+        ],
+        asked_at: 0,
+        send_back: None,
+    }
 }
 
 #[cfg(test)]
@@ -477,6 +531,60 @@ mod tests {
                 .rows()
                 .iter()
                 .all(|r| r.note.is_none())
+        );
+    }
+
+    /// The first line asks, the rest is context: a question of one line has none; the blank lines between them go,
+    /// the context's own paragraphs and line breaks stay.
+    #[test]
+    fn the_first_line_asks_and_the_rest_is_context() {
+        assert_eq!(
+            split_question("Should the security review run before or after Validate?"),
+            (
+                "Should the security review run before or after Validate?".into(),
+                None
+            )
+        );
+        assert_eq!(
+            split_question(
+                "Which one?\r\n\r\nFirst paragraph,\r\nsame paragraph.\r\n\r\n- a\r\n- b\r\n\r\n"
+            ),
+            (
+                "Which one?".into(),
+                Some("First paragraph,\nsame paragraph.\n\n- a\n- b".into())
+            )
+        );
+        assert_eq!(
+            split_question("Which one?\n\n  \n"),
+            ("Which one?".into(), None)
+        );
+        assert_eq!(
+            split_question("\n\nWhich one?  "),
+            ("Which one?".into(), None)
+        );
+
+        let long = security_review();
+        let bar = question_bar(&long).unwrap();
+        assert_eq!(
+            bar.line,
+            "Which agent should run the new Security review stage?"
+        );
+        let context = bar.context.expect("the long question has context");
+        assert!(
+            context.starts_with(
+                "Your project has a security skill in `.claude/skills/security-review`"
+            )
+        );
+        assert!(context.contains("\n\n- **Verifier** already runs Validate"));
+        assert!(context.ends_with("Settings \u{2192} Agents."));
+        assert_eq!(
+            agent_question(&long).context.as_deref(),
+            Some(context.as_str())
+        );
+        assert_eq!(
+            long.text.lines().next(),
+            Some(bar.line.as_str()),
+            "the stored question is unchanged"
         );
     }
 

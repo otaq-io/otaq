@@ -275,24 +275,122 @@
 
 /* *SHOP-21 · Asks you · answer options*. */
 .sheet-answer {
+  /* The context's line length: about 70 characters at 13 px (60 in the agent panel). */
+  --answer-measure: 400px;
+
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
   padding: 12px;
   border-radius: var(--r-lg);
   background: var(--st-attn-bg);
 }
 
+/* The question's text: its line and its context, one text that scrolls together when its place caps it (a ticket's
+   Overview sets the cap only when Send would fall below the sheet; the agent panel caps its band). The options and
+   Send stay in view under it. */
+.sheet-answer-text {
+  flex: 0 1 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet-answer-options,
+.sheet-answer > .sheet-answer-box,
+.sheet-answer > .agent-question-text {
+  flex: none;
+}
+
+/* The icon at the top of the question line, not halfway down a long text. */
 .sheet-answer-question {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   color: var(--st-attn);
 }
 
-.sheet-answer-question > span:last-child {
+.sheet-answer-question > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.sheet-answer-words {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The first line: the question, bold. */
+.sheet-answer-line {
+  margin: 0;
   color: var(--text-primary);
-  font: 600 13px/18px var(--font-ui);
+  font: 600 15px/1.35 var(--font-ui);
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* The rest: the context, regular weight, its paragraphs and line breaks kept. */
+.sheet-answer-context {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: var(--answer-measure);
+  color: var(--text-primary);
+  font: 400 13px/1.55 var(--font-ui);
+}
+
+.sheet-answer-context p,
+.sheet-answer-context ul {
+  margin: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.sheet-answer-context strong,
+.sheet-answer-context .sheet-answer-heading {
+  font-weight: 600;
+}
+
+.sheet-answer-context ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-answer-context li {
+  display: flex;
+  gap: 4px;
+}
+
+.sheet-answer-marker {
+  flex: none;
+  min-width: 12px;
+  color: var(--text-muted);
+}
+
+.sheet-answer-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* A code block: monospace, scrolling sideways rather than wrapping. */
+.sheet-answer-pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--bg-column);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre;
 }
 
 .sheet-answer-options {
@@ -301,9 +399,10 @@
   gap: 6px;
 }
 
+/* The radio, the recommended mark and the number sit at the top of the option's text. */
 .sheet-answer-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -335,6 +434,7 @@
   box-sizing: border-box;
   width: 16px;
   height: 16px;
+  margin-top: 0.5px;
   border: 1.5px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-raised);

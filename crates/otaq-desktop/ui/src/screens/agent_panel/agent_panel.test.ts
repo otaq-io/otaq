@@ -653,7 +653,8 @@ describe("Noyan's question (OTQ-9, d0119)", () => {
     title: "Noyan · Tickets waiting on NOTE-5 asks",
     answer: {
       question: "q7",
-      text: "Split NOTE-5 into two tickets?",
+      line: "Split NOTE-5 into two tickets?",
+      context: null,
       rows: [
         {
           number: 1,

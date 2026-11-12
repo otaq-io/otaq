@@ -2085,9 +2085,9 @@ function PauseSection() {
 const loadOptionNotes = () => request("gallery.option_notes") as Promise<OptionNotesGallery>;
 
 /** ATT-17, d0061 (T-0375): answer options with notes, from `gallery.option_notes`: NOTE-1's four options (one note
- * about 300 characters long, one option without a note) and a two-option question with notes, in the sheet and the
- * card. The card's hover card shows on hover or Tab; each one is also drawn open beside its card. Nothing is
- * sent. */
+ * about 300 characters long, one option without a note), a two-option question with notes and a long question with
+ * context (its first line bold, the rest read as simple Markdown), in the sheet and the card. The card's hover card
+ * shows on hover or Tab; each one is also drawn open beside its card. Nothing is sent. */
 function OptionNotes() {
   const { view, error } = useServiceView(loadOptionNotes, []);
   if (error) return <p role="alert">{error.message}</p>;

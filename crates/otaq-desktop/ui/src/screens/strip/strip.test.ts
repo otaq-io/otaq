@@ -128,7 +128,8 @@ const AGENT_ASKS: StripView = {
             title: "Noyan · Checkout slowness asks",
             answer: {
               question: "pq1",
-              text: "Add an index on orders.created_at?",
+              line: "Add an index on orders.created_at?",
+              context: null,
               rows: [
                 {
                   number: 1,

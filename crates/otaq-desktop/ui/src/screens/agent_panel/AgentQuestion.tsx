@@ -10,8 +10,8 @@ import type { AgentAnswerParams } from "../../generated/AgentAnswerParams";
 import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { SheetSent } from "../../generated/SheetSent";
 import { request } from "../../tauri";
-import { Icon } from "../../theme/Icon";
 import { AnswerChoices } from "../overview/NeedsYou";
+import { QuestionText } from "../overview/QuestionText";
 import { askUnsent } from "../sheet/actions";
 import { canSend, initialPick } from "../sheet/actionRoutes";
 
@@ -77,10 +77,7 @@ export function AgentQuestionBox({ question, onTerminal, onSent, titled = false 
       {titled && <div className="agent-question-title">{question.title}</div>}
       {open ? (
         <div className="sheet-answer">
-          <div className="sheet-answer-question">
-            <Icon name="message-circle-question-mark" size={14} />
-            <span>{answer.text}</span>
-          </div>
+          <QuestionText answer={answer} />
           <input
             {...PLAIN_TEXT}
             className="field-input agent-question-text"

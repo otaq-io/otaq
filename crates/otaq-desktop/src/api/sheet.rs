@@ -1998,7 +1998,7 @@ pub async fn remove_dependency(app: &App, params: ParentParams) -> Result<(), Re
 }
 
 /// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the sheets and the cards of
-/// NOTE-1's and NOTE-11's questions.
+/// NOTE-1's and NOTE-11's questions, and NOTE-12's long question with context.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "OptionNotesGallery")]
 pub struct NotesGallery {
@@ -2015,10 +2015,11 @@ pub fn notes_gallery() -> NotesGallery {
 
     static TOOLS: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
     let tools = TOOLS.get_or_init(|| Tools::one(None));
-    let [asks, passed] = note_samples();
+    let [asks, passed, long] = note_samples();
     let tickets: Vec<Ticket> = [
         ("NOTE-1", "Add export", asks),
         ("NOTE-11", "Invoice export", passed),
+        ("NOTE-12", "Security review stage", long),
     ]
     .into_iter()
     .map(|(key, title, question)| {
@@ -2284,6 +2285,10 @@ mod tests {
         assert_eq!((asks[2], asks[4]), (None, None));
         assert!((250..=320).contains(&asks[3].unwrap()), "{asks:?}");
         assert_eq!(notes(&g.sheets[1]).iter().flatten().count(), 2);
+        // The long one: its first line asks, the rest is its context.
+        let long = g.sheets[2].answer.as_ref().unwrap();
+        assert_eq!(long.line, "Which agent should run the new Security review stage?");
+        assert!(long.context.as_ref().is_some_and(|c| c.contains("- **Strong** (Claude Code)")));
         // The answer options left the card for the sheet (BRD-03, T-0460): its one action is Answer.
         assert_eq!(g.cards[0].action.as_ref().map(|a| a.label.as_ref()), Some("Answer"));
     }

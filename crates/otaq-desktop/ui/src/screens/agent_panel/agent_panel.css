@@ -738,19 +738,34 @@
   border-radius: 0;
 }
 
-/* A Project agent's open question above its terminal (OTQ-9, d0119): the ticket's answer UI, in a band. */
+/* A Project agent's open question above its terminal (OTQ-9, d0119): the ticket's answer UI, in a band that grows
+   with the question up to 55% of the panel, the terminal keeping at least 200 px. Past that the question's text
+   scrolls, its options and Send staying in view; the context's lines are about 60 characters here. */
 .agent-panel-question {
-  flex: none;
-  max-height: 50%;
+  display: flex;
+  flex: 0 1 auto;
+  flex-direction: column;
+  min-height: 0;
+  max-height: 55%;
   overflow-y: auto;
   padding: 10px 14px;
   border-bottom: 1px solid var(--border);
 }
 
+.agent-panel-question .sheet-answer {
+  --answer-measure: 340px;
+}
+
+.agent-panel-question ~ .agent-panel-well {
+  min-height: 200px;
+}
+
 .agent-question {
   display: flex;
+  flex: 0 1 auto;
   flex-direction: column;
   gap: 8px;
+  min-height: 0;
 }
 
 .agent-question-title {
@@ -765,6 +780,7 @@
 
 .agent-question-bar {
   display: flex;
+  flex: none;
   flex-wrap: wrap;
   align-items: center;
   gap: 8px;
