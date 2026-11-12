@@ -370,7 +370,7 @@ const CTRL_V: KeyboardEventInit = { key: "v", code: "KeyV", ctrlKey: true };
 const CTRL_SHIFT_V: KeyboardEventInit = { key: "V", code: "KeyV", ctrlKey: true, shiftKey: true };
 
 // Ctrl+V in a terminal on Windows pastes the clipboard's text, as in Windows Terminal; with no text on it (an image,
-// nothing) the program gets Ctrl+V's own key, which Claude Code and Codex read as their image paste.
+// nothing) the program gets Ctrl+V's own key, which Codex reads as its image paste (Claude Code on Windows uses Alt+V).
 describe("Ctrl+V in a terminal on Windows", () => {
   it("pastes the clipboard's text once, then sends the key once the clipboard holds no text", async () => {
     platform(WINDOWS_UA, WIN_LINUX_MAP);

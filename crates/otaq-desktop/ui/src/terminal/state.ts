@@ -122,7 +122,10 @@ export function ctrlVPastes(windows: boolean, e: KeyLike): boolean {
   return windows && strokeMatches(CTRL_V, e);
 }
 
-/** What xterm.js sends for Ctrl+V: the control character SYN, which Claude Code and Codex read as their own paste. */
+/**
+ * What xterm.js sends for Ctrl+V: the control character SYN. Codex on Windows reads it as its image paste; Claude Code
+ * on Windows pastes an image on Alt+V and does nothing with it (both seen in Codex 0.166 and Claude Code 2.1.322).
+ */
 export const CTRL_V_KEY = "\x16";
 
 /**
