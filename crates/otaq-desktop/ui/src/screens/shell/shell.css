@@ -209,6 +209,14 @@ button.header-project-name:hover {
   align-self: stretch;
 }
 
+/* The usage chip, Running and Pause, held at the title bar's right end: Running leaving never moves Pause (NEW-b1). */
+.header-end {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-left: auto;
+}
+
 button.header-search {
   display: flex;
   /* The search takes the room left and gives it up first: the project's name keeps its width (*1280 × 800*). */
