@@ -29,4 +29,9 @@ asks: StripAsks | null,
 /**
  * A Project agent's question (OTQ-9, d0119): the chip opens it with its answer options, or a free-text box.
  */
-agent_asks: AgentQuestion | null, };
+agent_asks: AgentQuestion | null, 
+/**
+ * "Open in the agent panel", under the agent's question in its popover: the panel shows the question whole,
+ * above its terminal. `None` without a question.
+ */
+open_in_panel: string | null, };
