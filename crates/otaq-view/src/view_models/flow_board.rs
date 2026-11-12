@@ -890,9 +890,10 @@ fn palette(f: &Facts) -> Palette {
     }
 }
 
-/// The box at the editor's foot, following Noyan's conversation. A suggestion on the columns comes first: its agent
-/// stays mid-turn while it waits for the answer, which the box sends. Noyan's agent drafts one change at a time: while
-/// it drafts, nothing more is asked.
+/// The box at the editor's foot, following Noyan's conversation. A question waits on the user first; then Noyan's agent
+/// drafting, also while its suggestion still shows on the columns (it redrafts on the user's Ask for changes, UX-63);
+/// then the suggestion, whose answer the box sends. Noyan's agent drafts one change at a time: while it drafts, nothing
+/// more is asked.
 fn ask(f: &Facts) -> Ask {
     let (name, tool, _) = agent_panel::starts_on(f.new_agent, f.tools);
     let agent = if name.eq_ignore_ascii_case(tool.display_name()) {
@@ -913,8 +914,21 @@ fn ask(f: &Facts) -> Ask {
     // A question waits on the user whatever else shows: the box answers it first.
     if let Some(asking) = asking(f) {
         return Ask {
-            off: f.agent.map(|a| format!("{} is drafting one", a.name)),
+            off: f
+                .agent
+                .map(|a| format!("{} is drafting one", agent_panel::ran_on(a, f.tools))),
             state: AskState::Asking(asking),
+            ..change
+        };
+    }
+    if let (Some(d), Some(a)) = (drafting(f), f.agent) {
+        return Ask {
+            off: Some(format!(
+                "{} is drafting one",
+                agent_panel::ran_on(a, f.tools)
+            )),
+            line: "Drag, + and \u{d7} still work meanwhile",
+            state: AskState::Drafting(d),
             ..change
         };
     }
@@ -931,21 +945,23 @@ fn ask(f: &Facts) -> Ask {
             ..change
         };
     }
-    match (drafting(f), f.agent) {
-        (Some(d), Some(a)) => Ask {
-            off: Some(format!("{} is drafting one", a.name)),
-            line: "Drag, + and \u{d7} still work meanwhile",
-            state: AskState::Drafting(d),
-            ..change
-        },
-        _ => change,
-    }
+    change
 }
 
-/// The Project agent that made the draft's proposal, and its name; `None` for the user's own.
-fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, &'a str)> {
+/// The Project agent that made the draft's proposal, and the name the box and the bar give it: the agent its
+/// conversation runs on ("Architect"), never the conversation's title (UX-63); `None` for the user's own.
+fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, String)> {
     match &f.proposal.proposed_by {
-        ProposedBy::ProjectAgent { agent, name, .. } => Some((agent.as_str(), name.as_str())),
+        ProposedBy::ProjectAgent { agent, tool, .. } => {
+            let name = match f.agent.filter(|a| a.id == *agent) {
+                Some(a) => agent_panel::ran_on(a, f.tools),
+                // The editor doesn't follow its conversation: the tool it ran on.
+                None => crate::view_models::tool_avatar::AvatarTool::from(*tool)
+                    .name()
+                    .to_owned(),
+            };
+            Some((agent.as_str(), name))
+        }
         ProposedBy::User => None,
     }
 }
@@ -954,7 +970,10 @@ fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, &'a str)> {
 fn asking(f: &Facts) -> Option<Asking> {
     let agent = f.agent?;
     Some(Asking {
-        head: format!("Needs you \u{b7} {} asks", agent.name),
+        head: format!(
+            "Needs you \u{b7} {} asks",
+            agent_panel::ran_on(agent, f.tools)
+        ),
         question: agent_question::of_agent(agent)?,
         expand: "Open larger",
         collapse: "Back to the box",
@@ -970,25 +989,28 @@ pub fn suggest_message(project_name: &str) -> String {
 }
 
 /// Noyan's agent is drafting a flow: the editor's agent is mid-turn (or waits on a prompt or a question it asked
-/// along the way) and nothing it proposed shows yet. An agent whose turn ended is idle, not drafting: its session
-/// stays open after it proposed, so once its suggestion is discarded or saved the line goes with it.
+/// along the way) and nothing shows yet, or what shows is its own proposal, which it redrafts on the user's Ask for
+/// changes (the proposal stays on the columns meanwhile, and Stop keeps it, UX-63). An agent whose turn ended is idle,
+/// not drafting: its session stays open after it proposed, so once its suggestion is discarded or saved the line goes
+/// with it.
 /// A waiting agent mustn't look busy: while it stops at a permission prompt or a question, the line says Needs you
 /// and what it waits on instead.
 fn drafting(f: &Facts) -> Option<Drafting> {
     let agent = f.agent?;
     let working = agent.mid_turn || agent.needs_you.is_some() || agent.question.is_some();
-    let drafting = matches!(agent.state, AgentState::Running) && working && f.marks.is_empty();
+    let its_own = suggested_by(f).is_some_and(|(by, _)| by == agent.id);
+    let drafting =
+        matches!(agent.state, AgentState::Running) && working && (f.marks.is_empty() || its_own);
     if !drafting {
         return None;
     }
+    // The agent it runs on ("Architect"), not the conversation's title (UX-63).
+    let name = agent_panel::ran_on(agent, f.tools);
     // The line stays one line: what it waits on shows its first line (a command that writes a whole file would
     // otherwise push the board down), and the tooltip has it whole.
     let waiting = match (&agent.question, &agent.needs_you) {
-        (Some(q), _) => Some((format!("{} asks: ", agent.name), q.text.as_str())),
-        (None, Some(prompt)) => Some((
-            format!("{} wants your permission: ", agent.name),
-            prompt.as_str(),
-        )),
+        (Some(q), _) => Some((format!("{name} asks: "), q.text.as_str())),
+        (None, Some(prompt)) => Some((format!("{name} wants your permission: "), prompt.as_str())),
         (None, None) => None,
     };
     Some(match waiting {
@@ -1002,7 +1024,7 @@ fn drafting(f: &Facts) -> Option<Drafting> {
         },
         None => Drafting {
             needs_you: None,
-            text: drafting_text(&agent.name, f.project_name),
+            text: drafting_text(&name, f.project_name),
             tooltip: None,
             agent: agent.id.clone(),
             show: "Show",
@@ -1152,9 +1174,7 @@ fn bar(f: &Facts) -> Bar {
 }
 
 fn suggestion(f: &Facts) -> Option<Suggestion> {
-    let ProposedBy::ProjectAgent { name, .. } = &f.proposal.proposed_by else {
-        return None;
-    };
+    let (_, name) = suggested_by(f)?;
     if f.marks.is_empty() && !f.swap {
         return None;
     }
@@ -1437,6 +1457,14 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Noyan's conversation `c1`, titled `title` (the agent panel's name for it), on the named agent `on`: the box
+    /// and the bar name the agent, never the title (UX-63).
+    fn noyan(title: &str, on: &str) -> otaq_core::project_agents::ProjectAgent {
+        let mut a = crate::view_models::noyan_button::fixtures::agent("c1", title, 0);
+        a.session = Some(crate::view_models::agent_panel::session_on(on));
+        a
+    }
     use otaq_core::flow::presets::preset;
 
     /// Why Suggest a whole flow can't be asked now, as the box at the editor's foot says.
@@ -1708,7 +1736,7 @@ mod tests {
         assert_eq!(change.whole, Some("Suggest a whole flow"));
         assert_eq!(change.off, None);
 
-        let mut a = agent("c1", "Strong", 0);
+        let mut a = noyan("New conversation", "Strong");
         a.mid_turn = true;
         let drafting = facts(&draft, &[], Some(&a));
         let AskState::Drafting(d) = &drafting.state else {
@@ -1722,11 +1750,12 @@ mod tests {
         assert_eq!(drafting.off.as_deref(), Some("Strong is drafting one"));
         assert_eq!(drafting.line, "Drag, + and \u{d7} still work meanwhile");
 
-        // Its proposal shows: the agent stays mid-turn, waiting for the answer the box sends.
+        // Its proposal shows: the agent ended its turn, waiting for the answer the box sends.
+        a.mid_turn = false;
         draft.proposed_by = ProposedBy::ProjectAgent {
             agent: "c1".into(),
             session: "s1".into(),
-            name: "Strong".into(),
+            name: "Add Security stage".into(),
             tool: otaq_core::agent_tools::Tool::Claude,
         };
         let proposed = facts(&draft, &marks, Some(&a));
@@ -1744,11 +1773,63 @@ mod tests {
         assert_eq!(proposed.whole, None);
         assert_eq!(proposed.off, None);
         assert_eq!(proposed.send, "Ask for changes");
+        // The box doesn't follow its conversation: the tool it ran on, still not the conversation's title.
+        assert_eq!(
+            facts(&draft, &marks, None).placeholder,
+            "Ask for changes to Claude Code\u{2019}s proposal\u{2026}"
+        );
+        // The bar's title names the agent too.
+        let title = suggestion(&Facts {
+            project: "SHOP",
+            project_name: "shop-web",
+            proposal: &draft,
+            marks: &marks,
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            stored: &stored,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: None,
+            agent: Some(&a),
+            new_agent: None,
+            choices: &choices,
+        })
+        .map(|s| s.title);
+        assert_eq!(
+            title.as_deref(),
+            Some("Strong\u{2019}s suggestion for shop-web")
+        );
 
-        // Asked for changes: the proposal closes and the agent drafts again.
+        // Asked for changes: the proposal stays on the columns (its marks too) while the agent redrafts it, and the
+        // box says so with Show and Stop (UX-63: Stop keeps what it proposed).
+        a.mid_turn = true;
+        let redrafting = facts(&draft, &marks, Some(&a));
+        let AskState::Drafting(d) = &redrafting.state else {
+            panic!("{redrafting:?}");
+        };
+        assert_eq!(
+            d.text,
+            "Strong is drafting a change to shop-web\u{2019}s flow\u{2026}"
+        );
+        assert_eq!((d.agent.as_str(), d.show, d.stop), ("c1", "Show", "Stop"));
+        assert_eq!(redrafting.whole, Some("Suggest a whole flow"));
+        assert_eq!(redrafting.off.as_deref(), Some("Strong is drafting one"));
+        // Another conversation at work (one writing a stage's skill) leaves the proposal's box as it is.
+        let mut other = agent("c2", "Strong", 0);
+        other.mid_turn = true;
         assert!(matches!(
-            facts(&draft, &[], Some(&a)).state,
-            AskState::Drafting(_)
+            facts(&draft, &marks, Some(&other)).state,
+            AskState::Proposal(_)
+        ));
+        // Stopped, or its turn ended: the proposal's box again.
+        a.state = AgentState::Ended;
+        assert!(matches!(
+            facts(&draft, &marks, Some(&a)).state,
+            AskState::Proposal(_)
         ));
     }
 
@@ -1758,7 +1839,6 @@ mod tests {
     #[test]
     fn the_box_answers_noyans_question() {
         use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
-        use crate::view_models::noyan_button::fixtures::agent;
 
         let file = shop_web();
         let draft = proposal(&file, true);
@@ -1787,7 +1867,7 @@ mod tests {
             })
         };
 
-        let mut a = agent("c1", "Strong", 0);
+        let mut a = noyan("New conversation", "Strong");
         a.mid_turn = true;
         a.question = Some(otaq_core::board::questions::HumanQuestion {
             id: "q1".into(),
@@ -1865,7 +1945,6 @@ mod tests {
     #[test]
     fn the_drafting_line_goes_when_the_draft_does() {
         use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
-        use crate::view_models::noyan_button::fixtures::agent;
 
         let file = shop_web();
         let draft = proposal(&file, true);
@@ -1895,11 +1974,11 @@ mod tests {
             (drafting(&f).map(|d| d.text), suggest_off(&f))
         };
 
-        let mut a = agent("c1", "Shop repo flow", 0);
+        let mut a = noyan("Shop repo flow", "Architect");
         a.mid_turn = true;
         assert_eq!(
             line(&a).0.as_deref(),
-            Some("Shop repo flow is drafting a change to shop\u{2019}s flow\u{2026}"),
+            Some("Architect is drafting a change to shop\u{2019}s flow\u{2026}"),
             "while its turn runs"
         );
         a.mid_turn = false;
@@ -1974,7 +2053,6 @@ mod tests {
     #[test]
     fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
         use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
-        use crate::view_models::noyan_button::fixtures::agent;
 
         let file = shop_web();
         let draft = proposal(&file, true);
@@ -2005,10 +2083,10 @@ mod tests {
             (d.needs_you, d.text, d.show, suggest_off(&f))
         };
         let drafting_line =
-            "Shop repo flow is drafting a change to shop\u{2019}s flow\u{2026}".to_owned();
-        let busy = Some("Shop repo flow is drafting one".to_owned());
+            "Architect is drafting a change to shop\u{2019}s flow\u{2026}".to_owned();
+        let busy = Some("Architect is drafting one".to_owned());
 
-        let mut a = agent("c1", "Shop repo flow", 0);
+        let mut a = noyan("Shop repo flow", "Architect");
         a.mid_turn = true;
         assert_eq!(
             line(&a),
@@ -2021,7 +2099,7 @@ mod tests {
             line(&a),
             (
                 Some("Needs you"),
-                "Shop repo flow wants your permission: Allow npm test?".to_owned(),
+                "Architect wants your permission: Allow npm test?".to_owned(),
                 "Answer",
                 busy.clone()
             )
@@ -2049,7 +2127,7 @@ mod tests {
             line(&a),
             (
                 Some("Needs you"),
-                "Shop repo flow asks: Keep the Validate stage?".to_owned(),
+                "Architect asks: Keep the Validate stage?".to_owned(),
                 "Answer",
                 busy.clone()
             )
@@ -2064,7 +2142,6 @@ mod tests {
     #[test]
     fn needs_you_for_a_long_command_stays_one_line() {
         use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
-        use crate::view_models::noyan_button::fixtures::agent;
 
         let file = shop_web();
         let draft = proposal(&file, true);
@@ -2095,7 +2172,7 @@ mod tests {
             (d.text, d.tooltip.unwrap_or_default())
         };
         let body = "Update the docs for the ticket. ".repeat(60);
-        let mut a = agent("c1", "Docs stage skill", 0);
+        let mut a = noyan("Docs stage skill", "Architect");
         a.mid_turn = true;
         a.needs_you = Some(format!(
             "Run command: @'\n---\nname: update-docs\ndescription: Update project documentation\n---\n\n{body}\n'@ \
@@ -2104,12 +2181,12 @@ mod tests {
         let (text, tooltip) = line(&a);
         assert_eq!(
             text,
-            "Docs stage skill wants your permission: Run command: @' \u{2026}"
+            "Architect wants your permission: Run command: @' \u{2026}"
         );
         // The tooltip has the command on its lines, up to a height that fits the window.
         assert!(
             tooltip.starts_with(
-                "Docs stage skill wants your permission: Run command: @'\n---\nname: update-docs\n"
+                "Architect wants your permission: Run command: @'\n---\nname: update-docs\n"
             ),
             "{tooltip}"
         );
@@ -2120,10 +2197,8 @@ mod tests {
         assert_eq!(
             line(&a),
             (
-                "Docs stage skill wants your permission: Run command: git status \u{2026}"
-                    .to_owned(),
-                "Docs stage skill wants your permission: Run command: git status\ngit diff"
-                    .to_owned()
+                "Architect wants your permission: Run command: git status \u{2026}".to_owned(),
+                "Architect wants your permission: Run command: git status\ngit diff".to_owned()
             )
         );
 

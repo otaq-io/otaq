@@ -11,7 +11,8 @@
 //! can't fix (a Project agent's with any problem: it can act on them). Otherwise it lands in the project's draft, the
 //! agent's changes marked (FED-02, [`super::draft`]), and the command returns at once.
 //!
-//! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes reaches the proposing Project agent's
+//! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes (which leaves the proposal open until
+//! the agent's next one replaces it) reaches the proposing Project agent's
 //! session as its next message ([`deliver_answer`]), typed once the agent is idle and its input line is empty (d0048),
 //! whatever triggered it (the flow editor, a request). A proposal from the user's terminal gets nothing.
 
@@ -275,8 +276,10 @@ impl Board {
             .map(|r| r.proposed_by))
     }
 
-    /// **Ask for more changes** (`flow.ask_for_changes`): closes the open proposal `id` of a Project agent; its text
-    /// goes to the agent, which proposes again. Who proposed it.
+    /// **Ask for more changes** (`flow.ask_for_changes`): the user's text on the open proposal `id` of a Project agent
+    /// goes to the agent, which proposes again. The proposal stays in the draft meanwhile (UX-63): the board keeps
+    /// showing it while the agent redrafts, its next proposal replaces it, and stopping the agent keeps it. Who
+    /// proposed it.
     pub async fn ask_for_changes(
         &self,
         project: &str,
@@ -296,7 +299,6 @@ impl Board {
                 "Proposal {id} isn't from Noyan: nobody to ask"
             )));
         }
-        self.drop_proposal(id).await?;
         Ok(by)
     }
 }

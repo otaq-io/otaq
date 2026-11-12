@@ -564,3 +564,58 @@ async fn removing_the_stage_a_ticket_is_held_in_waits_for_it() {
     );
     w.stop().await;
 }
+
+/// UX-63: Ask for changes keeps the agent's proposal in the draft while it redrafts, so the board keeps showing it and
+/// stopping the agent keeps it; its next proposal replaces it in place, still marked against the flow before.
+#[tokio::test(flavor = "multi_thread")]
+async fn asking_for_changes_keeps_the_proposal_until_the_next_one() {
+    let (w, key) = world().await;
+    let propose = |doc: String| {
+        let w = &w;
+        let key = &key;
+        async move {
+            w.board
+                .propose(
+                    key,
+                    &Proposed::Document {
+                        yaml: doc,
+                        file: None,
+                    },
+                    &noyan(),
+                    &models(),
+                )
+                .await
+                .unwrap()
+        }
+    };
+    let first = propose(shop_with(security_first)).await;
+    let shown = w.board.draft(&key, &models()).await.unwrap().marks;
+    assert!(!shown.is_empty());
+    let by = w
+        .board
+        .ask_for_changes(&key, first.id, "Add a Plan stage too")
+        .await
+        .unwrap();
+    assert_eq!(by, noyan(), "the words go to the agent that proposed it");
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    assert_eq!(draft.proposal.id, first.id, "the proposal stays open");
+    assert_eq!(draft.proposal.proposed_by, noyan());
+    assert_eq!(draft.marks, shown, "still marked on the board");
+
+    let second = propose(shop_with(|f| {
+        security_first(f);
+        plan_after_product_spec(f);
+    }))
+    .await;
+    assert_eq!(
+        second.id, first.id,
+        "the next proposal replaces it in the draft"
+    );
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let marked: Vec<&str> = draft.marks.iter().map(|m| m.stage.as_str()).collect();
+    assert!(marked.contains(&"Plan"), "{marked:?}");
+    assert!(
+        shown.iter().all(|m| marked.contains(&m.stage.as_str())),
+        "{marked:?}"
+    );
+}
