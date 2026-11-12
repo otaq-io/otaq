@@ -506,13 +506,15 @@ pub fn status_words(status: Status) -> &'static str {
     }
 }
 
-/// [`status_words`] with what the ticket adds: "PR #481 open", "Merged into SHOP-18".
+/// [`status_words`] with what the ticket adds: "PR #481 open", "Merged into SHOP-18", "Done · nothing to merge" (as
+/// its card; `--status merged` still matches it by its status).
 pub fn state_words(ticket: &Ticket) -> String {
     match ticket.status {
         Status::PrOpen if let Some(number) = ticket.flags.pr_number => format!("PR #{number} open"),
         Status::MergedInto if let Some(into) = &ticket.flags.merged_into => {
             format!("Merged into {into}")
         }
+        Status::Merged => ticket.status_words().to_owned(),
         status => status_words(status).to_owned(),
     }
 }
@@ -876,5 +878,40 @@ mod tests {
         assert_eq!(status(&yours), "Status:      Ready for you (Review)");
         let done = ticket("SHOP-12", Status::Merged, Place::Done);
         assert_eq!(status(&done), "Status:      Merged (Done)");
+    }
+
+    /// Done without a merge reads as its card in `otaq list` and `otaq show` ("Done, nothing to merge" or `stage done`
+    /// with nothing on the branch, and "Done, don't merge"), and still counts as merged for `--status merged`.
+    #[test]
+    fn done_without_a_merge_reads_as_its_card() {
+        let flow = otaq_core::flow::default_flow();
+        let mut nothing = ticket("SHOP-39", Status::Merged, Place::Done);
+        nothing.flags.done_without_merge = true;
+        nothing.flags.nothing_to_merge = Some("Question-box test only.".into());
+        let mut not_merged = ticket("HOOK-12", Status::Merged, Place::Done);
+        not_merged.flags.done_without_merge = true;
+        let merged = ticket("SHOP-12", Status::Merged, Place::Done);
+        assert!(line(&nothing, &flow).contains(" Done \u{b7} nothing to merge "));
+        assert!(line(&not_merged, &flow).contains(" Done \u{b7} not merged "));
+        assert!(line(&merged, &flow).contains(" Merged "));
+        let status = |t: &Ticket| {
+            show_text(t, &[], None, None, &flow)
+                .lines()
+                .find(|l| l.starts_with("Status:"))
+                .unwrap()
+                .to_owned()
+        };
+        assert_eq!(
+            status(&nothing),
+            "Status:      Done \u{b7} nothing to merge (Done)"
+        );
+        assert_eq!(
+            status(&not_merged),
+            "Status:      Done \u{b7} not merged (Done)"
+        );
+        for t in [&nothing, &not_merged, &merged] {
+            assert!(shown_by("merged", t), "{}", t.key);
+            assert!(shown_by("done", t), "{}", t.key);
+        }
     }
 }

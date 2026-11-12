@@ -730,8 +730,8 @@ pub fn view_of(f: &Facts) -> View {
         pill: {
             // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (being there
             // holds back only the alert), as its card. A Delivery stop that kept it in Review, or a session's prompt
-            // shown without changing its status, reads as its card does.
-            let mut pill = PillView::of(otaq_view::view_models::status::shown(ticket));
+            // shown without changing its status, reads as its card does, and so does one done without a merge.
+            let mut pill = PillView::of_ticket(ticket);
             // Its tool stopped on an error: red with why, as its card ("Stopped · login expired").
             if let Some(error) = otaq_core::signals::stopped_on_error(ticket) {
                 pill = PillView {

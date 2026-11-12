@@ -1288,12 +1288,12 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         // Finished without a merge (the Approve menu, or `otaq stage done`); it counts as merged: "Done · nothing to
         // merge".
         Status::Merged if flags.done_without_merge => {
-            let (status, line) = match &flags.nothing_to_merge {
-                Some(reason) => (DONE_NOTHING_TO_MERGE, nothing_to_merge_line(reason)),
-                None => (DONE_NOT_MERGED, "finished without merging".to_owned()),
+            let line = match &flags.nothing_to_merge {
+                Some(reason) => nothing_to_merge_line(reason),
+                None => "finished without merging".to_owned(),
             };
             Part::flag(
-                flag(R::Outcome, "Done", status, Legend::Merged),
+                flag(R::Outcome, "Done", ticket.status_words(), Legend::Merged),
                 Some(line),
                 Tone::Muted,
             )
@@ -2298,11 +2298,9 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     }
 }
 
-/// A ticket finished without a merge ([`otaq_core::domain::Outcome::DoneWithoutMerge`]) whose branch had nothing
-/// beyond its base: the card's status and History's line.
-pub const DONE_NOTHING_TO_MERGE: &str = "Done \u{b7} nothing to merge";
-/// A ticket finished without a merge whose branch had commits: they didn't land, the branch keeps them.
-pub const DONE_NOT_MERGED: &str = "Done \u{b7} not merged";
+/// How a ticket finished without a merge reads: the card's status, History's line, the sheet and `otaq list` share
+/// them (`Ticket::status_words`).
+pub use otaq_core::domain::outcome::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 
 /// "Nothing to merge · already fixed in SHOP-31": the agent's reason as the line goes on (its first line, without
 /// the closing full stop, starting lower case).
@@ -5960,6 +5958,13 @@ mod tests {
             line(&vm),
             Some("Nothing to merge \u{b7} already fixed in SHOP-31")
         );
+
+        // "Done, don't merge" with commits on the branch.
+        t.flags.nothing_to_merge = None;
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Done"));
+        assert_eq!(vm.hover.status, "Done \u{b7} not merged");
+        assert_eq!(line(&vm), Some("finished without merging"));
     }
 
     /// With one tool connected the same cards show no avatar and name no tool beside the agent (d0086): the model's

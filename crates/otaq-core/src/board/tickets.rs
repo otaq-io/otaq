@@ -207,6 +207,21 @@ pub struct StartProblem {
 }
 
 impl Ticket {
+    /// The ticket's status in words, with how a finished ticket ended: "Done · nothing to merge" or "Done · not
+    /// merged" for one done without a merge (stored as Merged so its dependants start; filters and the Done column
+    /// still go by that status), else its status's label ("Merged" once a merge landed). A ticket landed with its host
+    /// carries the host's outcome, so it reads as the host does.
+    pub fn status_words(&self) -> &'static str {
+        use crate::domain::outcome::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
+        match self.status {
+            Status::Merged if self.flags.done_without_merge => match self.flags.nothing_to_merge {
+                Some(_) => DONE_NOTHING_TO_MERGE,
+                None => DONE_NOT_MERGED,
+            },
+            status => status.label(),
+        }
+    }
+
     /// The group of the board the ticket shows in ([`StatusSet::BOARD`]), from its status: the default flow's
     /// columns, until the board's columns come from the flow (STG-08).
     pub fn board_group(&self) -> StatusSet {

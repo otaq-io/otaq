@@ -271,14 +271,14 @@ fn done_by(f: &DetailFacts) -> Option<String> {
 
 /// The one line under the title: where the ticket is and who works on it, in the board's words. In your check: "Dev
 /// and Validate by Claude Code · 14 min · started by you"; while a stage works: "In Dev · Strong · started by you 12
-/// min ago"; "Not started" in Backlog; "Done" once finished. Priority, the branch and the stage's agents are changed in
-/// Edit ticket… and the ⋯ menu, not here.
+/// min ago"; "Not started" in Backlog; how it ended once finished ("Merged", "Done · nothing to merge"). Priority, the
+/// branch and the stage's agents are changed in Edit ticket… and the ⋯ menu, not here.
 pub fn subtitle(f: &DetailFacts) -> String {
     let ticket = f.ticket;
     let started = ticket.started_at;
     let ago = |at: i64| format!("{} ago", minutes_label(f.now - at));
     if ticket.place == Place::Done {
-        return ticket.status.label().to_owned();
+        return ticket.status_words().to_owned();
     }
     if ticket.place.is_backlog() || started.is_none() {
         return "Not started".to_owned();
@@ -728,6 +728,32 @@ mod tests {
         assert_eq!(
             facts(&backlog, &agents_of(&backlog, Vec::new())),
             "Not started"
+        );
+        // Finished: how it ended, as its card and its pill say it.
+        let mut done = ticket("SHOP-39", "Question-box test", Status::Merged);
+        done.place = Place::Done;
+        let words = |t: &Ticket| {
+            (
+                facts(t, &agents_of(t, Vec::new())),
+                crate::view_models::status::PillView::of_ticket(t).label,
+            )
+        };
+        assert_eq!(words(&done), ("Merged".into(), "Merged".into()));
+        done.flags.done_without_merge = true;
+        assert_eq!(
+            words(&done),
+            (
+                "Done \u{b7} not merged".into(),
+                "Done \u{b7} not merged".into()
+            )
+        );
+        done.flags.nothing_to_merge = Some("Nothing to change.".into());
+        assert_eq!(
+            words(&done),
+            (
+                "Done \u{b7} nothing to merge".into(),
+                "Done \u{b7} nothing to merge".into()
+            )
         );
     }
 
