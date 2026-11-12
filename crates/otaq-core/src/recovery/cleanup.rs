@@ -7,7 +7,8 @@
 //!   answer session (it answers another ticket's question) is in use, and so are its worktree and ports.
 //! - **Worktrees**: folders under `<data>/wt/<repo>/` that no unfinished ticket uses. A helper's worktree (d0133) is in
 //!   use while its ticket is unfinished and its piece isn't merged; one left behind (a crash before its merge, a
-//!   finished ticket's with uncommitted files) is listed under its ticket.
+//!   finished ticket's with uncommitted files) is listed under its ticket. Deleting one a finished ticket still
+//!   records as its worktree clears that record too (NEW-d5).
 //! - **Branches**: `otaq/*` branches in a project's repository that no ticket names (an unfinished ticket's helpers'
 //!   branches count as named). The user's own branches are never candidates.
 //! - **Ports**: ports still held by tickets that are Done or in Backlog.
@@ -543,7 +544,35 @@ impl Cleanup {
                 .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string())),
             CleanupGroup::Worktrees => {
                 let folder = PathBuf::from(&item.id);
-                self.remove_worktree(&folder, repos).await
+                // A finished ticket may still record this folder as its worktree: forget it once it is gone, so
+                // nothing (`prime --project`, say) points at a folder that no longer exists. Matched before the
+                // removal, while the path still resolves.
+                let at = normalized(&item.id);
+                let mut recorded = Vec::new();
+                for project in self.board.projects().await? {
+                    for t in self.board.tickets(&project.key).await? {
+                        if t.work
+                            .as_ref()
+                            .and_then(|w| w.worktree.as_deref())
+                            .is_some_and(|p| normalized(p) == at)
+                        {
+                            recorded.push(t.id);
+                        }
+                    }
+                }
+                self.remove_worktree(&folder, repos).await?;
+                for id in recorded {
+                    sqlx::query(
+                        "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE, build_state = ?,
+                                            build_problem = NULL
+                         WHERE id = ?",
+                    )
+                    .bind(BuildState::Present.as_str())
+                    .bind(&id)
+                    .execute(self.board.store().pool())
+                    .await?;
+                }
+                Ok(())
             }
             CleanupGroup::Branches => {
                 let (project, branch) = item.id.split_once(':').unwrap_or_default();
