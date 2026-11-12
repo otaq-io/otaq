@@ -282,7 +282,7 @@
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Work as Noyan, an Otaq project's coordinator - read `otaq prime --project`, name this conversation after the first request, take a light look at the code without editing or committing, write tickets whose notes hand on where the code lives, what you saw and the open questions, file several tickets only for separate deliverables, pass on only the stage choices the user names, and file them in Backlog with the otaq CLI.",
+            "hint": "Otaq’s · Work as Noyan, an Otaq project's coordinator - read `otaq prime --project`, name this conversation after the first request, take a light look at the code without editing or committing, write tickets whose notes hand on where the code lives, what you saw and the open questions, file one ticket per scope and several only for several scopes, pass on only the stage choices the user names, and file them in Backlog with the otaq CLI.",
             "separated": false,
             "checked": false,
             "header": false
@@ -465,12 +465,6 @@
     "foot": "Each comes with a description, an agent and a skill; change any of them after."
   },
   "start_from": {
-    "suggest": {
-      "label": "Suggest a flow for shop-web…",
-      "text": "Noyan reads the project and drafts a flow for it. Its changes come marked; you keep them, ask for others, or discard.",
-      "message": "Suggest a flow for shop-web. Read this repository and how the project works, then propose a whole flow that fits it, with a short why on each change.",
-      "off": null
-    },
     "shipped_label": "SHIPPED WITH OTAQ",
     "presets": [
       {
@@ -527,6 +521,15 @@
     "copy": "Copy from another project…",
     "previous": null,
     "previous_line": "Opens as a draft"
+  },
+  "ask": {
+    "placeholder": "Ask Noyan to change this flow…",
+    "whole": "Suggest a whole flow",
+    "off": null,
+    "agent": "Noyan · Claude Code",
+    "line": "Proposes a draft · nothing changes until you save",
+    "send": "Ask Noyan",
+    "keys": "↵"
   },
   "suggestion": null,
   "drafting": null,

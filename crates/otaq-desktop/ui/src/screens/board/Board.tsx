@@ -460,8 +460,9 @@ export function Board() {
     settingsWantedShown.current = w.n;
     showView("settings");
   }, [settingsWanted, project, view, showView]);
-  // The box for new work is on the board and the List only, never in Files or the project's Settings.
-  const boxAway = filesShown || settingsShown;
+  // The box for new work is on the board and the List only, never in Files or the project's Settings; Edit flow has
+  // its own box for Noyan in its place.
+  const boxAway = filesShown || settingsShown || editingFlow;
   useEffect(() => {
     boardAway.set(boxAway);
   }, [boxAway]);

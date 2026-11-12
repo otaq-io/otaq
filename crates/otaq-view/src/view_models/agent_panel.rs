@@ -160,7 +160,10 @@ pub fn agent_name(name: &str, tool: Tool, tools: &Tools) -> String {
 
 /// What a new Noyan conversation starts on: the agent Noyan uses (or the one picked for it) on its tool and model, else
 /// (no agent, or no default model yet) the new-session tool under its own name.
-fn starts_on(new_agent: Option<&Agent>, tools: &Tools) -> (String, Tool, Option<String>) {
+pub(crate) fn starts_on(
+    new_agent: Option<&Agent>,
+    tools: &Tools,
+) -> (String, Tool, Option<String>) {
     let on = new_agent.and_then(|a| Some((a, a.model.on(tools.default_model.as_ref())?)));
     match on {
         Some((agent, on)) => (agent.name.clone(), on.tool, on.model),

@@ -5,8 +5,9 @@
 //! `apply` / `cancel`); this area adds what only the board's editor does:
 //!
 //! - `flow_board.restore`: Undo, the draft's document as it was before the user's last edit.
-//! - `flow_board.suggest`: Suggest a flow for <project>: Noyan's agent starts on the `flow` skill and drafts one into
-//!   the draft, its changes marked (today's flow-proposal path).
+//! - `flow_board.suggest`: the box at the editor's foot: Noyan's agent starts on the `flow` skill with the user's
+//!   words, or (Suggest a whole flow, no words) asked for a whole flow, and drafts into the draft, its changes marked
+//!   (today's flow-proposal path).
 //! - `flow_board.ask_changes`: Ask for changes… on a suggestion: the user's words go back to the agent that made it
 //!   (`flow.ask_for_changes`).
 //! - `flow_board.export`: Export flow file…: the draft's document where the save dialog said; with no draft, the
@@ -76,10 +77,14 @@ pub struct RestoreParams {
     pub yaml: String,
 }
 
+/// The box's send: the user's words, or none for Suggest a whole flow.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowBoardSuggestParams")]
 pub struct SuggestParams {
     pub project: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<String>,
 }
 
 /// Ask for changes… on the suggestion `proposal`.
@@ -198,19 +203,32 @@ async fn restore(app: &App, params: RestoreParams) -> Result<(), RequestError> {
     Ok(())
 }
 
-/// Suggest a flow for <project>…: Noyan's agent drafts one on the `flow` skill; its proposal lands in the draft,
-/// marked.
+/// What the box asks Noyan's agent, on the `flow` skill: the user's words, or without them the whole-flow request
+/// for the project `name`. Words that are only spaces are refused: nothing would be asked.
+fn suggest_request(text: Option<&str>, name: &str) -> Result<String, RequestError> {
+    match text {
+        Some(words) if words.trim().is_empty() => Err(RequestError::plain(
+            otaq_core::project_agents::EMPTY_MESSAGE,
+        )),
+        Some(words) => Ok(super::flow_editor::flow_message(words)),
+        None => Ok(super::flow_editor::flow_message(&vm::suggest_message(name))),
+    }
+}
+
+/// The box's send (↵, or Suggest a whole flow): Noyan's agent starts on the `flow` skill; its proposal lands in the
+/// draft, marked. The page doesn't open the agent panel for it.
 async fn suggest(app: &App, params: SuggestParams) -> Result<Started, RequestError> {
     let name = projects(app)
         .await?
         .into_iter()
         .find(|p| p.key == params.project)
         .map_or_else(|| params.project.clone(), |p| p.name);
+    let message = suggest_request(params.text.as_deref(), &name)?;
     let agent = super::agent_panel::send(
         app,
         super::agent_panel::SendParams {
             project: params.project,
-            message: super::flow_editor::flow_message(&vm::suggest_message(&name)),
+            message,
             agent: None,
         },
     )
@@ -588,6 +606,53 @@ mod tests {
         let again = otaq_core::flow::yaml::read(&std::fs::read_to_string(&out).unwrap()).unwrap();
         let sent = otaq_core::flow::yaml::read(&text).unwrap();
         assert_eq!(again.flow, sent.flow);
+    }
+
+    /// The box asks with the user's words on the `flow` skill; without words it asks for a whole flow for the project.
+    #[test]
+    fn the_box_asks_with_the_users_words_or_for_a_whole_flow() {
+        let words = suggest_request(Some("  Add a security review after Validate "), "shop-web").unwrap();
+        assert_eq!(words, "/flow Add a security review after Validate");
+        assert_eq!(otaq_core::project_agents::first_skill(&words).0, "flow");
+        let whole = suggest_request(None, "shop-web").unwrap();
+        assert_eq!(
+            whole,
+            super::super::flow_editor::flow_message(&vm::suggest_message("shop-web"))
+        );
+        assert!(whole.starts_with("/flow Suggest a flow for shop-web."), "{whole}");
+        assert!(suggest_request(Some(" \n "), "shop-web").is_err());
+    }
+
+    /// Edit flow's box, as the editor first shows it: who answers and what it does; Noyan isn't drafting, so it can be
+    /// asked. Words that are only spaces start nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_box_asks_noyan_and_empty_words_start_nothing() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let v = load(&h, None).await;
+        assert_eq!(v.ask.placeholder, "Ask Noyan to change this flow\u{2026}");
+        assert_eq!(v.ask.whole, "Suggest a whole flow");
+        assert_eq!(
+            v.ask.line,
+            "Proposes a draft \u{b7} nothing changes until you save"
+        );
+        assert!(v.ask.agent.starts_with("Noyan \u{b7} "), "{}", v.ask.agent);
+        assert_eq!(v.ask.send, "Ask Noyan");
+        assert_eq!(v.ask.off, None);
+
+        let refused = request(
+            &h.app,
+            "flow_board.suggest",
+            json!({ "project": "SHOP", "text": "   " }),
+        )
+        .await;
+        assert!(refused.is_err());
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP")
+            .await
+            .unwrap();
+        assert!(agents.open.is_empty(), "nothing started");
     }
 
     /// Undo puts the draft's document back as it was before the last edit.

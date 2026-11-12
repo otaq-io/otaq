@@ -4,7 +4,8 @@
 // the board's cards stay in their columns, dimmed, and Backlog and Done are locked at the ends (Done carries how work
 // leaves the flow). A stage's header is dragged (or moved with Alt+←/→) to reorder, × removes it, **+** between two
 // columns opens the palette of ready stages, and a click opens its details beside the columns. The first time, a
-// one-time hint says how it works. Everything it says is `flow_board.view`'s (`otaq-view`'s `flow_board.rs`); every
+// one-time hint says how it works. Under the columns, Noyan's box asks for a change in the user's words or for a whole
+// flow; it stays while Noyan's panel is open (the board's own box hides then). Everything it says is `flow_board.view`'s (`otaq-view`'s `flow_board.rs`); every
 // edit goes to the project's draft, and nothing changes on the board until Save flow.
 import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -72,6 +73,7 @@ import {
   stepOf,
   suggest,
 } from "./logic";
+import { NoyanBox } from "./NoyanBox";
 import "./flow_board.css";
 
 const ignore = () => undefined;
@@ -457,75 +459,87 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         </p>
       )}
       <div className="fb-board">
-        <div className="fb-columns">
-          {view.columns.map((column) => {
-            const shown = boardColumn(column.id);
-            const cards = shown ? cardsOf(shown) : [];
-            const here = step !== null && step.column === column.id;
-            return (
-              <div key={column.id} className="fb-slot">
-                <section
-                  className="fb-column"
-                  data-kind={column.kind}
-                  data-selected={column.selected || undefined}
-                  data-marked={column.mark !== null || undefined}
-                  data-lifted={lifted !== null && column.index === lifted ? true : undefined}
-                  data-over={over !== null && column.index === over && over !== lifted ? true : undefined}
-                  data-fb-index={column.index ?? undefined}
-                  aria-label={column.name}
-                >
-                  <ColumnHead
-                    column={column}
-                    count={stageCount}
-                    onDown={onHeadDown(column)}
-                    onMove={onHeadMove}
-                    onUp={onHeadUp(column)}
-                    onSelect={() => {
-                      setSelected(column.id);
-                    }}
-                    onMoveKey={(to) => {
-                      edit({ edit: "move", stage: column.id, to });
-                    }}
-                    onRemove={() => {
-                      if (selected === column.id) setSelected(null);
-                      edit({ edit: "remove", stage: column.id });
-                    }}
-                  />
-                  <div className="fb-cards">
-                    {here && (
-                      <div className="fb-pretend" role="status">
-                        <span className="fb-pretend-label">{view.watch.ticket_label}</span>
-                        <span className="fb-pretend-title">{view.watch.ticket_title}</span>
-                        <span className="fb-pretend-state">{step.state}</span>
-                      </div>
-                    )}
-                    <div className="fb-dimmed" aria-hidden inert>
-                      {cards.map((c) => (
-                        <TicketCard key={c.card.key} card={c.card} />
-                      ))}
-                    </div>
-                  </div>
-                </section>
-                {column.add !== null && (
-                  <Tooltip text={column.add.title}>
-                    <button
-                      type="button"
-                      className="fb-gap"
-                      data-fb-gap={column.id}
-                      aria-label={column.add.title}
-                      onClick={(e) => {
-                        const gap = column.add;
-                        if (gap !== null)
-                          setPalette({ after: gap.after, title: gap.title, anchor: e.currentTarget });
+        <div className="fb-main">
+          <div className="fb-columns">
+            {view.columns.map((column) => {
+              const shown = boardColumn(column.id);
+              const cards = shown ? cardsOf(shown) : [];
+              const here = step !== null && step.column === column.id;
+              return (
+                <div key={column.id} className="fb-slot">
+                  <section
+                    className="fb-column"
+                    data-kind={column.kind}
+                    data-selected={column.selected || undefined}
+                    data-marked={column.mark !== null || undefined}
+                    data-lifted={lifted !== null && column.index === lifted ? true : undefined}
+                    data-over={over !== null && column.index === over && over !== lifted ? true : undefined}
+                    data-fb-index={column.index ?? undefined}
+                    aria-label={column.name}
+                  >
+                    <ColumnHead
+                      column={column}
+                      count={stageCount}
+                      onDown={onHeadDown(column)}
+                      onMove={onHeadMove}
+                      onUp={onHeadUp(column)}
+                      onSelect={() => {
+                        setSelected(column.id);
                       }}
-                    >
-                      <Icon name="plus" size={13} />
-                    </button>
-                  </Tooltip>
-                )}
-              </div>
-            );
-          })}
+                      onMoveKey={(to) => {
+                        edit({ edit: "move", stage: column.id, to });
+                      }}
+                      onRemove={() => {
+                        if (selected === column.id) setSelected(null);
+                        edit({ edit: "remove", stage: column.id });
+                      }}
+                    />
+                    <div className="fb-cards">
+                      {here && (
+                        <div className="fb-pretend" role="status">
+                          <span className="fb-pretend-label">{view.watch.ticket_label}</span>
+                          <span className="fb-pretend-title">{view.watch.ticket_title}</span>
+                          <span className="fb-pretend-state">{step.state}</span>
+                        </div>
+                      )}
+                      <div className="fb-dimmed" aria-hidden inert>
+                        {cards.map((c) => (
+                          <TicketCard key={c.card.key} card={c.card} />
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                  {column.add !== null && (
+                    <Tooltip text={column.add.title}>
+                      <button
+                        type="button"
+                        className="fb-gap"
+                        data-fb-gap={column.id}
+                        aria-label={column.add.title}
+                        onClick={(e) => {
+                          const gap = column.add;
+                          if (gap !== null)
+                            setPalette({ after: gap.after, title: gap.title, anchor: e.currentTarget });
+                        }}
+                      >
+                        <Icon name="plus" size={13} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Under the columns, never over them: the last cards and Done's line stay in view. */}
+          <NoyanBox
+            ask={view.ask}
+            onSend={(text) =>
+              suggest(project, text).catch((error: unknown) => {
+                toast(error);
+                throw error;
+              })
+            }
+          />
         </div>
         {watching !== null && step !== null ? (
           <aside className="fb-side fb-watch" aria-label={view.watch.title}>
@@ -693,25 +707,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
         >
           <div className="fb-start">
-            <button
-              type="button"
-              className="fb-pop-row fb-suggest"
-              disabled={view.start_from.suggest.off !== null}
-              onClick={() => {
-                setStartFrom(false);
-                suggest(project).then((id) => {
-                  showAgentInPanel(project, id);
-                }, toast);
-              }}
-            >
-              <Icon name="sparkles" size={15} />
-              <span className="fb-pop-words">
-                <span className="fb-pop-name">{view.start_from.suggest.label}</span>
-                <span className="fb-muted">
-                  {view.start_from.suggest.off ?? view.start_from.suggest.text}
-                </span>
-              </span>
-            </button>
             <span className="fb-pop-section">{view.start_from.shipped_label}</span>
             {view.start_from.presets.map((p) => (
               <button

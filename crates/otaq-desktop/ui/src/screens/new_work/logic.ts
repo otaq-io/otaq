@@ -152,7 +152,7 @@ export const openRequests: Store<number> = createStore(0);
 export const boxOnScreen: Store<boolean> = createStore(false);
 
 /**
- * Whether the board slot shows something other than the board or the List (Files, the project's Settings): the box
+ * Whether the board slot shows something other than the board or the List (Files, the project's Settings, Edit flow): the box
  * isn't there. In Files ⌘N is New ticket from this file.
  */
 export const boardAway: Store<boolean> = createStore(false);

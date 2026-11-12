@@ -10,10 +10,11 @@
 //! Repository card.
 //!
 //! The bar on top says what is being edited and how many changes the draft holds, with Watch a ticket (a pretend
-//! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (Suggest a flow
-//! for the project first, then the shipped flows, another project's and Import), ⋯ (Export, Import, Copy from another
-//! project, Go back to the previous flow), Cancel and Save flow. A suggestion from Noyan's agent shows its changes
-//! marked on their columns, with Why these changes, Ask for changes…, Discard and Save flow.
+//! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
+//! another project's and Import), ⋯ (Export, Import, Copy from another project, Go back to the previous flow), Cancel
+//! and Save flow. A box docked at the editor's foot asks Noyan's agent for a change in the user's words, or for a whole
+//! flow ([`Ask`]). A suggestion from Noyan's agent shows its changes marked on their columns, with Why these changes,
+//! Ask for changes…, Discard and Save flow.
 //!
 //! Every edit goes to the project's draft as the overlay editor's did ([`super::flow_editor::edited`],
 //! `flow.draft_update`); nothing changes on the board until the user saves. What a saved change does to moving
@@ -34,6 +35,7 @@ use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::agent_page::Choice;
+use crate::view_models::agent_panel::{self, LABEL as NOYAN};
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
     self as editor, AgentField, CHECK_ROUNDS, Choices, EditorKind, Facts, FailToField, FixRow,
@@ -269,23 +271,31 @@ pub struct Entry {
     pub pick: Pick,
 }
 
-/// Suggest a flow for <project>….
+/// The box docked at the editor's foot, the board's box for new work in Edit flow: the user asks Noyan's agent for a
+/// change in their own words (↵), or for a whole flow (the shortcut beside the words). `FlowBoardAsk` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "FlowBoardSuggest")]
-pub struct Suggest {
-    pub label: String,
-    pub text: String,
-    /// What the agent is asked (the `flow` skill's first message).
-    pub message: String,
-    /// Why it can't be asked now ("Strong is drafting one"); `None` when it can.
+#[ts(rename = "FlowBoardAsk")]
+pub struct Ask {
+    /// "Ask Noyan to change this flow…".
+    pub placeholder: String,
+    /// The whole-flow shortcut: "Suggest a whole flow".
+    pub whole: &'static str,
+    /// Why nothing can be asked now ("Strong is drafting a flow for shop-web…"); `None` when it can.
     pub off: Option<String>,
+    /// Who answers: "Noyan · Strong · Claude Code".
+    pub agent: String,
+    /// "Proposes a draft · nothing changes until you save".
+    pub line: &'static str,
+    /// The send button once something is typed: "Ask Noyan".
+    pub send: String,
+    /// The send key: "↵".
+    pub keys: &'static str,
 }
 
 /// Start from…. `FlowBoardStartFrom` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowBoardStartFrom")]
 pub struct StartFrom {
-    pub suggest: Suggest,
     pub shipped_label: String,
     pub presets: Vec<Entry>,
     pub more_label: &'static str,
@@ -439,6 +449,7 @@ pub struct View {
     pub palette: Palette,
     pub start_from: StartFrom,
     pub more: More,
+    pub ask: Ask,
     pub suggestion: Option<Suggestion>,
     pub drafting: Option<Drafting>,
     pub watch: Watch,
@@ -831,13 +842,27 @@ fn palette(f: &Facts) -> Palette {
     }
 }
 
-/// The agent Noyan uses, which drafts a suggestion: its name, else "Noyan".
-fn suggester(f: &Facts) -> String {
-    f.new_agent
-        .map_or_else(|| "Noyan".to_owned(), |a| a.name.clone())
+/// The box at the editor's foot. Noyan's agent drafts one change at a time: while it drafts, nothing more is asked.
+fn ask(f: &Facts) -> Ask {
+    let (name, tool, _) = agent_panel::starts_on(f.new_agent, f.tools);
+    let agent = if name.eq_ignore_ascii_case(tool.display_name()) {
+        format!("{NOYAN} \u{b7} {name}")
+    } else {
+        format!("{NOYAN} \u{b7} {name} \u{b7} {}", tool.display_name())
+    };
+    Ask {
+        placeholder: format!("Ask {NOYAN} to change this flow\u{2026}"),
+        whole: "Suggest a whole flow",
+        // Off while the agent drafts, waiting on the user or not.
+        off: drafting(f).and_then(|_| f.agent.map(|a| drafting_text(&a.name, f.project_name))),
+        agent,
+        line: "Proposes a draft \u{b7} nothing changes until you save",
+        send: format!("Ask {NOYAN}"),
+        keys: "\u{21b5}",
+    }
 }
 
-/// What Suggest a flow asks Noyan's agent, on the `flow` skill.
+/// What Suggest a whole flow asks Noyan's agent, on the `flow` skill.
 pub fn suggest_message(project_name: &str) -> String {
     format!(
         "Suggest a flow for {project_name}. Read this repository and how the project works, then propose a whole flow \
@@ -903,20 +928,8 @@ fn drafting_text(agent: &str, project_name: &str) -> String {
     format!("{agent} is drafting a flow for {project_name}\u{2026}")
 }
 
-fn start_from(f: &Facts, b: &BoardFacts) -> StartFrom {
-    let name = suggester(f);
-    // Suggest stays off while the agent drafts, waiting on the user or not.
-    let busy = drafting(f).and_then(|_| f.agent.map(|a| drafting_text(&a.name, f.project_name)));
+fn start_from(b: &BoardFacts) -> StartFrom {
     StartFrom {
-        suggest: Suggest {
-            label: format!("Suggest a flow for {}\u{2026}", f.project_name),
-            text: format!(
-                "{name} reads the project and drafts a flow for it. Its changes come marked; you keep them, ask for \
-                 others, or discard."
-            ),
-            message: suggest_message(f.project_name),
-            off: busy,
-        },
         shipped_label: format!(
             "SHIPPED WITH {}",
             otaq_core::naming::PRODUCT_NAME.to_uppercase()
@@ -1311,8 +1324,9 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         details: selected.map(|s| details(f, b, s)),
         delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
         palette: palette(f),
-        start_from: start_from(f, b),
+        start_from: start_from(b),
         more: more(f, b),
+        ask: ask(f),
         suggestion: suggestion(f),
         drafting: drafting(f),
         watch: watch(f, b.base_branch),
@@ -1327,20 +1341,9 @@ mod tests {
     use super::*;
     use otaq_core::flow::presets::preset;
 
-    /// Why Suggest a flow can't be asked now, as Start from says.
-    fn start_from_off(f: &Facts) -> Option<String> {
-        let none = Vec::new();
-        start_from(
-            f,
-            &BoardFacts {
-                base_branch: "main",
-                others: &none,
-                previous: false,
-                occupied: &[],
-            },
-        )
-        .suggest
-        .off
+    /// Why Suggest a whole flow can't be asked now, as the box at the editor's foot says.
+    fn suggest_off(f: &Facts) -> Option<String> {
+        ask(f).off
     }
 
     /// The board's facts with `occupied`'s stages holding tickets.
@@ -1588,7 +1591,7 @@ mod tests {
                 new_agent: None,
                 choices: &choices,
             };
-            (drafting(&f).map(|d| d.text), start_from_off(&f))
+            (drafting(&f).map(|d| d.text), suggest_off(&f))
         };
 
         let mut a = agent("c1", "Shop repo flow", 0);
@@ -1698,7 +1701,7 @@ mod tests {
                 choices: &choices,
             };
             let d = drafting(&f).unwrap();
-            (d.needs_you, d.text, d.show, start_from_off(&f))
+            (d.needs_you, d.text, d.show, suggest_off(&f))
         };
         let drafting_line = "Shop repo flow is drafting a flow for shop\u{2026}".to_owned();
         let busy = Some(drafting_line.clone());
