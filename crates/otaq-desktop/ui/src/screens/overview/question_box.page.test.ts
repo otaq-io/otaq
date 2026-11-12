@@ -12,6 +12,7 @@ import type { SheetAnswer } from "../../generated/SheetAnswer";
 import { AgentQuestionBox } from "../agent_panel/AgentQuestion";
 import { VIEW } from "../sheet/sheet_fixtures";
 import { AnswerBox } from "./NeedsYou";
+import { QUESTION_FLOOR } from "./QuestionText";
 
 vi.mock("../../tauri", () => ({
   request: vi.fn(() => new Promise(() => undefined)),
@@ -174,12 +175,49 @@ describe("a long question above Noyan's terminal", () => {
     expect(Number.parseFloat(getComputedStyle(text).minHeight)).toBe(0);
     const options = band.querySelector(".sheet-answer-options");
     const bar = band.querySelector(".agent-question-bar");
-    expect(options && getComputedStyle(options).flexShrink).toBe("0");
+    // The text gives way first (down to its floor), then the options scroll; the bar never gives way (NEW-d1, NEW-d2).
+    expect(Number(getComputedStyle(text).flexShrink)).toBeGreaterThanOrEqual(1000);
+    expect(options && getComputedStyle(options).flexShrink).toBe("1");
+    expect(options && getComputedStyle(options).overflowY).toBe("auto");
+    expect(options && Number.parseFloat(getComputedStyle(options).minHeight)).toBe(0);
     expect(bar && getComputedStyle(bar).flexShrink).toBe("0");
     const well = host.querySelector(".agent-panel-well");
     expect(well && getComputedStyle(well).minHeight).toBe("200px");
     // The context's lines are about 60 characters here (70 on a ticket's Overview).
     const context = band.querySelector(".sheet-answer-context");
     expect(context && getComputedStyle(context).maxWidth).toBe("340px");
+  });
+});
+
+describe("a long question whose options have notes, in a tight place (NEW-d1, NEW-d2)", () => {
+  /** The question's words `words` px tall, as the page would draw them. */
+  function words(height: number) {
+    vi.spyOn(HTMLElement.prototype, "offsetHeight", "get").mockImplementation(function (this: HTMLElement) {
+      return this.classList.contains("sheet-answer-question") ? height : 0;
+    });
+  }
+  const question: AgentQuestion = {
+    project: "SHOP",
+    agent: "a1",
+    title: "Noyan · Security asks",
+    answer: LONG,
+  };
+
+  it("keeps about six lines of the question in view, the options scrolling instead", () => {
+    words(400);
+    act(() => {
+      root.render(createElement(AgentQuestionBox, { question, onTerminal: () => undefined }));
+    });
+    expect(host.querySelector<HTMLElement>(".sheet-answer-text")?.style.minHeight).toBe(
+      `${String(QUESTION_FLOOR)}px`,
+    );
+  });
+
+  it("keeps a short question whole, with no room left under it", () => {
+    words(46);
+    act(() => {
+      root.render(createElement(AgentQuestionBox, { question, onTerminal: () => undefined }));
+    });
+    expect(host.querySelector<HTMLElement>(".sheet-answer-text")?.style.minHeight).toBe("46px");
   });
 });

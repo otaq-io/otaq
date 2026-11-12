@@ -389,7 +389,7 @@ describe("Edit flow's box asks Noyan", () => {
       document.head.innerHTML = "";
     });
 
-    /** The question's text scrolls past the cap; the options and Send sit outside it and never shrink. */
+    /** The question's text scrolls past the cap; the options and Send sit outside it, Send never shrinking. */
     function expectSendInView(scope: HTMLElement) {
       const text = scope.querySelector<HTMLElement>(".sheet-answer-text");
       const send = button("Send answer");
@@ -400,7 +400,11 @@ describe("Edit flow's box asks Noyan", () => {
       expect(text.contains(options)).toBe(false);
       expect(getComputedStyle(text).overflowY).toBe("auto");
       expect(Number.parseFloat(getComputedStyle(text).minHeight)).toBe(0);
-      expect(getComputedStyle(options).flexShrink).toBe("0");
+      // The text gives way first, down to its floor (`QuestionText`); then the options scroll, never the bar
+      // (NEW-d1).
+      expect(Number(getComputedStyle(text).flexShrink)).toBeGreaterThanOrEqual(1000);
+      expect(getComputedStyle(options).flexShrink).toBe("1");
+      expect(getComputedStyle(options).overflowY).toBe("auto");
       expect(getComputedStyle(bar).flexShrink).toBe("0");
       expect(getComputedStyle(scope).overflow).toBe("hidden");
       expect(scope.contains(send)).toBe(true);
