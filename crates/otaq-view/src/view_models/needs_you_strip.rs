@@ -1404,7 +1404,10 @@ mod tests {
         let mut asking = stopped.clone();
         asking.flags.session_prompt = Some(SessionPrompt {
             session: "s-push".into(),
-            prompt: "Run command: git push origin otaq/SHOP-18".into(),
+            prompt: format!(
+                "Run command: git push origin {}",
+                otaq_core::naming::branch("SHOP-18")
+            ),
             since: 0,
             turn: PromptTurn::PushToPr,
         });

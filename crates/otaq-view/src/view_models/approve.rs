@@ -897,7 +897,7 @@ mod tests {
         let with_branch = |key: &str, status: Status| {
             let mut t = ticket(key, "Work", status);
             t.work = Some(otaq_core::board::tickets::Work {
-                branch: Some(format!("otaq/{key}")),
+                branch: Some(otaq_core::naming::branch(key)),
                 ..Default::default()
             });
             t
