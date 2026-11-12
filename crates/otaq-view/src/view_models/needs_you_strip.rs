@@ -58,29 +58,40 @@ impl Item {
     /// What opening it shows: a ticket on its tab, a Project agent in the panel.
     pub fn target(&self) -> Target {
         match self {
-            Self::Ticket(i) => Target::Ticket {
-                project: i.project.clone(),
-                key: i.key.to_string(),
-                // A ticket waiting for your review opens on Overview: what the agent did, then the checker.
-                tab: if i.group == NeedsYouGroup::Review {
-                    Content::Overview
-                } else if i.status == otaq_core::domain::Status::AsksYou
-                    && i.question.is_some()
-                    && i.piece.is_none()
-                {
-                    // A question is answered where it shows first: the ticket's Overview.
-                    Content::Overview
-                } else {
-                    // Session, on the side that needs you (the check's while it asks).
-                    session_tab::lands_on(i.status)
-                },
+            Self::Ticket(i) => {
                 // A helper's permission prompt opens its own terminal (d0133 audit 3).
-                piece: i
+                let piece = i
                     .piece
                     .as_ref()
                     .filter(|w| w.kind == otaq_core::domain::PieceWaitKind::NeedsYou)
-                    .map(|w| w.label.clone()),
-            },
+                    .map(|w| w.label.clone());
+                Target::Ticket {
+                    project: i.project.clone(),
+                    key: i.key.to_string(),
+                    // A ticket waiting for your review opens on Overview: what the agent did, then the checker.
+                    tab: if i.group == NeedsYouGroup::Review {
+                        Content::Overview
+                    } else if i.status == otaq_core::domain::Status::AsksYou
+                        && i.question.is_some()
+                        && i.piece.is_none()
+                    {
+                        // A question is answered where it shows first: the ticket's Overview.
+                        Content::Overview
+                    } else if piece.is_none()
+                        && matches!(i.status, Status::StartInterrupted | Status::DeliveryStopped)
+                    {
+                        // A start that failed or a Delivery that stopped (one that kept its place reads as Delivery
+                        // stopped here) has nothing to answer in a terminal: its reason and Retry are on Overview. A
+                        // session prompt drawn over the stop reads as Needs you and still opens that terminal.
+                        Content::Overview
+                    } else {
+                        // Session, on the side that needs you (the check's while it asks); an Interrupted or Resume
+                        // failed ticket's Resume, Retry and Start from scratch are there too.
+                        session_tab::lands_on(i.status)
+                    },
+                    piece,
+                }
+            }
             Self::Agent(a) => Target::Agent {
                 project: a.project.clone(),
                 agent: a.agent.clone(),
@@ -1333,6 +1344,92 @@ mod tests {
         assert_eq!(chips(&v.groups[0]), ["SHOP-22 a question"]);
         assert!(v.groups[1].chips.is_empty());
         assert_eq!(v.groups[1].resume_all, Some("Resume all"));
+    }
+
+    /// Where ⌘J and a chip open each kind of item: a terminal only when something waits in it (a prompt, the check's
+    /// prompt, a helper's, an Interrupted or Resume failed ticket's Resume); a start that failed or a Delivery that
+    /// stopped opens on Overview, where its reason and Retry are (re-test NEW-b4).
+    #[test]
+    fn each_item_opens_where_its_answer_is() {
+        use crate::view_models::pieces::fixtures::waiting;
+        use otaq_core::board::questions::HumanQuestion;
+
+        let tab = |t: NeedsYouItem| match item(t).target() {
+            Target::Ticket { tab, piece, .. } => (tab, piece),
+            Target::Agent { .. } => unreachable!("a ticket"),
+        };
+        let plain = |status: Status| tab(ticket("SHOP-9", "Search", status, "…"));
+        let question = HumanQuestion {
+            id: "q1".into(),
+            text: "Which email provider should I use?".into(),
+            options: Vec::new(),
+            recommended: Vec::new(),
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        };
+        let mut asks = ticket("SHOP-9", "Search", Status::AsksYou, "asks: …");
+        asks.question = Some(question);
+
+        assert_eq!(tab(asks), (Content::Overview, None));
+        assert_eq!(plain(Status::WaitingForYou), (Content::Overview, None));
+        assert_eq!(plain(Status::ToDeliver), (Content::Overview, None));
+        assert_eq!(plain(Status::StartInterrupted), (Content::Overview, None));
+        assert_eq!(plain(Status::DeliveryStopped), (Content::Overview, None));
+
+        assert_eq!(plain(Status::NeedsYou), (Content::Agent, None));
+        assert_eq!(plain(Status::Idle), (Content::Agent, None));
+        assert_eq!(plain(Status::CheckerNeedsYou), (Content::Check, None));
+        assert_eq!(plain(Status::Interrupted), (Content::Agent, None));
+        assert_eq!(plain(Status::ResumeFailed), (Content::Agent, None));
+
+        // A helper's permission prompt on a stopped Delivery still opens that helper's terminal.
+        let mut helper = ticket("SHOP-40", "Wishlist", Status::DeliveryStopped, "…");
+        helper.piece = Some(waiting(false).0);
+        assert_eq!(tab(helper), (Content::Agent, Some("40.3".to_owned())));
+    }
+
+    /// A Delivery stop that kept its place (a hook refused it) opens on Overview; once its skill session sits at a
+    /// permission prompt the item is that prompt's Needs you and opens the terminal (re-test NEW-b4).
+    #[test]
+    fn a_delivery_stop_opens_overview_until_its_session_asks() {
+        use crate::view_models::card_fixtures;
+        use otaq_core::board::needs_you::{ProjectTickets, needs_you_items};
+        use otaq_core::domain::{AutoMergeStop, PromptTurn, SessionPrompt};
+        use otaq_core::flow::default_flow;
+
+        let mut stopped = card_fixtures::ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        stopped.auto_merge_stop = Some(AutoMergeStop::HookRefused);
+        let mut asking = stopped.clone();
+        asking.flags.session_prompt = Some(SessionPrompt {
+            session: "s-push".into(),
+            prompt: "Run command: git push origin otaq/SHOP-18".into(),
+            since: 0,
+            turn: PromptTurn::PushToPr,
+        });
+        let flow = default_flow();
+        let found = |t: otaq_core::board::tickets::Ticket| {
+            let tickets = [t];
+            let items = needs_you_items(
+                &[ProjectTickets {
+                    key: "SHOP",
+                    name: "shop-web",
+                    tickets: &tickets,
+                    flow: &flow,
+                }],
+                card_fixtures::NOW,
+            );
+            assert_eq!(items.len(), 1);
+            let i = items.into_iter().next().unwrap();
+            let status = i.status;
+            match item(i).target() {
+                Target::Ticket { tab, .. } => (status, tab),
+                Target::Agent { .. } => unreachable!("a ticket"),
+            }
+        };
+        assert_eq!(found(stopped), (Status::DeliveryStopped, Content::Overview));
+        assert_eq!(found(asking), (Status::NeedsYou, Content::Agent));
     }
 
     /// NYS-01 (`s24-12`): "Needs you · 0 here", "You’re through shop-web’s items." and the accent "Next ·
