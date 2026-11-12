@@ -10,6 +10,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 import { shellLayout } from "../../app/layout";
 import { RegistriesContext, registerScreens } from "../../app/registry";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
+import type { SheetAnswer } from "../../generated/SheetAnswer";
 import { request } from "../../tauri";
 import CHECK_FIRST from "./check_first.view.json";
 import { FlowBoard } from "./FlowBoard";
@@ -290,6 +291,233 @@ describe("Edit flow's box asks Noyan", () => {
     expect(start).not.toBeNull();
     expect(start?.textContent).toContain(VIEW.start_from.import);
     expect(start?.textContent).not.toMatch(/Suggest/);
+  });
+
+  /** The box while Strong (`c1`) asks `answer`, as `flow_board.view` gives it. */
+  function askingView(answer: SheetAnswer): FlowBoardView {
+    return {
+      ...VIEW,
+      ask: {
+        ...VIEW.ask,
+        off: "Strong is drafting one",
+        line: "Drag, + and × still work meanwhile",
+        state: {
+          kind: "asking",
+          head: "Needs you · Strong asks",
+          question: { project: "SHOP", agent: "c1", title: "Noyan · Strong asks", answer },
+          expand: "Open larger",
+          collapse: "Back to the box",
+        },
+      },
+    };
+  }
+
+  /** The brief's short question. */
+  const SHORT: SheetAnswer = {
+    question: "q-short",
+    line: "Should the security review run before or after Validate?",
+    context: null,
+    rows: [
+      {
+        number: 1,
+        label: "After Validate",
+        recommended: true,
+        picked: true,
+        other: false,
+        note: "Only code that passes the tests gets reviewed.",
+      },
+      {
+        number: 2,
+        label: "Before Validate",
+        recommended: false,
+        picked: false,
+        other: false,
+        note: "Finds problems sooner, but reviews code that may still fail its tests.",
+      },
+      { number: 3, label: "Other…", recommended: false, picked: false, other: true, note: null },
+    ],
+    recommended_label: "Recommended",
+    other_placeholder: "Type your answer",
+    hint: "1–3 pick · ↵ sends",
+    in_terminal: "Answer in terminal",
+    send: "Send answer",
+  };
+
+  /** The brief's long question, as `otaq-view` splits it. */
+  const LONG: SheetAnswer = {
+    ...SHORT,
+    question: "q-long",
+    line: "Which agent should run the new Security review stage?",
+    context: [
+      "Your project has a security skill in `.claude/skills/security-review`, and it expects the code to build " +
+        "first: it runs `npm audit` and reads the lockfile. Two things to weigh:",
+      "",
+      "- **Verifier** already runs Validate on Codex. Using it again keeps one checking agent, but Codex doesn't " +
+        "load `.claude/skills`, so it would fall back to Otaq's own review skill.",
+      "- **Strong** (Claude Code) loads your skill as it is, but it's the agent that writes the code, so it would " +
+        "review its own work.",
+      "",
+      "A third agent costs a new connection in Settings → Agents.",
+    ].join("\n"),
+  };
+
+  /** The editor (the area under the bar) `width` × `height`, as the window lays it out. */
+  function editorSize(width: number, height: number) {
+    for (const prop of ["clientWidth", "clientHeight"] as const) {
+      vi.spyOn(HTMLElement.prototype, prop, "get").mockImplementation(function (this: HTMLElement) {
+        if (!this.classList.contains("fb-board")) return 0;
+        return prop === "clientWidth" ? width : height;
+      });
+    }
+  }
+
+  /** The page's own style sheets (the test runner leaves CSS imports empty). */
+  async function styles() {
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as { readFileSync(path: string, encoding: "utf8"): string };
+    const here = (import.meta as ImportMeta & { dirname: string }).dirname;
+    for (const file of ["../sheet/actions.css", "../agent_panel/agent_panel.css", "./flow_board.css"]) {
+      const style = document.createElement("style");
+      style.textContent = fs.readFileSync(`${here}/${file}`, "utf8");
+      document.head.append(style);
+    }
+  }
+
+  describe("when Noyan asks, the box is the answer box", () => {
+    afterEach(() => {
+      vi.restoreAllMocks();
+      document.head.innerHTML = "";
+    });
+
+    /** The question's text scrolls past the cap; the options and Send sit outside it and never shrink. */
+    function expectSendInView(scope: HTMLElement) {
+      const text = scope.querySelector<HTMLElement>(".sheet-answer-text");
+      const send = button("Send answer");
+      const options = scope.querySelector<HTMLElement>(".sheet-answer-options");
+      const bar = scope.querySelector<HTMLElement>(".agent-question-bar");
+      if (!text || !send || !options || !bar) throw new Error("no answer UI");
+      expect(text.contains(send)).toBe(false);
+      expect(text.contains(options)).toBe(false);
+      expect(getComputedStyle(text).overflowY).toBe("auto");
+      expect(Number.parseFloat(getComputedStyle(text).minHeight)).toBe(0);
+      expect(getComputedStyle(options).flexShrink).toBe("0");
+      expect(getComputedStyle(bar).flexShrink).toBe("0");
+      expect(getComputedStyle(scope).overflow).toBe("hidden");
+      expect(scope.contains(send)).toBe(true);
+    }
+
+    it("a short question fits: the box grows with it, its line bold over the options, nothing to scroll", async () => {
+      await styles();
+      editorSize(1376, 800);
+      await mountBox(askingView(SHORT));
+      const b = box();
+      if (!b) throw new Error("no box");
+      expect(b.dataset.state).toBe("asking");
+      expect(b.querySelector(".fb-noyan-head")?.textContent).toBe("Needs you · Strong asks");
+      expect(b.querySelector(".sheet-answer-line")?.textContent).toBe(SHORT.line);
+      expect(b.querySelector(".sheet-answer-context")).toBeNull();
+      expect([...b.querySelectorAll('[role="radio"]')].map((r) => r.getAttribute("aria-checked"))).toEqual([
+        "true",
+        "false",
+        "false",
+      ]);
+      // As tall as the question needs, up to the cap; 760 px wide while asking.
+      expect(b.style.height).toBe("");
+      expect(b.style.maxHeight).toBe("440px");
+      expect(b.style.width).toBe("760px");
+      expect(b.querySelector("input")).toBeNull();
+      expectSendInView(b);
+    });
+
+    it("the brief's long question grows to the cap, 55% of the editor, and scrolls with Send in view", async () => {
+      await styles();
+      editorSize(1376, 800);
+      await mountBox(askingView(LONG));
+      const b = box();
+      if (!b) throw new Error("no box");
+      expect(b.style.maxHeight).toBe("440px");
+      const text = b.querySelector<HTMLElement>(".sheet-answer-text");
+      expect(text?.querySelector(".sheet-answer-context")?.textContent).toContain("A third agent costs");
+      expect(text?.querySelectorAll(".sheet-answer-context li")).toHaveLength(2);
+      expectSendInView(b);
+    });
+
+    it("at 1280 × 800 the cap is 384 px and the box 680 px wide", async () => {
+      editorSize(1216, 698);
+      await mountBox(askingView(LONG));
+      expect(box()?.style.maxHeight).toBe("384px");
+      expect(box()?.style.width).toBe("680px");
+    });
+
+    it("⤢ opens it up to the editor's full height over a scrim; ⤡ and Esc bring it back", async () => {
+      await styles();
+      editorSize(1376, 800);
+      await mountBox(askingView(LONG));
+      act(() => {
+        host.querySelector<HTMLButtonElement>('button[aria-label="Open larger"]')?.click();
+      });
+      const b = box();
+      if (!b) throw new Error("no box");
+      expect(b.hasAttribute("data-expanded")).toBe(true);
+      expect(b.style.maxHeight).toBe("");
+      expect(getComputedStyle(b).position).toBe("absolute");
+      expect(getComputedStyle(b).bottom).toBe("20px");
+      expect(getComputedStyle(b).maxHeight).toBe("calc(100% - 36px)");
+      const scrim = host.querySelector(".fb-board .fb-noyan-scrim");
+      expect(scrim).not.toBeNull();
+      expectSendInView(b);
+
+      act(() => {
+        host.querySelector<HTMLButtonElement>('button[aria-label="Back to the box"]')?.click();
+      });
+      expect(box()?.hasAttribute("data-expanded")).toBe(false);
+      expect(box()?.style.maxHeight).toBe("440px");
+      expect(host.querySelector(".fb-noyan-scrim")).toBeNull();
+
+      act(() => {
+        host.querySelector<HTMLButtonElement>('button[aria-label="Open larger"]')?.click();
+      });
+      expect(box()?.hasAttribute("data-expanded")).toBe(true);
+      act(() => {
+        document.dispatchEvent(new KeyboardEvent("keydown", { key: "Escape", bubbles: true }));
+      });
+      expect(box()?.hasAttribute("data-expanded")).toBe(false);
+      expect(host.querySelector(".fb-noyan-scrim")).toBeNull();
+    });
+
+    it("Send answer answers Noyan's agent and brings the box back", async () => {
+      await mountBox(askingView(LONG));
+      vi.mocked(request).mockImplementation((method: string) =>
+        method === "agent_panel.answer" ? Promise.resolve({ outcome: "done" }) : Promise.resolve(null),
+      );
+      act(() => {
+        host.querySelector<HTMLButtonElement>('button[aria-label="Open larger"]')?.click();
+      });
+      expect(box()?.hasAttribute("data-expanded")).toBe(true);
+      await act(async () => {
+        button("Send answer")?.click();
+        await Promise.resolve();
+        await Promise.resolve();
+      });
+      expect(request).toHaveBeenCalledWith("agent_panel.answer", {
+        project: "SHOP",
+        agent: "c1",
+        question: "q-long",
+        pick: 1,
+        other: "",
+        clear: false,
+      });
+      expect(box()?.hasAttribute("data-expanded")).toBe(false);
+    });
+
+    it("Answer in terminal opens the agent panel on Noyan's conversation", async () => {
+      shellLayout.set({ ...shellLayout.get(), agentOpen: false });
+      await mountBox(askingView(SHORT));
+      act(() => {
+        button("Answer in terminal")?.click();
+      });
+      expect(shellLayout.get().agentOpen).toBe(true);
+    });
   });
 
   it("sits under the columns in its own room, so it never covers the last card or Done's line", async () => {

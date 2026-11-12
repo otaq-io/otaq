@@ -143,6 +143,10 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   }, [project, selected, agent, choices]);
   const state = useServiceView(load, FLOW_BOARD_EVENTS);
   const view = state.view;
+  // ⤢ opens Noyan's question larger; it stays so for that question only, until ⤡, Esc or its answer is sent.
+  const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
+  const asked = view?.ask.state.kind === "asking" ? view.ask.state.question.answer.question : null;
+  const expanded = asked !== null && expandedQuestion === asked;
 
   // Every edit keeps the document before it, so Undo can put it back.
   const edit = useCallback(
@@ -198,15 +202,16 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
     if (gap && button) setPalette({ after: gap.after, title: gap.title, anchor: button });
   }, [open.addAfter, view]);
 
-  // Esc closes what is open, then the details; the editor itself stays until Cancel or Save flow. The palette and the
+  // Esc closes what is open (Noyan's question opened larger first: it sits over everything), then the details; the editor itself stays until Cancel or Save flow. The palette and the
   // other popovers close on their own Esc. Esc is the page's Close: it comes here as that key, or as a key a focused
   // field in the details passed on.
   const closeOne = useCallback(() => {
-    if (watching !== null) setWatching(null);
+    if (expanded) setExpandedQuestion(null);
+    else if (watching !== null) setWatching(null);
     else if (selected !== null) setSelected(null);
     else return false;
     return true;
-  }, [selected, watching]);
+  }, [expanded, selected, watching]);
   useShortcut("close_sheet", closeOne);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -492,6 +497,10 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           {/* Under the columns, never over them: the last cards and Done's line stay in view. */}
           <NoyanBox
             ask={view.ask}
+            expanded={expanded}
+            onExpand={(open) => {
+              setExpandedQuestion(open ? asked : null);
+            }}
             onSend={(text) =>
               (view.ask.state.kind === "proposal"
                 ? askForChanges(view, text ?? "")

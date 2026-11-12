@@ -4,17 +4,25 @@
 //   it does. ↵ sends the typed words to Noyan's agent on the `flow` skill; the shortcut asks for a whole flow.
 // - drafting: "Strong is drafting a change to shop-web's flow…" in the words' place, with Show (the agent panel on that
 //   conversation) and Stop (it ends; the draft keeps what it proposed); the shortcut is off and says why. While the
-//   agent waits on the user, Needs you takes the line's place, with Answer.
+//   agent waits on the user at a permission prompt, Needs you takes the line's place, with Answer.
+// - asking: when the agent asks the user a question, the box is the answer box, in the attention colour: "Needs you ·
+//   Strong asks", then the question and its answer UI as above Noyan's terminal (`AgentQuestionBox`), Answer in
+//   terminal opening the agent panel. It grows with the question up to 55% of the editor's height, 760 px wide (680 px
+//   in the narrowest window), and past that the question's text scrolls while the options and Send stay in view. ⤢
+//   opens it up to the editor's full height over a scrim; ⤡, Esc (the editor's) or sending brings it back.
 // - proposal: "Ask for changes to Strong's proposal…"; ↵ sends to the same conversation, and Show conversation opens
 //   it. No shortcut.
 // Sending doesn't open the agent panel: the proposal lands on the columns. Everything it says is `flow_board.view`'s
 // `ask`.
-import { useState } from "react";
+import { type CSSProperties, type RefObject, useCallback, useLayoutEffect, useRef, useState } from "react";
 
-import { Kbd, PLAIN_TEXT, Tooltip } from "../../components";
+import { IconButton, Kbd, PLAIN_TEXT, Tooltip } from "../../components";
 import type { FlowBoardAsk } from "../../generated/FlowBoardAsk";
+import type { FlowBoardAsking } from "../../generated/FlowBoardAsking";
 import type { FlowBoardDrafting } from "../../generated/FlowBoardDrafting";
 import { Icon } from "../../theme/Icon";
+import { AgentQuestionBox } from "../agent_panel/AgentQuestion";
+import { type AnswerBoxSize, answerBoxSize } from "./logic";
 
 export interface NoyanBoxProps {
   ask: FlowBoardAsk;
@@ -27,9 +35,22 @@ export interface NoyanBoxProps {
   onShow: (agent: string) => void;
   /** Stop: the drafting conversation ends. */
   onStop: (agent: string) => void;
+  /** Noyan's question is open larger (⤢), over a scrim. */
+  expanded?: boolean;
+  /** ⤢ (`true`), or ⤡, a click on the scrim or the answer sent (`false`). */
+  onExpand?: (open: boolean) => void;
 }
 
-export function NoyanBox({ ask, onSend, onShow, onStop }: NoyanBoxProps) {
+const ignore = () => undefined;
+
+export function NoyanBox({
+  ask,
+  onSend,
+  onShow,
+  onStop,
+  expanded = false,
+  onExpand = ignore,
+}: NoyanBoxProps) {
   const [text, setText] = useState("");
   const [sending, setSending] = useState(false);
   const typed = text.trim() !== "";
@@ -65,6 +86,10 @@ export function NoyanBox({ ask, onSend, onShow, onStop }: NoyanBoxProps) {
       </button>
     </Tooltip>
   );
+
+  if (state.kind === "asking") {
+    return <Asking asking={state} expanded={expanded} onExpand={onExpand} onShow={onShow} />;
+  }
 
   if (state.kind === "drafting") {
     return (
@@ -147,6 +172,100 @@ export function NoyanBox({ ask, onSend, onShow, onStop }: NoyanBoxProps) {
         <Kbd keys={ask.keys} />
       </div>
     </div>
+  );
+}
+
+/**
+ * The editor's size (the area under the bar, `.fb-board`) as the answer box takes it: its width and cap. `null` until
+ * measured (and where nothing lays out), when the box keeps its CSS width and has no cap.
+ */
+function useAnswerBoxSize(): { box: RefObject<HTMLDivElement | null>; size: AnswerBoxSize | null } {
+  const box = useRef<HTMLDivElement>(null);
+  const [size, setSize] = useState<AnswerBoxSize | null>(null);
+  const measure = useCallback(() => {
+    const editor = box.current?.closest<HTMLElement>(".fb-board");
+    const next =
+      editor && editor.clientHeight > 0 ? answerBoxSize(editor.clientWidth, editor.clientHeight) : null;
+    setSize((current) => (current?.width === next?.width && current?.cap === next?.cap ? current : next));
+  }, []);
+  useLayoutEffect(() => {
+    const editor = box.current?.closest<HTMLElement>(".fb-board");
+    if (!editor || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(editor);
+    return () => {
+      observer.disconnect();
+    };
+  }, [measure]);
+  // Measured once drawn too, before the first paint.
+  useLayoutEffect(measure, [measure]);
+  return { box, size };
+}
+
+/** The answer box: "Needs you · Strong asks" with ⤢ / ⤡, then Noyan's question and its answer UI. */
+function Asking({
+  asking,
+  expanded,
+  onExpand,
+  onShow,
+}: {
+  asking: FlowBoardAsking;
+  expanded: boolean;
+  onExpand: (open: boolean) => void;
+  onShow: (agent: string) => void;
+}) {
+  const { box, size } = useAnswerBoxSize();
+  // In the box it caps at 55% of the editor; open larger, the CSS gives it the editor's height.
+  let style: CSSProperties | undefined;
+  if (size !== null) style = expanded ? { width: size.width } : { width: size.width, maxHeight: size.cap };
+  const { question } = asking;
+  const toggle = expanded ? asking.collapse : asking.expand;
+  return (
+    <>
+      {expanded && (
+        <div
+          className="fb-noyan-scrim"
+          role="presentation"
+          onMouseDown={(e) => {
+            e.preventDefault();
+            onExpand(false);
+          }}
+        />
+      )}
+      <div
+        ref={box}
+        className="fb-noyan"
+        data-state="asking"
+        data-expanded={expanded || undefined}
+        role="group"
+        aria-label={asking.head}
+        style={style}
+      >
+        <div className="fb-noyan-head">
+          <strong className="fb-needs-you">{asking.head}</strong>
+          <span className="fb-spacer" />
+          <Tooltip text={toggle}>
+            <IconButton
+              icon={expanded ? "minimize-2" : "maximize-2"}
+              label={toggle}
+              onClick={() => {
+                onExpand(!expanded);
+              }}
+            />
+          </Tooltip>
+        </div>
+        <AgentQuestionBox
+          key={question.answer.question}
+          question={question}
+          onTerminal={() => {
+            onShow(question.agent);
+          }}
+          onSent={() => {
+            onExpand(false);
+          }}
+        />
+      </div>
+    </>
   );
 }
 
