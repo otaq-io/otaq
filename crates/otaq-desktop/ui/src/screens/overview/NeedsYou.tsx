@@ -42,6 +42,7 @@ import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions"
 import { HookOutput } from "../sheet/HookOutput";
 import { canSend, initialPicks, pickByKey, picksOther, pressPick } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
+import { useAnswerDraft } from "./answerDraft";
 import { QuestionText, useSendInView } from "./QuestionText";
 
 const ignore = () => undefined;
@@ -82,7 +83,8 @@ function ActionButton({
 }
 
 /** What is picked in an answer box, and its ways to change it: one pick, or, on a question that takes several answers,
- * every ticked row. Opens on the recommended ones. Every answer box keeps its picks here. */
+ * every ticked row. Opens on the recommended ones. Noyan's box keeps its picks here; a ticket's keeps them in its draft
+ * (`answerDraft`). */
 export function useAnswerPicks(answer: SheetAnswer): {
   picks: number[];
   /** A click or number key: picks the row, or ticks / unticks it on a question that takes several answers. */
@@ -307,6 +309,9 @@ export function canAnswerQuestion(answer: SheetAnswer, picks: readonly number[],
   return canSend(picks, other, answer.rows);
 }
 
+/** The card clicks an answer box has taken: each click is its own object. */
+const cardsTaken = new WeakSet<CardAnswer>();
+
 /** The question bar with its options, or an open question's box (ATT-12, ATT-17); the Gallery draws it too. */
 export function AnswerBox({
   view,
@@ -319,10 +324,10 @@ export function AnswerBox({
   more: ReactNode;
   fromCard: CardAnswer | null;
 }) {
-  const { picks, press, pickRow } = useAnswerPicks(answer);
+  // The picks and Something else's text outlive the box: Overview unmounts while another tab shows.
+  const { picks, other, press, pickRow, setOther, sent: answered } = useAnswerDraft(view.key, answer);
   const options = useRef<HTMLDivElement>(null);
   const { box, text, cap, boxCap } = useSendInView();
-  const [other, setOther] = useState("");
   const { sending, once } = useSendOnce();
   const open = answer.rows.length === 0;
   const ready = canAnswerQuestion(answer, picks, other);
@@ -340,6 +345,7 @@ export function AnswerBox({
     return once(() =>
       (request("sheet.answer", params) as Promise<SheetSent>)
         .then((sent) => {
+          if (sent.outcome === "done") answered();
           askUnsent(sent, () => send(true));
         })
         .catch(ignore),
@@ -349,6 +355,10 @@ export function AnswerBox({
   // sends the picked (recommended) option.
   const onCard = useEffectEvent((card: CardAnswer) => {
     if (card.question !== answer.question) return;
+    // The sheet keeps the card's last click; the box comes back with each return to Overview and must not pick it
+    // over what was picked since.
+    if (cardsTaken.has(card)) return;
+    cardsTaken.add(card);
     if (card.kind === "send_answer") {
       void send();
     } else if (answer.rows.some((r) => r.number === card.number)) {
