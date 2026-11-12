@@ -30,6 +30,7 @@ import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { dropCard } from "../board/Board";
+import { useForgetClosedAnswer } from "../overview/answerDraft";
 import { DescriptionSaveBar } from "../overview/SaveBar";
 import { ReviewBar } from "../files/ReviewBar";
 import { MoreMenu, SHEET_EVENTS, type SheetActions, useSheetActions } from "./actions";
@@ -171,6 +172,8 @@ export interface SheetBodyProps {
 export function SheetBody({ view, tab, fullPage, width }: SheetBodyProps) {
   const app = useRegistries();
   const actions = useSheetActions(view);
+  // The answer in the making is kept while its question is open, whichever tab shows.
+  useForgetClosedAnswer(view.key, view.answer?.question ?? null);
   const sheet = view.sheet;
   const shown = shownSheetTab(sheet.tabs, tab, sheet.opens_on);
   const Body = shown ? app.sheetTabs.get(shown.tab)?.Component : undefined;
