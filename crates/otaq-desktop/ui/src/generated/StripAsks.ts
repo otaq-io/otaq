@@ -2,8 +2,9 @@
 import type { StripTarget } from "./StripTarget";
 
 /**
- * The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, the agent in
- * charge's note, **Answer 40.2…** and **Open in the ticket**. `StripAsks` on the page.
+ * The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, drawn as every agent
+ * question is (its first line asks, the rest is context), the agent in charge's note, **Answer 40.2…** (the
+ * ticket's Overview, where the question reads whole) and **Open in the ticket**. `StripAsks` on the page.
  */
 export type StripAsks = { 
 /**
@@ -11,9 +12,13 @@ export type StripAsks = {
  */
 title: string, 
 /**
- * "Keep the heart filled after sign-out?"
+ * The question's first line: "Keep the heart filled after sign-out?"
  */
-question: string, 
+line: string, 
+/**
+ * Everything after its first line; `None` for a question of one line.
+ */
+context: string | null, 
 /**
  * "The agent in charge passed this to you: it's a product question the plan doesn't answer."
  */

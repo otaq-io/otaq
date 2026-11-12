@@ -91,7 +91,8 @@ export function QuestionText({
   textRef,
   cap = null,
 }: {
-  answer: SheetAnswer;
+  /** The question line and its context: an answer box's, or a passed-on question's in the strip. */
+  answer: Pick<SheetAnswer, "line" | "context">;
   textRef?: Ref<HTMLDivElement>;
   /** The text's cap in pixels, past which it scrolls; `null` for none of its own. */
   cap?: number | null;

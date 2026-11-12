@@ -246,17 +246,26 @@ pub struct Chip {
     pub asks: Option<AsksPopover>,
     /// A Project agent's question (OTQ-9, d0119): the chip opens it with its answer options, or a free-text box.
     pub agent_asks: Option<crate::view_models::agent_question::AgentQuestion>,
+    /// "Open in the agent panel", under the agent's question in its popover: the panel shows the question whole,
+    /// above its terminal. `None` without a question.
+    pub open_in_panel: Option<String>,
 }
 
-/// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, the agent in
-/// charge's note, **Answer 40.2…** and **Open in the ticket**. `StripAsks` on the page.
+/// The link under a Project agent's question in the strip's popover.
+pub const OPEN_IN_PANEL: &str = "Open in the agent panel";
+
+/// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, drawn as every agent
+/// question is (its first line asks, the rest is context), the agent in charge's note, **Answer 40.2…** (the
+/// ticket's Overview, where the question reads whole) and **Open in the ticket**. `StripAsks` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StripAsks")]
 pub struct AsksPopover {
     /// "SHOP-40 · 40.2 asks".
     pub title: String,
-    /// "Keep the heart filled after sign-out?"
-    pub question: String,
+    /// The question's first line: "Keep the heart filled after sign-out?"
+    pub line: String,
+    /// Everything after its first line; `None` for a question of one line.
+    pub context: Option<String>,
     /// "The agent in charge passed this to you: it's a product question the plan doesn't answer."
     pub note: Option<String>,
     /// "Answer 40.2…": the ticket's answer box, on Overview.
@@ -282,10 +291,11 @@ fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
         .trim()
         .to_owned();
     let mut question_chars = question.chars();
-    let question = match question_chars.next() {
+    let question: String = match question_chars.next() {
         Some(first) => first.to_uppercase().chain(question_chars).collect(),
         None => question,
     };
+    let (line, context) = crate::view_models::answer_options::split_question(&question);
     let ticket = |tab: Content, piece: Option<String>| Target::Ticket {
         project: item.project.clone(),
         key: item.key.to_string(),
@@ -294,7 +304,8 @@ fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
     };
     Some(AsksPopover {
         title: wait.chip.clone(),
-        question,
+        line,
+        context,
         note: wait.note.as_deref().map(|n| {
             let n = n.trim().trim_end_matches('.');
             format!("The agent in charge {n}.")
@@ -555,6 +566,7 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         target,
         asks: asks_popover(item),
         agent_asks: None,
+        open_in_panel: None,
     })
 }
 
@@ -563,6 +575,11 @@ pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         Status::NeedsYou => "allow a command",
         _ => "a question",
     };
+    let agent_asks = a
+        .question
+        .as_ref()
+        .filter(|_| a.status == Status::AsksYou)
+        .map(|q| crate::view_models::agent_question::of(&a.project, &a.agent, &a.name, q));
     Chip {
         label: "Agent".to_owned(),
         reason: reason.to_owned(),
@@ -571,11 +588,8 @@ pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, tooltip_text(&a.reason)),
         target,
         asks: None,
-        agent_asks: a
-            .question
-            .as_ref()
-            .filter(|_| a.status == Status::AsksYou)
-            .map(|q| crate::view_models::agent_question::of(&a.project, &a.agent, &a.name, q)),
+        open_in_panel: agent_asks.as_ref().map(|_| OPEN_IN_PANEL.to_owned()),
+        agent_asks,
     }
 }
 
@@ -960,6 +974,7 @@ mod tests {
         let chip = agent_chip(&a, target);
         assert_eq!(chip.reason, "allow a command");
         assert_eq!(chip.agent_asks, None);
+        assert_eq!(chip.open_in_panel, None);
     }
 
     /// d0133 (`s30-02`): a helper's wait is its ticket's one chip, in the queue's place (d0016): "SHOP-40 · 40.2 asks"
@@ -994,7 +1009,8 @@ mod tests {
         );
         let asks = v.groups[0].chips[1].asks.clone().expect("the popover");
         assert_eq!(asks.title, "SHOP-40 · 40.2 asks");
-        assert_eq!(asks.question, "Keep the heart filled after sign-out?");
+        assert_eq!(asks.line, "Keep the heart filled after sign-out?");
+        assert_eq!(asks.context, None);
         assert_eq!(
             asks.note.as_deref(),
             Some(
@@ -1018,6 +1034,23 @@ mod tests {
             Target::Ticket { tab: Content::Agent, piece: Some(ref p), .. } if p == "40.2"
         ));
         assert_eq!(v.groups[0].chips[0].asks, None);
+
+        // A long passed-on question: its first line asks, the rest is its context, as everywhere a question shows.
+        let mut long = ticket("SHOP-40", "Wishlist", Status::AsksYou, "…");
+        let mut wait = waiting(true).0;
+        wait.line = "40.2 asks: keep the heart filled after sign-out?\n\nThe wishlist forgets guests' items today.\n- \
+                     Keep: a cookie\n- Clear: nothing stored"
+            .into();
+        long.piece = Some(wait);
+        let v = draw(&[item(long)], None);
+        let asks = v.groups[0].chips[0].asks.clone().expect("the popover");
+        assert_eq!(asks.line, "Keep the heart filled after sign-out?");
+        assert_eq!(
+            asks.context.as_deref(),
+            Some(
+                "The wishlist forgets guests' items today.\n- Keep: a cookie\n- Clear: nothing stored"
+            )
+        );
 
         let v = draw(&[with(false)], None);
         assert_eq!(chips(&v.groups[0]), ["SHOP-40 40.3 needs you"]);
@@ -1180,6 +1213,10 @@ mod tests {
             ("SHOP", "pa3")
         );
         assert_eq!(asks.answer.line, "Add an index on orders.created_at?");
+        assert_eq!(
+            agent.open_in_panel.as_deref(),
+            Some("Open in the agent panel")
+        );
         assert_eq!(
             asks.answer
                 .rows
