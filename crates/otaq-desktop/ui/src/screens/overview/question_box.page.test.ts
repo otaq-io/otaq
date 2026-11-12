@@ -1,7 +1,7 @@
 // @vitest-environment happy-dom
 // A long agent question reads whole and keeps Send in view: its first line and its context are one text that scrolls
-// together, the options and Send outside it. On a ticket's Overview the text caps at half the sheet's body only when
-// Send would fall below the sheet; above Noyan's terminal the band caps at 55% of the panel, the terminal keeping at
+// together, the options and Send outside it. On a ticket's Overview the text caps at the room the options and Send leave
+// only when Send would fall below the sheet; above Noyan's terminal the band caps at 55% of the panel, the terminal keeping at
 // least 200 px.
 import { act, createElement } from "react";
 import { createRoot, type Root } from "react-dom/client";
@@ -127,11 +127,33 @@ describe("a long question on a ticket's Overview", () => {
     expect(text.style.maxHeight).toBe("");
   });
 
-  it("caps its text at half the sheet's body and scrolls it when Send would fall below the sheet", () => {
+  it("caps its text at the room the options and Send leave when Send would fall below the sheet", () => {
+    // The rest of the box (options with notes, Something else, the hint and Send) is 260 px: the text gets the
+    // other 340 px of a 600-px body, not half of it, and the box ends at the body's bottom edge (NEW-c1).
     layout(600, 900);
     renderOverview();
     const text = expectOneScrollingText(host);
-    expect(text.style.maxHeight).toBe("300px");
+    expect(text.style.maxHeight).toBe("340px");
+    expect(host.querySelector<HTMLElement>(".sheet-question")?.style.maxHeight).toBe("600px");
+  });
+
+  it("keeps the text's floor in a very small body, the box still ending at its bottom so the options scroll", () => {
+    layout(300, 900);
+    renderOverview();
+    const text = expectOneScrollingText(host);
+    expect(text.style.maxHeight).toBe(`${String(QUESTION_FLOOR)}px`);
+    expect(host.querySelector<HTMLElement>(".sheet-question")?.style.maxHeight).toBe("300px");
+  });
+
+  it("measures the options whole while they scroll, so a cap doesn't feed the next measure", () => {
+    // The options scroll 40 px of their 100: the rest of the box counts them whole, and the text's cap stays.
+    layout(600, 900);
+    vi.spyOn(HTMLElement.prototype, "scrollHeight", "get").mockImplementation(function (this: HTMLElement) {
+      if (this.classList.contains("sheet-answer-options")) return 40;
+      return this.classList.contains("sheet-answer-text") ? 900 : 0;
+    });
+    renderOverview();
+    expect(host.querySelector<HTMLElement>(".sheet-answer-text")?.style.maxHeight).toBe("300px");
   });
 });
 
