@@ -596,14 +596,16 @@ impl Prs {
         })
     }
 
-    /// **Cancel** before pushing: the proposal is discarded; the ticket stays in Ready for Review.
+    /// **Cancel**: the proposal is discarded; the ticket stays in its review and no PR is recorded. While pushing,
+    /// Cancel only stops waiting (never for an automatic delivery, which has no dialog); there is no timeout.
     pub async fn cancel(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         let Some(flow) = board.pr_flow(&ticket.id).await? else {
             return Ok(ticket);
         };
-        if flow.state == FlowState::Pushing {
+        let pushing = flow.state == FlowState::Pushing;
+        if pushing && flow.automatic {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -612,10 +614,13 @@ impl Prs {
                 ),
             ));
         }
+        // The flow ends either way, so a later question from the agent reaches the board, not the closed dialog.
         board.end_pr_flow(&ticket.id).await?;
-        // A click's Open PR ran nothing before the confirm: a delivery session there is the one writing the
-        // delivery's message, which goes on.
-        if flow.kind == FlowKind::Push || flow.automatic {
+        // While pushing, the agent's session is left alone (a turn that never started must not hold the dialog, and
+        // a PR it reports later with `otaq pr opened` is still recorded). Before pushing, a click's Open PR ran
+        // nothing before the confirm: a delivery session there is the one writing the delivery's message, which goes
+        // on.
+        if !pushing && (flow.kind == FlowKind::Push || flow.automatic) {
             self.end_delivery(&ticket).await?;
         }
         let mut tx = board.store().begin_write().await?;
@@ -624,7 +629,7 @@ impl Prs {
             &ticket.id,
             EventKind::PrCancelled,
             actor,
-            json!({ "kind": flow.kind }),
+            json!({ "kind": flow.kind, "pushing": pushing }),
         )
         .await?;
         tx.commit().await?;

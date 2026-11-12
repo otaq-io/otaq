@@ -755,6 +755,16 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
         .unwrap();
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Pushing, "no dialog");
+    // An automatic delivery has no dialog to cancel from: once confirmed, Cancel can't stop it.
+    let refused = w.prs.cancel(&key, &me()).await.unwrap_err();
+    assert_eq!(
+        refused.refusal(),
+        Some(otaq_core::board::Refusal::MoveRefused)
+    );
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
     let prime = otaq_core::prime::render(
         &w.board
             .prime_context(&key, w.adapters.for_new_session())
@@ -1027,6 +1037,165 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
         w.sessions
             .running_of(&t.id, SessionKind::Delivery)
             .is_some()
+    );
+    w.stop().await;
+}
+
+/// Pushing can always be cancelled (re-test 10 NEW-r10-1: real Claude Code answered "Unknown command" to the delivery
+/// skill, and the dialog held the window). Cancel while pushing ends the flow and leaves the ticket in its review with
+/// no PR, and the delivery's session goes on; when its agent reports the PR anyway, the PR is recorded.
+#[tokio::test(flavor = "multi_thread")]
+async fn pushing_can_be_cancelled_and_a_late_pr_is_still_recorded() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::pr::flow::FlowState;
+    use otaq_core::pr::service::PrOutcome;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
+            file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
+        })
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    w.agent_shell(&t).await;
+    let in_review = pass(&w, &t).await;
+
+    let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    let outcome = w
+        .prs
+        .confirm(&key, &flow.proposal.unwrap(), false, &me())
+        .await
+        .unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
+    let delivery = w
+        .sessions
+        .running_of(&t.id, SessionKind::Delivery)
+        .expect("the delivery's session");
+
+    let after = w.prs.cancel(&key, &me()).await.unwrap();
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    assert_eq!(
+        (after.status, &after.place, after.flags.pr_number),
+        (in_review.status, &in_review.place, None)
+    );
+    assert_eq!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Delivery)
+            .map(|s| s.id),
+        Some(delivery.id),
+        "the delivery's session goes on"
+    );
+    let cancelled = w
+        .board
+        .history(&key)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == EventKind::PrCancelled)
+        .expect("the cancel is recorded");
+    assert_eq!(cancelled.payload["pushing"], true);
+
+    // The agent pushes and reports the PR after all: recorded.
+    let t = w.board.ticket(&key).await.unwrap();
+    push_branch(&t);
+    let open = w
+        .prs
+        .opened(
+            &key,
+            "https://github.com/acme/shop-web/pull/12",
+            &Actor::Agent(t.key.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (open.status, open.flags.pr_number),
+        (Status::PrOpen, Some(12))
+    );
+    w.stop().await;
+}
+
+/// After Cancel while pushing, the agent's `otaq ask human` from the session that was pushing is an ordinary
+/// question on the board (Asks you in its review), not a problem reported to the closed dialog.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_after_cancel_while_pushing_shows_on_the_board() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::pr::flow::FlowState;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
+            file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
+        })
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    // Dev's agent delivers too: its session runs the skill.
+    let agent = w.agent_shell(&t).await;
+    let in_review = pass(&w, &t).await;
+    w.prs.open(&key, true, false, &me()).await.unwrap();
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    w.prs
+        .confirm(&key, &flow.proposal.unwrap(), false, &me())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
+    w.prs.cancel(&key, &me()).await.unwrap();
+
+    let request = serde_json::json!({
+        "protocol_version": otaq_core::protocol::PROTOCOL_VERSION,
+        "id": 1,
+        "request": {
+            "method": "ticket.ask_human",
+            "params": {"key": key, "question": "The push was rejected: retry?"}
+        }
+    });
+    let ran = agent
+        .send_raw(&w.data.socket_path(), &request.to_string())
+        .await;
+    assert!(!ran.stdout.contains("\"error\""), "{ran:?}");
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    let ticket = w.board.ticket(&key).await.unwrap();
+    assert_eq!(
+        ticket.question_in_place().map(|q| q.text.as_str()),
+        Some("The push was rejected: retry?"),
+        "a question on the board"
+    );
+    assert_eq!(
+        (ticket.status, &ticket.place),
+        (in_review.status, &in_review.place)
     );
     w.stop().await;
 }
