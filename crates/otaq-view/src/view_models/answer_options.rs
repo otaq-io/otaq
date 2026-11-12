@@ -258,7 +258,7 @@ pub struct Answer {
     pub multiple: bool,
     pub recommended_label: &'static str,
     pub other_placeholder: &'static str,
-    pub hint: &'static str,
+    pub hint: String,
     pub in_terminal: &'static str,
     pub send: &'static str,
 }
@@ -282,7 +282,7 @@ pub fn split_question(text: &str) -> (String, Option<String>) {
 }
 
 /// The question line, its context and the words every answer box shares.
-fn answer(question: &HumanQuestion, rows: Vec<AnswerRow>, hint: &'static str) -> Answer {
+fn answer(question: &HumanQuestion, rows: Vec<AnswerRow>, hint: String) -> Answer {
     let (line, context) = split_question(&question.text);
     Answer {
         question: question.id.clone(),
@@ -313,12 +313,14 @@ fn rows_of(options: &AnswerOptions) -> Vec<AnswerRow> {
         .collect()
 }
 
-/// The hint under a list of options: a number picks, or ticks when the question takes several answers.
-fn options_hint(options: &AnswerOptions) -> &'static str {
+/// The hint under a list of options: a number picks, or ticks when the question takes several answers. Its range
+/// runs to the last row's number, Other… (three rows: "1–3 pick").
+fn options_hint(options: &AnswerOptions) -> String {
+    let last = options.other_number();
     if options.multiple() {
-        "Pick any \u{b7} 1\u{2013}4 tick \u{b7} \u{21b5} sends"
+        format!("Pick any \u{b7} 1\u{2013}{last} tick \u{b7} \u{21b5} sends")
     } else {
-        "1\u{2013}4 pick \u{b7} \u{21b5} sends"
+        format!("1\u{2013}{last} pick \u{b7} \u{21b5} sends")
     }
 }
 
@@ -329,14 +331,14 @@ pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
         Some(options) => (
             rows_of(&options),
             match question.send_back {
-                Some(_) => "1\u{2013}2 pick \u{b7} \u{21b5} sends",
+                Some(_) => "1\u{2013}2 pick \u{b7} \u{21b5} sends".to_owned(),
                 None => options_hint(&options),
             },
         ),
         // An open question's box takes a few lines.
         None => (
             Vec::new(),
-            "\u{21b5} sends \u{b7} \u{21e7}\u{21b5} new line",
+            "\u{21b5} sends \u{b7} \u{21e7}\u{21b5} new line".to_owned(),
         ),
     };
     Some(answer(question, rows, hint))
@@ -347,7 +349,7 @@ pub fn question_bar(question: &HumanQuestion) -> Option<Answer> {
 pub fn agent_question(question: &HumanQuestion) -> Answer {
     let (rows, hint) = match AnswerOptions::of(question) {
         Some(options) => (rows_of(&options), options_hint(&options)),
-        None => (Vec::new(), "\u{21b5} sends"),
+        None => (Vec::new(), "\u{21b5} sends".to_owned()),
     };
     answer(question, rows, hint)
 }
@@ -583,6 +585,11 @@ mod tests {
         );
         assert!(o.press(2));
         assert!(o.can_send(""));
+        assert_eq!(
+            question_bar(&q).unwrap().hint,
+            "1\u{2013}3 pick \u{b7} \u{21b5} sends",
+            "the hint's range ends at Other…'s number"
+        );
     }
 
     #[test]
