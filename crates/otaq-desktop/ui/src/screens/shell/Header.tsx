@@ -2,7 +2,8 @@
 // name's hover; a click opens the project switcher: every project with a dot on one that needs you and a check on this
 // one, then Add project…; the name only switches projects or adds one); centre, the search entry; right, the usage
 // chip only when it needs you (amber, "Claude Code · 15% left"), then Running (agents and apps across all projects; a
-// click or ⇧⌘U opens its popover) and Pause (the `header_pause` slot, T-0457), both only while something runs. Needs
+// click or ⇧⌘U opens its popover) and Pause (the `header_pause` slot, T-0457), both only while something runs, held
+// at the right end so Running leaving never moves Pause under the pointer (NEW-b1). Needs
 // you is the board's strip (d0114, T-0459). Everything it says comes from `shell.header`. A project in Flow setup
 // (ASK-04, T-0436) shows "billing-api · Flow setup" with "2 agents at work" or "2 proposals" in place of its base
 // branch, and no search (it has no board to filter). The row is the title bar: its empty parts move the window, and
@@ -284,17 +285,21 @@ export function HeaderBar({
         </button>
       )}
       <div className="header-gap" />
-      {activity.warning && (
-        <UsageChip
-          warning={activity.warning}
-          open={activityOpen && !activity.shown}
-          anchor={activity.shown ? undefined : anchor}
-        />
-      )}
-      {activity.shown && (
-        <ActivityChip activity={activity} open={activityOpen} anchor={anchor} stale={serviceDown} />
-      )}
-      {pause}
+      {/* Held at the title bar's right end: Running leaving (its last agent waits at a prompt) moves nothing after
+          it, so Pause never slides under a click aimed at Running (NEW-b1). */}
+      <div className="header-end">
+        {activity.warning && (
+          <UsageChip
+            warning={activity.warning}
+            open={activityOpen && !activity.shown}
+            anchor={activity.shown ? undefined : anchor}
+          />
+        )}
+        {activity.shown && (
+          <ActivityChip activity={activity} open={activityOpen} anchor={anchor} stale={serviceDown} />
+        )}
+        {pause}
+      </div>
     </div>
   );
 }
