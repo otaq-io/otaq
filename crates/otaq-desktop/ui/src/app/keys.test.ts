@@ -840,6 +840,8 @@ describe("0097's keys (KEY-01, KEY-02)", () => {
     expect(lettersKeptBy(element("DIV", '[role="listbox"]'))).toBe("all");
     expect(lettersKeptBy(element("BUTTON", '[role="dialog"]'))).toBe("all");
     expect(lettersKeptBy(element("DIV", '[role="radiogroup"]'))).toBe("digits");
+    // A question that takes several answers: its checkboxes sit in a plain group, which keeps its digits too.
+    expect(lettersKeptBy(element("BUTTON", "[data-number-keys]", { role: "checkbox" }))).toBe("digits");
     // A card, a button on the board and nothing focused.
     expect(lettersKeptBy(element("DIV", null, { role: "button" }))).toBe("none");
     expect(lettersKeptBy(element("BUTTON"))).toBe("none");

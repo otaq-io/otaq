@@ -92,7 +92,9 @@ const DESCRIPTION_EDITOR = ".md-editor";
 const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
 /** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys. */
 const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]';
-const RADIO_GROUP = '[role="radiogroup"]';
+/** Where the digits are the focus's own: a radio group, and an answer box's options, whose number keys pick or tick
+ * (a question that takes several answers draws a plain `group` of checkboxes, so it says so itself). */
+const DIGIT_WIDGETS = '[role="radiogroup"], [data-number-keys]';
 /** A menu or dialog open anywhere on the page holds the letters back too; a leaving copy (`data-leaving`) doesn't. */
 const OPEN_WIDGETS = '[role="menu"], [role="dialog"]';
 
@@ -127,7 +129,7 @@ export function lettersKeptBy(element: FocusLike | null): LetterHold {
   if (element === null) return "none";
   if (keptByElement(element) === TEXT_FIELD_KEYS || isSelect(element)) return "all";
   if (element.closest?.(DESCRIPTION_EDITOR) || element.closest?.(LETTER_WIDGETS)) return "all";
-  return element.closest?.(RADIO_GROUP) ? "digits" : "none";
+  return element.closest?.(DIGIT_WIDGETS) ? "digits" : "none";
 }
 
 const isSelect = (element: FocusLike) => element.tagName.toLowerCase() === "select";

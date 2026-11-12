@@ -157,6 +157,8 @@ export function AnswerChoices({
         // Checkboxes sit in a group: several may be ticked.
         {...(multiple && { role: "group" })}
         aria-label={answer.line}
+        // Its number keys pick or tick, before the sheet's 1–4 tabs (`keys.ts`), checkboxes as radios.
+        data-number-keys
         tabIndex={-1}
         onKeyDown={(e) => {
           const n = pickByKey(e.key, answer.rows);

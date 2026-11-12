@@ -9,6 +9,7 @@ import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vite
 
 import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { SheetAnswer } from "../../generated/SheetAnswer";
+import { lettersKeptBy } from "../../app/keys";
 import { request } from "../../tauri";
 import { AgentQuestionBox } from "../agent_panel/AgentQuestion";
 import { VIEW } from "../sheet/sheet_fixtures";
@@ -141,6 +142,22 @@ describe("a question that takes several answers, on a ticket's Overview", () => 
       other: "Mailgun for receipts",
       clear: false,
     });
+  });
+
+  it("keeps its number keys from the sheet's 1–4 tabs, as a question that takes one answer does (NEW-b3)", () => {
+    for (const answer of [SEVERAL, ONE]) {
+      act(() => {
+        root.render(createElement(AnswerBox, { view: VIEW, answer, more: null, fromCard: null }));
+      });
+      // A clicked row, and the list a card's option focuses.
+      for (const focus of [rows()[1], host.querySelector<HTMLElement>(".sheet-answer-options")]) {
+        act(() => {
+          focus?.focus();
+        });
+        expect(document.activeElement).toBe(focus);
+        expect(lettersKeptBy(document.activeElement as HTMLElement), answer.question).toBe("digits");
+      }
+    }
   });
 
   it("needs at least one ticked", () => {
