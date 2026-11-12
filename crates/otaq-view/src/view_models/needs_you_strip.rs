@@ -807,7 +807,8 @@ pub mod samples {
             id: "q4".into(),
             text: "Should the share link expire?".into(),
             options: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -842,7 +843,8 @@ pub mod samples {
                 id: "pq1".into(),
                 text: "Add an index on orders.created_at?".into(),
                 options: vec!["Add the index".into(), "Leave it".into()],
-                recommended: Some(1),
+                recommended: vec![1],
+                multiple: false,
                 notes: vec![
                     Some("Checkout's slow query drops from 900 ms to 20 ms; one migration.".into()),
                     Some("Nothing to migrate, but checkout stays slow on big carts.".into()),
@@ -963,7 +965,7 @@ mod tests {
         };
         let mut a = agent();
         a.question.as_mut().unwrap().options.clear();
-        a.question.as_mut().unwrap().recommended = None;
+        a.question.as_mut().unwrap().recommended.clear();
         a.question.as_mut().unwrap().notes.clear();
         let chip = agent_chip(&a, target.clone());
         let asks = chip.agent_asks.expect("the open question");
@@ -1149,7 +1151,8 @@ mod tests {
                     id: "q12".into(),
                     text: "Should dark mode follow the system setting?".into(),
                     options: Vec::new(),
-                    recommended: None,
+                    recommended: Vec::new(),
+                    multiple: false,
                     notes: Vec::new(),
                     asked_at: 0,
                     send_back: None,
@@ -1280,7 +1283,8 @@ mod tests {
             id: "q1".into(),
             text: "Which email provider should I use?".into(),
             options: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,

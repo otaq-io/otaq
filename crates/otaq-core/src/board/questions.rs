@@ -8,6 +8,10 @@
 //! Each option may carry a **note**, its pros and cons (`--note` after its `--option`, ATT-17, d0061): stored whole,
 //! never refused for its length or cut. The delivered answer doesn't name it.
 //!
+//! **A question can take several answers** (`--multiple`): the user ticks any of its options, Other… among them, and
+//! it may recommend several (`--recommended 1,3`). The answer names every ticked option and Other…'s text
+//! ([`Choice::Several`]). A question asked before reads as taking one answer.
+//!
 //! **An open question holds Needs you until it is closed** (d0119). A question closes ([`AnsweredVia`]) when the user
 //! answers it from the answer box, presses Enter on a line in that agent's terminal (or the Ask bar's Continue to a
 //! Project agent), when the same agent asks a new question (the older one is replaced), when its ticket is
@@ -52,9 +56,13 @@ pub struct HumanQuestion {
     /// The answer options, in order; empty for a free-text question.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub options: Vec<String>,
-    /// The recommended option, 1-based.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
+    /// The recommended options, 1-based, in order: at most one unless the question takes several answers. One
+    /// number in JSON when there is one, a list when there are several.
+    #[serde(default, skip_serializing_if = "Vec::is_empty", with = "one_or_many")]
+    pub recommended: Vec<u32>,
+    /// The user may tick several of the options (and Other…); `false` for every question asked before.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
     /// Each option's note (ATT-17), in the options' order, `None` for an option without one; empty when no option
     /// has one.
     #[serde(default, skip_serializing_if = "no_notes")]
@@ -101,10 +109,49 @@ pub enum Choice {
     Other(String),
     /// Send the ticket back to the stage a send-back question names.
     SendBack,
+    /// A question that takes several answers: the ticked options (1-based) and Other…'s text when it is ticked.
+    Several {
+        options: Vec<u32>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        other: Option<String>,
+    },
 }
 
-/// Checks the options of a question: none, or 2–4 short labels, and a recommendation among them.
-pub fn validate_options(options: &[String], recommended: Option<u32>) -> Result<(), BoardError> {
+/// The recommended options in JSON: one number when there is one (as every question before several answers), a list
+/// when there are several; either reads back.
+pub mod one_or_many {
+    use serde::{Deserialize, Deserializer, Serialize, Serializer};
+
+    #[derive(Deserialize)]
+    #[serde(untagged)]
+    enum OneOrMany {
+        One(u32),
+        Many(Vec<u32>),
+    }
+
+    pub fn serialize<S: Serializer>(numbers: &[u32], serializer: S) -> Result<S::Ok, S::Error> {
+        match numbers {
+            [one] => one.serialize(serializer),
+            many => many.serialize(serializer),
+        }
+    }
+
+    pub fn deserialize<'de, D: Deserializer<'de>>(deserializer: D) -> Result<Vec<u32>, D::Error> {
+        Ok(match Option::<OneOrMany>::deserialize(deserializer)? {
+            None => Vec::new(),
+            Some(OneOrMany::One(n)) => vec![n],
+            Some(OneOrMany::Many(numbers)) => numbers,
+        })
+    }
+}
+
+/// Checks the options of a question: none, or 2–4 short labels, and recommendations among them: one, or several when
+/// the question takes several answers (`multiple`), which needs options.
+pub fn validate_options(
+    options: &[String],
+    recommended: &[u32],
+    multiple: bool,
+) -> Result<(), BoardError> {
     let refuse = |message: String| Err(BoardError::refused(Refusal::BadQuestion, message));
     if options.len() == 1 || options.len() > MAX_OPTIONS {
         return refuse("Give 2–4 options, or none for a free-text question".to_owned());
@@ -121,16 +168,51 @@ pub fn validate_options(options: &[String], recommended: Option<u32>) -> Result<
             long.trim()
         ));
     }
-    match recommended {
-        Some(_) if options.is_empty() => {
-            refuse("--recommended needs options to choose from".to_owned())
-        }
-        Some(n) if n == 0 || n as usize > options.len() => refuse(format!(
+    if multiple && options.is_empty() {
+        return refuse("--multiple needs options to choose from".to_owned());
+    }
+    if !recommended.is_empty() && options.is_empty() {
+        return refuse("--recommended needs options to choose from".to_owned());
+    }
+    if recommended
+        .iter()
+        .any(|&n| n == 0 || n as usize > options.len())
+    {
+        return refuse(format!(
             "--recommended must be between 1 and {}",
             options.len()
-        )),
-        _ => Ok(()),
+        ));
     }
+    if clean_recommended(recommended).len() > 1 && !multiple {
+        return refuse(
+            "Recommend one option, or ask with --multiple to let the user pick several".to_owned(),
+        );
+    }
+    Ok(())
+}
+
+/// The recommended options as stored: in order, each once.
+pub fn clean_recommended(recommended: &[u32]) -> Vec<u32> {
+    let mut numbers = recommended.to_vec();
+    numbers.sort_unstable();
+    numbers.dedup();
+    numbers
+}
+
+/// `recommended_json`: the recommended options when there are several; NULL otherwise (`recommended` holds the one).
+pub(crate) fn recommended_json(recommended: &[u32]) -> Option<String> {
+    (recommended.len() > 1).then(|| serde_json::to_string(recommended).expect("numbers serialize"))
+}
+
+/// The recommended options read back: `recommended_json`'s list when there are several, else `recommended`'s one.
+pub(crate) fn recommended_from(one: Option<i64>, json: Option<&str>) -> Vec<u32> {
+    json.and_then(|j| serde_json::from_str::<Vec<u32>>(j).ok())
+        .filter(|numbers| !numbers.is_empty())
+        .unwrap_or_else(|| {
+            one.and_then(|n| u32::try_from(n).ok())
+                .into_iter()
+                .collect()
+        })
 }
 
 /// No option has a note.
@@ -184,17 +266,33 @@ pub(crate) fn notes_from_json(json: Option<&str>) -> Vec<Option<String>> {
 }
 
 /// The text typed into the agent's session: "Answer to your question: Postmark (option 1)." for an option,
-/// "Answer to your question: <text>" for "Other…".
+/// "Answer to your question: <text>" for "Other…". Several answers name every ticked option, then Other…'s text:
+/// "Answer to your question: Postmark (option 1), SES (option 3). Also: <text>".
 pub fn format_answer(question: &HumanQuestion, choice: &Choice) -> String {
+    let named = |n: u32| {
+        let label = question
+            .options
+            .get((n as usize).wrapping_sub(1))
+            .map_or("?", String::as_str);
+        format!("{label} (option {n})")
+    };
     match choice {
-        Choice::Option(n) => {
-            let label = question
-                .options
-                .get((*n as usize).wrapping_sub(1))
-                .map_or("?", String::as_str);
-            format!("Answer to your question: {label} (option {n}).")
-        }
+        Choice::Option(n) => format!("Answer to your question: {}.", named(*n)),
         Choice::Other(text) => format!("Answer to your question: {}", text.trim()),
+        Choice::Several { options, other } => {
+            let other = other.as_deref().map(str::trim).filter(|t| !t.is_empty());
+            if options.is_empty() {
+                return format!("Answer to your question: {}", other.unwrap_or_default());
+            }
+            let picked = options.iter().map(|&n| named(n)).collect::<Vec<_>>();
+            match other {
+                Some(other) => format!(
+                    "Answer to your question: {}. Also: {other}",
+                    picked.join(", ")
+                ),
+                None => format!("Answer to your question: {}.", picked.join(", ")),
+            }
+        }
         Choice::SendBack => match &question.send_back {
             Some(to) => format!("Sent back to {}.", to.stage),
             None => "Sent back.".to_owned(),
@@ -208,6 +306,8 @@ struct QuestionRow {
     question: String,
     options_json: String,
     recommended: Option<i64>,
+    recommended_json: Option<String>,
+    multiple: bool,
     option_notes_json: Option<String>,
     asked_at: i64,
     send_back_stage_id: Option<String>,
@@ -215,8 +315,8 @@ struct QuestionRow {
 }
 
 /// The columns of [`QuestionRow`], and where they come from (`human_questions q`).
-const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.option_notes_json, q.asked_at, q.send_back_stage_id, \
-     q.send_back_stage";
+const QUESTION_COLUMNS: &str = "q.id, q.question, q.options_json, q.recommended, q.recommended_json, q.multiple, \
+     q.option_notes_json, q.asked_at, q.send_back_stage_id, q.send_back_stage";
 const QUESTION_FROM: &str = "human_questions q";
 /// The ticket's questions to the user (d0133 audit 3): its agent's own, and a helper's once the agent in charge
 /// passed it on. A helper's question still with the agent in charge, or answered by it, never is.
@@ -228,7 +328,8 @@ impl From<QuestionRow> for HumanQuestion {
             id: row.id,
             text: row.question,
             options: serde_json::from_str(&row.options_json).unwrap_or_default(),
-            recommended: row.recommended.and_then(|n| u32::try_from(n).ok()),
+            recommended: recommended_from(row.recommended, row.recommended_json.as_deref()),
+            multiple: row.multiple,
             notes: notes_from_json(row.option_notes_json.as_deref()),
             asked_at: row.asked_at,
             send_back: row.send_back_stage_id.map(|stage_id| SendBackTo {
@@ -267,15 +368,15 @@ impl Board {
         text: &str,
         options: &[String],
         notes: &[Option<String>],
-        recommended: Option<u32>,
+        recommended: &[u32],
+        multiple: bool,
     ) -> Result<HumanQuestion, BoardError> {
         self.insert_question(
             "ticket_id",
             ticket_id,
             text,
-            options,
-            notes,
-            recommended,
+            (options, notes),
+            (recommended, multiple),
             None,
         )
         .await
@@ -289,8 +390,15 @@ impl Board {
         text: &str,
         to: &SendBackTo,
     ) -> Result<HumanQuestion, BoardError> {
-        self.insert_question("ticket_id", ticket_id, text, &[], &[], None, Some(to))
-            .await
+        self.insert_question(
+            "ticket_id",
+            ticket_id,
+            text,
+            (&[], &[]),
+            (&[], false),
+            Some(to),
+        )
+        .await
     }
 
     /// Stores a question of the Project agent `agent` (`ask human` from it, d0068).
@@ -300,15 +408,15 @@ impl Board {
         text: &str,
         options: &[String],
         notes: &[Option<String>],
-        recommended: Option<u32>,
+        recommended: &[u32],
+        multiple: bool,
     ) -> Result<HumanQuestion, BoardError> {
         self.insert_question(
             "project_agent_id",
             agent,
             text,
-            options,
-            notes,
-            recommended,
+            (options, notes),
+            (recommended, multiple),
             None,
         )
         .await
@@ -432,24 +540,25 @@ impl Board {
         Ok(())
     }
 
-    #[allow(clippy::too_many_arguments)]
+    /// Stores a question: the options come with their notes, the recommended ones with whether several may be
+    /// picked.
     async fn insert_question(
         &self,
         owner_column: &'static str,
         owner: &str,
         text: &str,
-        options: &[String],
-        notes: &[Option<String>],
-        recommended: Option<u32>,
+        (options, notes): (&[String], &[Option<String>]),
+        (recommended, multiple): (&[u32], bool),
         send_back: Option<&SendBackTo>,
     ) -> Result<HumanQuestion, BoardError> {
-        validate_options(options, recommended)?;
+        validate_options(options, recommended, multiple)?;
         validate_notes(options, notes)?;
         let question = HumanQuestion {
             id: new_id(),
             text: text.trim().to_owned(),
             options: options.iter().map(|o| o.trim().to_owned()).collect(),
-            recommended,
+            recommended: clean_recommended(recommended),
+            multiple,
             notes: clean_notes(notes),
             asked_at: now_ms(),
             send_back: send_back.cloned(),
@@ -466,15 +575,17 @@ impl Board {
         .execute(&mut *tx)
         .await?;
         sqlx::query(sqlx::AssertSqlSafe(format!(
-            "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, option_notes_json,
-                                          asked_at, send_back_stage_id, send_back_stage)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)"
+            "INSERT INTO human_questions (id, {owner_column}, question, options_json, recommended, recommended_json,
+                                          multiple, option_notes_json, asked_at, send_back_stage_id, send_back_stage)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)"
         )))
         .bind(&question.id)
         .bind(owner)
         .bind(&question.text)
         .bind(serde_json::to_string(&question.options).expect("strings serialize"))
-        .bind(question.recommended.map(i64::from))
+        .bind(question.recommended.first().copied().map(i64::from))
+        .bind(recommended_json(&question.recommended))
+        .bind(question.multiple)
         .bind(notes_json(&question.notes))
         .bind(question.asked_at)
         .bind(send_back.map(|to| to.stage_id.as_str()))
@@ -582,29 +693,37 @@ mod tests {
 
     #[test]
     fn two_to_four_short_options() {
-        assert!(validate_options(&[], None).is_ok());
-        assert!(validate_options(&opts(&["Postmark", "SES", "Resend"]), Some(1)).is_ok());
-        assert!(validate_options(&opts(&["a", "b", "c", "d"]), None).is_ok());
+        assert!(validate_options(&[], &[], false).is_ok());
+        assert!(validate_options(&opts(&["Postmark", "SES", "Resend"]), &[1], false).is_ok());
+        assert!(validate_options(&opts(&["a", "b", "c", "d"]), &[], false).is_ok());
         let wrong = "Give 2–4 options, or none for a free-text question";
-        assert_eq!(refusal(validate_options(&opts(&["only"]), None)), wrong);
         assert_eq!(
-            refusal(validate_options(&opts(&["a", "b", "c", "d", "e"]), None)),
+            refusal(validate_options(&opts(&["only"]), &[], false)),
+            wrong
+        );
+        assert_eq!(
+            refusal(validate_options(
+                &opts(&["a", "b", "c", "d", "e"]),
+                &[],
+                false
+            )),
             wrong
         );
         let long = "x".repeat(41);
         assert!(
-            refusal(validate_options(&opts(&["a", &long]), None)).contains("at most 40 characters")
+            refusal(validate_options(&opts(&["a", &long]), &[], false))
+                .contains("at most 40 characters")
         );
         assert_eq!(
-            refusal(validate_options(&opts(&["a", "b"]), Some(3))),
+            refusal(validate_options(&opts(&["a", "b"]), &[3], false)),
             "--recommended must be between 1 and 2"
         );
         assert_eq!(
-            refusal(validate_options(&opts(&["a", "b"]), Some(0))),
+            refusal(validate_options(&opts(&["a", "b"]), &[0], false)),
             "--recommended must be between 1 and 2"
         );
         assert_eq!(
-            refusal(validate_options(&[], Some(1))),
+            refusal(validate_options(&[], &[1], false)),
             "--recommended needs options to choose from"
         );
     }
@@ -661,7 +780,8 @@ mod tests {
             id: "q".into(),
             text: "Which email provider?".into(),
             options: opts(&["Postmark", "SES", "Resend"]),
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             notes: vec![Some("One small library.".into()), None, None],
             asked_at: 0,
             send_back: None,
@@ -676,7 +796,8 @@ mod tests {
         );
         let asks_back = HumanQuestion {
             options: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             send_back: Some(SendBackTo {
                 stage_id: "product-spec".into(),
@@ -687,6 +808,116 @@ mod tests {
         assert_eq!(
             format_answer(&asks_back, &Choice::SendBack),
             "Sent back to Product spec."
+        );
+    }
+
+    /// Several answers name every ticked option in the single answer's words, then Other…'s text; one ticked reads as
+    /// one answer does.
+    #[test]
+    fn several_answers_name_each_choice() {
+        let q = HumanQuestion {
+            id: "q".into(),
+            text: "Which email providers?".into(),
+            options: opts(&["Postmark", "SES", "Resend"]),
+            recommended: vec![1, 3],
+            multiple: true,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        };
+        let several = |options: &[u32], other: Option<&str>| {
+            format_answer(
+                &q,
+                &Choice::Several {
+                    options: options.to_vec(),
+                    other: other.map(str::to_owned),
+                },
+            )
+        };
+        assert_eq!(
+            several(&[1, 3], None),
+            "Answer to your question: Postmark (option 1), Resend (option 3)."
+        );
+        assert_eq!(
+            several(&[2], None),
+            format_answer(&q, &Choice::Option(2)),
+            "one ticked reads as one answer"
+        );
+        assert_eq!(
+            several(&[1, 2], Some(" Mailgun, we have a contract ")),
+            "Answer to your question: Postmark (option 1), SES (option 2). Also: Mailgun, we have a contract"
+        );
+        assert_eq!(
+            several(&[], Some("Mailgun, we have a contract")),
+            format_answer(&q, &Choice::Other("Mailgun, we have a contract".into())),
+            "only Other… reads as Other…"
+        );
+    }
+
+    /// `--multiple` needs options; several recommendations need `--multiple`; each is among the options.
+    #[test]
+    fn several_answers_need_options_and_may_recommend_several() {
+        let three = opts(&["Postmark", "SES", "Resend"]);
+        assert!(validate_options(&three, &[1, 3], true).is_ok());
+        assert!(validate_options(&three, &[], true).is_ok());
+        assert!(
+            validate_options(&three, &[2, 2], false).is_ok(),
+            "the same one twice is one"
+        );
+        assert_eq!(
+            refusal(validate_options(&[], &[], true)),
+            "--multiple needs options to choose from"
+        );
+        assert_eq!(
+            refusal(validate_options(&three, &[1, 3], false)),
+            "Recommend one option, or ask with --multiple to let the user pick several"
+        );
+        assert_eq!(
+            refusal(validate_options(&three, &[1, 4], true)),
+            "--recommended must be between 1 and 3"
+        );
+        assert_eq!(clean_recommended(&[3, 1, 3]), [1, 3]);
+        assert_eq!(recommended_json(&[1]), None);
+        assert_eq!(recommended_json(&[1, 3]).as_deref(), Some("[1,3]"));
+        assert_eq!(recommended_from(Some(2), None), [2]);
+        assert_eq!(recommended_from(Some(1), Some("[1,3]")), [1, 3]);
+        assert_eq!(recommended_from(None, None), Vec::<u32>::new());
+    }
+
+    /// The recommended options in JSON: one number as before, a list when there are several; a question without the
+    /// flag reads as one answer.
+    #[test]
+    fn recommended_reads_one_number_or_a_list() {
+        let one: HumanQuestion = serde_json::from_str(
+            r#"{"id": "q", "text": "Which?", "options": ["a", "b"], "recommended": 2, "asked_at": 0}"#,
+        )
+        .unwrap();
+        assert_eq!(
+            (one.recommended.as_slice(), one.multiple),
+            (&[2][..], false)
+        );
+        assert_eq!(serde_json::to_value(&one).unwrap()["recommended"], 2);
+        let several = HumanQuestion {
+            recommended: vec![1, 2],
+            multiple: true,
+            ..one
+        };
+        let json = serde_json::to_value(&several).unwrap();
+        assert_eq!(
+            (json["recommended"].clone(), json["multiple"].clone()),
+            (serde_json::json!([1, 2]), serde_json::json!(true))
+        );
+        assert_eq!(
+            serde_json::from_value::<HumanQuestion>(json).unwrap(),
+            several
+        );
+        assert_eq!(
+            serde_json::to_value(Choice::Several {
+                options: vec![1, 3],
+                other: Some("x".into())
+            })
+            .unwrap(),
+            serde_json::json!({"several": {"options": [1, 3], "other": "x"}})
         );
     }
 }

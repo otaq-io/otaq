@@ -554,7 +554,7 @@ async fn a_human_checks_send_back_or_a_drag_onto_a_check_closes_it() {
     commit(&wt, "notes.txt", "Store credit\n");
     place_in(&w, &t2, "qa", Status::WaitingForYou).await;
     w.board
-        .store_question(&t2.id, "Which expiry?", &[], &[], None)
+        .store_question(&t2.id, "Which expiry?", &[], &[], &[], false)
         .await
         .unwrap();
     w.review

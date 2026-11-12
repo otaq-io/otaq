@@ -76,6 +76,9 @@ There are 214 of them, most older than a year.
 QUESTION
 ```
 
+When the user may want several of the options at once, add `--multiple`: they tick any of them, and `--recommended`
+may name several (`--recommended 1,3`).
+
 An **open question** stays free text, with no options:
 
 ```sh

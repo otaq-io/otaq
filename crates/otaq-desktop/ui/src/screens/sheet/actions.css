@@ -444,6 +444,27 @@
   border: 5px solid var(--accent);
 }
 
+/* A question that takes several answers: a checkbox where the radio sits, ticked rows filled with the accent. */
+.sheet-answer-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin-top: 0.5px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-raised);
+  color: var(--text-on-accent);
+}
+
+.sheet-answer-option[data-picked] .sheet-answer-check {
+  border-color: var(--accent);
+  background: var(--accent);
+}
+
 .sheet-answer-label {
   display: flex;
   flex: 1;

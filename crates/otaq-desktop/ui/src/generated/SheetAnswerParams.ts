@@ -2,6 +2,7 @@
 
 /**
  * What `sheet.answer` takes: the open question, the picked number (Other… is the last), its text, and whether
- * the terminal's typed line is cleared first.
+ * the terminal's typed line is cleared first. A question that takes several answers sends every ticked number in
+ * `picks` instead.
  */
-export type SheetAnswerParams = { key: string, question: string, pick: number, other: string, clear: boolean, };
+export type SheetAnswerParams = { key: string, question: string, pick: number, picks?: Array<number>, other: string, clear: boolean, };

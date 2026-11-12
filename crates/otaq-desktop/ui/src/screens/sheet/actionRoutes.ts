@@ -218,9 +218,16 @@ export function cardRoute(kind: CardActionKind): CardRoute {
   }
 }
 
-/** The answer picked when the list opens: the recommended option (Rust marks it picked), else nothing. */
-export function initialPick(rows: readonly SheetAnswerRow[]): number | null {
-  return rows.find((r) => r.picked)?.number ?? null;
+/** The answers picked when the list opens: the recommended ones (Rust marks them picked), else none. */
+export function initialPicks(rows: readonly SheetAnswerRow[]): number[] {
+  return rows.filter((r) => r.picked).map((r) => r.number);
+}
+
+/** A click or number key on row `n`: it becomes the pick, or, on a question that takes several answers, it is ticked
+ * or unticked. */
+export function pressPick(picks: readonly number[], n: number, multiple: boolean): number[] {
+  if (!multiple) return [n];
+  return picks.includes(n) ? picks.filter((p) => p !== n) : [...picks, n];
 }
 
 /** A number key on the list: the option with that number, if there is one. */
@@ -229,13 +236,13 @@ export function pickByKey(key: string, rows: readonly SheetAnswerRow[]): number 
   return Number.isInteger(n) && rows.some((r) => r.number === n) ? n : null;
 }
 
-/** Whether the picked row is Other…, which needs typed text before Send is enabled. */
-export function picksOther(pick: number | null, rows: readonly SheetAnswerRow[]): boolean {
-  return rows.some((r) => r.other && r.number === pick);
+/** Whether Other… is among the picked rows: it needs typed text before Send is enabled. */
+export function picksOther(picks: readonly number[], rows: readonly SheetAnswerRow[]): boolean {
+  return rows.some((r) => r.other && picks.includes(r.number));
 }
 
 /** Send is enabled once something is picked, and Other… has text (Rust checks it again: `answer_options.rs`). */
-export function canSend(pick: number | null, other: string, rows: readonly SheetAnswerRow[]): boolean {
-  if (pick === null) return false;
-  return !picksOther(pick, rows) || other.trim() !== "";
+export function canSend(picks: readonly number[], other: string, rows: readonly SheetAnswerRow[]): boolean {
+  if (picks.length === 0) return false;
+  return !picksOther(picks, rows) || other.trim() !== "";
 }

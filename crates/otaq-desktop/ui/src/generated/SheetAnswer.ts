@@ -18,4 +18,9 @@ context: string | null,
 /**
  * The options and Other…; empty for an open question.
  */
-rows: Array<SheetAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };
+rows: Array<SheetAnswerRow>, 
+/**
+ * The user may tick several rows (checkboxes, number keys tick and untick); otherwise one is picked (radios).
+ * Optional on the page: a question that takes one answer may leave it out.
+ */
+multiple?: boolean, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };

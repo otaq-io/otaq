@@ -40,7 +40,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions";
 import { HookOutput } from "../sheet/HookOutput";
-import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
+import { canSend, initialPicks, pickByKey, picksOther, pressPick } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
 import { QuestionText, useSendInView } from "./QuestionText";
 
@@ -81,13 +81,50 @@ function ActionButton({
   );
 }
 
+/** What is picked in an answer box, and its ways to change it: one pick, or, on a question that takes several answers,
+ * every ticked row. Opens on the recommended ones. Every answer box keeps its picks here. */
+export function useAnswerPicks(answer: SheetAnswer): {
+  picks: number[];
+  /** A click or number key: picks the row, or ticks / unticks it on a question that takes several answers. */
+  press: (n: number) => void;
+  /** A card's option: the row is picked (ticked, never unticked). */
+  pickRow: (n: number) => void;
+} {
+  const [picks, setPicks] = useState(() => initialPicks(answer.rows));
+  const multiple = answer.multiple === true;
+  return {
+    picks,
+    press: (n) => {
+      setPicks((now) => pressPick(now, n, multiple));
+    },
+    pickRow: (n) => {
+      setPicks((now) => (now.includes(n) ? now : pressPick(now, n, multiple)));
+    },
+  };
+}
+
+/** The picks a request carries: `pick` (the one pick, as before), and every ticked row in `picks` when the question
+ * takes several answers. */
+export function picksParams(
+  answer: SheetAnswer,
+  picks: readonly number[],
+): { pick?: number; picks?: number[] } {
+  const pick = picks.at(0);
+  return {
+    ...(pick !== undefined && { pick }),
+    ...(answer.multiple === true && { picks: [...picks] }),
+  };
+}
+
 /**
- * The question and its numbered options (ATT-12, ATT-17), each with its note, the recommended one marked, and Other…'s
- * field: a ticket's question bar and a Project agent's question (OTQ-9) draw it. 1–4 pick, ↵ sends.
+ * The question and its numbered options (ATT-12, ATT-17), each with its note, the recommended ones marked, and
+ * Other…'s field: a ticket's question bar and a Project agent's question (OTQ-9) draw it. 1–4 pick, ↵ sends. A question
+ * that takes several answers draws checkboxes instead of radios: a click or number key ticks or unticks its row, Other…
+ * too.
  */
 export function AnswerChoices({
   answer,
-  pick,
+  picks,
   other,
   onPick,
   onOther,
@@ -97,7 +134,7 @@ export function AnswerChoices({
   cap = null,
 }: {
   answer: SheetAnswer;
-  pick: number | null;
+  picks: readonly number[];
   other: string;
   onPick: (pick: number) => void;
   onOther: (other: string) => void;
@@ -109,6 +146,7 @@ export function AnswerChoices({
   cap?: number | null;
 }) {
   const noteId = useId();
+  const multiple = answer.multiple === true;
   return (
     <div className="sheet-answer">
       <QuestionText answer={answer} textRef={textRef} cap={cap} />
@@ -116,6 +154,8 @@ export function AnswerChoices({
         ref={options}
         className="sheet-answer-options"
         role="radiogroup"
+        // Checkboxes sit in a group: several may be ticked.
+        {...(multiple && { role: "group" })}
         aria-label={answer.line}
         tabIndex={-1}
         onKeyDown={(e) => {
@@ -133,17 +173,23 @@ export function AnswerChoices({
           <button
             key={row.number}
             type="button"
-            role="radio"
-            aria-checked={pick === row.number}
+            role={multiple ? "checkbox" : "radio"}
+            aria-checked={picks.includes(row.number)}
             aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
             className="sheet-answer-option"
-            data-picked={pick === row.number || undefined}
+            data-picked={picks.includes(row.number) || undefined}
             data-other={row.other || undefined}
             onClick={() => {
               onPick(row.number);
             }}
           >
-            <span className="sheet-answer-radio" />
+            {multiple ? (
+              <span className="sheet-answer-check">
+                {picks.includes(row.number) && <Icon name="check" size={11} />}
+              </span>
+            ) : (
+              <span className="sheet-answer-radio" />
+            )}
             <span className="sheet-answer-label">
               {row.label}
               {/* The option's note (ATT-17), whole and wrapped: its description. */}
@@ -162,7 +208,7 @@ export function AnswerChoices({
             <span className="sheet-answer-number">{row.number}</span>
           </button>
         ))}
-        {picksOther(pick, answer.rows) && (
+        {picksOther(picks, answer.rows) && (
           <textarea
             {...PROSE_TEXT}
             className="text-input text-area sheet-answer-box"
@@ -232,10 +278,10 @@ function OpenAnswer({
   );
 }
 
-/** Whether an answer can go: an open question's words, else a pick (and Other…'s text). */
-export function canAnswerQuestion(answer: SheetAnswer, pick: number | null, other: string): boolean {
+/** Whether an answer can go: an open question's words, else a pick or at least one ticked row (and Other…'s text). */
+export function canAnswerQuestion(answer: SheetAnswer, picks: readonly number[], other: string): boolean {
   if (answer.rows.length === 0) return other.trim() !== "";
-  return canSend(pick, other, answer.rows);
+  return canSend(picks, other, answer.rows);
 }
 
 /** The question bar with its options, or an open question's box (ATT-12, ATT-17); the Gallery draws it too. */
@@ -250,18 +296,25 @@ export function AnswerBox({
   more: ReactNode;
   fromCard: CardAnswer | null;
 }) {
-  const [pick, setPick] = useState(() => initialPick(answer.rows));
+  const { picks, press, pickRow } = useAnswerPicks(answer);
   const options = useRef<HTMLDivElement>(null);
   const { box, text, cap } = useSendInView();
   const [other, setOther] = useState("");
   const [sending, setSending] = useState(false);
   const open = answer.rows.length === 0;
-  const ready = canAnswerQuestion(answer, pick, other);
+  const ready = canAnswerQuestion(answer, picks, other);
   const send = (clear = false): Promise<unknown> => {
     if (!ready || sending) return Promise.resolve();
     setSending(true);
     // An open question's words go as its answer; the pick is the options' only.
-    const params = { key: view.key, question: answer.question, pick: pick ?? 1, other, clear };
+    const params = {
+      key: view.key,
+      question: answer.question,
+      pick: 1,
+      ...picksParams(answer, picks),
+      other,
+      clear,
+    };
     return (request("sheet.answer", params) as Promise<SheetSent>)
       .then((sent) => {
         askUnsent(sent, () => send(true));
@@ -278,12 +331,12 @@ export function AnswerBox({
     if (card.kind === "send_answer") {
       void send();
     } else if (answer.rows.some((r) => r.number === card.number)) {
-      setPick(card.number);
+      pickRow(card.number);
       options.current?.focus();
     }
   });
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React, once
+    // The card's click arrives from outside React, once.
     if (fromCard !== null) onCard(fromCard);
   }, [fromCard]);
   return (
@@ -302,9 +355,9 @@ export function AnswerBox({
       ) : (
         <AnswerChoices
           answer={answer}
-          pick={pick}
+          picks={picks}
           other={other}
-          onPick={setPick}
+          onPick={press}
           onOther={setOther}
           onSend={() => {
             void send();

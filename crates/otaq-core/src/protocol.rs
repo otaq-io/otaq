@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 12;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -1235,8 +1235,16 @@ pub struct AgentAskHumanParams {
     /// one.
     #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
     pub notes: Vec<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
+    /// The recommended options, 1-based: one number, or a list when the question takes several answers.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::board::questions::one_or_many"
+    )]
+    pub recommended: Vec<u32>,
+    /// The user may pick several of the options (`ask human --multiple`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
 }
 
 /// `{"id": "…", "choice": {"option": 1}}`; `clear` is the user's "Clear it and send".
@@ -1336,9 +1344,16 @@ pub struct AskHumanParams {
     /// one.
     #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
     pub notes: Vec<Option<String>>,
-    /// The recommended option, 1-based.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
+    /// The recommended options, 1-based: one number, or a list when the question takes several answers.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::board::questions::one_or_many"
+    )]
+    pub recommended: Vec<u32>,
+    /// The user may pick several of the options (`ask human --multiple`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
     /// An earlier stage of the ticket's flow (its name or id) the agent asks the user to send the ticket back to,
     /// the question being its reason (`ask human --send-back "Product spec"`); such a question takes no options.
     #[serde(default, skip_serializing_if = "Option::is_none")]

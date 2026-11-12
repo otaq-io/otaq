@@ -284,7 +284,7 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
     // `otaq ask human`: the question waits for the user; the answer is typed into Spec writer's session.
     let question = "Which columns go in the CSV?";
     w.board
-        .store_question(&t.id, question, &[], &[], None)
+        .store_question(&t.id, question, &[], &[], &[], false)
         .await
         .unwrap();
     let caller = Caller::Agent {

@@ -59,7 +59,12 @@ pub(super) async fn handle(
             let id = own(caller)?;
             agent(
                 agents
-                    .ask_human(id, &p.question, &p.options, &p.notes, p.recommended)
+                    .ask_human(
+                        id,
+                        &p.question,
+                        (&p.options, &p.notes),
+                        (&p.recommended, p.multiple),
+                    )
                     .await,
             )
         }

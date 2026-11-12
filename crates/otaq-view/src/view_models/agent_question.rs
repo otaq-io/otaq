@@ -63,7 +63,8 @@ mod tests {
             id: "q1".into(),
             text: "Import closed issues too?".into(),
             options: options.iter().map(|o| (*o).to_owned()).collect(),
-            recommended,
+            recommended: recommended.into_iter().collect(),
+            multiple: false,
             notes: options
                 .iter()
                 .map(|o| Some(format!("{o}: the note.")))

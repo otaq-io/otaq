@@ -20,10 +20,11 @@ import {
   agentSettings,
   canSend,
   cardRoute,
-  initialPick,
+  initialPicks,
   menuRoute,
   pickByKey,
   picksOther,
+  pressPick,
 } from "./actionRoutes";
 import { SheetBody } from "./Sheet";
 import { canAnswerQuestion } from "../overview/NeedsYou";
@@ -174,16 +175,25 @@ describe("answer options", () => {
   ];
 
   it("starts on the recommendation; number keys pick; Other… needs text", () => {
-    expect(initialPick(rows)).toBe(1);
-    expect(initialPick(rows.map((r) => ({ ...r, picked: false })))).toBeNull();
+    expect(initialPicks(rows)).toEqual([1]);
+    expect(initialPicks(rows.map((r) => ({ ...r, picked: false })))).toEqual([]);
     expect(pickByKey("2", rows)).toBe(2);
     expect(pickByKey("4", rows)).toBeNull();
     expect(pickByKey("a", rows)).toBeNull();
-    expect(picksOther(3, rows)).toBe(true);
-    expect(canSend(null, "", rows)).toBe(false);
-    expect(canSend(2, "", rows)).toBe(true);
-    expect(canSend(3, "  ", rows)).toBe(false);
-    expect(canSend(3, "Mailgun", rows)).toBe(true);
+    expect(picksOther([3], rows)).toBe(true);
+    expect(canSend([], "", rows)).toBe(false);
+    expect(canSend([2], "", rows)).toBe(true);
+    expect(canSend([3], "  ", rows)).toBe(false);
+    expect(canSend([3], "Mailgun", rows)).toBe(true);
+  });
+
+  it("a question that takes several answers ticks and unticks; one answer replaces the pick", () => {
+    expect(pressPick([1], 2, false)).toEqual([2]);
+    expect(pressPick([1], 2, true)).toEqual([1, 2]);
+    expect(pressPick([1, 2], 1, true)).toEqual([2]);
+    expect(pressPick([2], 2, true)).toEqual([]);
+    expect(canSend([1, 3], "", rows)).toBe(false);
+    expect(canSend([1, 3], "Mailgun", rows)).toBe(true);
   });
 
   it("an open question (no options) is answered in place, in the user's own words", () => {
@@ -212,8 +222,8 @@ describe("answer options", () => {
     expect(html).not.toContain("Open agent session");
     const buttons = [...(card?.querySelectorAll("button") ?? [])];
     expect(buttons.find((b) => b.textContent.includes("Send answer"))?.hasAttribute("disabled")).toBe(true);
-    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "Hello from Otaq")).toBe(true);
-    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "  ")).toBe(false);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, [], "Hello from Otaq")).toBe(true);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, [], "  ")).toBe(false);
   });
 
   it("replaces the action bar with the question and its options", () => {

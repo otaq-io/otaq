@@ -167,7 +167,8 @@ async fn world() -> World {
             "Should dark mode follow the system setting?",
             &["Yes".into(), "No".into()],
             &[],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();

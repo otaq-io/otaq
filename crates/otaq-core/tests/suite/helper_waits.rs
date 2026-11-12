@@ -205,7 +205,7 @@ async fn a_helpers_question_goes_to_the_agent_in_charge_who_answers_it() {
             "Can guests save items?",
             &["Logged-in users only".into(), "Guests too".into()],
             &[],
-            Some(1),
+            (&[1], false),
         )
         .await
         .unwrap();
@@ -308,7 +308,7 @@ async fn pass_on_turns_the_card_turquoise_and_the_users_answer_reaches_the_helpe
             "Can guests save items?",
             &["Logged-in users only".into(), "Guests too".into()],
             &[],
-            None,
+            (&[], false),
         )
         .await
         .unwrap();
@@ -404,7 +404,13 @@ async fn enter_in_the_helpers_terminal_answers_its_passed_on_question() {
     let two = start(&w, &t, &caller, 2, "Wishlist button").await;
     let session = two.session.clone().unwrap();
     w.helpers
-        .ask(&helper_caller(&t, &two), "Which icon?", &[], &[], None)
+        .ask(
+            &helper_caller(&t, &two),
+            "Which icon?",
+            &[],
+            &[],
+            (&[], false),
+        )
         .await
         .unwrap();
     // While the agent in charge has it, a line in the helper's terminal answers nothing.
@@ -561,7 +567,7 @@ async fn a_helpers_idle_notes_the_agent_in_charge_only() {
     // After its question, its Stop isn't Idle (the service marks the turn, as for a ticket's agent).
     hook(&w, &helper3, "UserPromptSubmit", "UserPromptSubmit").await;
     w.helpers
-        .ask(&helper3, "Which icon?", &[], &[], None)
+        .ask(&helper3, "Which icon?", &[], &[], (&[], false))
         .await
         .unwrap();
     w.signals.mark_submitted_or_asked(&session_of(&helper3));
