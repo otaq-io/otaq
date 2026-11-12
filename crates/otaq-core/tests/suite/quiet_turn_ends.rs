@@ -212,16 +212,18 @@ async fn a_helper_codex_starts_mid_turn_is_not_background_work() {
     let agent = sh_on(&w, &ticket, Tool::Codex).await;
     event(&w, &agent, Tool::Codex, new_turn()).await;
     // A program named as Codex's host (a copy of `sleep`, signed again on macOS, which kills an unsigned copy of a
-    // system program), started in the turn and left running. Where `sleep` is a multi-call binary that picks its tool
-    // by the name it is run as (uutils, Ubuntu 26.04's coreutils), the copy can't sleep under its own name: bash runs
-    // it as `sleep`, and the program is still the copy.
+    // system program), started in the turn and left running. Where `sleep` is a multi-call binary (uutils, Ubuntu
+    // 26.04's coreutils), a copy under another name refuses to run at all, even run as `sleep` with `exec -a`
+    // ("coreutils: unknown program"): there the host is a copy of `sh` waiting in its own `read` on a FIFO, so it
+    // starts no command of its own.
     run(
         &w,
         &agent,
         "cp \"$(command -v sleep)\" ./codex-code-mode-host; \
          command -v codesign >/dev/null && codesign -f -s - ./codex-code-mode-host 2>/dev/null; \
          if ./codex-code-mode-host 0 2>/dev/null; then ./codex-code-mode-host 300 & \
-         else bash -c 'exec -a sleep ./codex-code-mode-host 300' & fi",
+         else cp \"$(command -v sh)\" ./codex-code-mode-host; mkfifo ./codex-code-mode-host.fifo; \
+         ./codex-code-mode-host -c 'read x < ./codex-code-mode-host.fifo' & fi; echo $! > host.pid",
         "STARTED",
     )
     .await;
@@ -261,6 +263,8 @@ async fn a_helper_codex_starts_mid_turn_is_not_background_work() {
     );
     run(&w, &agent, "kill $!", "KILLED").await;
     until(&w, "Idle", (Status::Idle, Some("Started the test run."))).await;
+    // The `sh` host never ends by itself, and Stop reaches only the session's own process group.
+    run(&w, &agent, "kill $(cat host.pid)", "HOST GONE").await;
     w.stop().await;
 }
 
