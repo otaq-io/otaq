@@ -203,6 +203,23 @@ export function restore(project: string, yaml: string, ask: Ask = request): Prom
   return ask("flow_board.restore", { project, yaml });
 }
 
+/** The answer box's size in the editor: its width, and the height it grows to before its question scrolls. */
+export interface AnswerBoxSize {
+  width: number;
+  cap: number;
+}
+
+/** The editor's width from which the answer box is 760 px wide: a 1440 px window has it, the narrowest (1280) not. */
+export const WIDE_EDITOR = 1300;
+
+/**
+ * Edit flow's box while Noyan asks, in an editor (the area under the bar) `width` × `height` px: it grows with the
+ * question up to 55% of the editor's height, 760 px wide where there is room and 680 px in the narrowest window.
+ */
+export function answerBoxSize(width: number, height: number): AnswerBoxSize {
+  return { width: width >= WIDE_EDITOR ? 760 : 680, cap: Math.round(height * 0.55) };
+}
+
 /** The service events that change what the editor shows. */
 export const FLOW_BOARD_EVENTS = [
   "flow_changed",

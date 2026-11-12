@@ -13,9 +13,10 @@
 //! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
 //! another project's and Import), ⋯ (Export, Import, Copy from another project, Go back to the previous flow), Cancel
 //! and Save flow. A box docked at the editor's foot follows Noyan's conversation ([`Ask`]): it asks Noyan's agent for a
-//! change in the user's words, or for a whole flow; while the agent drafts it says so, with Show and Stop; and while
-//! its suggestion shows, marked on the columns with Why these changes, the box asks for changes to it. The bar then
-//! has Watch a ticket, Discard and Save flow.
+//! change in the user's words, or for a whole flow; while the agent drafts it says so, with Show and Stop; when the
+//! agent asks the user a question, the box becomes the answer box; and while its suggestion shows, marked on the
+//! columns with Why these changes, the box asks for changes to it. The bar then has Watch a ticket, Discard and Save
+//! flow.
 //!
 //! Every edit goes to the project's draft as the overlay editor's did ([`super::flow_editor::edited`],
 //! `flow.draft_update`); nothing changes on the board until the user saves. What a saved change does to moving
@@ -37,6 +38,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::agent_page::Choice;
 use crate::view_models::agent_panel::{self, LABEL as NOYAN};
+use crate::view_models::agent_question::{self, AgentQuestion};
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
     self as editor, AgentField, CHECK_ROUNDS, Choices, EditorKind, Facts, FailToField, FixRow,
@@ -306,6 +308,8 @@ pub enum AskState {
     Change,
     /// Noyan's agent drafts: the box shows it with Show and Stop, in the words' place.
     Drafting(Drafting),
+    /// Noyan's agent asks the user a question: the box is the answer box.
+    Asking(Asking),
     /// Its suggestion shows: the words go to the same conversation, `flow_board.ask_changes`.
     Proposal(ProposalAsk),
 }
@@ -392,6 +396,24 @@ pub struct Drafting {
     pub agent: String,
     pub show: &'static str,
     pub stop: &'static str,
+}
+
+/// While Noyan's agent asks the user a question (`otaq ask human`), the box is the answer box: the question with
+/// its options, Answer in terminal and Send answer, as above its terminal. It grows with the question up to 55% of
+/// the editor's height and scrolls the question's text past that; ⤢ opens it up to the editor's full height over a
+/// scrim, and ⤡, Esc or sending brings it back. A permission prompt isn't a question: it stays the drafting row's
+/// Needs you. `FlowBoardAsking` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowBoardAsking")]
+pub struct Asking {
+    /// "Needs you · Strong asks".
+    pub head: String,
+    /// The question and how to answer it; Send answer goes to the agent (`agent_panel.answer`).
+    pub question: AgentQuestion,
+    /// ⤢'s label: "Open larger".
+    pub expand: &'static str,
+    /// ⤡'s label: "Back to the box".
+    pub collapse: &'static str,
 }
 
 /// One step of Watch a ticket.
@@ -888,6 +910,14 @@ fn ask(f: &Facts) -> Ask {
         keys: "\u{21b5}",
         state: AskState::Change,
     };
+    // A question waits on the user whatever else shows: the box answers it first.
+    if let Some(asking) = asking(f) {
+        return Ask {
+            off: f.agent.map(|a| format!("{} is drafting one", a.name)),
+            state: AskState::Asking(asking),
+            ..change
+        };
+    }
     if let Some((by, by_name)) = suggested_by(f).filter(|_| suggestion(f).is_some()) {
         return Ask {
             placeholder: format!("Ask for changes to {by_name}\u{2019}s proposal\u{2026}"),
@@ -918,6 +948,17 @@ fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, &'a str)> {
         ProposedBy::ProjectAgent { agent, name, .. } => Some((agent.as_str(), name.as_str())),
         ProposedBy::User => None,
     }
+}
+
+/// The answer box, while Noyan's agent runs and asks the user a question.
+fn asking(f: &Facts) -> Option<Asking> {
+    let agent = f.agent?;
+    Some(Asking {
+        head: format!("Needs you \u{b7} {} asks", agent.name),
+        question: agent_question::of_agent(agent)?,
+        expand: "Open larger",
+        collapse: "Back to the box",
+    })
 }
 
 /// What Suggest a whole flow asks Noyan's agent, on the `flow` skill.
@@ -1709,6 +1750,111 @@ mod tests {
             facts(&draft, &[], Some(&a)).state,
             AskState::Drafting(_)
         ));
+    }
+
+    /// When Noyan's agent asks the user a question, the box becomes the answer box: the question with its options and
+    /// the words to answer it, under "Needs you · Strong asks". A permission prompt isn't a question: the drafting row
+    /// keeps its Needs you with Answer. Once answered, the agent drafts again.
+    #[test]
+    fn the_box_answers_noyans_question() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let box_of = |a: &otaq_core::project_agents::ProjectAgent| {
+            ask(&Facts {
+                project: "SHOP",
+                project_name: "shop-web",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            })
+        };
+
+        let mut a = agent("c1", "Strong", 0);
+        a.mid_turn = true;
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Should the security review run before or after Validate?".into(),
+            options: vec!["After Validate".into(), "Before Validate".into()],
+            recommended: Some(1),
+            notes: vec![
+                Some("Only code that passes the tests gets reviewed.".into()),
+                None,
+            ],
+            asked_at: 0,
+            send_back: None,
+        });
+        let asking = box_of(&a);
+        let AskState::Asking(q) = &asking.state else {
+            panic!("{asking:?}");
+        };
+        assert_eq!(q.head, "Needs you \u{b7} Strong asks");
+        assert_eq!((q.expand, q.collapse), ("Open larger", "Back to the box"));
+        assert_eq!(q.question.agent, "c1");
+        assert_eq!(q.question.project, a.project);
+        assert_eq!(
+            q.question.answer.line,
+            "Should the security review run before or after Validate?"
+        );
+        let labels: Vec<_> = q
+            .question
+            .answer
+            .rows
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect();
+        assert_eq!(labels[..2], ["After Validate", "Before Validate"]);
+        assert!(q.question.answer.rows[0].picked);
+        assert_eq!(q.question.answer.send, "Send answer");
+        assert_eq!(q.question.answer.in_terminal, "Answer in terminal");
+        assert_eq!(asking.off.as_deref(), Some("Strong is drafting one"));
+
+        // A permission prompt keeps the drafting row's Needs you.
+        a.question = None;
+        a.needs_you = Some("Allow npm test?".into());
+        let AskState::Drafting(d) = box_of(&a).state else {
+            panic!("a permission prompt is not a question");
+        };
+        assert_eq!(d.needs_you, Some("Needs you"));
+        assert_eq!(d.text, "Strong wants your permission: Allow npm test?");
+        assert_eq!(d.show, "Answer");
+
+        // Answered: it drafts again.
+        a.needs_you = None;
+        let AskState::Drafting(d) = box_of(&a).state else {
+            panic!("drafting again");
+        };
+        assert_eq!(d.needs_you, None);
+
+        // An ended agent asks nothing.
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q2".into(),
+            text: "Keep Review?".into(),
+            options: Vec::new(),
+            recommended: None,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        a.state = AgentState::Ended;
+        assert_eq!(box_of(&a).state, AskState::Change);
     }
 
     /// The box's drafting state shows only while Noyan's agent works on the draft. After Discard or Save the draft
