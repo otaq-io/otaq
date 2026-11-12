@@ -143,7 +143,8 @@ otaq ask human \
   --option "One ticket, 6 pieces" --note "One review and one merge; the share link waits for the whole wishlist." \
   --option "Two tickets" --note "Wishlist and Share link reviewed and merged apart; Noyan files the second one." \
   --recommended 1 --stdin <<'QUESTION'
-The wishlist and the share link are each several pieces, and each could be reviewed and merged on its own. Plan them as one ticket or two?
+Plan the wishlist and the share link as one ticket or two?
+They are each several pieces, and each could be reviewed and merged on its own.
 QUESTION
 ```
 

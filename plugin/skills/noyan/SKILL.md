@@ -71,7 +71,8 @@ otaq ask human \
   --option "Yes" --note "Old bugs come back into view, but about 200 more Backlog tickets to sort." \
   --option "No" --note "A short, current Backlog; closed issues stay only in the tracker." \
   --recommended 2 --stdin <<'QUESTION'
-Import the closed issues too? There are 214 of them, most older than a year.
+Import the closed issues too?
+There are 214 of them, most older than a year.
 QUESTION
 ```
 

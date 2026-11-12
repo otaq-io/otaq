@@ -112,6 +112,7 @@ on stdin, instead of giving a verdict, then end your turn:
 
 ```sh
 otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Should Product spec decide what happens to refunds over 30 days?
 Product gap: refunds over 30 days aren't specified, and the change picks one rule without saying why.
 QUESTION
 ```

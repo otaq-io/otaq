@@ -75,8 +75,8 @@ write-up, with `--report-file`. To read a report an earlier comment points to ("
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-main renamed `total()` to `grandTotal()` while this ticket changed what `total()` returns. Should the new behaviour go
-into `grandTotal()`?
+Should this ticket's new behaviour of `total()` go into `grandTotal()`?
+main renamed `total()` to `grandTotal()` while this ticket changed what `total()` returns.
 QUESTION
 ```
 

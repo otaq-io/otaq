@@ -131,7 +131,8 @@ otaq ask human \
   --option "Anyone with the link" --note "Easy to send in a chat; anyone who gets the link sees the list." \
   --option "Signed-in friends" --note "Private, but each friend needs an account first: fewer people will look." \
   --recommended 1 --stdin <<'QUESTION'
-Question 1 of about 4. Who can open a shared wishlist link?
+Who can open a shared wishlist link?
+Question 1 of about 4.
 QUESTION
 ```
 
@@ -139,7 +140,8 @@ An **open question** stays free text, with no options:
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-Question 2 of about 4. Who asked for wishlist sharing, and what do they want to do with it?
+Who asked for wishlist sharing, and what do they want to do with it?
+Question 2 of about 4.
 QUESTION
 ```
 

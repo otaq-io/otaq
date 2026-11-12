@@ -433,6 +433,7 @@ otaq ask human \
   --option "CSV only" --note "One small library, about half a day. No printable copy for customers." \
   --option "CSV and PDF" --note "Printable invoices too, but needs a page layout and a PDF library: about two days." \
   --recommended 1 --stdin <<'QUESTION'
+Which format should the orders page export?
 Question 1 of 2: SHOP-31 says "Add export" to the orders page but not which format. The accounting team's
 spreadsheet import (docs/accounting.md) reads CSV.
 QUESTION
@@ -468,6 +469,7 @@ move the ticket back: ask the user, naming that stage, with your reason on stdin
 
 ```sh
 otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Should Product spec decide what happens to refunds over 30 days?
 Product gap: refunds over 30 days aren't specified, and the order rules decide what Dev builds.
 QUESTION
 ```

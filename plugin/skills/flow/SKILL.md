@@ -30,6 +30,9 @@ editor as the draft, each stage you changed marked, and nothing changes until th
    check looks for), ask the user one question at a time with `otaq ask human --stdin` (2–4 options with notes when
    there are clear alternatives), then end your turn and wait for the answer. Don't ask what the request already
    says. To start from a ready-made flow, `otaq flow presets` lists the ones Otaq ships, with one line each.
+   **Everything the user needs to decide must be in Otaq, not only in your terminal**, which they may never open: the
+   background for a choice goes in the question's context and its options' notes; the reason for a change goes in
+   that stage's description (an agent's, in its `why:`; see "Descriptions").
 4. **Write the whole file**: every agent the stages name, and every stage, in the format below. Keep the stages and
    agents you aren't asked to change exactly as `flow show` printed them, and keep each stage's `id`: Otaq matches
    stages by id, name or position, so renaming Review to QA stays a rename.

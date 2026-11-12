@@ -95,7 +95,8 @@ If a comment is unclear, or a decision belongs to the user, ask, then end your t
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-The comment on lib/search.ts line 12 asks for the page size from settings. There is no such setting yet: add one?
+Should I add a page-size setting, as the comment on lib/search.ts line 12 asks?
+There is no such setting yet.
 QUESTION
 ```
 
@@ -111,8 +112,8 @@ otaq ask human \
   --option "Add a setting" --note "Users can pick their page size; a new Settings row and a migration." \
   --option "Keep 20" --note "No new setting to maintain, but the review comment stays unaddressed." \
   --recommended 1 --stdin <<'QUESTION'
-The review asks for the page size from settings, but there is no such setting yet. Add one (default 20), or keep the
-fixed 20?
+Add a page-size setting (default 20), or keep the fixed 20?
+The review asks for the page size from settings, but there is no such setting yet.
 QUESTION
 ```
 

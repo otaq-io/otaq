@@ -235,6 +235,9 @@ pub enum Command {
     },
     /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
     /// --stdin`)
+    ///
+    /// The first line is the question, in one sentence; the context follows on the next lines; the reason for each
+    /// choice goes in that option's --note.
     Ask {
         /// `human`, or the key of a ticket linked to this one
         #[arg(value_name = "human|KEY")]
@@ -818,6 +821,26 @@ mod tests {
                 .trim_start_matches("--note <TEXT>")
                 .trim(),
             "The pros and cons of the --option right before it (optional, at most one per option)"
+        );
+    }
+
+    /// Every agent reads how to write a question in `ask --help`: the question on the first line, the context after
+    /// it, each choice's reason in its option's note.
+    #[test]
+    fn the_help_of_ask_says_the_question_comes_first() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("ask")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "The first line is the question, in one sentence; the context follows on the next lines; the \
+                 reason for each choice goes in that option's --note."
+            ),
+            "{help}"
         );
     }
 

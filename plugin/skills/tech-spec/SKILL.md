@@ -145,7 +145,8 @@ otaq ask human \
   --option "Links never expire" --note "Simplest; an old link keeps working until the list is deleted." \
   --option "Expire after 30 days" --note "Safer, but friends get a 'link expired' page and ask for a new one." \
   --recommended 1 --stdin <<'QUESTION'
-Question 1 of 2. A share link is a random token in the wishlists table. Should it expire?
+Should a share link expire?
+Question 1 of 2. A share link is a random token in the wishlists table.
 QUESTION
 ```
 
@@ -153,7 +154,8 @@ An **open question** stays free text, with no options:
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-Question 2 of 2. How many wishlists does your largest customer have today, roughly?
+How many wishlists does your largest customer have today, roughly?
+Question 2 of 2.
 QUESTION
 ```
 
