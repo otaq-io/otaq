@@ -3,7 +3,7 @@
 What changed for you in each release. The maintainer copies a version's section into its GitHub release notes
 before Publish (`scripts/README.md`, "Making a release").
 
-## Unreleased
+## 0.2.0
 
 - **A shorter first run.** It is Welcome (your board's columns are your process, in one picture) → Tools (the agent
   tools and git; Install and Sign in… still run in a terminal under the row) → Project → your board, on Otaq

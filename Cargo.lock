@@ -2846,7 +2846,7 @@ dependencies = [
 
 [[package]]
 name = "otaq-cli"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "clap",
  "otaq-core",
@@ -2862,7 +2862,7 @@ dependencies = [
 
 [[package]]
 name = "otaq-core"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "block2",
@@ -2895,7 +2895,7 @@ dependencies = [
 
 [[package]]
 name = "otaq-desktop"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "base64 0.22.1",
  "fontdb",
@@ -2927,7 +2927,7 @@ dependencies = [
 
 [[package]]
 name = "otaq-view"
-version = "0.1.0"
+version = "0.2.0"
 dependencies = [
  "otaq-core",
  "serde",
