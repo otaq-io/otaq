@@ -1,7 +1,9 @@
-# The machine every Checks job starts from: the system libraries Tauri builds against, Rust, cargo-nextest, Node and
-# the caches. Each job then runs its own groups of scripts/check.sh.
+# The machine every Checks job starts from, on Linux and on Windows: the system libraries Tauri builds against (Linux
+# only), Rust, cargo-nextest, Node and the caches. Each job then runs its own groups of scripts/check.sh (Linux) or
+# scripts\check.ps1 (Windows). On Windows, Git for Windows (whose `bash`, `sh` and `cat` these steps and the tests
+# run) and the MSVC build tools come with the runner; steps only Windows needs go under `runner.os == 'Windows'`.
 name: Set up the checks
-description: System libraries, Rust 1.99.0, cargo-nextest, Node 24, the caches and a git identity
+description: System libraries (Linux), Rust 1.99.0, cargo-nextest, Node 24, the caches and a git identity
 inputs:
   save-rust-cache:
     description: Whether this job saves the Rust cache (only one of jobs that build the same thing should)
@@ -11,6 +13,7 @@ runs:
   steps:
     # As in scripts/README.md (Linux VM, step 1).
     - name: Install system libraries
+      if: runner.os == 'Linux'
       shell: bash
       run: |
         sudo apt-get update
@@ -30,7 +33,8 @@ runs:
         node-version-file: crates/otaq-desktop/.nvmrc
         cache: npm
         cache-dependency-path: crates/otaq-desktop/package-lock.json
-    # One cache per job (the key holds the job's name): clippy's and the tests' builds don't share files.
+    # One cache per job and system (the key holds the job's name and the runner's OS): clippy's and the tests' builds
+    # don't share files.
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         save-if: ${{ inputs.save-rust-cache }}

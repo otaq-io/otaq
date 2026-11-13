@@ -2,9 +2,10 @@
 # push to main (d0056), then approves the maintainer's own pull requests once both pass, so they can merge with
 # `gh pr merge --rebase --auto` (d0107, d0116). macOS joins later; until then it's checked locally.
 #
-# On Linux the steps run as parallel jobs, each one group of check.sh: the frontend steps, fmt and clippy, and the
-# tests in two shares (the doc examples with the first). Together they are the same steps as a plain
-# `scripts/check.sh`. On Windows check.ps1 runs whole, in one job (it has no groups).
+# Both systems run the same parallel jobs, each one group of the check script: the frontend steps, lint (fmt and
+# clippy) and the tests in shares (the doc examples with the first share). Together they are the same steps as a
+# plain `scripts/check.sh` or `scripts\check.ps1`. Each job is a matrix over Linux and Windows; the test shares are one
+# `include` list, the only place their count is written (tuq/tech-specs/faster-pr-checks.md, Decision 1).
 #
 # release.yml runs this workflow too (`workflow_call`) before it builds a release.
 name: Checks
@@ -26,89 +27,84 @@ concurrency:
 
 jobs:
   frontend:
-    name: Checks (Linux) – frontend
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Checks (${{ matrix.os.name }}) – frontend
+    runs-on: ${{ matrix.os.runner }}
+    # A Windows job running this long is a hang, not a slow step.
+    timeout-minutes: ${{ matrix.os.name == 'Windows' && 45 || 30 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - { name: Linux, runner: ubuntu-latest }
+          - { name: Windows, runner: windows-latest }
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - run: scripts/check.sh frontend
+      - if: runner.os == 'Linux'
+        run: scripts/check.sh frontend
+      - if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts\check.ps1 frontend
 
   lint:
-    name: Checks (Linux) – fmt and clippy
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Checks (${{ matrix.os.name }}) – lint
+    runs-on: ${{ matrix.os.runner }}
+    timeout-minutes: ${{ matrix.os.name == 'Windows' && 45 || 30 }}
+    strategy:
+      fail-fast: false
+      matrix:
+        os:
+          - { name: Linux, runner: ubuntu-latest }
+          - { name: Windows, runner: windows-latest }
     env:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
-      - run: scripts/check.sh lint
+      - if: runner.os == 'Linux'
+        run: scripts/check.sh lint
+      - if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts\check.ps1 lint
 
-  # A test still running after 5 minutes fails (.config/nextest.toml), so a job never waits out the time limit on a
-  # hang. Both shares build the same test programs: only the first saves the Rust cache.
+  # The one list of test shares: CHECK_TEST_PARTITION is built from it, never written by hand. A test still running
+  # after 5 minutes fails (.config/nextest.toml), so a job never waits out the time limit on a hang. Every share of a
+  # system builds the same test programs: only share 1 saves that system's Rust cache (its key holds the system).
+  # Tests that only make sense on Unix are `#[cfg(unix)]` (Q598); check.ps1 fetches Microsoft's ConPTY from nuget.org
+  # (scripts/conpty.ps1, pinned and hash-checked) for the tests' sessions.
   test:
-    name: Checks (Linux) – tests ${{ matrix.share }}/2
-    runs-on: ubuntu-latest
-    timeout-minutes: 30
+    name: Checks (${{ matrix.name }}) – tests ${{ matrix.share }}/${{ matrix.shares }}
+    runs-on: ${{ matrix.runner }}
+    timeout-minutes: ${{ matrix.name == 'Windows' && 45 || 30 }}
     strategy:
       fail-fast: false
       matrix:
         include:
-          - share: 1
-            groups: test doctest
-          - share: 2
-            groups: test
+          - { name: Linux, runner: ubuntu-latest, share: 1, shares: 2, groups: test doctest }
+          - { name: Linux, runner: ubuntu-latest, share: 2, shares: 2, groups: test }
+          - { name: Windows, runner: windows-latest, share: 1, shares: 4, groups: test doctest }
+          - { name: Windows, runner: windows-latest, share: 2, shares: 4, groups: test }
+          - { name: Windows, runner: windows-latest, share: 3, shares: 4, groups: test }
+          - { name: Windows, runner: windows-latest, share: 4, shares: 4, groups: test }
     env:
       CARGO_TERM_COLOR: always
-      CHECK_TEST_PARTITION: hash:${{ matrix.share }}/2
+      CHECK_TEST_PARTITION: hash:${{ matrix.share }}/${{ matrix.shares }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
       - uses: ./.github/actions/setup
         with:
           save-rust-cache: ${{ matrix.share == 1 }}
-      - run: scripts/check.sh ${{ matrix.groups }}
-
-  # The same machine as .github/actions/setup, which is Linux only (apt-get), set up step by step: Rust 1.99.0,
-  # cargo-nextest, Node 24, the Rust cache and a git identity. Git for Windows, whose `sh` and `cat` the tests run, and
-  # the MSVC build tools come with the runner. Tests that only make sense on Unix are `#[cfg(unix)]` (Q598). check.ps1
-  # fetches Microsoft's ConPTY from nuget.org (scripts/conpty.ps1, pinned and hash-checked) for the tests' sessions.
-  windows:
-    name: Checks (Windows)
-    runs-on: windows-latest
-    timeout-minutes: 120
-    env:
-      CARGO_TERM_COLOR: always
-    steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - name: Install Rust 1.99.0
-        run: |
-          rustup toolchain install 1.99.0 --profile minimal -c rustfmt -c clippy
-          rustup default 1.99.0
-      - uses: taiki-e/install-action@83ac0ad63c0167e6f06796fab0fce28db1bf3db0 # v2.87.22
-        with:
-          tool: cargo-nextest
-      - uses: actions/setup-node@949feb2413d6458794dcd2491c4babbbce0c15c1 # v7.1.0
-        with:
-          node-version-file: crates/otaq-desktop/.nvmrc
-          cache: npm
-          cache-dependency-path: crates/otaq-desktop/package-lock.json
-      - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
-      # The core tests commit into temporary git repositories.
-      - name: Set a git identity
-        run: |
-          git config --global user.name "Otaq CI"
-          git config --global user.email "ci@otaq.invalid"
-      - run: powershell -ExecutionPolicy Bypass -File scripts\check.ps1
+      - if: runner.os == 'Linux'
+        run: scripts/check.sh ${{ matrix.groups }}
+      - if: runner.os == 'Windows'
+        run: powershell -ExecutionPolicy Bypass -File scripts\check.ps1 ${{ matrix.groups }}
 
   # Approves only pull requests an admin opened from a branch of this repository. Organization admins have admin
   # rights on every repository, so the repository's own permission check covers them. A fork's run gets a read-only
   # token, so it couldn't approve even if this check were wrong.
   approve:
     name: Approve an admin's pull request
-    needs: [frontend, lint, test, windows]
+    needs: [frontend, lint, test]
     if: >-
       github.event_name == 'pull_request' &&
       github.event.pull_request.head.repo.full_name == github.repository
