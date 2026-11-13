@@ -27,8 +27,8 @@
 //!   background, one pass at a time per stock.
 //! - **Clear** ([`WarmBuilds::clear`]) renames the whole stock into the trash under the writer slot. It never turns the
 //!   switch off.
-//! - At service start ([`remove_interrupted`]): a warm build from before the stock (no marker) becomes entry `0`;
-//!   children of a stock that aren't entries, and `.incoming` and `.old` folders left by a crash, are deleted; the
+//! - At service start ([`remove_interrupted`]): warm builds kept before today's stock format (an older marker, no
+//!   marker, a `.mig` folder) are thrown away once (056); children of a stock that aren't entries, and `.incoming` and `.old` folders left by a crash, are deleted; the
 //!   trash is emptied in the background.
 //! - Each change (kept, replaced, cleared, a Clear starting to wait) publishes one [`Event::WarmBuildChanged`].
 //!
@@ -186,15 +186,16 @@ pub fn repo_name(project: &Project) -> String {
 }
 
 /// The marker file of a stock: `warm/<repo-name>/.otaq-stock`. A folder in `warm/` without it is a warm build from
-/// before the stock, made entry `0` at start.
+/// before the stock, thrown away at start (056).
 pub fn stock_marker_name() -> String {
     format!(".{}-stock", naming::COMMAND_NAME)
 }
 
-/// What the marker file holds: the stock's format.
-const STOCK_FORMAT: &str = "stock 1";
+/// What the marker file holds: the stock's format. `stock 2` (056): builds trimmed to what recent tickets used; a
+/// stock of any other format is thrown away once at start ([`remove_interrupted`]).
+const STOCK_FORMAT: &str = "stock 2";
 
-/// `<repo-name>.incoming`, `<repo-name>.old`, `<repo-name>.mig` or `<repo-name>.usage`, next to the stock.
+/// `<repo-name>.incoming`, `<repo-name>.old` or `<repo-name>.usage`, next to the stock.
 fn sibling(data: &DataDir, repo: &str, suffix: &str) -> Result<PathBuf, DataDirError> {
     Ok(data
         .warm_path(repo)?
@@ -256,10 +257,6 @@ fn newest_in(parent: &Path) -> Option<Entry> {
     entries_in(parent).pop()
 }
 
-fn has_marker(parent: &Path) -> bool {
-    parent.join(stock_marker_name()).is_file()
-}
-
 /// Makes `parent` a stock: the folder and its marker.
 fn make_stock(parent: &Path) -> io::Result<()> {
     DataDir::ensure_dir(parent)?;
@@ -273,55 +270,87 @@ fn make_stock(parent: &Path) -> io::Result<()> {
 /// What [`remove_interrupted`] found at service start.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Interrupted {
-    /// Folders a crash left, deleted.
+    /// Folders (and a half-written ledger) a crash left, deleted.
     pub removed: usize,
-    /// Warm builds from before the stock, now entry `0` of one.
-    pub migrated: usize,
+    /// Warm builds kept before this format (056): stocks of an older format, builds from before the stock and
+    /// `<repo>.mig` folders, renamed into their repo's trash.
+    pub thrown_away: usize,
     /// The repos whose trash still holds something: [`WarmBuilds::empty_trash_later`] empties them in the background.
     pub trash: Vec<String>,
 }
 
+/// Whether the stock at `parent` is of today's format: its marker holds [`STOCK_FORMAT`].
+fn is_current_stock(parent: &Path) -> bool {
+    std::fs::read_to_string(parent.join(stock_marker_name()))
+        .is_ok_and(|format| format.trim() == STOCK_FORMAT)
+}
+
+/// Renames `folder` into `warm/<repo>.trash/` at start (056). False when it couldn't (left as it is, logged).
+fn throw_away(data: &DataDir, repo: &str, folder: &Path) -> bool {
+    let renamed = data
+        .warm_trash_path(repo)
+        .map_err(io::Error::other)
+        .and_then(|trash| {
+            DataDir::ensure_dir(&trash)?;
+            std::fs::rename(folder, trash.join(format!("{}-start", now_ms())))
+        });
+    match renamed {
+        Ok(()) => {
+            tracing::info!(warm_build = %repo, folder = %folder.display(), "an old warm build thrown away");
+            true
+        }
+        Err(e) => {
+            tracing::warn!(warm_build = %repo, error = %e, "can't throw an old warm build away; left as it is");
+            false
+        }
+    }
+}
+
 /// Puts the warm build in `warm/` in order before anything uses the store, once at service start:
 ///
-/// 1. A warm build from before the stock (`warm/<repo>` without the marker) becomes entry `0`: renamed to
-///    `<repo>.mig`, the stock made, then renamed into it. A rename that fails leaves the folder as it is (logged; no
-///    data lost); a `<repo>.mig` an interrupted start left is finished here.
+/// 1. Warm builds kept before this format are thrown away, once (056): a stock whose marker isn't [`STOCK_FORMAT`],
+///    a warm build from before the stock (`warm/<repo>` without the marker) and a `<repo>.mig` folder an older
+///    start left are renamed into `<repo>.trash/`. A stock made after that is of today's format and never thrown
+///    away again, so no "done" flag is needed. A rename that fails leaves the folder as it is (logged). Worktrees
+///    aren't touched.
 /// 2. Children of a stock that are neither entries nor the marker (half-made entries) are deleted.
 /// 3. The `<repo>.incoming/` and `<repo>.old/` folders a crash left (and a probe's) are deleted. They are Otaq's own
-///    temporary folders, not leftovers to confirm.
+///    temporary folders, not leftovers to confirm. The usage ledger `<repo>.usage` stays; a half-written
+///    `<repo>.usage.tmp` is deleted.
 /// 4. The trash is **not** emptied here (it may be large): its repos are returned, to empty in the background.
 pub fn remove_interrupted(data: &DataDir) -> Interrupted {
     let mut found = Interrupted::default();
     let warm = data.warm_dir();
-    let names = |warm: &Path| -> Vec<String> {
-        let mut names: Vec<String> = std::fs::read_dir(warm)
-            .into_iter()
-            .flatten()
-            .flatten()
-            .map(|e| e.file_name().to_string_lossy().into_owned())
-            .collect();
-        names.sort();
-        names
-    };
     if !warm.is_dir() {
         return found;
     }
-    // A migration a crash interrupted.
-    for name in names(&warm) {
-        if !name.starts_with('.')
-            && let Some(repo) = name.strip_suffix(".mig")
-        {
-            finish_migration(data, repo);
-        }
-    }
-    for name in names(&warm) {
+    let mut names: Vec<String> = std::fs::read_dir(&warm)
+        .into_iter()
+        .flatten()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    for name in names {
         let path = warm.join(&name);
+        let own = !name.starts_with('.');
+        if own && name.ends_with(".usage.tmp") {
+            if path.is_file() && std::fs::remove_file(&path).is_ok() {
+                found.removed += 1;
+            }
+            continue;
+        }
         if is_temporary(&name) {
-            if name.ends_with(".mig") {
-                // Left alone above: never deleted.
-            } else if name.ends_with(".trash") && !name.starts_with('.') {
+            if own && name.ends_with(".usage") {
+                // The usage ledger: a file beside the stock, kept.
+            } else if let Some(repo) = name.strip_suffix(".trash").filter(|_| own) {
                 if std::fs::read_dir(&path).is_ok_and(|mut d| d.next().is_some()) {
-                    found.trash.push(name.trim_end_matches(".trash").to_owned());
+                    found.trash.push(repo.to_owned());
+                }
+            } else if let Some(repo) = name.strip_suffix(".mig").filter(|_| own) {
+                if throw_away(data, repo, &path) {
+                    found.thrown_away += 1;
+                    found.trash.push(repo.to_owned());
                 }
             } else {
                 remove_tree(&path);
@@ -332,11 +361,12 @@ pub fn remove_interrupted(data: &DataDir) -> Interrupted {
         if !path.is_dir() {
             continue;
         }
-        if !has_marker(&path) {
-            if !migrate(data, &name) {
-                continue;
+        if !is_current_stock(&path) {
+            if throw_away(data, &name, &path) {
+                found.thrown_away += 1;
+                found.trash.push(name);
             }
-            found.migrated += 1;
+            continue;
         }
         let marker = stock_marker_name();
         for child in std::fs::read_dir(&path).into_iter().flatten().flatten() {
@@ -348,40 +378,9 @@ pub fn remove_interrupted(data: &DataDir) -> Interrupted {
             }
         }
     }
+    found.trash.sort();
+    found.trash.dedup();
     found
-}
-
-/// Makes the warm build at `warm/<repo>` (no marker) entry `0` of a new stock. False when it couldn't (left as it is).
-fn migrate(data: &DataDir, repo: &str) -> bool {
-    let (Ok(parent), Ok(mig)) = (data.warm_path(repo), sibling(data, repo, "mig")) else {
-        return false;
-    };
-    if let Err(e) = std::fs::rename(&parent, &mig) {
-        tracing::warn!(warm_build = %repo, error = %e, "can't move the warm build into a stock; left as it is");
-        return false;
-    }
-    finish_migration(data, repo)
-}
-
-/// Moves `warm/<repo>.mig` into the stock `warm/<repo>`: as entry `0` of a new stock, or, when the stock exists
-/// already, as its next entry. False when it is left where it is.
-fn finish_migration(data: &DataDir, repo: &str) -> bool {
-    let (Ok(parent), Ok(mig)) = (data.warm_path(repo), sibling(data, repo, "mig")) else {
-        return false;
-    };
-    if parent.exists() && !has_marker(&parent) {
-        tracing::warn!(warm_build = %repo, "a half-migrated warm build is left as it is");
-        return false;
-    }
-    let n = newest_in(&parent).map_or(0, |e| e.n + 1);
-    let moved =
-        make_stock(&parent).and_then(|()| std::fs::rename(&mig, parent.join(n.to_string())));
-    if let Err(e) = moved {
-        tracing::warn!(warm_build = %repo, error = %e, "can't move the warm build into a stock; left as it is");
-        return false;
-    }
-    tracing::info!(warm_build = %repo, entry = n, "warm build moved into a stock");
-    true
 }
 
 #[derive(Debug)]
@@ -1608,6 +1607,8 @@ mod tests {
             "shop-web.old",
             "shop-web.trash",
             "shop-web.mig",
+            "shop-web.usage",
+            "shop-web.usage.tmp",
             ".probe",
         ] {
             assert!(is_temporary(temporary), "{temporary}");
@@ -1637,7 +1638,7 @@ mod tests {
         let parent = tmp.path().join("shop-web");
         assert!(entries_in(&parent).is_empty());
         make_stock(&parent).unwrap();
-        assert!(has_marker(&parent));
+        assert!(is_current_stock(&parent));
         assert_eq!(
             std::fs::read_to_string(parent.join(&marker)).unwrap(),
             STOCK_FORMAT
@@ -1651,58 +1652,103 @@ mod tests {
         assert_eq!(newest_in(&parent).unwrap().n, 10);
     }
 
+    /// The names in `warm/`, sorted.
+    fn names_in(dir: &Path) -> Vec<String> {
+        let mut names: Vec<String> = std::fs::read_dir(dir)
+            .unwrap()
+            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+            .collect();
+        names.sort();
+        names
+    }
+
     #[test]
     fn interrupted_folders_are_removed_and_builds_kept() {
         let tmp = tempfile::tempdir().unwrap();
         let data = DataDir::new(tmp.path());
         assert_eq!(remove_interrupted(&data), Interrupted::default());
-        for folder in ["shop-web", "shop-web.incoming", "shop-web.old", ".probe"] {
-            std::fs::create_dir_all(data.warm_dir().join(folder).join("deep")).unwrap();
+        let warm = data.warm_dir();
+        make_stock(&warm.join("shop-web")).unwrap();
+        for folder in [
+            "shop-web/0/deep",
+            "shop-web/1.part",
+            "shop-web.incoming/deep",
+            "shop-web.old",
+            ".probe",
+        ] {
+            std::fs::create_dir_all(warm.join(folder)).unwrap();
         }
         let found = remove_interrupted(&data);
-        assert_eq!((found.removed, found.migrated), (3, 1));
-        let left: Vec<String> = std::fs::read_dir(data.warm_dir())
-            .unwrap()
-            .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
-            .collect();
-        assert_eq!(left, ["shop-web"]);
-        // The build from before the stock is its entry 0 now; a second start leaves it.
+        assert_eq!((found.removed, found.thrown_away), (4, 0));
+        assert!(found.trash.is_empty());
+        assert_eq!(names_in(&warm), ["shop-web"]);
         assert!(
             data.warm_entry_path("shop-web", 0)
                 .unwrap()
                 .join("deep")
                 .is_dir()
         );
+        // A second start leaves today's stock as it is.
         assert_eq!(remove_interrupted(&data), Interrupted::default());
     }
 
     #[test]
-    fn an_interrupted_migration_is_finished() {
+    fn old_warm_builds_are_thrown_away_once_and_the_ledger_stays() {
         let tmp = tempfile::tempdir().unwrap();
         let data = DataDir::new(tmp.path());
         let warm = data.warm_dir();
-        // Renamed aside, the stock not made yet.
-        std::fs::create_dir_all(warm.join("shop-web.mig").join("out")).unwrap();
-        // Renamed aside after the stock was made with an entry (it goes in as the next one).
-        std::fs::create_dir_all(warm.join("old-app.mig").join("out")).unwrap();
-        make_stock(&warm.join("old-app")).unwrap();
-        std::fs::create_dir_all(warm.join("old-app").join("0")).unwrap();
+        // A stock of the first format.
+        let old = warm.join("old-app");
+        std::fs::create_dir_all(old.join("0").join("out")).unwrap();
+        std::fs::write(old.join(stock_marker_name()), "stock 1").unwrap();
+        // A warm build from before the stock, and a migration an older start left.
+        std::fs::create_dir_all(warm.join("legacy").join("out")).unwrap();
+        std::fs::create_dir_all(warm.join("half.mig").join("out")).unwrap();
+        // Today's stock, its ledger and a half-written ledger.
+        make_stock(&warm.join("shop-web")).unwrap();
+        std::fs::create_dir_all(warm.join("shop-web").join("3").join("out")).unwrap();
+        std::fs::write(warm.join("shop-web.usage"), "usage 1\0").unwrap();
+        std::fs::write(warm.join("shop-web.usage.tmp"), "usage 1\0half").unwrap();
 
         let found = remove_interrupted(&data);
-        assert_eq!(found.removed, 0);
+        assert_eq!((found.removed, found.thrown_away), (1, 3));
+        assert_eq!(found.trash, ["half", "legacy", "old-app"]);
+        assert_eq!(
+            names_in(&warm),
+            [
+                "half.trash",
+                "legacy.trash",
+                "old-app.trash",
+                "shop-web",
+                "shop-web.usage"
+            ]
+        );
+        for (repo, inside) in [("half", "out"), ("legacy", "out"), ("old-app", "0/out")] {
+            let [thrown] =
+                <[String; 1]>::try_from(names_in(&warm.join(format!("{repo}.trash")))).unwrap();
+            assert!(
+                warm.join(format!("{repo}.trash"))
+                    .join(thrown)
+                    .join(inside)
+                    .is_dir(),
+                "{repo}"
+            );
+        }
         assert!(
-            data.warm_entry_path("shop-web", 0)
+            data.warm_entry_path("shop-web", 3)
                 .unwrap()
                 .join("out")
                 .is_dir()
         );
-        assert!(
-            data.warm_entry_path("old-app", 1)
-                .unwrap()
-                .join("out")
-                .is_dir()
+        assert_eq!(
+            std::fs::read(warm.join("shop-web.usage")).unwrap(),
+            b"usage 1\0"
         );
-        assert!(!warm.join("shop-web.mig").exists() && !warm.join("old-app.mig").exists());
+
+        // Once: the next start only finds the trash to empty.
+        let again = remove_interrupted(&data);
+        assert_eq!((again.removed, again.thrown_away), (0, 0));
+        assert_eq!(again.trash, ["half", "legacy", "old-app"]);
     }
 
     #[test]

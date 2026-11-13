@@ -426,10 +426,11 @@ async fn warm_list_shows_each_build_with_or_without_a_record() {
 async fn folders_a_crash_left_are_removed_at_start() {
     let home = tempfile::TempDir::new().unwrap();
     let warm = home.path().join("h").join("warm");
-    for folder in ["shop-web", "shop-web.incoming", "shop-web.old"] {
+    for folder in ["shop-web/0", "shop-web.incoming", "shop-web.old"] {
         std::fs::create_dir_all(warm.join(folder).join("out")).unwrap();
         std::fs::write(warm.join(folder).join("out").join("app.bin"), "x").unwrap();
     }
+    std::fs::write(warm.join("shop-web").join(stock_marker_name()), "stock 2").unwrap();
     let w = TestService::start_in(home, TempRepos::new(), |config| {
         otaq_core::service::ServiceConfig {
             clone_probe: Arc::new(CloneProbe::forced(support(true))),
@@ -461,46 +462,50 @@ async fn world_in(home: tempfile::TempDir) -> TestService {
 }
 
 #[tokio::test]
-async fn a_legacy_build_becomes_entry_zero_at_start() {
+async fn old_warm_builds_are_thrown_away_at_start() {
     let home = tempfile::TempDir::new().unwrap();
-    let legacy = home.path().join("h").join("warm").join("shop-web");
+    let warm = home.path().join("h").join("warm");
+    // A build from before the stock, and a stock of the first format.
+    let legacy = warm.join("shop-web");
     std::fs::create_dir_all(legacy.join("out")).unwrap();
     std::fs::write(legacy.join("out").join("app.bin"), "legacy").unwrap();
     record("3e1f9a2c0d", "SHOP-9").write(&legacy).unwrap();
+    let old = warm.join("old-app");
+    std::fs::create_dir_all(old.join("0").join("out")).unwrap();
+    std::fs::write(old.join(stock_marker_name()), "stock 1").unwrap();
 
     let w = world_in(home).await;
+    until("the old builds thrown away and their trash emptied", || {
+        !legacy.exists()
+            && !old.exists()
+            && trash_empty(&w, "shop-web")
+            && trash_empty(&w, "old-app")
+    })
+    .await;
     let shop = w.add_project("shop-web").await;
-    let zero = w.data.warm_entry_path("shop-web", 0).unwrap();
-    assert!(legacy.join(stock_marker_name()).is_file());
-    assert_eq!(
-        std::fs::read_to_string(zero.join("out").join("app.bin")).unwrap(),
-        "legacy"
+    assert!(
+        w.warm.read(&shop, "SHOP-30").await.is_none(),
+        "no build left to seed from"
     );
-    assert!(!legacy.join("out").exists(), "moved, not copied");
-    let slot = w
-        .warm
-        .read(&shop, "SHOP-30")
-        .await
-        .expect("the migrated build");
-    assert_eq!((slot.path(), slot.entry()), (zero.as_path(), 0));
-    assert_eq!(slot.record().unwrap().from, "SHOP-9");
-    drop(slot);
-    // The next build kept is entry 1, and entry 0 goes to the trash.
+    // The next build kept makes a stock of today's format, which the next start leaves.
     let base = head(Path::new(&shop.repo_path));
     assert_eq!(
         keep(&w, &shop, &base, "SHOP-31", "new").await,
-        Added::Kept { entry: 1 }
+        Added::Kept { entry: 0 }
     );
     assert_eq!(
-        entry(&w, &shop),
-        w.data.warm_entry_path("shop-web", 1).unwrap()
+        std::fs::read_to_string(legacy.join(stock_marker_name())).unwrap(),
+        "stock 2"
     );
+    let found = otaq_core::warm::store::remove_interrupted(&w.data);
+    assert_eq!(found.thrown_away, 0);
+    assert_eq!(built(&w, &shop).as_deref(), Some("new"));
     w.stop().await;
 }
 
 #[cfg(unix)]
 #[test]
-fn a_legacy_build_that_cant_move_is_left_alone() {
+fn a_legacy_build_that_cant_be_thrown_away_is_left_alone() {
     use std::os::unix::fs::PermissionsExt;
     let tmp = tempfile::tempdir().unwrap();
     let data = otaq_core::data_dir::DataDir::new(tmp.path());
@@ -517,7 +522,7 @@ fn a_legacy_build_that_cant_move_is_left_alone() {
     }
     let found = otaq_core::warm::store::remove_interrupted(&data);
     std::fs::set_permissions(&warm, std::fs::Permissions::from_mode(0o755)).unwrap();
-    assert_eq!(found.migrated, 0);
+    assert_eq!(found.thrown_away, 0);
     assert_eq!(
         std::fs::read_to_string(legacy.join("out").join("app.bin")).unwrap(),
         "legacy"
@@ -555,7 +560,7 @@ async fn half_made_entries_are_removed_at_start() {
     let stock = home.path().join("h").join("warm").join("shop-web");
     std::fs::create_dir_all(stock.join("0").join("out")).unwrap();
     std::fs::write(stock.join("0").join("out").join("app.bin"), "kept").unwrap();
-    std::fs::write(stock.join(stock_marker_name()), "stock 1").unwrap();
+    std::fs::write(stock.join(stock_marker_name()), "stock 2").unwrap();
     std::fs::create_dir_all(stock.join("1.part").join("out")).unwrap();
     std::fs::write(stock.join("loose.bin"), "x").unwrap();
 
