@@ -2,6 +2,12 @@
 # only), Rust, cargo-nextest, Node and the caches. Each job then runs its own groups of scripts/check.sh (Linux) or
 # scripts\check.ps1 (Windows). On Windows, Git for Windows (whose `bash`, `sh` and `cat` these steps and the tests
 # run) and the MSVC build tools come with the runner; steps only Windows needs go under `runner.os == 'Windows'`.
+#
+# On Windows the cargo target folder and the temporary folder (TMP, TEMP: every test's data folder, database and git
+# repository) live on a Dev Drive, a ReFS volume Defender scans asynchronously: the tests' file I/O is what makes them
+# 25-50x slower on Windows than on Linux (tuq/tech-specs/faster-pr-checks.md, Decision 2). The drive is mounted at a
+# fixed folder beside the checkout, not a drive letter, so CARGO_TARGET_DIR (part of the Rust cache's key) is the same
+# in every run and the cache's `workspaces` can name it relative to the checkout.
 name: Set up the checks
 description: System libraries (Linux), Rust 1.99.0, cargo-nextest, Node 24, the caches and a git identity
 inputs:
@@ -20,6 +26,26 @@ runs:
         sudo apt-get install -y build-essential pkg-config file \
           libwebkit2gtk-4.1-dev libgtk-3-dev libayatana-appindicator3-dev librsvg2-dev libxdo-dev \
           libssl-dev libdbus-1-dev libnotify-bin
+    - name: Make the Dev Drive's mount folder
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: New-Item -ItemType Directory -Force -Path '${{ github.workspace }}\..\dev-drive' | Out-Null
+    # Dynamic: the file grows only as far as the build and the tests fill it.
+    - uses: samypr100/setup-dev-drive@562171fe8df7401fdf582d766cd3b6ab80d5b1a0 # v4.1.0
+      if: runner.os == 'Windows'
+      with:
+        drive-size: 40GB
+        drive-type: Dynamic
+        mount-path: ${{ github.workspace }}\..\dev-drive
+    - name: Put the build and temporary folders on the Dev Drive
+      if: runner.os == 'Windows'
+      shell: pwsh
+      run: |
+        $drive = $env:DEV_DRIVE
+        New-Item -ItemType Directory -Force -Path "$drive\target", "$drive\tmp" | Out-Null
+        "CARGO_TARGET_DIR=$drive\target" >> $env:GITHUB_ENV
+        "TMP=$drive\tmp" >> $env:GITHUB_ENV
+        "TEMP=$drive\tmp" >> $env:GITHUB_ENV
     - name: Install Rust 1.99.0
       shell: bash
       run: |
@@ -35,9 +61,11 @@ runs:
         cache-dependency-path: crates/otaq-desktop/package-lock.json
     # One cache per job and system (the key holds the job's name and the runner's OS): clippy's and the tests' builds
     # don't share files.
+    # On Windows the target folder is the Dev Drive's (above); `workspaces` is `<checkout> -> <target, relative to it>`.
     - uses: Swatinem/rust-cache@6323deb102c322ba6fcbdcafc7e3dddab59af2b6 # v2.9.2
       with:
         save-if: ${{ inputs.save-rust-cache }}
+        workspaces: ${{ runner.os == 'Windows' && '. -> ../dev-drive/target' || '.' }}
     # The core tests commit into temporary git repositories.
     - name: Set a git identity
       shell: bash
