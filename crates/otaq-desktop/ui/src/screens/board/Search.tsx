@@ -10,7 +10,7 @@ import { type KeyboardEvent, type RefObject, useCallback, useEffect, useRef, use
 import { openOverlay } from "../../app/overlays";
 import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Kbd, useFloatingStyle, PLAIN_TEXT } from "../../components";
+import { FloatingPortal, Kbd, useFloatingStyle, PLAIN_TEXT } from "../../components";
 import type { BoardFilter } from "../../generated/BoardFilter";
 import type { SearchParams } from "../../generated/SearchParams";
 import type { SearchSuggestion } from "../../generated/SearchSuggestion";
@@ -104,55 +104,57 @@ function Suggestions({
     floating.current?.querySelector("[data-highlighted]")?.scrollIntoView({ block: "nearest" });
   }, [highlighted]);
   return (
-    <div ref={floating} className="board-search-list" role="listbox" style={style}>
-      {suggestions.length > 0 && <div className="board-search-list-header">{header}</div>}
-      {suggestions.map((s, i) => (
-        <button
-          key={s.token}
-          type="button"
-          role="option"
-          tabIndex={-1}
-          aria-selected={i === highlighted}
-          className="board-search-option"
-          data-highlighted={i === highlighted || undefined}
-          // Keeps the keyboard in the field, so the press isn't lost to its blur.
-          onMouseDown={(e) => {
-            e.preventDefault();
-          }}
-          onClick={() => {
-            onPick(s.token);
-          }}
-        >
-          <span className="board-search-option-token">{s.token}</span>
-          <span className="board-search-option-text">{s.description}</span>
-          <span className="board-search-option-count">{s.count}</span>
-        </button>
-      ))}
-      {tickets.length > 0 && <div className="board-search-list-header">{ticketsHeader}</div>}
-      {tickets.map((t, i) => (
-        <button
-          key={t.key}
-          type="button"
-          role="option"
-          tabIndex={-1}
-          aria-selected={first + i === highlighted}
-          className="board-search-option board-search-ticket"
-          data-highlighted={first + i === highlighted || undefined}
-          onMouseDown={(e) => {
-            e.preventDefault();
-          }}
-          onClick={() => {
-            onOpen(t.key);
-          }}
-        >
-          <span className="board-search-option-token">{t.key}</span>
-          <span className="board-search-option-text board-search-ticket-title">{t.title}</span>
-          <span className="board-search-ticket-dot" data-palette={t.status.palette} />
-          <span className="board-search-ticket-status">{t.status.label}</span>
-        </button>
-      ))}
-      {filtersHint !== null && <div className="board-search-hint">{filtersHint}</div>}
-    </div>
+    <FloatingPortal>
+      <div ref={floating} className="board-search-list" role="listbox" style={style}>
+        {suggestions.length > 0 && <div className="board-search-list-header">{header}</div>}
+        {suggestions.map((s, i) => (
+          <button
+            key={s.token}
+            type="button"
+            role="option"
+            tabIndex={-1}
+            aria-selected={i === highlighted}
+            className="board-search-option"
+            data-highlighted={i === highlighted || undefined}
+            // Keeps the keyboard in the field, so the press isn't lost to its blur.
+            onMouseDown={(e) => {
+              e.preventDefault();
+            }}
+            onClick={() => {
+              onPick(s.token);
+            }}
+          >
+            <span className="board-search-option-token">{s.token}</span>
+            <span className="board-search-option-text">{s.description}</span>
+            <span className="board-search-option-count">{s.count}</span>
+          </button>
+        ))}
+        {tickets.length > 0 && <div className="board-search-list-header">{ticketsHeader}</div>}
+        {tickets.map((t, i) => (
+          <button
+            key={t.key}
+            type="button"
+            role="option"
+            tabIndex={-1}
+            aria-selected={first + i === highlighted}
+            className="board-search-option board-search-ticket"
+            data-highlighted={first + i === highlighted || undefined}
+            onMouseDown={(e) => {
+              e.preventDefault();
+            }}
+            onClick={() => {
+              onOpen(t.key);
+            }}
+          >
+            <span className="board-search-option-token">{t.key}</span>
+            <span className="board-search-option-text board-search-ticket-title">{t.title}</span>
+            <span className="board-search-ticket-dot" data-palette={t.status.palette} />
+            <span className="board-search-ticket-status">{t.status.label}</span>
+          </button>
+        ))}
+        {filtersHint !== null && <div className="board-search-hint">{filtersHint}</div>}
+      </div>
+    </FloatingPortal>
   );
 }
 

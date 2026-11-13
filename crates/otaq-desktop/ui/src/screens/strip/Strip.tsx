@@ -9,7 +9,7 @@ import { shellLayout } from "../../app/layout";
 import { openOverlay } from "../../app/overlays";
 import { useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
-import { Button, Kbd, Tooltip, useFloatingStyle } from "../../components";
+import { Button, FloatingPortal, Kbd, Tooltip, useFloatingStyle } from "../../components";
 import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { StripAsks } from "../../generated/StripAsks";
 import type { StripChip } from "../../generated/StripChip";
@@ -58,32 +58,40 @@ export function AsksPopover({
   const root = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, root, "start", onClose);
   return (
-    <div ref={root} className="strip-asks strip-question" role="dialog" aria-label={asks.title} style={style}>
-      <div className="strip-asks-title">{asks.title}</div>
-      <div className="sheet-answer strip-asks-question">
-        <QuestionText answer={asks} />
+    <FloatingPortal>
+      <div
+        ref={root}
+        className="strip-asks strip-question"
+        role="dialog"
+        aria-label={asks.title}
+        style={style}
+      >
+        <div className="strip-asks-title">{asks.title}</div>
+        <div className="sheet-answer strip-asks-question">
+          <QuestionText answer={asks} />
+        </div>
+        {asks.note !== null && <p className="strip-asks-note">{asks.note}</p>}
+        <div className="strip-asks-buttons">
+          <Button
+            compact
+            label={asks.answer}
+            onClick={() => {
+              onClose();
+              onOpen(asks.answer_target);
+            }}
+          />
+          <Button
+            compact
+            variant="secondary"
+            label={asks.open}
+            onClick={() => {
+              onClose();
+              onOpen(asks.open_target);
+            }}
+          />
+        </div>
       </div>
-      {asks.note !== null && <p className="strip-asks-note">{asks.note}</p>}
-      <div className="strip-asks-buttons">
-        <Button
-          compact
-          label={asks.answer}
-          onClick={() => {
-            onClose();
-            onOpen(asks.answer_target);
-          }}
-        />
-        <Button
-          compact
-          variant="secondary"
-          label={asks.open}
-          onClick={() => {
-            onClose();
-            onOpen(asks.open_target);
-          }}
-        />
-      </div>
-    </div>
+    </FloatingPortal>
   );
 }
 
@@ -113,37 +121,39 @@ export function AgentAsksPopover({
   const root = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, root, "start", onClose);
   return (
-    <div
-      ref={root}
-      className="strip-asks strip-question strip-agent-asks"
-      role="dialog"
-      aria-label={question.title}
-      style={style}
-    >
-      <AgentQuestionBox
-        titled
-        question={question}
-        onSent={onClose}
-        onTerminal={() => {
-          onClose();
-          onTerminal();
-        }}
-      />
-      {open !== null && (
-        <div className="strip-question-foot">
-          <button
-            type="button"
-            className="strip-question-open"
-            onClick={() => {
-              onClose();
-              onPanel();
-            }}
-          >
-            {open}
-          </button>
-        </div>
-      )}
-    </div>
+    <FloatingPortal>
+      <div
+        ref={root}
+        className="strip-asks strip-question strip-agent-asks"
+        role="dialog"
+        aria-label={question.title}
+        style={style}
+      >
+        <AgentQuestionBox
+          titled
+          question={question}
+          onSent={onClose}
+          onTerminal={() => {
+            onClose();
+            onTerminal();
+          }}
+        />
+        {open !== null && (
+          <div className="strip-question-foot">
+            <button
+              type="button"
+              className="strip-question-open"
+              onClick={() => {
+                onClose();
+                onPanel();
+              }}
+            >
+              {open}
+            </button>
+          </div>
+        )}
+      </div>
+    </FloatingPortal>
   );
 }
 
