@@ -137,7 +137,13 @@
   overflow-y: auto;
   flex: 1;
   min-height: 0;
-  padding: 0 24px 24px;
+  /* The same space under the header on every page, whatever its first line is (OTAQ-1). */
+  padding: 16px 24px 24px;
+}
+
+/* A page that opens with a section title: the body's top space is already there. */
+.settings-body > .settings-section-slot:first-child > :first-child > .settings-section-title:first-child {
+  padding-top: 0;
 }
 
 .settings-intro {
@@ -747,7 +753,7 @@
   display: flex;
   align-items: center;
   gap: 16px;
-  padding: 16px 0 22px;
+  padding: 0 0 22px;
 }
 
 /* The app icon's tile: the Command tent on midnight-indigo glass, the same in every theme (d0076). */
@@ -1440,7 +1446,7 @@
 
 .settings-skeleton-intro {
   width: 55%;
-  margin-top: 20px;
+  margin-top: 4px;
 }
 
 .settings-skeleton-label {
@@ -1475,12 +1481,6 @@
   .settings-skeleton-bar {
     animation: none;
   }
-}
-
-.settings-agents > .settings-intro {
-  margin-top: 0;
-  /* As far down as the other pages' first line (a section title, a project page's intro). */
-  padding-top: 16px;
 }
 
 /* Default model for new agents: the label and its line on the left, the controls on the right. */
@@ -1671,7 +1671,10 @@
   flex-direction: column;
   align-items: stretch;
   gap: 6px;
-  padding-bottom: 24px;
+}
+
+.settings-agent-page > .settings-agent-label:first-child {
+  margin-top: 0;
 }
 
 .settings-agent-label {

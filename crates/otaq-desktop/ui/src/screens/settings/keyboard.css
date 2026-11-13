@@ -18,6 +18,11 @@
   padding-top: 16px;
 }
 
+/* In Settings the body gives the top space. */
+.settings-body .shortcut-settings {
+  padding-top: 0;
+}
+
 .shortcut-settings-header {
   display: flex;
   gap: 8px;
