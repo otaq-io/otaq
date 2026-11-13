@@ -223,6 +223,23 @@
   --content: var(--text-secondary);
 }
 
+/* A ghost button has no fill, so its 10 px side padding reads as extra space beside a filled button: Discard sat
+   18 px from Create while Create sat 8 px from Create & start. Beside a filled button the ghost button's padding
+   shrinks to 4 px and its box moves 4 px closer on that side, so its label sits the row's own gap (8 px) from its
+   neighbour, and its hover and pressed fill still stops 4 px short of it. */
+.button[data-variant="ghost"]:has(+ .button:not([data-variant="ghost"])),
+.button:not([data-variant="ghost"]) + .button[data-variant="ghost"] {
+  padding-inline: 4px;
+}
+
+.button[data-variant="ghost"]:has(+ .button:not([data-variant="ghost"])) {
+  margin-inline-end: -4px;
+}
+
+.button:not([data-variant="ghost"]) + .button[data-variant="ghost"] {
+  margin-inline-start: -4px;
+}
+
 .button:not(:disabled, [data-loading]):hover,
 .button[data-shown="hover"] {
   background: var(--fill-hover);
