@@ -117,7 +117,8 @@ update** (when an update is ready: only the app restarts, working agents continu
 - **Worktrees:** `~/.otaq/wt/<repo>/<TICKET>`, outside your repository. Branches are named `otaq/SHOP-12` while
   work is in progress.
 - **Warm builds:** a new worktree starts from a copy-on-write clone of the last finished ticket's build output (APFS,
-  btrfs, XFS, ReFS), so its first build only redoes what changed.
+  btrfs, XFS, ReFS), so its first build only redoes what changed. Build files none of the last 5 finished tickets'
+  builds used are left out of that copy, so it stays small; your own project folder is never changed.
 
 ## Anonymous usage data
 
