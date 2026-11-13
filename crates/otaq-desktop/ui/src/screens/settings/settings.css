@@ -141,8 +141,9 @@
   padding: 16px 24px 24px;
 }
 
-/* A page that opens with a section title: the body's top space is already there. */
-.settings-body > .settings-section-slot:first-child > :first-child > .settings-section-title:first-child {
+/* A page that opens with a section title (or the Agents intro): the body's top space is already there. */
+.settings-body > .settings-section-slot:first-child > :first-child > .settings-section-title:first-child,
+.settings-body > .settings-section-slot:first-child > .settings-agents > .settings-intro:first-child {
   padding-top: 0;
 }
 
@@ -1481,6 +1482,11 @@
   .settings-skeleton-bar {
     animation: none;
   }
+}
+
+.settings-agents > .settings-intro {
+  /* The space above the agents, under the agent tools on the same page. */
+  padding-top: 16px;
 }
 
 /* Default model for new agents: the label and its line on the left, the controls on the right. */
