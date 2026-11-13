@@ -157,7 +157,11 @@ attach command, the hint line under it) are the host's, drawn from `onState` (`T
 - **Focus.** On focus it calls `focusTerminal(session)` and tells the service (`terminal.focus`, passed on for an
   agent's session only, ATT-03); on blur `focusTerminal(null)`. Keys go to xterm.js untouched except the app's own
   (T-0215) and the terminal's own from the Rust map (`keymap.map`'s `terminal_keys`): copy and paste on Ctrl+Shift+C /
-  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
+  V on Windows and Linux (on macOS the Edit menu's ⌘C / ⌘V reach xterm.js), and on Windows Ctrl+C too while text is
+  selected, as in Windows Terminal: it copies and clears the selection, and the program gets nothing (with nothing
+  selected Ctrl+C is the program's), and on Windows Ctrl+V pastes the clipboard's text as Ctrl+Shift+V does (with no
+  text on it, an image or nothing, the program gets Ctrl+V's own key, its image paste; the key is always taken and
+  prevented, so the page's own paste event never pastes it again), ⌘+ / ⌘− (Ctrl+Shift+= / −) for this
   terminal's font size until the setting changes, and ⇧↵, which types ESC + CR (as ⌥↵) instead of xterm.js's `\r`, so
   it starts a new line in the agent's prompt instead of sending it (OT-5). ⌘F / Ctrl+Shift+F opens the find bar
   (`useShortcut`).
@@ -361,7 +365,8 @@ the open topic's page as sections of rows, each row worded with its control (`ot
 `settings.edit` takes one `field` and its value, applies it with that module's rules and answers with the fresh view.
 The screen registers one component per section id it draws (`ui/src/app/registry/settings.ts`); a later section is
 added in `settings_page.rs` and registered under its id the same way. The slow parts load on their own:
-`settings.tools`, `settings.branches`.
+`settings.tools`, `settings.branches`, `settings.git` (Git & pull requests is drawn at once from `settings.git_shown`:
+the last check's page, or every row "Checking…" before the first).
 
 A project's settings are its own page, the view switch's Settings in the project's main area
 (`ui/src/screens/project_settings/`, `otaq_view::view_models::project_settings`): `project_settings.view` sends the

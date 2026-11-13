@@ -70,4 +70,9 @@ list: ListView | null,
  * "Edit flow", at the end of the board in either layout (after the columns, or after the List's rows): the board
  * turns into the flow's editor in place, as columns. `null` on Files and Settings.
  */
-edit_flow: string | null, };
+edit_flow: string | null, 
+/**
+ * A card says how long one of the user's hooks has run ("running your pre-commit hook · 40 s"): the page asks
+ * again every second meanwhile.
+ */
+seconds: boolean, };

@@ -107,15 +107,70 @@ pub fn start_order(ticket: &Ticket, tickets: &[Ticket]) -> impl Ord + use<> {
         .ready_since
         .or_else(|| ready_since(ticket, tickets))
         .unwrap_or(i64::MAX);
-    let pin = ticket.flags.pinned_at;
-    (
-        pin.is_none(),
-        Reverse(pin.unwrap_or(0)),
+    order_key(
+        ticket.flags.pinned_at,
         ticket.priority,
         ready,
         ticket.created_at,
         ticket.key.clone(),
     )
+}
+
+/// [`start_order`]'s key from a ticket's parts.
+fn order_key(
+    pin: Option<i64>,
+    priority: crate::domain::Priority,
+    ready: i64,
+    created_at: i64,
+    key: TicketKey,
+) -> (
+    bool,
+    Reverse<i64>,
+    crate::domain::Priority,
+    i64,
+    i64,
+    TicketKey,
+) {
+    (
+        pin.is_none(),
+        Reverse(pin.unwrap_or(0)),
+        priority,
+        ready,
+        created_at,
+        key,
+    )
+}
+
+impl Board {
+    /// Every project's tickets waiting for a free agent, by id, with their place in line (1 is next): the agent limit
+    /// counts across projects, and the scheduler takes them in [`start_order`] from every project at once.
+    pub async fn slot_line(&self) -> Result<HashMap<String, u32>, BoardError> {
+        type Row = (String, Option<i64>, i64, Option<i64>, i64, i64, String);
+        let rows: Vec<Row> = sqlx::query_as(
+            "SELECT t.id, t.pinned_at, t.priority, t.ready_since, t.created_at, t.number, p.key
+             FROM tickets t JOIN projects p ON p.id = t.project_id WHERE t.state = ?",
+        )
+        .bind(Status::WaitingForSlot.as_str())
+        .fetch_all(self.store.pool())
+        .await?;
+        let mut line: Vec<(_, String)> = rows
+            .into_iter()
+            .filter_map(|(id, pin, priority, ready, created_at, number, project)| {
+                let key = super::tickets::key_from_parts(&project, number)?;
+                let priority = crate::domain::Priority::from_number(priority).unwrap_or_default();
+                Some((
+                    order_key(pin, priority, ready.unwrap_or(i64::MAX), created_at, key),
+                    id,
+                ))
+            })
+            .collect();
+        line.sort();
+        Ok(line
+            .into_iter()
+            .zip(1..)
+            .map(|((_, id), place)| (id, place))
+            .collect())
+    }
 }
 
 /// Orders one board group (its status set's board group, [`StatusSet::board_group`]). `tickets` is the whole

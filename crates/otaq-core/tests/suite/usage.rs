@@ -823,3 +823,124 @@ async fn activity_lists_the_tools_windows_as_stored_and_its_active_limit() {
     assert!(none.limit.is_some());
     world.w.stop().await;
 }
+
+/// A ticket its own agent delivers (its PR being opened while it waits as To deliver) has an agent at work, as a
+/// separate delivery session would: Running and the header count it. The same session kept while the ticket only
+/// waits for the user's click doesn't count.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_tickets_own_agent_delivering_it_is_at_work() {
+    let world = World::new().await;
+    let w = &world.w;
+    let notes = w.add_project("pocket-notes").await;
+    let delivering = w.create(&notes.key, "Search notes").await;
+    let waiting = w.create(&notes.key, "Tags").await;
+    for ticket in [&delivering, &waiting] {
+        sqlx::query("UPDATE tickets SET state = 'to_deliver' WHERE id = ?")
+            .bind(&ticket.id)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+    }
+    let t0 = now_ms() - 60_000;
+    world.session(&delivering, S1, t0, None).await;
+    world.session(&waiting, S2, t0, None).await;
+    sqlx::query(
+        "INSERT INTO pr_flows (ticket_id, kind, state, started_at, updated_at) VALUES (?, 'open', 'preparing', ?, ?)",
+    )
+    .bind(&delivering.id)
+    .bind(t0)
+    .bind(t0)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+
+    let activity = activity(w).await;
+    let keys: Vec<&str> = activity.working.iter().map(|a| a.key.as_str()).collect();
+    assert_eq!(keys, [delivering.key.to_string()]);
+    let infos = w.board.project_infos().await.unwrap();
+    assert_eq!(infos[0].agents_working, 1);
+    assert_eq!(activity.running(), 1);
+    world.w.stop().await;
+}
+
+/// The re-test's case: one agent works on Claude Code while another's Codex sits idle at its prompt. Running in the
+/// title bar, the rail, the tray's Running list and Quit Otaq's "1 agent is working" count the same agents: the
+/// idle one (and a checker that needs you) shows under Needs you, not as running; a delivery session at work counts
+/// everywhere, on the tool it runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn running_the_rail_the_tray_and_quit_count_the_same_agents() {
+    let world = World::new().await;
+    let w = &world.w;
+    let notes = w.add_project("notes").await;
+    let shop = w.add_project("shop").await;
+    let working = w.create(&notes.key, "Long cc").await;
+    let idle = w.create(&shop.key, "Codex").await;
+    let checker_asks = w.create(&shop.key, "Checked").await;
+    let delivering = w.create(&shop.key, "Delivered").await;
+    let t0 = now_ms() - 60_000;
+    for (ticket, state, kind, tool) in [
+        (&working, "working", "agent", "claude"),
+        (&idle, "idle", "agent", "codex"),
+        (&checker_asks, "validator_needs_you", "validator", "claude"),
+        (&delivering, "to_deliver", "delivery", "codex"),
+    ] {
+        sqlx::query("UPDATE tickets SET state = ? WHERE id = ?")
+            .bind(state)
+            .bind(&ticket.id)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+        let session = world
+            .session_of_kind(ticket, kind, &new_id(), t0, None)
+            .await;
+        sqlx::query("UPDATE sessions SET tool = ? WHERE id = ?")
+            .bind(tool)
+            .bind(&session)
+            .execute(w.board.store().pool())
+            .await
+            .unwrap();
+    }
+    let mut want = vec![working.key.to_string(), delivering.key.to_string()];
+    want.sort_unstable();
+
+    // Running in the title bar: its count across every tool and its rows.
+    let activity = activity(w).await;
+    assert_eq!(activity.running(), 2);
+    assert_eq!(activity.tool(Tool::Claude).unwrap().running, 1);
+    assert_eq!(activity.tool(Tool::Codex).unwrap().running, 1);
+    let mut keys: Vec<String> = activity.working.iter().map(|a| a.key.clone()).collect();
+    keys.sort_unstable();
+    assert_eq!(keys, want);
+
+    // The rail.
+    let rail: u32 = w
+        .board
+        .project_infos()
+        .await
+        .unwrap()
+        .iter()
+        .map(|p| p.agents_working)
+        .sum();
+    assert_eq!(rail, 2);
+
+    // The tray's Running list, and the idle agent under its Needs you.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let Reply::NeedsYou(list) = client.request(Request::NeedsYouList).await.unwrap() else {
+        panic!("needs you")
+    };
+    let mut tray: Vec<String> = list.running.iter().map(|r| r.key.to_string()).collect();
+    tray.sort_unstable();
+    assert_eq!(tray, want);
+    assert!(
+        list.items.iter().any(|i| i.key == idle.key),
+        "{:?}",
+        list.items
+    );
+
+    // Quit Otaq's question.
+    let Reply::ServiceStatus(status) = client.request(Request::ServiceStatus).await.unwrap() else {
+        panic!("service status")
+    };
+    assert_eq!(status.agents_working, 2);
+    world.w.stop().await;
+}

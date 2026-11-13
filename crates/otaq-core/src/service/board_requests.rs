@@ -101,11 +101,6 @@ pub(super) async fn handle(
                 .await
                 .map(Reply::PrProvider)
         }),
-        Request::OnboardingSources(p) => boxed(move || async move {
-            crate::onboarding::sources(board, &shared.connected, &p.project)
-                .await
-                .map(Reply::OnboardingSources)
-        }),
         Request::BoardSnapshot(p) => {
             boxed(move || async move { board.board_snapshot(&p.project).await.map(Reply::Board) })
         }
@@ -559,9 +554,12 @@ pub(super) async fn handle(
                 .map(|d| Reply::DiffSummary(Box::new(d)))
         }),
         Request::DiffFile(p) => boxed(move || async move {
-            match &p.since {
-                Some(since) => board.diff_file_since(&p.key, &p.path, since).await,
-                None => board.diff_file(&p.key, &p.path).await,
+            match (&p.since, &p.until) {
+                (Some(since), Some(until)) => {
+                    board.diff_file_between(&p.key, &p.path, since, until).await
+                }
+                (Some(since), None) => board.diff_file_since(&p.key, &p.path, since).await,
+                (None, _) => board.diff_file(&p.key, &p.path).await,
             }
             .map(|d| Reply::FileDiff(Box::new(d)))
         }),
@@ -712,18 +710,27 @@ pub(super) async fn handle(
         }),
         Request::TicketConflict(p) => boxed(move || async move {
             match board.ticket(&p.key).await {
-                Ok(t) => board.conflict(&t.id).await.map(Reply::Conflict),
+                Ok(t) => board.conflict_details(&t).await.map(Reply::Conflict),
                 Err(e) => Err(e),
             }
         }),
         Request::TicketApproveCheck(p) => {
             boxed(move || async move { board.approve_check(&p.key).await.map(Reply::ApproveCheck) })
         }
-        Request::TicketMergeProposal(p) => {
-            boxed(
-                move || async move { board.merge_proposal(&p.key).await.map(Reply::MergeProposal) },
-            )
-        }
+        Request::TicketMergeProposal(p) => boxed(move || async move {
+            ask_again_without_writer(shared, &p.key).await;
+            let mut proposal = board.merge_proposal(&p.key).await?;
+            if proposal.writing.is_some() {
+                proposal.asks_in = writer_asks_in(shared, &p.key).await;
+            }
+            Ok(Reply::MergeProposal(proposal))
+        }),
+        Request::TicketKeepMessage(p) => boxed(move || async move {
+            board
+                .keep_edited_message(&p.key, p.edit)
+                .await
+                .map(|_| Reply::Ok)
+        }),
         Request::TicketLocalMerge(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -780,6 +787,12 @@ pub(super) async fn handle(
                 .await
                 .map(|()| Reply::Ok)
         }),
+        // Not queued behind the project's changes: the merge or start it stops holds them.
+        Request::TicketGitStop(p) => {
+            boxed(
+                move || async move { shared.board.stop_git_step(&p.key).await.map(|()| Reply::Ok) },
+            )
+        }
         Request::TicketSendBackPr(p) => boxed(move || async move {
             let project = project_of(&p.key);
             mutate(
@@ -1047,10 +1060,12 @@ pub(super) async fn handle(
             .map(|t| Reply::Ticket(Box::new(t)))
         }),
         Request::TicketPrFlow(p) => boxed(move || async move {
-            board
-                .pr_flow_view(&p.key)
-                .await
-                .map(|v| Reply::PrFlow(Box::new(v)))
+            ask_again_without_writer(shared, &p.key).await;
+            let mut view = board.pr_flow_view(&p.key).await?;
+            if view.message.as_ref().is_some_and(|m| !m.is_ready()) {
+                view.asks_in = writer_asks_in(shared, &p.key).await;
+            }
+            Ok(Reply::PrFlow(Box::new(view)))
         }),
         Request::TicketPrBranchCheck(p) => boxed(move || async move {
             board
@@ -1392,6 +1407,11 @@ pub(super) async fn handle(
                 Err(e) => Err(e),
             }
         }),
+        Request::SettingsOsDark(p) => boxed(move || async move {
+            board.set_os_dark(p.dark).await?;
+            shared.events.publish(Event::SettingsChanged);
+            global_settings(board).await
+        }),
         Request::ProjectSettingsGet(p) => {
             boxed(move || async move { project_settings(board, &p.project).await })
         }
@@ -1460,13 +1480,6 @@ pub(super) async fn handle(
                     },
                 );
             }
-            // Use this flow, or a preset applied, settles a Flow setup: the other proposals close and their agents
-            // are told and end; the chosen agent stays (ASK-03, ASK-04).
-            let keep = match &by {
-                Some(ProposedBy::ProjectAgent { agent, .. }) => Some(agent.as_str()),
-                _ => None,
-            };
-            shared.project_agents.settle_flow_setup(&key, keep).await?;
             shared.scheduler.wake();
             Ok(Reply::FlowApplied(Box::new(applied)))
         }),
@@ -1487,10 +1500,11 @@ pub(super) async fn handle(
                 .ask_for_changes(&p.project, p.proposal, &p.text)
                 .await?;
             let key = board.project(&p.project).await?.key;
+            // The proposal stays open while the agent redrafts (UX-63): only the agent's turn changes.
             flow_event(
                 shared,
                 &key,
-                FlowEvent::ProposalClosed {
+                FlowEvent::DraftChanged {
                     proposal: p.proposal,
                 },
             );
@@ -1516,18 +1530,12 @@ pub(super) async fn handle(
                 }
                 _ => ProposedBy::User,
             };
-            // Outside Flow setup it lands in the draft, and no preview opens (FED-02).
-            let setup = board.project(&p.project).await?.flow_setup_since.is_some();
+            // It lands in the draft, and no preview opens (FED-02).
             let proposal = board
                 .propose(&p.project, &p.source, &by, shared.agents.models())
                 .await?;
-            let change = match setup {
-                true => FlowEvent::Proposed {
-                    proposal: proposal.id,
-                },
-                false => FlowEvent::DraftChanged {
-                    proposal: proposal.id,
-                },
+            let change = FlowEvent::DraftChanged {
+                proposal: proposal.id,
             };
             flow_event(shared, &proposal.project, change);
             Ok(Reply::FlowProposal(Some(Box::new(proposal))))
@@ -1686,8 +1694,8 @@ pub(super) async fn handle(
         | Request::ServiceStopAgents
         | Request::Subscribe(_)
         | Request::ToolsCheck
+        | Request::GitToolsCheck
         | Request::OnboardingState
-        | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::SessionList(_)
         | Request::SessionAttach(_)
@@ -1697,6 +1705,7 @@ pub(super) async fn handle(
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)
         | Request::AppFocus(_)
         | Request::Hook(_)
         | Request::RunStart(_)
@@ -1718,9 +1727,6 @@ pub(super) async fn handle(
         | Request::ProjectTerminalCreated(_)
         | Request::ProjectTerminalDismiss(_)
         | Request::ProjectAgentOpen(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
@@ -1733,6 +1739,7 @@ pub(super) async fn handle(
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)
         | Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)
@@ -1769,6 +1776,28 @@ fn flow_event(shared: &Shared, project: &str, change: FlowEvent) {
         project: project.to_owned(),
         change,
     });
+}
+
+/// Approve's dialogs never say someone is writing the message when no session runs to write it: the writer is asked
+/// again, or the dialog opens on the plain message ([`crate::pr::service::Prs::ask_again_for_message`]).
+async fn ask_again_without_writer(shared: &Shared, key: &str) {
+    let Ok(id) = shared.board.ticket_id(key).await else {
+        return;
+    };
+    if let Err(e) = shared.prs.ask_again_for_message(&id).await {
+        tracing::warn!(key, error = %e, "can't check the delivery message's writer");
+    }
+}
+
+/// The session of the agent writing the ticket's delivery message, when it waits at a permission prompt: its delivery
+/// session, else the ticket's own agent's. Approve's dialogs say so and open its terminal to answer.
+async fn writer_asks_in(shared: &Shared, key: &str) -> Option<String> {
+    let id = shared.board.ticket_id(key).await.ok()?;
+    [SessionKind::Delivery, SessionKind::Agent]
+        .into_iter()
+        .filter_map(|kind| shared.sessions.running_of(&id, kind))
+        .find(|s| shared.signals.open_prompt(&s.id).is_some())
+        .map(|s| s.id)
 }
 
 fn boxed<'a, F>(make: impl FnOnce() -> F) -> Answer<'a>
@@ -1831,10 +1860,10 @@ async fn ask_human(
             "Write the question on stdin",
         ));
     }
-    validate_options(&p.options, p.recommended)?;
+    validate_options(&p.options, &p.recommended, p.multiple)?;
     crate::board::questions::validate_notes(&p.options, &p.notes)?;
     if p.send_back.is_some() {
-        if !p.options.is_empty() || p.recommended.is_some() {
+        if !p.options.is_empty() || !p.recommended.is_empty() || p.multiple {
             return Err(BoardError::refused(
                 Refusal::BadQuestion,
                 "A send-back question takes no --option: its two ways out are Send back and Answer here",
@@ -1851,7 +1880,13 @@ async fn ask_human(
     if let Caller::Helper { session, .. } = caller {
         let reply = shared
             .helpers
-            .ask(caller, &p.question, &p.options, &p.notes, p.recommended)
+            .ask(
+                caller,
+                &p.question,
+                &p.options,
+                &p.notes,
+                (&p.recommended, p.multiple),
+            )
             .await?;
         shared.signals.mark_submitted_or_asked(session);
         return Ok(Reply::Helper(Box::new(reply)));
@@ -1879,7 +1914,14 @@ async fn ask_human(
         }
         None => {
             board
-                .store_question(&ticket.id, &p.question, &p.options, &p.notes, p.recommended)
+                .store_question(
+                    &ticket.id,
+                    &p.question,
+                    &p.options,
+                    &p.notes,
+                    &p.recommended,
+                    p.multiple,
+                )
                 .await?;
         }
     }
@@ -1896,8 +1938,9 @@ async fn ask_human(
 /// The user's Send back on an agent's send-back question ([`crate::board::send_back_question`]): the skip on the
 /// named stage is cleared, then the ticket goes back there as the user's own drag would take it (the asking agent's
 /// session stops, its conversation kept for when the ticket returns to its stage; the stage sent back to resumes its
-/// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the user's
-/// comment. The question closes with the answer, and History's row names the stage that asked and its reason.
+/// own conversation, or starts a fresh one when it never ran), the agent's reason going with it as the asking agent's
+/// comment, by its name: the reason is the agent's, only the send back is the user's. The send back closes the question
+/// (as every send back does), its answer recorded on it, and History's row names the stage that asked and its reason.
 async fn send_back_on_request(
     shared: &Shared,
     key: &str,
@@ -1905,7 +1948,7 @@ async fn send_back_on_request(
     actor: &Actor,
 ) -> Result<crate::session::deliveries::Delivery, BoardError> {
     use crate::board::moves::{DropOn, MoveCheck};
-    use crate::board::questions::{AnsweredVia, Choice, format_answer};
+    use crate::board::questions::{Choice, format_answer};
     use crate::review::ReturnOutcome;
     use crate::session::deliveries::Delivery;
     let board = &shared.board;
@@ -1927,23 +1970,25 @@ async fn send_back_on_request(
         return Err(BoardError::refused(Refusal::MoveRefused, reason));
     }
     let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-    let asked_by = ticket
-        .place
-        .stage()
-        .and_then(|id| flow.stage(id))
-        .map(|s| s.name.clone());
+    let here = ticket.place.stage().and_then(|id| flow.stage(id));
+    let asked_by = here.map(|s| s.name.clone());
+    let author = asking_agent(shared, &ticket, here).await;
     let cleared = board.clear_skip(&ticket, &to.stage_id).await?;
     let skip_cleared = cleared.is_some();
     let reason = question.text.trim();
+    // The comment names each stage once: "Dev sent it back to Product spec: <reason>".
     let note = match &asked_by {
-        Some(by) => format!(
-            "{by} asked to send {} back to {}: {reason}",
-            ticket.key, to.stage
-        ),
+        Some(by) => format!("{by} sent it back to {}: {reason}", to.stage),
         None => format!("Sent back to {}: {reason}", to.stage),
     };
-    let asked =
-        crate::board::send_back_question::asked_payload(asked_by.as_deref(), reason, skip_cleared);
+    let asked = crate::review::drag::Asked {
+        event: crate::board::send_back_question::asked_payload(
+            asked_by.as_deref(),
+            reason,
+            skip_cleared,
+        ),
+        author,
+    };
     let answers = crate::review::drag::DragAnswers {
         note: &note,
         attachments: &[],
@@ -1969,11 +2014,7 @@ async fn send_back_on_request(
     match outcome {
         Ok(ReturnOutcome::Done { .. }) => {
             board
-                .close_question(
-                    &question.id,
-                    Some(&format_answer(&question, &Choice::SendBack)),
-                    AnsweredVia::Box,
-                )
+                .record_send_back_answer(&question.id, &format_answer(&question, &Choice::SendBack))
                 .await?;
             publish_ticket_changed(shared, &ticket.key).await;
             Ok(Delivery::Sent { count: 1 })
@@ -1981,6 +2022,7 @@ async fn send_back_on_request(
         Ok(ReturnOutcome::NeedsConfirmation {
             ticket: asked_ticket,
             unclearable_by,
+            ..
         }) => {
             undo().await;
             Ok(Delivery::NeedsConfirmation {
@@ -1992,6 +2034,56 @@ async fn send_back_on_request(
             undo().await;
             Err(e)
         }
+    }
+}
+
+/// Who asked to send `ticket` back: the agent of the session working its stage `here` (a checker in a check, the
+/// ticket's agent in an Agent stage), else an unnamed agent of that stage.
+async fn asking_agent(
+    shared: &Shared,
+    ticket: &crate::board::tickets::Ticket,
+    here: Option<&crate::flow::Stage>,
+) -> crate::board::ticket_comments::CommentAuthor {
+    let kind = match here.is_some_and(crate::flow::Stage::is_agent_stage) {
+        true => SessionKind::Agent,
+        false => SessionKind::Validator,
+    };
+    use crate::board::ticket_comments::CommentAuthor;
+    let here_id = || here.map(|s| s.id.clone());
+    let session = shared.sessions.latest_of(&ticket.id, kind);
+    let author = match session {
+        Some(session) => shared
+            .board
+            .session_author(&session.id)
+            .await
+            .inspect_err(|e| {
+                tracing::warn!(ticket = %ticket.key, error = %e, "can't name the agent that asked to send it back");
+            })
+            .ok(),
+        None => None,
+    };
+    match author {
+        // The comment is headed by the stage it asked from, also when its session has no stage run of its own.
+        Some(CommentAuthor::Agent {
+            id,
+            name,
+            tool,
+            stage,
+            round,
+        }) => CommentAuthor::Agent {
+            id,
+            name,
+            tool,
+            stage: stage.or_else(here_id),
+            round,
+        },
+        _ => CommentAuthor::Agent {
+            id: None,
+            name: None,
+            tool: None,
+            stage: here_id(),
+            round: None,
+        },
     }
 }
 

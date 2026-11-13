@@ -3,4 +3,8 @@
 /**
  * One editable commit message.
  */
-export type PrCommitField = { sha: string, message: string, };
+export type PrCommitField = { sha: string, message: string, 
+/**
+ * It still holds the message the project's commit-msg hook refused at the last confirm: the field is marked.
+ */
+refused: boolean, };

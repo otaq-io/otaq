@@ -41,6 +41,10 @@ use crate::store::tickets::set_state_since;
 use crate::store::{Store, StoreError, new_id, now_ms};
 pub use reconcile::{AT_WORK, Outcome, ResumeAs, StageAt, reconcile, resume_as};
 
+/// The statuses a ticket's delivery session works in: waiting in Review or at its Delivery (the message writer, Open
+/// PR), and with its PR open (Push to PR).
+pub const DELIVERS_IN: &[Status] = &[Status::WaitingForYou, Status::ToDeliver, Status::PrOpen];
+
 /// What History records about a session that ended by itself.
 fn ended_payload(info: &SessionInfo) -> serde_json::Value {
     let reason = info.end_reason.as_deref().unwrap_or_default();
@@ -221,6 +225,16 @@ pub const RETURN_SCRATCH: &str = "scratch";
 pub fn carry_on_text() -> String {
     format!(
         "You were interrupted by a restart. Carry on where you left off; run `{} prime` if you need the ticket \
+         again.",
+        crate::naming::COMMAND_NAME
+    )
+}
+
+/// The first prompt of a ticket's conversation reopened when the ticket is dragged back from Parked with nothing
+/// else to send: the agent carries on, as after Resume, rather than waking up idle at its prompt.
+pub fn carry_on_after_park_text() -> String {
+    format!(
+        "You were parked and are now back. Carry on where you left off; run `{} prime` if you need the ticket \
          again.",
         crate::naming::COMMAND_NAME
     )
@@ -835,12 +849,21 @@ impl Recovery {
             };
             match event {
                 Ok(Event::SessionState { session }) if !session.is_running() => {
+                    self.prompt_gone_with(&session);
                     if let Err(e) = self.agent_session_ended(&session).await {
                         tracing::warn!(session = session.id, error = %e, "can't record an agent's exit");
                     }
                     if let Err(e) = self.validator_session_ended(&session).await {
                         tracing::warn!(session = session.id, error = %e, "can't record a validator's exit");
                     }
+                    if let Err(e) = self.message_writer_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't drop an unwritten message");
+                    }
+                }
+                Ok(Event::CardStatusChanged { id, status, .. })
+                    if !DELIVERS_IN.contains(&status) =>
+                {
+                    self.delivery_outlived(&id);
                 }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
@@ -849,6 +872,71 @@ impl Recovery {
                 Err(broadcast::error::RecvError::Closed) => return,
             }
         }
+    }
+
+    /// A ticket's session that ended takes the prompt on its screen with it: its ticket reads as before.
+    fn prompt_gone_with(&self, session: &SessionInfo) {
+        if let Some(ticket_id) = self.inner.board.session_prompts().gone(&session.id)
+            && let Some(key) = &session.ticket
+        {
+            self.inner.events.publish(Event::TicketChanged {
+                project: key.project.to_string(),
+                id: ticket_id,
+                key: key.clone(),
+            });
+        }
+    }
+
+    /// The ticket left the statuses a delivery session works in (sent back, parked, closed, delivered): its
+    /// delivery session, the message writer's or a PR step's, has nothing left to do and stops, so nothing keeps
+    /// running for it (the Running list no longer names it) and nothing holds its worktree.
+    fn delivery_outlived(&self, ticket_id: &str) {
+        let Some(session) = self
+            .inner
+            .sessions
+            .running_of(ticket_id, SessionKind::Delivery)
+        else {
+            return;
+        };
+        let sessions = self.inner.sessions.clone();
+        tokio::spawn(async move {
+            tracing::info!(
+                session = session.id,
+                "the ticket left its delivery: its delivery session stops"
+            );
+            if let Err(e) = sessions.stop(&session.id).await {
+                tracing::warn!(session = session.id, error = %e, "can't stop the delivery session");
+            }
+        });
+    }
+
+    /// The session that could write the ticket's delivery message ended (its agent's or the delivery's own) and none
+    /// of those runs any more: a message still being written never comes, so it is dropped and Approve's
+    /// confirmation starts from the plain message.
+    async fn message_writer_ended(&self, info: &SessionInfo) -> Result<(), BoardError> {
+        if !matches!(info.kind, SessionKind::Agent | SessionKind::Delivery) || info.is_running() {
+            return Ok(());
+        }
+        let Some(key) = &info.ticket else {
+            return Ok(());
+        };
+        let ticket = match self.inner.board.ticket(&key.to_string()).await {
+            Ok(ticket) => ticket,
+            Err(BoardError::NotFound(_)) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        let sessions = &self.inner.sessions;
+        if [SessionKind::Agent, SessionKind::Delivery]
+            .into_iter()
+            .any(|kind| sessions.running_of(&ticket.id, kind).is_some())
+        {
+            return Ok(());
+        }
+        if self.inner.board.drop_unwritten_message(&ticket.id).await? {
+            tracing::info!(key = %ticket.key, "the message's session ended before it was written: the plain one stays");
+            self.publish(&ticket.id, &ticket.key, None);
+        }
+        Ok(())
     }
 
     /// Sets a ticket at work to Interrupted, if it still is in `before`. A needs-you ticket keeps its label (the
@@ -936,7 +1024,7 @@ impl Recovery {
         let mut tx = board.store().begin_write().await?;
         let done = sqlx::query(concat!(
             "UPDATE tickets SET stage_id = NULL, state = ?, start_problem_step = ?, start_problem_message = ?,
-                                signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
+                                start_problem_hook = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL, interrupted_from = NULL,
                                 updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ? AND state = ?"

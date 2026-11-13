@@ -255,6 +255,10 @@ fn files_to_copy_row(s: &ProjectSettings, p: &[SettingProblem]) -> Row {
 /// Deliver as's fields.
 pub const DELIVERS_FIELD: &str = "delivery.delivers";
 pub const MODE_FIELD: &str = "delivery.mode";
+/// The delivery's agent (Edit flow's Done panel): it writes the message and opens the PR.
+pub const AGENT_FIELD: &str = "delivery.agent";
+/// The skill the delivery opens a PR with (Edit flow's Done panel): the user's own Open PR skill, else Otaq's.
+pub const SKILL_FIELD: &str = "delivery.skill";
 pub const DELIVERY_LABEL: &str = "Delivery";
 pub const DELIVERY_NOTE: &str =
     "This is the flow\u{2019}s setting: changing it here changes the flow, and the flow file.";
@@ -316,7 +320,9 @@ fn delivers_id(d: Delivers) -> &'static str {
 /// The flow's delivery with Deliver as's edit `field` = `value` (`delivery.delivers`: local / pr / either;
 /// `delivery.mode`: click / automatic). A local merge opens no PR, so it drops the PR's skill but keeps the agent, which
 /// writes its squash message (and opens the PR again on a later switch back); Either is chosen at your click, so
-/// picking it sets On Approve, and Automatically isn't offered with it.
+/// picking it sets On Approve, and Automatically isn't offered with it. `delivery.agent` names the delivery's agent
+/// (empty: none, only for a local merge, which then uses Otaq's plain message); `delivery.skill` the skill it opens a PR
+/// with (empty: Otaq's own `open-pr`).
 pub fn deliver_as(delivery: &Delivery, field: &str, value: &str) -> Result<Delivery, String> {
     let mut out = delivery.clone();
     match field {
@@ -345,6 +351,20 @@ pub fn deliver_as(delivery: &Delivery, field: &str, value: &str) -> Result<Deliv
                     "Either is chosen at your click: pick Merge or Pull request to deliver automatically".to_owned(),
                 );
             }
+        }
+        AGENT_FIELD => {
+            let name = value.trim();
+            if name.is_empty() && out.can_open_pr() {
+                return Err("A delivery that opens a PR needs an agent to open it".to_owned());
+            }
+            out.agent = (!name.is_empty()).then(|| name.to_owned());
+        }
+        SKILL_FIELD => {
+            let name = value.trim().trim_start_matches(['/', '$']);
+            if !out.can_open_pr() {
+                return Err("A local merge opens no PR, so it has no PR skill".to_owned());
+            }
+            out.skill = (!name.is_empty()).then(|| name.to_owned());
         }
         other => return Err(format!("unknown setting: {other}")),
     }
@@ -459,7 +479,6 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }

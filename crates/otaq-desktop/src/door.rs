@@ -25,7 +25,7 @@ type AppState<'a> = State<'a, Arc<App>>;
 
 #[tauri::command]
 async fn request(app: AppState<'_>, method: String, params: Value) -> Result<Value, RequestError> {
-    crate::api::request(&app, &method, params).await
+    crate::api::answer(Arc::clone(&app), method, params).await
 }
 
 #[tauri::command]
@@ -207,6 +207,10 @@ fn window(window: tauri::WebviewWindow, action: crate::window::Action) -> Result
         Action::Focus => bring_forward(&window),
         Action::Quit => {
             tauri::Manager::app_handle(&window).exit(0);
+            Ok(())
+        }
+        Action::AskQuit => {
+            quit_asked(tauri::Manager::app_handle(&window));
             Ok(())
         }
     }
@@ -1148,9 +1152,10 @@ pub(crate) fn stop_agents_and_quit(handle: &tauri::AppHandle) {
     });
 }
 
-/// ⌘Q and the menu bar's Quit Otaq (TRY-03): with agents working, the window asks "Quit Otaq?": Keep them running
-/// (the default: the app only) · Quit and stop agents · Cancel; with none working, or no service to ask, the app
-/// quits at once. The Dock's
+/// ⌘Q, the menu bar's Quit Otaq and the tray's Quit Otaq on every platform (TRY-03): with agents working, the window
+/// asks "Quit Otaq?": Keep them running (the default: the app only) · Quit and stop agents · Cancel; with none
+/// working, or no service to ask, the app quits at once. The window comes up first, so the question shows on it even
+/// when the window was closed to the tray. The Dock's
 /// Quit and a logout end the app through macOS without asking (Tauri can't hold them), so a logout never waits.
 fn quit_asked(handle: &tauri::AppHandle) {
     use otaq_view::view_models::quit::quit_question;
@@ -1163,6 +1168,10 @@ fn quit_asked(handle: &tauri::AppHandle) {
         };
         let on_main = handle.clone();
         let _ = handle.run_on_main_thread(move || {
+            // A question on a hidden window can show behind everything, or not at all.
+            if let Err(e) = show_main_window(&on_main) {
+                eprintln!("couldn't bring the window up for the quit question: {e}");
+            }
             let labels = vec![
                 question.keep.to_owned(),
                 question.stop.to_owned(),
@@ -1672,5 +1681,20 @@ mod updater_config_tests {
         assert_eq!(updater.as_object().unwrap().len(), 2);
         // Tests are never release builds.
         assert!(!updates::is_release());
+    }
+}
+
+#[cfg(test)]
+mod bundle_identity_tests {
+    use serde_json::Value;
+
+    /// The Windows installer names its Start-menu shortcut after `productName` and gives it `identifier` as its
+    /// AppUserModelID; the service posts its toasts under that identity and looks for that shortcut, so both stay
+    /// the names the core uses.
+    #[test]
+    fn the_installers_shortcut_carries_the_identity_toasts_use() {
+        let conf: Value = serde_json::from_str(include_str!("../tauri.conf.json")).unwrap();
+        assert_eq!(conf["identifier"], otaq_core::naming::BUNDLE_ID);
+        assert_eq!(conf["productName"], otaq_core::naming::PRODUCT_NAME);
     }
 }

@@ -794,13 +794,13 @@ pub fn trust_gallery() -> TrustGallery {
             false,
         ),
         (
-            "stacking · the warning above the permission warning",
+            "stacking · the warning above the notifications warning",
             false,
             vec![note],
             true,
         ),
         (
-            "stacking · the note below the permission warning",
+            "stacking · the note below the notifications warning",
             true,
             Vec::new(),
             true,
@@ -808,10 +808,10 @@ pub fn trust_gallery() -> TrustGallery {
     ];
     let banners = cells
         .into_iter()
-        .map(|(name, pending, failed, permission)| {
+        .map(|(name, pending, failed, blocked)| {
             let mut model = BannerModel::default();
-            if permission {
-                model.raise(banners::Situation::PermissionWarning);
+            if blocked {
+                model.raise(banners::Situation::NotificationsBlocked);
             }
             model.set_trust(pending, Vec::new(), failed);
             TrustBannerCell {
@@ -1419,15 +1419,15 @@ mod tests {
             .iter()
             .map(|c| c.banners.iter().map(|b| b.kind).collect())
             .collect();
-        use banners::SituationKind::{PermissionWarning, TrustFailed, TrustNote};
+        use banners::SituationKind::{NotificationsBlocked, TrustFailed, TrustNote};
         assert_eq!(
             kinds,
             [
                 vec![TrustNote],
                 vec![TrustFailed],
                 vec![TrustFailed],
-                vec![TrustFailed, PermissionWarning],
-                vec![PermissionWarning, TrustNote],
+                vec![TrustFailed, NotificationsBlocked],
+                vec![NotificationsBlocked, TrustNote],
             ]
         );
         assert!(g.banners[2].banners[0].tooltip.is_some());

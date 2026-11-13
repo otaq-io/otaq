@@ -49,6 +49,7 @@ const VIEW: StripView = {
           target: ticket("SHOP-22"),
           asks: null,
           agent_asks: null,
+          open_in_panel: null,
         },
         {
           label: "SHOP-44",
@@ -59,6 +60,7 @@ const VIEW: StripView = {
           target: ticket("SHOP-44"),
           asks: null,
           agent_asks: null,
+          open_in_panel: null,
         },
         {
           label: "Agent",
@@ -69,6 +71,7 @@ const VIEW: StripView = {
           target: { kind: "agent", project: "SHOP", agent: "pa3" },
           asks: null,
           agent_asks: null,
+          open_in_panel: null,
         },
       ],
       resume_all: null,
@@ -96,6 +99,7 @@ const VIEW: StripView = {
           target: ticket("SHOP-18", "files"),
           asks: null,
           agent_asks: null,
+          open_in_panel: null,
         },
       ],
       resume_all: null,
@@ -128,7 +132,8 @@ const AGENT_ASKS: StripView = {
             title: "Noyan · Checkout slowness asks",
             answer: {
               question: "pq1",
-              text: "Add an index on orders.created_at?",
+              line: "Add an index on orders.created_at?",
+              context: null,
               rows: [
                 {
                   number: 1,
@@ -162,6 +167,7 @@ const AGENT_ASKS: StripView = {
               send: "Send answer",
             },
           },
+          open_in_panel: "Open in the agent panel",
         },
       ],
       resume_all: null,
@@ -323,7 +329,8 @@ describe("pressing the strip", () => {
               target: ticket("SHOP-40"),
               asks: {
                 title: "SHOP-40 · 40.2 asks",
-                question: "Keep the heart filled after sign-out?",
+                line: "Keep the heart filled after sign-out?",
+                context: null,
                 note: "The agent in charge passed this to you: it’s a product question the plan doesn’t answer.",
                 answer: "Answer 40.2…",
                 answer_target: answer,
@@ -331,6 +338,7 @@ describe("pressing the strip", () => {
                 open_target: open,
               },
               agent_asks: null,
+              open_in_panel: null,
             },
           ],
           resume_all: null,

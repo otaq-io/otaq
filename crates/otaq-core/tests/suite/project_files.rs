@@ -433,7 +433,6 @@ async fn a_project_on_develop_reads_develop_whatever_the_checkout() {
             path: repo.display().to_string(),
             key: Some("BILL".into()),
             base_branch: Some("develop".into()),
-            ..Default::default()
         })
         .await
         .unwrap();
@@ -613,7 +612,7 @@ async fn two_tickets_on_one_file_get_the_note_with_their_lines() {
     // Furthest along first in the note (a tie here: by key), the spans merged, the name from git's hunk header.
     assert_eq!(
         note.note,
-        "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will rebase on the other."
+        "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41\u{2013}58). Whichever merges second will merge the other in first."
     );
     assert_eq!(note.base_branch, "main");
     assert_eq!(note.function.as_deref(), Some("applyDiscount"));
@@ -711,7 +710,7 @@ async fn three_owners_are_named_furthest_along_first_and_other_bases_are_never_c
     assert_eq!(note.base_branch, "main");
     assert_eq!(
         note.note,
-        "SHOP-1, SHOP-2 and SHOP-3 all edit round (lines 4\u{2013}6). Each one that merges later will rebase on the ones before it."
+        "SHOP-1, SHOP-2 and SHOP-3 all edit round (lines 4\u{2013}6). Each one that merges later will merge the ones before it in first."
     );
     assert!(!note.keys.contains(&hotfix.key));
 }

@@ -167,7 +167,8 @@ async fn world() -> World {
             "Should dark mode follow the system setting?",
             &["Yes".into(), "No".into()],
             &[],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();
@@ -754,5 +755,53 @@ async fn an_agent_can_neither_pause_nor_resume() {
         answer["reply"]["pause_counts"]["projects"][0]["name"], "shop-web",
         "{answer}"
     );
+    w.stop().await;
+}
+
+/// A Noyan conversation counts as an agent at work only while it replies: idle between turns it waits for the user,
+/// so with nothing else running there is nothing for Pause to stop.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_idle_noyan_conversation_isnt_working() {
+    let w = TestService::start_with(launch).await;
+    w.add_project("shop-web").await;
+    let agent = w
+        .project_agents
+        .open("SHOP", "Why is checkout slow?")
+        .await
+        .unwrap();
+    let caller = Caller::ProjectAgent {
+        project: agent.project.clone(),
+        agent: agent.id.clone(),
+        session: agent.session.as_ref().expect("a session").id.clone(),
+    };
+    let hook = async |event: &str, payload: serde_json::Value| {
+        let signals = w
+            .signals
+            .hook(&caller, agent.tool, event, &payload)
+            .await
+            .unwrap();
+        for signal in &signals {
+            w.project_agents.hook(&agent.id, signal).await.unwrap();
+        }
+    };
+    let working = async || w.pause.counts(&shop()).await.unwrap().projects[0].working;
+
+    // Replying to its first message: at work.
+    assert_eq!(working().await, 1);
+    // Its turn ended: it waits for the user's next message.
+    hook("Stop", json!({ "last_assistant_message": "Done." })).await;
+    assert_eq!(working().await, 0);
+    // The user's next message starts a turn again.
+    hook("UserPromptSubmit", json!({ "prompt": "and the cart?" })).await;
+    assert_eq!(working().await, 1);
+
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
     w.stop().await;
 }

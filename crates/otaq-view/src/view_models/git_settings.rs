@@ -4,8 +4,8 @@
 //! built-in GitHub and Azure DevOps; each project picks its own in its Repository settings. Otaq pushes and opens
 //! pull requests through them and never watches them.
 //!
-//! Everything comes from the tools check (`tools.check`), the same one onboarding runs: the rows only say what it
-//! found.
+//! Everything comes from the git tools check (`tools.check_git`, onboarding's check without the agent tools): the
+//! rows only say what it found.
 
 use otaq_core::tools::{Tool, ToolStatus, ToolsReport};
 use serde::Serialize;
@@ -27,6 +27,8 @@ pub enum Look {
     Attention,
     /// Not found. Red for git, which every project needs; muted for a provider.
     Missing,
+    /// Its check hasn't answered yet: "Checking…".
+    Checking,
 }
 
 /// git's row, or one provider's.
@@ -68,7 +70,58 @@ pub struct View {
     pub terminal: ToolTerminalTexts,
 }
 
+/// A row's state while its check hasn't answered.
+pub const CHECKING: &str = "Checking\u{2026}";
+
 pub const INTRO: &str = "Installed once on this machine and used by every project. Each project chooses its provider in its Repository settings.";
+
+/// The page before the tools check answers: its whole layout, git and each provider "Checking…", so the pane is
+/// never empty while git, gh and az are looked up (slow to start on Windows).
+pub fn checking() -> View {
+    let row = |tool: Tool, name: &str, detail: String| Row {
+        tool: tool.command().to_owned(),
+        name: name.to_owned(),
+        detail,
+        state: CHECKING.to_owned(),
+        look: Look::Checking,
+        command: None,
+        button: None,
+        note: None,
+        identity: None,
+    };
+    View {
+        git: Some(row(Tool::Git, "git", String::new())),
+        providers: [Tool::Gh, Tool::Az]
+            .into_iter()
+            .map(|tool| {
+                row(
+                    tool,
+                    provider_name(tool),
+                    format!("uses {}", tool.command()),
+                )
+            })
+            .collect(),
+        ..page(None, None)
+    }
+}
+
+/// The page's fixed texts around its rows.
+fn page(git: Option<Row>, error: Option<String>) -> View {
+    View {
+        intro: INTRO.to_owned(),
+        git_title: "Git".to_owned(),
+        git,
+        recheck_label: "Re-check".to_owned(),
+        providers_title: "Pull request providers".to_owned(),
+        providers: Vec::new(),
+        footnote: format!(
+            "{PRODUCT_NAME} uses them to push and open pull requests; it never watches them."
+        ),
+        error,
+        copy: "Copy".to_owned(),
+        terminal: tool_terminal_texts(),
+    }
+}
 
 /// The page from the tools check's answer, or why it failed.
 pub fn view(result: Result<ToolsReport, String>) -> View {
@@ -96,18 +149,8 @@ pub fn view(result: Result<ToolsReport, String>) -> View {
         })
         .collect();
     View {
-        intro: INTRO.to_owned(),
-        git_title: "Git".to_owned(),
-        git,
-        recheck_label: "Re-check".to_owned(),
-        providers_title: "Pull request providers".to_owned(),
         providers,
-        footnote: format!(
-            "{PRODUCT_NAME} uses them to push and open pull requests; it never watches them."
-        ),
-        error,
-        copy: "Copy".to_owned(),
-        terminal: tool_terminal_texts(),
+        ..page(git, error)
     }
 }
 
@@ -314,6 +357,30 @@ mod tests {
         // With them, no form.
         let v = view(Ok(report(vec![status(Tool::Git)])));
         assert!(v.git.unwrap().identity.is_none());
+    }
+
+    #[test]
+    fn before_the_check_answers_every_row_is_drawn_checking() {
+        let v = checking();
+        let rows: Vec<_> = v
+            .git
+            .iter()
+            .chain(&v.providers)
+            .map(|r| (r.name.as_str(), r.detail.as_str(), r.state.as_str(), r.look))
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("git", "", CHECKING, Look::Checking),
+                ("GitHub", "uses gh", CHECKING, Look::Checking),
+                ("Azure DevOps", "uses az", CHECKING, Look::Checking),
+            ]
+        );
+        assert!(v.git.unwrap().button.is_none() && v.error.is_none());
+        assert_eq!(
+            (v.git_title.as_str(), v.providers_title.as_str()),
+            ("Git", "Pull request providers")
+        );
     }
 
     #[test]

@@ -33,6 +33,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "ticket.pr_confirm" {
             params["proposal"] = json!({"branch": "b", "commits": []});
         }
+        if method == "ticket.keep_message" {
+            params["dialog"] = json!("merge");
+        }
         if method == "flow.apply" {
             params["proposal"] = json!(3);
         }
@@ -50,6 +53,9 @@ fn sample(method: &str, unit: bool) -> Request {
         }
         if method == "flow.draft_update" {
             params["edit"] = json!({"edit": "undo_all"});
+        }
+        if method == "project_agent.undone" {
+            params["change"] = json!({"kind": "waits_for", "parent": "NOPE-2"});
         }
         if method == "flow.apply_now" {
             params["stamp"] = json!("s");
@@ -92,10 +98,7 @@ fn sample(method: &str, unit: bool) -> Request {
         if method.starts_with("agents.pause") || method == "agents.resume" {
             params["scope"] = json!("project");
         }
-        if method.starts_with("agent_tools.")
-            || method.starts_with("limits.")
-            || method == "onboarding.ask"
-        {
+        if method.starts_with("agent_tools.") || method.starts_with("limits.") {
             params["tool"] = json!("codex");
         }
         // git has no login: refused, so the sample never runs an install or login command.
@@ -119,6 +122,9 @@ fn sample(method: &str, unit: bool) -> Request {
         if method == "ticket.manual_check_tick" {
             params["n"] = json!(1);
             params["ticked"] = json!(true);
+        }
+        if method == "settings.os_dark" {
+            params["dark"] = json!(true);
         }
         if method == "hints.dismiss" {
             params["hint"] = json!("gallery_sample");
@@ -165,14 +171,10 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::StartupReport
         | Request::Subscribe(_)
         | Request::ToolsCheck
+        | Request::GitToolsCheck
         | Request::GitSetIdentity(_)
         | Request::GitMissingIdentity(_)
         | Request::OnboardingState
-        | Request::OnboardingSources(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
-        | Request::DismissPermissionWarning
         | Request::DismissTrustNote
         | Request::NotificationsState
         | Request::NotificationsAskAnswered
@@ -255,12 +257,14 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::TicketPass(_)
         | Request::ReviewFeedback(_)
         | Request::TicketMergeProposal(_)
+        | Request::TicketKeepMessage(_)
         | Request::TicketLocalMerge(_)
         | Request::TicketDone(_)
         | Request::TicketDoneNotMerged(_)
         | Request::TicketMergeIntoHosts(_)
         | Request::TicketMergeInto(_)
         | Request::TicketMergeCheckStop(_)
+        | Request::TicketGitStop(_)
         | Request::TicketApproveCheck(_)
         | Request::TicketConflict(_)
         | Request::TicketSendBackPr(_)
@@ -321,6 +325,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::UsageMarkLimit(_)
         | Request::SettingsGet
         | Request::SettingsSet(_)
+        | Request::SettingsOsDark(_)
         | Request::ProjectSettingsGet(_)
         | Request::ProjectSettingsSet(_)
         | Request::ProjectViewSet(_)
@@ -348,6 +353,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
         | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)
         | Request::AppFocus(_)
         | Request::SessionBeforeRestart(_)
         | Request::Hook(_)
@@ -382,6 +388,7 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
         | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)
         | Request::AgentsList
         | Request::AgentsAdd(_)
         | Request::AgentsEdit(_)

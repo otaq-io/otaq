@@ -37,6 +37,11 @@ use crate::agent_tools::events::LimitWindow;
 use crate::usage::limit::LimitKind;
 pub use plugins::plugin_skills;
 
+/// A skill as the tool calls it ([`launch::skill_reference`]).
+pub(super) fn skill_reference(skill: &str) -> String {
+    launch::skill_reference(skill)
+}
+
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "GitHub Copilot";
 
@@ -276,9 +281,12 @@ impl AgentTool for Copilot {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: b"",
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: true,
+            paste_line_over: None,
+            command_before_paste: false,
         }
     }
 
@@ -302,7 +310,7 @@ impl AgentTool for Copilot {
 
     /// `/otaq:commit`, `/team-validate` ([`launch::skill_reference`]).
     fn skill_reference(&self, skill: &str) -> String {
-        launch::skill_reference(skill)
+        skill_reference(skill)
     }
 }
 

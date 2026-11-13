@@ -79,7 +79,6 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::QuickSwitcherView::export_all(&cfg)?;
     crate::api::DigitParams::export_all(&cfg)?;
     crate::api::StepParams::export_all(&cfg)?;
-    crate::api::CleanupBroom::export_all(&cfg)?;
     // Settings → About's update parts and the rail's dot (UPD-04); also writes the rows, the notice and the params.
     crate::api::export_updates_types(&cfg)?;
     // The command palette (T-0393): its view with the rows, and the requests' params.
@@ -136,6 +135,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::AgentPanelEnded::export_all(&cfg)?;
     crate::api::AgentPanelProjectParams::export_all(&cfg)?;
     crate::api::AgentPanelResumeParams::export_all(&cfg)?;
+    crate::api::AgentPanelUndoParams::export_all(&cfg)?;
     // The rail's Noyan button (T-0458): its view and requests.
     crate::api::export_noyan_button_types(&cfg)?;
     // The box for new work: its view and gallery.
@@ -203,6 +203,7 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     crate::api::SectionParams::export_all(&cfg)?;
     crate::api::MessagesView::export_all(&cfg)?;
     crate::api::AnswerMessageParams::export_all(&cfg)?;
+    crate::api::ResumeMessageParams::export_all(&cfg)?;
     crate::api::HistoryView::export_all(&cfg)?;
     // The ticket editor and the Ticket tab (T-0228); the view also writes its form, texts, fields and read mode.
     crate::api::EditorView::export_all(&cfg)?;

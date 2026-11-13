@@ -12,8 +12,4 @@ title: string,
 /**
  * "3 changes, marked · nothing changes until you save".
  */
-line: string, whys_title: string, whys: Array<FlowBoardWhy>, ask: string, 
-/**
- * "Tell Strong what to change…".
- */
-ask_placeholder: string, discard: string, };
+line: string, whys_title: string, whys: Array<FlowBoardWhy>, discard: string, };

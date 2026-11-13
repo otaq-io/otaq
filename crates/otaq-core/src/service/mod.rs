@@ -257,11 +257,28 @@ impl Shared {
             {
                 tracing::warn!(agent, error = %e, "can't apply the Project agent's hook");
             }
+            self.sign_in_after(tool, signal);
             self.after_signal(caller, tool, signal);
         }
         // A helper's prompt and its Idle (d0133 audit 3).
         if let Err(e) = self.helpers.after_signals(caller, signals).await {
             tracing::warn!(error = %e, "can't apply the helper's hook");
+        }
+    }
+
+    /// A stop of `tool`'s, whoever's agent it came from, because its sign-in ran out or is missing ("Login expired")
+    /// has the tool read signed out at once, so Sign in… is offered straight away rather than after a check of the
+    /// tools. The next check (after Sign in…'s terminal, Re-check, a failed launch) takes the tool's own answer.
+    fn sign_in_after(&self, tool: Tool, signal: &Signal) {
+        let Signal::Failed { error, message } = signal else {
+            return;
+        };
+        let text = crate::signals::tool_error_text(error, message.as_deref());
+        if crate::signals::tool_error(&text)
+            .is_some_and(|stop| crate::signals::ToolStop::of(stop).needs_sign_in())
+        {
+            tracing::info!(%tool, "the tool stopped on its sign-in: signed out");
+            self.connected.signed_out(tool);
         }
     }
 
@@ -282,6 +299,23 @@ impl Shared {
                 })
             }),
         )
+    }
+
+    /// What applies a permission prompt its session's screen now shows ([`crate::signals::asks`]): to the session's
+    /// kind as its hook's would be.
+    fn on_shown(shared: &Arc<Self>) -> crate::signals::asks::OnShown {
+        let weak = Arc::downgrade(shared);
+        Arc::new(move |caller: Caller, tool: Tool, signal: Signal| {
+            let weak = weak.clone();
+            Box::pin(async move {
+                if let Some(shared) = weak.upgrade() {
+                    match shared.signals.prompt_shown(&caller, signal).await {
+                        Ok(signal) => shared.after_signals(&caller, tool, &[signal]).await,
+                        Err(e) => tracing::warn!(error = %e, "can't apply the prompt drawn"),
+                    }
+                }
+            })
+        })
     }
 
     async fn watched(&self, watched: Watched) {
@@ -412,6 +446,20 @@ impl Shared {
         else {
             return;
         };
+        // An answer session that ends its turn without the answer is ended, and its question goes to Needs you.
+        if self
+            .sessions
+            .info(session)
+            .is_ok_and(|info| info.kind == crate::session::SessionKind::Answer)
+            && self.messages.answer_turn_ended(session, signal)
+        {
+            let (messages, session) = (self.messages.clone(), session.clone());
+            tokio::spawn(async move {
+                if let Err(e) = messages.end_unanswered_turn(&session).await {
+                    tracing::warn!(session, error = %e, "can't end the answer session");
+                }
+            });
+        }
         // The plan limit (USG-03): it becomes active once, for every agent it stops. Waiting messages stay
         // queued: typing them now would only hit the limit again.
         if let Signal::LimitReached { hit, resets_at } = signal {
@@ -790,6 +838,8 @@ impl Service {
         );
         // "Merging · running the merge check" shows and goes at once (d0120).
         board.merge_checks().set_events(events.clone());
+        // The step a merge or a start is on, and the hook that runs, show at once.
+        board.git_steps().set_events(events.clone());
         // The agents in charge's helpers (d0133): their own worktrees, ports and sessions.
         let helpers = crate::helpers::Helpers::new(
             board.clone(),
@@ -964,6 +1014,10 @@ impl Service {
             config.data.clone(),
             adapters.clone(),
         );
+        // A question whose answer session went with the previous run goes to Needs you (a pause's waits for Resume).
+        if let Err(e) = messages.answer_sessions_gone().await {
+            tracing::warn!(error = %e, "can't look at the questions of the answer sessions gone");
+        }
         let validation = crate::validation::Validation::new(
             board.clone(),
             sessions.clone(),
@@ -1017,6 +1071,16 @@ impl Service {
                                 tracing::warn!(ticket = id, error = %e, "the delivery's message wasn't asked for");
                             }
                         }
+                        // Left for the user's click: the card may now say why (no PR provider, with Set up…).
+                        Ok(crate::review::delivery::Delivered::Left) => {
+                            if let Ok(t) = review.board().ticket_by_id(&id).await {
+                                events.publish(crate::protocol::Event::TicketChanged {
+                                    project: t.key.project.to_string(),
+                                    id: t.id.clone(),
+                                    key: t.key.clone(),
+                                });
+                            }
+                        }
                         Ok(_) => {}
                         // A git step failed: the card says so, with Retry merge (d0121).
                         Err(crate::board::BoardError::Git(e)) => {
@@ -1037,6 +1101,19 @@ impl Service {
             review.on_resume_validation(Arc::new(move |id, start| {
                 let validation = validation.clone();
                 Box::pin(async move { validation.resume_interrupted(&id, start).await })
+            }));
+        }
+        // A prompt that kept its calm while the ticket waited in Review (the message writer's) reads Needs you once a
+        // conflict or a failed Merge check sends the ticket back to its agent's running session.
+        {
+            let signals = signals.clone();
+            review.on_back_at_work(Arc::new(move |ticket| {
+                let (signals, id) = (signals.clone(), ticket.id.clone());
+                Box::pin(async move {
+                    if let Err(e) = signals.back_at_work(&id).await {
+                        tracing::warn!(ticket = id, error = %e, "can't read the prompt left open again");
+                    }
+                })
             }));
         }
         // Park and Close stop the validator too; the validation is recorded as stopped (CLS-01, CLS-06).
@@ -1194,6 +1271,8 @@ impl Service {
         });
         // Codex's session file (ADP-07): watched like a hook while its agent runs, again after a restart.
         shared.signals.set_watcher(Shared::watcher(&shared));
+        // A permission prompt queued behind another, applied once its session's screen draws it.
+        shared.signals.set_on_shown(Shared::on_shown(&shared));
         shared.signals.rewatch_running();
         tracing::info!(
             pid = std::process::id(),
@@ -1373,12 +1452,7 @@ impl Service {
         let ticket_env = tokio::spawn(shared.ticket_env.clone().run(shared.stop.subscribe()));
         let models = tokio::spawn(shared.models.clone().run(shared.stop.subscribe()));
         let gate = tokio::spawn(shared.gate.clone().run(shared.stop.subscribe()));
-        let flow_setup = tokio::spawn(
-            shared
-                .project_agents
-                .clone()
-                .relay_flow_setup(shared.stop.subscribe()),
-        );
+        let deliveries = tokio::spawn(shared.deliveries.clone().run(shared.stop.subscribe()));
         let mut connections = JoinSet::new();
         loop {
             tokio::select! {
@@ -1411,7 +1485,7 @@ impl Service {
         let _ = ticket_env.await;
         let _ = models.await;
         let _ = gate.await;
-        let _ = flow_setup.await;
+        let _ = deliveries.await;
         shared.sessions.shutdown().await;
         let _ = std::fs::remove_file(shared.config.data.socket_path());
         let drained = tokio::time::timeout(DRAIN_TIMEOUT, async {

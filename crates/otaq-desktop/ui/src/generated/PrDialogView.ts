@@ -2,7 +2,9 @@
 import type { PrBranchHint } from "./PrBranchHint";
 import type { PrCommitField } from "./PrCommitField";
 import type { PrSetUp } from "./PrSetUp";
+import type { PrSkillWaits } from "./PrSkillWaits";
 import type { PrStage } from "./PrStage";
+import type { WriterAsks } from "./WriterAsks";
 
 /**
  * What `pr.view` answers: the dialog for its stage, with every text worded.
@@ -45,6 +47,14 @@ prepared: string | null,
  */
 writing: string | null, 
 /**
+ * The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
+ */
+asks: WriterAsks | null, 
+/**
+ * While the skill prepares or pushes: its agent waits at a permission prompt, with Answer in terminal.
+ */
+waits: PrSkillWaits | null, 
+/**
  * The provider isn't set up on this machine.
  */
 set_up: PrSetUp | null, 
@@ -55,4 +65,9 @@ merge_instead: string | null,
 /**
  * Grows each time the fields were filled for the user: the page takes them again.
  */
-filled: number, };
+filled: number, 
+/**
+ * "Use the proposed message" while the title, description or a commit message differs from the proposal (the
+ * user's edit, kept on the ticket until the PR is opened or pushed with it).
+ */
+use_proposed: string | null, };

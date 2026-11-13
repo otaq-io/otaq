@@ -5,13 +5,15 @@
 //!
 //! [`summary`] is that dialog: one row per stopped ticket and per conversation with Noyan, ticked; a row whose tool
 //! can't run now (signed out, not installed, at its limit) says why and stays unticked, so nothing ever resumes on a
-//! tool that can't run (there is no fallback to another tool). "Resume 3" resumes the ticked rows; each row then says
+//! tool that can't run (there is no fallback to another tool). A row whose tool the service hasn't checked yet since
+//! it started waits for that check ("Checking Codex…", unticked) instead of calling it not installed. "Resume 3" resumes the ticked rows; each row then says
 //! what its Resume did (resumed, or couldn't, with Retry and Start from scratch). Nothing resumes without a click
 //! (d0045). A ticket that was checking starts its check again; a ticket that was asking you keeps its question, which
 //! the dialog names below the rows. Closed, the stopped tickets wait in Needs you, red with Resume.
 
 use std::collections::{BTreeMap, BTreeSet};
 
+use otaq_core::agent_tools::connected::AgentToolState;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::Status;
 use otaq_core::project_agents::{AgentState, ProjectAgent};
@@ -20,7 +22,8 @@ use otaq_core::recovery::StartupReport;
 use serde::Serialize;
 use ts_rs::TS;
 
-use crate::view_models::tool_problems::{self, Problem, Tools, tool_word};
+use crate::view_models::onboarding_page::{ToolTerminalTexts, tool_terminal_texts};
+use crate::view_models::tool_problems::{self, Problem, SIGN_IN, Tools, tool_word};
 
 /// What an interrupted ticket's session ran on: its tool and named agent (`None` before named agents).
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -47,16 +50,59 @@ impl Runs {
     }
 }
 
-/// Why `tool` can't resume anything now, as a row says it: "Codex isn’t signed in · sign in first", "Codex isn’t
-/// available (not installed)", "Claude Code limit reached · resets 3:45 pm". `None` while it can run.
+/// Whether the service's check of `tool` hasn't answered yet. Right after a start that check runs in the
+/// background (each tool's program, and its sign-in, can take many seconds), and until it answers the service
+/// lists the tool as not installed, which says nothing about the tool. A row on it waits for the check
+/// ("Checking Codex…") and is drawn again when the tools change.
+pub fn still_checking(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> bool {
+    tools.status(tool).is_some_and(|s| s.checked_at.is_none())
+}
+
+/// "Checking Codex…": what a row on a tool whose check hasn't answered yet says, unticked until it has.
+pub fn checking_text(tool: otaq_core::agent_tools::Tool) -> String {
+    format!("Checking {}\u{2026}", tool_word(tool))
+}
+
+/// Why `tool` can't resume anything now, as a row says it: "Codex isn’t signed in · sign in first", "Couldn’t check
+/// Claude Code’s sign-in · Re-check first", "Codex isn’t available (not installed)", "Claude Code limit reached ·
+/// resets 3:45 pm", "Codex is still being checked · try again in a moment". `None` while it can run.
 pub fn cannot_resume(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> Option<String> {
-    match tools.problem(tool)? {
-        Problem::Unavailable { sign_in: true, .. } => Some(format!(
+    // Not checked yet is not "not installed": nothing resumes on it until its check answers.
+    if still_checking(tool, tools) {
+        return Some(format!(
+            "{} is still being checked \u{b7} try again in a moment",
+            tool_word(tool)
+        ));
+    }
+    let problem = tools.problem(tool)?;
+    // The tool's own sign-in answer decides: no answer is not signed in either, so nothing resumes on it until a
+    // Re-check reads one.
+    if let Some(AgentToolState::CouldNotCheck { .. }) = tools.status(tool).map(|s| &s.state) {
+        return Some(format!(
+            "Couldn\u{2019}t check {}\u{2019}s sign-in \u{b7} Re-check first",
+            tool_word(tool)
+        ));
+    }
+    let signed_out = matches!(
+        tools.status(tool).map(|s| &s.state),
+        Some(AgentToolState::FoundNotSignedIn { .. })
+    );
+    match problem {
+        Problem::Unavailable { sign_in, .. } if sign_in || signed_out => Some(format!(
             "{} isn\u{2019}t signed in \u{b7} sign in first",
             tool_word(tool)
         )),
         _ => tool_problems::recovery_problem(tool, tools).map(|(text, _)| text),
     }
+}
+
+/// Whether a row on `tool` offers Sign in…: its tool can't run because it is signed out and has a sign-in to start
+/// (the same one Settings → Agents starts). A tool not checked yet, one whose sign-in couldn't be checked, one that
+/// isn't installed or at its limit gets none.
+pub fn offers_sign_in(tool: otaq_core::agent_tools::Tool, tools: &Tools) -> bool {
+    !still_checking(tool, tools)
+        && cannot_resume(tool, tools).is_some()
+        && tools.status(tool).is_some_and(|s| s.can_sign_in)
 }
 
 /// A service that started this long before the app opened was already running: a normal reopen.
@@ -152,6 +198,14 @@ pub struct SummaryRow {
     pub detail: String,
     /// "Codex isn’t signed in · sign in first": its tool can't run now, so it is unticked and can't be ticked.
     pub problem: Option<String>,
+    /// "Sign in…", beside a problem that is its tool being signed out: `agent_tools.sign_in { tool }`, the same
+    /// sign-in as Settings → Agents. Once it succeeds the row is ticked.
+    pub sign_in: Option<String>,
+    /// The tool it ran on, as stored ("codex"): what Sign in… sends.
+    pub tool: String,
+    /// "Checking Codex…": its tool's check hasn't answered yet, so it is unticked and can't be ticked until it has;
+    /// the dialog is drawn again when the tools change.
+    pub checking: Option<String>,
     pub checked: bool,
 }
 
@@ -173,6 +227,8 @@ pub struct SummaryPage {
     pub later: &'static str,
     /// "Resume 3".
     pub resume_selected: String,
+    /// The words of a row's Sign in… terminal.
+    pub terminal: ToolTerminalTexts,
     /// The ticked tickets, in order.
     pub selected: Vec<String>,
     /// The ticked conversations with Noyan.
@@ -219,11 +275,14 @@ fn ticket_row(
         ),
         _ => (RowState::Resumed, "Resumed".to_owned()),
     };
-    let problem = (state == RowState::Stopped)
-        .then(|| cannot_resume(tool, &runs.tools))
-        .flatten();
+    let (problem, checking) = tool_lines(state == RowState::Stopped, tool, &runs.tools);
     SummaryRow {
-        checked: state == RowState::Stopped && problem.is_none() && !unchecked.contains(&key),
+        checked: state == RowState::Stopped
+            && problem.is_none()
+            && checking.is_none()
+            && !unchecked.contains(&key),
+        sign_in: sign_in_of(problem.is_some(), tool, &runs.tools),
+        tool: tool.as_str().to_owned(),
         id: key.clone(),
         kind: RowKind::Ticket,
         tag: key,
@@ -231,14 +290,63 @@ fn ticket_row(
         state,
         detail,
         problem,
+        checking,
+    }
+}
+
+/// A stopped row's problem and checking lines: "Checking Codex…" while its tool's check hasn't answered, else why
+/// it can't resume now, if it can't.
+fn tool_lines(
+    stopped: bool,
+    tool: otaq_core::agent_tools::Tool,
+    tools: &Tools,
+) -> (Option<String>, Option<String>) {
+    if !stopped {
+        (None, None)
+    } else if still_checking(tool, tools) {
+        (None, Some(checking_text(tool)))
+    } else {
+        (cannot_resume(tool, tools), None)
+    }
+}
+
+/// Sign in… beside a row's problem, when the problem is its tool being signed out.
+fn sign_in_of(problem: bool, tool: otaq_core::agent_tools::Tool, tools: &Tools) -> Option<String> {
+    (problem && offers_sign_in(tool, tools)).then(|| SIGN_IN.to_owned())
+}
+
+/// A ticket that was asking you, on a tool that can't run now: unticked with why. One the user signed in for here
+/// stays a row and is ticked once its tool can run (unless the user unticked it).
+fn asking_row(
+    ticket: &Ticket,
+    unchecked: &BTreeSet<String>,
+    signed_in: &BTreeSet<String>,
+    runs: &Runs,
+) -> SummaryRow {
+    let key = ticket.key.to_string();
+    let tool = runs.tool(&key);
+    let (problem, checking) = tool_lines(true, tool, &runs.tools);
+    SummaryRow {
+        checked: signed_in.contains(&key)
+            && problem.is_none()
+            && checking.is_none()
+            && !unchecked.contains(&key),
+        sign_in: sign_in_of(problem.is_some(), tool, &runs.tools),
+        tool: tool.as_str().to_owned(),
+        problem,
+        checking,
+        id: key.clone(),
+        kind: RowKind::Ticket,
+        tag: key,
+        title: ticket.title.clone(),
+        state: RowState::Stopped,
+        detail: "was waiting for you".to_owned(),
     }
 }
 
 fn conversation_row(agent: &ProjectAgent, unchecked: &BTreeSet<String>, runs: &Runs) -> SummaryRow {
     let stopped = agent.state == AgentState::EndedByRestart;
-    let problem = stopped
-        .then(|| cannot_resume(agent.tool, &runs.tools))
-        .flatten();
+    let (problem, checking) = tool_lines(stopped, agent.tool, &runs.tools);
     let asked = agent.question.is_some() || agent.needs_you.is_some();
     SummaryRow {
         id: agent.id.clone(),
@@ -255,8 +363,14 @@ fn conversation_row(agent: &ProjectAgent, unchecked: &BTreeSet<String>, runs: &R
             (true, true) => "conversation \u{b7} was asking you".to_owned(),
             (true, false) => "conversation".to_owned(),
         },
-        checked: stopped && problem.is_none() && !unchecked.contains(&agent.id),
+        checked: stopped
+            && problem.is_none()
+            && checking.is_none()
+            && !unchecked.contains(&agent.id),
+        sign_in: sign_in_of(problem.is_some(), agent.tool, &runs.tools),
+        tool: agent.tool.as_str().to_owned(),
         problem,
+        checking,
     }
 }
 
@@ -281,25 +395,43 @@ fn kept_note(kept: &[&Ticket]) -> Option<String> {
 
 /// The dialog for this service start, or `None` once it stopped nothing. `tickets`: the ones `report` names, as they
 /// are now; `agents`: the conversations with Noyan it names; `unchecked`: the rows the user unticked (every row that
-/// can resume starts ticked); `runs`: what each ticket ran on and which tools can run now.
+/// can resume starts ticked); `signed_in`: the rows whose Sign in… the user pressed here; `runs`: what each ticket
+/// ran on and which tools can run now.
 pub fn summary(
     report: &StartupReport,
     tickets: &[Ticket],
     agents: &[ProjectAgent],
     unchecked: &BTreeSet<String>,
+    signed_in: &BTreeSet<String>,
     runs: &Runs,
 ) -> Option<SummaryPage> {
     let find = |key: &otaq_core::domain::TicketKey| tickets.iter().find(|t| &t.key == key);
     let stopped: Vec<&Ticket> = report.interrupted.iter().filter_map(find).collect();
     // A ticket that was asking kept its question: answering it from Needs you resumes and delivers it (d0045). A
     // stopped check is a row: its Resume starts the check again (d0063).
-    let (kept, listed): (Vec<&Ticket>, Vec<&Ticket>) = stopped.iter().partition(|t| {
+    let (asking, listed): (Vec<&Ticket>, Vec<&Ticket>) = stopped.iter().partition(|t| {
         t.status == Status::Interrupted
             && t.interrupted_from.is_some_and(|s| s.is_needs_you_family())
+    });
+    // Every stopped agent is in the dialog: one that was asking on a tool that can't run now can't be resumed by an
+    // answer either, so it is a row, unticked with why, rather than the note.
+    // A tool whose check hasn't answered yet isn't known to be unable: the ticket stays in the note, and becomes a
+    // row only if the check says its tool can't run. A row the user signed in for here stays a row, so the sign-in
+    // ticks it rather than moving it to the note.
+    let (blocked, kept): (Vec<&Ticket>, Vec<&Ticket>) = asking.into_iter().partition(|t| {
+        let key = t.key.to_string();
+        let tool = runs.tool(&key);
+        signed_in.contains(&key)
+            || (!still_checking(tool, &runs.tools) && cannot_resume(tool, &runs.tools).is_some())
     });
     let mut rows: Vec<SummaryRow> = listed
         .iter()
         .map(|t| ticket_row(t, report.was_validating.contains(&t.key), unchecked, runs))
+        .chain(
+            blocked
+                .iter()
+                .map(|t| asking_row(t, unchecked, signed_in, runs)),
+        )
         .chain(
             report
                 .project_agents_ended
@@ -322,6 +454,8 @@ pub fn summary(
     };
     let selected = ticked(RowKind::Ticket);
     let selected_agents = ticked(RowKind::Conversation);
+    // The title says what happened: every agent the restart stopped, whether or not it can resume. The button says
+    // what will happen: only the ticked rows. The two can differ.
     Some(SummaryPage {
         title: title(rows.len() + kept.len()),
         text: "Each can continue its same conversation, in its own copy. Resuming uses tokens.",
@@ -332,6 +466,7 @@ pub fn summary(
         foot: "They wait in Needs you if you close this.",
         later: "Not now",
         resume_selected: format!("Resume {}", selected.len() + selected_agents.len()),
+        terminal: tool_terminal_texts(),
         selected,
         selected_agents,
         rows,
@@ -447,7 +582,15 @@ mod tests {
             stages: BTreeMap::from([("SHOP-27".to_owned(), "Dev".to_owned())]),
         };
         let agents = [ended_agent("a1", "Checkout and footer", CLAUDE)];
-        let page = summary(&r, &tickets, &agents, &BTreeSet::new(), &runs).unwrap();
+        let page = summary(
+            &r,
+            &tickets,
+            &agents,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
         let rows: Vec<(&str, &str, &str, Option<&str>, bool)> = page
             .rows
             .iter()
@@ -488,6 +631,7 @@ mod tests {
                 ),
             ]
         );
+        // The title counts every stopped agent: the three that can resume, the row that can't and the asking note.
         assert_eq!(page.title, "5 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 3");
         assert_eq!(page.selected, ["SHOP-27", "SHOP-26"]);
@@ -503,11 +647,186 @@ mod tests {
             &tickets,
             &agents,
             &BTreeSet::from(["SHOP-27".to_owned(), "a1".to_owned()]),
+            &BTreeSet::new(),
             &runs,
         )
         .unwrap();
         assert_eq!(page.selected, ["SHOP-26"]);
         assert!(page.selected_agents.is_empty());
+        assert_eq!(page.resume_selected, "Resume 1");
+        // Unticking moves the button, never the title.
+        assert_eq!(page.title, "5 agents were stopped by a restart");
+    }
+
+    fn claude_as(state: AgentToolState) -> Tools {
+        let mut tools = tf::several();
+        tools.statuses[0] = tf::status(CLAUDE, state);
+        tools.connected.retain(|t| *t != CLAUDE);
+        tools
+    }
+
+    fn rows_of(page: &SummaryPage) -> Vec<(&str, Option<&str>, bool)> {
+        page.rows
+            .iter()
+            .map(|r| (r.tag.as_str(), r.problem.as_deref(), r.checked))
+            .collect()
+    }
+
+    /// The release test: one agent that can resume and one that was waiting for you on a signed-out Claude Code. Each
+    /// has a row (the signed-out one unticked with why, not hidden in the "still waits for your answer" note); the
+    /// title counts both, the button only the ticked one.
+    #[test]
+    fn an_agent_on_a_signed_out_tool_gets_an_unticked_row_counted_in_the_title() {
+        let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
+        let mut idle = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        idle.interrupted_from = Some(Status::Idle);
+        let r = report(&["SHOP-9", "NOTE-4"]);
+        let runs = Runs {
+            tools: claude_as(AgentToolState::FoundNotSignedIn { version: None }),
+            tickets: BTreeMap::from([
+                ("SHOP-9".to_owned(), ran(CODEX)),
+                ("NOTE-4".to_owned(), ran(CLAUDE)),
+            ]),
+            ..Runs::default()
+        };
+        let page = summary(
+            &r,
+            &[working, idle],
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(
+            rows_of(&page),
+            [
+                ("SHOP-9", None, true),
+                (
+                    "NOTE-4",
+                    Some("Claude Code isn\u{2019}t signed in \u{b7} sign in first"),
+                    false
+                ),
+            ]
+        );
+        assert_eq!(page.rows[1].detail, "was waiting for you");
+        assert!(page.notes.is_empty());
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+        assert_eq!(page.selected, ["SHOP-9"]);
+
+        // The same with a ticket that was working on the signed-out tool.
+        let mut working_cc = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        working_cc.interrupted_from = Some(Status::Working);
+        let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
+        let page = summary(
+            &r,
+            &[working, working_cc],
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(rows_of(&page).len(), 2);
+        assert!(!page.rows[1].checked && page.rows[1].problem.is_some());
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+    }
+
+    /// Two agents that can resume and one on a signed-out tool: the title counts all three, the button the two ticked;
+    /// unticking one moves the button to "Resume 1" and leaves the title.
+    #[test]
+    fn the_title_counts_every_stopped_agent_and_the_button_the_ticked_ones() {
+        let tickets = [
+            card_fixtures::ticket("SHOP-1", "One", Status::Interrupted),
+            card_fixtures::ticket("SHOP-2", "Two", Status::Interrupted),
+            card_fixtures::ticket("BILL-3", "Three", Status::Interrupted),
+        ];
+        let r = report(&["SHOP-1", "SHOP-2", "BILL-3"]);
+        let runs = Runs {
+            tools: tf::codex_logged_out(),
+            tickets: BTreeMap::from([
+                ("SHOP-1".to_owned(), ran(CLAUDE)),
+                ("SHOP-2".to_owned(), ran(CLAUDE)),
+                ("BILL-3".to_owned(), ran(CODEX)),
+            ]),
+            ..Runs::default()
+        };
+        let page = summary(&r, &tickets, &[], &BTreeSet::new(), &BTreeSet::new(), &runs).unwrap();
+        assert_eq!(page.title, "3 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 2");
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::from(["SHOP-1".to_owned()]),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(page.title, "3 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 1");
+    }
+
+    /// A tool whose sign-in answer couldn't be read can't resume anything either: its row says so and points at
+    /// Re-check.
+    #[test]
+    fn a_tool_whose_sign_in_couldnt_be_checked_gets_an_unticked_row() {
+        let mut asking = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        asking.interrupted_from = Some(Status::AsksYou);
+        let mut r = report(&["NOTE-4"]);
+        r.project_agents_ended = vec!["a1".into()];
+        let runs = Runs {
+            tools: claude_as(AgentToolState::CouldNotCheck { version: None }),
+            tickets: BTreeMap::from([("NOTE-4".to_owned(), ran(CLAUDE))]),
+            ..Runs::default()
+        };
+        let agents = [ended_agent("a1", "Import issues", CLAUDE)];
+        let page = summary(
+            &r,
+            &[asking],
+            &agents,
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        let why = "Couldn\u{2019}t check Claude Code\u{2019}s sign-in \u{b7} Re-check first";
+        assert_eq!(
+            rows_of(&page),
+            [("NOTE-4", Some(why), false), ("Noyan", Some(why), false)]
+        );
+        // None can resume: the title still counts every stopped agent.
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 0");
+    }
+
+    /// A ticket that was asking on a tool that can run keeps the note, as drawn, not a row; the title still counts it.
+    #[test]
+    fn a_ticket_asking_on_a_tool_that_can_run_stays_the_note() {
+        let working = card_fixtures::ticket("SHOP-27", "Wishlist share link", Status::Interrupted);
+        let mut asking = card_fixtures::ticket("SHOP-22", "Fix flaky login", Status::Interrupted);
+        asking.interrupted_from = Some(Status::AsksYou);
+        let runs = Runs {
+            tools: tf::several(),
+            ..Runs::default()
+        };
+        let page = summary(
+            &report(&["SHOP-27", "SHOP-22"]),
+            &[working, asking],
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs,
+        )
+        .unwrap();
+        assert_eq!(rows_of(&page), [("SHOP-27", None, true)]);
+        assert_eq!(
+            page.notes,
+            ["SHOP-22 still waits for your answer; answering resumes it."]
+        );
+        assert_eq!(page.title, "2 agents were stopped by a restart");
         assert_eq!(page.resume_selected, "Resume 1");
     }
 
@@ -521,12 +840,130 @@ mod tests {
             ..Runs::default()
         };
         let agents = [ended_agent("a1", "Import issues", CODEX)];
-        let page = summary(&r, &[], &agents, &BTreeSet::new(), &runs).unwrap();
+        let page = summary(&r, &[], &agents, &BTreeSet::new(), &BTreeSet::new(), &runs).unwrap();
         assert_eq!(page.title, "1 agent was stopped by a restart");
         let row = &page.rows[0];
         assert!(!row.checked);
         assert_eq!(row.problem.as_deref(), Some("Codex limit reached"));
         assert_eq!(page.resume_selected, "Resume 0");
+    }
+
+    /// The release test's "isn't available (not installed)" for an installed, signed-in Codex and Copilot: right
+    /// after a restart the dialog was built while the service's first tool check was still running, and until a tool
+    /// is checked the service lists it as not installed. Now a row on a tool not checked yet waits ("Checking
+    /// Codex…", unticked, never "not installed"), and once the check answers both rows are ticked: Resume 2.
+    #[test]
+    fn a_restart_while_the_tools_are_still_being_checked_waits_for_the_check() {
+        use otaq_core::agent_tools::connected::ConnectedTools;
+        use tf::COPILOT;
+
+        let codex = card_fixtures::ticket("SHOP-10", "Wishlist share link", Status::Interrupted);
+        let copilot = card_fixtures::ticket("SHOP-18", "Price table rounding", Status::Interrupted);
+        let tickets = [codex, copilot];
+        let r = report(&["SHOP-10", "SHOP-18"]);
+        // The service's tools as it lists them at start, before its first check has answered.
+        let service = ConnectedTools::new([]);
+        let runs = |service: &ConnectedTools| Runs {
+            tools: Tools::from_statuses(service.list().tools),
+            tickets: BTreeMap::from([
+                ("SHOP-10".to_owned(), ran(CODEX)),
+                ("SHOP-18".to_owned(), ran(COPILOT)),
+            ]),
+            ..Runs::default()
+        };
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs(&service),
+        )
+        .unwrap();
+        let rows: Vec<(&str, Option<&str>, Option<&str>, bool)> = page
+            .rows
+            .iter()
+            .map(|r| {
+                (
+                    r.tag.as_str(),
+                    r.problem.as_deref(),
+                    r.checking.as_deref(),
+                    r.checked,
+                )
+            })
+            .collect();
+        assert_eq!(
+            rows,
+            [
+                ("SHOP-10", None, Some("Checking Codex\u{2026}"), false),
+                ("SHOP-18", None, Some("Checking Copilot\u{2026}"), false),
+            ]
+        );
+        assert_eq!(page.title, "2 agents were stopped by a restart");
+        assert_eq!(page.resume_selected, "Resume 0");
+        // A Resume sent meanwhile isn't refused as "not installed" either.
+        assert_eq!(
+            cannot_resume(CODEX, &runs(&service).tools).as_deref(),
+            Some("Codex is still being checked \u{b7} try again in a moment")
+        );
+
+        // Codex's check answers first, then Copilot's: each row updates as its own answer comes.
+        let signed_in = |version: &str| AgentToolState::Connected {
+            version: Some(version.into()),
+            account: None,
+        };
+        service.set_detected(CODEX, signed_in("0.157.1"), 1);
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs(&service),
+        )
+        .unwrap();
+        assert_eq!(
+            (page.rows[0].checked, page.rows[1].checking.as_deref()),
+            (true, Some("Checking Copilot\u{2026}"))
+        );
+        assert_eq!(page.resume_selected, "Resume 1");
+        service.set_detected(COPILOT, signed_in("1.0.108"), 2);
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs(&service),
+        )
+        .unwrap();
+        for row in &page.rows {
+            assert_eq!(
+                (row.problem.as_deref(), row.checking.as_deref(), row.checked),
+                (None, None, true)
+            );
+        }
+        assert_eq!(page.selected, ["SHOP-10", "SHOP-18"]);
+        assert_eq!(page.resume_selected, "Resume 2");
+
+        // A tool the check really finds missing still says so.
+        let service = ConnectedTools::new([]);
+        service.set_detected(CODEX, AgentToolState::NotInstalled, 1);
+        service.set_detected(COPILOT, signed_in("1.0.108"), 1);
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::new(),
+            &BTreeSet::new(),
+            &runs(&service),
+        )
+        .unwrap();
+        assert_eq!(
+            page.rows[1].problem.as_deref(),
+            Some("Codex isn\u{2019}t available (not installed)")
+        );
+        assert_eq!(page.resume_selected, "Resume 1");
     }
 
     #[test]
@@ -541,6 +978,7 @@ mod tests {
             &r,
             &[resumed, failed],
             &[agent],
+            &BTreeSet::new(),
             &BTreeSet::new(),
             &Runs::default(),
         )
@@ -566,7 +1004,14 @@ mod tests {
         assert!(page.selected.is_empty() && page.selected_agents.is_empty());
         // Nothing stopped: no dialog.
         assert_eq!(
-            summary(&report(&[]), &[], &[], &BTreeSet::new(), &Runs::default()),
+            summary(
+                &report(&[]),
+                &[],
+                &[],
+                &BTreeSet::new(),
+                &BTreeSet::new(),
+                &Runs::default()
+            ),
             None
         );
     }
@@ -586,5 +1031,173 @@ mod tests {
         assert_eq!(out.interrupted, [key("BILL-4")]);
         assert!(out.was_validating.is_empty() && out.session_ended.is_empty());
         assert_eq!(out.paused, ["SHOP"]);
+    }
+
+    fn sign_ins(page: &SummaryPage) -> Vec<(&str, Option<&str>, &str)> {
+        page.rows
+            .iter()
+            .map(|r| (r.tag.as_str(), r.sign_in.as_deref(), r.tool.as_str()))
+            .collect()
+    }
+
+    /// A row unticked because its tool is signed out offers Sign in…; once the sign-in succeeds the row is ticked and
+    /// the button counts it ("Resume 2" → "Resume 3"), the title unchanged. A failed or dropped sign-in leaves it
+    /// unticked with its reason and Sign in… to try again.
+    #[test]
+    fn sign_in_on_a_signed_out_row_ticks_it_once_it_works() {
+        let tickets = [
+            card_fixtures::ticket("SHOP-1", "One", Status::Interrupted),
+            card_fixtures::ticket("SHOP-2", "Two", Status::Interrupted),
+            card_fixtures::ticket("BILL-3", "Three", Status::Interrupted),
+        ];
+        let r = report(&["SHOP-1", "SHOP-2", "BILL-3"]);
+        let runs = |tools: Tools| Runs {
+            tools,
+            tickets: BTreeMap::from([
+                ("SHOP-1".to_owned(), ran(CLAUDE)),
+                ("SHOP-2".to_owned(), ran(CLAUDE)),
+                ("BILL-3".to_owned(), ran(CODEX)),
+            ]),
+            ..Runs::default()
+        };
+        let none = BTreeSet::new();
+        let signed_in = BTreeSet::from(["BILL-3".to_owned()]);
+        let page = summary(
+            &r,
+            &tickets,
+            &[],
+            &none,
+            &none,
+            &runs(tf::codex_logged_out()),
+        )
+        .unwrap();
+        assert_eq!(
+            sign_ins(&page),
+            [
+                ("SHOP-1", None, "claude"),
+                ("SHOP-2", None, "claude"),
+                ("BILL-3", Some("Sign in\u{2026}"), "codex"),
+            ]
+        );
+        assert_eq!(page.resume_selected, "Resume 2");
+        assert_eq!(page.terminal.done, "Done");
+
+        // Failed or dropped: Codex still signed out, so the row stays as it was and can be tried again.
+        let failed = summary(
+            &r,
+            &tickets,
+            &[],
+            &none,
+            &signed_in,
+            &runs(tf::codex_logged_out()),
+        )
+        .unwrap();
+        assert_eq!(
+            rows_of(&failed)[2],
+            (
+                "BILL-3",
+                Some("Codex isn\u{2019}t signed in \u{b7} sign in first"),
+                false
+            )
+        );
+        assert_eq!(failed.rows[2].sign_in.as_deref(), Some("Sign in\u{2026}"));
+        assert_eq!(failed.resume_selected, "Resume 2");
+
+        // Signed in: ticked, counted, the title the same.
+        let done = summary(&r, &tickets, &[], &none, &signed_in, &runs(tf::several())).unwrap();
+        assert_eq!(rows_of(&done)[2], ("BILL-3", None, true));
+        assert_eq!(done.rows[2].sign_in, None);
+        assert_eq!(done.resume_selected, "Resume 3");
+        assert_eq!(done.selected, ["SHOP-1", "SHOP-2", "BILL-3"]);
+        assert_eq!(done.title, page.title);
+        // The user can still untick it afterwards.
+        let unticked = summary(
+            &r,
+            &tickets,
+            &[],
+            &BTreeSet::from(["BILL-3".to_owned()]),
+            &signed_in,
+            &runs(tf::several()),
+        )
+        .unwrap();
+        assert_eq!(unticked.resume_selected, "Resume 2");
+    }
+
+    /// The release test's row: a ticket that was waiting for you on a signed-out Claude Code. Signed in from the
+    /// dialog, it stays a row and is ticked ("Resume 1" → "Resume 2") rather than moving to the "still waits for
+    /// your answer" note; the title stays "2 agents".
+    #[test]
+    fn a_waiting_row_signed_in_here_stays_a_row_and_is_ticked() {
+        let working = card_fixtures::ticket("SHOP-9", "Reltest wait", Status::Interrupted);
+        let mut idle = card_fixtures::ticket("NOTE-4", "Reltest cc", Status::Interrupted);
+        idle.interrupted_from = Some(Status::Idle);
+        let tickets = [working, idle];
+        let r = report(&["SHOP-9", "NOTE-4"]);
+        let runs = |tools: Tools| Runs {
+            tools,
+            tickets: BTreeMap::from([
+                ("SHOP-9".to_owned(), ran(CODEX)),
+                ("NOTE-4".to_owned(), ran(CLAUDE)),
+            ]),
+            ..Runs::default()
+        };
+        let none = BTreeSet::new();
+        let signed_out = runs(claude_as(AgentToolState::FoundNotSignedIn {
+            version: None,
+        }));
+        let before = summary(&r, &tickets, &[], &none, &none, &signed_out).unwrap();
+        assert_eq!(before.rows[1].sign_in.as_deref(), Some("Sign in\u{2026}"));
+        assert_eq!(before.resume_selected, "Resume 1");
+        let signed_in = BTreeSet::from(["NOTE-4".to_owned()]);
+        let after = summary(&r, &tickets, &[], &none, &signed_in, &runs(tf::several())).unwrap();
+        assert_eq!(
+            rows_of(&after),
+            [("SHOP-9", None, true), ("NOTE-4", None, true)]
+        );
+        assert!(after.notes.is_empty());
+        assert_eq!(after.resume_selected, "Resume 2");
+        assert_eq!(after.title, "2 agents were stopped by a restart");
+        // Not signed in here: a waiting ticket on a tool that can run stays the note, as before.
+        let elsewhere = summary(&r, &tickets, &[], &none, &none, &runs(tf::several())).unwrap();
+        assert_eq!(rows_of(&elsewhere), [("SHOP-9", None, true)]);
+        assert_eq!(elsewhere.resume_selected, "Resume 1");
+    }
+
+    /// Sign in… only for a signed-out tool: not for one not installed, at its limit, whose sign-in couldn't be
+    /// checked, or still being checked. A conversation with Noyan on a signed-out tool offers it too.
+    #[test]
+    fn rows_that_cant_resume_for_another_reason_get_no_sign_in() {
+        let mut r = report(&[]);
+        r.project_agents_ended = vec!["a1".into()];
+        let agents = [ended_agent("a1", "Import issues", CODEX)];
+        let none = BTreeSet::new();
+        let offered = |tools: Tools| {
+            let runs = Runs {
+                tools,
+                ..Runs::default()
+            };
+            let page = summary(&r, &[], &agents, &none, &none, &runs).unwrap();
+            page.rows[0].sign_in.clone()
+        };
+        assert_eq!(
+            offered(tf::codex_logged_out()).as_deref(),
+            Some("Sign in\u{2026}")
+        );
+        assert_eq!(offered(tf::at_limit(CODEX, None)), None);
+        let codex_as = |state: AgentToolState| {
+            let mut tools = tf::several();
+            tools.statuses[1] = tf::status(CODEX, state);
+            tools.connected.retain(|t| *t != CODEX);
+            tools
+        };
+        assert_eq!(offered(codex_as(AgentToolState::NotInstalled)), None);
+        assert_eq!(
+            offered(codex_as(AgentToolState::CouldNotCheck { version: None })),
+            None
+        );
+        let mut checking = tf::codex_logged_out();
+        checking.statuses[1].checked_at = None;
+        assert_eq!(offered(checking), None);
+        assert_eq!(offered(tf::several()), None);
     }
 }

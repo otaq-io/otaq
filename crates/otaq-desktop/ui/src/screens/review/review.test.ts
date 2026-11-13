@@ -8,7 +8,7 @@ import type { ReviewChanged } from "../../generated/ReviewChanged";
 import { review } from ".";
 import type { DecisionChangeView } from "../../generated/DecisionChangeView";
 import { passOverlay } from "./CheckDialogs";
-import { ChangeDecisionBody, ResultDialog } from "./Dialogs";
+import { ChangeDecisionBody, MergingSteps, ResultDialog } from "./Dialogs";
 import { isSubmitKey } from "../../components/logic";
 import { afterApproveAnyway, afterChoice, afterMerge, firstStep, messageAfter } from "./logic";
 
@@ -47,12 +47,15 @@ const VIEW: ApproveView = {
     lead: "Squashed into one commit on main. Your folder fast-forwards if main is checked out and clean.",
     prepared: null,
     writing: null,
+    asks: null,
     into: "Into (SHOP-18’s base branch)",
     target: "main",
     repo: "~/code/shop-web",
     locked: false,
     message_label: "Squash commit message",
     message: "SHOP-18: Checkout API",
+    proposed: "SHOP-18: Checkout API",
+    use_proposed: "Use the proposed message",
     note: "The worktree for SHOP-18 is removed unless it has uncommitted changes.",
     conflict: null,
     merge_check: { text: "No merge check · ", link: "set one in project settings", project: "SHOP" },
@@ -63,7 +66,10 @@ const VIEW: ApproveView = {
   },
   merging: {
     title: "Local merge SHOP-18 Checkout API",
-    steps: ["Rebase onto main"],
+    steps: ["Merge main into the branch"],
+    current: 0,
+    hook: null,
+    stop: null,
     label: "Merging…",
     note: "",
     close: "Close",
@@ -72,6 +78,31 @@ const VIEW: ApproveView = {
 };
 
 describe("the review screen", () => {
+  it("shows the step git is on and the hook that runs under it, not the first step for the whole merge", () => {
+    const merging: ApproveView["merging"] = {
+      ...VIEW.merging,
+      steps: ["Fetch main and bring it up to date", "Merge main into the branch", "Squash into main"],
+      current: 2,
+      hook: "running your pre-commit hook · 40 s",
+    };
+    const html = renderToStaticMarkup(createElement(MergingSteps, { merging }));
+    expect(html.match(/data-done="true"/g)).toHaveLength(2);
+    expect(html).toMatch(/data-current="true">.*?<span>Squash into main<\/span>/);
+    expect(html).toContain("running your pre-commit hook · 40 s");
+    const quiet = renderToStaticMarkup(
+      createElement(MergingSteps, { merging: { ...merging, current: 0, hook: null } }),
+    );
+    expect(quiet).not.toContain("running your");
+    expect(quiet.match(/data-current="true"/g)).toHaveLength(1);
+    expect(quiet).not.toContain("Stop");
+    const stoppable = renderToStaticMarkup(
+      createElement(MergingSteps, { merging: { ...merging, stop: "Stop" } }),
+    );
+    expect(stoppable).toMatch(
+      /running your pre-commit hook · 40 s<\/span><button[^>]*>.*?<span>Stop<\/span>/,
+    );
+  });
+
   it("registers both dialogs and ⌘↵ / ⌘⌫", () => {
     const app = createRegistries();
     review(app);
@@ -110,9 +141,10 @@ describe("the review screen", () => {
         ticket: "SHOP-18",
         result: {
           kind: "conflict",
-          title: "Rebase onto main stopped — conflict",
+          title: "Merging main in stopped — conflict",
           text: "main moved since SHOP-18 was built.",
           files: ["src/lib/stripe/session.ts", "package.json"],
+          output: null,
           help: "SHOP-18 went back to its agent",
           worktree: "~/.otaq/wt/shop-web/SHOP-18",
           close: "Close",
@@ -123,13 +155,37 @@ describe("the review screen", () => {
       }),
     );
     for (const text of [
-      "Rebase onto main stopped — conflict",
+      "Merging main in stopped — conflict",
       "package.json",
       "SHOP-18 went back to its agent",
       "Close",
     ]) {
       expect(conflict).toContain(text);
     }
+    expect(conflict).not.toContain("review-output");
+    // A failed Merge check: its output in the box, no empty files list.
+    const checkFailed = renderToStaticMarkup(
+      createElement(ResultDialog, {
+        ticket: "SHOP-14",
+        result: {
+          kind: "conflict",
+          title: "Merge check failed on main",
+          text: "Merge check `npm test` failed on the result with main merged in (exit 1).",
+          files: [],
+          output: "FAIL src/cart.test.ts\n  expected 2, got 3",
+          help: "Nothing was merged into main.",
+          worktree: null,
+          close: "Close",
+        },
+        close: () => undefined,
+        retry: () => undefined,
+        toSendBack: () => undefined,
+      }),
+    );
+    expect(checkFailed).toContain(
+      '<pre class="review-output" data-tone="error">FAIL src/cart.test.ts\n  expected 2, got 3</pre>',
+    );
+    expect(checkFailed).not.toContain("review-files");
     const uncommitted = renderToStaticMarkup(
       createElement(ResultDialog, {
         ticket: "SHOP-19",
@@ -237,6 +293,13 @@ describe("the approve flow", () => {
 
   it("closes after a merge and shows every other answer", () => {
     expect(afterMerge({ kind: "merged", toasts: [] })).toEqual({ kind: "done" });
+    // A hook refused it: the refusal is on the ticket, the dialog closes.
+    expect(
+      afterMerge({
+        kind: "on_ticket",
+        toast: { title: "HOOK-1: your commit-msg hook refused the merge", text: null },
+      }),
+    ).toEqual({ kind: "done" });
     expect(afterMerge({ kind: "changed", changed: CHANGED })).toEqual({
       kind: "changed",
       changed: CHANGED,

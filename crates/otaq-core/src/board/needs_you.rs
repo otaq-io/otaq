@@ -176,6 +176,10 @@ pub struct NeedsYouItem {
     /// `/team-validate`", and the ticket offers Check again and Change agent….
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_skill: Option<crate::domain::MissingSkill>,
+    /// Its agent's tool stopped on an error and waits: why, in short ("login expired", "API Error: 500"). The chip
+    /// reads "stopped · login expired" in red, as the card does.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub stopped: Option<String>,
 }
 
 /// "SHOP-21 asks SHOP-17 (Done): which Stripe API version?" (MSG-05).
@@ -216,6 +220,30 @@ pub fn needs_you_items_with(
                 if ticket.flags.your_turn || suppression.hides(ticket) {
                     return None;
                 }
+                // A Delivery a hook refused, or whose push didn't land, waits where it was (Review, To deliver) and is
+                // listed as any Delivery stop: with the turquoise items, its stop's line and notification.
+                // A session's prompt shown without changing the ticket's status reads as any Needs you, from when it
+                // was drawn, naming the prompt.
+                let stopped;
+                // An agent's question in a check of the user's reads as any Asks you, from when it was asked.
+                let ticket = match ticket.stopped_in_place() {
+                    _ if let Some(waiting) = ticket.as_needs_you() => {
+                        stopped = waiting;
+                        &stopped
+                    }
+                    _ if let Some(asking) = ticket.as_asks_you() => {
+                        stopped = asking;
+                        &stopped
+                    }
+                    Some(_) => {
+                        stopped = Ticket {
+                            status: Status::DeliveryStopped,
+                            ..ticket.clone()
+                        };
+                        &stopped
+                    }
+                    None => ticket,
+                };
                 // A needs-you ticket interrupted by a restart keeps its label (d0045): it stays with the turquoise
                 // items, where answering it resumes and delivers. An interrupted check is Interrupted (d0063). A
                 // stage held for its skill waits for the user too: only they can make the skill reach its tool.
@@ -251,6 +279,8 @@ pub fn needs_you_items_with(
                     piece: ticket.flags.piece_wait.clone(),
                     helpers_to_resume: ticket.flags.helpers_to_resume.clone(),
                     missing_skill: ticket.flags.missing_skill.clone(),
+                    stopped: crate::signals::stopped_on_error(ticket)
+                        .map(|error| crate::signals::ToolStop::of(error).reason()),
                 })
             })
         })
@@ -302,7 +332,7 @@ fn since(ticket: &Ticket) -> i64 {
 
 /// The item's line in Needs you (brief 10); `waiting_in` names a group 3 ticket's human check.
 fn reason(ticket: &Ticket, tickets: &[Ticket], waiting_in: Option<&WaitingIn>) -> String {
-    // A stage held for its skill: "Codex doesn't have the skill `/team-validate`".
+    // A stage held for its skill: "Codex doesn't have the skill `$team-validate`".
     if let Some(missing) = &ticket.flags.missing_skill {
         return missing.text();
     }
@@ -452,27 +482,19 @@ pub struct RunningItem {
     pub stage: Option<String>,
 }
 
-/// Whether an agent works on a ticket in `status`: an Agent stage's agent at work (in the background too, or fixing
-/// a Delivery's conflict) or a check's checker.
-pub fn agent_at_work(status: Status) -> bool {
-    matches!(
-        status,
-        Status::Working
-            | Status::WorkingInBackground
-            | Status::MergeConflictFixing
-            | Status::Checking
-    )
-}
-
-/// The tickets an agent works on now, every project's, in project order and then key order.
-pub fn running_items(projects: &[ProjectTickets<'_>]) -> Vec<RunningItem> {
+/// The tickets an agent works on now (`working`: their ids, [`crate::store::Store::working_tickets`]), every
+/// project's, in project order and then key order.
+pub fn running_items(
+    projects: &[ProjectTickets<'_>],
+    working: &std::collections::HashSet<String>,
+) -> Vec<RunningItem> {
     projects
         .iter()
         .flat_map(|project| {
             let mut tickets: Vec<&Ticket> = project
                 .tickets
                 .iter()
-                .filter(|t| agent_at_work(t.status))
+                .filter(|t| working.contains(&t.id))
                 .collect();
             tickets.sort_by_key(|t| t.key.number);
             tickets.into_iter().map(move |t| RunningItem {
@@ -566,6 +588,7 @@ impl Board {
                 piece: None,
                 helpers_to_resume: Vec::new(),
                 missing_skill: None,
+                stopped: None,
             });
         }
         for item in &mut items {
@@ -574,7 +597,8 @@ impl Board {
             }
         }
         items.sort_by(needs_you_order);
-        Ok((items, running_items(&views)))
+        let working = self.store().working_tickets().await?;
+        Ok((items, running_items(&views, &working)))
     }
 }
 

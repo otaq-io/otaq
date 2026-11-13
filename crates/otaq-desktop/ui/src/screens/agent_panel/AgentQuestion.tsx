@@ -1,6 +1,6 @@
 // A Project agent's open question (OTQ-9; d0119, d0068, d0061, d0048): what Noyan asked with `otaq ask human`, in its
 // chip's popover in the Needs you strip and above its terminal in the panel. The same answer UI as a ticket's question
-// (`AnswerChoices`): its options with their notes and the recommended one picked, or a free-text box for an open
+// (`AnswerChoices`): its options with their notes and the recommended ones picked, or a free-text box for an open
 // question. Send answer calls `agent_panel.answer` (`project_agent.answer`); unsent text in its terminal asks "Keep it
 // and cancel / Clear it and send" first. Everything it says is `AgentQuestion`'s.
 import { useState } from "react";
@@ -10,23 +10,23 @@ import type { AgentAnswerParams } from "../../generated/AgentAnswerParams";
 import type { AgentQuestion } from "../../generated/AgentQuestion";
 import type { SheetSent } from "../../generated/SheetSent";
 import { request } from "../../tauri";
-import { Icon } from "../../theme/Icon";
-import { AnswerChoices } from "../overview/NeedsYou";
+import { AnswerChoices, picksParams, useAnswerPicks, useSendOnce } from "../overview/NeedsYou";
+import { QuestionText } from "../overview/QuestionText";
 import { askUnsent } from "../sheet/actions";
-import { canSend, initialPick } from "../sheet/actionRoutes";
+import { canSend } from "../sheet/actionRoutes";
 
 const ignore = () => undefined;
 
-/** Whether Send answer can send: a pick (and Other…'s text), or an open question's text. */
-export function canAnswer(question: AgentQuestion, pick: number | null, other: string): boolean {
+/** Whether Send answer can send: a pick or ticked rows (and Other…'s text), or an open question's text. */
+export function canAnswer(question: AgentQuestion, picks: readonly number[], other: string): boolean {
   if (question.answer.rows.length === 0) return other.trim() !== "";
-  return canSend(pick, other, question.answer.rows);
+  return canSend(picks, other, question.answer.rows);
 }
 
-/** The `agent_panel.answer` request of a pick (none for an open question). */
+/** The `agent_panel.answer` request of the picks (none for an open question). */
 export function answerParams(
   question: AgentQuestion,
-  pick: number | null,
+  picks: readonly number[],
   other: string,
   clear: boolean,
 ): AgentAnswerParams {
@@ -35,7 +35,7 @@ export function answerParams(
     project: question.project,
     agent: question.agent,
     question: question.answer.question,
-    ...(!open && pick !== null && { pick }),
+    ...(!open && picksParams(question.answer, picks)),
     other,
     clear,
   };
@@ -55,32 +55,27 @@ export interface AgentQuestionBoxProps {
 export function AgentQuestionBox({ question, onTerminal, onSent, titled = false }: AgentQuestionBoxProps) {
   const { answer } = question;
   const open = answer.rows.length === 0;
-  const [pick, setPick] = useState(() => initialPick(answer.rows));
+  const { picks, press } = useAnswerPicks(answer);
   const [other, setOther] = useState("");
-  const [sending, setSending] = useState(false);
-  const ready = canAnswer(question, pick, other);
+  const { sending, once } = useSendOnce();
+  const ready = canAnswer(question, picks, other);
   const send = (clear = false): Promise<unknown> => {
-    if (!ready || sending) return Promise.resolve();
-    setSending(true);
-    return (request("agent_panel.answer", answerParams(question, pick, other, clear)) as Promise<SheetSent>)
-      .then((sent) => {
-        if (sent.outcome === "done") onSent?.();
-        askUnsent(sent, () => send(true));
-      })
-      .catch(ignore)
-      .finally(() => {
-        setSending(false);
-      });
+    if (!ready) return Promise.resolve();
+    return once(() =>
+      (request("agent_panel.answer", answerParams(question, picks, other, clear)) as Promise<SheetSent>)
+        .then((sent) => {
+          if (sent.outcome === "done") onSent?.();
+          askUnsent(sent, () => send(true));
+        })
+        .catch(ignore),
+    );
   };
   return (
     <div className="agent-question" role="group" aria-label={question.title}>
       {titled && <div className="agent-question-title">{question.title}</div>}
       {open ? (
         <div className="sheet-answer">
-          <div className="sheet-answer-question">
-            <Icon name="message-circle-question-mark" size={14} />
-            <span>{answer.text}</span>
-          </div>
+          <QuestionText answer={answer} />
           <input
             {...PLAIN_TEXT}
             className="field-input agent-question-text"
@@ -101,9 +96,9 @@ export function AgentQuestionBox({ question, onTerminal, onSent, titled = false 
       ) : (
         <AnswerChoices
           answer={answer}
-          pick={pick}
+          picks={picks}
           other={other}
-          onPick={setPick}
+          onPick={press}
           onOther={setOther}
           onSend={() => {
             void send();

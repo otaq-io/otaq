@@ -494,7 +494,7 @@ async fn needs_you_line(w: &TestService, t: &Ticket) -> Option<String> {
 
 /// A stage runs only on a tool that has its skill: a Validate stage naming `team-validate`, run on a Codex agent with
 /// the skill only in `~/.claude/skills` (Claude Code's, not Codex's), doesn't start. Its hold says why, the ticket waits
-/// in Needs you with "Codex doesn't have the skill `/team-validate`", and nothing is typed into any session. Check
+/// in Needs you with "Codex doesn't have the skill `$team-validate`", and nothing is typed into any session. Check
 /// again before the skill reaches Codex keeps it held; once it is linked into `~/.codex/skills`, Check again starts
 /// the check on Codex with the skill by its own name.
 #[cfg(unix)]
@@ -539,7 +539,7 @@ async fn a_check_whose_tool_lacks_its_skill_waits_until_check_again_finds_it() {
         skill: "team-validate".into(),
     };
     assert_eq!(ticket.flags.missing_skill.as_ref(), Some(&missing));
-    let text = "Codex doesn\u{2019}t have the skill `/team-validate`";
+    let text = "Codex doesn\u{2019}t have the skill `$team-validate`";
     assert_eq!(missing.text(), text);
     assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
     let typed_nowhere = |w: &TestService| {
@@ -713,7 +713,15 @@ async fn an_agent_stage_whose_tool_lacks_its_skill_is_held_until_check_again() {
         &std::fs::read_to_string(checkout.join(".claude/skills/team-dev/SKILL.md")).unwrap(),
     );
     git(&checkout, &["push", "-q", "origin", "main"]);
-    assert!(w.gate.check_again(&t.id).await.unwrap());
+    // The service also checks its holds again by itself whenever a tool's state or a model list changes, and the
+    // tools' first checks can land this late on a busy machine: such a check may find the skill first, and Check
+    // again then has no hold left to start. Either way the hold is gone now.
+    w.gate.check_again(&t.id).await.unwrap();
+    assert_eq!(
+        hold_of(&w, &t, SessionRole::Developer).await,
+        None,
+        "the skill is found"
+    );
     assert_ne!(w.status(&key).await, Status::Held, "back to Queued");
     assert_eq!(needs_you_line(&w, &t).await, None);
     let _ = w
@@ -734,5 +742,116 @@ async fn an_agent_stage_whose_tool_lacks_its_skill_is_held_until_check_again() {
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
     assert!(args.ends_with(&claude_skill("team-dev")), "{args}");
     assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
+    w.stop().await;
+}
+
+/// Puts Codex's variable for SHOP's sessions empty, which Codex takes as unset: the finder then reads Codex's own
+/// `~/.codex/skills` whatever the test's own environment says.
+async fn codex_home_unset(w: &TestService) {
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.env_vars = vec![otaq_core::board::settings::EnvVar::new("CODEX_HOME", "")];
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
+}
+
+/// SHOP's stage warnings for the skills its flow names, as the flow editor shows them.
+async fn stage_warnings(w: &TestService) -> Vec<(Option<String>, String)> {
+    let file = w.board.current_flow_file("SHOP").await.unwrap();
+    let stored = w.board.store().agents().await.unwrap();
+    w.board
+        .skill_warnings("SHOP", &file, &stored)
+        .await
+        .into_iter()
+        .map(|w| (w.stage, w.text))
+        .collect()
+}
+
+/// Names `reltest-docs` (in Codex's own `~/.codex/skills`) on Dev and puts Developer on Codex, `CODEX_HOME` unset.
+async fn dev_on_codex_with_personal_skill(w: &TestService, home: &Path) -> PathBuf {
+    codex_set_up(w, home);
+    codex_home_unset(w).await;
+    let folder = skill_in(&home.join(".codex/skills"), "reltest-docs");
+    name_dev_skill(w, "reltest-docs").await;
+    w.set_agent_model(
+        "Developer",
+        AgentModel::Tool {
+            tool: Tool::Codex,
+            model: None,
+        },
+    )
+    .await;
+    folder
+}
+
+/// A personal Codex skill (`~/.codex/skills/<name>/SKILL.md`, `CODEX_HOME` unset) is Codex's: Pick a skill… lists it
+/// as Personal with Codex, a Dev stage naming it on a Codex agent has no warning, and a ticket starts there with the
+/// skill typed as Codex names it.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_personal_codex_skill_is_codexs_and_its_stage_starts() {
+    let World { w, home, _dir } = world().await;
+    dev_on_codex_with_personal_skill(&w, &home).await;
+
+    let found = w.board.found_skills("SHOP").await.unwrap();
+    let docs = found.iter().find(|s| s.name == "reltest-docs").unwrap();
+    assert_eq!(docs.tools, [Tool::Codex]);
+    assert!(docs.skipped.is_empty());
+    assert_eq!(
+        docs.places[0].scope,
+        otaq_core::skills::found::SkillScope::Personal
+    );
+    assert_eq!(stage_warnings(&w).await, []);
+
+    let t = w.create("SHOP", "Update the docs").await;
+    let out = started(&w, &t).await;
+    let typed = w.adapters.get(Tool::Codex).skill_reference("reltest-docs");
+    let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+    assert!(args.contains(&typed), "{args}");
+    assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
+    w.stop().await;
+}
+
+/// The same skill saved with a UTF-8 byte order mark (as Windows PowerShell 5 writes it) isn't loaded by Codex, so
+/// the stage is still held, but the finder says why instead of "you don't have it": Pick a skill… has Codex skipping
+/// it and the stage warns "Codex doesn’t load the skill `$reltest-docs`: its SKILL.md starts with a byte order mark".
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_codex_skill_with_a_byte_order_mark_says_why_it_is_held() {
+    let World { w, home, _dir } = world().await;
+    let folder = dev_on_codex_with_personal_skill(&w, &home).await;
+    let text = std::fs::read_to_string(folder.join("SKILL.md")).unwrap();
+    std::fs::write(folder.join("SKILL.md"), format!("\u{feff}{text}")).unwrap();
+
+    let found = w.board.found_skills("SHOP").await.unwrap();
+    let docs = found.iter().find(|s| s.name == "reltest-docs").unwrap();
+    assert!(docs.tools.is_empty());
+    assert_eq!(docs.skipped, [Tool::Codex]);
+    assert_eq!(
+        stage_warnings(&w).await,
+        [(
+            Some("Dev".to_owned()),
+            "Codex doesn\u{2019}t load the skill `$reltest-docs`: its SKILL.md starts with a byte order mark"
+                .to_owned()
+        )]
+    );
+
+    let t = w.create("SHOP", "Update the docs").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    let outcome = w
+        .starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(&outcome, otaq_core::start::StartOutcome::Held { .. }),
+        "{outcome:?}"
+    );
+    assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
     w.stop().await;
 }

@@ -9,7 +9,14 @@
 //!    Working.
 //!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
-//! ticket in Queued · **Start interrupted** with the step and its message; nothing is rolled back or deleted.
+//! ticket in Queued · **Start interrupted** with the step and its message. The worktree is **ready** once steps 3 to 5
+//! are done (the worktree, its seeding, env files, resources and setup: where the start's hooks run and the worktree
+//! is prepared; [`StartStep::worktree_ready`]). A new ticket's start that fails before then leaves nothing half-made:
+//! the worktree and branch this start made go again ([`super::worktree::discard`]), so Retry start does the whole
+//! start again and the start's hooks (post-checkout) run again. A start that fails after (the ports, launching the
+//! agent) keeps the ready worktree, marked `worktree_ready` until an agent launches in it, so Retry start reuses it and
+//! only launches again: no hook, seeding, env files, resources or setup again, and the warm build it took stays.
+//! Nothing else is rolled back or deleted, and a reopened ticket's worktree, with its earlier work, always stays.
 //! Only **Retry start** (a user's click, [`Starter::retry`]) runs it again; no code path re-runs a failed start
 //! by itself (P2, d0018). The step a running start is at is stored too, so a start that the service stopping
 //! cut short becomes Start interrupted at the next service start ([`Starter::interrupt_cut_short`]) rather
@@ -60,10 +67,10 @@ use crate::board::tickets::{Base, EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
 use crate::domain::{
-    Actor, BuildState, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
+    Actor, BuildState, GitOperation, HandOffKind, Place, RemoteWarning, StartStep, Status, WentOn,
 };
 use crate::flow::engine::{Move, RunResult, first_stage};
-use crate::git::BaseSync;
+use crate::git::{BaseSync, GitStep};
 use crate::naming;
 use crate::ports::PortPool;
 use crate::protocol::Event;
@@ -83,6 +90,32 @@ use crate::ticket_env::fetch::FetchWhy;
 use crate::ticket_env::resources::{Resources, command_vars};
 use crate::tools::Os;
 use crate::warm::seed::Seeder;
+
+/// Why a reopened ticket's update from its base stopped its start: a hook that refused the merge of the base into its
+/// branch is kept with its whole output; the branch and its files are as they were.
+fn update_refused(e: crate::git::checkpoint::UpdateError, key: &str, base: &str) -> StartError {
+    use crate::git::checkpoint::UpdateError;
+    use crate::git::{GitError, GitStep, RefusedHook};
+    match e {
+        UpdateError::Git(GitError::HookRefused(refusal)) => {
+            let hook = RefusedHook::of(
+                &refusal,
+                GitStep::UpdateBranch,
+                format!("the update from {base}"),
+            );
+            let message = format!(
+                "Your {} hook refused the merge of {base} into {key}\u{2019}s branch. The branch and its files are \
+                 as they were. Fix what the hook says, then Retry start.",
+                hook.name
+            );
+            StartError::HookRefused {
+                hook: Box::new(hook),
+                message,
+            }
+        }
+        UpdateError::Git(e) => e.into(),
+    }
+}
 
 /// The agent's terminal size until a client attaches and resizes it.
 const INITIAL_SIZE: TerminalSize = TerminalSize {
@@ -306,7 +339,8 @@ impl Starter {
     /// next service start and shown as Start interrupted instead of being run again silently (SES-02).
     async fn mark_step(&self, ticket: &Ticket, step: StartStep) {
         let result = sqlx::query(
-            "UPDATE tickets SET start_problem_step = ?, start_problem_message = NULL WHERE id = ?",
+            "UPDATE tickets SET start_problem_step = ?, start_problem_message = NULL, start_problem_hook = NULL
+             WHERE id = ?",
         )
         .bind(step.as_str())
         .bind(&ticket.id)
@@ -433,6 +467,7 @@ impl Starter {
         end_open(&mut tx, &ticket.id, RunResult::Cancelled, None).await?;
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = ?, state = ?, start_problem_step = ?, start_problem_message = ?,
+                                start_problem_hook = NULL,
                                 started_at = NULL, signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
                                 interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
@@ -486,7 +521,15 @@ impl Starter {
             }
             _ => false,
         };
-        match self.steps(ticket, actor, start).await {
+        let mut made = None;
+        let done = self.steps(ticket, actor, start, &mut made).await;
+        if let Err((step, _)) = &done
+            && !step.worktree_ready()
+            && let Some(worktree) = made
+        {
+            self.discard(ticket, &worktree).await;
+        }
+        match done {
             Ok(Done::Started(session)) => {
                 self.set_state(
                     ticket,
@@ -509,7 +552,7 @@ impl Starter {
                 // started again now.
                 sqlx::query(
                     "UPDATE tickets SET last_signal_at = ?, parked = FALSE, reopened = FALSE, return_mode = NULL,
-                                        started_at = COALESCE(started_at, ?)
+                                        started_at = COALESCE(started_at, ?), worktree_ready = FALSE
                      WHERE id = ?",
                 )
                     .bind(now_ms())
@@ -601,13 +644,21 @@ impl Starter {
             }
             Err((step, e)) => {
                 let message = e.to_string();
-                self.set_state(
+                // A hook's refusal is kept with its whole output, on the ticket and in its History, though a new
+                // ticket's worktree it ran in is gone by now.
+                let hook = e.refused_hook();
+                let mut payload = json!({ "step": step, "message": message });
+                if let Some(hook) = &hook {
+                    payload["hook"] = json!(hook);
+                }
+                self.set_state_with_hook(
                     ticket,
                     Status::StartInterrupted,
                     Some((step, &message)),
+                    hook.as_ref(),
                     actor,
                     EventKind::StartInterrupted,
-                    json!({ "step": step, "message": message }),
+                    payload,
                 )
                 .await?;
                 tracing::warn!(ticket = %key, %step, %message, "start interrupted");
@@ -616,11 +667,14 @@ impl Starter {
         }
     }
 
+    /// `made` gets the worktree when this start made it or its branch for a new ticket, for [`Starter::discard`]
+    /// if a later step fails before the worktree is ready.
     async fn steps(
         &self,
         ticket: &Ticket,
         actor: &Actor,
         start: Start,
+        made: &mut Option<super::Worktree>,
     ) -> Result<Done, (StartStep, StartError)> {
         let inner = &self.inner;
         let board = &inner.board;
@@ -681,9 +735,10 @@ impl Starter {
                 || (!returning.as_ref().is_some_and(|r| r.conversation.is_some())
                     && own.is_none()));
         let mut checked = None;
-        // An agent never commits under a borrowed name: a new conversation waits until git knows the user's name and
-        // email, which only the user's own Save writes ([`Starter::lift_identity_holds`]).
-        if new_conversation
+        // An agent never commits under a borrowed name: a session about to launch, a new conversation or a resumed one
+        // (Resume, a Send back, Park → Dev), waits until git knows the user's name and email, which only the user's own
+        // Save writes ([`Starter::lift_identity_holds`]). A live session it continues launches nothing.
+        if own.is_none()
             && git
                 .missing_identity(repo)
                 .await
@@ -725,6 +780,12 @@ impl Starter {
                 .and_then(|w| w.worktree.as_deref())
                 .is_some_and(|w| Path::new(w).is_dir());
 
+        // The card follows the step git is really on and the hook that runs, until the worktree is ready.
+        let running = board
+            .git_steps()
+            .begin(ticket, GitOperation::Start, ticket.base.branch());
+        let git = &git.watched(running.watch());
+
         // 1. The base, and which base branch to bring up to date.
         self.mark_step(ticket, StartStep::Base).await;
         let to_sync = match &ticket.base {
@@ -741,6 +802,7 @@ impl Starter {
         // 2. Keep the base current.
         self.mark_step(ticket, StartStep::SyncBase).await;
         if let Some(branch) = to_sync {
+            git.step(GitStep::UpdateTarget);
             let synced = git
                 .sync_base(repo, &branch)
                 .await
@@ -796,9 +858,27 @@ impl Starter {
                 .data
                 .worktree_path(&crate::warm::store::repo_name(&project), &key)
                 .is_ok_and(|p| p.join(".git").exists());
+        // A worktree an earlier attempt set up whose agent didn't launch (a launch that failed, a pause at the launch)
+        // is ready: env files, resources and setup aren't done again. A worktree made afresh never is.
+        let ready = !keep_worktree
+            && !new_worktree
+            && sqlx::query_scalar::<_, bool>("SELECT worktree_ready FROM tickets WHERE id = ?")
+                .bind(&ticket.id)
+                .fetch_optional(board.store().pool())
+                .await
+                .map_err(|e| (StartStep::Worktree, BoardError::from(e).into()))?
+                .unwrap_or(false);
+        if new_worktree {
+            self.set_worktree_ready(ticket, false)
+                .await
+                .map_err(|e| (StartStep::Worktree, e.into()))?;
+        }
         let worktree = prepare_worktree(board, &inner.data, &key)
             .await
             .map_err(at(StartStep::Worktree))?;
+        if !worktree.made.is_empty() {
+            *made = Some(worktree.clone());
+        }
         if board
             .store()
             .ticket(&ticket.id)
@@ -806,10 +886,11 @@ impl Starter {
             .map_err(|e| (StartStep::Worktree, e.into()))?
             .is_some_and(|row| row.reopened)
         {
-            self.rebase_reopened(ticket, &worktree, repo, actor)
+            self.update_reopened(ticket, &worktree, repo, actor)
                 .await
                 .map_err(at(StartStep::Worktree))?;
         }
+        drop(running);
         self.publish_changed(ticket).await;
         // Seeding never fails a start (WRM-04).
         let seeded = match inner.seeder.get() {
@@ -827,7 +908,7 @@ impl Starter {
             .project_settings(&project.key)
             .await
             .map_err(|e| (StartStep::EnvFiles, e.into()))?;
-        if !keep_worktree {
+        if !keep_worktree && !ready {
             // The log begins with where the worktree was seeded from, even if the env files fail.
             let log = inner
                 .data
@@ -877,7 +958,11 @@ impl Starter {
                     .await
                     .map_err(|e| (StartStep::Setup, e.into()))?;
             }
-        } else if let Some(env) = inner.ticket_env.get() {
+            // Ready: from here on a failed start keeps the worktree, and Retry start only launches again.
+            self.set_worktree_ready(ticket, true)
+                .await
+                .map_err(|e| (StartStep::Setup, e.into()))?;
+        } else if keep_worktree && let Some(env) = inner.ticket_env.get() {
             // A returning ticket whose build was freed at Review (a full limit or a gone session): it comes back
             // before the agent does (M19-c). Always asked, never judged from `ticket` (read without the ticket's
             // lock): a Free still moving the build out when the ticket was queued again finishes first, and the
@@ -1118,11 +1203,54 @@ impl Starter {
         Ok(session)
     }
 
-    /// A reopened ticket's old branch is first rebased onto the current base with no tokens (GIT-06; the
-    /// checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded. A conflict leaves the
-    /// branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still starts. A
-    /// hook that refuses the checkpoint stops the start (GIT-02).
-    async fn rebase_reopened(
+    /// Records whether the ticket's worktree is set up for an agent that hasn't launched yet (`worktree_ready`).
+    async fn set_worktree_ready(&self, ticket: &Ticket, ready: bool) -> Result<(), BoardError> {
+        sqlx::query("UPDATE tickets SET worktree_ready = ? WHERE id = ?")
+            .bind(ready)
+            .bind(&ticket.id)
+            .execute(self.inner.board.store().pool())
+            .await?;
+        Ok(())
+    }
+
+    /// A new ticket's start failed before its worktree was ready, after making its worktree or branch: what it made
+    /// goes, so that Retry start does the whole start again with every start hook (a reopened ticket's worktree is
+    /// never in `worktree.made`).
+    async fn discard(&self, ticket: &Ticket, worktree: &super::Worktree) {
+        let board = &self.inner.board;
+        let key = ticket.key.to_string();
+        let (project, git) = match board.project(ticket.key.project.as_str()).await {
+            Ok(project) => match board.project_git(&project.key).await {
+                Ok(git) => (project, git),
+                Err(e) => {
+                    tracing::warn!(ticket = %key, error = %e, "can't remove a failed start's worktree");
+                    return;
+                }
+            },
+            Err(e) => {
+                tracing::warn!(ticket = %key, error = %e, "can't remove a failed start's worktree");
+                return;
+            }
+        };
+        super::worktree::discard(
+            board,
+            &ticket.id,
+            &git,
+            Path::new(&project.repo_path),
+            &worktree.path,
+            &worktree.branch,
+            &worktree.made,
+        )
+        .await;
+        tracing::info!(ticket = %key, "what a failed start made is removed");
+    }
+
+    /// A reopened ticket's old branch is first brought up to date with no tokens: the current base is merged into
+    /// it, never rebased (GIT-06; the checkpoint rule keeps uncommitted files). Clean: the new `base_sha` is recorded.
+    /// A conflict leaves the branch as it was and records "conflicts with `main`" for `otaq prime`; the agent still
+    /// starts. A hook that refuses the merge commit stops the start, kept on the ticket with its output (GIT-02); the checkpoint that keeps uncommitted
+    /// files for a moment runs no hook, so half-done work or its message never stops a start.
+    async fn update_reopened(
         &self,
         ticket: &Ticket,
         worktree: &super::Worktree,
@@ -1130,21 +1258,32 @@ impl Starter {
         actor: &Actor,
     ) -> Result<(), StartError> {
         use crate::board::conflicts::{Conflict, ConflictReason};
-        use crate::git::checkpoint::{RebaseError, RebaseOutcome, checkpoint_rejected_message};
+        use crate::git::checkpoint::UpdateOutcome;
         let board = &self.inner.board;
-        let git = &board.project_git(ticket.key.project.as_str()).await?;
+        let git = &board
+            .ticket_git(ticket.key.project.as_str(), &ticket.id)
+            .await?;
         let onto = super::worktree::branch_commit(git, repo, &worktree.base_branch).await?;
-        let outcome = match git.rebase_with_checkpoint(&worktree.path, &onto).await {
+        // By the base's name while it points at `onto`: the merge message is git's plain "Merge branch 'main' into …".
+        let local = git
+            .resolve(repo, &format!("refs/heads/{}", worktree.base_branch))
+            .await?;
+        let rev = match local {
+            Some(at) if at == onto => worktree.base_branch.as_str(),
+            _ => onto.as_str(),
+        };
+        let outcome = match git.merge_with_checkpoint(&worktree.path, rev).await {
             Ok(outcome) => outcome,
-            Err(RebaseError::CheckpointRejected { .. }) => {
-                return Err(StartError::Other(checkpoint_rejected_message(
+            Err(e) => {
+                return Err(update_refused(
+                    e,
                     &ticket.key.to_string(),
-                )));
+                    &worktree.base_branch,
+                ));
             }
-            Err(RebaseError::Git(e)) => return Err(e.into()),
         };
         let payload = match outcome {
-            RebaseOutcome::Clean => {
+            UpdateOutcome::Clean => {
                 sqlx::query("UPDATE tickets SET base_sha = ? WHERE id = ?")
                     .bind(&onto)
                     .bind(&ticket.id)
@@ -1152,9 +1291,9 @@ impl Starter {
                     .await
                     .map_err(crate::store::StoreError::from)?;
                 board.clear_conflict(&ticket.id).await?;
-                json!({ "onto": worktree.base_branch, "sha": onto })
+                json!({ "onto": worktree.base_branch, "sha": onto, "how": "merge" })
             }
-            RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files } => {
+            UpdateOutcome::Conflict { files } | UpdateOutcome::UndoConflict { files } => {
                 board
                     .set_conflict(
                         &ticket.id,
@@ -1162,10 +1301,11 @@ impl Starter {
                             target: worktree.base_branch.clone(),
                             files: files.clone(),
                             reason: ConflictReason::Reopen,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;
-                json!({ "onto": worktree.base_branch, "conflict": files })
+                json!({ "onto": worktree.base_branch, "conflict": files, "how": "merge" })
             }
         };
         let mut tx = board
@@ -1173,7 +1313,14 @@ impl Starter {
             .begin_write()
             .await
             .map_err(crate::store::StoreError::from)?;
-        record_event(&mut tx, &ticket.id, EventKind::Rebased, actor, payload).await?;
+        record_event(
+            &mut tx,
+            &ticket.id,
+            EventKind::UpdatedFromBase,
+            actor,
+            payload,
+        )
+        .await?;
         tx.commit().await.map_err(crate::store::StoreError::from)?;
         Ok(())
     }
@@ -1188,6 +1335,23 @@ impl Starter {
         kind: EventKind,
         payload: Value,
     ) -> Result<Ticket, BoardError> {
+        self.set_state_with_hook(ticket, status, problem, None, actor, kind, payload)
+            .await
+    }
+
+    /// [`Starter::set_state`], with the hook that refused the start kept beside its problem.
+    #[allow(clippy::too_many_arguments)]
+    async fn set_state_with_hook(
+        &self,
+        ticket: &Ticket,
+        status: Status,
+        problem: Option<(StartStep, &str)>,
+        hook: Option<&crate::git::RefusedHook>,
+        actor: &Actor,
+        kind: EventKind,
+        payload: Value,
+    ) -> Result<Ticket, BoardError> {
+        let hook = hook.and_then(|h| serde_json::to_string(h).ok());
         let board = &self.inner.board;
         let now = now_ms();
         // Started: into the Agent stage it waited before (the first one it runs while waiting to begin), past the stages
@@ -1202,7 +1366,7 @@ impl Starter {
         }
         sqlx::query(concat!(
             "UPDATE tickets SET stage_id = COALESCE(?, stage_id), state = ?, start_problem_step = ?,
-                                start_problem_message = ?, updated_by = ?, updated_at = ?, ",
+                                start_problem_message = ?, start_problem_hook = ?, updated_by = ?, updated_at = ?, ",
             set_state_since!(),
             " WHERE id = ?"
         ))
@@ -1210,6 +1374,7 @@ impl Starter {
         .bind(status.as_str())
         .bind(problem.map(|(step, _)| step.as_str()))
         .bind(problem.map(|(_, message)| message))
+        .bind(hook)
         .bind(actor.to_string())
         .bind(now)
         .bind(status.as_str())
@@ -1323,11 +1488,14 @@ struct Returning {
     conversation: Option<StoredConversation>,
     /// The user's Resume, Resume all or Retry brought it back (`return_mode` "resume").
     resumed: bool,
+    /// It was dragged back from Parked.
+    parked: bool,
 }
 
 impl Returning {
     /// What the resumed conversation gets first: the skill followed by its text, else the needs-you answer, else (a
-    /// Resume with nothing waiting) "Carry on where you left off" (d0122).
+    /// Resume, or a drag back from Parked, with nothing waiting) "Carry on where you left off" (d0122): an agent
+    /// that comes back with no prompt would sit idle at it while the card says Working.
     fn first_prompt(&self) -> Option<FirstPrompt> {
         match (&self.skill, &self.prompt) {
             (Some(name), message) => Some(FirstPrompt::Skill {
@@ -1338,6 +1506,9 @@ impl Returning {
             (None, None) if self.resumed => {
                 Some(FirstPrompt::Text(crate::recovery::carry_on_text()))
             }
+            (None, None) if self.parked => Some(FirstPrompt::Text(
+                crate::recovery::carry_on_after_park_text(),
+            )),
             (None, None) => None,
         }
     }
@@ -1364,6 +1535,7 @@ impl Returning {
                 prompt: row.resume_prompt,
                 conversation: None,
                 resumed: false,
+                parked: row.parked,
             }));
         }
         let pool = board.store().pool();
@@ -1376,6 +1548,7 @@ impl Returning {
             prompt: row.resume_prompt,
             conversation,
             resumed: row.return_mode.as_deref() == Some(crate::recovery::RETURN_RESUME),
+            parked: row.parked,
         }))
     }
 }

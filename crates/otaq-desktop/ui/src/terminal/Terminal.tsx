@@ -51,6 +51,11 @@ import {
   rendererFor,
   takesInput,
   type TerminalState,
+  ctrlCCopies,
+  ctrlVPastes,
+  keepsSelectionOnMove,
+  pasteOrKey,
+  onWindows,
   terminalKey,
   typingIn,
 } from "./state";
@@ -415,18 +420,72 @@ export function Terminal({
       setPicked({ setting, size: clampFontSize((term.options.fontSize ?? setting) + delta) });
     };
     // Its own keys: copy, paste, font size and new line (from the Rust map); everything else is the session's.
+    const copySelection = () => {
+      navigator.clipboard.writeText(term.getSelection()).catch((err: unknown) => {
+        console.warn("copy failed", err);
+      });
+    };
+    const windows = onWindows();
+    // On Windows a selection over a program that hears every mouse move stays until Ctrl+C copies it: such a move,
+    // with no button held, is kept from xterm.js's report (which would clear the selection as typing). Its link hover,
+    // which listens on its screen, still hears the move: a copy is sent there that goes no further.
+    let forwarding = false;
+    const keepSelection = (e: MouseEvent) => {
+      if (forwarding) return;
+      if (!keepsSelectionOnMove(windows, term.hasSelection(), term.modes.mouseTrackingMode, e.buttons))
+        return;
+      e.stopPropagation();
+      const screen = term.element?.querySelector(".xterm-screen");
+      if (!screen || !(e.target instanceof Node) || !screen.contains(e.target)) return;
+      const { clientX, clientY, screenX, screenY, ctrlKey, shiftKey, altKey, metaKey } = e;
+      forwarding = true;
+      screen.dispatchEvent(
+        new MouseEvent("mousemove", {
+          clientX,
+          clientY,
+          screenX,
+          screenY,
+          ctrlKey,
+          shiftKey,
+          altKey,
+          metaKey,
+        }),
+      );
+      forwarding = false;
+    };
+    element.addEventListener("mousemove", keepSelection, true);
     term.attachCustomKeyEventHandler((e) => {
       if (e.type !== "keydown") return true;
+      // On Windows Ctrl+C copies a selection and clears it; the program gets nothing, so its draft stays.
+      if (ctrlCCopies(windows, term.hasSelection(), e)) {
+        e.preventDefault();
+        copySelection();
+        term.clearSelection();
+        return false;
+      }
+      // On Windows Ctrl+V pastes the clipboard's text; with no text it is the program's key (a tool's image paste).
+      // The clipboard is read after the key is taken, so with no text the key itself is sent here. Taking the key
+      // also keeps the page from its own paste, which xterm.js would paste a second time.
+      if (ctrlVPastes(windows, e)) {
+        e.preventDefault();
+        const done = (text: string | undefined) => {
+          const next = pasteOrKey(text);
+          if ("paste" in next) term.paste(next.paste);
+          // Typing, as if xterm.js had sent it: the same ordered path, not a reply.
+          else sendInput(new TextEncoder().encode(next.key), false);
+        };
+        navigator.clipboard.readText().then(done, (err: unknown) => {
+          console.warn("paste failed", err);
+          done(undefined);
+        });
+        return false;
+      }
       const key = terminalKey(keymap.get(), e);
       if (key === undefined) return true;
       e.preventDefault();
       switch (key) {
         case "copy":
-          if (term.hasSelection()) {
-            navigator.clipboard.writeText(term.getSelection()).catch((err: unknown) => {
-              console.warn("copy failed", err);
-            });
-          }
+          if (term.hasSelection()) copySelection();
           break;
         case "paste":
           navigator.clipboard.readText().then(
@@ -557,6 +616,7 @@ export function Terminal({
       disposed = true;
       undrop();
       unwheel();
+      element.removeEventListener("mousemove", keepSelection, true);
       if (focused) onBlur();
       if (attach !== undefined) request("terminal.detach", { attach }).catch(() => undefined);
       themeWatch.disconnect();

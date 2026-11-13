@@ -301,13 +301,13 @@ async fn the_setup_command_and_the_started_agent_get_the_rows() {
     w.stop().await;
 }
 
-/// The checkpoint commit and `worktree add` run the user's hooks with the rows set (GIT-02).
+/// The merge that brings a branch up to date and `worktree add` run the user's hooks with the rows set (GIT-02).
 #[tokio::test]
 async fn the_user_s_git_hooks_see_the_rows() {
     let f = Fixture::shop().await;
     let repo = f.repo();
     let log = f.home.path().join("hooks.log");
-    for hook in ["pre-commit", "post-checkout"] {
+    for hook in ["post-merge", "post-checkout"] {
         let path = repo.join(".git/hooks").join(hook);
         std::fs::write(
             &path,
@@ -331,18 +331,19 @@ async fn the_user_s_git_hooks_see_the_rows() {
     std::fs::write(worktree.join("dirty.txt"), "uncommitted\n").unwrap();
     let git_with_rows = f.board.project_git("SHOP").await.unwrap();
     git_with_rows
-        .rebase_with_checkpoint(&worktree, "main")
+        .merge_with_checkpoint(&worktree, "main")
         .await
         .unwrap();
     let logged = std::fs::read_to_string(&log).unwrap();
-    assert!(logged.contains("pre-commit CI=hooked"), "{logged}");
+    assert!(logged.contains("post-merge CI=hooked"), "{logged}");
     assert_eq!(
         std::fs::read_to_string(worktree.join("dirty.txt")).unwrap(),
         "uncommitted\n"
     );
     assert_eq!(
-        git(&worktree, &["log", "-1", "--format=%s"]),
-        git(&repo, &["log", "-1", "--format=%s", "main"])
+        git(&worktree, &["rev-parse", "HEAD"]),
+        git(&repo, &["rev-parse", "main"]),
+        "up to date with main (a fast-forward: the branch had no commits of its own)"
     );
 }
 

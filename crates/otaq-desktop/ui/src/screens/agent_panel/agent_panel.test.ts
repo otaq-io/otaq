@@ -137,8 +137,11 @@ const RUNNING: AgentPanelView = {
           line: "Waits for a free agent · next in line",
           icon: "square-plus",
           edited: false,
+          change: null,
           start: null,
           delete: null,
+          undo: null,
+          undone: null,
         },
         {
           key: "NOTE-12",
@@ -147,8 +150,11 @@ const RUNNING: AgentPanelView = {
           line: null,
           icon: "square-plus",
           edited: false,
+          change: null,
           start: "Start",
           delete: "Delete",
+          undo: null,
+          undone: null,
         },
       ],
       changed_title: "CHANGED 1",
@@ -156,12 +162,15 @@ const RUNNING: AgentPanelView = {
         {
           key: "NOTE-5",
           title: "Sync conflicts",
-          place: "Backlog",
+          place: "",
           line: null,
           icon: "pencil",
           edited: true,
+          change: "now waits for NOTE-4",
           start: null,
           delete: null,
+          undo: "Undo",
+          undone: null,
         },
       ],
     },
@@ -478,12 +487,49 @@ describe("a running agent", () => {
     expect(rows[0]?.textContent).not.toContain("Start");
     expect(rows[2]?.textContent).not.toContain("Start");
     expect(box.textContent).toContain("CHANGED 1");
+    // The changed row says what Noyan changed, the title kept for its tooltip.
+    expect(rows[2]?.textContent).toBe("NOTE-5· now waits for NOTE-4Undo");
+    expect(rows[2]?.querySelector(".agent-panel-created-title")?.getAttribute("title")).toBe(
+      "Sync conflicts",
+    );
+    // Undo takes that change back: the row names it by its ticket and what it says changed.
+    const undo = [...(rows[2]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Undo");
+    await act(async () => {
+      undo?.click();
+      await Promise.resolve();
+    });
+    expect(ask).toHaveBeenCalledWith("agent_panel.undo", {
+      agent: "a1",
+      ticket: "NOTE-5",
+      change: "now waits for NOTE-4",
+    });
     const start = [...(rows[1]?.querySelectorAll("button") ?? [])].find((b) => b.textContent === "Start");
     await act(async () => {
       start?.click();
       await Promise.resolve();
     });
     expect(ask).toHaveBeenCalledWith("board.start", { key: "NOTE-12" });
+  });
+
+  it("an undone changed row says it was undone, with no Undo", () => {
+    const running = RUNNING.running;
+    const created = running?.created;
+    const changed = created?.changed[0];
+    if (!running || !created || !changed) throw new Error("the fixture runs and changed a ticket");
+    show({
+      ...RUNNING,
+      running: {
+        ...running,
+        created: {
+          ...created,
+          folded: false,
+          changed: [{ ...changed, change: "no longer waits for NOTE-4", undo: null, undone: "Undone" }],
+        },
+      },
+    });
+    const rows = [...box.querySelectorAll(".agent-panel-created-row")];
+    expect(rows[2]?.textContent).toBe("Undone ·NOTE-5no longer waits for NOTE-4");
+    expect([...(rows[2]?.querySelectorAll("button") ?? [])].map((b) => b.textContent)).toEqual(["NOTE-5"]);
   });
 
   it("the switcher continues a conversation: Resume on an ended one, and the recently ended ones", async () => {
@@ -607,7 +653,8 @@ describe("Noyan's question (OTQ-9, d0119)", () => {
     title: "Noyan · Tickets waiting on NOTE-5 asks",
     answer: {
       question: "q7",
-      text: "Split NOTE-5 into two tickets?",
+      line: "Split NOTE-5 into two tickets?",
+      context: null,
       rows: [
         {
           number: 1,

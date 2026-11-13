@@ -5,9 +5,6 @@ use serde::{Deserialize, Serialize};
 
 use super::{Store, StoreError, now_ms};
 
-/// Key of the remembered dismissal of the first-run permission-mode warning (d0011, d0016).
-pub const PERMISSION_WARNING_DISMISSED: &str = "onboarding.permission_warning_dismissed";
-
 /// Set by a startup pass that recorded Claude Code's trust for a project added earlier: the one-time note shows
 /// (PRJ-08, d0085).
 pub const TRUST_NOTE_PENDING: &str = "trust.note_pending";
@@ -72,9 +69,9 @@ pub const UPDATES_LAST_VERSION: &str = "updates.last_version";
 /// moment until dismissed, then never again for this data folder.
 pub const HINT_SEEN_PREFIX: &str = "hints.seen.";
 
-/// A ticket was approved and reached Done (`true`): the box for new work shows from then on, and the hints that close
-/// a new user's first run follow. Set once, never removed; a data folder that had projects before it existed counts
-/// as past it (migration 0111).
+/// A ticket was approved, merged into Done or sent out with Approve & open PR (`true`): the box for new work shows
+/// from then on, and the hints that close a new user's first run follow. Set once, never removed; a data folder that
+/// had projects before it existed counts as past it (migration 0111).
 pub const FIRST_APPROVE: &str = "first_run.first_approve";
 
 /// A one-time hint: one sentence at the moment a concept first matters, with one button that dismisses it for good.
@@ -173,7 +170,7 @@ impl Store {
         self.set_setting(&hint.seen_key(), "true").await
     }
 
-    /// Whether a ticket was approved and reached Done ([`FIRST_APPROVE`]).
+    /// Whether a ticket was approved: merged into Done, or confirmed with Approve & open PR ([`FIRST_APPROVE`]).
     pub async fn first_approve(&self) -> Result<bool, StoreError> {
         Ok(self
             .setting(FIRST_APPROVE)
@@ -181,7 +178,7 @@ impl Store {
             .is_some_and(|v| v == "true"))
     }
 
-    /// Remembers that a ticket was approved and reached Done; only the first time matters.
+    /// Remembers that a ticket was approved (merged, or its PR confirmed); only the first time matters.
     pub async fn reach_first_approve(&self) -> Result<(), StoreError> {
         self.set_setting(FIRST_APPROVE, "true").await
     }

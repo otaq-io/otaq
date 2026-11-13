@@ -125,10 +125,15 @@ impl Terminals {
     }
 
     /// Whether some attach of `session` shows an agent: only the agent's terminal counts for the focused-terminal
-    /// rule (ATT-03); a Shell or a Project terminal is the user's own.
+    /// rule (ATT-03); a Shell or a Project terminal is the user's own. A finished ticket's answer session is its agent
+    /// at work, so being in it holds back that prompt's alert too.
     pub fn is_agent(&self, session: &str) -> bool {
         self.lock().values().any(|a| {
-            a.session == session && *a.kind.lock().expect("kind") == Some(SessionKind::Agent)
+            a.session == session
+                && matches!(
+                    *a.kind.lock().expect("kind"),
+                    Some(SessionKind::Agent | SessionKind::Answer)
+                )
         })
     }
 

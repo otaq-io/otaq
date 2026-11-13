@@ -4,8 +4,9 @@
 //!   grant it: it is stored on the helper (`helpers.prompt`) and the ticket is Needs you with "40.3 needs you: allow …"
 //!   ([`crate::signals::state`] holds it while it is open), its chip "SHOP-40 · 40.3 needs you". ⌘J and the chip open
 //!   the helper's terminal ([`crate::domain::PieceWait::session`]), where the user answers in the tool's own prompt:
-//!   Otaq never answers it (d0011, d0016). It closes on the helper's next hook that says its turn moved on, or Enter
-//!   in its terminal ([`Helpers::enter`]); a prompt of a helper whose session ended never shows.
+//!   Otaq never answers it (d0011, d0016). It closes on the helper's next hook that says its turn moved on, or the
+//!   user's answer in its terminal ([`Helpers::enter`]: Enter, or Codex's "y" alone); a prompt of a helper whose
+//!   session ended never shows.
 //! - **Idle** (a Stop with nothing asked or handed back, [`Signal::Idle`]) is reported to the agent in charge as a
 //!   note ("Piece 3's helper stopped without handing back; its last line: …"), never to the user.
 
@@ -79,7 +80,13 @@ impl Helpers {
                 Signal::NeedsYou { prompt } => {
                     store::set_prompt(pool, &helper.id, prompt).await?;
                     tracing::info!(ticket = %helper.ticket, piece = helper.piece, "a helper's prompt waits for the user");
-                    self.wait_changed(ticket_id, None).await?;
+                    // Another prompt now on its screen: the ticket's line naming the one before ends too.
+                    let ended = helper
+                        .prompt
+                        .as_deref()
+                        .filter(|before| *before != prompt)
+                        .map(|before| needs_you_line(&helper.label(), before));
+                    self.wait_changed(ticket_id, ended).await?;
                 }
                 Signal::Ignored => {}
                 other => {
@@ -133,14 +140,19 @@ impl Helpers {
         Ok(())
     }
 
-    /// Enter in a helper's terminal (`line`: the line sent): the user answered its prompt in the tool, so it closes
-    /// (ATT-02); else a line that isn't empty answers its passed-on question (d0119), logged as the user's answer.
+    /// Enter in a helper's terminal (`line`: the line sent), or a key alone that answers its tool's prompt (Codex's "y",
+    /// no line): the user answered its prompt in the tool, so it closes (ATT-02); else a line that isn't empty answers
+    /// its passed-on question (d0119), logged as the user's answer.
     pub async fn enter(&self, session: &str, line: Option<&str>) -> Result<(), BoardError> {
         let pool = self.inner.board.store().pool();
         let Some(helper) = store::of_session(pool, session).await? else {
             return Ok(());
         };
         if helper.prompt.is_some() {
+            // The one on its screen; the next one open shows once drawn.
+            if let Some(signals) = self.inner.signals.get() {
+                signals.answer_shown(session);
+            }
             return self.prompt_closed(&helper).await;
         }
         let Some(line) = line.map(str::trim).filter(|l| !l.is_empty()) else {

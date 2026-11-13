@@ -8,11 +8,20 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::theme::{Palette, Status as Legend};
 
-/// The status a ticket shows: while its terminal has focus a waiting agent stays calm, "Agent Working" with a
-/// quiet "your turn" (ATT-03, d0042); otherwise its own status.
+/// The status a ticket shows: a Delivery stop that kept the ticket where it was (a hook's refusal, a push that didn't
+/// land) shows as any Delivery stop, Needs you; otherwise its own status. A focused terminal changes nothing here:
+/// being in the agent's terminal holds back only the alert, so a waiting agent reads Needs you on the card like the
+/// sheet's pill. A session's permission prompt shown without changing the ticket's status (a delivery skill's, in
+/// Review) reads Needs you, as any prompt. A finished ticket's answer session at a prompt doesn't: the ticket keeps its
+/// finished status (its card's line says "Needs you · answering SHOP-36"). An agent's question while the ticket waits in
+/// a check of the user's reads Asks you, as it does at work, the ticket keeping its status.
 pub fn shown(ticket: &otaq_core::board::tickets::Ticket) -> Core {
-    if ticket.flags.your_turn {
-        Core::Working
+    if ticket.prompt_in_place().is_some() {
+        Core::NeedsYou
+    } else if ticket.question_in_place().is_some() {
+        Core::AsksYou
+    } else if ticket.stopped_in_place().is_some() {
+        Core::DeliveryStopped
     } else {
         ticket.status
     }
@@ -79,6 +88,17 @@ impl PillView {
     pub fn of(status: Core) -> Self {
         let (legend, label) = pill(status);
         Self::legend(legend, Some(label))
+    }
+
+    /// The pill a ticket shows ([`shown`]): a ticket finished without a merge keeps Merged's colour and icon and
+    /// says how it ended, as its card ("Done · nothing to merge").
+    pub fn of_ticket(ticket: &otaq_core::board::tickets::Ticket) -> Self {
+        let status = shown(ticket);
+        let mut pill = Self::of(status);
+        if status == Core::Merged && ticket.status == Core::Merged {
+            ticket.status_words().clone_into(&mut pill.label);
+        }
+        pill
     }
 }
 

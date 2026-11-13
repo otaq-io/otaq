@@ -126,6 +126,17 @@ impl Tool {
 }
 
 impl Tool {
+    /// [`AgentTool::skill_reference`]: a skill as the tool calls it, `/team-validate` (Claude Code, Copilot),
+    /// `$team-validate` (Codex), `team-validate` (OpenCode); the form every message about a stage names its skill in.
+    pub fn skill_reference(self, skill: &str) -> String {
+        match self {
+            Self::Claude => claude::skill_reference(skill),
+            Self::Codex => codex::skill_reference(skill),
+            Self::Copilot => copilot::skill_reference(skill),
+            Self::OpenCode => opencode::skill_reference(skill),
+        }
+    }
+
     /// [`AgentTool::display_name`]: "Claude Code", "GitHub Copilot".
     pub fn display_name(self) -> &'static str {
         match self {
@@ -195,7 +206,9 @@ pub type BoxFuture<'a, T> = Pin<Box<dyn Future<Output = T> + Send + 'a>>;
 pub struct Detection {
     /// Found on PATH (and, for the M23 tools, its version read).
     pub installed: bool,
-    /// Signed in; `None` when the tool can't say without a model call.
+    /// Signed in, as the tool's own sign-in answer says (`claude auth status`, `codex login status`, …); `None`
+    /// when that answer couldn't be read (the command failed, took too long or printed something else). A found
+    /// tool is never taken as signed in without its answer, nor guessed from its config files.
     pub signed_in: Option<bool>,
     /// The version as the tool prints it.
     pub version: Option<String>,
@@ -711,6 +724,9 @@ pub struct InputQuirks {
     /// The bytes that clear the input line before Otaq types. Never Ctrl+C: it quits Codex and OpenCode on an
     /// empty line and arms exit in Copilot.
     pub clear_line: &'static [u8],
+    /// Bytes typed right after the text, in the same write, or none: what the tool needs after a line Otaq typed
+    /// so that its one Enter sends it (Codex: a space, which closes the skill popup a bare `$name` leaves open).
+    pub after_text: &'static [u8],
     /// The pause between the text and Enter.
     pub enter_delay: Duration,
     /// Keys sent after the text and before Enter's pause, or none: a key the tool takes as the end of what was
@@ -718,9 +734,33 @@ pub struct InputQuirks {
     pub before_enter: &'static [u8],
     /// Whether [`Self::clear_line`] clears a multi-line draft. When not, SES-07 asks the user instead.
     pub multi_line_clearable: bool,
+    /// A one-line text longer than this many bytes is typed as a bracketed paste too, or none: only a text with line
+    /// breaks is. Claude Code needs it: the terminal hands a long write to the program in reads of about 1 KB, Claude
+    /// Code takes a read over 800 characters as a paste and a shorter read right after it as typing that replaces
+    /// the line, so only the last read of the text was left. A bracketed paste it joins whatever the reads are.
+    pub paste_line_over: Option<usize>,
+    /// Whether a pasted text that starts with `/name ` (a skill, `/otaq:address-review SHOP-18 …`) is typed as the
+    /// name, a space, then the rest as the paste. Claude Code: a paste over 800 characters becomes a paste block in
+    /// the message, so a whole pasted skill line was sent as a plain message and the skill never ran; with its name
+    /// typed it runs, the pasted rest as its arguments (checked against the real Claude Code 2.1.322).
+    pub command_before_paste: bool,
 }
 
 /// One agent CLI (d0088). Each group of methods answers one of d0088's seven questions.
+/// A tool's permission dialog as its session's screen shows it ([`AgentTool::prompt_screen`]).
+pub trait PromptScreen: Send + Sync {
+    /// The permission dialog drawn on `screen` (the session's visible screen as text), from its title to the screen's
+    /// end, if one is drawn.
+    fn dialog<'s>(&self, screen: &'s str) -> Option<&'s str>;
+
+    /// Whether `dialog` asks for `prompt` (the line the tool's hook gave, "Run command: git diff").
+    fn shows(&self, dialog: &str, prompt: &str) -> bool;
+
+    /// Whether a dialog can be told to ask for `prompt` (a command's). One that can't (an edit's) is taken as the one
+    /// drawn when the dialog names none of the session's open prompts.
+    fn recognises(&self, prompt: &str) -> bool;
+}
+
 pub trait AgentTool: Send + Sync {
     /// Which tool this adapter is.
     fn tool(&self) -> Tool;
@@ -739,15 +779,14 @@ pub trait AgentTool: Send + Sync {
 
     // 1. Detect.
 
-    /// Installed, signed in and version (ADP-10). Claude Code: `claude --version`, signed in not reported
-    /// (`None`), as the Tools checklist does today. Codex: `codex --version`; `codex login status`. Copilot:
-    /// `copilot --version`; signed in from its login state (no model call). OpenCode: `opencode --version`;
-    /// signed in from its stored credentials, where it can say.
+    /// Installed, signed in and version (ADP-10), signed in always from the tool's own answer ([`Detection`]).
+    /// Claude Code: `claude --version`; `claude auth status`. Codex: `codex --version`; `codex login status`.
+    /// Copilot: `copilot --version`; its `--acp` `session/new` (no model call). OpenCode: `opencode --version`;
+    /// `opencode auth list`.
     fn detect(&self) -> BoxFuture<'_, Detection>;
 
     /// What **Sign in…** runs in a terminal for a found tool that isn't signed in (d0086); `None` when the tool has
-    /// no sign-in command of its own. Claude Code: `None` ("Run claude and sign in" stays the checklist's text).
-    /// Codex: `codex login`. Copilot: its lane verifies it (T-0353). OpenCode: `opencode auth login --standalone`.
+    /// no sign-in command of its own. Claude Code: `claude auth login`. Codex: `codex login`. Copilot: its lane verifies it (T-0353). OpenCode: `opencode auth login --standalone`.
     fn login_command(&self) -> Option<Vec<String>> {
         None
     }
@@ -931,12 +970,34 @@ pub trait AgentTool: Send + Sync {
         false
     }
 
+    /// Whether a single key at the tool's permission prompt approves it, with no Enter and no signal after it until
+    /// the turn goes on to its end or its next prompt (Codex's "y"), so the key itself makes the card Working. Only
+    /// Codex.
+    fn key_alone_approves_prompt(&self) -> bool {
+        false
+    }
+
+    /// How to read the tool's permission dialog off its session's screen, for a tool that may ask several permissions
+    /// at once and draw them one at a time (Codex): the screen says which of a session's open prompts is the one drawn
+    /// ([`crate::signals::asks`]). `None`: the newest open prompt is taken as the one on screen.
+    fn prompt_screen(&self) -> Option<&dyn PromptScreen> {
+        None
+    }
+
     // Turn ends and models (ADP-12, AGT-05).
 
     /// Whether the tool's turn end says what the turn left running (Claude Code's `background_tasks`). When not
     /// (Codex, Copilot, OpenCode), Otaq checks the agent's process tree (ADP-12).
     fn turn_end_reports_background(&self) -> bool {
         true
+    }
+
+    /// The programs the tool starts for itself while it runs, by file name without `.exe` (Codex's
+    /// `codex-code-mode-host`, started during its first turn): never work its turn left running, whenever they start.
+    /// Helpers already running when a turn starts are recognised without this; a helper the tool first starts
+    /// mid-turn would otherwise keep the card Working in background while the tool sits idle at its prompt.
+    fn own_helper_programs(&self) -> &'static [&'static str] {
+        &[]
     }
 
     /// Whether the tool quietly runs another model when it refuses the one asked for (AGT-05: Copilot, OpenCode),

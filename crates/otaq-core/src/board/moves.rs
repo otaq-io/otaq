@@ -288,7 +288,7 @@ impl Board {
     }
 
     /// **Reopen** (CLS-03; d0044): Done · Closed → Backlog. Merged tickets are locked. A ticket that has been to
-    /// Dev is marked reopened: its next start rebases its old branch onto the current base and starts a new
+    /// Dev is marked reopened: its next start merges the current base into its old branch and starts a new
     /// agent session (GIT-06).
     pub async fn reopen(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let ticket = self.ticket(key).await?;
@@ -445,7 +445,8 @@ pub(crate) async fn unqueue_in(
 #[derive(Debug, Clone)]
 pub(crate) struct DragWrite {
     pub moved: Moved,
-    /// Every agent check's counter restarts (a drag back counts as a human Fail, FLW-13).
+    /// A drag back: every agent check's counter restarts (it counts as a human Fail, FLW-13) and the ticket's open
+    /// question closes ([`super::send_back::went_back`]).
     pub reset: bool,
     /// The stages the user moved the card past (a forward drag): its card says so.
     pub marks: Vec<(String, MovedPast)>,
@@ -524,7 +525,7 @@ pub(crate) async fn record_drag_in(
         .record(tx, &ticket.id, posted.as_ref().map(|p| p.id.as_str()))
         .await?;
     if reset {
-        super::validation::reset_check_counters(tx, &ticket.id).await?;
+        super::send_back::went_back(tx, &ticket.id).await?;
     }
     for (stage, how) in &marks {
         super::validation::mark_moved_past(tx, &ticket.id, stage, *how).await?;

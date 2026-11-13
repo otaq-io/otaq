@@ -1,5 +1,5 @@
 //! The Merge check (T-0491; d0120, Q475) against temporary repositories: Local merge runs the project's command on
-//! the merged result in Otaq's scratch worktree before the target moves, only when the rebase brought in commits the
+//! the merged result in Otaq's scratch worktree before the target moves, only when merging the target in brought in commits the
 //! branch didn't have. The repository's own folder stands for the user's checkout; the commands are plain `sh`
 //! scripts, and the ticket's agent is an `sh` session.
 
@@ -93,7 +93,9 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
             target: "main".into(),
             command: "sh test.sh".into(),
             exit: Some(1),
-        }
+            output: "card.ts\nFAIL: emerald is used".into(),
+        },
+        "the dialog has what the check printed"
     );
     assert_eq!(main_of(&repo), main, "main unchanged");
     assert_eq!(w.status("SHOP-1").await, Status::Merged);
@@ -114,7 +116,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     let comment = comments.last().expect("a comment");
     assert_eq!(
         comment.body,
-        "Merge check `sh test.sh` failed on the result rebased onto main (exit 1). Fix it, then submit again."
+        "Merge check `sh test.sh` failed on the result with main merged in (exit 1). Fix it, then submit again."
     );
     let report = w
         .board
@@ -130,7 +132,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     assert!(typed.contains(&claude_skill("restack")), "{typed}");
     assert!(
         typed.ends_with(&format!(
-            "SHOP-2's merge check failed on the result rebased onto `main`; the comment has its output. Run `{} \
+            "SHOP-2's merge check failed on the result with `main` merged in; the comment has its output. Run `{} \
              prime`.",
             naming::COMMAND_NAME
         )),
@@ -153,11 +155,248 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     );
     assert!(
         prime.contains(
-            "The project's merge check failed on this branch rebased onto the latest `main`"
+            "The project's merge check failed on this branch with the latest `main` merged in"
         ),
         "{prime}"
     );
     let _ = a;
+    w.stop().await;
+}
+
+/// The release test's case: the agent sits idle at its prompt with text the user left in its input line when the
+/// merge check fails. The restack request waits behind that text, as every automatic message does, and the line
+/// stays as the user left it; once the user empties it the request is typed, alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_restack_request_waits_behind_unsent_text_and_is_typed_once_the_line_is_empty() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::caller::Caller;
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{InputParams, Request, encode_bytes};
+
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    commit(&repo, "test.sh", TEST_SH);
+    set_check(&w, "sh test.sh").await;
+    let (_a, _) = reviewed(&w, "Accent token", "guard", "no emerald\n").await;
+    let (b, _) = reviewed(&w, "Card", "card.ts", "bg-emerald-500\n").await;
+    let agent = w.agent_shell(&b).await;
+    // Its turn ended: an automatic message would be typed at once into an empty line.
+    let caller = Caller::Agent {
+        ticket: b.key.clone(),
+        ticket_id: b.id.clone(),
+        session: agent.session.clone(),
+    };
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.is_ready(&agent.session).unwrap());
+    // The user's half-typed line, from the app's terminal.
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let typing = |bytes: &[u8]| {
+        Request::SessionInput(InputParams {
+            session: agent.session.clone(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        })
+    };
+    client.request(typing(b"half-typed")).await.unwrap();
+    let shown = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    wait_until("the user's text shows", || shown().contains("half-typed")).await;
+
+    assert!(matches!(
+        merge(&w, "SHOP-1").await,
+        LocalMergeOutcome::Merged { .. }
+    ));
+    assert!(matches!(
+        merge(&w, "SHOP-2").await,
+        LocalMergeOutcome::CheckFailed { .. }
+    ));
+    assert_eq!(w.status("SHOP-2").await, Status::MergeConflictFixing);
+
+    // It waits: nothing typed over the user's text, which is still there to send or clear.
+    let restack = claude_skill("restack");
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+    assert!(pending[0].text.contains(&restack), "{}", pending[0].text);
+    tokio::time::sleep(Duration::from_millis(800)).await;
+    assert!(!shown().contains(&restack), "typed over the user's text");
+    assert!(w.sessions.has_unsent_input(&agent.session).unwrap());
+    assert_eq!(
+        w.board
+            .ticket("SHOP-2")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        1
+    );
+
+    // The user deletes their text: the line is empty, and the request goes, alone.
+    client
+        .request(typing(&[0x7f; "half-typed".len()]))
+        .await
+        .unwrap();
+    wait_until("the restack request is typed", || {
+        shown().contains(&restack)
+    })
+    .await;
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !w
+            .deliveries
+            .pending(&agent.session)
+            .await
+            .unwrap()
+            .is_empty()
+        {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("nothing waits any more");
+    // On screen the line holds the request alone: the user's text went before it, not under it.
+    let mut screen = vt100::Parser::new(50, 400, 0);
+    screen.process(shown().as_bytes());
+    let line = screen
+        .screen()
+        .contents()
+        .lines()
+        .find(|l| l.contains(&restack))
+        .unwrap_or_default()
+        .to_owned();
+    assert!(line.starts_with(&restack), "{line:?}");
+    drop(client);
+    w.stop().await;
+}
+
+/// Re-test 5's case: a line pasted into a Codex session with Ctrl+V. Where the terminal's own paste is Ctrl+Shift+V,
+/// Ctrl+V reaches Codex as a key and Codex pastes the clipboard itself, so the whole line arrives in one piece that
+/// no keystroke carried; the tester then typed one more character. One Backspace brought the keys' count to
+/// nothing, and the restack request was typed after the rest of the text, both sent as one message. The screen
+/// decides: while it shows text after the prompt marker the request waits, and once the line shows empty it is typed
+/// alone.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_restack_request_waits_behind_a_pasted_line_after_one_backspace() {
+    use otaq_core::agent_tools::Tool;
+    use otaq_core::caller::Caller;
+    use otaq_core::client::{Client, ClientConfig};
+    use otaq_core::protocol::{InputParams, Request, encode_bytes};
+
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    commit(&repo, "test.sh", TEST_SH);
+    set_check(&w, "sh test.sh").await;
+    let (_a, _) = reviewed(&w, "Accent token", "guard", "no emerald\n").await;
+    let (b, _) = reviewed(&w, "Card", "card.ts", "bg-emerald-500\n").await;
+    let agent = w.agent_shell(&b).await;
+    let shown = || {
+        String::from_utf8_lossy(&w.sessions.attach(&agent.session).unwrap().scrollback).into_owned()
+    };
+    // The row the cursor is on, as the screen shows it.
+    let input_row = || {
+        let mut screen = vt100::Parser::new(50, 400, 0);
+        screen.process(shown().as_bytes());
+        let (row, _) = screen.screen().cursor_position();
+        screen
+            .screen()
+            .rows(0, 400)
+            .nth(usize::from(row))
+            .unwrap_or_default()
+    };
+    // An agent tool's input line starts with its prompt marker.
+    w.sessions.write(&agent.session, b"PS1='> '\r").unwrap();
+    wait_until("the prompt marker shows", || input_row().trim_end() == ">").await;
+    let caller = Caller::Agent {
+        ticket: b.key.clone(),
+        ticket_id: b.id.clone(),
+        session: agent.session.clone(),
+    };
+    w.signals
+        .hook(
+            &caller,
+            Tool::Claude,
+            "Stop",
+            &serde_json::json!({"background_tasks": [], "session_crons": []}),
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.is_ready(&agent.session).unwrap());
+
+    // The pasted line, put in by the program in one piece, then one typed character from the app's terminal.
+    let pasted = "unsent draft line left by the tester retest";
+    w.sessions.write(&agent.session, pasted.as_bytes()).unwrap();
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let typing = |bytes: &[u8]| {
+        Request::SessionInput(InputParams {
+            session: agent.session.clone(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        })
+    };
+    client.request(typing(b"5")).await.unwrap();
+    wait_until("the user's text shows", || {
+        input_row().trim_end() == format!("> {pasted}5")
+    })
+    .await;
+
+    assert!(matches!(
+        merge(&w, "SHOP-1").await,
+        LocalMergeOutcome::Merged { .. }
+    ));
+    assert!(matches!(
+        merge(&w, "SHOP-2").await,
+        LocalMergeOutcome::CheckFailed { .. }
+    ));
+    let restack = claude_skill("restack");
+    let pending = w.deliveries.pending(&agent.session).await.unwrap();
+    assert_eq!(pending.len(), 1, "{pending:?}");
+
+    // One Backspace: the keys counted nothing more, but the screen still shows the pasted text. It waits.
+    client.request(typing(&[0x7f])).await.unwrap();
+    wait_until("the Backspace shows", || {
+        input_row().trim_end() == format!("> {pasted}")
+    })
+    .await;
+    tokio::time::sleep(otaq_core::session::KEY_SETTLE * 3).await;
+    assert!(!shown().contains(&restack), "typed onto the pasted text");
+    assert!(w.sessions.has_unsent_input(&agent.session).unwrap());
+    assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 1);
+
+    // The user empties the line: the request goes, alone.
+    client
+        .request(typing(&vec![0x7f; pasted.len()]))
+        .await
+        .unwrap();
+    wait_until("the restack request is typed", || {
+        shown().contains(&restack)
+    })
+    .await;
+    let mut screen = vt100::Parser::new(50, 400, 0);
+    screen.process(shown().as_bytes());
+    let line = screen
+        .screen()
+        .contents()
+        .lines()
+        .find(|l| l.contains(&restack))
+        .unwrap_or_default()
+        .to_owned();
+    assert!(
+        line.strip_prefix("> ")
+            .is_some_and(|rest| rest.starts_with(&restack)),
+        "{line:?}"
+    );
+    drop(client);
     w.stop().await;
 }
 
@@ -299,7 +538,7 @@ async fn sees_the_variables_and_leaves_nothing_behind(w: TestService) {
 }
 
 /// The third failure in a row (conflicts and failed checks count together) stops turquoise: "Merge check keeps
-/// failing on `main`". A branch already rebased by a failed check is checked again on its next merge.
+/// failing on `main`". A branch that already took in main for a failed check is checked again on its next merge.
 #[tokio::test(flavor = "multi_thread")]
 async fn three_failures_in_a_row_stop_turquoise() {
     let w = TestService::start().await;
@@ -350,7 +589,7 @@ async fn three_failures_in_a_row_stop_turquoise() {
 }
 
 /// The user's Stop of a running check (Q475): nothing is merged, the ticket stays where it was, and its next merge
-/// runs the check again although the branch is already rebased.
+/// runs the check again although main is already merged into the branch.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stopped_check_merges_nothing_and_runs_again_next_time() {
     let w = TestService::start().await;

@@ -23,7 +23,7 @@ use ts_rs::TS;
 use crate::view_models::board::{self, BoardInput};
 use crate::view_models::board_page::DropTargetId;
 use crate::view_models::card_page::TicketCardView;
-use crate::view_models::flow_columns::{self, Columns};
+use crate::view_models::flow_columns;
 use crate::view_models::view_prefs::Change;
 
 /// The group of tickets in Backlog, as the board's column.
@@ -154,7 +154,7 @@ fn stage_order(keys: Vec<TicketKey>, all: &[Ticket]) -> Vec<TicketKey> {
 
 /// The List for `input`'s project, folded as the board is by `prefs`.
 pub fn view(input: &BoardInput, prefs: &ViewPrefs) -> ListView {
-    let columns = Columns::of(input.flow);
+    let columns = crate::view_models::board::columns(input);
     let all = input.tickets;
     let keys: Vec<&TicketKey> = all.iter().map(|t| &t.key).collect();
     let filtered = input.visible.is_some();
@@ -580,7 +580,7 @@ mod tests {
             let r = row(&list, key);
             (
                 r.card.status.as_ref().map(|l| l.text.clone()),
-                r.card.action.as_ref().map(|a| a.label.to_owned()),
+                r.card.action.as_ref().map(|a| a.label.clone()),
                 r.card.edge,
             )
         };

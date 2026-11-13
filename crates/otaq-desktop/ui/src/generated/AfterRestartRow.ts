@@ -22,4 +22,18 @@ detail: string,
 /**
  * "Codex isn’t signed in · sign in first": its tool can't run now, so it is unticked and can't be ticked.
  */
-problem: string | null, checked: boolean, };
+problem: string | null, 
+/**
+ * "Sign in…", beside a problem that is its tool being signed out: `agent_tools.sign_in { tool }`, the same
+ * sign-in as Settings → Agents. Once it succeeds the row is ticked.
+ */
+sign_in: string | null, 
+/**
+ * The tool it ran on, as stored ("codex"): what Sign in… sends.
+ */
+tool: string, 
+/**
+ * "Checking Codex…": its tool's check hasn't answered yet, so it is unticked and can't be ticked until it has;
+ * the dialog is drawn again when the tools change.
+ */
+checking: string | null, checked: boolean, };

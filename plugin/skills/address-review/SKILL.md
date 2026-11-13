@@ -95,7 +95,8 @@ If a comment is unclear, or a decision belongs to the user, ask, then end your t
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-The comment on lib/search.ts line 12 asks for the page size from settings. There is no such setting yet: add one?
+Should I add a page-size setting, as the comment on lib/search.ts line 12 asks?
+There is no such setting yet.
 QUESTION
 ```
 
@@ -111,8 +112,8 @@ otaq ask human \
   --option "Add a setting" --note "Users can pick their page size; a new Settings row and a migration." \
   --option "Keep 20" --note "No new setting to maintain, but the review comment stays unaddressed." \
   --recommended 1 --stdin <<'QUESTION'
-The review asks for the page size from settings, but there is no such setting yet. Add one (default 20), or keep the
-fixed 20?
+Add a page-size setting (default 20), or keep the fixed 20?
+The review asks for the page size from settings, but there is no such setting yet.
 QUESTION
 ```
 
@@ -137,7 +138,12 @@ QUESTION
 
 ## Rules
 
-- **Never push, never open a PR, never merge.** The user does that from the board.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** The user does that from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
   Long command output never does: it goes to a file (see "Long output").
 - If `otaq stage next` is refused, read why (uncommitted files, a comment over 2,000 characters, or `prime` not run

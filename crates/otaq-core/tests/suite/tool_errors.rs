@@ -157,6 +157,8 @@ async fn an_opencode_provider_error_stops_the_card_on_idle_with_its_message() {
             "idle · stopped on an error: “Invalid API key”".to_owned()
         )]
     );
+    // Its chip says why in short: a sign-in that's missing.
+    assert_eq!(items[0].stopped.as_deref(), Some("not signed in"));
     // The waiting message stays held with the card: not lost, not typed.
     tokio::time::sleep(Duration::from_millis(300)).await;
     assert_eq!(w.deliveries.pending(&agent.session).await.unwrap().len(), 1);

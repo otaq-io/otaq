@@ -235,6 +235,9 @@ pub enum Command {
     },
     /// Ask the user (`ask human --stdin`; the ticket shows "Asks you") or a linked ticket's agent (`ask SHOP-18
     /// --stdin`)
+    ///
+    /// The first line is the question, in one sentence; the context follows on the next lines; the reason for each
+    /// choice goes in that option's --note.
     Ask {
         /// `human`, or the key of a ticket linked to this one
         #[arg(value_name = "human|KEY")]
@@ -248,9 +251,12 @@ pub enum Command {
         /// The pros and cons of the --option right before it (optional, at most one per option)
         #[arg(long = "note", value_name = "TEXT")]
         notes: Vec<String>,
-        /// The recommended option, 1-based
-        #[arg(long, value_name = "N")]
-        recommended: Option<u32>,
+        /// The recommended option, 1-based; with --multiple, one or several, comma separated (`--recommended 1,3`)
+        #[arg(long, value_name = "N", value_delimiter = ',')]
+        recommended: Vec<u32>,
+        /// Let the user pick several of the options (and Other…); needs --option
+        #[arg(long)]
+        multiple: bool,
         /// Ask the user to send the ticket back to this earlier stage, your reason on stdin: they send it back or
         /// answer here
         #[arg(long = "send-back", value_name = "STAGE")]
@@ -818,6 +824,72 @@ mod tests {
                 .trim_start_matches("--note <TEXT>")
                 .trim(),
             "The pros and cons of the --option right before it (optional, at most one per option)"
+        );
+    }
+
+    /// `--multiple` lets the user pick several options; `--recommended` takes one number as before, or several comma
+    /// separated. The help says both.
+    #[test]
+    fn ask_takes_multiple_and_several_recommended() {
+        let asked = |args: &[&str]| match parse(&[&["ask", "human", "--stdin"], args].concat())
+            .unwrap()
+            .command
+        {
+            Some(Command::Ask {
+                recommended,
+                multiple,
+                ..
+            }) => (recommended, multiple),
+            other => panic!("{other:?}"),
+        };
+        assert_eq!(asked(&[]), (vec![], false));
+        assert_eq!(asked(&["--recommended", "2"]), (vec![2], false));
+        assert_eq!(
+            asked(&["--multiple", "--recommended", "1,3"]),
+            (vec![1, 3], true)
+        );
+        assert_eq!(
+            asked(&["--multiple", "--recommended=1", "--recommended", "3"]),
+            (vec![1, 3], true)
+        );
+        assert!(parse(&["ask", "human", "--recommended", "1,x"]).is_err());
+
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("ask")
+            .unwrap()
+            .render_help()
+            .to_string();
+        let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "--multiple Let the user pick several of the options (and Other…); needs --option"
+            ),
+            "{help}"
+        );
+        assert!(
+            flat.contains("with --multiple, one or several, comma separated (`--recommended 1,3`)"),
+            "{help}"
+        );
+    }
+
+    /// Every agent reads how to write a question in `ask --help`: the question on the first line, the context after
+    /// it, each choice's reason in its option's note.
+    #[test]
+    fn the_help_of_ask_says_the_question_comes_first() {
+        let mut command = Cli::command();
+        let help = command
+            .find_subcommand_mut("ask")
+            .unwrap()
+            .render_long_help()
+            .to_string();
+        let flat = help.split_whitespace().collect::<Vec<_>>().join(" ");
+        assert!(
+            flat.contains(
+                "The first line is the question, in one sentence; the context follows on the next lines; the \
+                 reason for each choice goes in that option's --note."
+            ),
+            "{help}"
         );
     }
 

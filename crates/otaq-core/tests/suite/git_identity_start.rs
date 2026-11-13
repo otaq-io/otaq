@@ -140,3 +140,54 @@ async fn a_start_without_a_git_identity_waits_until_the_user_saves_one() {
     );
     w.stop().await;
 }
+
+/// A resumed conversation commits as much as a new one: Resume of an interrupted ticket waits Held for the name and
+/// email too, launching nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_resume_without_a_git_identity_waits_too() {
+    let home = tempfile::tempdir().unwrap();
+    let global = home.path().join("gitconfig");
+    std::fs::write(&global, "").unwrap();
+    // SAFETY: set before the service starts any thread that reads the environment; the test runs in its own process.
+    unsafe {
+        std::env::set_var("GIT_CONFIG_GLOBAL", &global);
+        std::env::set_var("GIT_CONFIG_NOSYSTEM", "1");
+    }
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let t = w.create("SHOP", "Price table").await;
+    let key = t.key.to_string();
+    // An earlier start's work and conversation, interrupted by a restart.
+    w.start_worktree(&t).await;
+    w.record_ended_agent(&t, "0199d2a4-3b1c-7c3e-9f00-123456789abc")
+        .await;
+    w.force_status(&t, Status::Interrupted).await;
+    git(&repo, &["config", "--unset", "user.name"]);
+    git(&repo, &["config", "--unset", "user.email"]);
+    git(&repo, &["config", "user.useConfigOnly", "true"]);
+
+    let _ = w.review.resume(&key, &me()).await;
+    let held = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            let ticket = w.board.ticket(&key).await.unwrap();
+            if ticket.status == Status::Held {
+                return ticket;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("held");
+    assert_eq!(
+        held.start_problem.as_ref().map(|p| p.step),
+        Some(StartStep::GitIdentity)
+    );
+    assert!(
+        w.sessions
+            .running_of(&t.id, otaq_core::session::SessionKind::Agent)
+            .is_none(),
+        "nothing launched"
+    );
+    w.stop().await;
+}

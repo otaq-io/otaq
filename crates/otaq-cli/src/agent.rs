@@ -6,7 +6,8 @@
 //!
 //! `ask human` takes 2–4 answer options (`--option "Postmark" --option "SES" --recommended 1`, d0061); the
 //! service checks them. Each option may carry a note, its pros and cons: `--note "…"` right after its `--option`
-//! (ATT-17), stored whole.
+//! (ATT-17), stored whole. `--multiple` lets the user pick several of them (and Other…); `--recommended` may then
+//! name several, comma separated (`--recommended 1,3`).
 //!
 //! `ask human --send-back "Product spec" --stdin` asks the user to send the ticket back to an earlier stage of its
 //! flow, the question on stdin being the agent's reason; it takes no options. The user sends it back or answers here:
@@ -15,7 +16,8 @@
 //! # `--json` shapes
 //!
 //! They print the ticket afterwards (`Ticket`); after `ask human` its `question` holds the question's `id`,
-//! `text`, `options` and `recommended` (1-based).
+//! `text`, `options`, `recommended` (1-based: a number, or a list when several are) and `multiple` when the user may
+//! pick several.
 //!
 //! `review feedback --json` prints `{"key", "round", "note"?, "comments": [{"file", "line", "side", "body"}], "pr"?}`;
 //! `pr` (a ticket with a PR) is `{"number", "comments": [{"file"?, "line"?, "author", "text"}], "note"?}`, the
@@ -55,7 +57,9 @@ pub struct AskArgs {
     pub options: Vec<String>,
     /// Each option's note, paired by position ([`crate::cli::option_notes`]), or why the pairing is refused.
     pub notes: Result<Vec<Option<String>>, String>,
-    pub recommended: Option<u32>,
+    pub recommended: Vec<u32>,
+    /// The user may pick several of the options (`--multiple`).
+    pub multiple: bool,
     /// The earlier stage to ask to send the ticket back to (`--send-back`).
     pub send_back: Option<String>,
 }
@@ -68,6 +72,7 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         options,
         notes,
         recommended,
+        multiple,
         send_back,
     } = args;
     let to_human = target_name.eq_ignore_ascii_case("human");
@@ -78,13 +83,13 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
                 "--send-back is only for a ticket's agent asking the user: `ask human --send-back <STAGE> --stdin`",
             ));
         }
-        if !options.is_empty() || recommended.is_some() {
+        if !options.is_empty() || !recommended.is_empty() || multiple {
             return Err(usage(
                 "--send-back takes no --option: its two ways out are Send back and Answer here",
             ));
         }
     }
-    if !to_human && (!options.is_empty() || recommended.is_some()) {
+    if !to_human && (!options.is_empty() || !recommended.is_empty() || multiple) {
         return Err(usage("Options are only for questions to the human"));
     }
     if !stdin {
@@ -96,6 +101,7 @@ pub fn ask(args: AskArgs, global: &GlobalArgs, out: &Output) -> Result<(), Error
         options,
         notes,
         recommended,
+        multiple,
         send_back,
     };
     if in_project_agent() {
@@ -179,12 +185,13 @@ fn check_notes(
     notes.map_err(usage)
 }
 
-/// What the user picks from: the options, each one's note, the recommended one; or the earlier stage to send the
-/// ticket back to.
+/// What the user picks from: the options, each one's note, the recommended ones and whether several may be picked; or
+/// the earlier stage to send the ticket back to.
 struct Choices {
     options: Vec<String>,
     notes: Vec<Option<String>>,
-    recommended: Option<u32>,
+    recommended: Vec<u32>,
+    multiple: bool,
     send_back: Option<String>,
 }
 
@@ -200,6 +207,7 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
         options,
         notes,
         recommended,
+        multiple,
         send_back,
     } = choices;
     match route {
@@ -209,6 +217,7 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
             options,
             notes,
             recommended,
+            multiple,
             send_back,
         }),
         Route::ProjectAgent => Request::AgentAskHuman(otaq_core::protocol::AgentAskHumanParams {
@@ -216,6 +225,7 @@ fn human_request(route: Route, text: String, choices: Choices) -> Request {
             options,
             notes,
             recommended,
+            multiple,
         }),
     }
 }
@@ -696,7 +706,8 @@ mod tests {
         let choices = || Choices {
             options: vec!["Markdown files".into(), "One ZIP".into()],
             notes: notes.clone(),
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             send_back: None,
         };
         let Request::TicketAskHuman(p) = human_request(
@@ -724,7 +735,8 @@ mod tests {
             Choices {
                 options: Vec::new(),
                 notes: Vec::new(),
-                recommended: None,
+                recommended: Vec::new(),
+                multiple: false,
                 send_back: Some("Product spec".into()),
             },
         ) else {

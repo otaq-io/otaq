@@ -18,7 +18,7 @@ export type ActionRoute =
   | { kind: "diff" }
   | { kind: "edit" }
   | { kind: "parent" }
-  | { kind: "overlay"; id: "local_merge" | "send_back" | "send_back_pr" | "start_from_scratch" }
+  | { kind: "overlay"; id: "local_merge" | "open_pr" | "send_back" | "send_back_pr" | "start_from_scratch" }
   // Pass (FLW-14): `review.pass`, then the delivery choices when a click Delivery comes next.
   | { kind: "pass" }
   | { kind: "mark_closed" }
@@ -43,6 +43,7 @@ export function actionRoute(action: SheetAction): ActionRoute {
     case "retry_merge":
     case "move_to_review":
     case "stop_merge_check": // d0120: on a connection of its own (Rust's), the merge finishes without merging.
+    case "stop_git_step": // A merge's or a start's git step and its hook end; on a connection of its own (Rust's).
       return { kind: "service" };
     // Session on the check's side (SHT-04).
     case "open_validator":
@@ -62,8 +63,15 @@ export function actionRoute(action: SheetAction): ActionRoute {
       return { kind: "edit" };
     case "view_parent":
       return { kind: "parent" };
+    // Edit message and retry (a hook refused Approve & merge): its confirmation again, on the message the user edited.
+    // Retry push (the delivery's push didn't land): Approve again, which on a ticket with a PR is Push to PR.
     case "approve":
+    case "edit_message":
+    case "retry_push":
       return { kind: "overlay", id: "local_merge" };
+    // Edit messages and retry (a hook refused a PR's commit message): Approve & open PR again, on the edited messages.
+    case "edit_pr_messages":
+      return { kind: "overlay", id: "open_pr" };
     case "send_back":
       return { kind: "overlay", id: "send_back" };
     case "pass":
@@ -145,6 +153,7 @@ export type CardRoute =
   | { kind: "mark_closed" }
   | { kind: "run_tab" }
   | { kind: "open_agent" }
+  | { kind: "provider_settings" }
   | { kind: "none" };
 
 export function cardRoute(kind: CardActionKind): CardRoute {
@@ -165,6 +174,7 @@ export function cardRoute(kind: CardActionKind): CardRoute {
     case "move_on_anyway": // FLW-13: after the last failed round.
     case "skip_check": // FLW-13: a check at the plan limit.
     case "stop_merge_check": // d0120: Stop on "Merging · running the merge check".
+    case "stop_git_step": // Stop on "Merging · running your pre-commit hook", "Starting · making its worktree".
     case "check_again": // A stage held for its skill: the finder is asked again.
       return { kind: "service" };
     case "pass":
@@ -177,6 +187,9 @@ export function cardRoute(kind: CardActionKind): CardRoute {
       return { kind: "overlay", id: "local_merge" };
     case "open_pr":
       return { kind: "overlay", id: "open_pr" };
+    // An automatic PR with no PR provider: app Settings, Git & pull requests, where providers are set up.
+    case "set_up_provider":
+      return { kind: "provider_settings" };
     case "send_back_pr":
       return { kind: "overlay", id: "send_back_pr" };
     case "send_answer":
@@ -205,9 +218,16 @@ export function cardRoute(kind: CardActionKind): CardRoute {
   }
 }
 
-/** The answer picked when the list opens: the recommended option (Rust marks it picked), else nothing. */
-export function initialPick(rows: readonly SheetAnswerRow[]): number | null {
-  return rows.find((r) => r.picked)?.number ?? null;
+/** The answers picked when the list opens: the recommended ones (Rust marks them picked), else none. */
+export function initialPicks(rows: readonly SheetAnswerRow[]): number[] {
+  return rows.filter((r) => r.picked).map((r) => r.number);
+}
+
+/** A click or number key on row `n`: it becomes the pick, or, on a question that takes several answers, it is ticked
+ * or unticked. */
+export function pressPick(picks: readonly number[], n: number, multiple: boolean): number[] {
+  if (!multiple) return [n];
+  return picks.includes(n) ? picks.filter((p) => p !== n) : [...picks, n];
 }
 
 /** A number key on the list: the option with that number, if there is one. */
@@ -216,13 +236,13 @@ export function pickByKey(key: string, rows: readonly SheetAnswerRow[]): number 
   return Number.isInteger(n) && rows.some((r) => r.number === n) ? n : null;
 }
 
-/** Whether the picked row is Other…, which needs typed text before Send is enabled. */
-export function picksOther(pick: number | null, rows: readonly SheetAnswerRow[]): boolean {
-  return rows.some((r) => r.other && r.number === pick);
+/** Whether Other… is among the picked rows: it needs typed text before Send is enabled. */
+export function picksOther(picks: readonly number[], rows: readonly SheetAnswerRow[]): boolean {
+  return rows.some((r) => r.other && picks.includes(r.number));
 }
 
 /** Send is enabled once something is picked, and Other… has text (Rust checks it again: `answer_options.rs`). */
-export function canSend(pick: number | null, other: string, rows: readonly SheetAnswerRow[]): boolean {
-  if (pick === null) return false;
-  return !picksOther(pick, rows) || other.trim() !== "";
+export function canSend(picks: readonly number[], other: string, rows: readonly SheetAnswerRow[]): boolean {
+  if (picks.length === 0) return false;
+  return !picksOther(picks, rows) || other.trim() !== "";
 }

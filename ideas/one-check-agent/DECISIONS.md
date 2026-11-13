@@ -76,6 +76,8 @@ Each existing stage feature was checked against both principles (G24).
 - **O5. Skip this check and Move on anyway only on skippable stages.** Skip this check (on a check waiting for its
   tool's limit) and Move on anyway (after a check's last failed round) show only on a check the flow marks skippable
   (O2). Elsewhere the user waits, picks another agent for the stage (O1), or sends the ticket back.
+  *(2026-11-10: the "Move on anyway" part is superseded by tuq/decisions/009: after the last failed round, Send it on
+  is offered on every check. Skip this check is unchanged.)*
 - **O6. Kept as they are:** `delivers: either` is click only (the flow check says so, and an automatic Delivery can't
   choose); `column: with-previous` (written in the file, it changes only the board's layout); a check without
   `fail_to` fails to the nearest Agent stage before it (a format default).

@@ -22,11 +22,10 @@ pub enum Tone {
     Muted,
 }
 
-/// The strip's first item: "Live", "your turn", "Waiting for you", "Reconnecting…", "Ended". `your_turn`: the
-/// terminal has focus and the agent waits, so only a subtle "your turn" (ATT-03, d0042).
-pub fn state(phase: &Phase, status: Status, your_turn: bool) -> (&'static str, Tone) {
+/// The strip's first item: "Live", "Waiting for you", "Reconnecting…", "Ended". A waiting agent reads "Waiting for
+/// you" also while its terminal has focus: being there holds back only the alert (the hint says so), never the state.
+pub fn state(phase: &Phase, status: Status) -> (&'static str, Tone) {
     match phase {
-        Phase::Live if your_turn => ("your turn", Tone::Muted),
         Phase::Live if status.is_needs_you_family() => ("Waiting for you", Tone::Attention),
         Phase::Live => ("Live", Tone::Working),
         Phase::Attaching => ("Connecting…", Tone::Muted),
@@ -113,7 +112,7 @@ pub enum StripTone {
     Working,
     /// Turquoise: the agent waits for you.
     Attention,
-    /// Calm but present: "your turn", "Waiting on its background work".
+    /// Calm but present: "Waiting on its background work".
     Secondary,
     Muted,
     /// Red: Interrupted.
@@ -128,20 +127,16 @@ pub struct StripState {
     pub tone: StripTone,
 }
 
-/// The Terminal tab's state label (*06 · Terminal tab*): [`state`], with "your turn" in the secondary colour and
-/// "Waiting on its background work" for Working in background (calm, not needs-you, d0042).
-pub fn tab_state(phase: &Phase, status: Status, your_turn: bool) -> StripState {
-    let (label, tone) = state(phase, status, your_turn);
+/// The Terminal tab's state label (*06 · Terminal tab*): [`state`], with "Waiting on its background work" for
+/// Working in background (calm, not needs-you, d0042).
+pub fn tab_state(phase: &Phase, status: Status) -> StripState {
+    let (label, tone) = state(phase, status);
     let tone = match tone {
         Tone::Working => StripTone::Working,
         Tone::Attention => StripTone::Attention,
         Tone::Muted => StripTone::Muted,
     };
     match phase {
-        Phase::Live if your_turn => StripState {
-            label,
-            tone: StripTone::Secondary,
-        },
         Phase::Live if status == Status::WorkingInBackground => StripState {
             label: "Waiting on its background work",
             tone: StripTone::Secondary,
@@ -176,13 +171,15 @@ pub struct Hint {
 }
 
 /// The hint for the agent's terminal (SES-10, d0042, d0048); `None` while it connects or has no session. A scrolled-up
-/// terminal shows how far it is scrolled instead (the page's).
+/// terminal shows how far it is scrolled instead (the page's). `unsent`: the session's input line holds text the user
+/// hasn't sent, as the service reads it (the same answer Otaq's notes wait by).
 pub fn hint(
     phase: &Phase,
     focused: bool,
     status: Status,
     your_turn: bool,
     messages_waiting: u32,
+    unsent: bool,
 ) -> Option<Hint> {
     let line = |icon, text: &str, tone| {
         Some(Hint {
@@ -204,15 +201,22 @@ pub fn hint(
             "Read-only · the session ended",
             HintTone::Muted,
         ),
-        // The agent is busy: the note waits for its turn to end, whatever the line holds.
-        Phase::Live if messages_waiting > 0 && status == Status::Working => line(
-            IconName::MousePointerClick,
-            &format!(
-                "{product}’s notes only arrive when the agent is idle and your input line is empty"
-            ),
-            HintTone::Muted,
-        ),
-        Phase::Live if messages_waiting > 0 => line(
+        // The agent is busy or on a prompt of its own (a permission question): the note waits for its turn to end,
+        // whatever the line holds. Only an idle agent's note waits for the line alone.
+        Phase::Live
+            if messages_waiting > 0 && !matches!(status, Status::Idle | Status::AsksYou) =>
+        {
+            line(
+                IconName::MousePointerClick,
+                &format!(
+                    "{product}’s notes only arrive when the agent is idle and your input line is empty"
+                ),
+                HintTone::Muted,
+            )
+        }
+        // Only over text the line really holds: over an empty line the note is on its way, and the line says
+        // what it would say without it.
+        Phase::Live if messages_waiting > 0 && unsent => line(
             IconName::MousePointerClick,
             &format!("Unsent text in the input line · {product}’s note waits until it’s empty"),
             HintTone::Focus,
@@ -292,7 +296,7 @@ pub fn validator_state(
             Some(ValidationOutcome::Stopped) => ended("Ended · stopped"),
             None => ended("Ended"),
         },
-        _ => tab_state(phase, status, false),
+        _ => tab_state(phase, status),
     }
 }
 
@@ -330,7 +334,7 @@ pub fn validator_hint(
             "Read-only · this checker has ended",
             HintTone::Muted,
         ),
-        _ => hint(phase, focused, Status::Checking, false, 0),
+        _ => hint(phase, focused, Status::Checking, false, 0, false),
     }
 }
 
@@ -374,6 +378,9 @@ pub struct UnsentPrompt {
     pub click: Click,
     /// The text is a multi-line draft this tool can't clear ("Codex"): only Keep it and cancel (SES-07, Q-N).
     pub unclearable_by: Option<String>,
+    /// It isn't text: the agent waits at this permission prompt, which a clear would answer. The question says so and
+    /// offers only Keep it and cancel: the prompt is answered in the terminal first.
+    pub prompt: Option<String>,
 }
 
 /// The user's click that stopped at the unsent-text question (SES-07, d0048).
@@ -412,6 +419,7 @@ impl UnsentPrompt {
             sending,
             click,
             unclearable_by: None,
+            prompt: None,
         }
     }
 
@@ -427,6 +435,7 @@ impl UnsentPrompt {
             sending,
             click: Click::DeliverNow,
             unclearable_by: None,
+            prompt: None,
         }
     }
 
@@ -436,19 +445,31 @@ impl UnsentPrompt {
         self
     }
 
-    /// Whether "Clear it and send" is offered.
+    /// The same question over the permission prompt the agent waits at, when it is one.
+    pub fn over_prompt(mut self, prompt: Option<String>) -> Self {
+        self.prompt = prompt;
+        self
+    }
+
+    /// Whether "Clear it and send" is offered: never over a permission prompt, which a clear would answer.
     pub fn can_clear(&self) -> bool {
-        self.unclearable_by.is_none()
+        self.unclearable_by.is_none() && self.prompt.is_none()
     }
 
     /// Why only Keep it and cancel is offered: "Codex can't clear a multi-line draft. Clear it in the terminal, then
-    /// send again."
+    /// send again.", or the prompt the agent waits at.
     pub fn note(&self) -> Option<String> {
-        self.unclearable_by.as_deref().map(unclearable_note)
+        match &self.prompt {
+            Some(prompt) => Some(prompt_note(prompt)),
+            None => self.unclearable_by.as_deref().map(unclearable_note),
+        }
     }
 
     pub fn title(&self) -> String {
-        format!("{} has unsent text in its terminal", self.ticket)
+        match self.prompt {
+            Some(_) => prompt_title(&self.ticket),
+            None => format!("{} has unsent text in its terminal", self.ticket),
+        }
     }
 
     /// What the two choices do (also the Project agent's question, which has no ticket).
@@ -466,6 +487,23 @@ pub fn unclearable_note(tool: &str) -> String {
     format!(
         "{tool} can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
     )
+}
+
+/// "A permission prompt is waiting in SHOP-35's terminal": the title of the question asked instead of the unsent-text
+/// one when the agent waits at a prompt.
+pub fn prompt_title(ticket: &TicketKey) -> String {
+    format!("A permission prompt is waiting in {ticket}\u{2019}s terminal")
+}
+
+/// "The agent wants to run `git push origin otaq/SHOP-35`. Answer it in its terminal, then try again; nothing was
+/// sent.": the body over a permission prompt, its command on one line.
+pub fn prompt_note(prompt: &str) -> String {
+    let line = otaq_core::signals::prompt_line(prompt);
+    let wants = match line.strip_prefix("Run command: ") {
+        Some(command) => format!("The agent wants to run `{}`.", command.trim()),
+        None => format!("The agent asks: {}.", line.trim().trim_end_matches('.')),
+    };
+    format!("{wants} Answer it in its terminal, then try again; nothing was sent.")
 }
 
 /// The user's answer to the prompt.
@@ -578,25 +616,22 @@ mod tests {
     #[test]
     fn states() {
         assert_eq!(
-            state(&Phase::Live, Status::Working, false),
+            state(&Phase::Live, Status::Working),
             ("Live", Tone::Working)
         );
         assert_eq!(
-            state(&Phase::Live, Status::NeedsYou, false),
+            state(&Phase::Live, Status::NeedsYou),
             ("Waiting for you", Tone::Attention)
         );
         assert_eq!(
-            state(&Phase::Reconnecting, Status::Working, false).0,
+            state(&Phase::Reconnecting, Status::Working).0,
             "Reconnecting…"
         );
+        assert_eq!(state(&Phase::Ended, Status::WaitingForYou).0, "Ended");
+        // The terminal has focus and the agent waits: the state is the real one; only the alert is held back.
         assert_eq!(
-            state(&Phase::Ended, Status::WaitingForYou, false).0,
-            "Ended"
-        );
-        // The terminal has focus and the agent waits: only "your turn" (ATT-03).
-        assert_eq!(
-            state(&Phase::Live, Status::Idle, true),
-            ("your turn", Tone::Muted)
+            state(&Phase::Live, Status::Idle),
+            ("Waiting for you", Tone::Attention)
         );
     }
 
@@ -619,32 +654,22 @@ mod tests {
     fn tab_states() {
         let live = Phase::Live;
         assert_eq!(
-            tab_state(&live, Status::Working, false),
+            tab_state(&live, Status::Working),
             StripState {
                 label: "Live",
                 tone: StripTone::Working
             }
         );
         assert_eq!(
-            tab_state(&live, Status::Idle, true),
-            StripState {
-                label: "your turn",
-                tone: StripTone::Secondary
-            }
-        );
-        assert_eq!(
-            tab_state(&live, Status::WorkingInBackground, false),
+            tab_state(&live, Status::WorkingInBackground),
             StripState {
                 label: "Waiting on its background work",
                 tone: StripTone::Secondary
             }
         );
+        assert_eq!(tab_state(&live, Status::AsksYou).tone, StripTone::Attention);
         assert_eq!(
-            tab_state(&live, Status::AsksYou, false).tone,
-            StripTone::Attention
-        );
-        assert_eq!(
-            tab_state(&Phase::Ended, Status::WorkingInBackground, false).label,
+            tab_state(&Phase::Ended, Status::WorkingInBackground).label,
             "Ended"
         );
         assert_eq!(INTERRUPTED.label, "Interrupted");
@@ -653,7 +678,7 @@ mod tests {
     #[test]
     fn hints_follow_the_phase_the_focus_and_the_waiting_notes() {
         let text = |phase: Phase, focused, status, your_turn, waiting| {
-            hint(&phase, focused, status, your_turn, waiting).map(|h| (h.text, h.tone))
+            hint(&phase, focused, status, your_turn, waiting, true).map(|h| (h.text, h.tone))
         };
         let s = |text: &str| text.replace("{product}", naming::PRODUCT_NAME);
         use HintTone::{Focus, Muted};
@@ -677,6 +702,27 @@ mod tests {
             Some((
                 s("Unsent text in the input line · {product}’s note waits until it’s empty"),
                 Focus
+            ))
+        );
+        // Over an empty line (a key Codex's prompt took, or one typed after it closed and then cleared) the note is
+        // on its way: the line says what it says without one.
+        let empty = |focused, waiting| {
+            hint(&Phase::Live, focused, Status::Idle, false, waiting, false)
+                .map(|h| (h.text, h.tone))
+        };
+        assert_eq!(empty(true, 1), Some((s("Typing goes to the agent"), Focus)));
+        assert_eq!(
+            empty(false, 1),
+            Some((s("Click the terminal to type to the agent"), Muted))
+        );
+        // On Codex's "Would you like to run the following command?" the note waits for the prompt, not the line.
+        assert_eq!(
+            text(Phase::Live, true, Status::NeedsYou, true, 1),
+            Some((
+                s(
+                    "{product}’s notes only arrive when the agent is idle and your input line is empty"
+                ),
+                Muted
             ))
         );
         assert_eq!(
@@ -752,6 +798,38 @@ mod tests {
             Some(
                 "Codex can\u{2019}t clear a multi-line draft. Clear it in the terminal, then send again."
             )
+        );
+    }
+
+    /// Re-test 6 (NEW-6): Send back over an open Codex prompt said "unsent text in its terminal" over an empty line. It
+    /// says a permission prompt waits, names the command and offers only Keep it and cancel: a clear would answer it.
+    #[test]
+    fn a_click_over_a_permission_prompt_names_the_prompt() {
+        let prompt = UnsentPrompt::for_click(
+            key(),
+            None,
+            "The note".into(),
+            Click::SendBack {
+                note: "Keep the old URL".into(),
+            },
+        )
+        .over_prompt(Some("Run command: git push origin main".into()));
+        assert_eq!(
+            prompt.title(),
+            "A permission prompt is waiting in SHOP-23\u{2019}s terminal"
+        );
+        assert!(!prompt.can_clear());
+        assert_eq!(
+            prompt.note().as_deref(),
+            Some(
+                "The agent wants to run `git push origin main`. Answer it in its terminal, then try again; nothing \
+                 was sent."
+            )
+        );
+        assert_eq!(
+            prompt_note("Claude needs your permission to use Bash"),
+            "The agent asks: Claude needs your permission to use Bash. Answer it in its terminal, then try again; \
+             nothing was sent."
         );
     }
 

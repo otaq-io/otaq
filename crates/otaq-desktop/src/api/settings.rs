@@ -38,12 +38,29 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
     match method {
         "settings.view" => reply(&view(app).await?),
         "settings.edit" => edit(app, parse(params)?).await,
-        // Settings → Git & pull requests: git and the PR providers' tools, checked again on each call (Re-check).
-        "settings.git" => reply(&git_settings::view(match app.service.send(Request::ToolsCheck).await {
-            Ok(Reply::ToolsCheck(report)) => Ok(report),
-            Ok(other) => Err(unexpected("tools.check", &other).message),
-            Err(e) => Err(e.message),
-        })),
+        // Settings → Git & pull requests: git and the PR providers' tools, checked again on each call (Re-check); not
+        // the agent tools, which the page doesn't show.
+        // Settings → Git & pull requests runs the tools check, which can take seconds (process starts are slow on
+        // Windows). `settings.git_shown` answers at once with what to draw meanwhile: the last check's page, or
+        // every row "Checking…" before the first.
+        "settings.git" => {
+            let view = git_settings::view(match app.service.send(Request::GitToolsCheck).await {
+                Ok(Reply::ToolsCheck(report)) => Ok(report),
+                Ok(other) => Err(unexpected("tools.check_git", &other).message),
+                Err(e) => Err(e.message),
+            });
+            if view.error.is_none() {
+                *app.git_settings.lock().unwrap_or_else(|e| e.into_inner()) = Some(view.clone());
+            }
+            reply(&view)
+        }
+        "settings.git_shown" => reply(
+            &app.git_settings
+                .lock()
+                .unwrap_or_else(|e| e.into_inner())
+                .clone()
+                .unwrap_or_else(git_settings::checking),
+        ),
         "settings.branches" => branches(app, parse(params)?).await,
         // Settings → Agents (T-0410; AGM-02, AGM-03, AGM-04): the page, its default model, the agent Noyan uses;
         // one agent's page, its changes, Delete.
@@ -552,6 +569,22 @@ mod tests {
     use super::*;
     use crate::api::request;
     use crate::service::testing::{Harness, connected};
+
+    /// Before any check, the pane is drawn at once with every row "Checking…"; after one, with what it found.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_git_page_is_drawn_at_once_checking_then_as_last_found() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let shown = request(&h.app, "settings.git_shown", Value::Null).await.unwrap();
+        assert_eq!(shown["git"]["state"], "Checking\u{2026}");
+        assert_eq!(shown["providers"].as_array().unwrap().len(), 2);
+        let view = request(&h.app, "settings.git", Value::Null).await.unwrap();
+        if view["error"].is_null() {
+            let shown = request(&h.app, "settings.git_shown", Value::Null).await.unwrap();
+            assert_eq!(shown, view);
+        }
+        h.service.stop_all().await;
+    }
 
     /// Git & pull requests runs the tools check and answers with git, then the PR providers (GitHub, Azure DevOps).
     #[tokio::test(flavor = "multi_thread")]

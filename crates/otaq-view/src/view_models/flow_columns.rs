@@ -9,10 +9,11 @@
 //! agent, a flow change); a card waiting between Product spec and Dev shows in Dev's column the same way. A card in a stage its flow no longer has (Validation turned off while it
 //! validated) shows where its status's kind does, as the core's drag rules see it.
 
+use otaq_core::agents::facts::BoardAgents;
 use otaq_core::board::moves::{DropOn, DropTarget};
 use otaq_core::board::order::sort_column;
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Place, StatusSet, TicketKey};
+use otaq_core::domain::{Place, Status, StatusSet, TicketKey};
 use otaq_core::flow::engine::{Target, status_set};
 use otaq_core::flow::{CheckBy, Flow, Stage, StageKind};
 use serde::Serialize;
@@ -60,6 +61,9 @@ pub struct FlowColumn<'f> {
 pub struct Columns<'f> {
     flow: &'f Flow,
     columns: Vec<FlowColumn<'f>>,
+    /// Where started tickets waiting to begin start, by the stage's name, past the stages they skip
+    /// ([`Columns::with_starts`]).
+    starts: Vec<(TicketKey, String)>,
 }
 
 impl<'f> Columns<'f> {
@@ -78,7 +82,40 @@ impl<'f> Columns<'f> {
             stage: Some(stage),
         }));
         columns.push(fixed(DONE, ColumnKind::Done, "Done"));
-        Self { flow, columns }
+        Self {
+            flow,
+            columns,
+            starts: Vec::new(),
+        }
+    }
+
+    /// These columns knowing where each waiting ticket starts (the stage's name, past the stages it skips). A started
+    /// ticket that can't begin waits at the top of the first stage's column only while it is queued, its line saying
+    /// where it starts ("Dev next · skips planning"); held, or waiting for an agent of the stage it starts at, it
+    /// shows in that stage's column, never in one it skips.
+    pub fn with_starts<'k>(
+        mut self,
+        starts: impl IntoIterator<Item = (&'k TicketKey, &'k str)>,
+    ) -> Self {
+        self.starts = starts
+            .into_iter()
+            .map(|(key, stage)| (key.clone(), stage.to_owned()))
+            .collect();
+        self
+    }
+
+    /// These columns knowing where each waiting ticket starts from the cards' agents (`board.agents`), as the board
+    /// places them; without them (they couldn't be read) a waiting ticket shows in the first stage's column.
+    pub fn knowing(self, agents: Option<&BoardAgents>) -> Self {
+        let starts = agents
+            .into_iter()
+            .flat_map(|a| &a.cards)
+            .filter_map(|card| {
+                card.starts
+                    .as_ref()
+                    .map(|start| (&card.key, start.stage.as_str()))
+            });
+        self.with_starts(starts)
     }
 
     pub fn flow(&self) -> &'f Flow {
@@ -107,6 +144,13 @@ impl<'f> Columns<'f> {
     /// waiting to begin, the first Agent stage); for a stage the flow doesn't have, the one its status's kind shows in
     /// (as the core's drag rules see it), a ticket being delivered in the last stage.
     pub fn stage_of(&self, ticket: &Ticket) -> Option<&'f Stage> {
+        if ticket.place == Place::Waiting(None)
+            && ticket.status != Status::Queued
+            && let Some((_, name)) = self.starts.iter().find(|(key, _)| key == &ticket.key)
+            && let Some(stage) = self.flow.stages.iter().find(|s| &s.name == name)
+        {
+            return Some(stage);
+        }
         ticket.shown_stage(self.flow)
     }
 
@@ -241,6 +285,57 @@ pub fn every_kind() -> Flow {
     otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap())
         .unwrap()
         .flow
+}
+
+/// A held ticket that skips planning on Spec first: the views that name its column all say Dev.
+#[cfg(test)]
+pub mod held_fixture {
+    use otaq_core::agents::facts::{BoardAgents, CardAgents, CardStart};
+    use otaq_core::board::tickets::Ticket;
+    use otaq_core::domain::{Place, Status};
+    use otaq_core::flow::FlowFile;
+
+    pub const KEY: &str = "NOTE-12";
+
+    /// The Spec first flow: Product spec, Tech spec, Milestone plan, Spec review, then Dev.
+    pub fn spec_first() -> FlowFile {
+        otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+            .unwrap()
+            .read()
+    }
+
+    /// NOTE-12, started and waiting to begin with `status` (Held, Queued).
+    pub fn waiting(status: Status) -> Ticket {
+        let mut t = crate::view_models::card_fixtures::ticket(KEY, "Export as CSV", status);
+        t.place = Place::Waiting(None);
+        t
+    }
+
+    /// The cards' agents: NOTE-12 starts at Dev, past the planning stages it skips.
+    pub fn starts_at_dev() -> BoardAgents {
+        BoardAgents {
+            agent_count: 2,
+            cards: vec![CardAgents {
+                instead_of: None,
+                own_agent: None,
+                skips: Vec::new(),
+                key: KEY.parse().unwrap(),
+                running_developer: None,
+                running_validator: None,
+                running_developer_on: None,
+                running_validator_on: None,
+                holds: Vec::new(),
+                starts: Some(CardStart {
+                    stage: "Dev".into(),
+                    agent: "Developer".into(),
+                    model: None,
+                }),
+                refused_agent: None,
+                stage_agent: Some("Developer".into()),
+            }],
+            connected: Vec::new(),
+        }
+    }
 }
 
 #[cfg(test)]

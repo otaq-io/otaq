@@ -199,6 +199,7 @@ const agentRow = (tool: string, name: string, more: Partial<AgentToolRow>): Agen
   pill: null,
   detail: "",
   sign_in: null,
+  recheck: null,
   show: null,
   install: null,
   install_button: null,
@@ -285,6 +286,32 @@ describe("the agent tools on the Tools step", () => {
     expect(html).toContain("hidden by you · ");
     expect(html).toContain(">Show</button>");
     expect(html).not.toContain("Disconnect");
+  });
+
+  it("a tool whose settings ask for permission prompts shows no warning here (the first prompt's hint says it)", () => {
+    const html = render({
+      ...TOOLS,
+      rows: [],
+      continue_enabled: true,
+      continue_reason: null,
+      agent_tools: {
+        ...TOOLS.agent_tools,
+        rows: [
+          agentRow("codex", "Codex", {
+            mark: "connected",
+            detail: "v0.166.0 · signed in with ChatGPT",
+            warning: {
+              title: "Your Codex settings ask for permission prompts",
+              text: "With 5–10 agents, prompts will stop agents often. Otaq won’t change your settings.",
+              link: null,
+            },
+          }),
+        ],
+      },
+    });
+    expect(html).toContain("v0.166.0 · signed in with ChatGPT");
+    expect(html).not.toContain("agent-tool-warning");
+    expect(html).not.toContain("permission prompts");
   });
 });
 

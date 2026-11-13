@@ -4,15 +4,25 @@
 // The menu takes focus when it opens: ↑/↓ move (skipping headers and disabled rows, wrapping), Home/End jump, ↵ or Space chooses, Esc, Tab or a click outside closes. A list with
 // `search` (the base-branch dropdowns) puts a search field on top that takes focus and filters the rows as you type;
 // ↑/↓ and ↵ still work from the field. With `typed` too, what was typed is a last row of its own (Pick a skill…'s
-// "Use `<typed text>`"), its `…` parts drawn as code.
+// "Use `<typed text>`"), its `…` parts drawn as code. A `last` row comes after everything, whatever was typed.
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MenuItem } from "../generated/MenuItem";
 import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { CodeText } from "./CodeText";
+import { useEscapeLayer } from "./escape";
 import { type Anchor, useFloatingStyle } from "./Floating";
-import { chooseMenu, filterMenu, firstMatch, menuKey, searchKey, selectable, withTyped } from "./logic";
+import {
+  chooseMenu,
+  filterMenu,
+  firstMatch,
+  menuKey,
+  searchKey,
+  selectable,
+  withLast,
+  withTyped,
+} from "./logic";
 import { PLAIN_TEXT } from "./plainText";
 
 export type MenuClose = "key" | "outside";
@@ -35,6 +45,8 @@ export interface MenuProps {
   search?: MenuSearch;
   /** With `search`: the row for what was typed, last while searching (none for an empty query). */
   typed?: (query: string) => MenuItem | null;
+  /** A row after all the others that the search never hides: Pick a skill…'s "Ask the agent to write it…". */
+  last?: MenuItem;
   /** A head above the rows, not chosen: the project menu's name and folder ("shop-web", "~/code/shop-web"). */
   head?: { title: string; detail: string };
 }
@@ -50,6 +62,7 @@ export function Menu({
   style,
   search,
   typed,
+  last,
   head,
 }: MenuProps) {
   const id = useId();
@@ -57,14 +70,17 @@ export function Menu({
   const field = useRef<HTMLInputElement>(null);
   const [query, setQuery] = useState("");
   const filtered = useMemo(() => (search ? filterMenu(all, query) : all), [all, query, search]);
-  const items = useMemo(
+  const matched = useMemo(
     () => (search ? withTyped(filtered, typed?.(query) ?? null) : filtered),
     [filtered, query, search, typed],
   );
-  /** The row for what was typed, when there is one: the last. */
-  const typedRow = items.length > filtered.length ? items.length - 1 : null;
+  const items = useMemo(() => withLast(matched, last), [matched, last]);
+  /** The row for what was typed, when there is one: the last of the matches. */
+  const typedRow = matched.length > filtered.length ? matched.length - 1 : null;
   // A search list opens on the current row, and moves to the first match as the query changes.
-  const [highlighted, setHighlighted] = useState<number | null>(() => (search ? firstMatch(all) : null));
+  const [highlighted, setHighlighted] = useState<number | null>(() =>
+    search ? firstMatch(withLast(all, last)) : null,
+  );
   useEffect(() => {
     const target = field.current ?? root.current;
     target?.focus();
@@ -78,6 +94,14 @@ export function Menu({
       cancelAnimationFrame(frame);
     };
   }, []);
+  // Esc closes it with the focus elsewhere too, as the topmost layer; with the focus in it, its own keys do.
+  useEscapeLayer(
+    () => {
+      onClose("key");
+    },
+    root,
+    true,
+  );
   const row = (n: number) => `${id}-${String(n)}`;
   /** Highlights row `index`, scrolled into sight in a long list. */
   const highlight = (index: number | null) => {
@@ -150,12 +174,12 @@ export function Menu({
             onChange={(e) => {
               setQuery(e.target.value);
               const q = e.target.value;
-              setHighlighted(firstMatch(withTyped(filterMenu(all, q), typed?.(q) ?? null)));
+              setHighlighted(firstMatch(withLast(withTyped(filterMenu(all, q), typed?.(q) ?? null), last)));
             }}
           />
         </div>
       )}
-      {search && items.length === 0 && <div className="menu-empty">{search.empty}</div>}
+      {search && matched.length === 0 && <div className="menu-empty">{search.empty}</div>}
       {items.map((item, i) => {
         const separator = item.separated && i > 0 && <div role="separator" className="menu-separator" />;
         if (item.header) {

@@ -46,7 +46,8 @@ impl Scope {
         cards: Option<&BoardAgents>,
         list: Option<&AgentList>,
     ) -> Self {
-        let columns = Columns::of(flow);
+        // Where each card shows, as the board places it: a held ticket in the column of the stage it starts at.
+        let columns = Columns::of(flow).knowing(cards);
         let stage_agents: HashMap<TicketKey, String> = cards
             .map(|b| {
                 b.cards
@@ -539,5 +540,32 @@ mod tests {
                 .iter()
                 .any(|(t, _, n)| *t == Token::Is(Is::Validating) && *n == 4)
         );
+    }
+
+    /// `in:` reads a held ticket's column as the board shows it: one that skips Spec first's planning is in Dev, not
+    /// Product spec; queued, it is at the top of Product spec.
+    #[test]
+    fn in_finds_a_held_ticket_in_the_stage_it_starts_at() {
+        use crate::view_models::flow_columns::held_fixture::{spec_first, starts_at_dev, waiting};
+        let file = spec_first();
+        let agents = starts_at_dev();
+        let held = waiting(Status::Held);
+        let all = vec![held.clone()];
+        let scope = Scope::of(&file.flow, &all, Some(&agents), None);
+        assert_eq!(scope.column_of(&held.key), Some("Dev"));
+        let only = |token: &str| {
+            let mut f = Filter::default();
+            f.take_input(&format!("{token} "), &scope);
+            f.visible(&all, &scope)
+                .unwrap()
+                .iter()
+                .map(ToString::to_string)
+                .collect::<Vec<_>>()
+        };
+        assert_eq!(only("in:dev"), ["NOTE-12"]);
+        assert!(only("in:product-spec").is_empty());
+        let queued = vec![waiting(Status::Queued)];
+        let scope = Scope::of(&file.flow, &queued, Some(&agents), None);
+        assert_eq!(scope.column_of(&queued[0].key), Some("Product spec"));
     }
 }

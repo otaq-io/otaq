@@ -6,6 +6,7 @@
 
 use otaq_core::board::tickets::Ticket;
 use otaq_core::pr::flow::{BranchCheck, FlowKind, FlowState, PrFlowView};
+use otaq_core::pr::message::{EditedMessage, MessageEdit};
 use otaq_core::pr::proposal::{CommitMessage, Proposal};
 use otaq_core::pr::provider::PrProvider;
 
@@ -65,6 +66,8 @@ impl Debounce {
 pub struct CommitField {
     pub sha: String,
     pub message: String,
+    /// The skill's proposal for it: Use the proposed message puts it back.
+    pub proposed: String,
 }
 
 /// The dialog's data.
@@ -86,8 +89,15 @@ pub struct PrDialog {
     pub branch_locked: bool,
     pub check: NameCheck,
     pub commits: Vec<CommitField>,
+    /// The commit message the project's commit-msg hook refused at the last confirm, kept on the ticket: its field is
+    /// marked while it still holds that message.
+    pub refused_message: Option<String>,
     pub title: String,
     pub description: String,
+    /// The proposal's title and description (the delivery's agent's once it wrote them): Use the proposed message
+    /// puts them back in place of the user's edit.
+    pub proposed_title: String,
+    pub proposed_description: String,
     pub pr_number: Option<u32>,
     pub debounce: Debounce,
     /// The project's name, for "shop-web delivers pull requests through GitHub".
@@ -101,6 +111,10 @@ pub struct PrDialog {
     pub prepared_by: Option<String>,
     /// The delivery's agent still writing them: the fields hold the plain text until it arrives.
     pub writing: Option<String>,
+    /// The agent still writing them waits for permission: its session, whose terminal answers the prompt.
+    pub asks_in: Option<String>,
+    /// The agent running the PR's skill waits at a permission prompt: the prompt and its session.
+    pub waits: Option<otaq_core::domain::SessionPrompt>,
     /// The user typed in the title, description or branch: a message arriving later doesn't replace them.
     pub typed: bool,
     /// Counts each time the fields were filled for the user (the proposal, then the agent's message): the page takes
@@ -159,8 +173,15 @@ impl PrDialog {
             branch_locked: ticket.work.as_ref().is_some_and(|w| w.branch_locked),
             check: NameCheck::Pending,
             commits: Vec::new(),
+            refused_message: ticket
+                .flags
+                .hook_refusal
+                .as_ref()
+                .and_then(|r| r.message.clone()),
             title: String::new(),
             description: String::new(),
+            proposed_title: String::new(),
+            proposed_description: String::new(),
             pr_number: ticket.flags.pr_number,
             debounce: Debounce::default(),
             project: ticket.key.project.to_string(),
@@ -168,6 +189,8 @@ impl PrDialog {
             merge_instead: None,
             prepared_by: None,
             writing: None,
+            asks_in: None,
+            waits: None,
             typed: false,
             filled: 0,
         }
@@ -183,6 +206,8 @@ impl PrDialog {
         self.target = view.target.clone();
         self.branch_locked = view.branch_locked;
         self.pr_number = view.pr_number;
+        self.asks_in = view.asks_in.clone();
+        self.waits = view.waits.clone();
         let Some(flow) = &view.flow else {
             return;
         };
@@ -224,10 +249,14 @@ impl PrDialog {
                     .map(|c| CommitField {
                         sha: c.sha.clone(),
                         message: c.message.clone(),
+                        proposed: c.message.clone(),
                     })
                     .collect();
                 self.title = p.title.clone();
                 self.description = p.description.clone();
+                self.proposed_title = p.title.clone();
+                self.proposed_description = p.description.clone();
+                self.keep_edit(&view.edited);
                 self.check = if self.branch_locked {
                     NameCheck::Ok
                 } else {
@@ -249,6 +278,10 @@ impl PrDialog {
             return;
         };
         self.writing = None;
+        self.asks_in = None;
+        // The agent's message is the proposal from now on, whether or not the user's edit stays over it.
+        self.proposed_title = m.title.clone();
+        self.proposed_description = m.description.clone();
         if self.typed {
             return;
         }
@@ -260,6 +293,68 @@ impl PrDialog {
             self.debounce.edit();
         }
         self.prepared_by = Some(m.agent.clone());
+        self.filled += 1;
+    }
+
+    /// The user's kept edit goes over the proposal as the fields fill: it counts as typed, so the delivery's agent's
+    /// message arriving later doesn't replace it.
+    fn keep_edit(&mut self, edited: &EditedMessage) {
+        if let Some(title) = &edited.title {
+            self.title = title.clone();
+            self.typed = true;
+        }
+        if let Some(description) = &edited.description {
+            self.description = description.clone();
+            self.typed = true;
+        }
+        for c in &mut self.commits {
+            if let Some(message) = edited.commits.get(&c.sha) {
+                c.message = message.clone();
+            }
+        }
+    }
+
+    /// Whether the commit field holding `message` still holds the message the commit-msg hook refused.
+    pub fn is_refused(&self, message: &str) -> bool {
+        self.refused_message
+            .as_deref()
+            .is_some_and(|refused| refused.trim() == message.trim())
+    }
+
+    /// The title, description or a commit message differs from the proposal.
+    pub fn is_edited(&self) -> bool {
+        self.title.trim() != self.proposed_title.trim()
+            || self.description.trim() != self.proposed_description.trim()
+            || self
+                .commits
+                .iter()
+                .any(|c| c.message.trim() != c.proposed.trim())
+    }
+
+    /// What is kept on the ticket for this dialog: each field that differs from the proposal.
+    pub fn edit(&self) -> MessageEdit {
+        let differs =
+            |now: &str, proposed: &str| (now.trim() != proposed.trim()).then(|| now.to_owned());
+        MessageEdit::Pr {
+            title: differs(&self.title, &self.proposed_title),
+            description: differs(&self.description, &self.proposed_description),
+            commits: self
+                .commits
+                .iter()
+                .filter_map(|c| Some((c.sha.clone(), differs(&c.message, &c.proposed)?)))
+                .collect(),
+        }
+    }
+
+    /// **Use the proposed message**: the title, description and commit messages go back to the proposal (the branch
+    /// name stays as it is), and the page takes the fields again.
+    pub fn use_proposed(&mut self) {
+        self.title = self.proposed_title.clone();
+        self.description = self.proposed_description.clone();
+        for c in &mut self.commits {
+            c.message = c.proposed.clone();
+        }
+        self.typed = false;
         self.filled += 1;
     }
 
@@ -479,6 +574,9 @@ mod tests {
             pr_url: None,
             skill: "open-pr".to_owned(),
             message: None,
+            asks_in: None,
+            waits: None,
+            edited: Default::default(),
         }
     }
 
@@ -533,6 +631,144 @@ mod tests {
             ("Mine", None)
         );
         assert_eq!(typed.prepared_by, None);
+    }
+
+    /// The user's kept edit goes over the proposal when the dialog opens again (after a refusal, a close or a
+    /// restart), the agent's message arriving later doesn't replace it, and Use the proposed message puts the agent's
+    /// back and keeps nothing.
+    #[test]
+    fn a_kept_edit_goes_over_the_proposal_until_use_the_proposed_message() {
+        use otaq_core::pr::message::MessageState;
+        let mut writing = view(FlowState::Proposed, true);
+        writing.message = Some(message(MessageState::Writing));
+        writing.edited = EditedMessage {
+            merge: None,
+            title: Some("feat: checkout API (SHOP-18)".into()),
+            description: None,
+            commits: [(
+                "e5f6a7b8".to_owned(),
+                "test: cover declined cards".to_owned(),
+            )]
+            .into(),
+        };
+        let mut ready = writing.clone();
+        ready.message = Some(message(MessageState::Ready));
+
+        let mut d = PrDialog::opening(&shop18(), "push", Some(&github(true)));
+        assert_eq!(
+            d.edit(),
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: Default::default()
+            }
+        );
+        d.update(&writing);
+        assert_eq!(d.title, "feat: checkout API (SHOP-18)");
+        assert_eq!(
+            d.description, "Adds POST /api/checkout.",
+            "not edited: the proposal"
+        );
+        assert_eq!(d.commits[0].message, "feat(checkout): add POST /checkout");
+        assert_eq!(d.commits[1].message, "test: cover declined cards");
+        assert!(d.is_edited());
+        let page = crate::view_models::pr_page::dialog_view;
+        assert_eq!(page(&d).use_proposed, Some("Use the proposed message"));
+        d.update(&ready);
+        assert_eq!(d.title, "feat: checkout API (SHOP-18)", "the edit stays");
+        assert_eq!(
+            d.proposed_title,
+            "SHOP-18 Retry the order request once on timeout"
+        );
+        let MessageEdit::Pr { title, commits, .. } = d.edit() else {
+            panic!("a PR edit");
+        };
+        assert_eq!(title.as_deref(), Some("feat: checkout API (SHOP-18)"));
+        assert_eq!(commits.len(), 1);
+
+        let filled = d.filled;
+        d.use_proposed();
+        assert_eq!(d.title, "SHOP-18 Retry the order request once on timeout");
+        assert_eq!(d.description, "Retries POST /orders once.");
+        assert_eq!(d.commits[1].message, "test(checkout): cover declined cards");
+        assert!(d.filled > filled, "the page takes the fields again");
+        assert!(!d.is_edited());
+        assert_eq!(page(&d).use_proposed, None);
+        assert_eq!(
+            d.edit(),
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: Default::default()
+            },
+            "nothing is kept"
+        );
+    }
+
+    /// Open PR shows the branch's commits with their message fields, as Push to PR does: after the commit-msg hook
+    /// refused one, the dialog opens again with the user's kept edits in them and the refused one marked; a fixed
+    /// message is kept and confirmed, and Use the proposed message puts the commit messages back too.
+    #[test]
+    fn open_pr_shows_the_commit_fields_with_the_kept_edits_and_the_refused_one_marked() {
+        use otaq_core::git::{GitStep, RefusedHook};
+        let mut shown = view(FlowState::Proposed, false);
+        shown.edited = EditedMessage {
+            merge: None,
+            title: None,
+            description: None,
+            commits: [("a1b2c3d4".to_owned(), "update stuff".to_owned())].into(),
+        };
+        let mut t = shop18();
+        t.flags.hook_refusal = Some(RefusedHook {
+            name: "commit-msg".into(),
+            step: Some(GitStep::Reword),
+            what: "the PR".into(),
+            output: "commitlint: type must be one of [feat, fix]".into(),
+            message: Some("update stuff".into()),
+        });
+
+        let mut d = PrDialog::opening(&t, "open-pr", Some(&github(true)));
+        d.update(&shown);
+        assert_eq!(d.kind, FlowKind::Open);
+        let page = crate::view_models::pr_page::dialog_view;
+        let v = page(&d);
+        assert!(!v.push);
+        assert_eq!(v.commits_label, "Commit messages (2 commits)");
+        assert_eq!(
+            v.commits
+                .iter()
+                .map(|c| (c.sha.as_str(), c.message.as_str(), c.refused))
+                .collect::<Vec<_>>(),
+            [
+                ("a1b2c3d4", "update stuff", true),
+                ("e5f6a7b8", "test(checkout): cover declined cards", false),
+            ]
+        );
+        assert_eq!(v.use_proposed, Some("Use the proposed message"));
+
+        // The user fixes it in its field (what `pr.edit` does): kept by sha, no longer marked, and confirmed.
+        d.commits[0].message = "fix: redirect after login".into();
+        assert!(!page(&d).commits[0].refused);
+        let MessageEdit::Pr { commits, .. } = d.edit() else {
+            panic!("a PR edit");
+        };
+        assert_eq!(
+            commits.get("a1b2c3d4").map(String::as_str),
+            Some("fix: redirect after login")
+        );
+        assert_eq!(d.proposal().commits[0].message, "fix: redirect after login");
+
+        d.use_proposed();
+        assert_eq!(d.commits[0].message, "feat(checkout): add POST /checkout");
+        assert_eq!(
+            d.edit(),
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: Default::default()
+            }
+        );
+        assert_eq!(page(&d).use_proposed, None);
     }
 
     /// A provider whose tool is missing or signed out keeps Push & open PR off until it is set up.

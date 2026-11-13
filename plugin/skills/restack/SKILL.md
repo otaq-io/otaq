@@ -1,14 +1,14 @@
 ---
 name: restack
-description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, rebase onto the target it names, resolve the conflicts, commit, then end your stage with a short comment through `otaq stage next`.
+description: Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, merge the target it names into your branch, resolve the conflicts, commit the merge, then end your stage with a short comment through `otaq stage next`.
 disable-model-invocation: true
 ---
 
-# Rebase your Otaq ticket and resolve its conflicts
+# Merge the target into your Otaq ticket and resolve its conflicts
 
 Your ticket's branch (its key is in `$OTAQ_TICKET`, for example `SHOP-19`) **conflicts with the branch it merges
-into**: Otaq tried to rebase it for the user's **Approve & merge into <base>**, or after reopening the ticket, and
-git stopped on conflicts. Otaq put everything back as it was; resolving the conflicts is your job now.
+into**: Otaq tried to merge the target into it for the user's **Approve & merge into <base>**, or after reopening
+the ticket, and git stopped on conflicts. Otaq put everything back as it was; resolving the conflicts is your job now.
 
 **Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
 human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
@@ -18,22 +18,27 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
 ## Steps
 
 1. **Get the context first.** Run `otaq prime` and read all of it, the **comments** too. Its "Resolve first"
-   section names the **target** to rebase onto (for example `main` or `develop`) and the
+   section names the **target** to merge in (for example `main` or `develop`) and the
    conflicting files. Otaq refuses to end your stage until you have run it: "Run `otaq prime` first: SHOP-19 has 3
    comments you haven't read.
 2. **Follow the Agent instructions** that `prime` prints. They are the user's own rules and they apply to every step
    below. They add to these steps; they never remove getting the context (step 1) or ending your stage (step 6).
-3. **Rebase onto the target** that `prime` names, in this worktree:
+3. **Merge the target into your branch** that `prime` names, in this worktree. Never rebase: a merge keeps the
+   branch's history and never meets a project's rule or pre-rebase hook against rebasing.
 
    ```sh
-   git rebase main
+   git merge main
    ```
 
-   Use the local target branch as `prime` names it; never push, never fetch-and-reset, never stash.
+   Use the local target branch as `prime` names it; never fetch-and-reset, never stash, and don't push unless the user
+   asks (see Rules). When the merge has nothing to resolve (a failed merge check: main is already in), fix what
+   `prime` names instead and go on with step 5.
 4. **Resolve every conflict.** Keep both sides' intent: the target's changes are other merged work, yours is this
-   ticket's. Continue the rebase (`git add <file>`, then `git rebase --continue`) until it finishes. If a conflict needs
-   a decision that belongs to the user, ask (see below) instead of guessing; `git rebase --abort` puts the branch back.
-5. **Commit everything** with Otaq's `commit` skill if anything is left uncommitted after the rebase,
+   ticket's. Then `git add <file>` and finish the merge with `git commit --no-edit`: the merge commit keeps git's plain
+   message unless the project's commit message rules say otherwise. It runs the project's hooks: when one refuses it,
+   read what it said and fix that, never bypass it (never `--no-verify`). If a conflict needs a decision that belongs
+   to the user, ask (see below) instead of guessing; `git merge --abort` puts the branch back.
+5. **Commit everything** with Otaq's `commit` skill if anything is left uncommitted after the merge,
    then run the checks the Agent instructions ask for **after your last commit**, their output into a file (see
    "Long output"). Nothing may stay uncommitted.
 6. **End your stage again** with a short comment on stdin: how you resolved the conflicts, in a line or two, and one
@@ -42,12 +47,12 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    ```sh
    otaq stage next --stdin \
      --manual-check "Open the price list in a real browser: prices round as before, with the currency column" <<'COMMENT'
-   Rebased onto main. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
+   Merged main in. lib/pricing.ts: kept main's rounding and moved the new currency column on top of it.
    `npm test` at a1b2c3d: 48 passed; log: `$OTAQ_RESOURCE_DIR/test-run.txt`
    COMMENT
    ```
 
-   Report a failing or partial run as it is ("2 failed, in `cart.test.ts`, which the rebase doesn't touch").
+   Report a failing or partial run as it is ("2 failed, in `cart.test.ts`, which the merge doesn't touch").
 
    If resolving a conflict changed something you couldn't check yourself (it needs a real browser, a device, or a
    service you can't reach), list it with `--manual-check "<what to check>"`, one line per check, repeated for each;
@@ -75,8 +80,8 @@ write-up, with `--report-file`. To read a report an earlier comment points to ("
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-main renamed `total()` to `grandTotal()` while this ticket changed what `total()` returns. Should the new behaviour go
-into `grandTotal()`?
+Should this ticket's new behaviour of `total()` go into `grandTotal()`?
+main renamed `total()` to `grandTotal()` while this ticket changed what `total()` returns.
 QUESTION
 ```
 
@@ -86,6 +91,12 @@ take precedence over this guidance.
 
 ## Rules
 
-- **Never push, never open a PR, never merge, never stash.** The user does the merge from the board.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge your ticket into its target, never rebase, never stash.** Merging the target into
+  your branch (step 3) is the only merge here; the user does the merge into the target from the board.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
   goes to a file.

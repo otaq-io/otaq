@@ -10,10 +10,13 @@
 //! Repository card.
 //!
 //! The bar on top says what is being edited and how many changes the draft holds, with Watch a ticket (a pretend
-//! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (Suggest a flow
-//! for the project first, then the shipped flows, another project's and Import), ⋯ (Export, Import, Copy from another
-//! project, Go back to the previous flow), Cancel and Save flow. A suggestion from Noyan's agent shows its changes
-//! marked on their columns, with Why these changes, Ask for changes…, Discard and Save flow.
+//! ticket walks the draft step by step, passing or failing a check, running nothing), Start from… (the shipped flows,
+//! another project's and Import), ⋯ (Export, Import, Copy from another project, Go back to the previous flow), Cancel
+//! and Save flow. A box docked at the editor's foot follows Noyan's conversation ([`Ask`]): it asks Noyan's agent for a
+//! change in the user's words, or for a whole flow; while the agent drafts it says so, with Show and Stop; when the
+//! agent asks the user a question, the box becomes the answer box; and while its suggestion shows, marked on the
+//! columns with Why these changes, the box asks for changes to it. The bar then has Watch a ticket, Discard and Save
+//! flow.
 //!
 //! Every edit goes to the project's draft as the overlay editor's did ([`super::flow_editor::edited`],
 //! `flow.draft_update`); nothing changes on the board until the user saves. What a saved change does to moving
@@ -28,18 +31,24 @@ use otaq_core::flow::presets::presets;
 use otaq_core::flow::proposal::{Change, ProposedBy};
 use otaq_core::flow::templates::templates;
 use otaq_core::project_agents::AgentState;
+use otaq_core::signals::prompt_line;
 use serde::Serialize;
 use ts_rs::TS;
 
 use crate::icons::IconName;
 use crate::view_models::agent_page::Choice;
+use crate::view_models::agent_panel::{self, LABEL as NOYAN};
+use crate::view_models::agent_question::{self, AgentQuestion};
 use crate::view_models::flow_columns::{BACKLOG, DONE};
 use crate::view_models::flow_editor::{
     self as editor, AgentField, CHECK_ROUNDS, Choices, EditorKind, Facts, FailToField, FixRow,
     MarkView, Pick, SkillField,
 };
 use crate::view_models::hint::HintId;
-use crate::view_models::project_settings::{DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD};
+use crate::view_models::menu::MenuItem;
+use crate::view_models::project_settings::{
+    AGENT_FIELD, DELIVERS_FIELD, EITHER_NOTE, MODE_FIELD, SKILL_FIELD,
+};
 use crate::view_models::tool_avatar::ToolAvatarView;
 
 /// The kinds of stage, as the editor names them.
@@ -54,7 +63,8 @@ pub fn kind_label(kind: EditorKind) -> &'static str {
 /// "Every flow starts here" / "Every flow ends here": the fixed ends, which can't be moved or removed.
 pub const STARTS_HERE: &str = "Every flow starts here";
 pub const ENDS_HERE: &str = "Every flow ends here";
-/// Under a stage the flow has now, in its details: removing it waits for the tickets in it.
+/// Under a stage the flow has now with tickets in it, in its details: removing it waits for them. With none in it, the
+/// stage goes at once and nothing is said.
 pub const REMOVING_WAITS: &str = "Removing waits until no ticket is in it";
 /// The Rounds field's words after its number.
 pub const ROUNDS_NOTE: &str = "fails in a row, then it waits for you";
@@ -172,7 +182,7 @@ pub struct Details {
     pub fixes: Vec<FixRow>,
     pub mark: Option<MarkView>,
     pub remove: &'static str,
-    /// [`REMOVING_WAITS`] for a stage the flow has now.
+    /// [`REMOVING_WAITS`] for a stage the flow has now with tickets in it.
     pub remove_note: Option<&'static str>,
 }
 
@@ -188,10 +198,47 @@ pub struct DeliveryPanel {
     pub delivers_note: Option<String>,
     pub mode_label: &'static str,
     pub mode_field: &'static str,
-    /// On Approve · Automatically; empty for Either, which is chosen at your click.
+    /// On Approve · Automatically, always shown, as on the project's Repository card.
     pub modes: Vec<Choice>,
+    /// Either is chosen at your click: the modes stay on On Approve, switched off ([`EITHER_NOTE`] says why).
+    pub modes_off: bool,
     pub mode_note: Option<&'static str>,
+    /// The delivery's agent, which writes the message and opens the PR.
+    pub agent: DeliveryAgent,
+    /// The skill it opens a PR with; `None` for a local merge, which opens none.
+    pub skill: Option<DeliverySkill>,
     pub note: &'static str,
+}
+
+/// Done panel's Agent: who writes the merge message (and the PR's) when a ticket reaches Review, and opens the PR.
+/// `FlowBoardDeliveryAgent` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowBoardDeliveryAgent")]
+pub struct DeliveryAgent {
+    pub label: &'static str,
+    /// The field `delivery.agent`; an item's id is what picking it sends (`""`: none).
+    pub field: &'static str,
+    /// The agent's name, or "None" for a local merge with none.
+    pub value: String,
+    /// The stored agents, then those the draft brings ("new"); "None" first for a local merge.
+    pub items: Vec<MenuItem>,
+    pub hint: &'static str,
+}
+
+/// Done panel's PR skill: the user's own Open PR skill by name, or empty for Otaq's own. `FlowBoardDeliverySkill` on
+/// the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowBoardDeliverySkill")]
+pub struct DeliverySkill {
+    pub label: &'static str,
+    /// The field `delivery.skill`; an empty value sends Otaq's own.
+    pub field: &'static str,
+    pub value: String,
+    /// "open-pr": Otaq's own, which runs while the field is empty.
+    pub placeholder: &'static str,
+    pub hint: &'static str,
+    /// "You don't have the skill `my-pr`", amber; it still saves.
+    pub warning: Option<String>,
 }
 
 /// One ready stage of the palette. `FlowBoardTemplate` on the page.
@@ -203,10 +250,9 @@ pub struct Template {
     pub title: String,
     pub line: String,
     pub icon: IconName,
-    /// "Uses a skill you add: `test-in-browser`": a quiet line, not a warning, for a ready stage whose skill neither
-    /// Otaq ships nor the user has. Otaq never copies skills, so the user brings their own; it can still be added,
-    /// and the added stage carries the usual amber warning until the skill is found.
-    pub skill_note: Option<String>,
+    /// "You don't have the skill `test-in-browser`": the usual missing-skill warning, amber, for a ready stage whose
+    /// skill neither Otaq ships nor the user has; it can still be added.
+    pub warning: Option<String>,
 }
 
 /// The palette **+** opens. `FlowBoardPalette` on the page.
@@ -228,23 +274,60 @@ pub struct Entry {
     pub pick: Pick,
 }
 
-/// Suggest a flow for <project>….
+/// The box docked at the editor's foot, the board's box for new work in Edit flow. It follows Noyan's conversation
+/// ([`AskState`]): the user asks Noyan's agent for a change in their own words (↵), or for a whole flow (the shortcut
+/// beside the words); while the agent drafts, the box says so; while its suggestion shows, ↵ asks for changes to it.
+/// `FlowBoardAsk` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "FlowBoardSuggest")]
-pub struct Suggest {
-    pub label: String,
-    pub text: String,
-    /// What the agent is asked (the `flow` skill's first message).
-    pub message: String,
-    /// Why it can't be asked now ("Strong is drafting one"); `None` when it can.
+#[ts(rename = "FlowBoardAsk")]
+pub struct Ask {
+    /// "Ask Noyan to change this flow…", or "Ask for changes to Strong's proposal…" while a suggestion shows.
+    pub placeholder: String,
+    /// The whole-flow shortcut, "Suggest a whole flow"; `None` while a suggestion shows.
+    pub whole: Option<&'static str>,
+    /// Why the shortcut can't be asked now ("Strong is drafting one"); `None` when it can.
     pub off: Option<String>,
+    /// Who answers: "Noyan · Strong · Claude Code".
+    pub agent: String,
+    /// "Proposes a draft · nothing changes until you save"; while the agent drafts, "Drag, + and × still work
+    /// meanwhile".
+    pub line: &'static str,
+    /// The send button once something is typed: "Ask Noyan", or "Ask for changes".
+    pub send: String,
+    /// The send key: "↵".
+    pub keys: &'static str,
+    pub state: AskState,
+}
+
+/// Where Noyan's conversation is, as the box follows it. `FlowBoardAskState` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+#[ts(rename = "FlowBoardAskState")]
+pub enum AskState {
+    /// The user asks for a change, or a whole flow: `flow_board.suggest`.
+    Change,
+    /// Noyan's agent drafts: the box shows it with Show and Stop, in the words' place.
+    Drafting(Drafting),
+    /// Noyan's agent asks the user a question: the box is the answer box.
+    Asking(Asking),
+    /// Its suggestion shows: the words go to the same conversation, `flow_board.ask_changes`.
+    Proposal(ProposalAsk),
+}
+
+/// The box while a suggestion shows: Show conversation opens the agent that made it. `FlowBoardProposalAsk` on the
+/// page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowBoardProposalAsk")]
+pub struct ProposalAsk {
+    /// The agent that made the suggestion, for Show conversation.
+    pub agent: String,
+    pub show: &'static str,
 }
 
 /// Start from…. `FlowBoardStartFrom` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowBoardStartFrom")]
 pub struct StartFrom {
-    pub suggest: Suggest,
     pub shipped_label: String,
     pub presets: Vec<Entry>,
     pub more_label: &'static str,
@@ -294,19 +377,43 @@ pub struct Suggestion {
     pub line: String,
     pub whys_title: &'static str,
     pub whys: Vec<Why>,
-    pub ask: &'static str,
-    /// "Tell Strong what to change…".
-    pub ask_placeholder: String,
     pub discard: &'static str,
 }
 
-/// While Noyan's agent drafts a flow: "Strong is drafting a flow for shop-web…", with Show (its conversation).
+/// While Noyan's agent drafts: "Strong is drafting a change to shop-web's flow…" in the box, with Show (its
+/// conversation) and Stop (it ends, and the draft keeps what it proposed). While it waits on the user, at a permission
+/// prompt or a question, Needs you takes the line's place: "Needs you" with "Strong wants your permission: Allow npm
+/// test?" and Answer; the line comes back once it works again.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "FlowBoardDrafting")]
 pub struct Drafting {
+    /// "Needs you" while the agent waits on the user; `None` while it drafts.
+    pub needs_you: Option<&'static str>,
+    /// One line: a waiting prompt or question shows its first line only, cut with "…".
     pub text: String,
+    /// While it waits: the line with the prompt or question whole (up to a few hundred characters), for its tooltip.
+    pub tooltip: Option<String>,
     pub agent: String,
     pub show: &'static str,
+    pub stop: &'static str,
+}
+
+/// While Noyan's agent asks the user a question (`otaq ask human`), the box is the answer box: the question with
+/// its options, Answer in terminal and Send answer, as above its terminal. It grows with the question up to 55% of
+/// the editor's height and scrolls the question's text past that; ⤢ opens it up to the editor's full height over a
+/// scrim, and ⤡, Esc or sending brings it back. A permission prompt isn't a question: it stays the drafting row's
+/// Needs you. `FlowBoardAsking` on the page.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "FlowBoardAsking")]
+pub struct Asking {
+    /// "Needs you · Strong asks".
+    pub head: String,
+    /// The question and how to answer it; Send answer goes to the agent (`agent_panel.answer`).
+    pub question: AgentQuestion,
+    /// ⤢'s label: "Open larger".
+    pub expand: &'static str,
+    /// ⤡'s label: "Back to the box".
+    pub collapse: &'static str,
 }
 
 /// One step of Watch a ticket.
@@ -391,8 +498,8 @@ pub struct View {
     pub palette: Palette,
     pub start_from: StartFrom,
     pub more: More,
+    pub ask: Ask,
     pub suggestion: Option<Suggestion>,
-    pub drafting: Option<Drafting>,
     pub watch: Watch,
     pub saved: Saved,
     pub hint: HintId,
@@ -407,6 +514,8 @@ pub struct BoardFacts<'a> {
     pub others: &'a [(String, String, Option<FlowFile>)],
     /// The project has a flow before the one in use.
     pub previous: bool,
+    /// The stages of the flow in use with tickets in them (held before them included), by id.
+    pub occupied: &'a [String],
 }
 
 fn plural(n: usize, one: &str, many: &str) -> String {
@@ -548,7 +657,7 @@ fn columns(f: &Facts) -> Vec<Column> {
             delivery: None,
             description: stage.description.clone(),
             mark,
-            warning: editor::unknown_skill(f, stage).or_else(|| editor::missing_skill(f, stage)),
+            warning: editor::stage_skill_warning(f, stage),
             problem: editor::step_problem(f, stage),
             selected: f.selected == Some(stage.id.as_str()),
             movable: true,
@@ -586,10 +695,10 @@ fn columns(f: &Facts) -> Vec<Column> {
 pub const DELIVERY_NOTE: &str = "Part of the flow, so it travels in the flow file. The project\u{2019}s Repository \
      card shows the same setting.";
 
-fn details(f: &Facts, stage: &Stage) -> Details {
+fn details(f: &Facts, b: &BoardFacts, stage: &Stage) -> Details {
     let d = editor::details(f, stage);
     let kind = stage_kind(stage);
-    let in_use = f.in_use.flow.stage(&stage.id).is_some();
+    let has_tickets = f.in_use.flow.stage(&stage.id).is_some() && b.occupied.contains(&stage.id);
     let skill_tag = stage
         .skill
         .as_deref()
@@ -645,7 +754,7 @@ fn details(f: &Facts, stage: &Stage) -> Details {
         fixes: d.fixes,
         mark: d.mark,
         remove: "Remove stage",
-        remove_note: in_use.then_some(REMOVING_WAITS),
+        remove_note: has_tickets.then_some(REMOVING_WAITS),
     }
 }
 
@@ -666,28 +775,85 @@ fn delivery_panel(f: &Facts, base: &str) -> DeliveryPanel {
             choice("pr", "Pull request".to_owned(), d.delivers == Delivers::Pr),
             choice("either", "Either".to_owned(), either),
         ],
-        delivers_note: either.then(|| {
-            format!("{EITHER_NOTE} Approve offers both, Approve & merge and Approve & open PR.")
-        }),
+        // The same words and switches as the project's Repository card: with Either the modes show On Approve,
+        // switched off, and the line says why.
+        delivers_note: either.then(|| EITHER_NOTE.to_owned()),
         mode_label: "When",
         mode_field: MODE_FIELD,
-        modes: if either {
-            Vec::new()
-        } else {
-            vec![
-                choice("click", "On Approve".to_owned(), d.mode == DeliveryMode::Click),
-                choice(
-                    "automatic",
-                    "Automatically".to_owned(),
-                    d.mode == DeliveryMode::Automatic,
-                ),
-            ]
-        },
+        modes: vec![
+            choice(
+                "click",
+                "On Approve".to_owned(),
+                either || d.mode == DeliveryMode::Click,
+            ),
+            choice(
+                "automatic",
+                "Automatically".to_owned(),
+                !either && d.mode == DeliveryMode::Automatic,
+            ),
+        ],
+        modes_off: either,
+        agent: delivery_agent(f),
+        skill: d.can_open_pr().then(|| delivery_skill(f)),
         mode_note: (!either && d.mode == DeliveryMode::Automatic).then_some(
             "Automatically: delivered as soon as the last stage passes, without Approve. Solo autopilot merges this \
              way; Team PR opens a PR this way.",
         ),
         note: DELIVERY_NOTE,
+    }
+}
+
+/// Done panel's Agent field: the delivery's agent among the stored agents and those the draft brings.
+fn delivery_agent(f: &Facts) -> DeliveryAgent {
+    let d = &f.file.flow.delivery;
+    let current = d.agent.as_deref().unwrap_or_default();
+    let is = |name: &str| name.eq_ignore_ascii_case(current);
+    let mut items = Vec::new();
+    if !d.can_open_pr() {
+        items.push(MenuItem::new("", "None").checked(d.agent.is_none()));
+    }
+    items.extend(
+        f.stored
+            .iter()
+            .map(|a| MenuItem::new(a.name.clone(), a.name.clone()).checked(is(&a.name))),
+    );
+    items.extend(
+        f.file
+            .agents
+            .iter()
+            .filter(|a| {
+                !f.stored
+                    .iter()
+                    .any(|s| s.name.eq_ignore_ascii_case(&a.name))
+            })
+            .map(|a| {
+                MenuItem::new(a.name.clone(), a.name.clone())
+                    .hint("new")
+                    .checked(is(&a.name))
+            }),
+    );
+    DeliveryAgent {
+        label: "Agent",
+        field: AGENT_FIELD,
+        value: d.agent.clone().unwrap_or_else(|| "None".to_owned()),
+        items,
+        hint: "Writes the merge message when a ticket reaches Review, and opens the PR.",
+    }
+}
+
+/// Done panel's PR skill: where the user's own Open PR skill goes.
+fn delivery_skill(f: &Facts) -> DeliverySkill {
+    let skill = f.file.flow.delivery.skill.clone().unwrap_or_default();
+    let has =
+        otaq_core::skills::found::is_shipped(&skill) || f.skills.iter().any(|s| s.name == skill);
+    DeliverySkill {
+        label: "PR skill",
+        field: SKILL_FIELD,
+        warning: (!skill.is_empty() && !has)
+            .then(|| otaq_core::flow::proposal::unknown_skill_text(&skill)),
+        value: skill,
+        placeholder: otaq_core::board::settings::WorkflowStep::OpenPr.own_skill(),
+        hint: "Your own Open PR skill, by name. Empty: the built-in open-pr runs.",
     }
 }
 
@@ -712,30 +878,109 @@ fn palette(f: &Facts) -> Palette {
                 title: t.title.clone(),
                 line: t.line.clone(),
                 icon: template_icon(t.stage()),
-                skill_note: t
+                warning: t
                     .stage()
                     .skill
                     .as_deref()
                     .filter(|s| !has(s))
-                    .map(skill_you_add),
+                    .map(otaq_core::flow::proposal::unknown_skill_text),
             })
             .collect(),
         foot: "Each comes with a description, an agent and a skill; change any of them after.",
     }
 }
 
-/// A ready stage's skill the user brings: "Uses a skill you add: `security-check`".
-fn skill_you_add(skill: &str) -> String {
-    format!("Uses a skill you add: `{skill}`")
+/// The box at the editor's foot, following Noyan's conversation. A question waits on the user first; then Noyan's agent
+/// drafting, also while its suggestion still shows on the columns (it redrafts on the user's Ask for changes, UX-63);
+/// then the suggestion, whose answer the box sends. Noyan's agent drafts one change at a time: while it drafts, nothing
+/// more is asked.
+fn ask(f: &Facts) -> Ask {
+    let (name, tool, _) = agent_panel::starts_on(f.new_agent, f.tools);
+    let agent = if name.eq_ignore_ascii_case(tool.display_name()) {
+        format!("{NOYAN} \u{b7} {name}")
+    } else {
+        format!("{NOYAN} \u{b7} {name} \u{b7} {}", tool.display_name())
+    };
+    let change = Ask {
+        placeholder: format!("Ask {NOYAN} to change this flow\u{2026}"),
+        whole: Some("Suggest a whole flow"),
+        off: None,
+        agent,
+        line: "Proposes a draft \u{b7} nothing changes until you save",
+        send: format!("Ask {NOYAN}"),
+        keys: "\u{21b5}",
+        state: AskState::Change,
+    };
+    // A question waits on the user whatever else shows: the box answers it first.
+    if let Some(asking) = asking(f) {
+        return Ask {
+            off: f
+                .agent
+                .map(|a| format!("{} is drafting one", agent_panel::ran_on(a, f.tools))),
+            state: AskState::Asking(asking),
+            ..change
+        };
+    }
+    if let (Some(d), Some(a)) = (drafting(f), f.agent) {
+        return Ask {
+            off: Some(format!(
+                "{} is drafting one",
+                agent_panel::ran_on(a, f.tools)
+            )),
+            line: "Drag, + and \u{d7} still work meanwhile",
+            state: AskState::Drafting(d),
+            ..change
+        };
+    }
+    if let Some((by, by_name)) = suggested_by(f).filter(|_| suggestion(f).is_some()) {
+        return Ask {
+            placeholder: format!("Ask for changes to {by_name}\u{2019}s proposal\u{2026}"),
+            whole: None,
+            line: "Goes to the same conversation \u{b7} nothing changes until you save",
+            send: "Ask for changes".to_owned(),
+            state: AskState::Proposal(ProposalAsk {
+                agent: by.to_owned(),
+                show: "Show conversation",
+            }),
+            ..change
+        };
+    }
+    change
 }
 
-/// The agent Noyan uses, which drafts a suggestion: its name, else "Noyan".
-fn suggester(f: &Facts) -> String {
-    f.new_agent
-        .map_or_else(|| "Noyan".to_owned(), |a| a.name.clone())
+/// The Project agent that made the draft's proposal, and the name the box and the bar give it: the agent its
+/// conversation runs on ("Architect"), never the conversation's title (UX-63); `None` for the user's own.
+fn suggested_by<'a>(f: &Facts<'a>) -> Option<(&'a str, String)> {
+    match &f.proposal.proposed_by {
+        ProposedBy::ProjectAgent { agent, tool, .. } => {
+            let name = match f.agent.filter(|a| a.id == *agent) {
+                Some(a) => agent_panel::ran_on(a, f.tools),
+                // The editor doesn't follow its conversation: the tool it ran on.
+                None => crate::view_models::tool_avatar::AvatarTool::from(*tool)
+                    .name()
+                    .to_owned(),
+            };
+            Some((agent.as_str(), name))
+        }
+        ProposedBy::User => None,
+    }
 }
 
-/// What Suggest a flow asks Noyan's agent, on the `flow` skill.
+/// The answer box, while Noyan's agent runs and asks the user a question.
+fn asking(f: &Facts) -> Option<Asking> {
+    let agent = f.agent?;
+    Some(Asking {
+        head: format!(
+            "Needs you \u{b7} {} asks",
+            agent_panel::ran_on(agent, f.tools)
+        ),
+        question: agent_question::of_agent(agent)?,
+        expand: "Open larger",
+        collapse: "Back to the box",
+    })
+}
+
+/// What Suggest a whole flow asks Noyan's agent, on the `flow` skill.
 pub fn suggest_message(project_name: &str) -> String {
     format!(
         "Suggest a flow for {project_name}. Read this repository and how the project works, then propose a whole flow \
@@ -743,33 +988,71 @@ pub fn suggest_message(project_name: &str) -> String {
     )
 }
 
-/// Noyan's agent is drafting a flow: the editor's agent runs and nothing it proposed shows yet.
+/// Noyan's agent is drafting a flow: the editor's agent is mid-turn (or waits on a prompt or a question it asked
+/// along the way) and nothing shows yet, or what shows is its own proposal, which it redrafts on the user's Ask for
+/// changes (the proposal stays on the columns meanwhile, and Stop keeps it, UX-63). An agent whose turn ended is idle,
+/// not drafting: its session stays open after it proposed, so once its suggestion is discarded or saved the line goes
+/// with it.
+/// A waiting agent mustn't look busy: while it stops at a permission prompt or a question, the line says Needs you
+/// and what it waits on instead.
 fn drafting(f: &Facts) -> Option<Drafting> {
     let agent = f.agent?;
-    let running = matches!(agent.state, AgentState::Running) && f.marks.is_empty();
-    running.then(|| Drafting {
-        text: format!(
-            "{} is drafting a flow for {}\u{2026}",
-            agent.name, f.project_name
-        ),
-        agent: agent.id.clone(),
-        show: "Show",
+    let working = agent.mid_turn || agent.needs_you.is_some() || agent.question.is_some();
+    let its_own = suggested_by(f).is_some_and(|(by, _)| by == agent.id);
+    let drafting =
+        matches!(agent.state, AgentState::Running) && working && (f.marks.is_empty() || its_own);
+    if !drafting {
+        return None;
+    }
+    // The agent it runs on ("Architect"), not the conversation's title (UX-63).
+    let name = agent_panel::ran_on(agent, f.tools);
+    // The line stays one line: what it waits on shows its first line (a command that writes a whole file would
+    // otherwise push the board down), and the tooltip has it whole.
+    let waiting = match (&agent.question, &agent.needs_you) {
+        (Some(q), _) => Some((format!("{name} asks: "), q.text.as_str())),
+        (None, Some(prompt)) => Some((format!("{name} wants your permission: "), prompt.as_str())),
+        (None, None) => None,
+    };
+    Some(match waiting {
+        Some((lead, what)) => Drafting {
+            needs_you: Some("Needs you"),
+            text: format!("{lead}{}", prompt_line(what)),
+            tooltip: Some(format!("{lead}{}", tooltip_text(what))),
+            agent: agent.id.clone(),
+            show: "Answer",
+            stop: "Stop",
+        },
+        None => Drafting {
+            needs_you: None,
+            text: drafting_text(&name, f.project_name),
+            tooltip: None,
+            agent: agent.id.clone(),
+            show: "Show",
+            stop: "Stop",
+        },
     })
 }
 
-fn start_from(f: &Facts, b: &BoardFacts) -> StartFrom {
-    let name = suggester(f);
-    let busy = drafting(f).map(|d| d.text);
+/// The most of a waiting prompt a tooltip shows (this Needs you line's, the Needs you strip's chips): a whole SKILL.md
+/// would be taller than the window; the terminal has it all.
+pub(crate) const TOOLTIP_MAX_CHARS: usize = 600;
+
+/// What the agent waits on, whole for the tooltip, cut with "…" past [`TOOLTIP_MAX_CHARS`].
+pub(crate) fn tooltip_text(what: &str) -> String {
+    let what = what.trim();
+    match what.char_indices().nth(TOOLTIP_MAX_CHARS) {
+        Some((cut, _)) => format!("{}\u{2026}", what[..cut].trim_end()),
+        None => what.to_owned(),
+    }
+}
+
+/// "Strong is drafting a change to shop-web's flow…".
+fn drafting_text(agent: &str, project_name: &str) -> String {
+    format!("{agent} is drafting a change to {project_name}\u{2019}s flow\u{2026}")
+}
+
+fn start_from(b: &BoardFacts) -> StartFrom {
     StartFrom {
-        suggest: Suggest {
-            label: format!("Suggest a flow for {}\u{2026}", f.project_name),
-            text: format!(
-                "{name} reads the project and drafts a flow for it. Its changes come marked; you keep them, ask for \
-                 others, or discard."
-            ),
-            message: suggest_message(f.project_name),
-            off: busy,
-        },
         shipped_label: format!(
             "SHIPPED WITH {}",
             otaq_core::naming::PRODUCT_NAME.to_uppercase()
@@ -891,9 +1174,7 @@ fn bar(f: &Facts) -> Bar {
 }
 
 fn suggestion(f: &Facts) -> Option<Suggestion> {
-    let ProposedBy::ProjectAgent { name, .. } = &f.proposal.proposed_by else {
-        return None;
-    };
+    let (_, name) = suggested_by(f)?;
     if f.marks.is_empty() && !f.swap {
         return None;
     }
@@ -925,8 +1206,6 @@ fn suggestion(f: &Facts) -> Option<Suggestion> {
         ),
         whys_title: "Why these changes",
         whys,
-        ask: "Ask for changes\u{2026}",
-        ask_placeholder: format!("Tell {name} what to change\u{2026}"),
         discard: "Discard",
     })
 }
@@ -1043,7 +1322,9 @@ pub fn walk(flow: &Flow, base: &str, fail: bool) -> Vec<WatchStep> {
     for (i, stage) in flow.stages.iter().enumerate() {
         if fail && Some(i) == check {
             let back = editor::fails_to(flow, stage);
-            let back_at = back.and_then(|b| flow.position(&b.id));
+            // Fails go back to a stage before the check; a draft naming one after it (the flow check says so on the
+            // stage) walks on as if it passed, so the editor always draws.
+            let back_at = back.and_then(|b| flow.position(&b.id)).filter(|&at| at < i);
             let (Some(back), Some(back_at)) = (back, back_at) else {
                 steps.push(pass_step(flow, stage, 1));
                 continue;
@@ -1159,13 +1440,13 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
         yaml: otaq_core::flow::yaml::write(f.file),
         bar: bar(f),
         columns: columns(f),
-        details: selected.map(|s| details(f, s)),
+        details: selected.map(|s| details(f, b, s)),
         delivery: done_selected(f).then(|| delivery_panel(f, b.base_branch)),
         palette: palette(f),
-        start_from: start_from(f, b),
+        start_from: start_from(b),
         more: more(f, b),
+        ask: ask(f),
         suggestion: suggestion(f),
-        drafting: drafting(f),
         watch: watch(f, b.base_branch),
         saved: saved(f),
         hint: HintId::FlowColumns,
@@ -1176,7 +1457,76 @@ pub fn view(f: &Facts, b: &BoardFacts) -> View {
 #[cfg(test)]
 mod tests {
     use super::*;
+
+    /// Noyan's conversation `c1`, titled `title` (the agent panel's name for it), on the named agent `on`: the box
+    /// and the bar name the agent, never the title (UX-63).
+    fn noyan(title: &str, on: &str) -> otaq_core::project_agents::ProjectAgent {
+        let mut a = crate::view_models::noyan_button::fixtures::agent("c1", title, 0);
+        a.session = Some(crate::view_models::agent_panel::session_on(on));
+        a
+    }
     use otaq_core::flow::presets::preset;
+
+    /// Why Suggest a whole flow can't be asked now, as the box at the editor's foot says.
+    fn suggest_off(f: &Facts) -> Option<String> {
+        ask(f).off
+    }
+
+    /// The board's facts with `occupied`'s stages holding tickets.
+    fn board(occupied: &[String]) -> BoardFacts<'_> {
+        BoardFacts {
+            base_branch: "main",
+            others: &[],
+            previous: false,
+            occupied,
+        }
+    }
+
+    /// The note beside Remove stage says removing waits only while tickets are in the stage; with none in it the
+    /// stage goes at once, so no note shows (a stage only the draft has never shows it).
+    #[test]
+    fn the_remove_note_shows_only_with_tickets_in_the_stage() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let f = Facts {
+            project: "SHOP",
+            project_name: "shop",
+            proposal: &draft,
+            marks: &[],
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            stored: &stored,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: Some("validate"),
+            agent: None,
+            new_agent: None,
+            choices: &choices,
+        };
+        let note = |occupied: &[String]| {
+            view(&f, &board(occupied))
+                .details
+                .expect("Validate's panel")
+                .remove_note
+        };
+        assert_eq!(note(&[]), None, "no ticket in Validate");
+        assert_eq!(note(&["dev".to_owned()]), None, "tickets in another stage");
+        assert_eq!(note(&["validate".to_owned()]), Some(REMOVING_WAITS));
+        let panel = view(&f, &board(&[])).details.expect("Validate's panel");
+        assert_eq!(
+            panel.remove, "Remove stage",
+            "Remove stage stays either way"
+        );
+    }
 
     fn default_flow() -> Flow {
         presets()[0].read().flow
@@ -1228,11 +1578,636 @@ mod tests {
         assert_eq!(steps[4].state, "Checking \u{b7} round 2 of 3");
     }
 
+    /// A draft whose check sends its fails to a stage after it (Validate dragged in front of Dev with its fails set
+    /// to Dev) still walks: the check passes it on, and nothing goes back.
+    #[test]
+    fn a_check_whose_fails_go_to_a_later_stage_still_walks() {
+        let mut flow = default_flow();
+        let validate = flow.position("validate").unwrap();
+        flow.stages[validate].fail_to = Some("dev".to_owned());
+        let moved = flow.stages.remove(validate);
+        flow.stages.insert(0, moved);
+        let steps = walk(&flow, "main", true);
+        let path: Vec<&str> = steps.iter().map(|s| s.name.as_str()).collect();
+        assert_eq!(path, ["Backlog", "Validate", "Dev", "Review", "Done"]);
+    }
+
     #[test]
     fn a_flow_with_no_check_has_nothing_to_fail() {
         let mut flow = default_flow();
         flow.stages.retain(|s| s.is_agent_stage());
         assert!(walk(&flow, "main", true).is_empty());
+    }
+
+    /// A stage whose Codex skill's SKILL.md starts with a byte order mark warns on its card and its panel, as a
+    /// missing skill does: Codex finds the skill but doesn't load it. Without the mark, neither warns.
+    #[test]
+    fn a_stage_whose_skill_has_a_byte_order_mark_warns() {
+        use crate::view_models::flow_editor::SkillState;
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored, users_skill};
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::AgentModel;
+        use otaq_core::skills::found::{FoundSkill, SkillScope};
+
+        let mut file = shop_web();
+        file.flow
+            .stages
+            .iter_mut()
+            .find(|s| s.id == "validate")
+            .expect("Validate")
+            .skill = Some("retest-docs".into());
+        let draft = proposal(&file, true);
+        let mut stored = stored();
+        for a in &mut stored {
+            a.model = AgentModel::Tool {
+                tool: Tool::Codex,
+                model: None,
+            };
+        }
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let warnings = |skill: &FoundSkill| {
+            let skills = [skill.clone()];
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &skills,
+                writing: &[],
+                written: &[],
+                selected: Some("validate"),
+                agent: None,
+                new_agent: None,
+                choices: &choices,
+            };
+            let card = columns(&f)
+                .into_iter()
+                .find(|c| c.id == "validate")
+                .expect("Validate's card")
+                .warning;
+            let stage = file.flow.stage("validate").expect("Validate");
+            let panel = match details(&f, &board(&[]), stage)
+                .skill
+                .expect("a Skill field")
+                .state
+            {
+                SkillState::Set { warning, .. } => warning,
+                other => panic!("the skill is set: {other:?}"),
+            };
+            (card, panel)
+        };
+
+        let mut docs = users_skill(
+            "retest-docs",
+            "Writes the docs.",
+            SkillScope::Personal,
+            "~/.codex/skills",
+            &[],
+        );
+        docs.skipped = vec![Tool::Codex];
+        let text = "Codex doesn\u{2019}t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark";
+        let (card, panel) = warnings(&docs);
+        assert_eq!(card.as_deref(), Some(text), "the card warns");
+        assert_eq!(panel.as_deref(), Some(text), "the panel warns");
+
+        // Without the mark Codex has it: no warning.
+        docs.skipped.clear();
+        docs.tools = vec![Tool::Codex];
+        docs.places[0].tools = vec![Tool::Codex];
+        assert_eq!(warnings(&docs), (None, None));
+    }
+
+    /// The box follows Noyan's conversation: asking for a change, then the agent drafting it (Show and Stop, the
+    /// shortcut off with why), then its proposal on the columns, where the box asks for changes to it with no
+    /// shortcut, and Show conversation opens the agent that made it.
+    #[test]
+    fn the_box_follows_noyans_conversation() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+        use crate::view_models::noyan_button::fixtures::agent;
+        use otaq_core::flow::draft::StageMark;
+
+        let file = shop_web();
+        let mut draft = proposal(&file, false);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let marks = [StageMark {
+            stage_id: "review".into(),
+            stage: "Review".into(),
+            mark: Mark::Changed,
+            by: "Strong".into(),
+            why: None,
+        }];
+        let facts = |draft: &'_ otaq_core::flow::proposal::Proposal,
+                     marks: &'_ [StageMark],
+                     a: Option<&otaq_core::project_agents::ProjectAgent>|
+         -> Ask {
+            ask(&Facts {
+                project: "SHOP",
+                project_name: "shop-web",
+                proposal: draft,
+                marks,
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: a,
+                new_agent: None,
+                choices: &choices,
+            })
+        };
+
+        let change = facts(&draft, &[], None);
+        assert_eq!(change.state, AskState::Change);
+        assert_eq!(change.placeholder, "Ask Noyan to change this flow\u{2026}");
+        assert_eq!(change.whole, Some("Suggest a whole flow"));
+        assert_eq!(change.off, None);
+
+        let mut a = noyan("New conversation", "Strong");
+        a.mid_turn = true;
+        let drafting = facts(&draft, &[], Some(&a));
+        let AskState::Drafting(d) = &drafting.state else {
+            panic!("{drafting:?}");
+        };
+        assert_eq!(
+            d.text,
+            "Strong is drafting a change to shop-web\u{2019}s flow\u{2026}"
+        );
+        assert_eq!((d.agent.as_str(), d.show, d.stop), ("c1", "Show", "Stop"));
+        assert_eq!(drafting.off.as_deref(), Some("Strong is drafting one"));
+        assert_eq!(drafting.line, "Drag, + and \u{d7} still work meanwhile");
+
+        // Its proposal shows: the agent ended its turn, waiting for the answer the box sends.
+        a.mid_turn = false;
+        draft.proposed_by = ProposedBy::ProjectAgent {
+            agent: "c1".into(),
+            session: "s1".into(),
+            name: "Add Security stage".into(),
+            tool: otaq_core::agent_tools::Tool::Claude,
+        };
+        let proposed = facts(&draft, &marks, Some(&a));
+        assert_eq!(
+            proposed.state,
+            AskState::Proposal(ProposalAsk {
+                agent: "c1".into(),
+                show: "Show conversation",
+            })
+        );
+        assert_eq!(
+            proposed.placeholder,
+            "Ask for changes to Strong\u{2019}s proposal\u{2026}"
+        );
+        assert_eq!(proposed.whole, None);
+        assert_eq!(proposed.off, None);
+        assert_eq!(proposed.send, "Ask for changes");
+        // The box doesn't follow its conversation: the tool it ran on, still not the conversation's title.
+        assert_eq!(
+            facts(&draft, &marks, None).placeholder,
+            "Ask for changes to Claude Code\u{2019}s proposal\u{2026}"
+        );
+        // The bar's title names the agent too.
+        let title = suggestion(&Facts {
+            project: "SHOP",
+            project_name: "shop-web",
+            proposal: &draft,
+            marks: &marks,
+            swap: false,
+            applies: &DraftApplies::Nothing,
+            file: &file,
+            in_use: &file,
+            stored: &stored,
+            tools: &tools,
+            skills: &[],
+            writing: &[],
+            written: &[],
+            selected: None,
+            agent: Some(&a),
+            new_agent: None,
+            choices: &choices,
+        })
+        .map(|s| s.title);
+        assert_eq!(
+            title.as_deref(),
+            Some("Strong\u{2019}s suggestion for shop-web")
+        );
+
+        // Asked for changes: the proposal stays on the columns (its marks too) while the agent redrafts it, and the
+        // box says so with Show and Stop (UX-63: Stop keeps what it proposed).
+        a.mid_turn = true;
+        let redrafting = facts(&draft, &marks, Some(&a));
+        let AskState::Drafting(d) = &redrafting.state else {
+            panic!("{redrafting:?}");
+        };
+        assert_eq!(
+            d.text,
+            "Strong is drafting a change to shop-web\u{2019}s flow\u{2026}"
+        );
+        assert_eq!((d.agent.as_str(), d.show, d.stop), ("c1", "Show", "Stop"));
+        assert_eq!(redrafting.whole, Some("Suggest a whole flow"));
+        assert_eq!(redrafting.off.as_deref(), Some("Strong is drafting one"));
+        // Another conversation at work (one writing a stage's skill) leaves the proposal's box as it is.
+        let mut other = agent("c2", "Strong", 0);
+        other.mid_turn = true;
+        assert!(matches!(
+            facts(&draft, &marks, Some(&other)).state,
+            AskState::Proposal(_)
+        ));
+        // Stopped, or its turn ended: the proposal's box again.
+        a.state = AgentState::Ended;
+        assert!(matches!(
+            facts(&draft, &marks, Some(&a)).state,
+            AskState::Proposal(_)
+        ));
+    }
+
+    /// When Noyan's agent asks the user a question, the box becomes the answer box: the question with its options and
+    /// the words to answer it, under "Needs you · Strong asks". A permission prompt isn't a question: the drafting row
+    /// keeps its Needs you with Answer. Once answered, the agent drafts again.
+    #[test]
+    fn the_box_answers_noyans_question() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let box_of = |a: &otaq_core::project_agents::ProjectAgent| {
+            ask(&Facts {
+                project: "SHOP",
+                project_name: "shop-web",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            })
+        };
+
+        let mut a = noyan("New conversation", "Strong");
+        a.mid_turn = true;
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Should the security review run before or after Validate?".into(),
+            options: vec!["After Validate".into(), "Before Validate".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: vec![
+                Some("Only code that passes the tests gets reviewed.".into()),
+                None,
+            ],
+            asked_at: 0,
+            send_back: None,
+        });
+        let asking = box_of(&a);
+        let AskState::Asking(q) = &asking.state else {
+            panic!("{asking:?}");
+        };
+        assert_eq!(q.head, "Needs you \u{b7} Strong asks");
+        assert_eq!((q.expand, q.collapse), ("Open larger", "Back to the box"));
+        assert_eq!(q.question.agent, "c1");
+        assert_eq!(q.question.project, a.project);
+        assert_eq!(
+            q.question.answer.line,
+            "Should the security review run before or after Validate?"
+        );
+        let labels: Vec<_> = q
+            .question
+            .answer
+            .rows
+            .iter()
+            .map(|r| r.label.as_str())
+            .collect();
+        assert_eq!(labels[..2], ["After Validate", "Before Validate"]);
+        assert!(q.question.answer.rows[0].picked);
+        assert_eq!(q.question.answer.send, "Send answer");
+        assert_eq!(q.question.answer.in_terminal, "Answer in terminal");
+        assert_eq!(asking.off.as_deref(), Some("Strong is drafting one"));
+
+        // A permission prompt keeps the drafting row's Needs you.
+        a.question = None;
+        a.needs_you = Some("Allow npm test?".into());
+        let AskState::Drafting(d) = box_of(&a).state else {
+            panic!("a permission prompt is not a question");
+        };
+        assert_eq!(d.needs_you, Some("Needs you"));
+        assert_eq!(d.text, "Strong wants your permission: Allow npm test?");
+        assert_eq!(d.show, "Answer");
+
+        // Answered: it drafts again.
+        a.needs_you = None;
+        let AskState::Drafting(d) = box_of(&a).state else {
+            panic!("drafting again");
+        };
+        assert_eq!(d.needs_you, None);
+
+        // An ended agent asks nothing.
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q2".into(),
+            text: "Keep Review?".into(),
+            options: Vec::new(),
+            recommended: Vec::new(),
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        a.state = AgentState::Ended;
+        assert_eq!(box_of(&a).state, AskState::Change);
+    }
+
+    /// The box's drafting state shows only while Noyan's agent works on the draft. After Discard or Save the draft
+    /// has no marks and the agent's turn has ended (its session stays open, idle): the box asks again, and Suggest can
+    /// be asked again.
+    #[test]
+    fn the_drafting_line_goes_when_the_draft_does() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            };
+            (drafting(&f).map(|d| d.text), suggest_off(&f))
+        };
+
+        let mut a = noyan("Shop repo flow", "Architect");
+        a.mid_turn = true;
+        assert_eq!(
+            line(&a).0.as_deref(),
+            Some("Architect is drafting a change to shop\u{2019}s flow\u{2026}"),
+            "while its turn runs"
+        );
+        a.mid_turn = false;
+        a.needs_you = Some("Allow npm test?".into());
+        assert!(
+            line(&a).0.is_some(),
+            "a permission prompt along the way is still drafting"
+        );
+
+        // Discarded or saved: no marks, and the agent sits idle with its session open.
+        a.needs_you = None;
+        assert_eq!(line(&a), (None, None), "an idle agent drafts nothing");
+        a.state = AgentState::Ended;
+        a.mid_turn = true;
+        assert_eq!(line(&a), (None, None), "nor does an ended one");
+    }
+
+    /// Once the agent has written a stage's skill, the stage's column no longer says the user doesn't have it: it
+    /// warns that the skill is written but not committed yet (Apply doesn't commit it), still only a warning.
+    #[test]
+    fn a_written_skill_warns_it_is_not_committed_yet() {
+        use crate::view_models::flow_editor::fixtures::{plan_draft, stored, written_plan};
+        use otaq_core::flow::proposal::{Level, Warning};
+
+        let (file, mut draft) = plan_draft(Some("plan-ticket"));
+        draft.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-ticket`".into(),
+        }];
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let written = [written_plan()];
+        let plan_warning = |written: &[otaq_core::flow::draft::WrittenSkill]| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::AtOnce,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written,
+                selected: None,
+                agent: None,
+                new_agent: None,
+                choices: &choices,
+            };
+            columns(&f)
+                .into_iter()
+                .find(|c| c.id == "plan")
+                .and_then(|c| c.warning)
+        };
+        assert_eq!(
+            plan_warning(&[]).as_deref(),
+            Some("You don't have the skill `plan-ticket`")
+        );
+        assert_eq!(
+            plan_warning(&written).as_deref(),
+            Some("`plan-ticket` is written but not committed yet: commit it so agents get it")
+        );
+    }
+
+    /// While the drafting agent waits on the user, at a permission prompt or a question, Needs you takes the line's
+    /// place (Suggest stays off); once the user answers and it works again, "drafting a change" comes back.
+    #[test]
+    fn needs_you_replaces_the_drafting_line_while_the_agent_waits() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let f = Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            };
+            let d = drafting(&f).unwrap();
+            (d.needs_you, d.text, d.show, suggest_off(&f))
+        };
+        let drafting_line =
+            "Architect is drafting a change to shop\u{2019}s flow\u{2026}".to_owned();
+        let busy = Some("Architect is drafting one".to_owned());
+
+        let mut a = noyan("Shop repo flow", "Architect");
+        a.mid_turn = true;
+        assert_eq!(
+            line(&a),
+            (None, drafting_line.clone(), "Show", busy.clone())
+        );
+
+        // At a permission prompt (its turn hasn't ended).
+        a.needs_you = Some("Allow npm test?".into());
+        assert_eq!(
+            line(&a),
+            (
+                Some("Needs you"),
+                "Architect wants your permission: Allow npm test?".to_owned(),
+                "Answer",
+                busy.clone()
+            )
+        );
+
+        // Answered: it works again, and the line is back.
+        a.needs_you = None;
+        assert_eq!(
+            line(&a),
+            (None, drafting_line.clone(), "Show", busy.clone())
+        );
+
+        // A question for the user.
+        a.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q1".into(),
+            text: "Keep the Validate stage?".into(),
+            options: Vec::new(),
+            recommended: Vec::new(),
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        assert_eq!(
+            line(&a),
+            (
+                Some("Needs you"),
+                "Architect asks: Keep the Validate stage?".to_owned(),
+                "Answer",
+                busy.clone()
+            )
+        );
+        a.question = None;
+        assert_eq!(line(&a), (None, drafting_line, "Show", busy));
+    }
+
+    /// A permission prompt for a long, many-line command (Codex writing a whole SKILL.md with
+    /// `@' … '@ | Set-Content`) keeps Needs you on one line: the command's first line with "…", and the tooltip
+    /// has it whole.
+    #[test]
+    fn needs_you_for_a_long_command_stays_one_line() {
+        use crate::view_models::flow_editor::fixtures::{proposal, shop_web, stored};
+
+        let file = shop_web();
+        let draft = proposal(&file, true);
+        let stored = stored();
+        let tools = crate::view_models::tool_problems::Tools::default();
+        let choices = Choices::default();
+        let line = |a: &otaq_core::project_agents::ProjectAgent| {
+            let d = drafting(&Facts {
+                project: "SHOP",
+                project_name: "shop",
+                proposal: &draft,
+                marks: &[],
+                swap: false,
+                applies: &DraftApplies::Nothing,
+                file: &file,
+                in_use: &file,
+                stored: &stored,
+                tools: &tools,
+                skills: &[],
+                writing: &[],
+                written: &[],
+                selected: None,
+                agent: Some(a),
+                new_agent: None,
+                choices: &choices,
+            })
+            .unwrap();
+            (d.text, d.tooltip.unwrap_or_default())
+        };
+        let body = "Update the docs for the ticket. ".repeat(60);
+        let mut a = noyan("Docs stage skill", "Architect");
+        a.mid_turn = true;
+        a.needs_you = Some(format!(
+            "Run command: @'\n---\nname: update-docs\ndescription: Update project documentation\n---\n\n{body}\n'@ \
+             | Set-Content -LiteralPath .agents\\skills\\update-docs\\SKILL.md -Encoding utf8"
+        ));
+        let (text, tooltip) = line(&a);
+        assert_eq!(
+            text,
+            "Architect wants your permission: Run command: @' \u{2026}"
+        );
+        // The tooltip has the command on its lines, up to a height that fits the window.
+        assert!(
+            tooltip.starts_with(
+                "Architect wants your permission: Run command: @'\n---\nname: update-docs\n"
+            ),
+            "{tooltip}"
+        );
+        assert!(tooltip.ends_with('\u{2026}'), "{tooltip}");
+        assert!(tooltip.chars().count() < 700, "{tooltip}");
+        // A short one is whole in the tooltip.
+        a.needs_you = Some("Run command: git status\ngit diff".into());
+        assert_eq!(
+            line(&a),
+            (
+                "Architect wants your permission: Run command: git status \u{2026}".to_owned(),
+                "Architect wants your permission: Run command: git status\ngit diff".to_owned()
+            )
+        );
+
+        // One long line: cut with "…" to a bounded length.
+        a.needs_you = Some(format!("Run command: {}", body.trim()));
+        let (text, _) = line(&a);
+        assert!(!text.contains('\n'), "{text}");
+        assert!(text.ends_with('\u{2026}'), "{text}");
+        assert!(text.chars().count() < 250, "{text}");
     }
 
     #[test]

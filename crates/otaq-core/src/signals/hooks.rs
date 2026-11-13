@@ -35,9 +35,95 @@ pub fn tool_error_text(error: &str, message: Option<&str>) -> String {
     format!("{TOOL_ERROR_PREFIX}{short}")
 }
 
+/// The longest prompt a one-line place shows (its first line, cut with "…").
+pub const PROMPT_LINE_MAX_CHARS: usize = 160;
+
+/// An agent's waiting prompt for a place that has one line for it (the Edit flow's Needs you line, a card, a
+/// notification): its first non-empty line, at most [`PROMPT_LINE_MAX_CHARS`], with "…" when anything was left out.
+/// A command that writes a whole file reads "Run command: @' …"; the full prompt stays in the terminal, on the
+/// ticket's Overview and in the line's tooltip.
+pub fn prompt_line(text: &str) -> String {
+    let mut lines = text.lines().map(str::trim).filter(|l| !l.is_empty());
+    let first = lines.next().unwrap_or_default();
+    match first.char_indices().nth(PROMPT_LINE_MAX_CHARS) {
+        Some((cut, _)) => format!("{}\u{2026}", first[..cut].trim_end()),
+        None if lines.next().is_some() => format!("{first} \u{2026}"),
+        None => first.to_owned(),
+    }
+}
+
 /// The tool's message in an Idle's stored text that a failed turn left; `None` for any other text.
 pub fn tool_error(text: &str) -> Option<&str> {
     text.strip_prefix(TOOL_ERROR_PREFIX)
+}
+
+/// Why the tool stopped, read from its message: its sign-in ran out or is missing (so signing in comes before
+/// anything else), or another error of its own.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub enum ToolStop<'a> {
+    /// "Login expired · Please run /login", "OAuth token has expired".
+    LoginExpired,
+    /// "Not logged in · Run /login", "Invalid API key".
+    NotSignedIn,
+    /// Any other error: the tool's own words ("API Error: 500").
+    Error(&'a str),
+}
+
+impl<'a> ToolStop<'a> {
+    /// The stop a tool's message (or its error kind, when it gave no message) says.
+    pub fn of(error: &'a str) -> Self {
+        let lower = error.to_lowercase();
+        let sign_in = [
+            "/login",
+            "log in",
+            "logged in",
+            "login",
+            "sign in",
+            "signed in",
+            "authenticat",
+            "api key",
+            "oauth",
+            "unauthorized",
+            "credential",
+        ]
+        .iter()
+        .any(|word| lower.contains(word));
+        match sign_in {
+            true if lower.contains("expired") => Self::LoginExpired,
+            true => Self::NotSignedIn,
+            false => Self::Error(error.trim()),
+        }
+    }
+
+    /// The short reason the card and Needs you give: "login expired", "not signed in", else the message's first part
+    /// ("API Error: 500").
+    pub fn reason(self) -> String {
+        match self {
+            Self::LoginExpired => "login expired".to_owned(),
+            Self::NotSignedIn => "not signed in".to_owned(),
+            Self::Error(message) => message
+                .split(" \u{b7} ")
+                .next()
+                .unwrap_or(message)
+                .trim()
+                .trim_end_matches('.')
+                .to_owned(),
+        }
+    }
+
+    /// The user has to sign in to the tool before the agent can go on.
+    pub fn needs_sign_in(self) -> bool {
+        matches!(self, Self::LoginExpired | Self::NotSignedIn)
+    }
+}
+
+/// The tool's message when the ticket's agent stopped on an error of its own and waits for the user (an Idle a
+/// failed turn left); `None` for any other ticket.
+pub fn stopped_on_error(ticket: &crate::board::tickets::Ticket) -> Option<&str> {
+    if ticket.status != crate::domain::Status::Idle {
+        return None;
+    }
+    tool_error(ticket.signal.as_ref()?.text.as_deref()?)
 }
 
 /// What happened in the session's current turn, as far as the turn-end rule cares.
@@ -184,6 +270,25 @@ mod tests {
 
     fn none() -> TurnFacts {
         TurnFacts::default()
+    }
+
+    /// A command that writes a whole SKILL.md (Codex's `@' … '@ | Set-Content`) shows its first line in a one-line
+    /// place; a long single line is cut with "…"; a short one-line prompt stays as it is.
+    #[test]
+    fn a_prompt_line_is_its_first_line_cut_to_fit() {
+        let skill = "Run command: @'\n---\nname: update-docs\ndescription: Update the docs\n---\n\n# Update the docs\n\
+                     1. Read the ticket.\n'@ | Set-Content -LiteralPath .agents\\skills\\update-docs\\SKILL.md";
+        assert_eq!(prompt_line(skill), "Run command: @' \u{2026}");
+        let long = format!("Run command: {}", "echo a && ".repeat(40));
+        let line = prompt_line(&long);
+        assert!(line.chars().count() <= PROMPT_LINE_MAX_CHARS + 1, "{line}");
+        assert!(line.starts_with("Run command: echo a && echo a"), "{line}");
+        assert!(line.ends_with('\u{2026}') && !line.contains('\n'), "{line}");
+        assert_eq!(
+            prompt_line("\n  Run command: npm install  \n"),
+            "Run command: npm install"
+        );
+        assert_eq!(prompt_line(""), "");
     }
 
     fn turn_ended(background: BackgroundWork, last_message: Option<&str>) -> ToolEvent {
@@ -336,6 +441,32 @@ mod tests {
                 prompt: String::new()
             }
             .ends_turn()
+        );
+    }
+
+    /// A tool that stopped on its sign-in says so in short; any other error keeps the tool's own words.
+    #[test]
+    fn a_tool_stop_names_a_sign_in_or_keeps_the_message() {
+        let expired = ToolStop::of("Login expired \u{b7} Please run /login");
+        assert_eq!(expired, ToolStop::LoginExpired);
+        assert_eq!(expired.reason(), "login expired");
+        assert!(expired.needs_sign_in());
+        for text in [
+            "Not logged in \u{b7} Run /login",
+            "Invalid API key \u{b7} Please run /login",
+            "authentication_failed",
+        ] {
+            let stop = ToolStop::of(text);
+            assert_eq!(stop, ToolStop::NotSignedIn, "{text}");
+            assert_eq!(stop.reason(), "not signed in");
+        }
+        let other = ToolStop::of("API Error: 500");
+        assert_eq!(other, ToolStop::Error("API Error: 500"));
+        assert_eq!(other.reason(), "API Error: 500");
+        assert!(!other.needs_sign_in());
+        assert_eq!(
+            ToolStop::of("Overloaded. \u{b7} Try again later").reason(),
+            "Overloaded"
         );
     }
 }

@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 11;
+pub const PROTOCOL_VERSION: u32 = 13;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -180,6 +180,10 @@ pub enum Request {
     /// The first-run tools checklist and permission-mode check; answered with [`Reply::ToolsCheck`].
     #[serde(rename = "tools.check")]
     ToolsCheck,
+    /// Settings → Git & pull requests' check: git and the PR providers' tools only, without checking the agent tools
+    /// again; answered with [`Reply::ToolsCheck`] (its `agent_tools` empty).
+    #[serde(rename = "tools.check_git")]
+    GitToolsCheck,
     /// A checklist row's **Install** or **Log in** (git, gh, az): its command in a terminal of no project (the
     /// running one if there is one). Answered with [`Reply::Session`]; attach with `session.attach {session}`.
     #[serde(rename = "tools.terminal")]
@@ -197,28 +201,6 @@ pub enum Request {
     /// What the first-run screens need; answered with [`Reply::OnboardingState`].
     #[serde(rename = "onboarding.state")]
     OnboardingState,
-    /// Who Flow onboarding can ask for a project (ASK-05, d0108): its name and the connected tools. Answered with
-    /// [`Reply::OnboardingSources`].
-    #[serde(rename = "onboarding.sources")]
-    OnboardingSources(ProjectParams),
-    /// **Ask <Tool>** (ASK-02, d0108): `{"project": "SHOP", "tool": "opencode"}` starts the tool's flow agent for a
-    /// project in Flow setup (the agent Noyan uses, on the tool's default model, the `flow` skill), or
-    /// returns it while it runs. Refused for a tool that isn't connected, at its plan limit, and for a project not
-    /// in Flow setup. Answered with [`Reply::ProjectAgent`]; attach to its `session`.
-    #[serde(rename = "onboarding.ask")]
-    OnboardingAsk(OnboardingAskParams),
-    /// `{"project": "SHOP"}`: the project's Flow setup now (ASK-03, ASK-04, ASK-06): each tool's row and the open
-    /// proposals. Answered with [`Reply::FlowSetup`]; refetch on [`Event::FlowSetupChanged`].
-    #[serde(rename = "onboarding.flow_setup")]
-    OnboardingFlowSetup(ProjectParams),
-    /// `{"project": "SHOP"}`: **Use the default** or **Skip, use the default** (ASK-03, ASK-04): the project keeps
-    /// the default flow and leaves Flow setup; every open proposal closes and every flow agent is told "The user
-    /// chose another flow." and ends. Answered with [`Reply::Ok`].
-    #[serde(rename = "onboarding.use_default")]
-    OnboardingUseDefault(ProjectParams),
-    /// Remembers that the user closed the permission-mode warning; answered with [`Reply::Ok`].
-    #[serde(rename = "onboarding.dismiss_permission_warning")]
-    DismissPermissionWarning,
     /// The user dismissed the one-time folder trust note (PRJ-08); it never comes back. Answered with [`Reply::Ok`].
     #[serde(rename = "notices.dismiss_trust_note")]
     DismissTrustNote,
@@ -379,7 +361,7 @@ pub enum Request {
     /// [`Reply::Helper`].
     #[serde(rename = "helper.back")]
     HelperBack(HelperNoteParams),
-    /// `otaq helper merge <n>`: the free rebase and the squash into the ticket's branch. Answered with
+    /// `otaq helper merge <n>`: the ticket's branch merged into the helper's, and the squash into the ticket's branch. Answered with
     /// [`Reply::Helper`].
     #[serde(rename = "helper.merge")]
     HelperMerge(HelperPieceParams),
@@ -686,6 +668,10 @@ pub enum Request {
     /// [`Reply::MergeProposal`].
     #[serde(rename = "ticket.merge_proposal")]
     TicketMergeProposal(KeyParams),
+    /// The user's edit of the merge message or the PR's title, description and commit messages, kept on the ticket
+    /// until it lands; empty fields put back the proposal (Use the proposed message). Answered with [`Reply::Ok`].
+    #[serde(rename = "ticket.keep_message")]
+    TicketKeepMessage(KeepMessageParams),
     /// **Local merge** with the confirmed squash message (GIT-03). Answered with [`Reply::LocalMerge`]: merged,
     /// refused (uncommitted files, diverged base, dirty checkout) or a conflict.
     #[serde(rename = "ticket.local_merge")]
@@ -714,6 +700,13 @@ pub enum Request {
     /// [`LocalMergeOutcome::CheckStopped`]. Answered with [`Reply::Ok`]; refused when it runs none.
     #[serde(rename = "ticket.merge_check_stop")]
     TicketMergeCheckStop(KeyParams),
+    /// **Stop** on a ticket running Approve & merge or a start: the git step running then ends with the user's hook
+    /// and whatever the hook started (the Merge check, when it is the one running), and the merge or start leaves
+    /// things as a refusal does; the Local merge request answers [`LocalMergeOutcome::Stopped`], a start becomes
+    /// Start failed with Retry start. Never a time limit: only this ends a slow hook. Answered with [`Reply::Ok`];
+    /// refused when the ticket runs nothing that can be stopped (the target's move once the merge has landed).
+    #[serde(rename = "ticket.git_stop")]
+    TicketGitStop(KeyParams),
     /// The check before any approve (REV-06): new commits since the review? Answered with
     /// [`Reply::ApproveCheck`].
     #[serde(rename = "ticket.approve_check")]
@@ -781,8 +774,13 @@ pub enum Request {
     // Settings (SET-01).
     #[serde(rename = "settings.get")]
     SettingsGet,
+    /// The whole settings, as the Settings page saves them; the OS appearance is left as stored.
     #[serde(rename = "settings.set")]
     SettingsSet(GlobalSettings),
+    /// `{"dark": true}`: the OS appearance the app sees now, while the theme matches the system; the other settings
+    /// stay. Answered with [`Reply::GlobalSettings`].
+    #[serde(rename = "settings.os_dark")]
+    SettingsOsDark(OsDarkParams),
     #[serde(rename = "project_settings.get")]
     ProjectSettingsGet(ProjectParams),
     #[serde(rename = "project_settings.set")]
@@ -802,8 +800,7 @@ pub enum Request {
     #[serde(rename = "flow.versions")]
     FlowVersions(ProjectParams),
     /// `{"project": "SHOP"}`: the project's open proposal, checked and compared with the flow as it will be now
-    /// (FLW-03, FLW-04); during Flow setup the user's own if there is one, else the newest (`onboarding.flow_setup`
-    /// lists them all). Answered with [`Reply::FlowProposal`], `null` when there is none.
+    /// (FLW-03, FLW-04). Answered with [`Reply::FlowProposal`], `null` when there is none.
     #[serde(rename = "flow.proposal")]
     FlowProposal(ProjectParams),
     /// Apply in the flow editor (FLW-05, FLW-06): the open proposal `proposal`, with the user's `choices` (import clashes,
@@ -837,8 +834,8 @@ pub enum Request {
     #[serde(rename = "flow.show")]
     FlowShow(ProjectParams),
     /// `otaq flow propose` (FLW-03, FED-02), from a Project agent's session or the user: a document or another
-    /// project's stages, checked, then put in the project's draft with the agent's changes marked (during Flow setup
-    /// it replaces only the open one from the same tool, ASK-03). Answered with [`Reply::FlowProposal`].
+    /// project's stages, checked, then put in the project's draft with the agent's changes marked. Answered with
+    /// [`Reply::FlowProposal`].
     #[serde(rename = "flow.propose")]
     FlowPropose(crate::flow::propose::ProposeParams),
     /// Ask for more changes in the flow editor (FLW-04): closes the open proposal; the text goes to the Project agent
@@ -894,6 +891,11 @@ pub enum Request {
     /// [`Reply::Ok`].
     #[serde(rename = "session.focus")]
     SessionFocus(FocusParams),
+    /// Whether the session's input line holds text the user hasn't sent, as Otaq's notes go by it (d0048): the
+    /// Session tab's "Unsent text in the input line" shows only then. A session that isn't running has none.
+    /// Answered with [`Reply::Unsent`].
+    #[serde(rename = "session.unsent")]
+    SessionUnsent(SessionIdParams),
     /// The client's app window gained or lost focus (d0090): while any app window is focused, no OS notification
     /// goes out. Per connection, like `session.focus`; a closed connection loses it. Answered with [`Reply::Ok`].
     #[serde(rename = "app.focus")]
@@ -1019,6 +1021,10 @@ pub enum Request {
     /// A Project agent's "Created and changed" (PAG-05). Answered with [`Reply::CreatedAndChanged`].
     #[serde(rename = "project_agent.created")]
     ProjectAgentCreated(IdParams),
+    /// Undo on one of a Project agent's CHANGED rows took that change back (the app sends the board's own edit first):
+    /// recorded so the row says it was undone. Answered with [`Reply::Ok`].
+    #[serde(rename = "project_agent.undone")]
+    ProjectAgentUndone(ProjectAgentUndoneParams),
 
     /// `otaq show <KEY> --terminal` (SHL-10, CLI-09, d0087): the ticket's terminal as the user sees it, as plain
     /// text; read-only, for the user and a Project agent of its project. Answered with
@@ -1132,13 +1138,6 @@ pub enum Request {
     RecentItems(RecentItemsParams),
 }
 
-/// `onboarding.ask`: the project and the tool to ask (ASK-02).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct OnboardingAskParams {
-    pub project: String,
-    pub tool: Tool,
-}
-
 /// `tools.git_identity`: what the user typed.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct GitIdentityParams {
@@ -1236,8 +1235,16 @@ pub struct AgentAskHumanParams {
     /// one.
     #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
     pub notes: Vec<Option<String>>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
+    /// The recommended options, 1-based: one number, or a list when the question takes several answers.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::board::questions::one_or_many"
+    )]
+    pub recommended: Vec<u32>,
+    /// The user may pick several of the options (`ask human --multiple`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
 }
 
 /// `{"id": "…", "choice": {"option": 1}}`; `clear` is the user's "Clear it and send".
@@ -1279,6 +1286,15 @@ pub struct ProjectAgentCloseParams {
 pub struct ProjectAgentRenameParams {
     pub id: String,
     pub name: String,
+}
+
+/// `{"id": "…", "ticket": "SHOP-7", "change": {"kind": "waits_for", "parent": "SHOP-6"}}`: the Project agent, the
+/// ticket and the change of its CHANGED row that Undo took back.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ProjectAgentUndoneParams {
+    pub id: String,
+    pub ticket: String,
+    pub change: crate::project_agents::WhatChanged,
 }
 
 /// `{"name": "Checkout slowness"}`; `rename` when the user asked the agent for a new name.
@@ -1328,9 +1344,16 @@ pub struct AskHumanParams {
     /// one.
     #[serde(default, skip_serializing_if = "crate::board::questions::no_notes")]
     pub notes: Vec<Option<String>>,
-    /// The recommended option, 1-based.
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub recommended: Option<u32>,
+    /// The recommended options, 1-based: one number, or a list when the question takes several answers.
+    #[serde(
+        default,
+        skip_serializing_if = "Vec::is_empty",
+        with = "crate::board::questions::one_or_many"
+    )]
+    pub recommended: Vec<u32>,
+    /// The user may pick several of the options (`ask human --multiple`).
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub multiple: bool,
     /// An earlier stage of the ticket's flow (its name or id) the agent asks the user to send the ticket back to,
     /// the question being its reason (`ask human --send-back "Product spec"`); such a question takes no options.
     #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -1364,6 +1387,9 @@ pub struct DiffFileParams {
     /// Only what changed after this commit (the reviewed head: "changed since you reviewed it", REV-06).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub since: Option<String>,
+    /// With `since`: up to this commit instead of the branch's head (a hook's changes to what landed).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub until: Option<String>,
 }
 
 /// `{"key": "SHOP-22", "path": "src/middleware.ts"}`: a file or folder of the ticket's Files tab.
@@ -1777,6 +1803,15 @@ pub struct KeyParams {
     pub key: String,
 }
 
+/// `{"key": "SHOP-18", "dialog": "merge", "message": "feat: add subtraction (SHOP-18)"}`: one dialog's edit of the
+/// ticket's delivery message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct KeepMessageParams {
+    pub key: String,
+    #[serde(flatten)]
+    pub edit: crate::pr::message::MessageEdit,
+}
+
 /// `{"key": "SHOP-27", "app": "web"}`: one app's Run of the ticket (agents run the app). No `app`: the project's only app.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RunParams {
@@ -1841,6 +1876,12 @@ pub struct TicketTerminal {
     pub key: TicketKey,
     pub session: String,
     pub text: String,
+}
+
+/// `{"dark": true}`: whether the OS is dark.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+pub struct OsDarkParams {
+    pub dark: bool,
 }
 
 /// `{"project": "SHOP"}`.
@@ -2073,15 +2114,11 @@ impl Request {
             Self::StartupReport => "service.startup_report",
             Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
+            Self::GitToolsCheck => "tools.check_git",
             Self::ToolTerminalOpen(_) => "tools.terminal",
             Self::GitSetIdentity(_) => "tools.git_identity",
             Self::GitMissingIdentity(_) => "git.missing_identity",
             Self::OnboardingState => "onboarding.state",
-            Self::OnboardingSources(_) => "onboarding.sources",
-            Self::OnboardingAsk(_) => "onboarding.ask",
-            Self::OnboardingFlowSetup(_) => "onboarding.flow_setup",
-            Self::OnboardingUseDefault(_) => "onboarding.use_default",
-            Self::DismissPermissionWarning => "onboarding.dismiss_permission_warning",
             Self::DismissTrustNote => "notices.dismiss_trust_note",
             Self::NotificationsState => "notifications.state",
             Self::NotificationsAskAnswered => "notifications.ask_answered",
@@ -2165,12 +2202,14 @@ impl Request {
             Self::TicketPass(_) => "ticket.pass",
             Self::ReviewFeedback(_) => "review.feedback",
             Self::TicketMergeProposal(_) => "ticket.merge_proposal",
+            Self::TicketKeepMessage(_) => "ticket.keep_message",
             Self::TicketLocalMerge(_) => "ticket.local_merge",
             Self::TicketDone(_) => "ticket.done",
             Self::TicketDoneNotMerged(_) => "ticket.done_not_merged",
             Self::TicketMergeIntoHosts(_) => "ticket.merge_into_hosts",
             Self::TicketMergeInto(_) => "ticket.merge_into",
             Self::TicketMergeCheckStop(_) => "ticket.merge_check_stop",
+            Self::TicketGitStop(_) => "ticket.git_stop",
             Self::TicketApproveCheck(_) => "ticket.approve_check",
             Self::TicketConflict(_) => "ticket.conflict",
             Self::TicketSendBackPr(_) => "ticket.send_back_pr",
@@ -2230,6 +2269,7 @@ impl Request {
             Self::UsageMarkLimit(_) => "usage.mark_limit",
             Self::SettingsGet => "settings.get",
             Self::SettingsSet(_) => "settings.set",
+            Self::SettingsOsDark(_) => "settings.os_dark",
             Self::ProjectSettingsGet(_) => "project_settings.get",
             Self::ProjectSettingsSet(_) => "project_settings.set",
             Self::ProjectViewSet(_) => "project_view.set",
@@ -2257,6 +2297,7 @@ impl Request {
             Self::SessionDeliverNow(_) => "session.deliver_now",
             Self::SessionSendAgain(_) => "session.send_again",
             Self::SessionFocus(_) => "session.focus",
+            Self::SessionUnsent(_) => "session.unsent",
             Self::AppFocus(_) => "app.focus",
             Self::SessionBeforeRestart(_) => "session.before_restart",
             Self::Hook(_) => "hook",
@@ -2290,6 +2331,7 @@ impl Request {
             Self::ProjectAgentSend(_) => "project_agent.send",
             Self::ProjectAgentPrime(_) => "project_agent.prime",
             Self::ProjectAgentCreated(_) => "project_agent.created",
+            Self::ProjectAgentUndone(_) => "project_agent.undone",
             Self::TicketTerminal(_) => "ticket.terminal",
             Self::AgentsList => "agents.list",
             Self::AgentsAdd(_) => "agents.add",
@@ -2329,8 +2371,6 @@ pub enum Reply {
     StartupReport(Box<crate::recovery::StartupReport>),
     ToolsCheck(ToolsReport),
     OnboardingState(OnboardingState),
-    OnboardingSources(crate::onboarding::Sources),
-    FlowSetup(Box<crate::project_agents::first_flow::FlowSetup>),
     NotificationsState(crate::attention::os_permission::NotificationsState),
     FirstHide(crate::attention::os_permission::FirstHide),
     UpdatePrefs(crate::updates::UpdatePrefs),
@@ -2397,6 +2437,8 @@ pub enum Reply {
     Sessions(Vec<SessionInfo>),
     SessionAttached(Box<SessionAttach>),
     Delivery(Delivery),
+    /// The answer to `session.unsent`: the input line holds unsent text.
+    Unsent(bool),
     History(Vec<HistoryEvent>),
     Prime(Box<PrimeContext>),
     PrimeValidate(Box<crate::prime::ValidatePrime>),
@@ -2495,7 +2537,6 @@ pub struct ProjectSettingsReply {
 pub struct OnboardingState {
     /// First run means no project is stored yet (UI-08).
     pub has_projects: bool,
-    pub permission_warning_dismissed: bool,
     /// The one-time note that Otaq recorded Claude Code's trust for projects added earlier (PRJ-08): shown until
     /// `notices.dismiss_trust_note`.
     #[serde(default)]
@@ -2652,6 +2693,9 @@ pub enum Event {
         key: TicketKey,
         title: String,
         message: String,
+        /// A hook changed what landed (the message says so): the toast's Show changes.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hook_changed: Option<crate::git::merge::HookChanges>,
     },
     /// A toast (UI-07, d0063): a validation was cancelled because the code or the description changed
     /// ("Validation cancelled: SHOP-29’s code changed" · "Round not counted · the agent was told to submit again").
@@ -2682,9 +2726,6 @@ pub enum Event {
     /// A Project agent was opened, named, closed, resumed, or its turn or state changed (d0068): refetch
     /// `project_agent.list`.
     ProjectAgentChanged { project: String, id: String },
-    /// A project's Flow setup changed (ASK-04, ASK-06): a flow agent, a proposal, a tool's state or a limit, or
-    /// its flow got settled. Refetch `onboarding.flow_setup` (and `project.list` once it is settled).
-    FlowSetupChanged { project: String },
     /// The global settings were saved (`settings.set`): refetch `settings.get`. Every window applies a new theme
     /// at once (UIT-07).
     SettingsChanged,
@@ -2937,8 +2978,8 @@ mod tests {
             Message::request(3, Request::ServiceStop),
             Message::request(6, Request::Subscribe(SubscribeParams::default())),
             Message::request(7, Request::ToolsCheck),
+            Message::request(7, Request::GitToolsCheck),
             Message::request(8, Request::OnboardingState),
-            Message::request(9, Request::DismissPermissionWarning),
             Message::request(9, Request::DismissTrustNote),
             Message::request(
                 9,
@@ -2964,7 +3005,6 @@ mod tests {
                 8,
                 Reply::OnboardingState(OnboardingState {
                     has_projects: false,
-                    permission_warning_dismissed: true,
                     trust_note: true,
                     trust_note_tools: vec![crate::agent_tools::Tool::Codex],
                     trust_failed: vec![crate::agent_tools::setup::TrustFailure {

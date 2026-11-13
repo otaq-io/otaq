@@ -112,9 +112,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-3 can’t go to Validate yet"
             }
           },
           {
@@ -156,9 +156,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It waits for a free agent, then starts by itself.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-4 can’t go to Validate yet"
             }
           },
           {
@@ -200,9 +200,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-5 can’t go to Validate yet"
             }
           },
           {
@@ -244,9 +244,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-6 can’t go to Validate yet"
             }
           },
           {
@@ -288,9 +288,9 @@
           {
             "target": "validate",
             "verdict": {
-              "detail": null,
+              "detail": "It starts by itself when it can, in priority order.",
               "kind": "forbidden",
-              "title": "It starts by itself when it can, in priority order"
+              "title": "ALL-7 can’t go to Validate yet"
             }
           },
           {
@@ -2229,7 +2229,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -2453,7 +2453,7 @@
                   "action": {
                     "icon": null,
                     "kind": "local_merge",
-                    "label": "Local merge",
+                    "label": "Approve & merge into main",
                     "primary": true
                   },
                   "avatar": null,
@@ -2806,6 +2806,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -3639,7 +3640,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -3863,7 +3864,7 @@
                   "action": {
                     "icon": null,
                     "kind": "local_merge",
-                    "label": "Local merge",
+                    "label": "Approve & merge into main",
                     "primary": true
                   },
                   "avatar": null,
@@ -4216,6 +4217,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -5049,7 +5051,7 @@
                     "status": {
                       "dot": "attn",
                       "icon": null,
-                      "text": "Validate failed 1 times · decide",
+                      "text": "Validate failed 1 time · decide",
                       "tone": "attention"
                     },
                     "time": null,
@@ -5273,7 +5275,7 @@
                   "action": {
                     "icon": null,
                     "kind": "local_merge",
-                    "label": "Local merge",
+                    "label": "Approve & merge into main",
                     "primary": true
                   },
                   "avatar": null,
@@ -5637,6 +5639,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -6171,6 +6174,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -6652,6 +6656,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -7144,6 +7149,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -7308,9 +7314,9 @@
           {
             "target": "review",
             "verdict": {
-              "detail": "It waits for NOTE-1 to merge, then starts by itself.",
+              "detail": null,
               "kind": "forbidden",
-              "title": "NOTE-2 can’t go to Review yet"
+              "title": "Only agents move tickets to your review"
             }
           },
           {
@@ -8348,6 +8354,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -9166,6 +9173,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {
@@ -9995,6 +10003,7 @@
           "above": "{n} above",
           "need_you": "{n} need you"
         },
+        "seconds": false,
         "toolbar": {
           "all_tickets": "All tickets",
           "layouts": {

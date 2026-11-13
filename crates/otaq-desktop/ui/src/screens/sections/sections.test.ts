@@ -44,7 +44,7 @@ export const REPORT: ValidationReportView = {
 };
 
 describe("the sections", () => {
-  it("Messages: the question, its answer and an Answer button on a question sent to you", () => {
+  it("Messages: the question, its answer and Answer and Resume on a question sent to you", () => {
     const view: MessagesView = {
       title: "Messages",
       heading: "1 thread · linked tickets only",
@@ -56,6 +56,7 @@ describe("the sections", () => {
         {
           id: "m1",
           answerable: true,
+          resume: "Resume SHOP-41",
           question: {
             from: "SHOP-42",
             to: "SHOP-41",
@@ -84,6 +85,7 @@ describe("the sections", () => {
       "GET /api/wishlist",
       ">you<",
       "Answer",
+      "Resume SHOP-41",
     ]) {
       expect(out).toContain(text);
     }

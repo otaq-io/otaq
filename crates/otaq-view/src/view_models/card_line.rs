@@ -8,9 +8,11 @@
 //! [`words`] words the states the board draws; a state it doesn't word keeps the line the card's parts build
 //! ([`super::card::status_line`]), so every state the app has keeps a card.
 
+use otaq_core::agents::facts::OwnAgent;
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::{AutoMergeStop, MergeCheckState, ReviewEntry, Status};
+use otaq_core::signals::{ToolStop, stopped_on_error};
 use serde::Serialize;
 use ts_rs::TS;
 
@@ -28,6 +30,8 @@ pub const NOT_STARTED: &str = "Not started";
 pub const PAUSED_LINE: &str = "Paused \u{b7} resumes where it was";
 /// A parked ticket: taken out of its stage, its work kept.
 pub const PARKED_LINE: &str = "Parked \u{b7} has work in its copy";
+/// The front of a line whose tool stopped on an error ("Stopped · login expired").
+pub const STOPPED: &str = "Stopped";
 /// A session a restart ended.
 pub const STOPPED_BY_RESTART: &str = "Stopped by a restart";
 /// Resuming its conversation failed.
@@ -44,6 +48,9 @@ pub const READY_FOR_YOU: &str = "Ready for you";
 pub const WORKING: &str = "Working";
 /// An agent check's checker at work.
 pub const CHECKING: &str = "Checking";
+/// A PR delivery's agent reported a push the remote doesn't have.
+pub const PUSH_NOT_LANDED_LINE: &str =
+    "Needs you \u{b7} the branch isn\u{2019}t on the remote as expected";
 
 /// The line and the edge [`words`] give a card.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -59,6 +66,22 @@ pub struct Words {
 pub struct Note {
     pub icon: IconName,
     pub text: String,
+}
+
+/// What a delivery problem's agent is fixing, in the card's words and the sheet badge's: "Merge check failed ·
+/// fixing" after a failed merge check, else "Conflicts with main · fixing". `base` names the branch when the
+/// conflict didn't record one.
+pub fn fixing_line(flags: &otaq_core::domain::Flags, base: Option<&str>) -> String {
+    if flags.merge_check == Some(MergeCheckState::Failed) {
+        return otaq_core::domain::validation::MERGE_CHECK_FAILED_FIXING.to_owned();
+    }
+    otaq_core::domain::validation::conflicts_fixing(
+        flags
+            .conflicts_with
+            .as_deref()
+            .or(base)
+            .unwrap_or("its base"),
+    )
 }
 
 fn plain(text: impl Into<String>, dot: Palette) -> Option<Words> {
@@ -96,6 +119,19 @@ fn broke(text: impl Into<String>) -> Option<Words> {
 
 fn yours(text: impl Into<String>) -> Option<Words> {
     edged(text, Palette::Review, Tone::Review)
+}
+
+/// Approve & merge or a start running its git steps (the Merge check aside, which has its own line): "Merging ·
+/// running your pre-commit hook · 40 s", "Starting · making its worktree".
+pub fn git_words(ticket: &Ticket, now_ms: i64) -> Option<Words> {
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+        return None;
+    }
+    let git = ticket.flags.git.as_ref()?;
+    plain(
+        crate::view_models::git_progress::card_line(git, now_ms),
+        Palette::Working,
+    )
 }
 
 /// Waiting is the status line itself: an amber hourglass, calm words.
@@ -172,6 +208,12 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
     if held(ticket, status, x).is_some() && !status.is_needs_you_family() {
         return None;
     }
+    // A finished ticket started again to answer another ticket's question: "answering SHOP-36" while it runs, and
+    // "Needs you · answering SHOP-36" with the Needs you edge while it waits at a prompt. The card keeps its status
+    // and its place in Done, and its finished time.
+    if let Some(words) = answering(ticket, status) {
+        return Some(words);
+    }
     let question = || x.question.as_deref().map(lowered);
     match status {
         Status::Backlog => plain(NOT_STARTED, Palette::Queued),
@@ -226,18 +268,8 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Palette::Working,
         ),
         Status::MergeConflictFixing if flags.hand_off.is_some() => None,
-        Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
-            plain("Merge check failed \u{b7} fixing", Palette::Working)
-        }
         Status::MergeConflictFixing => plain(
-            format!(
-                "Conflicts with {} \u{b7} fixing",
-                flags
-                    .conflicts_with
-                    .as_deref()
-                    .or(x.project_base.as_deref())
-                    .unwrap_or("its base")
-            ),
+            fixing_line(flags, x.project_base.as_deref()),
             Palette::Working,
         ),
         Status::AsksYou => asks(match question() {
@@ -250,10 +282,22 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Some(q) => format!("Asks you \u{b7} {q}"),
             None => "Asks you \u{b7} allow a command?".to_owned(),
         }),
+        // Its tool stopped on an error of its own: it broke and waits, and the line says why.
+        Status::Idle if let Some(error) = stopped_on_error(ticket) => broke(stopped_line(error)),
         // A turn that ended: it waits for the user's next word.
         Status::Idle => asks("Idle"),
         Status::Interrupted => broke(STOPPED_BY_RESTART),
         Status::ResumeFailed => broke(COULDNT_RESUME),
+        // The delivery agent reported a push the remote doesn't have: the user decides (what the remote has is the
+        // sheet's).
+        Status::DeliveryStopped if ticket.auto_merge_stop == Some(AutoMergeStop::PushNotLanded) => {
+            asks(PUSH_NOT_LANDED_LINE)
+        }
+        // A project's git hook refused Approve & merge: "Needs you · commit-msg hook refused the merge" (its output
+        // and the way on are the sheet's).
+        Status::DeliveryStopped if let Some(line) = super::card::hook_refusal_line(ticket) => {
+            asks(line)
+        }
         Status::DeliveryStopped => broke(match ticket.auto_merge_stop {
             Some(AutoMergeStop::BaseDiverged) => "Held \u{b7} base diverged".to_owned(),
             Some(AutoMergeStop::CheckoutDirty) => {
@@ -271,11 +315,14 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             ),
         }),
         Status::Checking => plain(CHECKING, Palette::Working),
-        Status::CheckFailed => asks(format!(
-            "{} failed {} times \u{b7} decide",
-            check_name(ticket),
-            ticket.validation_round.max(1)
-        )),
+        Status::CheckFailed => {
+            let rounds = ticket.validation_round.max(1);
+            let times = if rounds == 1 { "time" } else { "times" };
+            asks(format!(
+                "{} failed {rounds} {times} \u{b7} decide",
+                check_name(ticket)
+            ))
+        }
         Status::CheckNoResult => asks(format!(
             "{} gave no result \u{b7} decide",
             check_name(ticket)
@@ -306,13 +353,7 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
             Palette::Approved,
         ),
         Status::Merged if flags.delivered_without_checks => None,
-        Status::Merged if flags.done_without_merge => plain(
-            match &flags.nothing_to_merge {
-                Some(_) => super::card::DONE_NOTHING_TO_MERGE.to_owned(),
-                None => DONE_NOT_MERGED_LINE.to_owned(),
-            },
-            Palette::Done,
-        ),
+        Status::Merged if flags.done_without_merge => plain(ticket.status_words(), Palette::Done),
         Status::Merged => plain(
             format!("Merged into {}", ticket.base.branch()),
             Palette::Approved,
@@ -324,7 +365,29 @@ pub fn words(ticket: &Ticket, status: Status, x: &CardExtras, paused: bool) -> O
     }
 }
 
-/// The first sentence of a longer message ("Base diverged. Rebase it…" → "Base diverged").
+/// A finished card's answer session: "answering SHOP-36", or "Needs you · answering SHOP-36" at a prompt. `None` for
+/// any other card.
+fn answering(ticket: &Ticket, status: Status) -> Option<Words> {
+    let finished = ticket.place.is_done() || status == Status::MergedInto;
+    if !finished {
+        return None;
+    }
+    if let Some((_, asking)) = ticket.answering_prompt() {
+        return asks(format!("{NEEDS_YOU} \u{b7} answering {asking}"));
+    }
+    let asking = ticket.flags.answering.as_ref()?;
+    plain(format!("answering {asking}"), Palette::Working)
+}
+
+/// The front of a line that waits at a prompt: "Needs you · answering SHOP-36".
+pub const NEEDS_YOU: &str = "Needs you";
+
+/// A card whose tool stopped on an error: "Stopped · login expired", "Stopped · API Error: 500".
+pub fn stopped_line(error: &str) -> String {
+    format!("{STOPPED} \u{b7} {}", ToolStop::of(error).reason())
+}
+
+/// The first sentence of a longer message ("Base diverged. Pull it…" → "Base diverged").
 fn first_sentence(text: &str) -> &str {
     text.split_once(". ")
         .map_or(text, |(first, _)| first)
@@ -334,25 +397,27 @@ fn first_sentence(text: &str) -> &str {
 /// The card's one action, in the board's words: Answer a question, Open a permission prompt, Retry a failed start,
 /// Decide on a closed parent, Mark merged on an open PR. Any other action keeps its label.
 pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Option<CardAction> {
-    let open = |label| CardAction {
+    let open = |label: &'static str| CardAction {
         kind: CardActionKind::Open,
-        label,
+        label: label.into(),
         icon: None,
         primary: true,
     };
     match status {
         Status::PrOpen if ticket.flags.pr_number.is_some() => Some(CardAction {
             kind: CardActionKind::MarkMerged,
-            label: "Mark merged",
+            label: "Mark merged".into(),
             icon: None,
             primary: false,
         }),
         Status::ParentClosed => Some(open(super::card::DECIDE)),
+        // Nothing to answer: the sheet says what to do (sign in, then Resume).
+        Status::Idle if stopped_on_error(ticket).is_some() => Some(open("Open")),
         _ => action.map(|a| match (status, a.kind) {
             (Status::NeedsYou | Status::CheckerNeedsYou, CardActionKind::Open) => open("Open"),
             (_, CardActionKind::Open) if a.label == "Reply" => open("Answer"),
             (_, CardActionKind::RetryStart) => CardAction {
-                label: "Retry",
+                label: "Retry".into(),
                 ..a
             },
             _ => a,
@@ -360,22 +425,23 @@ pub fn action(status: Status, ticket: &Ticket, action: Option<CardAction>) -> Op
     }
 }
 
-/// The muted note under the line, only when set: the ticket's own agent for the stage it is in or waits before
-/// ("Dev: Light instead of Strong"), else the stages the user chose to skip ("Skips Product spec"). Never on a finished
-/// card.
+/// The ticket's own agent for a stage as one line, on its card and on Overview: "Dev: Light instead of Strong".
+pub fn own_agent_line(own: &OwnAgent) -> String {
+    format!("{}: {} instead of {}", own.stage, own.agent, own.instead_of)
+}
+
+/// The muted note under the line, only when set: the ticket's own agent for a stage, from the moment it is set, Backlog
+/// included ("Dev: Light instead of Strong"), else the stages the user chose to skip ("Skips Product spec"). Never on a
+/// finished card.
 pub fn note(ticket: &Ticket, x: &CardExtras) -> Option<Note> {
     if ticket.place.is_done() {
         return None;
     }
     let a = &x.agents;
-    let stage = x
-        .stage_name
-        .as_deref()
-        .or_else(|| a.starts.as_ref().map(|s| s.stage.as_str()));
-    if let (Some(chosen), Some(own), Some(stage)) = (&a.stage_agent, &a.instead_of, stage) {
+    if let Some(own) = &a.own_agent {
         return Some(Note {
             icon: IconName::User,
-            text: format!("{stage}: {chosen} instead of {own}"),
+            text: own_agent_line(own),
         });
     }
     (!a.skips.is_empty()).then(|| Note {

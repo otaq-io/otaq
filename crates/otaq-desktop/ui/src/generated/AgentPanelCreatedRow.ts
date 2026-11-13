@@ -4,7 +4,8 @@ import type { IconName } from "./IconName";
 /**
  * One row of Created and changed: the key (a link that opens the ticket), the title, then Start on a created ticket
  * still in Backlog (Noyan never starts one: only the user does), else where it is and why it waits; Delete on a
- * created ticket that never went to Dev (TKT-08, the 0060 confirmation).
+ * created ticket that never went to Dev (TKT-08, the 0060 confirmation). A changed row is one change: the key, then
+ * what changed ("SHOP-7 · now waits for SHOP-6").
  */
 export type AgentPanelCreatedRow = { key: string, title: string, 
 /**
@@ -20,6 +21,22 @@ line: string | null,
  */
 icon: IconName, edited: boolean, 
 /**
+ * A changed row: what Noyan changed, shown in place of the title ("now waits for SHOP-6"); the title stays
+ * for the tooltip. A created row: what Noyan gave it as it made it ("waits for SHOP-15"), shown the same way;
+ * None when it gave it nothing.
+ */
+change: string | null, 
+/**
  * "Start" on a created ticket in Backlog: `board.start`, as a Backlog card's Start.
  */
-start: string | null, delete: string | null, };
+start: string | null, delete: string | null, 
+/**
+ * "Undo" on a changed row while that part of the ticket still reads as Noyan left it: `agent_panel.undo` takes
+ * the change back. Gone once someone changed that part again, so Undo never overwrites a later edit.
+ */
+undo: string | null, 
+/**
+ * "Undone" on a changed row the user took back with its Undo: the row reads "Undone · SHOP-7 no longer waits for
+ * SHOP-6", `change` saying what Undo put back ([`what_was_undone`]), and has no Undo.
+ */
+undone: string | null, };

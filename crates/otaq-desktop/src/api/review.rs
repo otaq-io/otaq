@@ -8,9 +8,10 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::decisions::Decision;
 use otaq_core::domain::{Status, TicketKey};
 use otaq_core::decisions::outcome::ChangeOutcome;
+use otaq_core::pr::message::MessageEdit;
 use otaq_core::protocol::{
-    CommentsParams, DecisionChangeParams, KeyParams, LocalMergeParams, ProjectParams, Reply,
-    Request,
+    CommentsParams, DecisionChangeParams, KeepMessageParams, KeyParams, LocalMergeParams,
+    ProjectParams, Reply, Request,
 };
 use otaq_core::review::ReturnOutcome;
 use otaq_view::view_models::approve::{self, DoneNotMergedView, MergeIntoPicker};
@@ -35,6 +36,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "review.available" => reply(&available(app, parse(params)?).await?),
         "review.approve" => reply(&approve(app, parse(params)?).await?),
         "review.local_merge" => reply(&local_merge(app, parse(params)?).await?),
+        "review.keep_message" => reply(&keep_message(app, parse(params)?).await?),
         "review.merge_into_view" => reply(&merge_into_view(app, parse(params)?).await?),
         "review.merge_into" => reply(&merge_into(app, parse(params)?).await?),
         "review.done" => reply(&done(app, parse(params)?).await?),
@@ -176,6 +178,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         tickets: &all,
         target: &proposal.target,
         message: &proposal.message,
+        edited: proposal.edited.as_deref(),
         repo: &repo,
         project_base: &project_base,
         check: &check,
@@ -185,7 +188,7 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
             &all,
             provider.as_ref(),
             Some(proposal.commits),
-            super::board::flow(app, &project).await.delivery.delivers,
+            &super::board::flow(app, &project).await,
         ),
         merge_check: merge_check.as_deref(),
         // Unread, the dialog says nothing about them (d0125: they never block).
@@ -195,6 +198,8 @@ pub async fn approve(app: &App, params: Params) -> Result<page::ApproveView, Req
         },
         prepared_by: proposal.prepared_by.as_deref(),
         writing: proposal.writing.as_deref(),
+        now_ms: otaq_core::store::now_ms(),
+        asks_in: proposal.asks_in.as_deref(),
     }))
 }
 
@@ -226,7 +231,7 @@ pub(super) async fn approve_menu_of(app: &App, ticket: &Ticket) -> Option<board_
         &all.unwrap_or_default(),
         provider.as_ref(),
         Some(proposal.commits),
-        flow.delivery.delivers,
+        &flow,
     ))
 }
 
@@ -241,9 +246,55 @@ pub struct MergeParams {
     pub approve_anyway: bool,
 }
 
+/// The merge message as the user left it in Approve & merge: kept on the ticket until it lands, so the dialog opens on
+/// it again after a refusal, a close or a restart. The proposal itself (Use the proposed message) keeps nothing.
+#[derive(Debug, Clone, Deserialize)]
+pub struct KeepParams {
+    pub key: String,
+    pub message: String,
+}
+
+pub async fn keep_message(app: &App, params: KeepParams) -> Result<(), RequestError> {
+    let proposal = match app
+        .service
+        .send(Request::TicketMergeProposal(KeyParams {
+            key: params.key.clone(),
+        }))
+        .await?
+    {
+        Reply::MergeProposal(p) => p,
+        other => return Err(unexpected("ticket.merge_proposal", &other)),
+    };
+    match app
+        .service
+        .send(Request::TicketKeepMessage(KeepMessageParams {
+            key: params.key,
+            edit: MessageEdit::Merge {
+                message: approve::kept_edit(&proposal.message, &params.message),
+            },
+        }))
+        .await?
+    {
+        Reply::Ok => Ok(()),
+        other => Err(unexpected("ticket.keep_message", &other)),
+    }
+}
+
 pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeResult, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let key = ticket.key.clone();
+    // The message merged is kept first: if a hook refuses the merge, Approve & merge opens on it again.
+    if let Err(e) = keep_message(
+        app,
+        KeepParams {
+            key: params.key.clone(),
+            message: params.message.clone(),
+        },
+    )
+    .await
+    {
+        eprintln!("can't keep {key}'s edited merge message: {}", e.message);
+    }
     // On a connection of its own: while it runs the Merge check (minutes, d0120) the board keeps its answers and
     // Stop reaches the service.
     let outcome = match app
@@ -261,7 +312,7 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
             toast(
                 app,
                 ToastLevel::Error,
-                format!("Local merge of {key} failed"),
+                format!("Approve & merge for {key} didn\u{2019}t go through"),
                 Some(page::merge_failed_text(&e.message)),
             );
             return Err(e);
@@ -285,10 +336,25 @@ pub async fn local_merge(app: &App, params: MergeParams) -> Result<page::MergeRe
         .await
         .unwrap_or_default();
     let result = page::merge_result(&ticket, &target, &outcome, &all);
-    if let page::MergeResult::Merged { toasts } = &result {
-        for t in toasts {
-            toast(app, ToastLevel::Success, t.title.clone(), t.text.clone());
+    match &result {
+        page::MergeResult::Merged { toasts } => {
+            // The merged toast, the first, has Show changes when a hook changed what landed.
+            let mut link = page::merged_toast_link(&key, &outcome);
+            for t in toasts {
+                app.notices.toast(NewToast {
+                    link: link.take(),
+                    ..NewToast::new(ToastLevel::Success, t.title.clone(), t.text.clone())
+                });
+            }
         }
+        // A hook refused it: the refusal is on the ticket; the toast only points there, and a click on it opens it.
+        page::MergeResult::OnTicket { toast: t } => {
+            app.notices.toast(NewToast {
+                ticket: Some(key.to_string()),
+                ..NewToast::new(ToastLevel::Error, t.title.clone(), t.text.clone())
+            });
+        }
+        _ => {}
     }
     Ok(result)
 }
@@ -493,7 +559,11 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
         ))
         .await
     {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     key,
@@ -501,7 +571,8 @@ pub async fn send_back(app: &App, params: SendBackParams) -> Result<Sent, Reques
                     sb::sending(params.comments as usize),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         Ok(_) => {
@@ -594,7 +665,11 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
         attachments: super::attachments::sources(&params.attachments),
     });
     match app.service.send(request).await {
-        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     key,
@@ -602,7 +677,8 @@ pub async fn send_back_pr(app: &App, params: SendBackPrParams) -> Result<Sent, R
                     PR_COMMENTS_SENDING.to_owned(),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         Ok(_) => {
@@ -793,7 +869,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -904,8 +979,12 @@ mod tests {
 }
 
 #[cfg(test)]
+mod git_steps_tests;
+#[cfg(test)]
 mod hand_over_tests;
 #[cfg(test)]
 mod merge_check_tests;
 #[cfg(test)]
 mod manual_check_tests;
+#[cfg(test)]
+mod second_round_tests;

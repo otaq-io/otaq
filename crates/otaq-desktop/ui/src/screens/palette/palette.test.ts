@@ -307,6 +307,29 @@ test("↑ ↓ skip a greyed row, ↵ runs the highlighted action and records it,
   expect(ask).toHaveBeenCalledWith("palette.record", { kind: "action", action: { action: "park" } });
 });
 
+test("the open project's Pause row names the project and shows its keys", async () => {
+  answers([
+    {
+      item: {
+        kind: "pause",
+        scope: "project",
+        resume: false,
+        project: "SHOP",
+        icon: "pause",
+        title: "Pause shop-web",
+        keys: ["⇧⌘."],
+      },
+      pickable: true,
+    },
+  ]);
+  (host.querySelector(".card") as HTMLElement).focus();
+  commandK();
+  await settle();
+  const row = host.querySelector('[aria-selected="true"]');
+  expect(row?.querySelector(".palette-title")?.textContent).toBe("Pause shop-web");
+  expect(row?.querySelector(".palette-keys")?.textContent).toContain("⇧⌘.");
+});
+
 test("an empty palette's first row is Next that needs you: ↵ runs ⌘J from what the page shows", async () => {
   const next: PaletteRow = {
     item: {

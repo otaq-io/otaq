@@ -5,8 +5,8 @@
 //! the Start interrupted callout and the tab strip with its indicators. The buttons that talk to the service land
 //! here too, so their wording (toasts, refusals) stays in Rust; the ones that open a tab or a dialog are the page's.
 //!
-//! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header, details line
-//! and tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
+//! From M38 the panel is the ticket sheet (SHT-01, SHT-02, T-0464): [`View::sheet`] carries its header and
+//! tabs (`view_models/sheet.rs`); the rest of the view is what today's tabs and Overview's top still show until
 //! T-0465, T-0466 and T-0468 move it. `sheet.move_menu` is the header's Move….
 
 use std::time::{SystemTime, UNIX_EPOCH};
@@ -30,9 +30,11 @@ use otaq_view::key_labels::KeyLabels;
 use otaq_view::keymap::KeyAction;
 use otaq_view::view_models::answer::{self, AnswerOutcome};
 use otaq_view::view_models::answer_options::{self, Answer, question_bar};
-use otaq_view::view_models::stage_choices::{self, ChoicesView, PathView};
+use otaq_view::view_models::permission_prompt::PermissionPrompt;
+use otaq_view::view_models::stage_choices;
 use otaq_view::view_models::tool_problems::{Callout, Tools};
 use otaq_view::view_models::approve;
+use otaq_view::view_models::hook_refusal as hook_refusals;
 use otaq_view::view_models::build_aside::{self, BuildAsideLine};
 use otaq_view::view_models::comments;
 use otaq_view::view_models::card::{
@@ -42,7 +44,7 @@ use otaq_view::view_models::close;
 use otaq_view::view_models::flow_columns::Columns;
 use otaq_view::view_models::menu::MenuItem;
 use otaq_view::view_models::session_tab::{self, Dot, PartView};
-use otaq_view::view_models::sheet::{self, Content, Crumb, Detail, DetailFacts, SheetTab, Step};
+use otaq_view::view_models::sheet::{self, Content, Crumb, DetailFacts, SheetTab, Step};
 use otaq_view::view_models::sheet_actions::{self as actions, Action, Look};
 use otaq_view::view_models::pr_dialog;
 use otaq_view::view_models::priority::{self, PriorityView};
@@ -244,15 +246,14 @@ pub struct TabView {
     pub list: Option<otaq_view::view_models::pieces::SessionList>,
 }
 
-/// The sheet's frame (SHT-01): breadcrumb, details line, tabs, the tab it opens on and its widths.
+/// The sheet's frame (SHT-01): breadcrumb, the line under the title, tabs, the tab it opens on and its widths.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "SheetFrame")]
 pub struct SheetFrame {
     pub crumbs: Vec<Crumb>,
     /// The line under the title: "In Dev · Strong · started by you 12 min ago" (`sheet::subtitle`).
     pub subtitle: String,
-    pub details: Vec<Detail>,
-    /// The flow path under the details line.
+    /// The flow path under the title.
     pub steps: Vec<Step>,
     pub tabs: Vec<TabView>,
     pub opens_on: SheetTab,
@@ -290,12 +291,20 @@ pub struct Notice {
     pub choices: Vec<ParentChoice>,
 }
 
-/// "Conflicts with main · 2 files (…)" in the header (GIT-04). A Delivery's conflict goes to the agent with no click
-/// (FLW-17), so the strip only says it.
+/// "Conflicts with main · 2 files (…)" in the header (GIT-04), or "Merge check failed on main". A Delivery's problem
+/// goes to the agent with no click (FLW-17), so the strip only says it: what moved, that nothing was merged, and
+/// where it stands among the ones in a row that stop it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "SheetConflict")]
 pub struct ConflictStrip {
     pub line: String,
+    /// "SHOP-6 changed README.md", when git could say.
+    pub moved: Option<String>,
+    /// "Nothing was merged into main. SHOP-5 returns to Review when it's fixed.", once it went back to its agent.
+    pub outcome: Option<String>,
+    /// "1 of 3", once it went back to its agent.
+    pub count: Option<String>,
+    pub count_hint: &'static str,
 }
 
 /// A refused model's callout above the bar (AGT-05; T-0345): "Claude Code couldn't run claude-fable-5-1" and the
@@ -319,6 +328,67 @@ pub struct StartProblem {
     pub hide_log: &'static str,
     pub retry_heading: &'static str,
     pub retry_does: Vec<&'static str>,
+    /// The user's hook that refused the start: its whole output under the message.
+    pub hook: Option<HookOutput>,
+}
+
+/// A hook's refusal on the sheet: "Output of your post-checkout hook", a sentence above it when the hook needs one,
+/// and the hook's whole output, paths under the home shortened.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetHookOutput")]
+pub struct HookOutput {
+    pub name: String,
+    pub label: String,
+    pub note: Option<String>,
+    pub output: String,
+}
+
+impl From<sheet::HookOutput> for HookOutput {
+    fn from(h: sheet::HookOutput) -> Self {
+        Self {
+            name: h.name,
+            label: h.label,
+            note: h.note,
+            output: h.output,
+        }
+    }
+}
+
+/// A project's git hook refused Approve & merge (the click or the automatic delivery), or a PR's commit message: "Your
+/// commit-msg hook refused the merge", the step, the refused message, the hook's output in the same box as a refused
+/// start's, and the way on (the bar's Edit message and retry, or Edit messages and retry).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetHookRefusal")]
+pub struct HookRefusal {
+    pub heading: String,
+    pub step: Option<String>,
+    pub hook: HookOutput,
+    /// The PR's commit message the commit-msg hook refused, above its output.
+    pub message: Option<RefusedMessage>,
+    pub way_on: String,
+}
+
+/// "The message it refused" and the message.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "SheetRefusedMessage")]
+pub struct RefusedMessage {
+    pub label: String,
+    pub text: String,
+}
+
+impl From<hook_refusals::HookRefusalView> for HookRefusal {
+    fn from(v: hook_refusals::HookRefusalView) -> Self {
+        Self {
+            heading: v.heading,
+            step: v.step,
+            hook: v.hook.into(),
+            message: v.message.map(|m| RefusedMessage {
+                label: m.label,
+                text: m.text,
+            }),
+            way_on: v.way_on,
+        }
+    }
 }
 
 /// *SHOP-32 · Validation failed 3 times*: the note box Answer the agent… opens (VAL-07).
@@ -356,9 +426,6 @@ pub struct View {
     pub base: String,
     pub signal: Option<Signal>,
     pub tokens: Option<Tokens>,
-    /// The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
-    /// round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
-    pub token_split: Option<String>,
     /// The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
     pub previous: Option<String>,
     pub next: Option<String>,
@@ -371,6 +438,9 @@ pub struct View {
     pub approve_opens_menu: bool,
     /// Why Auto-merge stopped, under the bar (AMG-03, AMG-04).
     pub stop_message: Option<String>,
+    /// A project's git hook refused one of Otaq's own git steps: which hook, the step, its whole output and the way
+    /// on, above the bar (whose primary button is that way on).
+    pub hook_refusal: Option<HookRefusal>,
     /// Validation failed N times: Answer the agent…'s note box.
     pub answer_agent: Option<AnswerAgentBox>,
     /// The first parent, for View parent.
@@ -379,6 +449,8 @@ pub struct View {
     /// What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
     pub ask_noyan: String,
     pub answer: Option<Answer>,
+    /// A permission prompt the agent (or its checker) waits at: the command, above Answer in terminal.
+    pub permission_prompt: Option<PermissionPrompt>,
     pub notice: Option<Notice>,
     pub conflict: Option<ConflictStrip>,
     pub start_problem: Option<StartProblem>,
@@ -390,16 +462,10 @@ pub struct View {
     pub mark_closed: Option<Confirm>,
     /// The compact running pill next to the tokens while the Run is up (*13 → Card & sheet-overview-header controls*).
     pub run: Option<RunPill>,
-    /// The sheet's header, details line and tabs (SHT-01, SHT-02).
+    /// The sheet's header and tabs (SHT-01, SHT-02).
     pub sheet: SheetFrame,
     /// The ticket's agent session runs.
     pub live_agent: bool,
-    /// The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
-    pub choices: Option<ChoicesView>,
-    /// The ticket's path (AGM-09): every stage with its agent and model.
-    pub path: Option<PathView>,
-    /// "Stages": the label over the choices and the path in Overview's right column.
-    pub stages_heading: &'static str,
     /// The agent Open agent… opens (a held session's, or the one whose model the tool refused).
     pub open_agent: Option<String>,
     /// "The build was set aside to save disk · Run or Shell brings it back", or "Bringing the build back…" (d0125):
@@ -455,13 +521,14 @@ pub struct Facts<'a> {
     /// comments (FLW-16).
     pub custom_flow: bool,
     /// It stands in an agent check its flow marks skippable (`otaq_core::flow::engine::user_may_move_past`): only
-    /// there do Move on anyway and Skip this check show.
+    /// there do Skip this check and Move on anyway after no result show. A check out of rounds offers Move on anyway
+    /// on every check.
     pub skippable_check: bool,
     /// Its project's name: the breadcrumb (SHT-01).
     pub project_name: &'a str,
     /// The Files tab's count (Q421): "Files 3"; `None` with no changes or before it started.
     pub files_count: Option<u32>,
-    /// The ticket's helpers (d0133): the header "Dev · 2 helpers working", Details and Session's list.
+    /// The ticket's helpers (d0133): the header "Dev · 2 helpers working" and Session's list.
     pub helpers: &'a [otaq_core::helpers::Helper],
 }
 
@@ -471,9 +538,59 @@ fn running_agent(sessions: &[SessionInfo]) -> bool {
         .any(|s| s.kind == SessionKind::Agent && s.is_running())
 }
 
+/// The callout of an agent whose tool stopped on an error (red, with why and what to do), on the tool of its latest
+/// agent session; `None` for any other ticket.
+fn stopped_callout(f: &Facts) -> Option<Callout> {
+    let error = otaq_core::signals::stopped_on_error(f.ticket)?;
+    let tool = f
+        .sessions
+        .iter()
+        .filter(|s| s.kind == SessionKind::Agent)
+        .max_by_key(|s| s.started_at)
+        .and_then(|s| s.tool)
+        .or_else(|| f.tools.connected.first().copied())
+        .unwrap_or(otaq_core::agent_tools::Tool::ALL[0]);
+    Some(otaq_view::view_models::tool_problems::stopped_callout(
+        tool, error, f.tools,
+    ))
+}
 
+/// The permission prompt the ticket waits at, named by the agent of the session that asks: the checker's for a
+/// checker's prompt, else the ticket's agent's ("Developer wants to run a command").
+fn permission_prompt_of(f: &Facts) -> Option<PermissionPrompt> {
+    // A session's prompt shown without changing the ticket's status shows as any prompt, named by that session's
+    // agent.
+    if let Some(waiting) = f.ticket.as_needs_you() {
+        let session = f.ticket.session_prompt().map(|p| p.session.as_str());
+        let agent = f
+            .sessions
+            .iter()
+            .find(|s| Some(s.id.as_str()) == session)
+            .and_then(|s| s.agent.as_ref())
+            .map(|a| a.name.as_str());
+        return otaq_view::view_models::permission_prompt::of(&waiting, agent);
+    }
+    let kind = if f.ticket.status == otaq_core::domain::Status::CheckerNeedsYou {
+        SessionKind::Validator
+    } else {
+        SessionKind::Agent
+    };
+    let agent = f
+        .sessions
+        .iter()
+        .filter(|s| s.kind == kind)
+        .max_by_key(|s| s.started_at)
+        .and_then(|s| s.agent.as_ref())
+        .map(|a| a.name.as_str());
+    otaq_view::view_models::permission_prompt::of(f.ticket, agent)
+}
+
+/// The box of the ticket's open question: an Asks you's, and one asked while the ticket waits in a check of the
+/// user's, which reads Asks you there and shows its box above the review's actions.
 fn answer_of(ticket: &Ticket) -> Option<Answer> {
-    if ticket.status != otaq_core::domain::Status::AsksYou || ticket.flags.your_turn {
+    let asks =
+        ticket.status == otaq_core::domain::Status::AsksYou || ticket.question_in_place().is_some();
+    if !asks || ticket.flags.your_turn {
         return None;
     }
     question_bar(ticket.question.as_ref()?)
@@ -533,6 +650,8 @@ pub fn view_of(f: &Facts) -> View {
     let in_review = otaq_view::view_models::files_tab::waits_for_you(ticket);
     // Run shows once the project has a run command (or a Run is up).
     let runnable = session_tab::runnable(f.run);
+    let hook_refusal = otaq_view::view_models::card::hook_refusal(ticket)
+        .map(|r| HookRefusal::from(hook_refusals::view(r, ticket.base.branch())));
     let buttons: Vec<Button> = actions::all_buttons_in(ticket, f.custom_flow, f.skippable_check)
         .into_iter()
         .filter(|(a, _)| a.arrives_with().is_none() || *a == Action::Run)
@@ -593,6 +712,7 @@ pub fn view_of(f: &Facts) -> View {
         hide_log: "Hide the setup log",
         retry_heading: "RETRY START DOES",
         retry_does: sheet::RETRY_START_DOES.to_vec(),
+        hook: p.hook.map(HookOutput::from),
     });
     let mark_closed = (ticket.status == otaq_core::domain::Status::PrOpen)
         .then_some(ticket.flags.pr_number)
@@ -612,9 +732,18 @@ pub fn view_of(f: &Facts) -> View {
         priority_hint: "Priority".to_owned(),
         priority_menu: priority::menu_items(ticket.priority),
         pill: {
-            // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (the
-            // terminal's strip says "your turn" there).
-            let mut pill = PillView::of(ticket.status);
+            // One badge on every tab: the ticket's own status, even while its terminal has the keyboard (being there
+            // holds back only the alert), as its card. A Delivery stop that kept it in Review, or a session's prompt
+            // shown without changing its status, reads as its card does, and so does one done without a merge.
+            let mut pill = PillView::of_ticket(ticket);
+            // Its tool stopped on an error: red with why, as its card ("Stopped · login expired").
+            if let Some(error) = otaq_core::signals::stopped_on_error(ticket) {
+                pill = PillView {
+                    palette: otaq_view::theme::Palette::Error,
+                    icon: IconName::CircleX,
+                    label: otaq_view::view_models::card_line::stopped_line(error),
+                };
+            }
             if let Some(label) = validation_texts::pill_label(ticket, f.custom_flow) {
                 pill.label = label;
             }
@@ -640,10 +769,6 @@ pub fn view_of(f: &Facts) -> View {
         base: ticket.base.branch().to_owned(),
         signal,
         tokens,
-        token_split: match f.agents {
-            Some(agents) => stage_choices::token_line(agents, f.tools),
-            None => f.usage.and_then(|u| validation_texts::token_split(ticket, u)),
-        },
         previous: sheet::neighbour(f.tickets, &ticket.key, -1).map(|k| k.to_string()),
         next: sheet::neighbour(f.tickets, &ticket.key, 1).map(|k| k.to_string()),
         close_hint: Hint::new("Close", KeyAction::CloseSheet, &f.keys),
@@ -653,7 +778,9 @@ pub fn view_of(f: &Facts) -> View {
             .any(|b| b.action == Action::Approve)
             .then_some("Approve choices"),
         approve_opens_menu: actions::approve_opens_menu(f.decisions),
-        stop_message: validation_texts::stop_message(ticket),
+        // A hook's refusal says it all in its own callout.
+        stop_message: validation_texts::stop_message(ticket).filter(|_| hook_refusal.is_none()),
+        hook_refusal,
         answer_agent: validation_texts::answer_agent_text(ticket, f.rounds).map(|t| AnswerAgentBox {
             heading: t.heading,
             placeholder: t.placeholder,
@@ -666,19 +793,19 @@ pub fn view_of(f: &Facts) -> View {
         menu: actions::menu(ticket, has_branch, f.skippable_check),
         ask_noyan: actions::ask_noyan_draft(&ticket.key),
         answer: answer_of(ticket),
+        permission_prompt: permission_prompt_of(f),
         notice: notice_of(ticket, f.tickets),
-        conflict: f
-            .conflict
-            .filter(|_| ticket.flags.conflicts_with.is_some())
-            .map(|c| ConflictStrip {
-                line: approve::conflict_line(c),
-            }),
+        conflict: conflict_strip(ticket, f.conflict),
         start_problem,
         refusal,
-        holds: f
-            .agents
-            .map(|t| stage_choices::callouts(t, f.tools))
-            .unwrap_or_default(),
+        holds: stopped_callout(f)
+            .into_iter()
+            .chain(
+                f.agents
+                    .map(|t| stage_choices::callouts(t, f.tools))
+                    .unwrap_or_default(),
+            )
+            .collect(),
         mark_closed,
         run: otaq_view::view_models::run::header_pill(f.run).map(|(port, url)| RunPill {
             port: format!(":{port}"),
@@ -690,9 +817,6 @@ pub fn view_of(f: &Facts) -> View {
         }),
         sheet: sheet_of(f),
         live_agent: live,
-        choices: f.agents.and_then(stage_choices::sheet_choices),
-        path: f.agents.and_then(|t| stage_choices::path(t, f.tools)),
-        stages_heading: stage_choices::STAGES_HEADING,
         open_agent: f.agents.and_then(|t| open_agent(ticket, t)),
         build_aside: build_aside::line(ticket),
     }
@@ -783,15 +907,6 @@ fn sheet_of(f: &Facts) -> SheetFrame {
             helpers: f.helpers,
             usage: f.usage,
         }),
-        details: sheet::details(&DetailFacts {
-            ticket,
-            agents: f.agents,
-            tools: f.tools,
-            tickets: f.tickets,
-            now: f.now,
-            helpers: f.helpers,
-            usage: f.usage,
-        }),
         steps: sheet::steps(ticket, f.agents),
         tabs,
         opens_on: sheet::opens_on(ticket),
@@ -816,8 +931,15 @@ pub async fn move_menu(app: &App, params: Params) -> Result<Vec<MenuItem>, Reque
         },
     )
     .await?;
-    let flow = super::board::flow(app, key.project.as_str()).await;
-    Ok(sheet::move_menu(&Columns::of(&flow), &answer))
+    let Some(ticket) = ticket(app, &params.key).await? else {
+        return Ok(Vec::new());
+    };
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, key.project.as_str()),
+        super::board::agents(app, key.project.as_str())
+    );
+    let columns = Columns::of(&flow).knowing(agents.as_ref());
+    Ok(sheet::move_menu(&columns, &ticket, &answer))
 }
 
 async fn ticket(app: &App, key: &str) -> Result<Option<Ticket>, RequestError> {
@@ -921,6 +1043,33 @@ fn files_count(app: &App, ticket: &Ticket, opened: bool) -> Option<u32> {
     shown
 }
 
+/// The conflict strip on Overview: a conflict says what conflicts and what moved, a failed merge check says so in its
+/// own words. Once it went back to its agent (it counts in a row), it also says nothing was merged and the count.
+fn conflict_strip(ticket: &Ticket, conflict: Option<&Conflict>) -> Option<ConflictStrip> {
+    let check_failed = ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Failed);
+    let target = conflict.map_or_else(|| ticket.base.branch().to_owned(), |c| c.target.clone());
+    let (line, moved) = if check_failed {
+        (format!("Merge check failed on {target}"), None)
+    } else {
+        let c = conflict.filter(|_| ticket.flags.conflicts_with.is_some())?;
+        (approve::conflict_line(c), approve::moved_line(c))
+    };
+    let went_back = ticket.auto_merge_conflicts > 0
+        && !matches!(
+            ticket.status,
+            otaq_core::domain::Status::WaitingForYou
+                | otaq_core::domain::Status::ToDeliver
+                | otaq_core::domain::Status::PrOpen
+        );
+    Some(ConflictStrip {
+        line,
+        moved,
+        outcome: went_back.then(|| approve::nothing_merged_line(&ticket.key, &target)),
+        count: went_back.then(|| approve::in_a_row(ticket.auto_merge_conflicts)),
+        count_hint: approve::IN_A_ROW_HINT,
+    })
+}
+
 pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     let gone = format!("{} is gone.", params.key);
     let Some(ticket) = ticket(app, &params.key).await? else {
@@ -928,7 +1077,9 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Load, RequestError> {
     };
     let all = tickets(app, &ticket.key.project.to_string()).await?;
     let sessions = sessions(app, &params.key).await?;
-    let conflict = if ticket.flags.conflicts_with.is_some() {
+    let conflict = if ticket.flags.conflicts_with.is_some()
+        || ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Failed)
+    {
         match app
             .service
             .send(Request::TicketConflict(KeyParams {
@@ -1092,6 +1243,34 @@ fn toast_error(app: &App, title: String, error: &RequestError) {
     ));
 }
 
+/// What Resume says when the agent's terminal has a line the user typed: it is never cleared without asking.
+pub const RESUME_UNSENT: &str =
+    "Its terminal has a line you typed. Send or clear it there, then Resume again.";
+
+/// Resume on an agent whose tool stopped on an error: "continue" typed into its session as the user's click, so it
+/// goes on where it stopped (resumed first when a restart ended it meanwhile).
+async fn resume_after_error(app: &App, key: &str) -> Result<(), RequestError> {
+    let failed = format!("{key} can\u{2019}t be resumed");
+    let choice = Choice::Other(otaq_core::usage::limit::CONTINUE.to_owned());
+    match app
+        .service
+        .send(answer::request(&key_of(key)?, &choice, false))
+        .await
+    {
+        Ok(Reply::Delivery(Delivery::Sent { .. })) => Ok(()),
+        Ok(Reply::Delivery(_)) => {
+            let e = RequestError::plain(RESUME_UNSENT);
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+        Ok(other) => Err(unexpected("needs_you.answer", &other)),
+        Err(e) => {
+            toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
 /// What `sheet.action` takes: a button that talks to the service.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "SheetActionParams")]
@@ -1104,6 +1283,13 @@ pub struct ActionParams {
 /// rejects, so the button stops spinning). The other buttons open a tab or a dialog on the page.
 pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError> {
     let key = params.key;
+    if params.action == Action::Resume
+        && ticket(app, &key)
+            .await?
+            .is_some_and(|t| otaq_core::signals::stopped_on_error(&t).is_some())
+    {
+        return resume_after_error(app, &key).await;
+    }
     let k = KeyParams { key: key.clone() };
     let (request, failed) = match params.action {
         Action::Start => (
@@ -1155,6 +1341,7 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
             format!("{key} can\u{2019}t be moved to Review"),
         ),
         Action::StopMergeCheck => return stop_merge_check(app, &key).await,
+        Action::StopGitStep => return stop_git_step(app, &key).await,
         Action::OpenPrInBrowser => {
             let url = ticket(app, &key)
                 .await?
@@ -1182,6 +1369,25 @@ pub async fn action(app: &App, params: ActionParams) -> Result<(), RequestError>
         Ok(_) => Ok(()),
         Err(e) => {
             toast_error(app, failed, &e);
+            Err(e)
+        }
+    }
+}
+
+/// Stop on a running git step of Approve & merge or a start ("Merging · running your pre-commit hook · 3 min"): on a
+/// connection of its own, since the merge or start it stops may be waiting on the shared one. The merge answers that
+/// nothing was merged, a start becomes Start failed; a step that already ended is a toast.
+async fn stop_git_step(app: &App, key: &str) -> Result<(), RequestError> {
+    match app
+        .service
+        .send_alone(Request::TicketGitStop(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(_) => Ok(()),
+        Err(e) => {
+            toast_error(app, format!("{key}\u{2019}s git step can\u{2019}t be stopped"), &e);
             Err(e)
         }
     }
@@ -1451,6 +1657,15 @@ pub struct Unsent {
 
 impl Unsent {
     pub(super) fn of(prompt: &UnsentPrompt) -> Self {
+        // Over a permission prompt: it says so, and only Keep it and cancel (a clear would answer it).
+        if let Some(note) = prompt.note().filter(|_| prompt.prompt.is_some()) {
+            return Self {
+                title: prompt.title(),
+                body: note,
+                clear: None,
+                cancel: "Keep it and cancel",
+            };
+        }
         Self::asking(
             prompt.title(),
             format!("{} {}.", prompt.explanation(), prompt.sending),
@@ -1488,13 +1703,17 @@ pub enum Sent {
 }
 
 /// What `sheet.answer` takes: the open question, the picked number (Other… is the last), its text, and whether
-/// the terminal's typed line is cleared first.
+/// the terminal's typed line is cleared first. A question that takes several answers sends every ticked number in
+/// `picks` instead.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "SheetAnswerParams")]
 pub struct AnswerParams {
     pub key: String,
     pub question: String,
     pub pick: u32,
+    #[serde(default)]
+    #[ts(optional)]
+    pub picks: Option<Vec<u32>>,
     #[serde(default)]
     pub other: String,
     #[serde(default)]
@@ -1505,7 +1724,11 @@ pub struct AnswerParams {
 /// `None` when there is nothing to send.
 pub fn choice_of(ticket: &Ticket, params: &AnswerParams) -> Option<Choice> {
     let question = ticket.question.as_ref().filter(|q| q.id == params.question)?;
-    answer_options::choice_for(question, Some(params.pick), &params.other)
+    let picks = match params.picks.as_deref() {
+        Some(several) if !several.is_empty() => several,
+        _ => std::slice::from_ref(&params.pick),
+    };
+    answer_options::choice_for(question, picks, &params.other)
 }
 
 /// Send answer (ATT-12): typed into the session as the options word it.
@@ -1577,6 +1800,7 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
             return action(app, panel_action(Action::MarkMerged)).await.map(|()| Sent::Done);
         }
         CardActionKind::StopMergeCheck => return stop_merge_check(app, &params.key).await.map(|()| Sent::Done),
+        CardActionKind::StopGitStep => return stop_git_step(app, &params.key).await.map(|()| Sent::Done),
         CardActionKind::DeliverNow => (
             strip::deliver_now_request(
                 &key,
@@ -1786,7 +2010,7 @@ pub async fn remove_dependency(app: &App, params: ParentParams) -> Result<(), Re
 }
 
 /// The answer options with notes for the Gallery (`gallery.option_notes`, ATT-17): the sheets and the cards of
-/// NOTE-1's and NOTE-11's questions.
+/// NOTE-1's and NOTE-11's questions, and NOTE-12's long question with context.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "OptionNotesGallery")]
 pub struct NotesGallery {
@@ -1803,10 +2027,11 @@ pub fn notes_gallery() -> NotesGallery {
 
     static TOOLS: std::sync::OnceLock<Tools> = std::sync::OnceLock::new();
     let tools = TOOLS.get_or_init(|| Tools::one(None));
-    let [asks, passed] = note_samples();
+    let [asks, passed, long] = note_samples();
     let tickets: Vec<Ticket> = [
         ("NOTE-1", "Add export", asks),
         ("NOTE-11", "Invoice export", passed),
+        ("NOTE-12", "Security review stage", long),
     ]
     .into_iter()
     .map(|(key, title, question)| {
@@ -1850,7 +2075,7 @@ pub fn notes_gallery() -> NotesGallery {
     }
 }
 
-/// The sheet's header and details line for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
+/// The sheet's header for the gallery (T-0464; `s25-03`, `s25-09`, `s25-11`), with two tools
 /// connected: SHOP-22 needing you in Dev on Rust developer (Codex · gpt-5.5, 3 minutes, 64k tokens), SHOP-18 in your
 /// check for 12 minutes, SHOP-24 working, and SHOP-41 in Backlog with Product spec's agent to pick.
 pub fn sheet_gallery() -> Vec<View> {
@@ -1944,6 +2169,9 @@ pub fn sheet_gallery() -> Vec<View> {
 }
 
 #[cfg(test)]
+mod login_expired_tests;
+
+#[cfg(test)]
 mod tests {
     use otaq_core::board::questions::HumanQuestion;
     use otaq_core::board::tickets::NewTicketInput;
@@ -1977,7 +2205,7 @@ mod tests {
             (Some("Clear it and send"), "Cancel")
         );
         assert!(both.body.ends_with("The address-review skill."), "{}", both.body);
-        let only = Unsent::of(&prompt.unclearable_by(Some("Codex".into())));
+        let only = Unsent::of(&prompt.clone().unclearable_by(Some("Codex".into())));
         assert_eq!((only.clear, only.cancel), (None, "Keep it and cancel"));
         assert_eq!(
             only.body,
@@ -1985,6 +2213,14 @@ mod tests {
         );
         let asking = Unsent::asking("Noyan".into(), "…".into(), Some("Copilot"));
         assert_eq!(asking.clear, None);
+        // Over a permission prompt: it names the prompt, never "unsent text", and only Keep it and cancel.
+        let over = Unsent::of(&prompt.over_prompt(Some("Run command: git push origin main".into())));
+        assert_eq!(
+            over.title,
+            "A permission prompt is waiting in SHOP-18\u{2019}s terminal"
+        );
+        assert!(over.body.contains("`git push origin main`"), "{}", over.body);
+        assert_eq!((over.clear, over.cancel), (None, "Keep it and cancel"));
     }
 
     fn agent(state: SessionState) -> SessionInfo {
@@ -2061,12 +2297,96 @@ mod tests {
         assert_eq!((asks[2], asks[4]), (None, None));
         assert!((250..=320).contains(&asks[3].unwrap()), "{asks:?}");
         assert_eq!(notes(&g.sheets[1]).iter().flatten().count(), 2);
+        // The long one: its first line asks, the rest is its context.
+        let long = g.sheets[2].answer.as_ref().unwrap();
+        assert_eq!(long.line, "Which agent should run the new Security review stage?");
+        assert!(long.context.as_ref().is_some_and(|c| c.contains("- **Strong** (Claude Code)")));
         // The answer options left the card for the sheet (BRD-03, T-0460): its one action is Answer.
-        assert_eq!(g.cards[0].action.as_ref().map(|a| a.label), Some("Answer"));
+        assert_eq!(g.cards[0].action.as_ref().map(|a| a.label.as_ref()), Some("Answer"));
     }
 
     fn labels(view: &View) -> Vec<&str> {
         view.buttons.iter().map(|b| b.label.as_str()).collect()
+    }
+
+    /// A session that ended on its tool's error: Overview says why in red and what to do next (sign in, then
+    /// Resume), and the header's badge names it as the card does.
+    #[test]
+    fn a_tool_error_says_the_next_step_on_overview() {
+        let mut t = fixture("SHOP-1", "Tidy the README", Status::Idle);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some(otaq_core::signals::tool_error_text(
+                "authentication_failed",
+                Some("Login expired \u{b7} Please run /login"),
+            )),
+            ..Default::default()
+        });
+        let sessions = [agent(SessionState::Running)];
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), &sessions));
+        assert_eq!(view.pill.label, "Stopped \u{b7} login expired");
+        assert_eq!(view.pill.palette, otaq_view::theme::Palette::Error);
+        let callout = &view.holds[0];
+        assert_eq!(callout.tone, otaq_view::view_models::tool_problems::Tone::Error);
+        assert!(callout.heading.ends_with("stopped \u{b7} login expired"));
+        assert!(callout.text.as_deref().unwrap().contains(", then Resume: the agent goes on"));
+        assert_eq!(labels(&view), ["Resume", "Answer in terminal"]);
+
+        // A plain Idle keeps its turquoise answer bar and no callout.
+        let idle = fixture("SHOP-1", "Tidy the README", Status::Idle);
+        let view = view_of(&facts(&idle, std::slice::from_ref(&idle), &sessions));
+        assert!(view.holds.is_empty());
+        assert_eq!(labels(&view), ["Answer in terminal"]);
+    }
+
+    /// A ticket at a permission prompt shows the command on Overview, named by its agent, with Answer in terminal
+    /// still its button (Otaq doesn't answer the prompt); a checker's prompt names the checker.
+    #[test]
+    fn a_permission_prompt_shows_its_command_above_answer_in_terminal() {
+        use otaq_core::session::SessionAgent;
+        let named = |kind: SessionKind, name: &str| {
+            let mut s = agent(SessionState::Running);
+            s.kind = kind;
+            s.agent = Some(SessionAgent {
+                id: name.to_lowercase(),
+                name: name.into(),
+            });
+            s
+        };
+        let mut t = fixture("SHOP-7", "Check total for an empty list", Status::NeedsYou);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("Run command: npm install".into()),
+            ..Default::default()
+        });
+        let developer = named(SessionKind::Agent, "Developer");
+        let view = view_of(&facts(&t, std::slice::from_ref(&t), std::slice::from_ref(&developer)));
+        let prompt = view.permission_prompt.as_ref().unwrap();
+        assert_eq!(prompt.heading, "Developer wants to run a command");
+        assert_eq!((prompt.text.as_str(), prompt.command), ("npm install", true));
+        assert!(view.answer.is_none());
+        assert_eq!(labels(&view), ["Answer in terminal"]);
+
+        // The checker's prompt names the checker, not the Dev agent; one with no command shows the tool's words.
+        let mut checker_at_prompt = t.clone();
+        checker_at_prompt.status = Status::CheckerNeedsYou;
+        checker_at_prompt.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("Claude needs your permission to use Bash".into()),
+            ..Default::default()
+        });
+        let sessions = [developer, named(SessionKind::Validator, "Checker")];
+        let view = view_of(&facts(
+            &checker_at_prompt,
+            std::slice::from_ref(&checker_at_prompt),
+            &sessions,
+        ));
+        let prompt = view.permission_prompt.unwrap();
+        assert_eq!(prompt.heading, "Checker wants your permission");
+        assert_eq!(prompt.text, "Claude needs your permission to use Bash");
+        assert!(!prompt.command);
+
+        // A working ticket has none.
+        let working = fixture("SHOP-7", "Check total for an empty list", Status::Working);
+        let view = view_of(&facts(&working, std::slice::from_ref(&working), &[]));
+        assert!(view.permission_prompt.is_none());
     }
 
     /// A check held before its checker started says it waits ("Validate waits for Codex checker", as Change agent…
@@ -2161,37 +2481,12 @@ mod tests {
         assert_eq!((off.sheet.full_page.keys, off.sheet.back.keys), (None, None));
     }
 
-    /// The gallery's sheets (T-0464): SHOP-22's details as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24
-    /// working, SHOP-41's Product spec agent to pick.
+    /// The gallery's sheets (T-0464): SHOP-22 as drawn in `s25-03`, SHOP-18 waiting for you, SHOP-24 working.
     #[test]
-    fn the_sheet_gallery_draws_the_frames_details() {
+    fn the_sheet_gallery_draws_the_frames() {
         let views = sheet_gallery();
-        let line = |v: &View| {
-            v.sheet
-                .details
-                .iter()
-                .map(|d| format!("{} {}", d.label, d.value))
-                .collect::<Vec<_>>()
-        };
-        assert_eq!(
-            line(&views[0]),
-            [
-                "Assignee Rust developer".to_owned(),
-                "Model Codex \u{b7} gpt-5.5".to_owned(),
-                "Working 3 min \u{b7} 64k tokens".to_owned(),
-                "Priority P2".to_owned(),
-                format!("Branch {}", otaq_core::naming::branch("SHOP-22")),
-            ]
-        );
-        assert_eq!(views[0].sheet.details[0].avatar.as_ref().map(|a| a.letters.as_str()), Some("CX"));
-        // Your check: "In charge · You" and no model (`s30-02`).
-        assert_eq!(&line(&views[1])[..2], ["In charge You", "Working waiting for you \u{b7} 12 min"]);
         let crumbs: Vec<&str> = views[2].sheet.crumbs.iter().map(|c| c.text.as_str()).collect();
         assert_eq!(crumbs, ["shop-web", "SHOP-24"]);
-        assert!(matches!(
-            views[3].sheet.details[0].change,
-            Some(sheet::DetailChange::Choice { .. })
-        ));
         assert_eq!(views[0].sheet.steps.len(), 5, "Delivery is no step");
     }
 
@@ -2273,7 +2568,8 @@ mod tests {
             id: "q1".into(),
             text: "Which email provider?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -2288,6 +2584,7 @@ mod tests {
             key: "SHOP-21".into(),
             question: "q1".into(),
             pick,
+            picks: None,
             other: other.into(),
             clear: false,
         };
@@ -2309,6 +2606,92 @@ mod tests {
         assert_eq!(view.answer, None, "focused in its terminal: answered there");
     }
 
+    /// Re-test 8 (NEW-b2): an agent's question on a ticket waiting in Review shows its box on the Overview, the pill
+    /// reads Asks you, and the Overview keeps what it has in Review (Approve and Send back are in the review bar).
+    #[test]
+    fn a_question_in_review_shows_its_box() {
+        let mut review = fixture("SHOP-13", "Hooks", Status::WaitingForYou);
+        let calm = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        assert_eq!(calm.answer, None);
+        review.question = Some(HumanQuestion {
+            id: "q1".into(),
+            text: "Should this show?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        let view = view_of(&facts(&review, std::slice::from_ref(&review), &[]));
+        let answer = view.answer.as_ref().expect("the question's box");
+        assert_eq!(answer.rows.len(), 3);
+        assert_eq!(view.pill.label, "Asks you");
+        assert_eq!(labels(&view), labels(&calm), "the Overview's actions stay");
+        let pick = AnswerParams {
+            key: "SHOP-13".into(),
+            question: "q1".into(),
+            pick: 2,
+            picks: None,
+            other: String::new(),
+            clear: false,
+        };
+        assert_eq!(choice_of(&review, &pick), Some(Choice::Option(2)));
+    }
+
+    /// A question that takes several answers: the box draws checkboxes with the recommended ones ticked, and
+    /// `picks` sends every ticked row; one `pick` still answers a question that takes one.
+    #[test]
+    fn several_answers_go_as_picks() {
+        let mut asks = fixture("SHOP-21", "Order confirmation email", Status::AsksYou);
+        asks.question = Some(HumanQuestion {
+            id: "q1".into(),
+            text: "Which email providers?".into(),
+            options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
+            recommended: vec![1, 3],
+            multiple: true,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        });
+        let view = view_of(&facts(&asks, std::slice::from_ref(&asks), &[]));
+        let answer = view.answer.unwrap();
+        assert!(answer.multiple);
+        let ticked: Vec<u32> = answer
+            .rows
+            .iter()
+            .filter(|r| r.picked)
+            .map(|r| r.number)
+            .collect();
+        assert_eq!(ticked, [1, 3]);
+        let params = |picks: Option<Vec<u32>>, other: &str| AnswerParams {
+            key: "SHOP-21".into(),
+            question: "q1".into(),
+            pick: 1,
+            picks,
+            other: other.into(),
+            clear: false,
+        };
+        assert_eq!(
+            choice_of(&asks, &params(Some(vec![1, 2, 4]), "Mailgun")),
+            Some(Choice::Several {
+                options: vec![1, 2],
+                other: Some("Mailgun".into())
+            })
+        );
+        assert_eq!(
+            choice_of(&asks, &params(None, "")),
+            Some(Choice::Several {
+                options: vec![1],
+                other: None
+            })
+        );
+        asks.question.as_mut().unwrap().multiple = false;
+        asks.question.as_mut().unwrap().recommended = vec![1];
+        assert_eq!(choice_of(&asks, &params(None, "")), Some(Choice::Option(1)));
+        assert_eq!(choice_of(&asks, &params(Some(vec![1, 2]), "")), None);
+    }
+
     #[test]
     fn conflicts_show_in_review_with_the_fix() {
         let mut review = fixture("SHOP-18", "Checkout API", Status::WaitingForYou);
@@ -2316,6 +2699,7 @@ mod tests {
             target: "main".into(),
             files: vec!["a.ts".into(), "b.ts".into()],
             reason: otaq_core::board::conflicts::ConflictReason::Merge,
+            moved: Vec::new(),
         };
         let all = vec![review.clone()];
         let with = |t: &Ticket| {
@@ -2328,6 +2712,68 @@ mod tests {
         review.flags.conflicts_with = Some("main".into());
         let strip = with(&review).conflict.unwrap();
         assert_eq!(strip.line, "Conflicts with main \u{b7} 2 files (a.ts, b.ts)");
+        assert_eq!(strip.outcome, None, "still waiting in Review: nothing went back");
+        assert_eq!(strip.count, None);
+    }
+
+    /// A failed merge check and a conflict each show their own words on the badge and on Overview.
+    #[test]
+    fn a_failed_merge_check_and_a_conflict_read_as_themselves() {
+        use otaq_core::board::conflicts::{ConflictReason, Moved};
+        // The conflict the test merge found after SHOP-6 merged, back with SHOP-5's agent, the first in a row.
+        let mut shop5 = fixture("SHOP-5", "Fix the word", Status::MergeConflictFixing);
+        shop5.flags.conflicts_with = Some("main".into());
+        shop5.flags.conflict_in_review = true;
+        shop5.flags.conflict_files = vec!["README.md".into()];
+        shop5.auto_merge_conflicts = 1;
+        let conflict = Conflict {
+            target: "main".into(),
+            files: vec!["README.md".into()],
+            reason: ConflictReason::TestMerge,
+            moved: vec![Moved {
+                by: "SHOP-6".into(),
+                files: vec!["README.md".into()],
+            }],
+        };
+        let all = vec![shop5.clone()];
+        let view = view_of(&Facts {
+            conflict: Some(&conflict),
+            ..facts(&shop5, &all, &[])
+        });
+        assert_eq!(view.pill.label, "Conflicts with main \u{b7} fixing");
+        let strip = view.conflict.unwrap();
+        assert_eq!(strip.line, "Conflicts with main \u{b7} 1 file (README.md)");
+        assert_eq!(strip.moved.as_deref(), Some("SHOP-6 changed README.md"));
+        assert_eq!(
+            strip.outcome.as_deref(),
+            Some("Nothing was merged into main. SHOP-5 returns to Review when it\u{2019}s fixed.")
+        );
+        assert_eq!(strip.count.as_deref(), Some("1 of 3"));
+
+        // The merge check failed on the result with the target merged in: no conflict, its own words.
+        let mut note1 = fixture("NOTE-1", "Fix the typo", Status::MergeConflictFixing);
+        note1.flags.merge_check = Some(otaq_core::domain::MergeCheckState::Failed);
+        note1.auto_merge_conflicts = 2;
+        let failed = Conflict {
+            target: "main".into(),
+            files: Vec::new(),
+            reason: ConflictReason::MergeCheck,
+            moved: Vec::new(),
+        };
+        let all = vec![note1.clone()];
+        let view = view_of(&Facts {
+            conflict: Some(&failed),
+            ..facts(&note1, &all, &[])
+        });
+        assert_eq!(view.pill.label, "Merge check failed \u{b7} fixing");
+        let strip = view.conflict.unwrap();
+        assert_eq!(strip.line, "Merge check failed on main");
+        assert_eq!(strip.moved, None);
+        assert_eq!(
+            strip.outcome.as_deref(),
+            Some("Nothing was merged into main. NOTE-1 returns to Review when it\u{2019}s fixed.")
+        );
+        assert_eq!(strip.count.as_deref(), Some("2 of 3"));
     }
 
     #[test]
@@ -2458,10 +2904,6 @@ mod tests {
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
         assert_eq!(view.pill.label, "Checking \u{b7} round 1 of 3");
-        assert_eq!(
-            view.token_split.as_deref(),
-            Some("agent 58k \u{b7} validation 9k (1 round)")
-        );
         assert_eq!(labels(&view), ["Open terminal \u{b7} Checker"]);
         assert_eq!(view.menu[0].label, "Stop this check");
         assert_eq!((view.answer_agent, view.approve_more), (None, None));
@@ -2495,16 +2937,15 @@ mod tests {
         failed.validation_round = 3;
         let view = view_of(&facts(&failed, std::slice::from_ref(&failed), &[]));
         assert_eq!(view.pill.label, "Check failed 3 times");
-        // Validate not skippable (the default flow): no Move on anyway.
-        assert_eq!(labels(&view), ["Give it another round", "Answer the agent\u{2026}"]);
+        // A check out of rounds is sent on whether or not the flow marks it skippable (the default flow's Validate
+        // isn't).
+        let ways_on = ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"];
+        assert_eq!(labels(&view), ways_on);
         let view = view_of(&Facts {
             skippable_check: true,
             ..facts(&failed, std::slice::from_ref(&failed), &[])
         });
-        assert_eq!(
-            labels(&view),
-            ["Move on anyway", "Give it another round", "Answer the agent\u{2026}"]
-        );
+        assert_eq!(labels(&view), ways_on);
         assert!(view.answer_agent.unwrap().footer.ends_with("(3 new rounds)."));
 
         let mut stopped = fixture("SHOP-42", "Wishlist page", Status::DeliveryStopped);
@@ -2518,6 +2959,21 @@ mod tests {
         assert_eq!(
             view.stop_message.as_deref(),
             Some("shop-web has uncommitted changes on main. Clean up and retry.")
+        );
+        // A delivery push the remote doesn't have: the ticket stays in Review, where Retry push pushes again (Send
+        // back is the review bar's).
+        stopped.status = Status::WaitingForYou;
+        stopped.auto_merge_stop = Some(otaq_core::domain::AutoMergeStop::PushNotLanded);
+        stopped.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some("The branch isn\u{2019}t on the remote as expected".into()),
+            ..Default::default()
+        });
+        let view = view_of(&facts(&stopped, std::slice::from_ref(&stopped), &[]));
+        assert_eq!(labels(&view), ["Retry push"]);
+        assert_eq!(view.pill.label, "Delivery stopped");
+        assert_eq!(
+            view.stop_message.as_deref(),
+            Some("The branch isn\u{2019}t on the remote as expected.")
         );
 
         // To deliver: Approve with its ▾ (in your check they are the review bar's).
@@ -2553,10 +3009,9 @@ mod tests {
         assert!(!view.refusal.unwrap().error, "turquoise, not red");
     }
 
-    /// AGM-09, AGM-03 (`s05-36`, `s03-54`): the sheet's Choices and Path mid-flow; a held session's callout with Open
-    /// agent…, which opens the held agent.
+    /// AGM-03 (`s03-54`): no callout mid-flow; a held session's callout with Open agent…, which opens the held agent.
     #[test]
-    fn the_panel_shows_the_choices_the_path_and_the_holds() {
+    fn the_panel_shows_the_holds() {
         use otaq_core::agent_tools::Tool;
         use otaq_core::agents::{AgentHold, HoldReason, SessionRole};
         use otaq_view::view_models::stage_choices::fixtures::{shop_29, tools};
@@ -2568,10 +3023,6 @@ mod tests {
             tools: &tools,
             ..facts(&t, std::slice::from_ref(&t), &[])
         });
-        let choices = view.choices.unwrap();
-        assert_eq!(choices.heading, "Choices");
-        assert_eq!(choices.set_by.as_deref(), Some("set by Noyan"));
-        assert_eq!(view.path.unwrap().rows[1].detail, "Rust developer \u{b7} working");
         assert!(view.holds.is_empty());
         assert_eq!(view.open_agent, None);
         let mut held = shop_29();
@@ -2652,7 +3103,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -2761,8 +3211,7 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    /// d0133 (`s30-03`): a ticket whose build stage split its work names its agent "In charge", counts its pieces in
-    /// Details and shows Session as a list (the agent in charge, then a row per piece); without helpers, as today.
+    /// d0133 (`s30-03`): a ticket whose build stage split its work shows Session as a list (the agent in charge, then a row per piece); without helpers, as today.
     #[test]
     fn a_ticket_with_helpers_lists_its_sessions() {
         use otaq_core::helpers::HelperStatus;
@@ -2787,15 +3236,6 @@ mod tests {
             helpers: &helpers,
             ..facts(&t, &all, &sessions)
         });
-        let details: Vec<(&str, &str)> = view
-            .sheet
-            .details
-            .iter()
-            .map(|d| (d.label, d.value.as_str()))
-            .collect();
-        // The agent's name comes from `ticket.agents` (none here): the label is what changes.
-        assert_eq!(details[0].0, "In charge", "{details:?}");
-        assert!(details.contains(&("Pieces", "1 of 4 merged")), "{details:?}");
         let session_tab = view
             .sheet
             .tabs
@@ -2809,7 +3249,6 @@ mod tests {
         assert_eq!(list.helpers.len(), 4);
 
         let alone = view_of(&facts(&t, &all, &sessions));
-        assert!(alone.sheet.details.iter().any(|d| d.label == "Assignee"));
         assert!(alone.sheet.tabs.iter().all(|t| t.list.is_none()));
     }
 }

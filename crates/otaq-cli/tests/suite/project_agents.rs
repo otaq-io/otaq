@@ -229,6 +229,6 @@ async fn a_project_agent_primes_creates_and_asks_the_user() {
         .question
         .unwrap();
     assert_eq!(question.options, ["Yes", "No"]);
-    assert_eq!(question.recommended, Some(2));
+    assert_eq!(question.recommended, [2]);
     w.stop().await;
 }

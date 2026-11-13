@@ -11,7 +11,7 @@ export type FilesViewPicker = { placeholder: string,
  */
 sections: Array<FilesViewPickerSection>, 
 /**
- * "No worktree yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its worktree when it reaches
+ * "No copy yet: SHOP-12, SHOP-44 (Product spec) … and 3 in Backlog. A ticket gets its copy when it reaches
  * Dev."
  */
 no_worktree: string | null, };

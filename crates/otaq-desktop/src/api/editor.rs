@@ -1151,7 +1151,6 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }
@@ -1330,7 +1329,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1556,7 +1554,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1672,7 +1669,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -1702,19 +1698,6 @@ mod tests {
         let key = saved["key"].as_str().unwrap().to_owned();
         let edit = json!({ "mode": "edit", "key": key });
         assert_ne!(table(&h.app, "editor.open", edit).await.unwrap()["choices"], Value::Null);
-        let load = table(&h.app, "sheet.view", json!({ "key": key })).await.unwrap();
-        assert_ne!(load["view"]["choices"], Value::Null);
-        let summary = load["view"]["path"]["summary"].as_str().unwrap();
-        assert!(summary.starts_with("Dev \u{b7} Developer \u{b7} "), "{summary}");
-        assert!(summary.ends_with("\u{b7} Review \u{b7} Delivery"), "{summary}");
-        let stages: Vec<&str> = load["view"]["path"]["rows"]
-            .as_array()
-            .unwrap()
-            .iter()
-            .map(|r| r["stage"].as_str().unwrap())
-            .collect();
-        assert_eq!(stages, ["Dev", "Validate", "Review", "Delivery"]);
-        assert_eq!(load["view"]["token_split"], Value::Null, "nothing ran yet");
         // The sheet's pick of another agent for Dev is taken; a skip of Dev is refused.
         table(
             &h.app,

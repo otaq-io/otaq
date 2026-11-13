@@ -3,6 +3,7 @@ import type { AgentToolPillLook } from "./AgentToolPillLook";
 
 export type AgentToolPill = { 
 /**
- * "Connected", "Found · not signed in", "Found · update needed", "Not installed", "Hidden".
+ * "Connected", "Found · not signed in", "Found · couldn't check", "Found · update needed", "Not installed",
+ * "Hidden".
  */
 label: string, look: AgentToolPillLook, };

@@ -1,7 +1,7 @@
-//! Reopen (T-0101, CLS-03, GIT-06): only Closed tickets reopen; on the way back to Dev the old branch is rebased
-//! onto the current base with no tokens and a NEW agent session starts (never `--resume`); a conflict is
+//! Reopen (T-0101, CLS-03, GIT-06): only Closed tickets reopen; on the way back to Dev the current base is merged
+//! into the old branch with no tokens (never a rebase) and a NEW agent session starts (never `--resume`); a conflict is
 //! announced through `otaq prime`. `claude` stands in as an `sh` printing its arguments. Where builds are renamed, the
-//! reopened ticket's new worktree takes the build nearest to its rebased commit (T-0309, M19-c).
+//! reopened ticket's new worktree takes the build nearest to its updated branch (T-0309, M19-c).
 
 use crate::common::freed;
 use otaq_core::service::testing::said;
@@ -76,11 +76,27 @@ async fn until_status(w: &TestService, key: &str, want: Status) {
 }
 
 #[tokio::test]
-async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
+async fn a_reopened_ticket_merges_main_in_and_starts_a_new_session() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
     let (t, wt) = closed(&w, "coupon.ts").await;
+    // A team that forbids rebasing: the update never meets it.
+    let log = repo.parent().unwrap().join("hooks.log");
+    let hook = repo.join(".git/hooks/pre-rebase");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\necho pre-rebase >> '{}'\nexit 1\n",
+            log.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
 
     let reopened = w.board.reopen("SHOP-1", &me()).await.unwrap();
     assert_eq!(reopened.status, Status::Backlog);
@@ -102,11 +118,9 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
         wt.join("coupon.ts").is_file(),
         "worktree recreated on the old branch"
     );
-    assert!(
-        wt.join("moved.ts").is_file(),
-        "rebased onto the current main"
-    );
-    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main);
+    assert!(wt.join("moved.ts").is_file(), "the current main merged in");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), main);
+    assert!(!log.exists(), "pre-rebase never ran");
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(row.base_sha.as_deref(), Some(main.as_str()));
     assert!(!row.reopened);
@@ -138,8 +152,200 @@ async fn a_reopened_ticket_rebases_and_starts_a_new_session() {
     w.stop().await;
 }
 
+/// A reopened ticket's worktree holds its earlier work: a start that fails never removes it, nor its branch.
 #[tokio::test]
-async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_starts() {
+async fn a_failed_start_of_a_reopened_ticket_keeps_its_worktree() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = closed(&w, "coupon.ts").await;
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    let branch = naming::branch("SHOP-1");
+    let before = git(&repo, &["rev-parse", &branch]);
+    let hook = repo.join(".git/hooks/post-checkout");
+    std::fs::write(&hook, "#!/bin/sh\necho 'post-checkout: no' >&2\nexit 1\n").unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::StartInterrupted).await;
+
+    assert!(wt.join("coupon.ts").is_file(), "the worktree stays");
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "so does the branch"
+    );
+    w.stop().await;
+}
+
+/// A hook that refuses the merge of main into a reopened ticket's branch stops its start, and the ticket keeps which
+/// hook, what it stopped and its whole output; the branch is as it was.
+#[tokio::test]
+async fn a_hook_refusing_the_update_from_main_shows_on_the_reopened_ticket() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (t, _) = closed(&w, "coupon.ts").await;
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    commit(&repo, "moved.ts", "main moved\n");
+    let branch = naming::branch("SHOP-1");
+    let before = git(&repo, &["rev-parse", &branch]);
+    let hook = repo.join(".git/hooks/pre-merge-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\necho 'pre-merge-commit: merges need a ticket review' >&2\necho 'see docs/merging.md' >&2\nexit 1\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::StartInterrupted).await;
+
+    let problem = w
+        .board
+        .ticket("SHOP-1")
+        .await
+        .unwrap()
+        .start_problem
+        .unwrap();
+    assert!(
+        problem
+            .message
+            .starts_with("Your pre-merge-commit hook refused the merge of main into SHOP-1"),
+        "{}",
+        problem.message
+    );
+    let hook = problem.hook.expect("the hook is kept on the ticket");
+    assert_eq!(
+        hook.line(),
+        "pre-merge-commit hook refused the update from main"
+    );
+    assert_eq!(hook.step, Some(otaq_core::git::GitStep::UpdateBranch));
+    assert!(
+        hook.output
+            .contains("pre-merge-commit: merges need a ticket review\nsee docs/merging.md"),
+        "{}",
+        hook.output
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "the branch is as it was"
+    );
+    let (payload,): (String,) = sqlx::query_as(
+        "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = 'start_interrupted'",
+    )
+    .bind(&t.id)
+    .fetch_one(w.board.store().pool())
+    .await
+    .unwrap();
+    assert!(
+        payload.contains("merges need a ticket review"),
+        "History keeps it: {payload}"
+    );
+    w.stop().await;
+}
+
+/// A reopened ticket whose kept worktree has uncommitted work starts even when the project's hooks would refuse
+/// Otaq's temporary save of it (a message rule that wants `feat:`, a lint that refuses a TODO): the save runs no
+/// hook, and the files are back uncommitted when the agent starts.
+#[tokio::test]
+async fn a_reopened_ticket_with_uncommitted_work_starts_past_hooks_that_would_refuse_the_save() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let t = w.create("SHOP", "Coupon codes").await;
+    let wt = w.start_worktree(&t).await;
+    commit(&wt, "coupon.ts", "ticket\n");
+    std::fs::write(wt.join("coupon.ts"), "ticket\n// TODO: expiry\n").unwrap();
+    std::fs::write(wt.join("notes.md"), "TODO: ask about expiry\n").unwrap();
+    w.record_ended_agent(&t, "0199-old-conversation").await;
+    w.force_status(&t, Status::Working).await;
+    w.review.close("SHOP-1", true, &me()).await.unwrap();
+    assert!(wt.join("notes.md").is_file(), "the worktree is kept");
+    let log = repo.parent().unwrap().join("hooks.log");
+    for (name, body) in [
+        (
+            "pre-commit",
+            "git diff --cached | grep -q TODO && { echo 'lint: no TODOs' >&2; exit 1; }\nexit 0",
+        ),
+        (
+            "commit-msg",
+            "grep -qE '^feat:' \"$1\" || { echo 'commit-msg: use feat:' >&2; exit 1; }",
+        ),
+        ("prepare-commit-msg", "exit 0"),
+        ("post-commit", "exit 0"),
+    ] {
+        let hook = repo.join(".git/hooks").join(name);
+        std::fs::write(
+            &hook,
+            format!("#!/bin/sh\necho {name} >> '{}'\n{body}\n", log.display()),
+        )
+        .unwrap();
+        #[cfg(unix)]
+        {
+            use std::os::unix::fs::PermissionsExt;
+            std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+        }
+    }
+    let before = git(&wt, &["status", "--porcelain=v1", "--untracked-files=all"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+
+    w.board.reopen("SHOP-1", &me()).await.unwrap();
+    w.board
+        .move_ticket("SHOP-1", DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    until_status(&w, "SHOP-1", Status::Working).await;
+
+    assert!(!log.exists(), "no hook ran on the temporary save");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD"]), head, "nothing committed");
+    assert_eq!(
+        git(&wt, &["status", "--porcelain=v1", "--untracked-files=all"]),
+        before,
+        "the files are back uncommitted"
+    );
+    assert_eq!(
+        std::fs::read_to_string(wt.join("coupon.ts")).unwrap(),
+        "ticket\n// TODO: expiry\n"
+    );
+    let log_all = git(&wt, &["log", "--all", "--format=%s"]);
+    assert!(!log_all.contains("paused by"), "{log_all}");
+    if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Agent) {
+        w.sessions.stop(&s.id).await.unwrap();
+    }
+    w.stop().await;
+}
+
+#[tokio::test]
+async fn a_conflicting_merge_is_announced_through_prime_and_the_agent_still_starts() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -180,7 +386,7 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     );
     assert!(
         prime.contains(
-            "Reopened: the rebase onto `main` conflicted. Resolve it first with the restack skill"
+            "Reopened: merging `main` into this branch conflicted. Resolve it first with the restack skill"
         ),
         "{prime}"
     );
@@ -203,10 +409,10 @@ async fn a_conflicting_rebase_is_announced_through_prime_and_the_agent_still_sta
     w.stop().await;
 }
 
-/// Prepare on reopen: the new worktree is seeded after the rebase, so the build nearest to the rebased commit is
-/// taken (one built at the current `main`), not the ticket's own build of its old commit.
+/// Prepare on reopen: the new worktree is seeded after main is merged in, so the build nearest to the updated
+/// branch is taken (one built at the current `main`), not the ticket's own build of its old commit.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
+async fn a_reopened_ticket_takes_the_nearest_build_after_the_update() {
     use otaq_core::board::settings::{AgentLimits, GlobalSettings};
     use otaq_core::warm::store::WarmRecord;
 
@@ -270,11 +476,11 @@ async fn a_reopened_ticket_takes_the_nearest_build_after_the_rebase() {
         .unwrap();
     until_status(&w, "SHOP-1", Status::Working).await;
 
-    assert_eq!(git(&wt, &["rev-parse", "HEAD~1"]), main, "rebased");
+    assert_eq!(git(&wt, &["rev-parse", "HEAD^2"]), main, "main merged in");
     assert_eq!(
         freed::app_bin(&wt).as_deref(),
         Some("main build"),
-        "the build nearest to the rebased commit"
+        "the build nearest to the updated branch"
     );
     let log = freed::setup_log(&w, "SHOP-1");
     assert!(log.starts_with("Took shop-web's build"), "{log}");

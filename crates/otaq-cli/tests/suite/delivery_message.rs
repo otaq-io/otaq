@@ -171,3 +171,114 @@ async fn a_delivery_without_an_agent_asks_nobody() {
     assert_eq!((plain.writing, plain.prepared_by), (None, None));
     s.w.stop().await;
 }
+
+/// The session asked for the message ends before its agent sends it: the message never comes, so the confirmation
+/// stops saying the agent still writes and starts from the plain message.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_message_whose_session_ends_unwritten_falls_back_to_the_plain_one() {
+    let s = setup().await;
+    let w = &s.w;
+    w.board.delivery().arrived(&s.ticket.id).await;
+    let writing = w.board.merge_proposal("SHOP-1").await.unwrap();
+    assert_eq!(writing.writing.as_deref(), Some("Developer"));
+
+    w.sessions.stop(&s.agent.session).await.unwrap();
+    let gone = tokio::time::timeout(std::time::Duration::from_secs(20), async {
+        loop {
+            if w.board
+                .delivery_message(&s.ticket.id)
+                .await
+                .unwrap()
+                .is_none()
+            {
+                return;
+            }
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        gone.is_ok(),
+        "the unwritten message is dropped when its session ends"
+    );
+    let plain = w.board.merge_proposal("SHOP-1").await.unwrap();
+    assert_eq!((plain.writing, plain.prepared_by), (None, None));
+    assert!(
+        plain.message.starts_with("SHOP-1: Checkout timeout"),
+        "{}",
+        plain.message
+    );
+    s.w.stop().await;
+}
+
+/// The request for the message waits behind text left in the agent's input line; meanwhile the ticket is sent back to
+/// Dev. Once the line is free nothing is typed in: the request was only for a ticket waiting to be delivered.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_request_waiting_behind_unsent_text_is_dropped_when_the_ticket_leaves_review() {
+    let s = setup().await;
+    let w = &s.w;
+    let session = &s.agent.session;
+    w.sessions.input(session, b"half-typed").unwrap();
+    w.board.delivery().arrived(&s.ticket.id).await;
+    assert_eq!(w.deliveries.pending(session).await.unwrap().len(), 1);
+    assert_eq!(
+        w.deliveries.deliver_now(session).await.unwrap(),
+        otaq_core::session::deliveries::Delivery::NeedsConfirmation {
+            ticket: Some(s.ticket.key.clone()),
+            unclearable_by: None,
+        },
+        "held behind the unsent text"
+    );
+
+    // The merge check sends it back to Dev.
+    w.force_status(&s.ticket, Status::Working).await;
+
+    // The user sends their line (the shell says there is no such command): every waiting message may go now.
+    w.sessions.input(session, b"\r").unwrap();
+    let free = tokio::time::timeout(std::time::Duration::from_secs(10), async {
+        while w.sessions.has_unsent_input(session).unwrap() {
+            tokio::time::sleep(std::time::Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(free.is_ok(), "the input line is free");
+    assert_eq!(
+        w.deliveries.deliver_now(session).await.unwrap(),
+        otaq_core::session::deliveries::Delivery::Sent { count: 0 },
+        "nothing is typed in"
+    );
+    assert!(w.deliveries.pending(session).await.unwrap().is_empty());
+    assert_eq!(
+        w.board
+            .ticket("SHOP-1")
+            .await
+            .unwrap()
+            .flags
+            .messages_waiting,
+        0
+    );
+    tokio::time::sleep(std::time::Duration::from_millis(300)).await;
+    let shown =
+        String::from_utf8_lossy(&w.sessions.attach(session).unwrap().scrollback).into_owned();
+    assert!(!shown.contains("is waiting in Review"), "{shown}");
+    // The dropped request counts as never made: the ticket isn't recorded as being written, and back in Review on
+    // the same branch head the writer is asked again.
+    assert_eq!(w.board.delivery_message(&s.ticket.id).await.unwrap(), None);
+    assert_eq!(
+        w.board.merge_proposal("SHOP-1").await.unwrap().writing,
+        None
+    );
+    w.force_status(&s.ticket, Status::WaitingForYou).await;
+    assert!(w.prs.prepare_message(&s.ticket.id).await.unwrap());
+    assert_eq!(
+        w.board
+            .delivery_message(&s.ticket.id)
+            .await
+            .unwrap()
+            .unwrap()
+            .state,
+        MessageState::Writing
+    );
+    assert_eq!(w.deliveries.pending(session).await.unwrap().len(), 1);
+    s.w.stop().await;
+}

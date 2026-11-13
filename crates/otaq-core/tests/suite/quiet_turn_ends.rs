@@ -13,11 +13,12 @@ use otaq_core::board::tickets::Ticket;
 use otaq_core::caller::Caller;
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::domain::Status;
-use otaq_core::protocol::{InputParams, Request, encode_bytes};
+use otaq_core::protocol::{Event, InputParams, Request, encode_bytes};
 use otaq_core::service::testing::TestService;
 use otaq_core::session::deliveries::Delivery;
 use otaq_core::session::{SessionKind, SessionTicket, SpawnSpec, Start, TerminalSize};
 use otaq_core::signals::background::BackgroundWork;
+use otaq_core::signals::hooks::Signal;
 use otaq_core::signals::quiet::QuietTiming;
 
 /// Short waits: a recheck every 100 ms, 300 ms after a key.
@@ -202,6 +203,71 @@ async fn a_quiet_turn_end_shows_what_still_runs_until_it_ends() {
     w.stop().await;
 }
 
+/// SHOP-13 on Codex: Codex starts its code-mode host during the turn (after the turn's start, so it isn't one of the
+/// helpers already running) and keeps it while it sits idle at its prompt. The turn end is Idle, not Working in
+/// background, so the user is asked to act; a command the turn left running still counts beside it.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helper_codex_starts_mid_turn_is_not_background_work() {
+    let (w, ticket) = world().await;
+    let agent = sh_on(&w, &ticket, Tool::Codex).await;
+    event(&w, &agent, Tool::Codex, new_turn()).await;
+    // A program named as Codex's host (a copy of `sleep`, signed again on macOS, which kills an unsigned copy of a
+    // system program), started in the turn and left running. Where `sleep` is a multi-call binary (uutils, Ubuntu
+    // 26.04's coreutils), a copy under another name refuses to run at all, even run as `sleep` with `exec -a`
+    // ("coreutils: unknown program"): there the host is a copy of `sh` waiting in its own `read` on a FIFO, so it
+    // starts no command of its own.
+    run(
+        &w,
+        &agent,
+        "cp \"$(command -v sleep)\" ./codex-code-mode-host; \
+         command -v codesign >/dev/null && codesign -f -s - ./codex-code-mode-host 2>/dev/null; \
+         if ./codex-code-mode-host 0 2>/dev/null; then ./codex-code-mode-host 300 & \
+         else cp \"$(command -v sh)\" ./codex-code-mode-host; mkfifo ./codex-code-mode-host.fifo; \
+         ./codex-code-mode-host -c 'read x < ./codex-code-mode-host.fifo' & fi; echo $! > host.pid",
+        "STARTED",
+    )
+    .await;
+    // The background job runs the copy a moment after its shell forks.
+    let host = |p: &otaq_core::process::TreeProcess| {
+        p.program
+            .as_ref()
+            .and_then(|p| p.file_stem()?.to_str())
+            .is_some_and(|n| n.eq_ignore_ascii_case("codex-code-mode-host"))
+    };
+    let running = tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.sessions.process_tree(session_of(&agent)).iter().any(host) {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(
+        running.is_ok(),
+        "the host never ran: {:?}",
+        w.sessions.process_tree(session_of(&agent))
+    );
+    event(&w, &agent, Tool::Codex, quiet_end()).await;
+    assert_eq!(
+        card(&w).await,
+        (Status::Idle, Some("Started the test run.".to_owned()))
+    );
+    // The next turn leaves a command of its own running beside the host: only that one is named.
+    event(&w, &agent, Tool::Codex, new_turn()).await;
+    run(&w, &agent, "sleep 30 &", "SLEEPING").await;
+    event(&w, &agent, Tool::Codex, quiet_end()).await;
+    assert_eq!(
+        card(&w).await,
+        (
+            Status::WorkingInBackground,
+            Some("background: sleep 30".to_owned())
+        )
+    );
+    run(&w, &agent, "kill $!", "KILLED").await;
+    until(&w, "Idle", (Status::Idle, Some("Started the test run."))).await;
+    // The `sh` host never ends by itself, and Stop reaches only the session's own process group.
+    run(&w, &agent, "kill $(cat host.pid)", "HOST GONE").await;
+    w.stop().await;
+}
+
 /// A command whose shell ended (`sh -c 'sleep … &'`) still runs in the agent's session: it counts.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_command_whose_shell_ended_still_counts() {
@@ -317,6 +383,409 @@ async fn a_key_at_copilots_prompt_answers_it() {
         .unwrap();
     tokio::time::sleep(TIMING.answer_wait * 3).await;
     assert_eq!(card(&w).await.0, Status::Working);
+    w.stop().await;
+}
+
+/// Codex takes "y" alone at its approval prompt and sends nothing until the command's turn goes on to its end or its
+/// next prompt: the key itself makes the card Working at once, and it stays Working while the turn runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_codexs_prompt_makes_it_working_at_once() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let agent = sh_on(&w, &ticket, Tool::Codex).await;
+    needs_you(&w, &agent, Tool::Codex).await;
+    key(&client, &agent, b"y").await;
+    assert_eq!(card(&w).await, (Status::Working, None));
+    tokio::time::sleep(TIMING.answer_wait * 2).await;
+    assert_eq!(card(&w).await.0, Status::Working);
+    w.stop().await;
+}
+
+/// An interactive `sh` as Project agent `id` of SHOP on `tool`, and its caller.
+async fn project_agent_on(w: &TestService, id: &str, tool: Tool) -> Caller {
+    let project = w.board.project("SHOP").await.unwrap();
+    sqlx::query(
+        "INSERT INTO project_agents (id, project_id, tool, state, created_at) VALUES (?, ?, ?, 'running', 1)",
+    )
+    .bind(id)
+    .bind(&project.id)
+    .bind(tool.as_str())
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let info = w
+        .sessions
+        .prepared(None)
+        .for_project_agent(id)
+        .spawn(SpawnSpec {
+            kind: SessionKind::ProjectAgent,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: None,
+            program: "sh".into(),
+            args: Vec::new(),
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PS1".into(), String::new())],
+            size: TerminalSize::default(),
+            tool: Some(tool),
+            tool_session_id: Some("conversation-1".into()),
+            model: None,
+            agent: None,
+            effort: None,
+            theme: None,
+        })
+        .await
+        .unwrap();
+    Caller::ProjectAgent {
+        project: project.key.to_string(),
+        agent: id.to_owned(),
+        session: info.id,
+    }
+}
+
+/// Codex's "y" at a Project agent's prompt (Noyan drafting a flow) answers it: it no longer waits for the user, so
+/// Needs you gives way to the drafting line while the approved command runs, and its next prompt names the new
+/// command. On Claude Code a key alone changes nothing (only Enter does).
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_project_agents_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let waits = async |id: &str| w.project_agents.get(id).await.unwrap().needs_you;
+    // The tool's prompt, as the service applies a Project agent's hook to it.
+    let prompt = async |id: &str, command: &str| {
+        let prompt = format!("Run command: {command}");
+        w.project_agents
+            .hook(id, &Signal::NeedsYou { prompt })
+            .await
+            .unwrap();
+    };
+    let input = async |caller: &Caller, bytes: &[u8]| {
+        let Caller::ProjectAgent { session, .. } = caller else {
+            panic!("{caller:?}")
+        };
+        client
+            .request(Request::SessionInput(InputParams {
+                session: session.clone(),
+                data: encode_bytes(bytes),
+                reply: false,
+                if_empty: false,
+            }))
+            .await
+            .unwrap();
+    };
+
+    let codex = project_agent_on(&w, "pa-codex", Tool::Codex).await;
+    prompt("pa-codex", "Get-ChildItem .agents").await;
+    assert_eq!(
+        waits("pa-codex").await.as_deref(),
+        Some("Run command: Get-ChildItem .agents")
+    );
+    input(&codex, b"y").await;
+    assert_eq!(waits("pa-codex").await, None, "answered by the key");
+    prompt("pa-codex", "Get-Content SKILL.md").await;
+    assert_eq!(
+        waits("pa-codex").await.as_deref(),
+        Some("Run command: Get-Content SKILL.md")
+    );
+
+    let claude = project_agent_on(&w, "pa-claude", Tool::Claude).await;
+    prompt("pa-claude", "npm test").await;
+    input(&claude, b"1").await;
+    assert!(
+        waits("pa-claude").await.is_some(),
+        "a key alone on Claude Code"
+    );
+    input(&claude, b"\r").await;
+    assert_eq!(waits("pa-claude").await, None, "Enter answers it");
+    w.stop().await;
+}
+
+/// An interactive `sh` as `ticket`'s session of `kind` on `tool`: its id.
+async fn sh_of_kind(w: &TestService, ticket: &Ticket, kind: SessionKind, tool: Tool) -> String {
+    let project = w.board.project("SHOP").await.unwrap();
+    w.sessions
+        .spawn(SpawnSpec {
+            kind,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: Some(SessionTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            }),
+            program: "sh".into(),
+            args: Vec::new(),
+            cwd: PathBuf::from(&project.repo_path),
+            env: vec![("PS1".into(), String::new())],
+            size: TerminalSize::default(),
+            tool: Some(tool),
+            tool_session_id: Some("conversation-1".into()),
+            model: None,
+            agent: None,
+            effort: None,
+            theme: None,
+        })
+        .await
+        .unwrap()
+        .id
+}
+
+/// The user's key in `session`'s terminal, as the app's terminal sends it.
+async fn key_in(client: &Client, session: &str, bytes: &[u8]) {
+    client
+        .request(Request::SessionInput(InputParams {
+            session: session.to_owned(),
+            data: encode_bytes(bytes),
+            reply: false,
+            if_empty: false,
+        }))
+        .await
+        .unwrap();
+}
+
+fn permission_prompt() -> Signal {
+    Signal::NeedsYou {
+        prompt: "Run command: npm test".into(),
+    }
+}
+
+/// Codex's "y" at a checker's prompt answers it: the ticket is Validating… again while the approved command runs. On
+/// Claude Code a key alone changes nothing and Enter answers it. A key at a checker with no prompt open changes
+/// nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_validators_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    for (tool, title, answer) in [
+        (Tool::Codex, "Coupon field", &b"y"[..]),
+        (Tool::Claude, "Gift cards", &b"\r"[..]),
+    ] {
+        let ticket = w.create("SHOP", title).await;
+        let key = ticket.key.to_string();
+        let validator = sh_of_kind(&w, &ticket, SessionKind::Validator, tool).await;
+        w.validating_with(&ticket, &validator).await;
+        key_in(&client, &validator, b"y").await;
+        assert_eq!(
+            w.status(&key).await,
+            Status::Checking,
+            "{tool:?}: no prompt"
+        );
+        w.validation
+            .validator_signal(&ticket.id, &validator, &permission_prompt())
+            .await
+            .unwrap();
+        assert_eq!(w.status(&key).await, Status::CheckerNeedsYou, "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &validator, b"1").await;
+            assert_eq!(
+                w.status(&key).await,
+                Status::CheckerNeedsYou,
+                "a key alone on Claude Code"
+            );
+        }
+        key_in(&client, &validator, answer).await;
+        assert_eq!(w.status(&key).await, Status::Checking, "{tool:?}: answered");
+    }
+    w.stop().await;
+}
+
+/// Codex's "y" at a helper's prompt answers it: the helper no longer waits and the ticket is Working again. On Claude
+/// Code a key alone changes nothing and Enter answers it. A key at a helper with no prompt open changes nothing.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_helpers_prompt_answers_it() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let prompt_of = async |piece: u32| {
+        w.helpers
+            .of_ticket(&ticket.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|h| h.piece == piece)
+            .unwrap()
+            .prompt
+    };
+    for (piece, tool, answer) in [(1, Tool::Codex, &b"y"[..]), (2, Tool::Claude, &b"\r"[..])] {
+        let session = sh_of_kind(&w, &ticket, SessionKind::Helper, tool).await;
+        sqlx::query(
+            "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, session_id, status, started_at,
+                                  updated_at)
+             VALUES (?, ?, ?, 'A piece', 'otaq/SHOP-1-piece', '/nonexistent', ?, 'working', 1, 1)",
+        )
+        .bind(format!("helper-{piece}"))
+        .bind(&ticket.id)
+        .bind(piece)
+        .bind(&session)
+        .execute(w.board.store().pool())
+        .await
+        .unwrap();
+        let caller = Caller::Helper {
+            ticket: ticket.key.clone(),
+            ticket_id: ticket.id.clone(),
+            session: session.clone(),
+        };
+        key_in(&client, &session, b"y").await;
+        assert_eq!(card(&w).await.0, Status::Working, "{tool:?}: no prompt");
+        w.helpers
+            .after_signals(&caller, &[permission_prompt()])
+            .await
+            .unwrap();
+        assert_eq!(card(&w).await.0, Status::NeedsYou, "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &session, b"1").await;
+            assert!(
+                prompt_of(piece).await.is_some(),
+                "a key alone on Claude Code"
+            );
+            assert_eq!(card(&w).await.0, Status::NeedsYou);
+        }
+        key_in(&client, &session, answer).await;
+        assert_eq!(prompt_of(piece).await, None, "{tool:?}: answered");
+        assert_eq!(card(&w).await.0, Status::Working, "{tool:?}");
+    }
+    w.stop().await;
+}
+
+/// The events the app was sent since the last call: the ticket changes (by key) and the card statuses.
+fn sent(events: &mut tokio::sync::broadcast::Receiver<Event>) -> (Vec<String>, Vec<Status>) {
+    let (mut changed, mut statuses) = (Vec::new(), Vec::new());
+    while let Ok(event) = events.try_recv() {
+        match event {
+            Event::TicketChanged { key, .. } => changed.push(key.to_string()),
+            Event::CardStatusChanged { status, .. } => statuses.push(status),
+            _ => {}
+        }
+    }
+    (changed, statuses)
+}
+
+/// A checker's Codex prompt reads Needs you at once (re-test 3: the card and the sheet read "Checking" for about 30 s
+/// while the prompt was drawn, until something else about the ticket changed): the app is told the moment its hook
+/// comes, and again when "y" makes it Validating… while the approved command runs.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checkers_codex_prompt_tells_the_app_at_once() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let ticket = w.create("SHOP", "Coupon field").await;
+    let key = ticket.key.to_string();
+    let validator = sh_of_kind(&w, &ticket, SessionKind::Validator, Tool::Codex).await;
+    w.validating_with(&ticket, &validator).await;
+    let mut events = w.events.subscribe();
+
+    w.validation
+        .validator_signal(&ticket.id, &validator, &permission_prompt())
+        .await
+        .unwrap();
+    assert_eq!(w.status(&key).await, Status::CheckerNeedsYou);
+    let (changed, statuses) = sent(&mut events);
+    assert!(changed.contains(&key), "the prompt: {changed:?}");
+    assert_eq!(statuses, [Status::CheckerNeedsYou]);
+
+    key_in(&client, &validator, b"y").await;
+    assert_eq!(w.status(&key).await, Status::Checking);
+    let (changed, statuses) = sent(&mut events);
+    assert!(changed.contains(&key), "the answer: {changed:?}");
+    assert_eq!(statuses, [Status::Checking]);
+    w.stop().await;
+}
+
+/// A helper's Codex prompt shows on its row at once while the ticket already shows another prompt (the agent in
+/// charge's own, which it keeps), and its row reads working again at once after "y" (re-test 3: the row read
+/// "working" for 4–14 s with the prompt drawn, and "needs you" for seconds after the answer, until something else
+/// about the ticket changed).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_helpers_codex_prompt_tells_the_app_at_once_behind_another_prompt() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let in_charge = sh_on(&w, &ticket, Tool::Codex).await;
+    let own = ToolEvent::NeedsYou {
+        prompt: "Run command: git status".into(),
+        helper_agent: false,
+    };
+    event(&w, &in_charge, Tool::Codex, own).await;
+    assert_eq!(
+        card(&w).await,
+        (Status::NeedsYou, Some("Run command: git status".into()))
+    );
+    let session = sh_of_kind(&w, &ticket, SessionKind::Helper, Tool::Codex).await;
+    sqlx::query(
+        "INSERT INTO helpers (id, ticket_id, piece, title, branch, worktree, session_id, status, started_at,
+                              updated_at)
+         VALUES ('helper-1', ?, 1, 'A piece', 'otaq/SHOP-1.1', '/nonexistent', ?, 'working', 1, 1)",
+    )
+    .bind(&ticket.id)
+    .bind(&session)
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    let helper = Caller::Helper {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    let prompt_of_helper = async || {
+        w.helpers.of_ticket(&ticket.id).await.unwrap()[0]
+            .prompt
+            .clone()
+    };
+    let mut events = w.events.subscribe();
+
+    w.helpers
+        .after_signals(&helper, &[permission_prompt()])
+        .await
+        .unwrap();
+    assert_eq!(
+        prompt_of_helper().await.as_deref(),
+        Some("Run command: npm test")
+    );
+    assert_eq!(
+        card(&w).await,
+        (Status::NeedsYou, Some("Run command: git status".into())),
+        "the agent in charge's prompt still shows on the card"
+    );
+    assert_eq!(sent(&mut events).0, ["SHOP-1"], "the helper's prompt");
+
+    key_in(&client, &session, b"y").await;
+    assert_eq!(prompt_of_helper().await, None);
+    assert_eq!(sent(&mut events).0, ["SHOP-1"], "the helper's answer");
+    w.stop().await;
+}
+
+/// Codex's "y" at the prompt of a finished ticket's answer session answers it: the session no longer waits. On Claude
+/// Code a key alone changes nothing and Enter answers it.
+#[tokio::test(flavor = "multi_thread")]
+async fn y_at_a_codex_answer_sessions_prompt_answers_it() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    for (tool, title, answer) in [
+        (Tool::Codex, "Coupon field", &b"y"[..]),
+        (Tool::Claude, "Gift cards", &b"\r"[..]),
+    ] {
+        let ticket = w.create("SHOP", title).await;
+        w.force_status(&ticket, Status::Merged).await;
+        let session = sh_of_kind(&w, &ticket, SessionKind::Answer, tool).await;
+        let caller = Caller::Agent {
+            ticket: ticket.key.clone(),
+            ticket_id: ticket.id.clone(),
+            session: session.clone(),
+        };
+        let prompt = ToolEvent::NeedsYou {
+            prompt: "Run command: git log".into(),
+            helper_agent: false,
+        };
+        event(&w, &caller, tool, prompt).await;
+        assert!(w.signals.open_prompt(&session).is_some(), "{tool:?}");
+        if tool == Tool::Claude {
+            key_in(&client, &session, b"1").await;
+            assert!(
+                w.signals.open_prompt(&session).is_some(),
+                "a key alone on Claude Code"
+            );
+        }
+        key_in(&client, &session, answer).await;
+        assert_eq!(w.signals.open_prompt(&session), None, "{tool:?}: answered");
+    }
     w.stop().await;
 }
 

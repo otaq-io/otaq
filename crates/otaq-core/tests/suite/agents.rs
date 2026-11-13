@@ -354,7 +354,6 @@ async fn a_new_project_gets_the_default_flows_agents_it_names() {
         name: name.into(),
         repo_path: format!("/tmp/{name}"),
         base_branch: "main".into(),
-        flow_setup: false,
     };
     f.board
         .store()

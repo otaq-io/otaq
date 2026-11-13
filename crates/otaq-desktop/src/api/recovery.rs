@@ -54,12 +54,16 @@ fn unexpected(what: &str, other: &Reply) -> RequestError {
     RequestError::plain(format!("unexpected answer to {what}: {other:?}"))
 }
 
-/// `{"unchecked": ["SHOP-19", "a1"]}`: the rows the user unticked (tickets by key, conversations by id).
+/// `{"unchecked": ["SHOP-19", "a1"], "signed_in": ["NOTE-4"]}`: the rows the user unticked, and the rows whose Sign
+/// in… they pressed (tickets by key, conversations by id).
 #[derive(Debug, Clone, Default, Deserialize, TS)]
 #[ts(rename = "AfterRestartParams")]
 pub struct SummaryParams {
     #[serde(default)]
     pub unchecked: Vec<String>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub signed_in: Option<Vec<String>>,
 }
 
 /// `{"keys": ["SHOP-25", "SHOP-19"], "agents": ["a1"]}`: the tickets to resume, in order, and the conversations with
@@ -165,6 +169,7 @@ pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>,
     }
     let agents = agents_named(app, &report.project_agents_ended).await?;
     let unchecked: BTreeSet<String> = p.unchecked.into_iter().collect();
+    let signed_in: BTreeSet<String> = p.signed_in.unwrap_or_default().into_iter().collect();
     // What each stopped ticket ran on and the stage it was in, and which tools can run now (d0086).
     let mut runs = Runs {
         tools: super::editor::agent_tools(app).await,
@@ -189,7 +194,7 @@ pub async fn summary(app: &App, p: SummaryParams) -> Result<Option<SummaryPage>,
         }
     }
     Ok(after_restart::summary(
-        &report, &tickets, &agents, &unchecked, &runs,
+        &report, &tickets, &agents, &unchecked, &signed_in, &runs,
     ))
 }
 
@@ -613,9 +618,6 @@ mod tests {
             warm["rows"][0]["confirm"]["confirm"],
             format!("Clear up to {}", cleanup::size(9000))
         );
-        // The rail's broom counts the leftover only.
-        let broom = table(&h.app, "shell.cleanup", Value::Null).await.unwrap();
-        assert_eq!(broom["count"], 1);
         // Delete selected… never takes a warm build.
         table(&h.app, "recovery.cleanup_toggle_group", json!({ "group": "worktrees" }))
             .await

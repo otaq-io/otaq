@@ -80,12 +80,20 @@ fn merged_automatically(event: &Event) -> Option<NewToast> {
         key,
         title,
         message,
+        hook_changed,
         ..
     } = event
     else {
         return None;
     };
-    Some(ticket_toast(key, title, message))
+    // A hook changed what landed (the message says so): Show changes, as after Approve & merge.
+    let link = hook_changed
+        .as_ref()
+        .map(|changes| otaq_view::view_models::review_page::hook_changes_link(key, changes));
+    Some(NewToast {
+        link,
+        ..ticket_toast(key, title, message)
+    })
 }
 
 /// "Validation cancelled: SHOP-29’s code changed" · "Round not counted · the agent was told to submit again" (UI-07,
@@ -383,6 +391,8 @@ impl Notices {
         self.publish();
     }
 
+    /// Raises a banner by hand (tests).
+    #[cfg(test)]
     pub fn raise(&self, situation: Situation) {
         self.lock().banners.raise(situation);
         self.publish();
@@ -1105,7 +1115,6 @@ mod tests {
                 })
                 .collect(),
             has_projects: true,
-            permission_warning_dismissed: false,
             first_approve: true,
         };
         n.on_trust(&state(true, &["NOTE"]));
@@ -1466,7 +1475,10 @@ mod tests {
             true
         }));
         let n = Notices::new(hub, OPENED, None);
-        n.raise(Situation::PermissionWarning);
+        n.raise(Situation::ServiceUpdateReady {
+            working: 0,
+            waiting: 0,
+        });
         n.publish();
         n.tick();
         let seen = seen.lock().unwrap();
@@ -1474,7 +1486,7 @@ mod tests {
         assert_eq!(seen[0]["kind"], "notices");
         assert_eq!(
             seen[0]["notices"]["banners"][0]["title"],
-            "Permission prompts are on"
+            "Service update ready"
         );
     }
 
@@ -1609,6 +1621,7 @@ mod tests {
             key: key.clone(),
             title,
             message,
+            hook_changed: None,
         };
         let (title, message) = cancelled_toast("SHOP-29", CancelledBy::Code);
         let cancelled = Event::ValidationCancelled {
@@ -1648,6 +1661,36 @@ mod tests {
         );
         assert_eq!(view.toasts[1].icon, Some(otaq_view::icons::IconName::Ban));
         assert_eq!(view.toasts[1].level, ToastLevel::Success);
+        assert_eq!(view.toasts[0].link, None, "no hook changed what landed");
+    }
+
+    /// A hook changed what an automatic Delivery landed: its toast has Show changes, as Approve & merge's has.
+    #[test]
+    fn an_automatic_merge_a_hook_changed_has_show_changes() {
+        let changes = otaq_core::git::merge::HookChanges {
+            hook: Some("pre-commit".into()),
+            files: vec!["calc.js".into(), "util.js".into()],
+            reviewed: "aaa".into(),
+            landed: "bbb".into(),
+        };
+        let key: TicketKey = "SHOP-41".parse().unwrap();
+        let merged = Event::MergedAutomatically {
+            project: "SHOP".into(),
+            key: key.clone(),
+            title: "SHOP-41 merged automatically into main".into(),
+            message:
+                "Validated · round 1 · local, not pushed · Your pre-commit hook changed 2 files"
+                    .into(),
+            hook_changed: Some(changes.clone()),
+        };
+        let toast = merged_automatically(&merged).unwrap();
+        assert_eq!(
+            toast.link,
+            Some(otaq_view::view_models::review_page::hook_changes_link(
+                &key, &changes
+            ))
+        );
+        assert_eq!(toast.ticket.as_deref(), Some("SHOP-41"));
     }
 
     /// #47: the tickets an agent created make one toast once the burst is over; a click opens a single one.

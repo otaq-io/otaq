@@ -20,10 +20,11 @@ import {
   agentSettings,
   canSend,
   cardRoute,
-  initialPick,
+  initialPicks,
   menuRoute,
   pickByKey,
   picksOther,
+  pressPick,
 } from "./actionRoutes";
 import { SheetBody } from "./Sheet";
 import { canAnswerQuestion } from "../overview/NeedsYou";
@@ -54,11 +55,18 @@ describe("where buttons and menu items go", () => {
     expect(actionRoute("send_again")).toEqual({ kind: "send_again" });
     expect(actionRoute("open_agent")).toEqual({ kind: "open_agent" });
     expect(cardRoute("open_agent")).toEqual({ kind: "open_agent" });
+    // No PR provider for an automatic PR: Set up… opens app Settings where providers are set up.
+    expect(cardRoute("set_up_provider")).toEqual({ kind: "provider_settings" });
     // Change agent… on a held card: the dialog picking another agent for the waiting stage.
     expect(cardRoute("change_agent")).toEqual({ kind: "overlay", id: "change_agent" });
     expect(agentSettings("spec-writer")).toEqual({ section: "agents", agent: "spec-writer" });
     expect(agentSettings(null)).toEqual({ section: "agents" });
     expect(actionRoute("approve")).toEqual({ kind: "overlay", id: "local_merge" });
+    // A hook refused Approve & merge: its confirmation again, on the kept edit.
+    expect(actionRoute("edit_message")).toEqual({ kind: "overlay", id: "local_merge" });
+    expect(actionRoute("edit_pr_messages")).toEqual({ kind: "overlay", id: "open_pr" });
+    // The delivery's push didn't land: Approve again, which on a ticket with a PR is Push to PR.
+    expect(actionRoute("retry_push")).toEqual({ kind: "overlay", id: "local_merge" });
     expect(actionRoute("send_back")).toEqual({ kind: "overlay", id: "send_back" });
     // Your check in another flow (FLW-14) and an open PR (FLW-16).
     expect(actionRoute("pass")).toEqual({ kind: "pass" });
@@ -86,6 +94,8 @@ describe("where buttons and menu items go", () => {
   it("Stop on a running merge check, in the sheet and on the card (d0120)", () => {
     expect(actionRoute("stop_merge_check")).toEqual({ kind: "service" });
     expect(cardRoute("stop_merge_check")).toEqual({ kind: "service" });
+    expect(actionRoute("stop_git_step")).toEqual({ kind: "service" });
+    expect(cardRoute("stop_git_step")).toEqual({ kind: "service" });
   });
 
   it("the … menu's ids from the view models", () => {
@@ -165,16 +175,25 @@ describe("answer options", () => {
   ];
 
   it("starts on the recommendation; number keys pick; Other… needs text", () => {
-    expect(initialPick(rows)).toBe(1);
-    expect(initialPick(rows.map((r) => ({ ...r, picked: false })))).toBeNull();
+    expect(initialPicks(rows)).toEqual([1]);
+    expect(initialPicks(rows.map((r) => ({ ...r, picked: false })))).toEqual([]);
     expect(pickByKey("2", rows)).toBe(2);
     expect(pickByKey("4", rows)).toBeNull();
     expect(pickByKey("a", rows)).toBeNull();
-    expect(picksOther(3, rows)).toBe(true);
-    expect(canSend(null, "", rows)).toBe(false);
-    expect(canSend(2, "", rows)).toBe(true);
-    expect(canSend(3, "  ", rows)).toBe(false);
-    expect(canSend(3, "Mailgun", rows)).toBe(true);
+    expect(picksOther([3], rows)).toBe(true);
+    expect(canSend([], "", rows)).toBe(false);
+    expect(canSend([2], "", rows)).toBe(true);
+    expect(canSend([3], "  ", rows)).toBe(false);
+    expect(canSend([3], "Mailgun", rows)).toBe(true);
+  });
+
+  it("a question that takes several answers ticks and unticks; one answer replaces the pick", () => {
+    expect(pressPick([1], 2, false)).toEqual([2]);
+    expect(pressPick([1], 2, true)).toEqual([1, 2]);
+    expect(pressPick([1, 2], 1, true)).toEqual([2]);
+    expect(pressPick([2], 2, true)).toEqual([]);
+    expect(canSend([1, 3], "", rows)).toBe(false);
+    expect(canSend([1, 3], "Mailgun", rows)).toBe(true);
   });
 
   it("an open question (no options) is answered in place, in the user's own words", () => {
@@ -182,7 +201,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q2",
-        text: "Which greeting should it print?",
+        line: "Which greeting should it print?",
+        context: null,
         rows: [],
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",
@@ -202,8 +222,8 @@ describe("answer options", () => {
     expect(html).not.toContain("Open agent session");
     const buttons = [...(card?.querySelectorAll("button") ?? [])];
     expect(buttons.find((b) => b.textContent.includes("Send answer"))?.hasAttribute("disabled")).toBe(true);
-    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "Hello from Otaq")).toBe(true);
-    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, null, "  ")).toBe(false);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, [], "Hello from Otaq")).toBe(true);
+    expect(canAnswerQuestion({ rows: [] } as unknown as SheetAnswer, [], "  ")).toBe(false);
   });
 
   it("replaces the action bar with the question and its options", () => {
@@ -211,7 +231,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q1",
-        text: "Which email provider?",
+        line: "Which email provider?",
+        context: null,
         rows,
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",
@@ -233,7 +254,8 @@ describe("answer options", () => {
       ...VIEW,
       answer: {
         question: "q1",
-        text: "Which email provider?",
+        line: "Which email provider?",
+        context: null,
         rows: rows.map((r) => (r.number === 1 ? { ...r, note: long } : r)),
         recommended_label: "Recommended",
         other_placeholder: "Type your answer",
@@ -265,7 +287,13 @@ describe("what it needs from you, at the top of Overview", () => {
     const html = render({
       ...VIEW,
       notice: { text: "Waits for SHOP-18 to merge.", parent_closed: false, choices: [] },
-      conflict: { line: "Conflicts with main · 1 file (a.ts)" },
+      conflict: {
+        line: "Conflicts with main · 1 file (a.ts)",
+        moved: null,
+        outcome: null,
+        count: null,
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
       start_problem: {
         heading: "Start failed",
         message: "SHOP-19 stopped before its agent session started.",
@@ -274,25 +302,121 @@ describe("what it needs from you, at the top of Overview", () => {
         hide_log: "Hide the setup log",
         retry_heading: "RETRY START DOES",
         retry_does: ["Runs the whole start again"],
+        hook: null,
       },
     });
     for (const text of ["Waits for SHOP-18", "Conflicts with main", "RETRY START DOES"]) {
       expect(html).toContain(text);
     }
     expect(html).not.toContain("View the setup log");
+    expect(html).not.toContain("sheet-hook-output");
   });
 
-  it("the M12 extras: Auto-merge stop message and the Approve caret; no token split (History has the tokens)", () => {
+  it("a start a hook refused: the hook's whole output under the message, then Retry start's list", () => {
     const html = render({
       ...VIEW,
-      token_split: "agent 58k · validation 9k (1 round)",
+      start_problem: {
+        heading: "Start failed: post-checkout hook refused the start",
+        message: "Your post-checkout hook refused the start when Otaq made the ticket\u2019s worktree.",
+        has_log: false,
+        show_log: "View the setup log",
+        hide_log: "Hide the setup log",
+        retry_heading: "RETRY START DOES",
+        retry_does: ["Runs the whole start again"],
+        hook: {
+          name: "post-checkout",
+          label: "Output of your post-checkout hook",
+          note: null,
+          output: "npm install\nERR! missing ~/.npmrc",
+        },
+      },
+    });
+    expect(html).toContain("Start failed: post-checkout hook refused the start");
+    expect(html).toContain("Output of your post-checkout hook");
+    expect(html).toContain("ERR! missing ~/.npmrc");
+    expect(html.indexOf("sheet-hook-output")).toBeLessThan(html.indexOf("RETRY START DOES"));
+  });
+
+  it("a permission prompt: the command above Answer in terminal", () => {
+    const atPrompt: SheetView = {
+      ...VIEW,
+      permission_prompt: {
+        heading: "Developer wants to run a command",
+        text: "npm install",
+        command: true,
+      },
+      buttons: [
+        {
+          action: "answer_in_terminal",
+          label: "Answer in terminal",
+          tooltip: null,
+          icon: "square-terminal",
+          look: "attention",
+        },
+      ],
+    };
+    const html = render(atPrompt);
+    expect(html).toContain("Developer wants to run a command");
+    expect(html).toContain("npm install");
+    expect(html).toContain("sheet-permission-command");
+    expect(html.indexOf("npm install")).toBeLessThan(html.indexOf("Answer in terminal"));
+    // The tool's own words when the prompt isn't a command.
+    const words = render({
+      ...atPrompt,
+      permission_prompt: {
+        heading: "Developer wants your permission",
+        text: "Claude needs your permission to use Bash",
+        command: false,
+      },
+    });
+    expect(words).toContain("Claude needs your permission to use Bash");
+    expect(words).not.toContain("sheet-permission-command");
+    expect(render(VIEW)).not.toContain("sheet-permission");
+  });
+
+  it("the conflict strip says what moved, that nothing was merged, and the count", () => {
+    const html = render({
+      ...VIEW,
+      conflict: {
+        line: "Conflicts with main · 1 file (README.md)",
+        moved: "SHOP-6 changed README.md",
+        outcome: "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+        count: "1 of 3",
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
+    });
+    for (const text of [
+      "Conflicts with main · 1 file (README.md)",
+      "SHOP-6 changed README.md",
+      "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+      "1 of 3",
+    ]) {
+      expect(html).toContain(text);
+    }
+    const failed = render({
+      ...VIEW,
+      conflict: {
+        line: "Merge check failed on main",
+        moved: null,
+        outcome: "Nothing was merged into main. SHOP-19 returns to Review when it’s fixed.",
+        count: "2 of 3",
+        count_hint: "Conflicts and failed merge checks in a row.",
+      },
+    });
+    expect(failed).toContain("Merge check failed on main");
+    expect(failed).not.toContain("Conflicts with");
+    expect(failed).toContain("2 of 3");
+  });
+
+  it("the M12 extras: Auto-merge stop message and the Approve caret", () => {
+    const html = render({
+      ...VIEW,
       stop_message: "Keeps conflicting with otaq/SHOP-40 (3 tries in a row).",
       buttons: [
         { action: "approve", label: "Approve · Local merge", tooltip: null, icon: null, look: "primary" },
       ],
       approve_more: "Approve choices",
     });
-    expect(html).not.toContain("agent 58k · validation 9k (1 round)");
     expect(html).toContain("Keeps conflicting with otaq/SHOP-40");
     expect(html).toContain("▾");
     expect(render(VIEW)).not.toContain("▾");

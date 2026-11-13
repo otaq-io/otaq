@@ -11,6 +11,7 @@ import { createPortal } from "react-dom";
 import type { IconName } from "../generated/IconName";
 import { inKeyLayer } from "../markdown/keys";
 import { Button } from "./Button";
+import { useEscapeLayer } from "./escape";
 import { Kbd } from "./Kbd";
 import { useEnterExit } from "./motion";
 import { defaultOutcome, dialogKey, type DialogOutcome, isSubmitKey, trapFocus } from "./logic";
@@ -147,6 +148,8 @@ export function Dialog({
     [onConfirm, onCancel],
   );
   useModalKeys(box, destructive, onOutcome, onSubmit);
+  // Esc cancels it as the topmost layer when the focus isn't in it; inside, its own keys do.
+  useEscapeLayer(onCancel, box, true);
   useEffect(() => {
     (initialFocus?.current ?? box.current?.querySelector<HTMLElement>(FOCUSABLE) ?? box.current)?.focus();
   }, [initialFocus]);

@@ -380,8 +380,8 @@ fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
     );
 }
 
-/// T-0546 (d0129 as d0133 refines it): `milestone-plan` writes the ticket's Plan with `update --plan-file`, files no
-/// tickets, writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
+/// T-0546 (d0129 as d0133 refines it, and decision 047): `milestone-plan` writes the ticket's Plan with
+/// `update --plan-file`, keeps all the ticket's work on the ticket (a ticket only as a follow-up for something new), writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
 /// from the Plan as it is now, keeping the user's edits and changing only what the comment asks.
 #[test]
 fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
@@ -390,9 +390,13 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
     for step in [
         format!("{cmd} prime"),
         format!("{cmd} update SHOP-40 --plan-file \"$plan\""),
-        "**You file nothing.**".to_owned(),
-        "**File nothing**".to_owned(),
-        "they ask Noyan to file them".to_owned(),
+        // One ticket per scope (decision 047): the whole ticket becomes pieces, never several tickets; a ticket only
+        // as a follow-up for something new outside it.
+        "**The ticket stays one ticket.**".to_owned(),
+        "Never suggest splitting it into several tickets.".to_owned(),
+        "**Big work stays one ticket**".to_owned(),
+        "**No tickets for this ticket's work**".to_owned(),
+        format!("follow-up in Backlog with `{cmd} create \"Title\" --stdin`"),
         "**Start from the Plan as `prime` shows it now**".to_owned(),
         "**Keep the user's edits**".to_owned(),
         "unless their comment says otherwise".to_owned(),
@@ -420,9 +424,12 @@ fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
             "milestone-plan measures a piece by concrete signs, not time: {time:?}"
         );
     }
-    assert!(
-        !plan.contains(&format!("{cmd} create")),
-        "milestone-plan files nothing"
+    // `create` appears only for a follow-up, never for the ticket's own work (decision 047).
+    assert_eq!(
+        plan.matches(&format!("{cmd} create")).count(),
+        plan.matches(&format!("{cmd} create \"Title\" --stdin"))
+            .count(),
+        "milestone-plan files only follow-ups"
     );
     assert!(
         !plan.contains(&format!("{cmd} check ")),
@@ -479,6 +486,11 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
         format!("{cmd} flow propose --stdin"),
         format!("{cmd} flow presets"),
         "names its source".to_owned(),
+        // A stage's description says what it settles; the reason for a change, with its evidence, goes in the
+        // proposal's `why:`, shown under Why these changes and never stored in the flow.
+        "only what the stage settles and when it matters".to_owned(),
+        "**Why these changes**".to_owned(),
+        "never stored in the flow".to_owned(),
         "next message".to_owned(),
         "Ask for more changes".to_owned(),
     ] {
@@ -579,6 +591,35 @@ fn open_pr_and_push_describe_click_and_automatic_mode() {
     assert!(read_skill("open-pr").contains("Otaq's `push` skill"));
 }
 
+/// Commit messages follow the project's own rules: `commit` (an agent's own commits), `open-pr` and `push` (the PR's
+/// per-commit messages) send the agent to the same places as the delivery's message prompt before it writes, keep the
+/// key where the rules allow, and lead with the key only when nothing sets a format.
+#[test]
+fn commit_open_pr_and_push_follow_the_projects_message_rules() {
+    let places = flat(otaq_core::pr::message::MESSAGE_RULES_PLACES);
+    for name in ["commit", "open-pr", "push"] {
+        let text = flat(&read_skill(name));
+        for needle in [
+            places.as_str(),
+            "the Agent instructions, and the style of recent commits",
+            "where they allow it",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+        assert!(
+            text.to_lowercase().contains("when nothing sets a format"),
+            "{name} must say what happens when nothing sets a format"
+        );
+    }
+    let commit = flat(&read_skill("commit"));
+    let rules = commit.find(&places).unwrap();
+    let example = commit.find("git commit -m").unwrap();
+    assert!(
+        rules < example,
+        "commit finds the rules before its first commit"
+    );
+}
+
 /// A host's PR lists the tickets merged into it: `open-pr` and `push` read prime's "Tickets merged into this one" and
 /// list each of them in the PR's description; `push` edits the open PR's description to add them.
 #[test]
@@ -638,7 +679,8 @@ fn flow_reads_its_own_history_and_the_repo_for_a_first_flow() {
         "closest preset".to_owned(),
         format!("{cmd} flow presets"),
         "names its source **and your tool**".to_owned(),
-        "\"From 41 /security-review runs in billing-api\n(Claude Code)\"".to_owned(),
+        "\"From 41 /security-review runs in billing-api (Claude Code)\"".to_owned(),
+        "the proposal's `why:`".to_owned(),
         "\"No evidence found\"".to_owned(),
         "`skip` options".to_owned(),
         "an automatic delivery with no check before it".to_owned(),

@@ -1,5 +1,5 @@
 // Where a tool problem's buttons go (T-0367, T-0411): Open agent… opens Settings →
-// Agents on the agent, Sign in… opens the tool's login in the drawer, Show in Agent tools opens Settings. Nothing starts
+// Agents on the agent, Sign in… opens the tool's login in its terminal's dialog, Show in Agent tools opens Settings. Nothing starts
 // by itself, and no other agent is offered in a waiting one's place (d0018, d0087).
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
@@ -13,7 +13,7 @@ function runner(answer: unknown = null) {
   return {
     request: vi.fn((): Promise<unknown> => Promise.resolve(answer)),
     openSettings: vi.fn(),
-    showDrawerTab: vi.fn(),
+    showSignIn: vi.fn(),
     changeAgent: vi.fn(),
   } satisfies ToolProblemRunner;
 }
@@ -75,12 +75,15 @@ describe("Check again", () => {
 });
 
 describe("the notice's other buttons", () => {
-  it("Sign in… opens the tool's own login in the Terminals drawer", async () => {
-    const run = runner({ session: "s9", tab: "t9", title: "Codex sign in" });
-    runToolProblemAction({ kind: "sign_in", tool: "codex" }, { project: "SHOP" }, run);
-    expect(run.request).toHaveBeenCalledWith("agent_tools.sign_in", { tool: "codex" });
-    const pending = run.showDrawerTab.mock.calls[0]?.[0] as Promise<unknown>;
-    expect(await pending).toBe("t9");
+  // The drawer lists only the project's own terminals; a sign-in's belongs to no project, so it said "Nothing open".
+  it("Sign in… shows the tool's own login terminal in its dialog, not the Terminals drawer", async () => {
+    const signIn = { session: "s9", tab: "t9", title: "Claude Code sign in" };
+    const run = runner(signIn);
+    runToolProblemAction({ kind: "sign_in", tool: "claude" }, { ticket: "NOTE-11" }, run);
+    expect(run.request).toHaveBeenCalledWith("agent_tools.sign_in", { tool: "claude" });
+    await vi.waitFor(() => {
+      expect(run.showSignIn).toHaveBeenCalledWith(signIn);
+    });
   });
 
   it("Show in Agent tools opens Settings → Agent tools; Resume after reset asks the service", () => {
@@ -117,5 +120,23 @@ describe("the callout", () => {
     );
     expect(html).toContain('data-tone="neutral"');
     expect(html).not.toContain("tool-problem-buttons");
+  });
+
+  it("an agent whose tool stopped on an error is red, with the next step and Sign in…", () => {
+    const stopped: CalloutView = {
+      ...HIDDEN,
+      role: null,
+      tone: "error",
+      heading: "Claude Code stopped · login expired",
+      text: "Sign in to Claude Code, then Resume: the agent goes on where it stopped.",
+      buttons: [{ label: "Sign in…", action: { kind: "sign_in", tool: "claude" }, primary: true }],
+    };
+    const html = renderToStaticMarkup(
+      createElement(ToolProblemCallout, { callout: stopped, look: "edge", onAction: () => undefined }),
+    );
+    expect(html).toContain('data-tone="error"');
+    for (const text of ["stopped · login expired", "then Resume", "Sign in…"]) {
+      expect(html).toContain(text);
+    }
   });
 });

@@ -4,11 +4,16 @@ import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
   clampFontSize,
+  ctrlCCopies,
+  ctrlVPastes,
   findCount,
   fontSizeOf,
   jumpLabel,
+  keepsSelectionOnMove,
   NEW_LINE,
+  onWindows,
   opaqueHex,
+  pasteOrKey,
   rendererFor,
   takesInput,
   terminalKey,
@@ -129,5 +134,56 @@ describe("the terminal's state", () => {
   it("drops the alpha of a theme colour for xterm.js's decorations", () => {
     expect(opaqueHex(" #4c57d633")).toBe("#4c57d6");
     expect(opaqueHex("#d4500a")).toBe("#d4500a");
+  });
+
+  it("copies on Ctrl+C only on Windows with a selection, as Windows Terminal does", () => {
+    const ctrlC = key("c", "KeyC", { ctrlKey: true });
+    expect(ctrlCCopies(true, true, ctrlC)).toBe(true);
+    // Caps Lock on: still C.
+    expect(ctrlCCopies(true, true, key("C", "KeyC", { ctrlKey: true }))).toBe(true);
+    // Nothing selected: the program's interrupt.
+    expect(ctrlCCopies(true, false, ctrlC)).toBe(false);
+    // macOS and Linux keep their own keys.
+    expect(ctrlCCopies(false, true, ctrlC)).toBe(false);
+    // Ctrl+Shift+C is the terminal's copy key; other modifiers stay the program's.
+    expect(ctrlCCopies(true, true, key("C", "KeyC", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(ctrlCCopies(true, true, key("c", "KeyC", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(ctrlCCopies(true, true, key("c", "KeyC", {}))).toBe(false);
+    expect(ctrlCCopies(true, true, key("x", "KeyX", { ctrlKey: true }))).toBe(false);
+  });
+
+  it("takes Ctrl+V to paste only on Windows; no text on the clipboard sends Ctrl+V's key", () => {
+    const ctrlV = key("v", "KeyV", { ctrlKey: true });
+    expect(ctrlVPastes(true, ctrlV)).toBe(true);
+    expect(ctrlVPastes(true, key("V", "KeyV", { ctrlKey: true }))).toBe(true);
+    // macOS and Linux keep their own keys.
+    expect(ctrlVPastes(false, ctrlV)).toBe(false);
+    // Ctrl+Shift+V is the terminal's paste key; other modifiers stay the program's.
+    expect(ctrlVPastes(true, key("V", "KeyV", { ctrlKey: true, shiftKey: true }))).toBe(false);
+    expect(ctrlVPastes(true, key("v", "KeyV", { ctrlKey: true, altKey: true }))).toBe(false);
+    expect(ctrlVPastes(true, key("v", "KeyV", {}))).toBe(false);
+    expect(pasteOrKey("ls -la")).toEqual({ paste: "ls -la" });
+    expect(pasteOrKey("")).toEqual({ key: "\x16" });
+    expect(pasteOrKey(undefined)).toEqual({ key: "\x16" });
+  });
+
+  it("keeps a plain mouse move from the program only on Windows, with a selection, while it hears every move", () => {
+    expect(keepsSelectionOnMove(true, true, "any", 0)).toBe(true);
+    // A drag, nothing selected, macOS and Linux: reported as before.
+    expect(keepsSelectionOnMove(true, true, "any", 1)).toBe(false);
+    expect(keepsSelectionOnMove(true, false, "any", 0)).toBe(false);
+    expect(keepsSelectionOnMove(false, true, "any", 0)).toBe(false);
+    // Programs that don't hear plain moves (a shell, or clicks and drags only) never clear it on a move.
+    for (const mode of ["none", "x10", "vt200", "drag"] as const) {
+      expect(keepsSelectionOnMove(true, true, mode, 0)).toBe(false);
+    }
+  });
+
+  it("knows Windows from WebView2's user agent", () => {
+    expect(onWindows("Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 Edg/131.0.0.0")).toBe(
+      true,
+    );
+    expect(onWindows("Mozilla/5.0 (Macintosh; Intel Mac OS X 10_15_7) AppleWebKit/605.1.15")).toBe(false);
+    expect(onWindows("Mozilla/5.0 (X11; Linux x86_64) AppleWebKit/605.1.15")).toBe(false);
   });
 });

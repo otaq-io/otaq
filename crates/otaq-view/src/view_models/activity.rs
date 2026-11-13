@@ -70,11 +70,27 @@ pub fn connected_among<'a>(activity: &'a Activity, connected: &[AvatarTool]) -> 
         .collect()
 }
 
+/// The tools of the activity summary that aren't in `connected` (signed out since, or before the app knows which
+/// tools are connected) and still have agents at work. Activity shows nothing else of them, but Running counts
+/// their agents: they run, and the tray counts them.
+pub fn others_running<'a>(
+    activity: &'a Activity,
+    connected: &[AvatarTool],
+) -> Vec<&'a ToolActivity> {
+    activity
+        .tools
+        .iter()
+        .filter(|t| t.running > 0 && !connected.contains(&AvatarTool::from(t.tool)))
+        .collect()
+}
+
 /// What Activity is drawn from.
 #[derive(Debug, Clone)]
 pub struct Inputs<'a> {
     /// The connected tools ([`connected`]).
     pub tools: Vec<ToolEntry<'a>>,
+    /// The tools that aren't connected but have agents at work ([`others_running`]): counted in Running only.
+    pub others: Vec<&'a ToolActivity>,
     /// Today's tokens across every tool.
     pub tokens_today: u64,
     pub limits: &'a AgentLimits,
@@ -86,8 +102,16 @@ pub struct Inputs<'a> {
 }
 
 impl Inputs<'_> {
+    /// Agents at work on every tool, connected or not, as the tray counts them.
     fn running(&self) -> u32 {
-        self.tools.iter().map(|(_, t)| t.running).sum()
+        self.all_tools().map(|t| t.running).sum()
+    }
+
+    fn all_tools(&self) -> impl Iterator<Item = &ToolActivity> {
+        self.tools
+            .iter()
+            .map(|(_, t)| *t)
+            .chain(self.others.iter().copied())
     }
 
     /// Tools are named in the button only when two or more are connected (d0087).
@@ -299,7 +323,7 @@ fn hover(inputs: &Inputs<'_>, running: u32) -> Hover {
     );
     // Projects with a running agent, oldest first, every tool together.
     let mut projects: Vec<(&str, u32)> = Vec::new();
-    for p in inputs.tools.iter().flat_map(|(_, t)| &t.by_project) {
+    for p in inputs.all_tools().flat_map(|t| &t.by_project) {
         match projects.iter_mut().find(|(name, _)| *name == p.name) {
             Some((_, n)) => *n += p.running,
             None => projects.push((&p.name, p.running)),
@@ -349,27 +373,22 @@ pub struct Agents {
     pub empty: Option<String>,
 }
 
-/// A ticket with an agent at work: "SHOP-27 Wishlist share link · Developer · 26m", or "· asks you" while it waits
-/// for you.
+/// A ticket with an agent working: "SHOP-27 Wishlist share link · Developer · 26m".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityTicketRow")]
 pub struct TicketRow {
     pub key: String,
     pub title: String,
-    /// "Developer · 26m", "Checker · asks you".
+    /// "Developer · 26m", "Checker · 3m".
     pub line: String,
 }
 
-/// "Developer · 26m"; "Developer · asks you" while the agent waits for you.
+/// "Developer · 26m". An agent waiting for you isn't in Running (Needs you lists it).
 fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
-    let what = if agent.status.is_needs_you_family() {
-        agent.status.label().to_lowercase()
-    } else {
-        age_label(now - agent.since)
-    };
+    let age = age_label(now - agent.since);
     match &agent.agent {
-        Some(name) => format!("{name} \u{b7} {what}"),
-        None => what,
+        Some(name) => format!("{name} \u{b7} {age}"),
+        None => age,
     }
 }
 
@@ -725,6 +744,7 @@ pub mod fixtures {
         pub fn inputs(&self) -> Inputs<'_> {
             Inputs {
                 tools: self.entries(),
+                others: Vec::new(),
                 tokens_today: self.tools.iter().map(|(_, t)| t.tokens_today).sum(),
                 limits: &self.limits,
                 scheduler: None,
@@ -1310,5 +1330,46 @@ mod tests {
         let tools = connected(&activity);
         assert_eq!(tools.len(), 1);
         assert_eq!(tools[0].0, AvatarTool::ClaudeCode);
+    }
+
+    /// Keep them running, then reopening: an agent at work on a tool that isn't connected (Claude Code signed out
+    /// while Codex works, or before the app knows the connected tools and takes Claude Code alone) still shows as
+    /// "1 running", as the tray says "1 agent running".
+    #[test]
+    fn agents_on_a_tool_that_isnt_connected_still_count_in_running() {
+        let mut codex = fixtures::tool(&[("shop", 1)], 5, ToolLimits::NoPlanWindows);
+        codex.tool = otaq_core::agent_tools::Tool::Codex;
+        let idle_claude = fixtures::tool(&[], 0, ToolLimits::NoPlanWindows);
+        let activity = Activity {
+            working: Vec::new(),
+            day: "2026-10-08".into(),
+            tools: vec![idle_claude, codex],
+            tokens_today: 5,
+        };
+        let only_claude = [AvatarTool::ClaudeCode];
+        let inputs = Inputs {
+            tools: connected_among(&activity, &only_claude),
+            others: others_running(&activity, &only_claude),
+            tokens_today: 5,
+            limits: &AgentLimits::default(),
+            scheduler: None,
+            runs: &[],
+            working: &[],
+            now: NOW,
+        };
+        let b = button(&inputs, &KeyLabels::base(Platform::Mac));
+        assert!(b.shown);
+        assert_eq!((b.agents.count.as_str(), b.agents.label), ("1", "running"));
+        assert!(b.agents.active);
+        assert_eq!(b.hover.title, "1 agent running across all projects");
+        assert_eq!(b.hover.lines, ["shop 1"]);
+        let p = popover(&inputs, &KeyLabels::base(Platform::Mac));
+        assert_eq!(p.agents.count, "1");
+        assert_eq!(p.agents.empty, None);
+        // Only the connected tool's usage shows.
+        let names: Vec<&str> = p.usage.tools.iter().map(|t| t.name).collect();
+        assert_eq!(names, ["Claude Code"]);
+        // A tool that isn't connected and has nothing at work isn't among the others.
+        assert!(others_running(&activity, &[AvatarTool::Codex]).is_empty());
     }
 }

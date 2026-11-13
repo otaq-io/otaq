@@ -208,6 +208,7 @@ async fn action_for(
         | R::StartupReport
         | R::Subscribe(_)
         | R::ToolsCheck
+        | R::GitToolsCheck
         | R::GitMissingIdentity(_)
         | R::OnboardingState
         | R::NotificationsState
@@ -274,6 +275,7 @@ async fn action_for(
         | R::WarmList
         | R::SessionAttach(_)
         | R::SessionDetach(_)
+        | R::SessionUnsent(_)
         | R::RunStatus(_)
         | R::RunApps(_)
         | R::RunList
@@ -414,13 +416,6 @@ async fn action_for(
         },
         R::ServiceStop => Action::UserOnly("stop the background service"),
         R::ServiceStopAgents => Action::UserOnly("stop every agent and the background service"),
-        R::DismissPermissionWarning => Action::UserOnly("change onboarding"),
-        // Asking spends the user's tokens on their tool (ASK-02) and settling ends agents: the user's clicks only.
-        R::OnboardingSources(_) | R::OnboardingFlowSetup(_) => {
-            Action::UserOnly("look at a project's Flow setup")
-        }
-        R::OnboardingAsk(_) => Action::UserOnly("ask an agent tool for a flow"),
-        R::OnboardingUseDefault(_) => Action::UserOnly("settle a project's flow"),
         R::DismissTrustNote => Action::UserOnly("dismiss notices"),
         R::NotificationsAskAnswered => Action::UserOnly("answer the notifications ask"),
         R::NotificationsDismissBlocked => Action::UserOnly("dismiss notices"),
@@ -469,9 +464,12 @@ async fn action_for(
             Action::UserOnly("close conversations with Noyan")
         }
         R::ProjectAgentRename(_) => Action::UserOnly("rename conversations with Noyan"),
+        R::ProjectAgentUndone(_) => Action::UserOnly("undo Noyan's changes"),
         R::ProjectTerminalDismiss(_) => Action::UserOnly("dismiss the Project terminal's summary"),
         R::TicketSubmitByUser(_) => Action::UserOnly("submit for review in the user's name"),
-        R::SettingsSet(_) | R::ProjectSettingsSet(_) => Action::UserOnly("change settings"),
+        R::SettingsSet(_) | R::SettingsOsDark(_) | R::ProjectSettingsSet(_) => {
+            Action::UserOnly("change settings")
+        }
         R::ProjectViewSet(_) => Action::UserOnly("change the board's view"),
         // Agents and the default model are the user's (AGM-01, AGM-03, AGM-04).
         R::AgentsList
@@ -520,7 +518,9 @@ async fn action_for(
         | R::TicketDoneNotMerged(_)
         | R::TicketMergeCheckStop(_)
         | R::TicketMergeInto(_) => Action::UserOnly("merge tickets"),
+        R::TicketGitStop(_) => Action::UserOnly("stop git steps"),
         R::TicketMarkMerged(_) | R::TicketMarkClosed(_) => Action::UserOnly("mark pull requests"),
+        R::TicketKeepMessage(_) => Action::UserOnly("edit merge and pull request messages"),
         R::MessageResume(_) => Action::UserOnly("resume finished tickets to answer"),
         R::TicketOpenPr(_) | R::TicketPrConfirm(_) | R::TicketPrCancel(_) | R::TicketPrRetry(_) => {
             Action::UserOnly("open or push pull requests")
@@ -585,7 +585,8 @@ mod tests {
             question: "Import closed issues too?".into(),
             options: Vec::new(),
             notes: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
         });
         assert_eq!(agent_activity(&ask, &Action::Read), AgentActivity::Acts);
     }

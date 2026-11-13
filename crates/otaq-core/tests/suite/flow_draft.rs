@@ -518,3 +518,104 @@ async fn apply_now_plans_only_inside_the_span() {
     assert_eq!(kept, [&shop33.key], "not {}", shop12.key);
     w.stop().await;
 }
+
+/// A ticket held in a stage counts as in it: SHOP-1, started and held before Product spec (its tool lacks the
+/// skill), makes removing Product spec wait ("the ticket there now (1 in product-spec)"), not "applies at once";
+/// SHOP-2, only waiting for a free agent there, simply begins the new first stage and doesn't hold it.
+#[tokio::test(flavor = "multi_thread")]
+async fn removing_the_stage_a_ticket_is_held_in_waits_for_it() {
+    let (w, key) = world().await;
+    let held = w.create(&key, "Price table").await;
+    w.force_status(&held, Status::Held).await;
+    let queued = w.create(&key, "Coupons").await;
+    w.force_status(&queued, Status::WaitingForSlot).await;
+    let held = w.board.ticket(&held.key.to_string()).await.unwrap();
+    assert_eq!(held.place, Place::Waiting(None));
+
+    let draft = edit(
+        &w,
+        &key,
+        DraftEdit::Document {
+            yaml: shop_with(|f| f.flow.stages.retain(|s| s.id != "product-spec")),
+        },
+    )
+    .await;
+    let DraftApplies::Span { span, inside } = &draft.applies else {
+        panic!("{:?}", draft.applies)
+    };
+    assert_eq!(span.first, "Product spec");
+    assert_eq!(
+        inside,
+        &[Inside {
+            ticket: held.key.clone(),
+            stage: "product-spec".into(),
+        }],
+        "not {}",
+        queued.key
+    );
+    let applied = w
+        .board
+        .apply_proposal(&key, draft.proposal.id, &ApplyChoices::default(), &models())
+        .await
+        .unwrap();
+    assert_eq!(
+        applied.waiting.unwrap().waiting_for,
+        std::slice::from_ref(&held.key)
+    );
+    w.stop().await;
+}
+
+/// UX-63: Ask for changes keeps the agent's proposal in the draft while it redrafts, so the board keeps showing it and
+/// stopping the agent keeps it; its next proposal replaces it in place, still marked against the flow before.
+#[tokio::test(flavor = "multi_thread")]
+async fn asking_for_changes_keeps_the_proposal_until_the_next_one() {
+    let (w, key) = world().await;
+    let propose = |doc: String| {
+        let w = &w;
+        let key = &key;
+        async move {
+            w.board
+                .propose(
+                    key,
+                    &Proposed::Document {
+                        yaml: doc,
+                        file: None,
+                    },
+                    &noyan(),
+                    &models(),
+                )
+                .await
+                .unwrap()
+        }
+    };
+    let first = propose(shop_with(security_first)).await;
+    let shown = w.board.draft(&key, &models()).await.unwrap().marks;
+    assert!(!shown.is_empty());
+    let by = w
+        .board
+        .ask_for_changes(&key, first.id, "Add a Plan stage too")
+        .await
+        .unwrap();
+    assert_eq!(by, noyan(), "the words go to the agent that proposed it");
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    assert_eq!(draft.proposal.id, first.id, "the proposal stays open");
+    assert_eq!(draft.proposal.proposed_by, noyan());
+    assert_eq!(draft.marks, shown, "still marked on the board");
+
+    let second = propose(shop_with(|f| {
+        security_first(f);
+        plan_after_product_spec(f);
+    }))
+    .await;
+    assert_eq!(
+        second.id, first.id,
+        "the next proposal replaces it in the draft"
+    );
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let marked: Vec<&str> = draft.marks.iter().map(|m| m.stage.as_str()).collect();
+    assert!(marked.contains(&"Plan"), "{marked:?}");
+    assert!(
+        shown.iter().all(|m| marked.contains(&m.stage.as_str())),
+        "{marked:?}"
+    );
+}

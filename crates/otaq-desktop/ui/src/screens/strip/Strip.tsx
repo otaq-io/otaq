@@ -22,6 +22,7 @@ import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { AgentQuestionBox } from "../agent_panel/AgentQuestion";
 import { shownAgents } from "../agent_panel/logic";
+import { QuestionText } from "../overview/QuestionText";
 import { lastOpened, next, openOf, openTarget, stripParams } from "./logic";
 
 /** The service events that change the strip: its items, the projects' names and order, the user's key for Next. */
@@ -38,7 +39,10 @@ const ignore = () => undefined;
 
 /**
  * A helper's question the agent in charge passed on (d0133, `s30-02`): the question, the agent in charge's note,
- * Answer 40.2… and Open in the ticket; next to its chip, and closed by a press outside or a scroll.
+ * Answer 40.2… and Open in the ticket; next to its chip, and closed by a press outside or a scroll. The question is
+ * drawn as everywhere (its first line asks, the rest is context) in the strip's wide popover for a question: a long
+ * one scrolls inside the popover's cap while the note and the buttons stay in view, and Answer 40.2… opens the
+ * ticket's Overview, where the question reads whole.
  */
 export function AsksPopover({
   asks,
@@ -54,9 +58,11 @@ export function AsksPopover({
   const root = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, root, "start", onClose);
   return (
-    <div ref={root} className="strip-asks" role="dialog" aria-label={asks.title} style={style}>
+    <div ref={root} className="strip-asks strip-question" role="dialog" aria-label={asks.title} style={style}>
       <div className="strip-asks-title">{asks.title}</div>
-      <p className="strip-asks-question">{asks.question}</p>
+      <div className="sheet-answer strip-asks-question">
+        <QuestionText answer={asks} />
+      </div>
       {asks.note !== null && <p className="strip-asks-note">{asks.note}</p>}
       <div className="strip-asks-buttons">
         <Button
@@ -83,17 +89,25 @@ export function AsksPopover({
 
 /**
  * A Project agent's question (OTQ-9, d0119): the question with its options or a free-text box, Send answer and
- * Answer in terminal (which opens the conversation); next to its chip, closed by a press outside or a scroll.
+ * Answer in terminal (which opens the conversation); next to its chip, closed by a press outside or a scroll. In the
+ * strip's wide popover for a question a long one scrolls inside the popover's cap while its options and Send stay in
+ * view, and Open in the agent panel shows it whole above Noyan's terminal.
  */
 export function AgentAsksPopover({
   question,
+  open,
   anchor,
   onTerminal,
+  onPanel,
   onClose,
 }: {
   question: AgentQuestion;
+  /** "Open in the agent panel". */
+  open: string | null;
   anchor: RefObject<HTMLElement | null>;
   onTerminal: () => void;
+  /** Opens the agent's conversation in the panel, its question above the terminal. */
+  onPanel: () => void;
   onClose: () => void;
 }) {
   const root = useRef<HTMLDivElement>(null);
@@ -101,7 +115,7 @@ export function AgentAsksPopover({
   return (
     <div
       ref={root}
-      className="strip-asks strip-agent-asks"
+      className="strip-asks strip-question strip-agent-asks"
       role="dialog"
       aria-label={question.title}
       style={style}
@@ -115,6 +129,20 @@ export function AgentAsksPopover({
           onTerminal();
         }}
       />
+      {open !== null && (
+        <div className="strip-question-foot">
+          <button
+            type="button"
+            className="strip-question-open"
+            onClick={() => {
+              onClose();
+              onPanel();
+            }}
+          >
+            {open}
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -152,9 +180,13 @@ function Chip({ chip, onOpen }: { chip: StripChip; onOpen: (target: StripTarget)
         <AgentAsksPopover
           key={chip.agent_asks.answer.question}
           question={chip.agent_asks}
+          open={chip.open_in_panel}
           anchor={button}
           onClose={close}
           onTerminal={() => {
+            onOpen(chip.target);
+          }}
+          onPanel={() => {
             onOpen(chip.target);
           }}
         />

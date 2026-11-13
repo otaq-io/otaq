@@ -5,8 +5,22 @@ import type { SheetAnswerRow } from "./SheetAnswerRow";
  * The question with its options in the header (*SHOP-21 · Asks you · answer options*); a Project agent's question
  * too, in the strip's popover and above its terminal, where an open question has no rows (a free-text box).
  */
-export type SheetAnswer = { question: string, text: string, 
+export type SheetAnswer = { question: string, 
+/**
+ * The question itself: its text's first line, drawn bold.
+ */
+line: string, 
+/**
+ * Everything after the first line, the question's context: regular weight, its paragraphs and line breaks kept
+ * and simple Markdown drawn. `None` for a question of one line.
+ */
+context: string | null, 
 /**
  * The options and Other…; empty for an open question.
  */
-rows: Array<SheetAnswerRow>, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };
+rows: Array<SheetAnswerRow>, 
+/**
+ * The user may tick several rows (checkboxes, number keys tick and untick); otherwise one is picked (radios).
+ * Optional on the page: a question that takes one answer may leave it out.
+ */
+multiple?: boolean, recommended_label: string, other_placeholder: string, hint: string, in_terminal: string, send: string, };

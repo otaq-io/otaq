@@ -17,7 +17,8 @@ pub mod validation;
 
 pub use actor::Actor;
 pub use flags::{
-    Flag, Flags, MergeCheckState, MissingSkill, PieceWait, PieceWaitKind, RunningApp, SentBack,
+    Flag, Flags, GitHookRunning, GitOperation, GitProgress, MergeCheckState, MissingSkill,
+    PieceWait, PieceWaitKind, PromptTurn, RunningApp, SentBack, SessionPrompt,
 };
 pub use hand_off::HandOffKind;
 pub use key::{KeyError, ProjectKey, TicketKey};

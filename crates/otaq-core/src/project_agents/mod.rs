@@ -20,7 +20,6 @@
 //!   most recent** ended agents of a project are listed, each resumable (its tool's resume); the tools' saved
 //!   conversations are never deleted.
 
-pub mod first_flow;
 pub mod prime;
 
 use std::collections::HashMap;
@@ -33,6 +32,7 @@ use crate::agent_tools::{
 };
 use crate::agents::{Agent, RunsOn, SessionRole, resolve};
 use crate::board::questions::{Choice, HumanQuestion};
+use crate::board::tickets::{EventKind, Field, FieldChange};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::domain::{Actor, Status, StatusSet, TicketKey};
@@ -55,6 +55,9 @@ pub const NEW_AGENT: &str = "New conversation";
 pub const RECENT: i64 = 10;
 
 /// How many words of the first request make the fallback name, and its longest length in characters.
+/// The kind of the event, with no ticket, that marks the end of a Project agent's turn among its events.
+const TURN_ENDED: &str = "turn_ended";
+
 const FALLBACK_WORDS: usize = 4;
 const NAME_MAX_CHARS: usize = 40;
 
@@ -89,11 +92,6 @@ const INITIAL_SIZE: TerminalSize = TerminalSize {
     rows: 40,
     cols: 120,
 };
-
-/// The size a flow agent ("Flow setup · Claude Code") starts with: about what its terminal on the Flow setup page
-/// shows (420 px wide, `.flow-at-work-terminals`, at the 13 px monospace font), so the output it draws before the
-/// page attaches isn't redrawn for a narrower terminal.
-const FLOW_AGENT_SIZE: TerminalSize = TerminalSize { rows: 30, cols: 52 };
 
 stored_enum! {
     /// Where a Project agent's name came from (`project_agents.name_source`).
@@ -224,12 +222,62 @@ pub struct AgentNeedsYou {
 pub struct CreatedAndChanged {
     /// The tickets it created that still exist, in creation order.
     pub created: Vec<CreatedTicket>,
-    /// Other tickets it edited, in key order.
+    /// The tickets it changed, in key order: the tickets of [`Self::changes`]. A ticket it created isn't one for what
+    /// it gave that ticket in the turn it made it, which is part of making it ([`CreatedTicket::waits_for`]); a change
+    /// to it in a later turn is.
     pub edited: Vec<TicketKey>,
+    /// What it changed on tickets it didn't create in the same turn, one entry per part of a ticket (a field, one wait, one stage's
+    /// choice), in key order
+    /// and then in the order it first changed them, each part as it left it against how it found it. A part it put
+    /// back as it found it is left out. What the CHANGED rows say ("SHOP-7 · now waits for SHOP-6").
+    #[serde(default)]
+    pub changes: Vec<TicketChange>,
     /// Dependencies it added.
     pub dependencies: u32,
     /// The one-line summary.
     pub summary: String,
+}
+
+/// One part of a ticket a Project agent changed: a CHANGED row. It holds how the agent found the part and how it left
+/// it, so the part can be put back, and a later change by someone else told apart (the part no longer reads as the
+/// agent left it).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct TicketChange {
+    pub ticket: TicketKey,
+    pub change: WhatChanged,
+    /// When it last changed this part (ms).
+    pub at: i64,
+    /// The user took it back with the row's Undo since (`project_agent.undone`): the row says it was undone.
+    #[serde(default, skip_serializing_if = "std::ops::Not::not")]
+    pub undone: bool,
+}
+
+/// What a Project agent changed on a ticket ([`TicketChange`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum WhatChanged {
+    /// The ticket now waits for `parent` (`otaq dep add`); it didn't before.
+    WaitsFor { parent: TicketKey },
+    /// The ticket no longer waits for `parent` (`otaq dep remove`); it did before.
+    NoLongerWaitsFor { parent: TicketKey },
+    /// A field (title, description, priority, base branch), as `otaq update` writes it in History: a priority reads
+    /// "P2 · High"; `None` is empty (a base branch: the project's own).
+    Field {
+        field: Field,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        after: Option<String>,
+    },
+    /// A stage's choice (`otaq update --stage`): the stage's name and id and the choice's label ("Quick developer",
+    /// "skip"); `before` is `None` while nobody had chosen.
+    StageChoice {
+        stage: String,
+        stage_id: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        before: Option<String>,
+        after: String,
+    },
 }
 
 /// A ticket a Project agent created.
@@ -240,6 +288,10 @@ pub struct CreatedTicket {
     pub status: Status,
     /// Never started: **Delete** removes it (TKT-08, the 0060 confirmation in the app).
     pub deletable: bool,
+    /// The tickets it made this one wait for in the turn it created it, in the order it added them, those it took
+    /// back again left out. Its CREATED row says them ("SHOP-16 · waits for SHOP-15"); they are no CHANGED rows.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub waits_for: Vec<TicketKey>,
 }
 
 /// Opens and tracks Project agents. Cheap to clone.
@@ -263,9 +315,6 @@ struct Inner {
     turn_ends: Mutex<HashMap<String, i64>>,
     /// The check before every launch (set by the service; unset, nothing is checked).
     gate: std::sync::OnceLock<crate::agents::gate::LaunchGate>,
-    /// How long an unchosen flow agent may take to read its answer before it ends anyway, in milliseconds
-    /// ([`first_flow::ANSWER_GRACE`]; tests shorten it).
-    answer_grace_ms: std::sync::atomic::AtomicU64,
 }
 
 #[derive(sqlx::FromRow)]
@@ -322,9 +371,6 @@ impl ProjectAgents {
                 waiting: Mutex::new(HashMap::new()),
                 turn_ends: Mutex::new(HashMap::new()),
                 gate: std::sync::OnceLock::new(),
-                answer_grace_ms: std::sync::atomic::AtomicU64::new(
-                    u64::try_from(first_flow::ANSWER_GRACE.as_millis()).unwrap_or(u64::MAX),
-                ),
             }),
         }
     }
@@ -423,17 +469,16 @@ impl ProjectAgents {
                 &agent,
             )
             .await?;
-        self.start(&project, message, &runs_on, None).await
+        self.start(&project, message, &runs_on).await
     }
 
-    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first `message`;
-    /// `name` names it from the start (a flow agent, "Flow setup · OpenCode"), as the user's name would.
+    /// Starts a new Project agent in `project` on `runs_on` (already checked, its agent included) and the first
+    /// `message`.
     async fn start(
         &self,
         project: &Project,
         message: &str,
         runs_on: &RunsOn,
-        name: Option<&str>,
     ) -> Result<ProjectAgent, BoardError> {
         let id = new_id();
         // Otaq writes no skill into the project's folder (T2); `/flow` runs the flow skill (FLW-11).
@@ -458,8 +503,8 @@ impl ProjectAgents {
         )?;
         sqlx::query(
             "INSERT INTO project_agents (id, project_id, tool, tool_session_id, model, agent_id, agent_name, effort,
-                                         state, first_request, created_at, name, name_source)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                         state, first_request, created_at)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
         )
         .bind(&id)
         .bind(&project.id)
@@ -472,19 +517,11 @@ impl ProjectAgents {
         .bind(AgentState::Running.as_str())
         .bind(message)
         .bind(now_ms())
-        .bind(name)
-        .bind(name.map(|_| NameSource::User.as_str()))
         .execute(self.inner.board.store().pool())
         .await?;
-        // Only flow agents are named from the start.
-        let size = if name.is_some() {
-            FLOW_AGENT_SIZE
-        } else {
-            INITIAL_SIZE
-        };
         if let Err(e) = self
-            // The user's first message (or Ask each tool): it starts while paused too (PAU-05).
-            .spawn(project, launched, &id, size, runs_on, Start::User)
+            // The user's first message: it starts while paused too (PAU-05).
+            .spawn(project, launched, &id, INITIAL_SIZE, runs_on, Start::User)
             .await
         {
             sqlx::query("DELETE FROM project_agents WHERE id = ?")
@@ -751,6 +788,7 @@ impl ProjectAgents {
             changed = true;
         }
         if signal.ends_turn() {
+            self.turn_ended(id).await?;
             self.inner
                 .turn_ends
                 .lock()
@@ -798,9 +836,8 @@ impl ProjectAgents {
         &self,
         id: &str,
         question: &str,
-        options: &[String],
-        notes: &[Option<String>],
-        recommended: Option<u32>,
+        (options, notes): (&[String], &[Option<String>]),
+        (recommended, multiple): (&[u32], bool),
     ) -> Result<ProjectAgent, BoardError> {
         let question = question.trim();
         if question.is_empty() {
@@ -812,7 +849,7 @@ impl ProjectAgents {
         let agent = self.get(id).await?;
         self.inner
             .board
-            .store_agent_question(id, question, options, notes, recommended)
+            .store_agent_question(id, question, options, notes, recommended, multiple)
             .await?;
         tracing::info!(agent = id, "project agent asks the user");
         self.changed(&agent.project, id);
@@ -898,25 +935,31 @@ impl ProjectAgents {
     pub async fn created_and_changed(&self, id: &str) -> Result<CreatedAndChanged, BoardError> {
         let agent = self.get(id).await?;
         let actor = Actor::ProjectAgent(id.to_owned()).to_string();
-        let events: Vec<(String, String)> =
-            sqlx::query_as("SELECT ticket_id, kind FROM events WHERE actor = ? ORDER BY at, id")
-                .bind(&actor)
-                .fetch_all(self.inner.board.store().pool())
-                .await?;
+        // Its ticket events, and the ends of its turns (no ticket) between them.
+        let events: Vec<(Option<String>, String, String, i64)> = sqlx::query_as(
+            "SELECT ticket_id, kind, payload_json, at FROM events WHERE actor = ? ORDER BY at, id",
+        )
+        .bind(&actor)
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
         let tickets = self.inner.board.tickets(&agent.project).await?;
         let by_id = |ticket: &str| tickets.iter().find(|t| t.id == ticket);
         let mut out = CreatedAndChanged::default();
-        let mut created_ids: Vec<&str> = Vec::new();
-        for (ticket, kind) in &events {
+        // Each ticket it created, with the turn it created it in.
+        let mut created_ids: Vec<(&str, usize)> = Vec::new();
+        let mut turn = 0;
+        for (ticket, kind, _, _) in &events {
             match kind.as_str() {
+                TURN_ENDED => turn += 1,
                 "created" => {
-                    if let Some(t) = by_id(ticket) {
-                        created_ids.push(&t.id);
+                    if let Some(t) = ticket.as_deref().and_then(by_id) {
+                        created_ids.push((&t.id, turn));
                         out.created.push(CreatedTicket {
                             key: t.key.clone(),
                             title: t.title.clone(),
                             status: t.status,
                             deletable: t.board_group() == StatusSet::Backlog && !t.has_started(),
+                            waits_for: Vec::new(),
                         });
                     }
                 }
@@ -924,13 +967,77 @@ impl ProjectAgents {
                 _ => {}
             }
         }
-        for (ticket, kind) in &events {
-            if kind == "updated"
-                && !created_ids.contains(&ticket.as_str())
-                && let Some(t) = by_id(ticket)
-                && !out.edited.contains(&t.key)
+        let mut changes = Changes::default();
+        // The waits it gave the tickets it created, folded as the changes are.
+        let mut given = Changes::default();
+        let mut turn = 0;
+        for (ticket, kind, payload, at) in &events {
+            if kind == TURN_ENDED {
+                turn += 1;
+                continue;
+            }
+            let Some(t) = ticket.as_deref().and_then(by_id) else {
+                continue;
+            };
+            let payload: serde_json::Value = serde_json::from_str(payload).unwrap_or_default();
+            // Whatever it set on a ticket it created, in the turn it created it, is part of making it: its CREATED
+            // row says it, and it gets no CHANGED row. A change in a later turn is a change like any other.
+            let made_it = created_ids.contains(&(t.id.as_str(), turn));
+            match kind.as_str() {
+                "updated" if !made_it => {
+                    let fields: Vec<FieldChange> = payload
+                        .get("changes")
+                        .and_then(|c| serde_json::from_value(c.clone()).ok())
+                        .unwrap_or_default();
+                    for f in fields {
+                        changes.field(&t.key, f, *at);
+                    }
+                }
+                "stage_choice_set" if !made_it => changes.stage_choice(&t.key, &payload, *at),
+                "dependency_added" | "dependency_removed" => {
+                    if let Some(parent) = payload
+                        .get("parent")
+                        .and_then(|p| serde_json::from_value::<TicketKey>(p.clone()).ok())
+                    {
+                        let to = if made_it { &mut given } else { &mut changes };
+                        to.wait(&t.key, parent, kind == "dependency_added", *at);
+                    }
+                }
+                _ => {}
+            }
+        }
+        for g in given.0 {
+            if let (WhatChanged::WaitsFor { parent }, Some(t)) =
+                (g.change, out.created.iter_mut().find(|t| t.key == g.ticket))
             {
-                out.edited.push(t.key.clone());
+                t.waits_for.push(parent);
+            }
+        }
+        out.changes = changes.made();
+        // The changes the user took back with Undo since it last made them.
+        let undone: Vec<(String, String, i64)> = sqlx::query_as(
+            "SELECT ticket_id, payload_json, at FROM events
+             WHERE kind = ? AND json_extract(payload_json, '$.agent') = ?",
+        )
+        .bind(EventKind::NoyanChangeUndone.as_str())
+        .bind(id)
+        .fetch_all(self.inner.board.store().pool())
+        .await?;
+        for c in &mut out.changes {
+            c.undone = undone.iter().any(|(ticket, payload, at)| {
+                *at >= c.at
+                    && by_id(ticket).is_some_and(|t| t.key == c.ticket)
+                    && serde_json::from_str::<serde_json::Value>(payload)
+                        .ok()
+                        .and_then(|p| {
+                            serde_json::from_value::<WhatChanged>(p.get("change")?.clone()).ok()
+                        })
+                        .is_some_and(|change| change == c.change)
+            });
+        }
+        for c in &out.changes {
+            if !out.edited.contains(&c.ticket) {
+                out.edited.push(c.ticket.clone());
             }
         }
         out.edited.sort();
@@ -948,8 +1055,9 @@ impl ProjectAgents {
         Ok(())
     }
 
-    /// Enter in a session's terminal: if it is a Project agent's, it is active. `line` (the first line sent that
-    /// isn't empty) answers its open question unless a permission prompt shows on top of it (d0119).
+    /// Enter in a session's terminal, or a key alone that answers its tool's prompt (Codex's "y"): if it is a Project
+    /// agent's, it is active. `line` (Enter's first line sent that isn't empty) answers its open question unless a
+    /// permission prompt shows on top of it (d0119).
     pub async fn enter(&self, session: &str, line: Option<&str>) -> Result<(), BoardError> {
         let agent: Option<(Option<String>,)> =
             sqlx::query_as("SELECT project_agent_id FROM sessions WHERE id = ?")
@@ -1082,6 +1190,12 @@ impl ProjectAgents {
         }
         list.holds = self.inner.board.store().project_holds(&project.id).await?;
         Ok(list)
+    }
+
+    /// Whether a Noyan conversation's session is replying: it runs a turn that hasn't ended. A conversation idle
+    /// between turns, waiting for the user's next message, isn't an agent at work.
+    pub fn replying(&self, session: &SessionInfo) -> bool {
+        session.is_running() && !self.inner.idle.is_idle(&session.id)
     }
 
     /// One Project agent.
@@ -1262,7 +1376,58 @@ impl ProjectAgents {
         .bind(id)
         .execute(self.inner.board.store().pool())
         .await?;
-        Ok(done.rows_affected() > 0)
+        let ended = done.rows_affected() > 0;
+        if ended {
+            self.turn_ended(id).await?;
+        }
+        Ok(ended)
+    }
+
+    /// Marks the end of the agent's turn among its events, so Created and changed tells a change it made in a later
+    /// turn to a ticket it created from what it gave that ticket as it made it. Once per turn: nothing when it did
+    /// nothing since its last turn ended (nor before it did anything).
+    async fn turn_ended(&self, id: &str) -> Result<(), BoardError> {
+        let actor = Actor::ProjectAgent(id.to_owned()).to_string();
+        sqlx::query(
+            "INSERT INTO events (id, ticket_id, kind, actor, payload_json, at)
+             SELECT ?, NULL, ?, ?, '{}', ?
+             WHERE (SELECT kind FROM events WHERE actor = ? ORDER BY at DESC, id DESC LIMIT 1) <> ?",
+        )
+        .bind(new_id())
+        .bind(TURN_ENDED)
+        .bind(&actor)
+        .bind(now_ms())
+        .bind(&actor)
+        .bind(TURN_ENDED)
+        .execute(self.inner.board.store().pool())
+        .await?;
+        Ok(())
+    }
+
+    /// Undo on one of its CHANGED rows took `change` back on `ticket` (the edit itself is the user's own, through the
+    /// board): recorded on the ticket, so the row says it was undone until the agent changes that part again.
+    pub async fn undone(
+        &self,
+        id: &str,
+        ticket: &str,
+        change: &WhatChanged,
+        actor: &Actor,
+    ) -> Result<(), BoardError> {
+        let agent = self.get(id).await?;
+        let ticket = self.inner.board.ticket_id(ticket).await?;
+        sqlx::query(
+            "INSERT INTO events (id, ticket_id, kind, actor, payload_json, at) VALUES (?, ?, ?, ?, ?, ?)",
+        )
+        .bind(new_id())
+        .bind(&ticket)
+        .bind(EventKind::NoyanChangeUndone.as_str())
+        .bind(actor.to_string())
+        .bind(serde_json::json!({ "agent": id, "change": change }).to_string())
+        .bind(now_ms())
+        .execute(self.inner.board.store().pool())
+        .await?;
+        self.changed(&agent.project, id);
+        Ok(())
     }
 
     /// The Project agents of the sessions a **Pause** ended (PAU-03, d0112) become Paused at once,
@@ -1382,6 +1547,114 @@ async fn request(
         effort: None,
         title: None,
         theme: board.theme_in_use().await,
+    }
+}
+
+/// A Project agent's changes, one per part of a ticket, folded in the order of its events
+/// ([`CreatedAndChanged::changes`]).
+#[derive(Default)]
+struct Changes(Vec<TicketChange>);
+
+impl Changes {
+    /// Where `ticket`'s part (`same`) is, if it changed it before.
+    fn part(&self, ticket: &TicketKey, same: impl Fn(&WhatChanged) -> bool) -> Option<usize> {
+        self.0
+            .iter()
+            .position(|c| c.ticket == *ticket && same(&c.change))
+    }
+
+    fn push(&mut self, ticket: &TicketKey, change: WhatChanged, at: i64) {
+        self.0.push(TicketChange {
+            ticket: ticket.clone(),
+            change,
+            at,
+            undone: false,
+        });
+    }
+
+    /// A wait added (`added`) or removed. Taking back its own earlier change to that wait leaves it as it found it.
+    fn wait(&mut self, ticket: &TicketKey, parent: TicketKey, added: bool, at: i64) {
+        let on = |c: &WhatChanged| matches!(c, WhatChanged::WaitsFor { parent: p } | WhatChanged::NoLongerWaitsFor { parent: p } if *p == parent);
+        match self.part(ticket, on) {
+            Some(i) if matches!(self.0[i].change, WhatChanged::WaitsFor { .. }) != added => {
+                self.0.remove(i);
+            }
+            Some(i) => self.0[i].at = at,
+            None if added => self.push(ticket, WhatChanged::WaitsFor { parent }, at),
+            None => self.push(ticket, WhatChanged::NoLongerWaitsFor { parent }, at),
+        }
+    }
+
+    fn field(&mut self, ticket: &TicketKey, f: FieldChange, at: i64) {
+        let same =
+            |c: &WhatChanged| matches!(c, WhatChanged::Field { field, .. } if *field == f.field);
+        match self.part(ticket, same) {
+            Some(i) => {
+                if let WhatChanged::Field { after, .. } = &mut self.0[i].change {
+                    *after = f.after;
+                }
+                self.0[i].at = at;
+            }
+            None => self.push(
+                ticket,
+                WhatChanged::Field {
+                    field: f.field,
+                    before: f.before,
+                    after: f.after,
+                },
+                at,
+            ),
+        }
+    }
+
+    /// A `stage_choice_set` event's payload: `stage`, `stage_id`, `choice` and `from`.
+    fn stage_choice(&mut self, ticket: &TicketKey, payload: &serde_json::Value, at: i64) {
+        let text = |key: &str| {
+            payload
+                .get(key)
+                .and_then(serde_json::Value::as_str)
+                .map(str::to_owned)
+        };
+        let (Some(stage), Some(stage_id), Some(choice)) =
+            (text("stage"), text("stage_id"), text("choice"))
+        else {
+            return;
+        };
+        let same = |c: &WhatChanged| matches!(c, WhatChanged::StageChoice { stage_id: id, .. } if *id == stage_id);
+        match self.part(ticket, same) {
+            Some(i) => {
+                if let WhatChanged::StageChoice { after, .. } = &mut self.0[i].change {
+                    *after = choice;
+                }
+                self.0[i].at = at;
+            }
+            None => self.push(
+                ticket,
+                WhatChanged::StageChoice {
+                    stage,
+                    stage_id,
+                    before: text("from"),
+                    after: choice,
+                },
+                at,
+            ),
+        }
+    }
+
+    /// The parts it changed and didn't set back as it found them, in key order (and the order it first changed
+    /// them).
+    fn made(self) -> Vec<TicketChange> {
+        let mut made: Vec<TicketChange> = self
+            .0
+            .into_iter()
+            .filter(|c| match &c.change {
+                WhatChanged::Field { before, after, .. } => before != after,
+                WhatChanged::StageChoice { before, after, .. } => before.as_ref() != Some(after),
+                WhatChanged::WaitsFor { .. } | WhatChanged::NoLongerWaitsFor { .. } => true,
+            })
+            .collect();
+        made.sort_by(|a, b| a.ticket.cmp(&b.ticket));
+        made
     }
 }
 
@@ -1521,6 +1794,7 @@ mod tests {
             title: "t".into(),
             status: Status::Backlog,
             deletable: true,
+            waits_for: Vec::new(),
         };
         let mut c = CreatedAndChanged::default();
         assert_eq!(summary(&c), "Nothing created or changed yet");

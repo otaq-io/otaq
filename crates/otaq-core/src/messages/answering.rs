@@ -6,11 +6,16 @@
 //! removes the worktree, unless files changed there (then it is kept and listed in Cleanup). While the plan limit is
 //! active the question waits, and so it does while the target's project is paused (PAU-04, d0112): the project's
 //! Resume routes it again. The user's **Resume SHOP-17** on it starts the answer session anyway (PAU-05).
+//!
+//! An answer session that ends without the answer (it crashed, was stopped, or ended its turn without `otaq answer`)
+//! puts its question in Needs you on the asking ticket and is never started again by itself; its worktree is tidied
+//! as after an answer. The same at startup for a question whose answer session went with the service. One a pause
+//! stopped waits for the project's Resume instead. A worktree a live ticket uses is never removed.
 
 use std::path::PathBuf;
 use std::time::Duration;
 
-use tokio::sync::watch;
+use tokio::sync::{broadcast, watch};
 
 use super::{Messages, PART_QUESTION, Route, question_text};
 use crate::agent_tools::{FirstPrompt, LaunchRequest, LaunchRole};
@@ -18,9 +23,12 @@ use crate::agents::RunsOn;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::naming;
+use crate::protocol::Event;
 use crate::session::{
-    SessionInfo, SessionKind, SessionTicket, SpawnSpec, Start, StoredConversation, TerminalSize,
+    END_PAUSED, END_SERVICE_STOPPED, SessionInfo, SessionKind, SessionTicket, SpawnSpec, Start,
+    StoredConversation, TerminalSize,
 };
+use crate::signals::hooks::Signal;
 use crate::store::now_ms;
 
 /// The skill an answer session starts with.
@@ -167,6 +175,8 @@ impl Messages {
     /// **Resume SHOP-17** on a question sent to the user (MSG-05): the user's click lets the finished ticket answer
     /// it itself, as MSG-03 would with the setting on. The plan limit still holds it.
     pub async fn resume_target(&self, id: &str) -> Result<super::Message, BoardError> {
+        // Never while an ended answer session's question is moved to Needs you.
+        let _one = self.inner.routing.lock().await;
         let board = &self.inner.board;
         let message = board.message(id).await?;
         if message.answer.is_some() {
@@ -323,15 +333,36 @@ impl Messages {
             .stop(&session.id)
             .await
             .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+        self.tidy_answer_worktree(target).await
+    }
+
+    /// The worktree an answer session re-made, once no answer session runs: removed when clean, else kept and listed
+    /// in Cleanup. A worktree a live ticket uses is never touched: only while the ticket is still Done and neither its
+    /// agent nor another answer session runs.
+    async fn tidy_answer_worktree(&self, target: &Ticket) -> Result<(), BoardError> {
+        let inner = &self.inner;
         let board = &inner.board;
-        let path = self.worktree_path(target).await?;
+        let ticket = board.ticket_by_id(&target.id).await?;
+        let sessions = &inner.sessions;
+        if !ticket.place.is_done()
+            || sessions
+                .running_of(&ticket.id, SessionKind::Agent)
+                .is_some()
+            || sessions
+                .running_of(&ticket.id, SessionKind::Answer)
+                .is_some()
+        {
+            tracing::info!(key = %ticket.key, "answer worktree left as it is: the ticket uses it");
+            return Ok(());
+        }
+        let path = self.worktree_path(&ticket).await?;
         if !path.is_dir() {
             return Ok(());
         }
         let git = board.git()?;
         let dirty = git.uncommitted_files(&path).await?;
         if dirty.is_empty() {
-            let project = board.project(target.key.project.as_str()).await?;
+            let project = board.project(ticket.key.project.as_str()).await?;
             crate::review::finish::remove_worktree(
                 &board.project_git(&project.key).await?,
                 std::path::Path::new(&project.repo_path),
@@ -341,30 +372,212 @@ impl Messages {
             sqlx::query(
                 "UPDATE tickets SET worktree_path = NULL, worktree_kept = FALSE WHERE id = ?",
             )
-            .bind(&target.id)
+            .bind(&ticket.id)
             .execute(board.store().pool())
             .await?;
         } else {
             sqlx::query("UPDATE tickets SET worktree_kept = TRUE WHERE id = ?")
-                .bind(&target.id)
+                .bind(&ticket.id)
                 .execute(board.store().pool())
                 .await?;
-            tracing::info!(key = %target.key, files = dirty.len(), "answer worktree kept: files changed");
+            tracing::info!(key = %ticket.key, files = dirty.len(), "answer worktree kept: files changed");
         }
         Ok(())
     }
 
-    /// Looks at waiting questions every [`ROUTE_TICK`] until the service stops.
+    /// A signal of the answer session `session`: whether it ended a turn that started there (an Idle, a turn end, the
+    /// plan limit or a failed turn; background work still running isn't an end). Only a turn the session itself
+    /// started counts, never a turn end before its first prompt.
+    pub fn answer_turn_ended(&self, session: &str, signal: &Signal) -> bool {
+        let mut started = self.inner.answer_turns.lock().expect("answer turns");
+        match signal {
+            Signal::Working { .. } => {
+                started.insert(session.to_owned());
+                false
+            }
+            Signal::Idle { .. }
+            | Signal::TurnEnded
+            | Signal::LimitReached { .. }
+            | Signal::Failed { .. } => started.remove(session),
+            _ => false,
+        }
+    }
+
+    /// The answer session `session` ended a turn: if its question still has no answer, Otaq ends the session, and the
+    /// question goes to Needs you once it has ended ([`Self::answer_session_ended`]).
+    pub async fn end_unanswered_turn(&self, session: &str) -> Result<(), BoardError> {
+        let inner = &self.inner;
+        let Ok(info) = inner.sessions.info(session) else {
+            return Ok(());
+        };
+        let Some(key) = info.ticket.as_ref().filter(|_| info.is_running()) else {
+            return Ok(());
+        };
+        let target = inner.board.ticket(&key.to_string()).await?;
+        if self.serving(&target.id).await?.is_empty() {
+            return Ok(());
+        }
+        tracing::info!(key = %target.key, session, "the answer session ended its turn without answering");
+        inner
+            .sessions
+            .stop(session)
+            .await
+            .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))
+    }
+
+    /// The questions to `target_id` an answer session was started for that have no answer yet.
+    async fn serving(&self, target_id: &str) -> Result<Vec<String>, BoardError> {
+        Ok(sqlx::query_scalar(
+            "SELECT id FROM messages WHERE to_ticket_id = ? AND delivery = 'resumed' AND answer IS NULL
+             ORDER BY asked_at, id",
+        )
+        .bind(target_id)
+        .fetch_all(self.inner.board.store().pool())
+        .await?)
+    }
+
+    /// An answer session ended. Without the answer (it crashed, was stopped, or ended its turn) its question goes to
+    /// Needs you on the asking ticket, to answer there or to Resume the answering ticket: Otaq never starts it again by
+    /// itself. Stopped by its project's pause, the question waits for the project's Resume, which carries on. The
+    /// worktree is tidied, except after a pause. A service that stops leaves it all to its next start.
+    pub async fn answer_session_ended(&self, info: &SessionInfo) -> Result<(), BoardError> {
+        if info.kind != SessionKind::Answer || info.is_running() {
+            return Ok(());
+        }
+        self.inner
+            .answer_turns
+            .lock()
+            .expect("answer turns")
+            .remove(&info.id);
+        let reason = info.end_reason.as_deref().unwrap_or_default();
+        if reason == END_SERVICE_STOPPED {
+            return Ok(());
+        }
+        let Some(key) = &info.ticket else {
+            return Ok(());
+        };
+        let target = match self.inner.board.ticket(&key.to_string()).await {
+            Ok(target) => target,
+            Err(BoardError::NotFound(_)) => return Ok(()),
+            Err(e) => return Err(e),
+        };
+        {
+            // Never while a routing pass starts the next answer session.
+            let _one = self.inner.routing.lock().await;
+            if self
+                .inner
+                .sessions
+                .running_of(&target.id, SessionKind::Answer)
+                .is_some()
+            {
+                return Ok(());
+            }
+            if reason != END_PAUSED {
+                self.unanswered_to_needs_you(&target).await?;
+                return self.tidy_answer_worktree(&target).await;
+            }
+            self.wait_again(&target).await?;
+        }
+        // Kept while the project is paused; routed now if it was resumed in the meantime.
+        self.route_waiting().await
+    }
+
+    /// The questions whose answer session is gone (with the previous run, or an end missed): as when an answer
+    /// session ends without the answer ([`Self::answer_session_ended`]); one a pause stopped waits for its project's
+    /// Resume. Runs when the service starts, before anything is routed, and on each routing tick.
+    pub async fn answer_sessions_gone(&self) -> Result<(), BoardError> {
+        let board = &self.inner.board;
+        let _one = self.inner.routing.lock().await;
+        let targets: Vec<String> = sqlx::query_scalar(
+            "SELECT DISTINCT to_ticket_id FROM messages WHERE delivery = 'resumed' AND answer IS NULL",
+        )
+        .fetch_all(board.store().pool())
+        .await?;
+        for target_id in targets {
+            if self
+                .inner
+                .sessions
+                .running_of(&target_id, SessionKind::Answer)
+                .is_some()
+            {
+                continue;
+            }
+            let target = board.ticket_by_id(&target_id).await?;
+            let last: Option<Option<String>> = sqlx::query_scalar(
+                "SELECT end_reason FROM sessions WHERE ticket_id = ? AND kind = 'answer'
+                 ORDER BY started_at DESC, id DESC LIMIT 1",
+            )
+            .bind(&target_id)
+            .fetch_optional(board.store().pool())
+            .await?;
+            if last.flatten().as_deref() == Some(END_PAUSED) {
+                self.wait_again(&target).await?;
+            } else {
+                self.unanswered_to_needs_you(&target).await?;
+                self.tidy_answer_worktree(&target).await?;
+            }
+        }
+        Ok(())
+    }
+
+    /// The target's questions whose answer session is gone without the answer go to Needs you.
+    async fn unanswered_to_needs_you(&self, target: &Ticket) -> Result<(), BoardError> {
+        for id in self.serving(&target.id).await? {
+            self.set_route(&id, Route::NeedsYou).await?;
+            tracing::info!(id, key = %target.key, "the answer session ended without the answer: Needs you");
+            let message = self.inner.board.message(&id).await?;
+            self.changed_message(&message).await;
+        }
+        Ok(())
+    }
+
+    /// The target's questions whose answer session a pause stopped wait to be routed again.
+    async fn wait_again(&self, target: &Ticket) -> Result<(), BoardError> {
+        for id in self.serving(&target.id).await? {
+            sqlx::query("UPDATE messages SET delivery = NULL, delivered_at = NULL WHERE id = ?")
+                .bind(&id)
+                .execute(self.inner.board.store().pool())
+                .await?;
+            tracing::info!(id, key = %target.key, "the answer session was paused: the question waits");
+            let message = self.inner.board.message(&id).await?;
+            self.changed_message(&message).await;
+        }
+        Ok(())
+    }
+
+    /// Looks at waiting questions every [`ROUTE_TICK`], and at the answer sessions that end, until the service stops.
     pub async fn run(self, mut stop: watch::Receiver<bool>) {
+        let mut listener = self.inner.events.listen();
         let mut tick = tokio::time::interval(ROUTE_TICK);
         tick.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Delay);
         loop {
-            tokio::select! {
+            let event = tokio::select! {
                 _ = stop.wait_for(|s| *s) => return,
-                _ = tick.tick() => {}
-            }
-            if let Err(e) = self.route_waiting().await {
-                tracing::warn!(error = %e, "can't route the waiting questions");
+                _ = tick.tick() => None,
+                event = listener.receiver.recv() => Some(event),
+            };
+            match event {
+                None => {
+                    // An end missed while the events fell behind.
+                    if let Err(e) = self.answer_sessions_gone().await {
+                        tracing::warn!(error = %e, "can't look at the answer sessions gone");
+                    }
+                    if let Err(e) = self.route_waiting().await {
+                        tracing::warn!(error = %e, "can't route the waiting questions");
+                    }
+                }
+                Some(Ok(Event::SessionState { session }))
+                    if session.kind == SessionKind::Answer && !session.is_running() =>
+                {
+                    if let Err(e) = self.answer_session_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't handle the answer session's end");
+                    }
+                }
+                Some(Ok(_)) => {}
+                Some(Err(broadcast::error::RecvError::Lagged(missed))) => {
+                    tracing::warn!(missed, "the questions fell behind on session events");
+                }
+                Some(Err(broadcast::error::RecvError::Closed)) => return,
             }
         }
     }

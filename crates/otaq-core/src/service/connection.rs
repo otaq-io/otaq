@@ -25,7 +25,6 @@ use crate::protocol::{
 };
 use crate::session::{Answering, OutputChunk};
 use crate::store::StoreError;
-use crate::store::settings::PERMISSION_WARNING_DISMISSED;
 use crate::tools;
 
 /// Numbers the connections, so focus can be kept per client (ATT-03).
@@ -438,16 +437,13 @@ async fn respond(
             report.agent_tools = shared.connected.list().tools;
             (Reply::ToolsCheck(report), Then::Continue)
         }
+        // Settings → Git & pull requests checks only git and the PR providers' tools: the agent tools aren't on it.
+        Request::GitToolsCheck => (
+            Reply::ToolsCheck(tools::check(&shared.config.tools).await),
+            Then::Continue,
+        ),
         Request::OnboardingState => match onboarding_state(shared).await {
             Ok(state) => (Reply::OnboardingState(state), Then::Continue),
-            Err(e) => return (store_error(id, &e), Then::Continue),
-        },
-        Request::DismissPermissionWarning => match shared
-            .store
-            .set_setting(PERMISSION_WARNING_DISMISSED, "true")
-            .await
-        {
-            Ok(()) => (Reply::Ok, Then::Continue),
             Err(e) => return (store_error(id, &e), Then::Continue),
         },
         Request::DismissTrustNote => match setup::dismiss_note(&shared.store).await {
@@ -489,7 +485,8 @@ async fn respond(
         | Request::SessionInput(_)
         | Request::SessionDeliverNow(_)
         | Request::SessionSendAgain(_)
-        | Request::SessionFocus(_)) => {
+        | Request::SessionFocus(_)
+        | Request::SessionUnsent(_)) => {
             match session_requests::handle(request, client, shared).await {
                 Ok(answer) => answer,
                 Err(error) => return (Message::error(id, error), Then::Continue),
@@ -519,9 +516,6 @@ async fn respond(
             }
         }
         request @ (Request::ProjectAgentOpen(_)
-        | Request::OnboardingAsk(_)
-        | Request::OnboardingFlowSetup(_)
-        | Request::OnboardingUseDefault(_)
         | Request::ProjectAgentList(_)
         | Request::ProjectAgentClose(_)
         | Request::ProjectAgentCloseEnded(_)
@@ -533,7 +527,8 @@ async fn respond(
         | Request::ProjectAgentAnswer(_)
         | Request::ProjectAgentSend(_)
         | Request::ProjectAgentPrime(_)
-        | Request::ProjectAgentCreated(_)) => {
+        | Request::ProjectAgentCreated(_)
+        | Request::ProjectAgentUndone(_)) => {
             match agent_requests::handle(request, who, shared).await {
                 Ok(reply) => (reply, Then::Continue),
                 Err(error) => return (Message::error(id, error), Then::Continue),
@@ -600,11 +595,6 @@ async fn onboarding_state(shared: &Shared) -> Result<OnboardingState, StoreError
     trust_failed.retain(|f| projects.iter().any(|p| p.key == f.project_key));
     Ok(OnboardingState {
         has_projects: !projects.is_empty(),
-        permission_warning_dismissed: shared
-            .store
-            .setting(PERMISSION_WARNING_DISMISSED)
-            .await?
-            .is_some_and(|v| v == "true"),
         trust_note: setup::note_pending(&shared.store).await?,
         trust_note_tools: setup::note_tools(&shared.store).await?,
         trust_failed,

@@ -88,6 +88,28 @@ pub(crate) fn stage_of<'a>(file: &'a FlowFile, stage: &str) -> Result<&'a Stage,
         })
 }
 
+/// The stage whose skill the Project agent `agent` was asked to write (Ask the agent to write it, no folder named yet)
+/// when that isn't `target`: two stages with near names ("Update the docs", "Update the docs 2") must not swap, so a
+/// folder for the other one is refused, naming the stage asked for. None when `target` is one it was asked for, or it
+/// was asked for none (the user asked in their own words).
+fn asked_for_another<'a>(
+    file: &'a FlowFile,
+    writing: &[SkillWriting],
+    target: &Stage,
+    agent: &str,
+) -> Option<&'a Stage> {
+    let its: Vec<&SkillWriting> = writing
+        .iter()
+        .filter(|w| w.agent.as_deref() == Some(agent))
+        .collect();
+    if its.iter().any(|w| w.stage_id == target.id) {
+        return None;
+    }
+    its.iter()
+        .filter(|w| w.folder.is_none())
+        .find_map(|w| file.flow.stage(&w.stage_id))
+}
+
 /// A stage an agent runs (only those have a skill).
 fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
     if stage.has_agent() {
@@ -277,6 +299,26 @@ impl Board {
         !path.exists()
     }
 
+    /// Cancel on the draft `row`: the folders of the skills the agent wrote for it go as Undo deletes them, and those
+    /// it was still writing as Stop does.
+    pub(super) async fn remove_draft_skills(&self, row: &Row) {
+        for written in &row.draft.written {
+            self.remove_written_folder(
+                &row.project,
+                &written.folder,
+                Some(&written.fingerprint),
+                &written.made,
+            )
+            .await;
+        }
+        for writing in &row.draft.writing {
+            if let Some(folder) = &writing.folder {
+                self.remove_written_folder(&row.project, folder, None, &writing.made)
+                    .await;
+            }
+        }
+    }
+
     /// `file` without the skill `written`: its stage's skill as it was before.
     pub(super) fn without_written(mut file: FlowFile, written: &WrittenSkill) -> FlowFile {
         if let Some(stage) = file
@@ -291,7 +333,8 @@ impl Board {
     }
 
     /// After a change to the draft `row`: the skills being written for stages it no longer has are forgotten, and so
-    /// are written ones their stage no longer names. Their folders stay in the checkout: only Undo and Stop delete one.
+    /// are written ones their stage no longer names. Their folders stay in the checkout: only Undo, Stop and Cancel
+    /// delete one.
     pub(super) fn keep_skills(row: &mut Row) -> Result<(), BoardError> {
         if row.draft.writing.is_empty() && row.draft.written.is_empty() {
             return Ok(());
@@ -328,6 +371,21 @@ impl Board {
         let file = read(&row.yaml)?;
         let target = stage_of(&file, stage)?.clone();
         runs_agent(&target)?;
+        if let Some(asked) =
+            agent.and_then(|a| asked_for_another(&file, &row.draft.writing, &target, a))
+        {
+            return Err(BoardError::refused(
+                Refusal::BadSkillFolder,
+                format!(
+                    "You were asked to write {asked}'s skill, not {target}'s: run `{cmd} flow write-skill {id} --name \
+                     <name>`",
+                    asked = asked.name,
+                    target = target.name,
+                    cmd = naming::COMMAND_NAME,
+                    id = asked.id,
+                ),
+            ));
+        }
         let checkout = self.checkout(&key).await?;
         let (had, had_made) = row
             .draft

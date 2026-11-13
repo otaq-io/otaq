@@ -247,14 +247,16 @@ pub enum Item {
         title: String,
         keys: Vec<String>,
     },
-    /// "Pause this project", "Resume all projects" (PAU-08, d0112): runs at once, no confirmation. `project` is the
-    /// open project's key for This project.
+    /// "Pause shop-web  ⇧⌘.", "Resume all projects" (PAU-08, d0112): runs at once, no confirmation. `project` is the
+    /// open project's key for This project. `keys`: Pause / Resume agents' keys on the open project's Pause, as the
+    /// title bar's menu shows them there; none on the other rows.
     Pause {
         scope: pause::Scope,
         resume: bool,
         project: Option<String>,
         icon: IconName,
-        title: &'static str,
+        title: String,
+        keys: Vec<String>,
     },
     /// "Next that needs you  SHOP-22  ⌘J": what ⌘J opens now (`label`: the ticket's key, or the Noyan conversation's
     /// name); picking it runs ⌘J.
@@ -337,6 +339,9 @@ pub struct Inputs<'a> {
     pub projects: &'a [ProjectInfo],
     /// Every project's tickets.
     pub tickets: &'a [Ticket],
+    /// Every project's board columns by its key, knowing where each held ticket starts (`board::columns`); a project
+    /// missing here reads the default flow's.
+    pub boards: &'a [(String, Columns<'a>)],
     pub recent: &'a [RecentItem],
     pub context: Context,
     /// What ⌘J opens now from where the palette was opened: a ticket's key, or a Noyan conversation's name; `None`
@@ -360,10 +365,15 @@ pub fn keys_of(action: KeyAction, inputs: &Inputs) -> Vec<String> {
 }
 
 /// The Pause and Resume rows for the open project and for all projects ([`pause::palette`]), with their titles.
-fn pause_rows(inputs: &Inputs) -> Vec<(&'static str, Row)> {
+fn pause_rows(inputs: &Inputs) -> Vec<(String, Row)> {
     pause::palette(inputs.project, inputs.projects)
         .into_iter()
         .map(|(scope, resume, title)| {
+            let keys = if scope == pause::Scope::Project && !resume {
+                keys_of(KeyAction::Pause, inputs)
+            } else {
+                Vec::new()
+            };
             let row = Row {
                 pickable: true,
                 item: Item::Pause {
@@ -377,7 +387,8 @@ fn pause_rows(inputs: &Inputs) -> Vec<(&'static str, Row)> {
                     } else {
                         IconName::Pause
                     },
-                    title,
+                    title: title.clone(),
+                    keys,
                 },
             };
             (title, row)
@@ -399,10 +410,18 @@ fn action_row(action: KeyAction, inputs: &Inputs) -> Row {
     }
 }
 
-/// "Review", "Dev · Needs you": the board column it is in, and Needs you when it waits on the user.
-pub fn place(ticket: &Ticket) -> String {
-    // The default flow's column names; every project's flow has the same columns until M33.
-    let columns = Columns::of(&otaq_core::flow::default_file().flow);
+/// "Review", "Dev · Needs you": the column its card shows in on its project's board (a held ticket in the stage it
+/// starts at), and Needs you when it waits on the user.
+pub fn place(ticket: &Ticket, inputs: &Inputs) -> String {
+    let project = ticket.key.project.to_string();
+    let default;
+    let columns = match inputs.boards.iter().find(|(key, _)| *key == project) {
+        Some((_, columns)) => columns,
+        None => {
+            default = Columns::of(&otaq_core::flow::default_file().flow);
+            &default
+        }
+    };
     let column = columns.column_of(ticket).title.as_str();
     if ticket.status.is_needs_you_family() {
         format!("{column} \u{b7} Needs you")
@@ -428,7 +447,7 @@ fn ticket_row(ticket: &Ticket, inputs: &Inputs) -> Row {
             title: ticket.title.clone(),
             project,
             other_project,
-            place: place(ticket),
+            place: place(ticket, inputs),
         },
     }
 }
@@ -507,7 +526,7 @@ fn edit_flow_row(project: &str) -> Row {
     }
 }
 
-/// The actions an empty field suggests after Next that needs you, in order; Edit flow and Pause this project go
+/// The actions an empty field suggests after Next that needs you, in order; Edit flow and Pause shop-web go
 /// between them.
 const SUGGESTED_ACTIONS: [KeyAction; 4] = [
     KeyAction::NewTicket,
@@ -517,7 +536,7 @@ const SUGGESTED_ACTIONS: [KeyAction; 4] = [
 ];
 
 /// An empty field's suggestions: Next that needs you first (only while something needs the user), then New ticket,
-/// Edit flow, Ask Noyan, Pause (or Resume) this project, Settings and Open a terminal.
+/// Edit flow, Ask Noyan, Pause (or Resume) shop-web, Settings and Open a terminal.
 fn suggested_rows(inputs: &Inputs) -> Vec<Row> {
     let mut rows = Vec::new();
     if let Some(label) = inputs.next_needs_you {
@@ -623,7 +642,7 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             let s = if needle.is_empty() {
                 Some(0)
             } else {
-                score(&needle, title)
+                score(&needle, &title)
             };
             ranked.extend(s.map(|s| (s, row)));
         }
@@ -671,7 +690,7 @@ pub fn view(query: &str, inputs: &Inputs) -> View {
             }
         }
         for (title, row) in pause_rows(inputs) {
-            if let Some(s) = score(&needle, title) {
+            if let Some(s) = score(&needle, &title) {
                 here.push((s, row));
             }
         }
@@ -751,10 +770,9 @@ pub fn gallery() -> Vec<GalleryFrame> {
         name: name.into(),
         repo_path: format!("/code/{name}"),
         base_branch: "main".into(),
-        // Agents at work, as drawn: Pause this project is offered.
+        // Agents at work, as drawn: Pause shop-web is offered.
         agents_working: 1,
         needs_you: 0,
-        flow_setup_since: None,
         paused_since: None,
         paused_by: None,
     };
@@ -820,6 +838,7 @@ pub fn gallery() -> Vec<GalleryFrame> {
                 recent: &recent,
                 context,
                 next_needs_you: Some("SHOP-22"),
+                boards: &[],
             },
         ),
     };
@@ -861,7 +880,6 @@ mod tests {
             base_branch: "main".into(),
             agents_working: 0,
             needs_you: 0,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }
@@ -901,6 +919,7 @@ mod tests {
             recent,
             context: Context::default(),
             next_needs_you: None,
+            boards: &[],
         }
     }
 
@@ -989,6 +1008,9 @@ mod tests {
 
     #[test]
     fn a_ticket_row_says_its_column_and_needs_you() {
+        let (projects, tickets, bindings) = example();
+        let i = inputs(&projects, &tickets, &bindings, &[]);
+        let place = |t: &Ticket| place(t, &i);
         assert_eq!(place(&ticket("API-1", "t", Status::Working)), "Dev");
         assert_eq!(
             place(&ticket("API-1", "t", Status::NeedsYou)),
@@ -998,6 +1020,32 @@ mod tests {
             place(&ticket("API-1", "t", Status::WaitingForYou)),
             "Review"
         );
+    }
+
+    /// A held ticket that skips Spec first's planning says Dev, the stage it starts at, as the board shows it; queued,
+    /// it waits at the top of the first stage.
+    #[test]
+    fn a_held_ticket_row_names_the_stage_it_starts_at() {
+        use crate::view_models::flow_columns::held_fixture::{spec_first, starts_at_dev, waiting};
+        let (projects, _, bindings) = example();
+        let file = spec_first();
+        let agents = starts_at_dev();
+        let boards = [(
+            "NOTE".to_owned(),
+            Columns::of(&file.flow).knowing(Some(&agents)),
+        )];
+        let held = waiting(Status::Held);
+        let tickets = vec![held.clone()];
+        let i = Inputs {
+            boards: &boards,
+            ..inputs(&projects, &tickets, &bindings, &[])
+        };
+        assert_eq!(place(&held, &i), "Dev");
+        let Item::Ticket { place: shown, .. } = &view("export", &i).rows[0].item else {
+            panic!("the ticket's row first")
+        };
+        assert_eq!(shown, "Dev");
+        assert_eq!(place(&waiting(Status::Queued), &i), "Product spec");
     }
 
     #[test]
@@ -1050,7 +1098,7 @@ mod tests {
         for keyless in [
             "Park",
             "Close ticket",
-            "Open PR",
+            "Approve & open PR",
             "Re-run validation",
             "Open diff",
         ] {
@@ -1159,6 +1207,7 @@ mod tests {
         let (projects, tickets, bindings) = example();
         let i = Inputs {
             next_needs_you: Some("NOTE-1"),
+            boards: &[],
             ..inputs(&projects, &tickets, &bindings, &[])
         };
         let v = view("", &i);
@@ -1186,20 +1235,77 @@ mod tests {
                 "action Open a terminal",
             ]
         );
-        // Pause this project only while an agent works there (a ticket waiting for review isn't one).
+        // Pause <the open project> only while an agent works there (a ticket waiting for review isn't one).
         let mut running = projects.clone();
         running[0].agents_working = 1;
         let busy = view(
             "",
             &Inputs {
                 next_needs_you: Some("NOTE-1"),
+                boards: &[],
                 ..inputs(&running, &tickets, &bindings, &[])
             },
         );
-        assert!(
-            words(&busy).contains(&"pause Pause this project".to_owned()),
+        // Named and keyed as drawn ("Pause shop-web ⇧⌘."), as the title bar's menu names it.
+        let pause_row = busy
+            .rows
+            .iter()
+            .find(|r| matches!(r.item, Item::Pause { .. }))
+            .map(|r| r.item.clone());
+        assert_eq!(
+            pause_row,
+            Some(Item::Pause {
+                scope: pause::Scope::Project,
+                resume: false,
+                project: Some("NOTE".into()),
+                icon: IconName::Pause,
+                title: "Pause pocket-notes".into(),
+                keys: vec!["⇧⌘.".into()],
+            }),
             "{:?}",
             words(&busy)
+        );
+        // Windows' keys.
+        let windows = keymap::user_keys(Platform::WinLinux, &CustomKeys::default());
+        let on_windows = view("", &inputs(&running, &tickets, &windows, &[]));
+        assert!(
+            on_windows.rows.iter().any(|r| matches!(
+                &r.item,
+                Item::Pause { title, keys, .. }
+                    if title == "Pause pocket-notes" && *keys == ["Ctrl+Shift+."]
+            )),
+            "{:?}",
+            words(&on_windows)
+        );
+        // Typing the project's name finds it.
+        assert_eq!(
+            words(&view(
+                "pause pocket",
+                &inputs(&running, &tickets, &bindings, &[])
+            ))[0],
+            "pause Pause pocket-notes"
+        );
+        // Resume (from the paused banner) and the All projects rows carry no keys: ⇧⌘. opens the menu, whose
+        // keyed row is the open project's Pause.
+        let mut paused = running.clone();
+        paused[0].paused_since = Some(1);
+        paused[1].agents_working = 1;
+        let resumable = view(">", &inputs(&paused, &tickets, &bindings, &[]));
+        let pause_rows: Vec<(String, Vec<String>)> = resumable
+            .rows
+            .iter()
+            .filter_map(|r| match &r.item {
+                Item::Pause { title, keys, .. } => Some((title.clone(), keys.clone())),
+                _ => None,
+            })
+            .collect();
+        assert_eq!(
+            pause_rows,
+            [
+                ("Resume pocket-notes".to_owned(), vec![]),
+                ("Pause all projects".to_owned(), vec![]),
+                ("Resume all projects".to_owned(), vec![]),
+            ]
         );
         assert_eq!(
             v.rows[2].item,

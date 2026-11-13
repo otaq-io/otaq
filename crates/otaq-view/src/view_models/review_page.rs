@@ -1,6 +1,6 @@
 //! The review dialogs as the Tauri page draws them (T-0226; REV-04, REV-06, REV-08, GIT-03, GIT-04, GIT-05, UI-02;
 //! d0015, d0017, d0034, d0038, d0043, d0050, d0051): [`approve`] and [`send_back`] turned into plain, serialized
-//! shapes. *07 → Send back · review & confirm, Local merge · confirm / success / rebasing / conflict / refused,
+//! shapes. *07 → Send back · review & confirm, Local merge · confirm / success / merging / conflict / refused,
 //! Approve · changed since review, Uncommitted files · refused, Base branch · SHOP-31 on release/2.3*.
 //!
 //! The page keeps only which step shows, the edited message and note, and the click.
@@ -9,8 +9,9 @@ use otaq_core::board::comments::ReviewComment;
 use otaq_core::board::review::ApproveCheck;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::TicketKey;
+use otaq_core::git::merge::HookChanges;
 use otaq_core::review::LocalMergeOutcome;
-use serde::Serialize;
+use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::keymap::Platform;
@@ -41,6 +42,8 @@ pub struct ConfirmView {
     pub prepared: Option<String>,
     /// "Strong is still writing the message. Merge now with this one, …": the message is the plain one meanwhile.
     pub writing: Option<String>,
+    /// The writer waits for permission: Answer in terminal opens its terminal, beside the plain message.
+    pub asks: Option<WriterAsks>,
     /// "Into (SHOP-18’s base branch)"
     pub into: String,
     pub target: String,
@@ -49,9 +52,14 @@ pub struct ConfirmView {
     /// The base is the ticket's own (a hotfix on `release/2.3`), locked since it started (d0051).
     pub locked: bool,
     pub message_label: &'static str,
+    /// The message the box starts from: the user's kept edit, else the proposal.
     pub message: String,
+    /// The proposal (the agent's, else the plain one): Use the proposed message puts it back.
+    pub proposed: String,
+    /// "Use the proposed message", shown while the box differs from `proposed`.
+    pub use_proposed: &'static str,
     pub note: String,
-    /// "Conflicts with release/2.3. Otaq tries a rebase onto …" while the ticket is flagged (GIT-04).
+    /// "Conflicts with release/2.3. Otaq merges the latest …" while the ticket is flagged (GIT-04).
     pub conflict: Option<String>,
     /// The Merge check's one line (d0120).
     pub merge_check: MergeCheckNote,
@@ -93,12 +101,20 @@ impl MergeCheckNote {
     }
 }
 
-/// *Local merge · rebasing onto main…*: the steps while it runs.
+/// *Local merge · merging*: the steps while it runs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "LocalMergeMerging")]
 pub struct MergingView {
     pub title: String,
     pub steps: Vec<String>,
+    /// The step git is really on, an index into `steps`.
+    pub current: usize,
+    /// While one of the user's hooks runs: "running your pre-commit hook · 40 s", under the current step. The page
+    /// asks again every second meanwhile.
+    pub hook: Option<String>,
+    /// "Stop" while a step runs that can be stopped (the Merge check's included), beside the current step; none once
+    /// the target moves (the merge has landed). Sends `stop_git_step`.
+    pub stop: Option<&'static str>,
     pub label: &'static str,
     pub note: String,
     /// The dialog can be closed while it runs; the merge finishes on its own (d0120).
@@ -169,7 +185,10 @@ pub struct ApproveFacts<'a> {
     pub ticket: &'a Ticket,
     pub tickets: &'a [Ticket],
     pub target: &'a str,
+    /// The proposed message.
     pub message: &'a str,
+    /// The user's kept edit of it, shown instead until the ticket lands.
+    pub edited: Option<&'a str>,
     pub repo: &'a str,
     /// The project's own base branch (a ticket on another one shows it locked).
     pub project_base: &'a str,
@@ -183,6 +202,45 @@ pub struct ApproveFacts<'a> {
     pub prepared_by: Option<&'a str>,
     /// The delivery's agent still writing it.
     pub writing: Option<&'a str>,
+    /// The writer's session, when it waits for permission.
+    pub asks_in: Option<&'a str>,
+    /// Now, for how long a running hook has run.
+    pub now_ms: i64,
+}
+
+/// The message's writer waits for permission (its tool asks before a command): the dialog says so and offers its
+/// terminal to answer in, beside the plain message. The ticket in Review stays calm meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "WriterAsks")]
+pub struct WriterAsks {
+    /// The writer's session: its terminal answers the prompt.
+    pub session: String,
+    /// "Answer in terminal"
+    pub answer: &'static str,
+    /// "Developer · SHOP-5's message": the terminal's title.
+    pub terminal_title: String,
+}
+
+/// Answer in terminal, beside the plain message.
+pub const ANSWER_IN_TERMINAL: &str = "Answer in terminal";
+
+impl WriterAsks {
+    pub fn new(session: &str, agent: &str, key: &str) -> Self {
+        Self {
+            session: session.to_owned(),
+            answer: ANSWER_IN_TERMINAL,
+            terminal_title: format!("{agent} \u{b7} {key}\u{2019}s message"),
+        }
+    }
+
+    /// Answer in terminal for another session's prompt, its terminal titled `terminal_title`.
+    pub fn in_session(session: &str, terminal_title: String) -> Self {
+        Self {
+            session: session.to_owned(),
+            answer: ANSWER_IN_TERMINAL,
+            terminal_title,
+        }
+    }
 }
 
 /// "Strong is still writing the message. Merge now with this one, edit it, or wait: it fills in when ready unless
@@ -194,9 +252,19 @@ pub fn still_writing(agent: &str) -> String {
     )
 }
 
+/// "Strong wants to run a command to write the message. Merge now with this one, edit it, or wait: …": the writer
+/// waits for permission.
+pub fn wants_to_run(agent: &str) -> String {
+    format!(
+        "{agent} wants to run a command to write the message. Merge now with this one, edit it, or wait: it fills \
+         in once you answer, unless you\u{2019}ve typed."
+    )
+}
+
 pub fn approve_view(f: ApproveFacts) -> ApproveView {
     let ticket = f.ticket;
     let other_base = f.target != f.project_base;
+    let merging = merging_view(&f);
     ApproveView {
         key: ticket.key.to_string(),
         menu: f.menu,
@@ -213,17 +281,26 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
                     ticket.key
                 )
             }),
-            writing: f.writing.map(still_writing),
+            writing: f.writing.map(|agent| match f.asks_in {
+                Some(_) => wants_to_run(agent),
+                None => still_writing(agent),
+            }),
+            asks: f
+                .writing
+                .zip(f.asks_in)
+                .map(|(agent, session)| WriterAsks::new(session, agent, &ticket.key.to_string())),
             into: ap::into_label(ticket),
             target: f.target.to_owned(),
             repo: crate::shell::tilde(f.repo),
             locked: other_base,
             message_label: "Commit message",
-            message: f.message.to_owned(),
+            message: f.edited.unwrap_or(f.message).to_owned(),
+            proposed: f.message.to_owned(),
+            use_proposed: ap::USE_THE_PROPOSED_MESSAGE,
             note: ap::confirm_note(ticket, f.target, f.tickets),
             conflict: ticket.flags.conflicts_with.as_ref().map(|_| {
                 format!(
-                    "Conflicts with {t}. {} tries a rebase onto the latest {t} first; if it still conflicts, its \
+                    "Conflicts with {t}. {} merges the latest {t} into the branch first; if it still conflicts, its \
                      agent fixes it.",
                     otaq_core::naming::PRODUCT_NAME,
                     t = f.target
@@ -243,17 +320,106 @@ pub fn approve_view(f: ApproveFacts) -> ApproveView {
             cancel: "Cancel",
             hint: format!("cancel \u{b7} {} merge", submit_keys()),
         },
-        merging: MergingView {
-            title: ap::confirm_title(ticket),
-            steps: ap::merging_steps(f.target),
-            label: "Merging\u{2026}",
-            note: format!(
-                "Runs in {}\u{2019}s own scratch worktree \u{2014} your checkout is never touched.",
-                otaq_core::naming::PRODUCT_NAME
-            ),
-            close: "Close",
-        },
+        merging,
         changed: changed_view(&ticket.key, f.check),
+    }
+}
+
+/// *Local merge · merging*: its steps, the one git is really on and the hook that runs.
+fn merging_view(f: &ApproveFacts) -> MergingView {
+    let ticket = f.ticket;
+    let check = f.merge_check.is_some_and(|c| !c.trim().is_empty());
+    let progress = ticket
+        .flags
+        .git
+        .as_ref()
+        .filter(|g| g.operation == otaq_core::domain::GitOperation::Merge);
+    MergingView {
+        title: ap::confirm_title(ticket),
+        steps: ap::merging_steps(f.target, check),
+        current: ap::merging_step(progress, check),
+        hook: progress.and_then(|g| {
+            let hook = g.hook.as_ref()?;
+            Some(crate::view_models::git_progress::hook_line(
+                hook, g.step, f.now_ms,
+            ))
+        }),
+        stop: progress
+            .filter(|g| g.step.is_none_or(otaq_core::git::GitStep::stoppable))
+            .map(|_| crate::view_models::card::STOP),
+        label: "Merging\u{2026}",
+        // Its last step moves the target in the user's folder (and runs their post-merge hook there).
+        note: format!(
+            "Works in {}\u{2019}s own scratch worktree; only the last step moves {} in your folder.",
+            otaq_core::naming::PRODUCT_NAME,
+            f.target
+        ),
+        close: "Close",
+    }
+}
+
+/// "Show changes": a hook's changes to what landed.
+pub const SHOW_CHANGES: &str = "Show changes";
+
+/// A hook changed the files of the commit Approve & merge made, and it landed as the hook left it: the merged toast's
+/// and History's "Your pre-commit hook changed 2 files" with Show changes, and the window Show changes opens, each
+/// file's difference between what was reviewed and what landed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, TS)]
+#[ts(rename = "HookChangesView")]
+pub struct HookChangesView {
+    /// "Your pre-commit hook changed 2 files".
+    pub title: String,
+    /// "Show changes".
+    pub show: String,
+    /// Under the title in the window: what the lines are.
+    pub note: String,
+    /// The commit that was squashed (what was reviewed, the target merged in) and the one that landed: each file's
+    /// lines are `files.diff` with `since` and `until`.
+    pub reviewed: String,
+    pub landed: String,
+    pub files: Vec<String>,
+    /// "Close".
+    pub close: String,
+}
+
+/// The view of a hook's changes to what landed.
+pub fn hook_changes_view(changes: &HookChanges) -> HookChangesView {
+    HookChangesView {
+        title: changes.sentence(),
+        show: SHOW_CHANGES.to_owned(),
+        note: "What the hook changed after your review: the difference between what you reviewed and what landed."
+            .to_owned(),
+        reviewed: changes.reviewed.clone(),
+        landed: changes.landed.clone(),
+        files: changes.files.clone(),
+        close: "Close".to_owned(),
+    }
+}
+
+/// The merged toast's Show changes when a hook changed what landed; `None` otherwise.
+pub fn merged_toast_link(
+    key: &TicketKey,
+    outcome: &LocalMergeOutcome,
+) -> Option<crate::view_models::toasts::ToastLink> {
+    let LocalMergeOutcome::Merged {
+        hook_changed: Some(changes),
+        ..
+    } = outcome
+    else {
+        return None;
+    };
+    Some(hook_changes_link(key, changes))
+}
+
+/// Show changes after a toast's text, opening the window of a hook's changes.
+pub fn hook_changes_link(
+    key: &TicketKey,
+    changes: &HookChanges,
+) -> crate::view_models::toasts::ToastLink {
+    crate::view_models::toasts::ToastLink::HookChanges {
+        label: SHOW_CHANGES.to_owned(),
+        ticket: key.to_string(),
+        changes: hook_changes_view(changes),
     }
 }
 
@@ -273,12 +439,19 @@ pub enum MergeResult {
     Merged {
         toasts: Vec<ToastText>,
     },
+    /// A project's git hook refused a step: the refusal is on the ticket (Needs you, the hook's output, Edit message
+    /// and retry), not in the dialog, which closes; `toast` only points to the ticket.
+    OnTicket {
+        toast: ToastText,
+    },
     /// *Merge conflict during Local merge*: the files, what happens now (the agent fixes it with no click, FLW-17),
     /// the worktree.
     Conflict {
         title: String,
         text: String,
         files: Vec<String>,
+        /// A failed Merge check's output, its end when long; `None` for a conflict or a check that printed nothing.
+        output: Option<String>,
         help: String,
         worktree: Option<String>,
         close: &'static str,
@@ -331,13 +504,20 @@ pub fn merged_toasts(
         target,
         commit,
         started,
+        hook_changed,
     } = outcome
     else {
         return Vec::new();
     };
+    // A hook changed what landed: said in the merged toast itself ("· Your pre-commit hook changed 2 files"), its
+    // Show changes from `merged_toast_link`. Nothing extra otherwise.
+    let text = match hook_changed {
+        Some(changes) => format!("{} \u{b7} {}", ap::squashed_as(commit), changes.sentence()),
+        None => ap::squashed_as(commit),
+    };
     let mut toasts = vec![ToastText {
-        title: format!("Local merge done \u{b7} {key}"),
-        text: Some(format!("Squashed into {target} as {}", ap::short(commit))),
+        title: ap::merged_title(key, target),
+        text: Some(text),
     }];
     if let Some(warning) = ticket
         .work
@@ -458,6 +638,7 @@ pub fn merge_result(
             title,
             text,
             files,
+            output: None,
             help: ap::conflict_help(key, target),
             worktree: ticket
                 .work
@@ -467,10 +648,15 @@ pub fn merge_result(
             close: "Close",
         },
         // Shown as a conflict is: what failed, and that the agent fixes it with no click (d0120).
-        MergeView::CheckFailed { title, text } => MergeResult::Conflict {
+        MergeView::CheckFailed {
+            title,
+            text,
+            output,
+        } => MergeResult::Conflict {
             title,
             text,
             files: Vec::new(),
+            output: Some(output).filter(|o| !o.is_empty()),
             help: ap::check_failed_help(key, target),
             worktree: ticket
                 .work
@@ -481,6 +667,11 @@ pub fn merge_result(
         },
         MergeView::CheckStopped { message } => MergeResult::Stopped {
             title: "Merge check stopped".to_owned(),
+            message,
+            close: "Close",
+        },
+        MergeView::Stopped { message } => MergeResult::Stopped {
+            title: "Merge stopped".to_owned(),
             message,
             close: "Close",
         },
@@ -499,6 +690,12 @@ pub fn merge_result(
             view: "View",
             send_back: crate::view_models::sheet_actions::SEND_BACK,
             cancel: "Cancel",
+        },
+        MergeView::HookRefused { title, text } => MergeResult::OnTicket {
+            toast: ToastText {
+                title,
+                text: Some(text),
+            },
         },
         MergeView::NeedsIdentity { has } => MergeResult::Identity {
             form: crate::view_models::git_identity::form(&has),
@@ -677,6 +874,7 @@ mod tests {
             tickets: all,
             target,
             message: "SHOP-18: Checkout API",
+            edited: None,
             repo: "/nowhere/code/shop-web",
             project_base: "main",
             check,
@@ -686,12 +884,14 @@ mod tests {
                 all,
                 None,
                 Some(1),
-                otaq_core::flow::Delivers::Either,
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
             ),
             merge_check: None,
             manual_unticked: 0,
             prepared_by: None,
             writing: None,
+            asks_in: None,
+            now_ms: 0,
         }
     }
 
@@ -718,7 +918,27 @@ mod tests {
         assert_eq!(c.conflict, None);
         assert!(c.hint.starts_with("cancel \u{b7} "));
         assert_eq!(view.merging.label, "Merging\u{2026}");
-        assert_eq!(view.merging.steps.len(), 4);
+        assert_eq!(
+            view.merging.note,
+            format!(
+                "Works in {}\u{2019}s own scratch worktree; only the last step moves main in your folder.",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        let develop = approve_view(facts(&t, &all, "develop", &ApproveCheck::Unchanged));
+        assert!(
+            develop
+                .merging
+                .note
+                .ends_with("only the last step moves develop in your folder."),
+            "{}",
+            develop.merging.note
+        );
+        assert_eq!(view.merging.steps.len(), 5);
+        assert_eq!(
+            (view.merging.current, view.merging.hook.as_ref()),
+            (0, None)
+        );
         assert!(view.changed.is_none());
         assert!(!view.push_to_pr);
         assert_eq!(view.menu.items[0].title, "Approve & merge into main");
@@ -814,6 +1034,57 @@ mod tests {
             )
         );
         assert_eq!(writing.confirm.prepared, None);
+        assert_eq!(writing.confirm.asks, None);
+    }
+
+    /// The user's kept edit opens the box instead of the proposal, which stays at hand for Use the proposed message.
+    #[test]
+    fn a_kept_edit_opens_the_box_with_the_proposal_at_hand() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let plain = approve_view(facts(&t, &all, "main", &ApproveCheck::Unchanged));
+        assert_eq!(plain.confirm.message, plain.confirm.proposed);
+        let kept = approve_view(ApproveFacts {
+            edited: Some("feat: checkout API (SHOP-18)"),
+            prepared_by: Some("Strong"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        let c = &kept.confirm;
+        assert_eq!(c.message, "feat: checkout API (SHOP-18)");
+        assert_eq!(c.proposed, "SHOP-18: Checkout API");
+        assert_eq!(c.use_proposed, "Use the proposed message");
+    }
+
+    /// The writer waits for permission: the line says so in plain words, and Answer in terminal opens its session's
+    /// terminal beside the plain message, which can still be merged now.
+    #[test]
+    fn a_writer_waiting_for_permission_offers_answer_in_terminal() {
+        let t = review_ticket();
+        let all = vec![t.clone()];
+        let asks = approve_view(ApproveFacts {
+            writing: Some("Developer"),
+            asks_in: Some("s-writer"),
+            ..facts(&t, &all, "main", &ApproveCheck::Unchanged)
+        });
+        let c = &asks.confirm;
+        assert_eq!(
+            c.writing.as_deref(),
+            Some(
+                "Developer wants to run a command to write the message. Merge now with this one, edit it, or wait: \
+                 it fills in once you answer, unless you\u{2019}ve typed."
+            )
+        );
+        let a = c.asks.as_ref().expect("Answer in terminal");
+        assert_eq!(a.answer, "Answer in terminal");
+        assert_eq!(a.session, "s-writer");
+        assert_eq!(
+            a.terminal_title,
+            "Developer \u{b7} SHOP-18\u{2019}s message"
+        );
+        assert_eq!(
+            c.message, "SHOP-18: Checkout API",
+            "the plain message stays"
+        );
     }
 
     /// d0120, Q475: a failed check reads as a conflict does (the agent fixes it, no click); a stopped one says nothing
@@ -826,11 +1097,13 @@ mod tests {
             target: "main".into(),
             command: "npm test".into(),
             exit: Some(1),
+            output: "FAIL src/cart.test.ts\n  expected 2, got 3".into(),
         };
         let MergeResult::Conflict {
             title,
             text,
             files,
+            output,
             help,
             ..
         } = merge_result(&t, "main", &failed, &all)
@@ -840,13 +1113,18 @@ mod tests {
         assert_eq!(title, "Merge check failed on main");
         assert_eq!(
             text,
-            "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again."
+            "Merge check `npm test` failed on the result with main merged in (exit 1). Fix it, then submit again."
         );
         assert!(files.is_empty());
         assert_eq!(
+            output.as_deref(),
+            Some("FAIL src/cart.test.ts\n  expected 2, got 3"),
+            "the box shows what failed"
+        );
+        assert_eq!(
             help,
             "Nothing was merged into main. SHOP-18 went back to its agent, which fixes it and moves on again; the \
-             check\u{2019}s output is attached to its comment."
+             check\u{2019}s whole output is attached to its comment."
         );
         let stopped = LocalMergeOutcome::CheckStopped {
             target: "main".into(),
@@ -856,6 +1134,19 @@ mod tests {
             MergeResult::Stopped {
                 title: "Merge check stopped".into(),
                 message: "The merge check was stopped; nothing was merged into main.".into(),
+                close: "Close",
+            }
+        );
+        let stopped = LocalMergeOutcome::Stopped {
+            target: "main".into(),
+        };
+        assert_eq!(
+            merge_result(&t, "main", &stopped, &all),
+            MergeResult::Stopped {
+                title: "Merge stopped".into(),
+                message: "You stopped the merge. Nothing was merged into main; the branch and its worktree are as \
+                          they were."
+                    .into(),
                 close: "Close",
             }
         );
@@ -934,6 +1225,7 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: Vec::new(),
+            hook_changed: None,
         };
         let toasts = merged_toasts(&t.key, &merged, &[]);
         assert_eq!(toasts.len(), 2);
@@ -960,8 +1252,58 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: Vec::new(),
+            hook_changed: None,
         };
         assert_eq!(merged_toasts(&t.key, &merged, &[]).len(), 1);
+    }
+
+    /// A hook changed what landed: the merged toast says so, with Show changes; without one, nothing extra.
+    #[test]
+    fn a_merge_a_hook_changed_says_so_in_its_toast() {
+        let t = review_ticket();
+        let changes = HookChanges {
+            hook: Some("pre-commit".into()),
+            files: vec!["calc.js".into(), "util.js".into()],
+            reviewed: "aaa".into(),
+            landed: "9f3e2c1abc".into(),
+        };
+        let merged = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+            hook_changed: Some(changes.clone()),
+        };
+        let toasts = merged_toasts(&t.key, &merged, &[]);
+        assert_eq!(toasts.len(), 1);
+        assert_eq!(
+            toasts[0].text.as_deref(),
+            Some("Squashed as 9f3e2c1 \u{b7} Your pre-commit hook changed 2 files")
+        );
+        let Some(crate::view_models::toasts::ToastLink::HookChanges {
+            label,
+            ticket,
+            changes: view,
+        }) = merged_toast_link(&t.key, &merged)
+        else {
+            panic!("Show changes");
+        };
+        assert_eq!(label, "Show changes");
+        assert_eq!(ticket, "SHOP-18");
+        assert_eq!(view, hook_changes_view(&changes));
+
+        let plain = LocalMergeOutcome::Merged {
+            ticket: Box::new(t.clone()),
+            target: "main".into(),
+            commit: "9f3e2c1abc".into(),
+            started: Vec::new(),
+            hook_changed: None,
+        };
+        assert_eq!(
+            merged_toasts(&t.key, &plain, &[])[0].text.as_deref(),
+            Some("Squashed as 9f3e2c1")
+        );
+        assert_eq!(merged_toast_link(&t.key, &plain), None);
     }
 
     #[test]
@@ -975,15 +1317,14 @@ mod tests {
             target: "main".into(),
             commit: "9f3e2c1abc".into(),
             started: vec!["SHOP-20".parse().unwrap()],
+            hook_changed: None,
         };
         let MergeResult::Merged { toasts } = merge_result(&t, "main", &merged, &all) else {
             panic!("not merged");
         };
-        assert_eq!(toasts[0].title, "Local merge done \u{b7} SHOP-18");
-        assert_eq!(
-            toasts[0].text.as_deref(),
-            Some("Squashed into main as 9f3e2c1")
-        );
+        // The words the first approve's toast uses: "SHOP-18 merged into main · Squashed as 9f3e2c1".
+        assert_eq!(toasts[0].title, "SHOP-18 merged into main");
+        assert_eq!(toasts[0].text.as_deref(), Some("Squashed as 9f3e2c1"));
         assert_eq!(
             toasts[1].title,
             "SHOP-20 started \u{b7} all dependencies merged"
@@ -1003,7 +1344,7 @@ mod tests {
         else {
             panic!("not a conflict");
         };
-        assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
+        assert_eq!(title, "Merging main in stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
         assert!(help.starts_with("SHOP-18 went back to its agent"), "{help}");
 

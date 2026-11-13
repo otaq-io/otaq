@@ -49,11 +49,12 @@ stored_enum! {
         Interrupted = "interrupted",
         /// Resuming failed; Retry or Start from scratch (d0018).
         ResumeFailed = "resume_failed",
-        /// A Delivery's rebase conflicted; the agent is fixing it with `restack` (working, d0064, d0108, FLW-17).
+        /// Merging the target into a Delivery's branch conflicted; the agent is fixing it with `restack` (working, d0064, d0108, FLW-17).
         MergeConflictFixing = "merge_conflict_fixing",
         /// Turquoise: the Delivery stopped (keeps conflicting, base diverged, checkout dirty; d0064, FLW-17). It stays
         /// in the Agent stage whose session would fix it, as today's card does in Dev (d0108 second gap review rule
-        /// 12).
+        /// 12). A hook's refusal and a push that didn't land aren't the agent's to fix: they keep the ticket where it
+        /// was, with the stop on it ([`crate::domain::AutoMergeStop::keeps_place`]).
         DeliveryStopped = "auto_merge_stopped",
 
         // An agent check
@@ -350,6 +351,13 @@ stored_enum! {
 }
 
 impl StartStep {
+    /// The worktree is ready by this step: the worktree, its seeding, env files, resources and setup (where the start's
+    /// hooks run and the worktree is prepared) are done. A new ticket's start that fails at an earlier step removes
+    /// the worktree it made; one that fails here (the ports, the launch) keeps it, so Retry start only launches again.
+    pub fn worktree_ready(self) -> bool {
+        matches!(self, Self::Ports | Self::Launch)
+    }
+
     /// How the step reads on a card: "setup command failed".
     pub fn failure_label(self) -> &'static str {
         match self {

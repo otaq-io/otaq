@@ -129,7 +129,19 @@ async fn children_of_a_mark_merged_parent_start_at_the_new_remote_head() {
         data.clone(),
         PortPool::new(w.f.board.store().clone()),
         Sessions::new(w.f.board.store().clone(), events.clone()),
-        otaq_core::agent_tools::Adapters::launching_only(None, data),
+        // A stand-in for `claude` that exits at once.
+        otaq_core::agent_tools::Adapters::launching_only(
+            Some(otaq_core::agent_tools::LaunchContext {
+                bin_dir: "/opt/cb/bin".into(),
+                plugin_dir: "/opt/cb/plugin".into(),
+                path: std::env::var_os("PATH").unwrap(),
+                claude: otaq_core::agent_tools::claude::ClaudeLaunch {
+                    program: vec!["sh".into(), "-c".into(), "exit 0".into(), "sh".into()],
+                    config_dir: None,
+                },
+            }),
+            data,
+        ),
         events.clone(),
     );
     let scheduler = Scheduler::new(
@@ -153,12 +165,11 @@ async fn children_of_a_mark_merged_parent_start_at_the_new_remote_head() {
         "fetched and fast-forwarded"
     );
 
-    // The start runs in the background; without a launch context it stops at its launch step, after the
-    // worktree was made from the base.
+    // The start runs in the background and launches the stand-in agent, its worktree made from the base.
     let started = tokio::time::timeout(Duration::from_secs(20), async {
         loop {
             let t = w.f.ticket("SHOP-2").await;
-            if t.status == Status::StartInterrupted {
+            if matches!(t.status, Status::Working | Status::StartInterrupted) {
                 return t;
             }
             tokio::time::sleep(Duration::from_millis(20)).await;
@@ -166,7 +177,12 @@ async fn children_of_a_mark_merged_parent_start_at_the_new_remote_head() {
     })
     .await
     .expect("the start finished");
-    assert_eq!(started.start_problem.unwrap().step, StartStep::Launch);
+    assert_eq!(
+        started.status,
+        Status::Working,
+        "{:?}",
+        started.start_problem
+    );
     assert_eq!(started.work.unwrap().base_sha.unwrap(), head);
 }
 

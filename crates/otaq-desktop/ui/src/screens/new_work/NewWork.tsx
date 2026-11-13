@@ -3,8 +3,8 @@
 // it: it grows upward over a light scrim, the title line on top and "Add details (optional)" under it. ↵ Create, ⌘↵
 // Create & start, ⇧↵ Ask Noyan to shape it, ⌥↵ a new line (from the title line, into the details); More options…
 // opens the full form with what was typed, and the box keeps it until the form creates the ticket (a Cancel hands it
-// back). Esc or a click outside closes it and keeps what was typed. It isn't there in Files or the project's Settings,
-// while Noyan's panel is open, or when `new_work.view` says it isn't shown.
+// back). Esc or a click outside closes it and keeps what was typed. It isn't there in Files, the project's Settings or
+// Edit flow (which has its own box for Noyan), while Noyan's panel is open, or when `new_work.view` says it isn't shown.
 import { type RefObject, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { shellLayout } from "../../app/layout";

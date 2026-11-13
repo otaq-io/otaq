@@ -1,5 +1,5 @@
-//! A stage's skill the Project agent writes (T-0472; FED-06; d0115): a new Plan stage with no skill keeps Apply off
-//! ("Plan needs a skill"). "Ask the agent to write it" saves into the project (T6): `flow.write_skill` with the
+//! A stage's skill the Project agent writes (T-0472; FED-06; d0115): a new Plan stage with no skill has no problem
+//! (Otaq's own skill for the stage runs). "Ask the agent to write it" saves into the project (T6): `flow.write_skill` with the
 //! skill's name gives the agent a folder inside the project's checkout, `.agents/skills/<name>/` for a Codex agent and
 //! `.claude/skills/<name>/` otherwise, and refuses one that is already there; handing it in names the skill on the
 //! stage, with nothing copied, imported or committed. Undo and Stop delete the folder only while git says it is
@@ -10,7 +10,7 @@ use std::path::{Path, PathBuf};
 
 use otaq_core::agent_tools::Tool;
 use otaq_core::agents::{AgentModel, FixedModels};
-use otaq_core::flow::draft::DraftEdit;
+use otaq_core::flow::draft::{Draft, DraftEdit};
 use otaq_core::flow::proposal::ApplyChoices;
 use otaq_core::flow::write_skill::saved_text;
 use otaq_core::flow::{FlowFile, Stage, StageKind, yaml};
@@ -79,7 +79,7 @@ async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
     )
     .await;
 
-    // A new Agent stage with no skill: the draft holds it, Apply stays off with the reason.
+    // A new Agent stage with no skill: the draft holds it with no problem, since Otaq's own skill for it runs.
     with_plan(&w, &key).await;
     let draft = w.board.draft(&key, &models()).await.unwrap();
     let messages: Vec<&str> = draft
@@ -88,7 +88,7 @@ async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
         .iter()
         .map(|p| p.message.as_str())
         .collect();
-    assert_eq!(messages, ["Plan needs a skill"]);
+    assert!(messages.is_empty(), "{messages:?}");
 
     // Ask the agent to write it: being written, by the agent the user asked.
     let draft = w
@@ -291,6 +291,113 @@ async fn a_codex_agents_skill_goes_in_the_agents_folder() {
     );
 }
 
+/// Two stages with near names, "Update the docs" (its own skill) and a new "Update the docs 2": asked to write the
+/// second's skill, an agent that names the first gets no folder and is told which stage it was asked for; the second
+/// gets the skill and the first keeps its own.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_skill_asked_for_a_new_stage_goes_to_that_stage_and_not_one_with_a_near_name() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let mut file = yaml::read(&draft.proposal.yaml).unwrap();
+    let docs = |id: &str, name: &str, skill: Option<&str>| Stage {
+        id: id.into(),
+        name: name.into(),
+        kind: StageKind::Agent,
+        agent: Some("Developer".into()),
+        skill: skill.map(str::to_owned),
+        options: Vec::new(),
+        rounds: None,
+        fail_to: None,
+        description: None,
+    };
+    let dev = file.flow.position("dev").unwrap();
+    file.flow.stages.insert(
+        dev,
+        docs("update-the-docs", "Update the docs", Some("retest-docs")),
+    );
+    file.flow.stages.insert(
+        dev + 2,
+        docs("update-the-docs-2", "Update the docs 2", None),
+    );
+    w.board
+        .update_draft(
+            &key,
+            &DraftEdit::Document {
+                yaml: yaml::write(&file),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+
+    // Ask the agent to write it, on the new stage.
+    w.board
+        .update_draft(
+            &key,
+            &DraftEdit::SkillWriting {
+                stage: "update-the-docs-2".into(),
+                agent: Some("pa-1".into()),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+
+    // The agent names the other stage: refused, naming the one it was asked for; nothing is made.
+    let wrong = w
+        .board
+        .skill_folder(&key, "update-the-docs", Some("update-docs"), Some("pa-1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(
+        wrong.contains("Update the docs 2") && wrong.contains("flow write-skill update-the-docs-2"),
+        "{wrong}"
+    );
+    assert!(!checkout.join(".claude/skills/update-docs").exists());
+
+    // By the new stage's name, as the request gives it: the folder is the new stage's, and so is the skill.
+    let given = w
+        .board
+        .skill_folder(&key, "Update the docs 2", Some("update-docs"), Some("pa-1"))
+        .await
+        .unwrap();
+    assert_eq!(given.stage, "Update the docs 2");
+    std::fs::write(
+        Path::new(&given.folder).join("SKILL.md"),
+        "---\nname: update-docs\ndescription: Brings the docs in line with the change.\n---\n# Update the docs\n",
+    )
+    .unwrap();
+    let handed = w
+        .board
+        .skill_written(&key, "Update the docs 2", "Noyan")
+        .await
+        .unwrap();
+    assert_eq!(handed.stage, "Update the docs 2");
+
+    let draft = w.board.draft(&key, &models()).await.unwrap();
+    let file = yaml::read(&draft.proposal.yaml).unwrap();
+    assert_eq!(
+        file.flow
+            .stage("update-the-docs-2")
+            .unwrap()
+            .skill
+            .as_deref(),
+        Some("update-docs")
+    );
+    assert_eq!(
+        file.flow.stage("update-the-docs").unwrap().skill.as_deref(),
+        Some("retest-docs"),
+        "the first stage keeps its own skill"
+    );
+    assert!(draft.writing.is_empty(), "{:?}", draft.writing);
+    assert_eq!(draft.written.len(), 1);
+    assert_eq!(draft.written[0].stage_id, "update-the-docs-2");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn undo_deletes_an_untracked_folder_and_keeps_a_committed_one() {
     let w = TestService::start().await;
@@ -331,7 +438,11 @@ async fn undo_deletes_an_untracked_folder_and_keeps_a_committed_one() {
     );
     let file = yaml::read(&draft.proposal.yaml).unwrap();
     assert_eq!(file.flow.stage("plan").unwrap().skill, None);
-    assert_eq!(draft.proposal.problems[0].message, "Plan needs a skill");
+    assert!(
+        draft.proposal.problems.is_empty(),
+        "{:?}",
+        draft.proposal.problems
+    );
 
     // Committed: Undo only clears the field.
     let given = w
@@ -509,6 +620,72 @@ async fn undo_and_stop_leave_no_empty_folders_the_write_made() {
     );
 }
 
+/// Cancel in Edit flow takes away what the agent wrote for the draft, as Undo and Stop do: the skill it handed in and
+/// the folder it was still writing in go; a skill the user had before stays, and so does one the user changed since.
+#[tokio::test(flavor = "multi_thread")]
+async fn cancel_removes_the_skills_the_agent_wrote_and_keeps_the_users() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    let skills = checkout.join(".claude").join("skills");
+    let mine = skills.join("mine").join("SKILL.md");
+    std::fs::create_dir_all(mine.parent().unwrap()).unwrap();
+    std::fs::write(
+        &mine,
+        "---\nname: mine\ndescription: The user's own.\n---\n",
+    )
+    .unwrap();
+
+    // Written and handed in, then Cancel: the draft and the skill's folder go; the user's own skill stays.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "Noyan").await.unwrap();
+    assert!(w.board.cancel_proposal(&key).await.unwrap().is_some());
+    assert!(!Path::new(&given.folder).exists(), "the written skill goes");
+    assert!(mine.is_file(), "the user's own skill stays");
+
+    // Still being written, then Cancel: the folder the agent writes in goes.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-steps"), Some("pa-1"))
+        .await
+        .unwrap();
+    std::fs::write(
+        Path::new(&given.folder).join("SKILL.md"),
+        "---\nname: plan-steps\n",
+    )
+    .unwrap();
+    w.board.cancel_proposal(&key).await.unwrap();
+    assert!(
+        !Path::new(&given.folder).exists(),
+        "the half-written skill goes"
+    );
+
+    // Changed by the user after it was handed in: Cancel keeps it.
+    with_plan(&w, &key).await;
+    let given = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-later"), None)
+        .await
+        .unwrap();
+    write_plan_skill(Path::new(&given.folder));
+    w.board.skill_written(&key, "plan", "Noyan").await.unwrap();
+    std::fs::write(Path::new(&given.folder).join("notes.md"), "mine").unwrap();
+    w.board.cancel_proposal(&key).await.unwrap();
+    assert!(
+        Path::new(&given.folder).join("notes.md").is_file(),
+        "the user's edit stays"
+    );
+    assert!(mine.is_file());
+}
+
 /// Otaq keeps no skills: the folders an older Otaq kept them in (`$OTAQ_HOME/skills/`, `skill-writes/`) are gone after
 /// the service starts.
 #[tokio::test(flavor = "multi_thread")]
@@ -566,4 +743,112 @@ async fn a_tickets_agent_cant_write_a_stages_skill() {
     assert!(!w.data.root().join("skill-writes").exists());
     let draft = w.board.draft(&key, &models()).await.unwrap();
     assert!(draft.writing.is_empty(), "nothing is being written");
+}
+
+/// A newer Ask the agent to write it replaces an older one to the same agent that never started: asked for Plan's
+/// skill and then, with no folder named, for Dev's, the agent gets Dev's folder and Plan no longer reads "Being
+/// written…". The agent still writes only the stage it was asked for. Once Plan's folder is named, a request for Dev
+/// leaves Plan's alone, folder and all.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_newer_request_replaces_one_that_never_started() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let key = project.key.clone();
+    let checkout = PathBuf::from(&project.repo_path);
+    with_plan(&w, &key).await;
+    let ask = |stage: &str| DraftEdit::SkillWriting {
+        stage: stage.into(),
+        agent: Some("pa-1".into()),
+    };
+    let stop = |stage: &str| DraftEdit::StopWriting {
+        stage: stage.into(),
+    };
+    let stages = |draft: &Draft| {
+        let mut ids: Vec<String> = draft.writing.iter().map(|w| w.stage_id.clone()).collect();
+        ids.sort();
+        ids
+    };
+
+    // Plan's request is abandoned before a folder is named; Dev's comes next and goes through.
+    w.board
+        .update_draft(&key, &ask("plan"), &models())
+        .await
+        .unwrap();
+    let draft = w
+        .board
+        .update_draft(&key, &ask("dev"), &models())
+        .await
+        .unwrap();
+    assert_eq!(
+        stages(&draft),
+        ["dev"],
+        "Plan no longer reads Being written"
+    );
+
+    // The agent may still only write the stage it was asked for.
+    let wrong = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap_err()
+        .to_string();
+    assert!(wrong.contains("flow write-skill dev"), "{wrong}");
+    assert!(!checkout.join(".claude/skills/plan-ticket").exists());
+
+    let given = w
+        .board
+        .skill_folder(&key, "dev", Some("dev-steps"), Some("pa-1"))
+        .await
+        .unwrap();
+    assert_eq!(given.stage, "Dev");
+    assert!(Path::new(&given.folder).is_dir());
+    w.board
+        .update_draft(&key, &stop("dev"), &models())
+        .await
+        .unwrap();
+
+    // Plan's request started: its folder is named. A request for Dev leaves it alone, folder and all.
+    w.board
+        .update_draft(&key, &ask("plan"), &models())
+        .await
+        .unwrap();
+    let plan = w
+        .board
+        .skill_folder(&key, "plan", Some("plan-ticket"), Some("pa-1"))
+        .await
+        .unwrap();
+    let draft = w
+        .board
+        .update_draft(&key, &ask("dev"), &models())
+        .await
+        .unwrap();
+    assert_eq!(
+        stages(&draft),
+        ["dev", "plan"],
+        "Plan is still being written"
+    );
+    assert_eq!(
+        draft
+            .writing
+            .iter()
+            .find(|w| w.stage_id == "plan")
+            .and_then(|w| w.folder.as_deref()),
+        Some(".claude/skills/plan-ticket")
+    );
+    assert!(Path::new(&plan.folder).is_dir());
+
+    // A request to another agent leaves the first agent's alone, even one that never started.
+    let draft = w
+        .board
+        .update_draft(
+            &key,
+            &DraftEdit::SkillWriting {
+                stage: "plan".into(),
+                agent: Some("pa-2".into()),
+            },
+            &models(),
+        )
+        .await
+        .unwrap();
+    assert_eq!(stages(&draft), ["dev", "plan"]);
 }

@@ -31,7 +31,8 @@
 //! `~/.claude/skills/x` is Claude Code's, not Codex's or Copilot's. A plugin's skills are its tool's. Otaq's own
 //! skills are had by every tool. Which folders each tool reads: [`personal_tools`], [`PROJECT`].
 //! A tool that doesn't load a `SKILL.md` starting with a UTF-8 byte order mark (Codex) doesn't have such a skill
-//! ([`Tool::reads_skill_with_bom`]); it is still listed.
+//! ([`Tool::reads_skill_with_bom`]); it is still listed, with that tool among the ones that skip it
+//! ([`FoundSkill::skipped`]), so the user is told why instead of where to put a skill that is already there.
 //!
 //! Each tool's variables (`CLAUDE_CONFIG_DIR`, `CODEX_HOME`, `COPILOT_HOME`, `XDG_CONFIG_HOME`) are read from the
 //! environment Otaq launches the tool with ([`Homes::with_env`]; the service passes the project's variables over its
@@ -215,6 +216,10 @@ pub struct FoundSkill {
     /// The tools that have it, in [`Tool::ALL`]'s order: every place's, and every tool for Otaq's own (S6).
     #[serde(default)]
     pub tools: Vec<Tool>,
+    /// The tools that find it in a folder they read but don't load it, because its `SKILL.md` starts with a UTF-8
+    /// byte order mark ([`Tool::reads_skill_with_bom`]), in [`Tool::ALL`]'s order: none of [`Self::tools`].
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub skipped: Vec<Tool>,
 }
 
 impl FoundSkill {
@@ -419,16 +424,16 @@ pub fn list_in(homes: &Homes, project: &ProjectFolders) -> Vec<FoundSkill> {
                 Some(plugin) => format!("{plugin}:{}", read.name),
                 None => read.name.clone(),
             };
-            // A tool that doesn't load a SKILL.md starting with a byte order mark doesn't have it.
-            let tools: Vec<Tool> = source
+            // A tool that doesn't load a SKILL.md starting with a byte order mark doesn't have it: it skips it.
+            let (tools, skipped): (Vec<Tool>, Vec<Tool>) = source
                 .tools_for(&read.path)
                 .into_iter()
-                .filter(|tool| !read.bom || tool.reads_skill_with_bom())
-                .collect();
+                .partition(|tool| !read.bom || tool.reads_skill_with_bom());
             if !seen.insert(read.real.clone()) {
                 tracing::debug!(skill = %read.path.display(), real = %read.real.display(), "a skill already listed from another folder");
                 if let Some(skill) = skills.get_mut(&name) {
                     skill.tools.extend(tools);
+                    skill.skipped.extend(skipped);
                 }
                 continue;
             }
@@ -438,12 +443,14 @@ pub fn list_in(homes: &Homes, project: &ProjectFolders) -> Vec<FoundSkill> {
                 otaq: false,
                 places: Vec::new(),
                 tools: Vec::new(),
+                skipped: Vec::new(),
             });
             if skill.description.is_none() {
                 skill.description = read.description;
             }
             let linked = read.real != read.unlinked;
             skill.tools.extend(tools.iter().copied());
+            skill.skipped.extend(skipped);
             skill.places.push(SkillPlace {
                 scope: source.scope,
                 folder: source.folder.clone(),
@@ -460,8 +467,20 @@ pub fn list_in(homes: &Homes, project: &ProjectFolders) -> Vec<FoundSkill> {
         }
         skill.tools.sort();
         skill.tools.dedup();
+        let had = skill.tools.clone();
+        skill.skipped.retain(|tool| !had.contains(tool));
+        skill.skipped.sort();
+        skill.skipped.dedup();
     }
     skills
+}
+
+/// The skill named `name` as the tools find it for `project` ([`list_in`]), if anyone has it or skips it; one of
+/// Otaq's own is had by every tool.
+pub fn find(homes: &Homes, project: &ProjectFolders, name: &str) -> Option<FoundSkill> {
+    list_in(homes, project)
+        .into_iter()
+        .find(|skill| skill.name == name)
 }
 
 /// The tools that have `name` for `project`: every tool for one of Otaq's own skills.
@@ -469,9 +488,7 @@ pub fn tools_with(homes: &Homes, project: &ProjectFolders, name: &str) -> Vec<To
     if is_shipped(name) {
         return Tool::ALL.to_vec();
     }
-    list_in(homes, project)
-        .into_iter()
-        .find(|skill| skill.name == name)
+    find(homes, project, name)
         .map(|skill| skill.tools)
         .unwrap_or_default()
 }
@@ -506,6 +523,7 @@ fn shipped_skills() -> Vec<FoundSkill> {
             otaq: true,
             places: Vec::new(),
             tools: Tool::ALL.to_vec(),
+            skipped: Vec::new(),
         })
         .collect()
 }

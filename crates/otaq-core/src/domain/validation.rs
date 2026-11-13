@@ -19,7 +19,7 @@ pub const VALIDATOR_NEEDS_YOU: &str = "Needs you · checker";
 pub const NO_RESULT: &str = "Check ended without a result";
 /// The validator changed tracked files or committed: its verdict is thrown away (VAL-02).
 pub const DISCARDED: &str = "Validation discarded: the checker changed files";
-/// A Delivery's free rebase conflicted; the agent is rebasing with `restack`, no click (FLW-17).
+/// Merging the target into a Delivery's branch conflicted; the agent merges it in with `restack`, no click (FLW-17).
 pub const MERGE_CONFLICT_FIXING: &str = "Merge conflict · fixing";
 /// Local merge runs the project's Merge check on the merged result before the target moves (d0120).
 pub const MERGE_CHECK_RUNNING: &str = "Merging · running the merge check";
@@ -29,7 +29,7 @@ pub const MERGE_CHECK_FAILED_FIXING: &str = "Merge check failed · fixing";
 pub const MERGED_AUTOMATICALLY: &str = "Merged automatically";
 
 /// "Conflicts with main · fixing": the test merge after another ticket merged found a conflict while this one waited
-/// in Review, and its agent rebases with `restack`, no click (d0127). `target` is the branch it merges into.
+/// in Review, and its agent merges the target in with `restack`, no click (d0127). `target` is the branch it merges into.
 pub fn conflicts_fixing(target: &str) -> String {
     format!("Conflicts with {target} \u{b7} fixing")
 }
@@ -113,20 +113,20 @@ pub fn keeps_failing_merge_check(target: &str) -> String {
 }
 
 /// The comment a failed Merge check posts, with the output attached (d0120, d0109): "Merge check `npm test` failed on
-/// the result rebased onto main (exit 1). Fix it, then submit again." `exit` is `None` when a signal ended it.
+/// the result with main merged in (exit 1). Fix it, then submit again." `exit` is `None` when a signal ended it.
 pub fn merge_check_failed(command: &str, target: &str, exit: Option<i32>) -> String {
     let exit = exit.map_or_else(|| "killed by a signal".to_owned(), |c| format!("exit {c}"));
     format!(
-        "Merge check `{command}` failed on the result rebased onto {target} ({exit}). Fix it, then submit again."
+        "Merge check `{command}` failed on the result with {target} merged in ({exit}). Fix it, then submit again."
     )
 }
 
 /// What a live agent session is typed after `restack` when the Merge check failed (CMT-05: the hand-over named, never
-/// its text): "SHOP-19's merge check failed on the result rebased onto `main`; the comment has its output. Run `otaq
+/// its text): "SHOP-19's merge check failed on the result with `main` merged in; the comment has its output. Run `otaq
 /// prime`."
 pub fn merge_check_failed_told(key: &super::TicketKey, target: &str) -> String {
     format!(
-        "{key}'s merge check failed on the result rebased onto `{target}`; the comment has its output. Run `{} prime`.",
+        "{key}'s merge check failed on the result with `{target}` merged in; the comment has its output. Run `{} prime`.",
         crate::naming::COMMAND_NAME
     )
 }
@@ -266,6 +266,24 @@ stored_enum! {
         CheckoutDirty = "checkout_dirty",
         /// A git step of the automatic Delivery failed (a hook refused the commit): "Couldn't deliver · …" (d0121).
         DeliveryFailed = "delivery_failed",
+        /// A PR delivery's agent reported its push or PR done, but the remote doesn't have the ticket's branch at the
+        /// commit it should: "The branch isn't on the remote as expected · <what the remote has>". The ticket stays
+        /// where the Delivery started ([`AutoMergeStop::keeps_place`]); the way on is to push again.
+        PushNotLanded = "push_not_landed",
+        /// A project's git hook refused a step of Approve & merge, or a commit message of Approve & open PR, the
+        /// user's click or the automatic delivery alike: "pre-commit hook refused the merge", the hook's output on
+        /// the ticket ([`crate::domain::Flags::hook_refusal`]). The ticket stays where it was
+        /// ([`AutoMergeStop::keeps_place`]); the way on is to edit the message and retry.
+        HookRefused = "hook_refused",
+    }
+}
+
+impl AutoMergeStop {
+    /// A hook's refusal and a push that didn't land keep the ticket where the Delivery started: in the user's check
+    /// (Review) or waiting To deliver, with the stop on it, because neither is the agent's work going wrong. Every
+    /// other stop is the Delivery stopped, in the Agent stage whose session would fix it.
+    pub fn keeps_place(self) -> bool {
+        matches!(self, Self::HookRefused | Self::PushNotLanded)
     }
 }
 

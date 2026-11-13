@@ -24,7 +24,7 @@ import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
 import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackView } from "../../generated/SendBackView";
-import { asRequestError, useServiceView } from "../../service";
+import { asRequestError, useEverySecond, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { CommentBox } from "../editor/CommentBox";
@@ -36,9 +36,12 @@ import {
   afterMerge,
   CHANGED_FILES_SHOWN,
   firstStep,
+  isEdited,
+  KEEP_AFTER_MS,
   messageAfter,
   type Step,
 } from "./logic";
+import { AnswerInTerminal } from "./WriterAsks";
 
 const ignore = () => undefined;
 
@@ -83,8 +86,21 @@ function Files({
   );
 }
 
-/** The lines of one file of the new commits. */
-function NewCommitFile({ file }: { file: DiffFileView }) {
+/** A failed Merge check's output (its end when long), scrolled to its last line, where the failure usually is. */
+function CheckOutput({ output }: { output: string }) {
+  const box = useRef<HTMLPreElement>(null);
+  useEffect(() => {
+    if (box.current) box.current.scrollTop = box.current.scrollHeight;
+  }, [output]);
+  return (
+    <pre ref={box} className="review-output" data-tone="error">
+      {output}
+    </pre>
+  );
+}
+
+/** The lines of one file of the new commits (also of what a hook changed in the commit that landed). */
+export function NewCommitFile({ file }: { file: DiffFileView }) {
   return (
     <div className="review-commit-file">
       <div className="review-commit-file-name">{file.path}</div>
@@ -256,12 +272,16 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   const ticket = params.ticket;
   const menu = params.menu ?? false;
   const choice = params.choice;
+  const [step, setStep] = useState<Step | null>(null);
+  const [tick, setTick] = useState(0);
   const load = useCallback(
     () => request("review.approve", { key: ticket }) as Promise<ApproveView>,
-    [ticket],
+    // eslint-disable-next-line react-hooks/exhaustive-deps -- a new tick is a new load: the hook's time moves on
+    [ticket, tick],
   );
   const { view, error } = useServiceView(load, MESSAGE_EVENTS);
-  const [step, setStep] = useState<Step | null>(null);
+  // While a hook runs during the merge its time grows: the view is asked again every second.
+  useEverySecond(step?.kind === "merging" && view?.merging.hook != null, setTick);
   const [message, setMessage] = useState("");
   const [anyway, setAnyway] = useState(false);
   const started = useRef(false);
@@ -270,12 +290,31 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   /** The confirmation as last shown, for the agent's message arriving. */
   const shown = useRef<ApproveView["confirm"] | null>(null);
   const messageBox = useRef<HTMLTextAreaElement>(null);
+  /** The message as the user left it, not kept on the ticket yet (it is, a moment after the last key, and when the
+   * dialog closes): Approve & merge opens on it again after a refusal, a close or a restart. */
+  const unkept = useRef<string | null>(null);
+  const keepTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+  const keepNow = useCallback(() => {
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    keepTimer.current = null;
+    if (unkept.current === null) return;
+    request("review.keep_message", { key: ticket, message: unkept.current }).catch(ignore);
+    unkept.current = null;
+  }, [ticket]);
+  const keepSoon = (text: string) => {
+    unkept.current = text;
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    keepTimer.current = setTimeout(keepNow, KEEP_AFTER_MS);
+  };
+  useEffect(() => keepNow, [keepNow]);
 
   useEffect(() => {
     if (!view) return;
     if (!started.current) {
       started.current = true;
       setMessage(view.confirm.message);
+      // A kept edit is the user's typing: the agent's message arriving later doesn't replace it.
+      typed.current = isEdited(view.confirm.message, view.confirm.proposed);
       setStep(firstStep(view, menu, choice));
     } else {
       const next = messageAfter(shown.current, view.confirm, typed.current);
@@ -307,6 +346,9 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
   }, [error, view, close]);
 
   const merge = (approveAnyway = anyway) => {
+    // The merge keeps the message it is given itself.
+    if (keepTimer.current !== null) clearTimeout(keepTimer.current);
+    unkept.current = null;
     setStep({ kind: "merging" });
     (
       request("review.local_merge", {
@@ -483,12 +525,29 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
               onChange={(e) => {
                 typed.current = true;
                 setMessage(e.target.value);
+                keepSoon(e.target.value);
               }}
             />
+            {isEdited(message, c.proposed) && (
+              <button
+                type="button"
+                className="review-link review-use-proposed"
+                onClick={() => {
+                  // The proposal again, and nothing kept: the agent's message still fills in if it arrives.
+                  typed.current = false;
+                  setMessage(c.proposed);
+                  keepSoon(c.proposed);
+                  keepNow();
+                }}
+              >
+                {c.use_proposed}
+              </button>
+            )}
             {c.writing !== null ? (
               <p className="review-muted review-writing">
-                <Icon name="loader-circle" size={13} />
+                <Icon name={c.asks === null ? "loader-circle" : "square-terminal"} size={13} />
                 <span>{c.writing}</span>
+                {c.asks !== null && <AnswerInTerminal asks={c.asks} />}
               </p>
             ) : (
               c.prepared !== null && <p className="review-muted review-prepared">{c.prepared}</p>
@@ -515,12 +574,13 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
           }
         >
           <div className="review-body">
-            {view.merging.steps.map((s, i) => (
-              <div key={s} className="review-step" data-first={i === 0 || undefined}>
-                <Icon name={i === 0 ? "loader-circle" : "circle"} size={14} />
-                <span>{s}</span>
-              </div>
-            ))}
+            <MergingSteps
+              merging={view.merging}
+              onStop={() => {
+                // Ends the git step and its hook (or the Merge check): the merge answers that nothing was merged.
+                request("sheet.action", { key: ticket, action: "stop_git_step" }).catch(ignore);
+              }}
+            />
             <p className="review-muted">{view.merging.note}</p>
           </div>
         </Dialog>
@@ -536,6 +596,40 @@ export function LocalMergeDialog({ params, close }: OverlayProps<"local_merge">)
         />
       );
   }
+}
+
+/** The merge's steps: the one git is really on turns, the ones before it are done; while one of the user's hooks
+ * runs, a line under it says which one and for how long ("running your pre-commit hook · 40 s"), with Stop beside it
+ * while the step can be stopped (there is no time limit: a hanging hook runs until it is stopped). */
+export function MergingSteps({ merging, onStop }: { merging: ApproveView["merging"]; onStop?: () => void }) {
+  return (
+    <>
+      {merging.steps.map((s, i) => (
+        <div key={s} className="review-step-row">
+          <div
+            className="review-step"
+            data-current={i === merging.current || undefined}
+            data-done={i < merging.current || undefined}
+          >
+            <Icon
+              name={i === merging.current ? "loader-circle" : i < merging.current ? "circle-check" : "circle"}
+              size={14}
+            />
+            <span>{s}</span>
+          </div>
+          {i === merging.current && (merging.hook !== null || merging.stop !== null) && (
+            // The running step's own line, with its Stop.
+            <div className="review-step-hook">
+              {merging.hook !== null && <span>{merging.hook}</span>}
+              {merging.stop !== null && (
+                <Button variant="ghost" compact icon="square" label={merging.stop} onClick={onStop} />
+              )}
+            </div>
+          )}
+        </div>
+      ))}
+    </>
+  );
 }
 
 export function ResultDialog({
@@ -564,7 +658,8 @@ export function ResultDialog({
         >
           <div className="review-body" data-tone="error">
             <p className="review-text">{result.text}</p>
-            <Files files={result.files} tone="error" icon="git-merge" />
+            {result.files.length > 0 && <Files files={result.files} tone="error" icon="git-merge" />}
+            {result.output !== null && <CheckOutput output={result.output} />}
             <p className="review-text">{result.help}</p>
             {result.worktree !== null && (
               <div className="review-path">

@@ -28,7 +28,9 @@ import type { SheetAnswerAgent } from "../../generated/SheetAnswerAgent";
 import type { SheetButton } from "../../generated/SheetButton";
 import type { SheetButtonLook } from "../../generated/SheetButtonLook";
 import type { SheetNotice } from "../../generated/SheetNotice";
+import type { SheetPermissionPrompt } from "../../generated/SheetPermissionPrompt";
 import type { SheetSent } from "../../generated/SheetSent";
+import type { SheetHookRefusal } from "../../generated/SheetHookRefusal";
 import type { SheetRefusal } from "../../generated/SheetRefusal";
 import type { SheetStartProblem } from "../../generated/SheetStartProblem";
 import type { SheetRunPill } from "../../generated/SheetRunPill";
@@ -37,8 +39,11 @@ import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { askUnsent, type CardAnswer, type SheetActions } from "../sheet/actions";
-import { canSend, initialPick, pickByKey, picksOther } from "../sheet/actionRoutes";
+import { HookOutput } from "../sheet/HookOutput";
+import { canSend, initialPicks, pickByKey, picksOther, pressPick } from "../sheet/actionRoutes";
 import { toolProblemAction } from "../tool_problems/toolProblemRunner";
+import { useAnswerDraft } from "./answerDraft";
+import { QuestionText, useSendInView } from "./QuestionText";
 
 const ignore = () => undefined;
 
@@ -77,46 +82,94 @@ function ActionButton({
   );
 }
 
+/** What is picked in an answer box, and its ways to change it: one pick, or, on a question that takes several answers,
+ * every ticked row. Opens on the recommended ones. Noyan's box keeps its picks here; a ticket's keeps them in its draft
+ * (`answerDraft`). */
+export function useAnswerPicks(answer: SheetAnswer): {
+  picks: number[];
+  /** A click or number key: picks the row, or ticks / unticks it on a question that takes several answers. */
+  press: (n: number) => void;
+  /** A card's option: the row is picked (ticked, never unticked). */
+  pickRow: (n: number) => void;
+} {
+  const [picks, setPicks] = useState(() => initialPicks(answer.rows));
+  const multiple = answer.multiple === true;
+  return {
+    picks,
+    press: (n) => {
+      setPicks((now) => pressPick(now, n, multiple));
+    },
+    pickRow: (n) => {
+      setPicks((now) => (now.includes(n) ? now : pressPick(now, n, multiple)));
+    },
+  };
+}
+
+/** The picks a request carries: `pick` (the one pick, as before), and every ticked row in `picks` when the question
+ * takes several answers. */
+export function picksParams(
+  answer: SheetAnswer,
+  picks: readonly number[],
+): { pick?: number; picks?: number[] } {
+  const pick = picks.at(0);
+  return {
+    ...(pick !== undefined && { pick }),
+    ...(answer.multiple === true && { picks: [...picks] }),
+  };
+}
+
 /**
- * The question and its numbered options (ATT-12, ATT-17), each with its note, the recommended one marked, and Other…'s
- * field: a ticket's question bar and a Project agent's question (OTQ-9) draw it. 1–4 pick, ↵ sends.
+ * The question and its numbered options (ATT-12, ATT-17), each with its note, the recommended ones marked, and
+ * Other…'s field: a ticket's question bar and a Project agent's question (OTQ-9) draw it. 1–4 pick, ↵ sends. A question
+ * that takes several answers draws checkboxes instead of radios: a click or number key ticks or unticks its row, Other…
+ * too.
  */
 export function AnswerChoices({
   answer,
-  pick,
+  picks,
   other,
   onPick,
   onOther,
   onSend,
   options,
+  textRef,
+  cap = null,
 }: {
   answer: SheetAnswer;
-  pick: number | null;
+  picks: readonly number[];
   other: string;
   onPick: (pick: number) => void;
   onOther: (other: string) => void;
   onSend: () => void;
   options?: Ref<HTMLDivElement>;
+  /** The question's text: the part that scrolls when its place caps it. */
+  textRef?: Ref<HTMLDivElement>;
+  /** The text's cap in pixels, when its place sets one. */
+  cap?: number | null;
 }) {
   const noteId = useId();
+  const multiple = answer.multiple === true;
   return (
     <div className="sheet-answer">
-      <div className="sheet-answer-question">
-        <Icon name="message-circle-question-mark" size={14} />
-        <span>{answer.text}</span>
-      </div>
+      <QuestionText answer={answer} textRef={textRef} cap={cap} />
       <div
         ref={options}
         className="sheet-answer-options"
         role="radiogroup"
-        aria-label={answer.text}
+        // Checkboxes sit in a group: several may be ticked.
+        {...(multiple && { role: "group" })}
+        aria-label={answer.line}
+        // Its number keys pick or tick, before the sheet's 1–4 tabs (`keys.ts`), checkboxes as radios.
+        data-number-keys
         tabIndex={-1}
         onKeyDown={(e) => {
+          // A key typed in a text field (Other…'s) is the field's own: its digits type, its ↵ sends from there.
+          if (e.target instanceof HTMLInputElement || e.target instanceof HTMLTextAreaElement) return;
           const n = pickByKey(e.key, answer.rows);
-          if (n !== null && !(e.target instanceof HTMLInputElement)) {
+          if (n !== null) {
             e.preventDefault();
             onPick(n);
-          } else if (e.key === "Enter" && !(e.target instanceof HTMLInputElement)) {
+          } else if (e.key === "Enter") {
             e.preventDefault();
             onSend();
           }
@@ -126,17 +179,23 @@ export function AnswerChoices({
           <button
             key={row.number}
             type="button"
-            role="radio"
-            aria-checked={pick === row.number}
+            role={multiple ? "checkbox" : "radio"}
+            aria-checked={picks.includes(row.number)}
             aria-describedby={row.note === null ? undefined : `${noteId}-${String(row.number)}`}
             className="sheet-answer-option"
-            data-picked={pick === row.number || undefined}
+            data-picked={picks.includes(row.number) || undefined}
             data-other={row.other || undefined}
             onClick={() => {
               onPick(row.number);
             }}
           >
-            <span className="sheet-answer-radio" />
+            {multiple ? (
+              <span className="sheet-answer-check">
+                {picks.includes(row.number) && <Icon name="check" size={11} />}
+              </span>
+            ) : (
+              <span className="sheet-answer-radio" />
+            )}
             <span className="sheet-answer-label">
               {row.label}
               {/* The option's note (ATT-17), whole and wrapped: its description. */}
@@ -155,7 +214,7 @@ export function AnswerChoices({
             <span className="sheet-answer-number">{row.number}</span>
           </button>
         ))}
-        {picksOther(pick, answer.rows) && (
+        {picksOther(picks, answer.rows) && (
           <textarea
             {...PROSE_TEXT}
             className="text-input text-area sheet-answer-box"
@@ -193,18 +252,20 @@ function OpenAnswer({
   text,
   onText,
   onSend,
+  textRef,
+  cap = null,
 }: {
   answer: SheetAnswer;
   text: string;
   onText: (text: string) => void;
   onSend: () => void;
+  textRef?: Ref<HTMLDivElement>;
+  /** The text's cap in pixels, when its place sets one. */
+  cap?: number | null;
 }) {
   return (
     <div className="sheet-answer">
-      <div className="sheet-answer-question">
-        <Icon name="message-circle-question-mark" size={14} />
-        <span>{answer.text}</span>
-      </div>
+      <QuestionText answer={answer} textRef={textRef} cap={cap} />
       <textarea
         {...PROSE_TEXT}
         className="text-input text-area sheet-answer-box"
@@ -223,11 +284,33 @@ function OpenAnswer({
   );
 }
 
-/** Whether an answer can go: an open question's words, else a pick (and Other…'s text). */
-export function canAnswerQuestion(answer: SheetAnswer, pick: number | null, other: string): boolean {
-  if (answer.rows.length === 0) return other.trim() !== "";
-  return canSend(pick, other, answer.rows);
+/** An answer box's sending, one at a time: `once` runs a send only when none is going. Kept in a ref, not state, so
+ * two calls in the same event (or before the next render) send once; `sending` draws the button's spinner. */
+export function useSendOnce(): { sending: boolean; once: (go: () => Promise<unknown>) => Promise<unknown> } {
+  const going = useRef(false);
+  const [sending, setSending] = useState(false);
+  return {
+    sending,
+    once: (go) => {
+      if (going.current) return Promise.resolve();
+      going.current = true;
+      setSending(true);
+      return go().finally(() => {
+        going.current = false;
+        setSending(false);
+      });
+    },
+  };
 }
+
+/** Whether an answer can go: an open question's words, else a pick or at least one ticked row (and Other…'s text). */
+export function canAnswerQuestion(answer: SheetAnswer, picks: readonly number[], other: string): boolean {
+  if (answer.rows.length === 0) return other.trim() !== "";
+  return canSend(picks, other, answer.rows);
+}
+
+/** The card clicks an answer box has taken: each click is its own object. */
+const cardsTaken = new WeakSet<CardAnswer>();
 
 /** The question bar with its options, or an open question's box (ATT-12, ATT-17); the Gallery draws it too. */
 export function AnswerBox({
@@ -241,46 +324,59 @@ export function AnswerBox({
   more: ReactNode;
   fromCard: CardAnswer | null;
 }) {
-  const [pick, setPick] = useState(() => initialPick(answer.rows));
+  // The picks and Something else's text outlive the box: Overview unmounts while another tab shows.
+  const { picks, other, press, pickRow, setOther, sent: answered } = useAnswerDraft(view.key, answer);
   const options = useRef<HTMLDivElement>(null);
-  const [other, setOther] = useState("");
-  const [sending, setSending] = useState(false);
+  const { box, text, cap, boxCap } = useSendInView();
+  const { sending, once } = useSendOnce();
   const open = answer.rows.length === 0;
-  const ready = canAnswerQuestion(answer, pick, other);
+  const ready = canAnswerQuestion(answer, picks, other);
   const send = (clear = false): Promise<unknown> => {
-    if (!ready || sending) return Promise.resolve();
-    setSending(true);
+    if (!ready) return Promise.resolve();
     // An open question's words go as its answer; the pick is the options' only.
-    const params = { key: view.key, question: answer.question, pick: pick ?? 1, other, clear };
-    return (request("sheet.answer", params) as Promise<SheetSent>)
-      .then((sent) => {
-        askUnsent(sent, () => send(true));
-      })
-      .catch(ignore)
-      .finally(() => {
-        setSending(false);
-      });
+    const params = {
+      key: view.key,
+      question: answer.question,
+      pick: 1,
+      ...picksParams(answer, picks),
+      other,
+      clear,
+    };
+    return once(() =>
+      (request("sheet.answer", params) as Promise<SheetSent>)
+        .then((sent) => {
+          if (sent.outcome === "done") answered();
+          askUnsent(sent, () => send(true));
+        })
+        .catch(ignore),
+    );
   };
   // A card's option opens the list with it picked (sending stays one more click or ↵, ATT-12); its Send answer
   // sends the picked (recommended) option.
   const onCard = useEffectEvent((card: CardAnswer) => {
     if (card.question !== answer.question) return;
+    // The sheet keeps the card's last click; the box comes back with each return to Overview and must not pick it
+    // over what was picked since.
+    if (cardsTaken.has(card)) return;
+    cardsTaken.add(card);
     if (card.kind === "send_answer") {
       void send();
     } else if (answer.rows.some((r) => r.number === card.number)) {
-      setPick(card.number);
+      pickRow(card.number);
       options.current?.focus();
     }
   });
   useEffect(() => {
-    // eslint-disable-next-line react-hooks/set-state-in-effect -- the card's click arrives from outside React, once
+    // The card's click arrives from outside React, once.
     if (fromCard !== null) onCard(fromCard);
   }, [fromCard]);
   return (
-    <div className="sheet-question">
+    <div ref={box} className="sheet-question" style={boxCap === null ? undefined : { maxHeight: boxCap }}>
       {open ? (
         <OpenAnswer
           answer={answer}
+          textRef={text}
+          cap={cap}
           text={other}
           onText={setOther}
           onSend={() => {
@@ -290,14 +386,16 @@ export function AnswerBox({
       ) : (
         <AnswerChoices
           answer={answer}
-          pick={pick}
+          picks={picks}
           other={other}
-          onPick={setPick}
+          onPick={press}
           onOther={setOther}
           onSend={() => {
             void send();
           }}
           options={options}
+          textRef={text}
+          cap={cap}
         />
       )}
       <div className="sheet-bar">
@@ -405,6 +503,30 @@ function Notice({ view, notice }: { view: SheetView; notice: SheetNotice }) {
   );
 }
 
+/** A permission prompt above Answer in terminal: "Developer wants to run a command" and the command (`$ npm
+ * install`), or "Developer wants your permission" and the tool's own words. Otaq doesn't answer it: the answer goes
+ * in the terminal. */
+function PermissionPrompt({ prompt }: { prompt: SheetPermissionPrompt }) {
+  return (
+    <div className="sheet-permission">
+      <div className="sheet-permission-heading">
+        <Icon name="hand" size={14} />
+        <span>{prompt.heading}</span>
+      </div>
+      {prompt.command ? (
+        <code className="sheet-permission-command">
+          <span className="sheet-permission-dollar" aria-hidden>
+            $
+          </span>
+          {prompt.text}
+        </code>
+      ) : (
+        <p className="sheet-permission-text">{prompt.text}</p>
+      )}
+    </div>
+  );
+}
+
 /** A refused model above the bar (AGT-05, *05 → Start failed on the model*, *No result: the validator's model*): what
  * couldn't run (red for Start failed) and the tool's message in quotes. */
 function Refusal({ refusal }: { refusal: SheetRefusal }) {
@@ -412,6 +534,29 @@ function Refusal({ refusal }: { refusal: SheetRefusal }) {
     <div className="sheet-refusal" data-error={refusal.error || undefined}>
       <span className="sheet-refusal-heading">{refusal.heading}</span>
       <span className="sheet-refusal-message">{refusal.message}</span>
+    </div>
+  );
+}
+
+/** A project's git hook refused Approve & merge or a PR's commit message, above the bar whose primary button is the way
+ * on (Edit message(s) and retry): which hook and step, the refused message, the hook's output in the same box as a
+ * refused start's, the way on. */
+export function HookRefusal({ refusal }: { refusal: SheetHookRefusal }) {
+  return (
+    <div className="sheet-hook-refusal" role="alert">
+      <div className="sheet-hook-refusal-heading">
+        <Icon name="circle-alert" size={14} />
+        <span>{refusal.heading}</span>
+      </div>
+      {refusal.step !== null && <p className="sheet-hook-refusal-text">{refusal.step}</p>}
+      {refusal.message !== null && (
+        <div className="sheet-hook-refusal-message">
+          <span className="sheet-hook-refusal-message-label">{refusal.message.label}</span>
+          <pre className="sheet-hook-refusal-message-text">{refusal.message.text}</pre>
+        </div>
+      )}
+      <HookOutput hook={refusal.hook} />
+      <p className="sheet-hook-refusal-text">{refusal.way_on}</p>
     </div>
   );
 }
@@ -446,6 +591,7 @@ function StartProblem({ view, problem }: { view: SheetView; problem: SheetStartP
         )}
       </div>
       {shown && log !== null && <pre className="sheet-setup-log">{log}</pre>}
+      {problem.hook !== null && <HookOutput hook={problem.hook} />}
       <div className="sheet-start-does">
         <span className="sheet-start-does-heading">{problem.retry_heading}</span>
         <ul>
@@ -512,11 +658,15 @@ export function NeedsYou({
   view,
   actions,
   aboveBar,
+  inReview = false,
 }: {
   view: SheetView;
   actions: SheetActions;
   /** Shown right above the action bar: the review's manual checks (d0125). */
   aboveBar?: ReactNode;
+  /** The ticket waits in a check of yours: an agent's question shows its box above the review's own rows and bar,
+   * which stay (Approve and Send back stay in the review bar under every tab). */
+  inReview?: boolean;
 }) {
   const app = useRegistries();
   const { press, busy, answering, setAnswering, cardAnswer } = actions;
@@ -528,10 +678,23 @@ export function NeedsYou({
         {view.conflict && (
           <div className="sheet-conflict">
             <Icon name="triangle-alert" size={13} />
-            <span className="sheet-conflict-line">{view.conflict.line}</span>
+            <div className="sheet-conflict-text">
+              <span className="sheet-conflict-line">{view.conflict.line}</span>
+              {view.conflict.moved !== null && (
+                <span className="sheet-conflict-more">{view.conflict.moved}</span>
+              )}
+              {view.conflict.outcome !== null && (
+                <span className="sheet-conflict-more">{view.conflict.outcome}</span>
+              )}
+            </div>
+            {view.conflict.count !== null && (
+              <Tooltip text={view.conflict.count_hint}>
+                <span className="sheet-conflict-count">{view.conflict.count}</span>
+              </Tooltip>
+            )}
           </div>
         )}
-        {view.answer ? (
+        {view.answer && (
           <AnswerBox
             key={view.answer.question}
             view={view}
@@ -539,9 +702,12 @@ export function NeedsYou({
             more={null}
             fromCard={cardAnswer}
           />
-        ) : (
+        )}
+        {(!view.answer || inReview) && (
           <>
+            {view.permission_prompt && <PermissionPrompt prompt={view.permission_prompt} />}
             {view.refusal && <Refusal refusal={view.refusal} />}
+            {view.hook_refusal && <HookRefusal refusal={view.hook_refusal} />}
             <Holds view={view} />
             {aboveBar}
             {view.buttons.length > 0 && (

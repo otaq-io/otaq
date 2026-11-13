@@ -54,11 +54,15 @@ pub fn queue_facts(ticket: &Ticket, all: &[Ticket]) -> QueueFacts {
     }
 }
 
-/// Where a ticket that waits for a free agent is in line (1 is next): its place in the start order among `all`'s
-/// tickets waiting for one. `None` for any other ticket.
+/// Where a ticket that waits for a free agent is in line (1 is next): its place among every project's tickets
+/// waiting for one, as the service placed it; for a ticket it didn't place, its place in the start order among
+/// `all`'s. `None` for any other ticket.
 pub fn in_line(ticket: &Ticket, all: &[Ticket]) -> Option<usize> {
     if ticket.status != Status::WaitingForSlot {
         return None;
+    }
+    if let Some(place) = ticket.flags.in_line {
+        return usize::try_from(place).ok();
     }
     let mut line: Vec<&Ticket> = all
         .iter()
@@ -226,6 +230,10 @@ mod tests {
         assert_eq!(in_line(&first, &all), Some(1));
         assert_eq!(in_line(&second, &all), Some(2));
         assert_eq!(in_line(&working, &all), None);
+        // The service's place counts the other projects' tickets too.
+        let mut placed = second.clone();
+        placed.flags.in_line = Some(3);
+        assert_eq!(in_line(&placed, &all), Some(3));
     }
 
     #[test]

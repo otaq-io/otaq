@@ -479,3 +479,45 @@ async fn a_project_agents_row_keeps_the_reported_id() {
     assert_eq!(kept.as_deref(), Some(ID));
     world.w.stop().await;
 }
+
+/// Re-tests 2 and 3: Esc in Codex sends its `Interrupt` hook at once, while Codex is still stopping the turn; the
+/// stage reminder typed then was taken in and also left in Codex's input line, so it went out twice while Codex
+/// worked. The turn ends, and the reminder is typed, only once Codex wrote `turn_aborted` to its session file.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_stage_reminder_waits_for_codex_to_stop_an_interrupted_turn() {
+    let world = world().await;
+    let w = &world.w;
+    let caller = started(w).await;
+    let session = session_of(&caller).to_owned();
+    let file = world.create_file();
+    session_start(w, &caller).await;
+
+    let interrupt = json!({"session_id": ID, "hook_event_name": "Interrupt", "model": "gpt-6-luna",
+        "turn_id": "01a1c7b0-3c67-74e2-ba3c-0402a4187a6b"});
+    w.signals
+        .hook(&caller, Tool::Codex, "Interrupt", &interrupt)
+        .await
+        .unwrap();
+    // Still stopping: nothing typed, and its deliveries wait.
+    tokio::time::sleep(Duration::from_millis(400)).await;
+    assert!(!w.signals.is_idle_between_turns(&session), "not idle yet");
+    let typed =
+        String::from_utf8_lossy(&w.sessions.attach(&session).unwrap().scrollback).into_owned();
+    assert!(!typed.contains("your stage is still open"), "{typed}");
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+
+    // Codex has stopped the turn: now the reminder is typed, and the card stays Working.
+    let aborted = json!({"timestamp": "2026-11-10T23:00:21.197Z", "ordinal": 109, "type": "event_msg",
+        "payload": {"type": "turn_aborted", "turn_id": "01a1c7b0-3c67-74e2-ba3c-0402a4187a6b",
+            "reason": "interrupted", "started_at": 1_794_351_578, "completed_at": 1_794_351_621,
+            "duration_ms": 42_962}});
+    append(&file, &format!("{aborted}\n"));
+    w.wait_for_output(&session, "your stage is still open")
+        .await;
+    until("the reminder is sent", || async {
+        w.deliveries.pending(&session).await.unwrap().is_empty()
+    })
+    .await;
+    assert_eq!(w.status("SHOP-1").await, Status::Working);
+    world.w.stop().await;
+}

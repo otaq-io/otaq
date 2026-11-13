@@ -69,6 +69,7 @@ fn held(key: &str, step: StartStep) -> Ticket {
     ticket.start_problem = Some(StartProblem {
         step,
         message: "Claude Code limit reached".into(),
+        hook: None,
     });
     ticket
 }
@@ -414,6 +415,34 @@ async fn storyboard_chain_shop_20_starts_only_after_both_parents_merged() {
     let pass = w.scheduler.pass().await.unwrap();
     assert_eq!(keys(&pass.start), ["SHOP-4"]);
     assert_eq!(w.recorder.started(), ["SHOP-2", "SHOP-3", "SHOP-4"]);
+}
+
+/// While a parent is being recorded merged, the passes its events set off leave its waiting children alone: they
+/// start in its `on_parent_merged`, which then says it started them. Other tickets start as ever.
+#[tokio::test]
+async fn a_landing_parents_children_start_in_its_on_parent_merged_only() {
+    let w = world(Duration::from_secs(3600)).await;
+    let f = &w.f;
+    let parent = create(f, "Checkout API", &[]).await;
+    create(f, "Checkout page", &["SHOP-1"]).await;
+    create(f, "Price table", &[]).await;
+    for key in ["SHOP-2", "SHOP-3"] {
+        queue(f, key).await;
+    }
+
+    let landing = w.scheduler.landing(&parent.key);
+    set(f, "SHOP-1", Status::Merged).await;
+    let pass = w.scheduler.pass().await.unwrap();
+    assert_eq!(
+        keys(&pass.start),
+        ["SHOP-3"],
+        "the child waits for on_parent_merged"
+    );
+
+    let merged = w.scheduler.on_parent_merged("SHOP-1").await.unwrap();
+    assert_eq!(keys(&merged.start), ["SHOP-2"]);
+    drop(landing);
+    assert_eq!(w.recorder.started(), ["SHOP-3", "SHOP-2"]);
 }
 
 #[tokio::test]

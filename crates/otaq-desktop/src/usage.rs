@@ -322,6 +322,7 @@ const FEATURES: &[&str] = &[
     // The ticket's sections.
     "sections.create_from_note",
     "sections.answer_message",
+    "sections.resume_message",
     // Terminals, agents and Run.
     "drawer.new",
     "drawer.resume",
@@ -338,7 +339,6 @@ const FEATURES: &[&str] = &[
     "recovery.start_from_scratch",
     "recovery.cleanup_delete",
     "recovery.warm_clear",
-    "shell.cleanup",
     "notices.resume_all",
     "notices.resume_after_limit",
     "notices.restart",

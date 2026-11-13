@@ -4,6 +4,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::{TicketKey, stored_enum};
+use crate::git::GitStep;
 
 /// "Sent back · 3 comments · round 2" (d0034); "Sent back · 1 decision changed · round 2" (DEC-06).
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -33,6 +34,47 @@ impl MergeCheckState {
             Self::Failed => super::validation::MERGE_CHECK_FAILED_FIXING,
         }
     }
+}
+
+/// Which of Otaq's own git operations runs on a ticket ([`GitProgress`]).
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum GitOperation {
+    /// Approve & merge, or an automatic Delivery's Local merge.
+    Merge,
+    /// A start: the base brought up to date, the worktree made, a reopened ticket's update from its base.
+    Start,
+}
+
+/// One of Otaq's own git operations running on the ticket now: the step git is really on and the user's hook that
+/// runs, if one does ("running your pre-commit hook · 40 s"). Kept in memory while it runs
+/// ([`crate::board::git_steps`]); a restart shows none. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitProgress {
+    pub operation: GitOperation,
+    /// The branch it merges into, or the base a start brings up to date: `main`.
+    pub target: String,
+    /// The step it is on, once it has said one.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub step: Option<GitStep>,
+    /// The steps it was on before, in order.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub earlier: Vec<GitStep>,
+    /// The user's hook that runs right now.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<GitHookRunning>,
+}
+
+/// The user's hook that runs right now, in a [`GitProgress`].
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct GitHookRunning {
+    /// `pre-commit`.
+    pub name: String,
+    /// Where git runs it, the home shortened (`~/code/shop-web`): the user's own folder when the target branch moves
+    /// there.
+    pub folder: String,
+    /// When it started, in Unix milliseconds.
+    pub since_ms: i64,
 }
 
 /// What a helper of the ticket waits for the user with (d0133 audit 3): its question, once the agent in charge passed
@@ -77,6 +119,58 @@ pub struct RunningApp {
     pub started_by: Option<String>,
 }
 
+/// The turn of a ticket's session whose permission prompt reads Needs you while the ticket keeps its status
+/// ([`SessionPrompt`]).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum PromptTurn {
+    /// The Open PR skill, once the user confirmed the PR, or an automatic PR's.
+    OpenPr,
+    /// The Push skill: Push to PR, its Retry, or an automatic PR's push to an open PR.
+    PushToPr,
+    /// A finished ticket's agent started again to answer `asking`'s question (an answer session). Unlike the delivery
+    /// turns, only the finished card's line ("Needs you · answering SHOP-36"), the Needs you item, its notification
+    /// and the sheet's prompt read it: the card stays in Done with its status, and neither floats nor reads live.
+    Answering { asking: TicketKey },
+}
+
+impl PromptTurn {
+    /// "Open PR", "Push to PR", "Answering".
+    pub fn label(&self) -> &'static str {
+        match self {
+            Self::OpenPr => "Open PR",
+            Self::PushToPr => "Push to PR",
+            Self::Answering { .. } => "Answering",
+        }
+    }
+
+    /// The ticket whose question an answer session's prompt holds up; `None` for a delivery turn.
+    pub fn asking(&self) -> Option<&TicketKey> {
+        match self {
+            Self::Answering { asking } => Some(asking),
+            Self::OpenPr | Self::PushToPr => None,
+        }
+    }
+}
+
+/// A ticket's session prompt, shown without changing its status: the permission prompt on the screen of one of the
+/// ticket's own sessions while the ticket waits where it is (in Review, To deliver), or while a finished ticket answers
+/// another's question ([`PromptTurn::Answering`]). The card, the pill, the strip and
+/// the notifications read Needs you naming it, as for any prompt, but the ticket keeps its column and its status, so
+/// every action on it stays as it was; once the prompt is answered it reads as before. Kept in memory
+/// ([`crate::board::session_prompts`]); a restart shows none. Not a flag of its own.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct SessionPrompt {
+    /// The session whose terminal answers it.
+    pub session: String,
+    /// The tool's prompt as its hook said it ("Run command: git push origin otaq/SHOP-18").
+    pub prompt: String,
+    /// When it was drawn, in Unix milliseconds: the Needs you item's age.
+    pub since: i64,
+    /// The turn it came in.
+    pub turn: PromptTurn,
+}
+
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Flags {
     /// When the ticket was pinned, in Unix milliseconds (d0047). Pinned is not a status.
@@ -95,7 +189,7 @@ pub struct Flags {
     /// Changed since you reviewed it (d0043).
     #[serde(default, skip_serializing_if = "is_false")]
     pub changed_since_review: bool,
-    /// N messages waiting to be typed into the session (d0048).
+    /// N messages waiting to be typed into the ticket's live agent session (d0048); a check's own don't count.
     #[serde(default, skip_serializing_if = "is_zero")]
     pub messages_waiting: u32,
     /// A hand-off typed into the live session that its agent hasn't picked up yet: "Sent back · waiting for the agent
@@ -140,7 +234,8 @@ pub struct Flags {
     /// (d0041). Once resubmitted, Approve offers Push to PR.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_rework: bool,
-    /// "PR provider not detected" (d0050).
+    /// An automatic PR delivery waits To deliver because no PR provider matches the remote: its card says so, with
+    /// Set up…; the user's click (Approve & open PR) still works with their own Open PR skill.
     #[serde(default, skip_serializing_if = "is_false")]
     pub pr_provider_not_detected: bool,
     /// In Review because the user submitted it (d0052): the note, possibly empty ("Submitted by you · “…”").
@@ -208,13 +303,22 @@ pub struct Flags {
     /// fixing" while the agent fixes what it found. Not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merge_check: Option<MergeCheckState>,
+    /// Approve & merge or a start running its git steps now: the step and the hook that runs ("Merging · running
+    /// your pre-commit hook · 40 s"). Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub git: Option<GitProgress>,
     /// A Backlog ticket whose dependencies are all merged: the quiet "Ready to start" hint. It never
     /// starts by itself (d0066, SCH-02).
     #[serde(default, skip_serializing_if = "is_false")]
     pub ready_to_start: bool,
+    /// Waits for a free agent: its place among every project's tickets waiting for one, in the start order the agent
+    /// limit takes them (1 is next): "Waits for a free agent · 2nd in line". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub in_line: Option<u32>,
     /// A needs-you status while the user's terminal for the waiting session has focus (ATT-03, d0042; per session,
-    /// so the validator's prompt calms only with the validator's terminal, d0063): the card stays calm, no Needs you
-    /// item, no notification; the terminal strip shows "your turn".
+    /// so the validator's prompt calms only with the validator's terminal, d0063): its alerts are held back (no Needs
+    /// you item in the strip, no notification, no sound), but the card, the sheet's pill and the session still read
+    /// the real state, Needs you included; the hint under the terminal says "you're here, so no alert".
     #[serde(default, skip_serializing_if = "is_false")]
     pub your_turn: bool,
     /// "1 decision": the open recorded decisions of a ticket in Ready for Review
@@ -235,10 +339,23 @@ pub struct Flags {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub merged_into: Option<TicketKey>,
     /// A stage held because its tool doesn't have the skill it names (a stage runs only on a tool that has its
-    /// skill): the ticket waits in Needs you, "Codex doesn't have the skill `/team-validate`". Set while the held
+    /// skill): the ticket waits in Needs you, "Codex doesn't have the skill `$team-validate`". Set while the held
     /// stage still waits; not a flag of its own.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub missing_skill: Option<MissingSkill>,
+    /// A project's git hook refused one of Otaq's own git steps on the ticket: which hook, its whole output and the
+    /// operation it refused, for the card's Needs you flag and the sheet. Not a flag of its own: the stop it put the
+    /// ticket in shows it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook_refusal: Option<crate::git::RefusedHook>,
+    /// A ticket's session prompt, shown without changing its status (the Push skill waits at a permission prompt
+    /// while the ticket stays in Review): see [`SessionPrompt`]. Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub session_prompt: Option<SessionPrompt>,
+    /// The ticket's own sessions with a permission prompt on screen now, whatever the ticket shows: each one's header
+    /// reads "Waiting for you". Not a flag of its own.
+    #[serde(default, skip_serializing_if = "Vec::is_empty")]
+    pub prompts_drawn_in: Vec<String>,
 }
 
 /// The tool a held stage would have run on and the skill that tool doesn't have.
@@ -249,7 +366,7 @@ pub struct MissingSkill {
 }
 
 impl MissingSkill {
-    /// "Codex doesn't have the skill `/team-validate`".
+    /// "Codex doesn't have the skill `$team-validate`".
     pub fn text(&self) -> String {
         crate::flow::proposal::missing_skill_text(self.tool, &self.skill)
     }
@@ -382,7 +499,19 @@ mod tests {
             done_without_merge: true,
             nothing_to_merge: Some("Already fixed in SHOP-31.".into()),
             merge_check: Some(MergeCheckState::Failed),
+            git: Some(GitProgress {
+                operation: GitOperation::Merge,
+                target: "main".into(),
+                step: Some(GitStep::Commit),
+                earlier: vec![GitStep::UpdateTarget, GitStep::UpdateBranch],
+                hook: Some(GitHookRunning {
+                    name: "pre-commit".into(),
+                    folder: "~/code/shop-web".into(),
+                    since_ms: 7,
+                }),
+            }),
             ready_to_start: true,
+            in_line: Some(2),
             your_turn: true,
             open_decisions: 1,
             piece_wait: Some(PieceWait {
@@ -400,6 +529,20 @@ mod tests {
                 tool: crate::agent_tools::Tool::Codex,
                 skill: "team-validate".into(),
             }),
+            hook_refusal: Some(crate::git::RefusedHook {
+                name: "commit-msg".into(),
+                step: Some(crate::git::GitStep::Commit),
+                what: "the merge".into(),
+                output: "subject must start with feat:".into(),
+                message: None,
+            }),
+            session_prompt: Some(SessionPrompt {
+                session: "s1".into(),
+                prompt: "Run command: git push origin main".into(),
+                since: 9,
+                turn: PromptTurn::PushToPr,
+            }),
+            prompts_drawn_in: vec!["s1".into()],
         }
     }
 

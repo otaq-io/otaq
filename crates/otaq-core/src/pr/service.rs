@@ -57,11 +57,18 @@ pub enum PrOutcome {
         ticket: TicketKey,
         #[serde(default)]
         unclearable_by: Option<String>,
+        /// It isn't text: the session waits at this permission prompt, answered in its terminal first.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back (REV-08).
     RefusedUncommitted { files: Vec<String>, message: String },
     /// New commits since the review (REV-06): approve again with `approve_anyway`, or Send back.
     Changed { check: ApproveCheck },
+    /// The project's commit-msg hook refused a confirmed commit message: nothing was rewritten or pushed, the dialog
+    /// closes and the refusal is on the ticket (its Delivery stopped, the card's Needs you, the sheet's output and
+    /// the message, History). `message` is "commit-msg hook refused the PR".
+    HookRefused { hook: String, message: String },
 }
 
 /// Runs the PR flows. Cheap to clone.
@@ -106,11 +113,19 @@ impl Typing {
 }
 
 /// Open PR refused because the built-in skill can't open a PR on this remote: the user's own Open PR skill goes in the
-/// flow's delivery (its `skill:`), never in an agent's skills.
+/// flow's delivery (its `skill:`, Edit flow's Done panel), never in an agent's skills.
 pub fn own_open_pr_skill(why: &str) -> String {
     format!(
-        "{why}: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in the flow file)"
+        "{why}: {OWN_OPEN_PR_SKILL} (name it as the delivery\u{2019}s `skill:` in the flow file: Edit flow \u{2192} Done \u{2192} PR skill)"
     )
+}
+
+/// The words every "use your own Open PR skill" refusal carries ([`own_open_pr_skill`]).
+const OWN_OPEN_PR_SKILL: &str = "use your own Open PR skill";
+
+/// Whether a refusal says to use your own Open PR skill: its toast links to where that skill goes.
+pub fn asks_for_own_open_pr_skill(message: &str) -> bool {
+    message.contains(OWN_OPEN_PR_SKILL)
 }
 
 /// What follows the PR skill's name when an automatic Delivery starts it (FLW-15): the skill proposes as usual and
@@ -203,11 +218,13 @@ impl Prs {
     ) -> Result<PrOutcome, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
+        // A PR whose message a hook refused, or whose push didn't land, waits in Review and opens again from there,
+        // on the messages the user edited.
         if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Open PR works on a ticket in your review",
+                    "{} is {}; Approve & open PR works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -255,6 +272,7 @@ impl Prs {
             self.skill_runs_in(&ticket, self.live_of(&ticket, session).as_ref())
                 .await?;
             let proposal = self.prepared_proposal(&ticket).await?;
+            board.mark_no_pr_provider(&ticket.id, false).await?;
             board.start_pr_flow(&ticket, kind, false).await?;
             board.set_pr_proposal(&ticket.id, &proposal).await?;
             tracing::info!(key = %ticket.key, "PR dialog opened on the prepared message");
@@ -345,9 +363,24 @@ impl Prs {
         if flow.kind == FlowKind::Open {
             self.skill_runs_in(&ticket, live.as_ref()).await?;
         }
-        board
+        if let Some(refused) = board
             .apply_confirmed(&ticket, flow.kind, &checked, actor)
-            .await?;
+            .await?
+        {
+            return Ok(PrOutcome::HookRefused {
+                message: refused.line(),
+                hook: refused.name,
+            });
+        }
+        // Every message passed: an earlier refusal, or a push that didn't land, is done with while the skill pushes.
+        board.clear_stop_in_place(&ticket).await?;
+        // Approve & open PR is an approve, as a merge is: the first one shows the box for new work and the hints that
+        // follow the first approve.
+        if flow.kind == FlowKind::Open
+            && let Err(e) = board.store().reach_first_approve().await
+        {
+            tracing::warn!(error = %e, "couldn't remember the first approve");
+        }
         // An Open PR's skill starts here, told the user confirmed (it proposed nothing: the delivery's agent wrote the
         // message in Review); a Push's skill proposed, so it is told in words.
         let confirmed = confirmed_instruction(flow.kind);
@@ -423,6 +456,7 @@ impl Prs {
             FlowKind::Open => WorkflowStep::OpenPr,
             FlowKind::Push => WorkflowStep::Push,
         };
+        board.mark_no_pr_provider(&ticket.id, false).await?;
         board.start_pr_flow(&ticket, kind, true).await?;
         sqlx::query("UPDATE tickets SET delivered_without_checks = ? WHERE id = ?")
             .bind(without_checks)
@@ -486,9 +520,21 @@ impl Prs {
                 format!("Commit {} has no message", &e.sha[..7.min(e.sha.len())]),
             ));
         }
-        board
+        // A message the project's commit-msg hook refuses stops the Delivery for the user, as a refused merge does:
+        // the agent is told so and stops there.
+        if let Some(refused) = board
             .apply_confirmed(&ticket, flow.kind, &proposal, &Actor::current_user())
-            .await?;
+            .await?
+        {
+            return Err(BoardError::refused(
+                Refusal::NotAllowed,
+                format!(
+                    "The project's {} hook refused a commit message, so nothing was rewritten or pushed. {} now waits \
+                     for the user, who fixes the message on the ticket. Stop here.",
+                    refused.name, ticket.key
+                ),
+            ));
+        }
         let live = self.live_session(&ticket).await;
         self.run_in_session(
             &ticket,
@@ -550,14 +596,16 @@ impl Prs {
         })
     }
 
-    /// **Cancel** before pushing: the proposal is discarded; the ticket stays in Ready for Review.
+    /// **Cancel**: the proposal is discarded; the ticket stays in its review and no PR is recorded. While pushing,
+    /// Cancel only stops waiting (never for an automatic delivery, which has no dialog); there is no timeout.
     pub async fn cancel(&self, key: &str, actor: &Actor) -> Result<Ticket, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket(key).await?;
         let Some(flow) = board.pr_flow(&ticket.id).await? else {
             return Ok(ticket);
         };
-        if flow.state == FlowState::Pushing {
+        let pushing = flow.state == FlowState::Pushing;
+        if pushing && flow.automatic {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
@@ -566,10 +614,13 @@ impl Prs {
                 ),
             ));
         }
+        // The flow ends either way, so a later question from the agent reaches the board, not the closed dialog.
         board.end_pr_flow(&ticket.id).await?;
-        // A click's Open PR ran nothing before the confirm: a delivery session there is the one writing the
-        // delivery's message, which goes on.
-        if flow.kind == FlowKind::Push || flow.automatic {
+        // While pushing, the agent's session is left alone (a turn that never started must not hold the dialog, and
+        // a PR it reports later with `otaq pr opened` is still recorded). Before pushing, a click's Open PR ran
+        // nothing before the confirm: a delivery session there is the one writing the delivery's message, which goes
+        // on.
+        if !pushing && (flow.kind == FlowKind::Push || flow.automatic) {
             self.end_delivery(&ticket).await?;
         }
         let mut tx = board.store().begin_write().await?;
@@ -578,7 +629,7 @@ impl Prs {
             &ticket.id,
             EventKind::PrCancelled,
             actor,
-            json!({ "kind": flow.kind }),
+            json!({ "kind": flow.kind, "pushing": pushing }),
         )
         .await?;
         tx.commit().await?;
@@ -601,12 +652,30 @@ impl Prs {
                 Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
             )
         {
-            board.record_pr_open(&ticket, actor).await?;
             // The user's Open PR approved it: its decisions are kept by the user, not the skill (DEC-05). An
             // automatic Delivery isn't an approval and keeps nothing, as Auto-merge didn't.
             if !automatic {
                 crate::decisions::keep_all(board, key, &Actor::current_user()).await?;
             }
+            // The agent's word isn't enough: the remote must have the branch at the commit it should. When it
+            // doesn't, the ticket waits where its Delivery started with what the remote has, and its retry only pushes
+            // again.
+            let not_landed = board
+                .check_delivery_push(&ticket)
+                .await
+                .unwrap_or_else(|e| {
+                    tracing::warn!(key = %ticket.key, error = %e, "can't check the delivery's push");
+                    None
+                });
+            if let Some(not_landed) = not_landed {
+                tracing::warn!(key = %ticket.key, branch = %not_landed.branch, remote = ?not_landed.remote,
+                               "the delivery reported a push the remote doesn't have");
+                board
+                    .push_not_landed(&ticket, &not_landed.message(), actor)
+                    .await?;
+                return board.ticket(key).await;
+            }
+            board.record_pr_open(&ticket, actor).await?;
         }
         // The pushed content must be what the user reviewed (REV-10 step 4); reworded commits don't count.
         match board.verify_pushed(&ticket).await {
@@ -681,7 +750,7 @@ impl Prs {
     }
 
     /// A skill runs only on a tool that has it: refused, nothing started or typed, when `tool` doesn't have the skill
-    /// `prompt` names for the ticket ("Codex doesn't have the skill `/my-pr`"). The user's click gets the refusal; an
+    /// `prompt` names for the ticket ("Codex doesn't have the skill `$my-pr`"). The user's click gets the refusal; an
     /// automatic Delivery's card waits for the click, as for a tool that can't run.
     async fn refuse_missing_skill(
         &self,
@@ -754,11 +823,12 @@ impl Prs {
         runs_on: &RunsOn,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
-        let project = self
-            .inner
-            .board
-            .project(ticket.key.project.as_str())
+        let board = &self.inner.board;
+        // The delivery's agent commits and pushes: never under a borrowed name, new session or resumed.
+        board
+            .refuse_without_identity(ticket.key.project.as_str())
             .await?;
+        let project = board.project(ticket.key.project.as_str()).await?;
         let session = self
             .inner
             .sessions
@@ -800,6 +870,16 @@ impl Prs {
         if clear_first {
             return Ok(None);
         }
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if let Some(session) = live
+            && let Some(prompt) = self.inner.board.session_prompts().on_screen(&session.id)
+        {
+            return Ok(Some(PrOutcome::NeedsConfirmation {
+                ticket: ticket.key.clone(),
+                unclearable_by: None,
+                prompt: Some(prompt),
+            }));
+        }
         if let Some(session) = live
             && self
                 .inner
@@ -814,6 +894,7 @@ impl Prs {
                     .deliveries
                     .unclearable_by(&session.id)
                     .map_err(other)?,
+                prompt: None,
             }));
         }
         Ok(None)
@@ -925,6 +1006,39 @@ impl Prs {
     /// open or a PR dialog under way, with no commits, while the project is paused, or when the agent can't start now
     /// (the confirmation then starts from the plain message). Returns whether it asked.
     pub async fn prepare_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        self.ask_for_message(ticket_id, false).await
+    }
+
+    /// Approve's dialogs are opening on a message still being written: when no session of the ticket runs to write
+    /// it (it ended, or an older Otaq asked and was closed), the delivery's agent is asked again, though the branch
+    /// head is the same; when it can't be, the request is dropped and the dialog opens on the plain message. A writer
+    /// that still runs is left alone. Returns whether it asked again.
+    pub async fn ask_again_for_message(&self, ticket_id: &str) -> Result<bool, BoardError> {
+        let board = &self.inner.board;
+        if !board
+            .delivery_message(ticket_id)
+            .await?
+            .is_some_and(|m| !m.is_ready())
+        {
+            return Ok(false);
+        }
+        let ticket = board.ticket_by_id(ticket_id).await?;
+        let writer_runs = [SessionKind::Delivery, SessionKind::Agent]
+            .into_iter()
+            .any(|kind| self.live_of(&ticket, kind).is_some());
+        if writer_runs {
+            return Ok(false);
+        }
+        tracing::info!(key = %ticket.key, "no session writes the delivery's message: asking again");
+        if self.ask_for_message(ticket_id, true).await? {
+            return Ok(true);
+        }
+        board.forget_delivery_message(ticket_id).await?;
+        Ok(false)
+    }
+
+    /// [`Self::prepare_message`]; `again` asks even for the head already asked for.
+    async fn ask_for_message(&self, ticket_id: &str, again: bool) -> Result<bool, BoardError> {
         let board = &self.inner.board;
         let ticket = board.ticket_by_id(ticket_id).await?;
         if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver)
@@ -951,7 +1065,8 @@ impl Prs {
             return Ok(false);
         }
         let head = board.branch_head(&ticket).await;
-        if head.is_some()
+        if !again
+            && head.is_some()
             && board
                 .delivery_message(&ticket.id)
                 .await?
@@ -977,13 +1092,16 @@ impl Prs {
             .await?;
         let kind = self.session_kind_for(&ticket).await;
         let sent = match self.live_of(&ticket, kind) {
+            // It may wait behind a busy turn or unsent text: once the ticket no longer waits in Review, To deliver or
+            // PR open (sent back to Dev, merged, closed) it is dropped, never typed.
             Some(session) => self
                 .inner
                 .deliveries
-                .queue_delivery(
+                .queue_while(
                     &session.id,
                     crate::session::deliveries::DeliveryKind::AgentMessage,
                     &text,
+                    self.still_waits_to_deliver(&ticket.id),
                 )
                 .await
                 .map_err(other),
@@ -1013,6 +1131,28 @@ impl Prs {
         }
         tracing::info!(key = %ticket.key, %agent, "the delivery's agent writes the message");
         Ok(true)
+    }
+
+    /// Whether the ticket still waits in Review, To deliver or PR open, asked when its queued request for the message
+    /// comes to be typed. When it no longer does, the request is dropped and counts as never made: the ticket isn't
+    /// recorded as being written, so its next arrival in Review asks again, even on the same branch head.
+    fn still_waits_to_deliver(&self, ticket_id: &str) -> crate::session::deliveries::StillWanted {
+        let (board, id) = (self.inner.board.clone(), ticket_id.to_owned());
+        Arc::new(move || {
+            let (board, id) = (board.clone(), id.clone());
+            Box::pin(async move {
+                let waits = board.ticket_by_id(&id).await.is_ok_and(|t| {
+                    matches!(
+                        t.status,
+                        Status::WaitingForYou | Status::ToDeliver | Status::PrOpen
+                    )
+                });
+                if !waits && let Err(e) = board.drop_unwritten_message(&id).await {
+                    tracing::warn!(ticket = id, error = %e, "can't forget the dropped request for the message");
+                }
+                waits
+            })
+        })
     }
 
     /// Open PR or Push, by the step's skill or, for Otaq's own words, by the PR flow under way.
@@ -1169,6 +1309,37 @@ impl Prs {
 }
 
 impl Board {
+    /// An automatic PR delivery left waiting because no PR provider matches the remote (`on`), or no longer
+    /// (`off`): the card says so with Set up… ([`crate::domain::Flags::pr_provider_not_detected`]). Kept in the
+    /// ticket's start-problem columns while it waits To deliver.
+    pub(crate) async fn mark_no_pr_provider(
+        &self,
+        ticket_id: &str,
+        on: bool,
+    ) -> Result<(), BoardError> {
+        if on {
+            sqlx::query(
+                "UPDATE tickets SET start_problem_step = ?, start_problem_message = ? WHERE id = ? AND state = ?",
+            )
+            .bind(crate::board::tickets::NO_PR_PROVIDER_MARK)
+            .bind(super::provider::NO_PROVIDER)
+            .bind(ticket_id)
+            .bind(Status::ToDeliver.as_str())
+            .execute(self.store().pool())
+            .await?;
+        } else {
+            sqlx::query(
+                "UPDATE tickets SET start_problem_step = NULL, start_problem_message = NULL
+                 WHERE id = ? AND start_problem_step = ?",
+            )
+            .bind(ticket_id)
+            .bind(crate::board::tickets::NO_PR_PROVIDER_MARK)
+            .execute(self.store().pool())
+            .await?;
+        }
+        Ok(())
+    }
+
     /// Approved · PR open (REV-13): after the skill reported the PR.
     pub(crate) async fn record_pr_open(
         &self,
@@ -1197,7 +1368,8 @@ impl Board {
             moved.record(&mut tx, &ticket.id, None).await?;
         }
         sqlx::query(concat!(
-            "UPDATE tickets SET stage_id = ?, state = ?, interrupted_from = NULL, updated_by = ?, updated_at = ?, ",
+            "UPDATE tickets SET stage_id = ?, state = ?, interrupted_from = NULL, auto_merge_stop = NULL,
+                                hook_refusal = NULL, updated_by = ?, updated_at = ?, ",
             crate::store::tickets::set_state_since!(),
             " WHERE id = ?"
         ))
@@ -1210,6 +1382,11 @@ impl Board {
         .bind(&ticket.id)
         .execute(&mut *tx)
         .await?;
+        // The PR was opened (or pushed to) with the user's edit: the kept edit goes.
+        sqlx::query(crate::pr::message::FORGET_EDITED)
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }
@@ -1253,15 +1430,17 @@ mod tests {
         }
     }
 
-    /// "Use your own Open PR skill" points at the Delivery stage's Skill field, never at the agent's skills.
+    /// "Use your own Open PR skill" points at the delivery's PR skill in Edit flow, never at the agent's skills.
     #[test]
     fn own_open_pr_skill_names_the_flows_delivery() {
         let text = own_open_pr_skill("PR provider not detected");
         assert_eq!(
             text,
             "PR provider not detected: use your own Open PR skill (name it as the delivery\u{2019}s `skill:` in \
-             the flow file)"
+             the flow file: Edit flow \u{2192} Done \u{2192} PR skill)"
         );
+        assert!(asks_for_own_open_pr_skill(&text));
+        assert!(!asks_for_own_open_pr_skill("Nothing to push"));
         assert!(!text.contains("Settings"));
         assert!(!text.contains("agent's skills") && !text.contains("agent\u{2019}s skills"));
     }

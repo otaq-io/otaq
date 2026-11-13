@@ -56,7 +56,7 @@ import type { MenuItem } from "../../generated/MenuItem";
 import type { NewToast } from "../../generated/NewToast";
 import type { ParkDialog } from "../../generated/ParkDialog";
 import type { ViewChange } from "../../generated/ViewChange";
-import { asRequestError, useServiceView } from "../../service";
+import { asRequestError, useEverySecond, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { FilesView } from "../files_view/FilesView";
@@ -346,6 +346,7 @@ export function Board() {
   const boardEl = useRef<HTMLDivElement | null>(null);
   const size = useSize(element);
   const tick = useTick(SIGNAL_REFRESH_MS);
+  const [second, setSecond] = useState(0);
   // Bumped after each view change the service stored: the board asks for its view again.
   const [viewVersion, setViewVersion] = useState(0);
 
@@ -359,12 +360,14 @@ export function Board() {
       agent,
     };
     return (request("board.view", params) as Promise<BoardView>).then((board) => ({ project, board }));
-    // `tick` refetches for the signal ages, `viewVersion` after a view change.
+    // `tick` refetches for the signal ages, `second` for a running hook's time, `viewVersion` after a view change.
     // eslint-disable-next-line react-hooks/exhaustive-deps -- tick and viewVersion are refetch triggers, not read
-  }, [project, size, filter, agent, tick, viewVersion]);
+  }, [project, size, filter, agent, tick, second, viewVersion]);
   const loaded = useServiceView(load, BOARD_EVENTS).view;
   // Another project's board is never drawn while the shown one loads.
   const view = loaded?.project === project ? loaded.board : undefined;
+  // A running hook's time on a card moves every second.
+  useEverySecond(view?.seconds ?? false, setSecond);
 
   // One change of the view preferences (SHB-05), stored by the service; then the view again.
   const changeView = useCallback(
@@ -457,8 +460,9 @@ export function Board() {
     settingsWantedShown.current = w.n;
     showView("settings");
   }, [settingsWanted, project, view, showView]);
-  // The box for new work is on the board and the List only, never in Files or the project's Settings.
-  const boxAway = filesShown || settingsShown;
+  // The box for new work is on the board and the List only, never in Files or the project's Settings; Edit flow has
+  // its own box for Noyan in its place.
+  const boxAway = filesShown || settingsShown || editingFlow;
   useEffect(() => {
     boardAway.set(boxAway);
   }, [boxAway]);
@@ -678,6 +682,11 @@ export function Board() {
           openDecide(key, kind);
           return;
         }
+        // No PR provider for an automatic PR: app Settings, Git & pull requests, where providers are set up.
+        if (kind === "set_up_provider") {
+          openOverlay("settings", { section: "git" });
+          return;
+        }
         openTicket(key);
         requestCardAction(key, kind);
       },
@@ -763,6 +772,11 @@ export function Board() {
         }
         if (kind === "decide") {
           openDecide(key, kind);
+          return;
+        }
+        // No PR provider for an automatic PR: app Settings, Git & pull requests, where providers are set up.
+        if (kind === "set_up_provider") {
+          openOverlay("settings", { section: "git" });
           return;
         }
         openTicket(key);

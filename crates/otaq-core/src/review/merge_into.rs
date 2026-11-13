@@ -4,8 +4,8 @@
 //!
 //! 1. Refused while either worktree has uncommitted files ("SHOP-20 has 2 uncommitted files"): nothing is
 //!    checkpointed or stashed.
-//! 2. **Free rebase** of this ticket's branch onto the host's, in this ticket's worktree. A conflict puts everything
-//!    back and merges nothing; the ticket stays where it was.
+//! 2. **The host's branch is merged into this ticket's**, in this ticket's worktree, never a rebase; the merge commit runs
+//!    the user's hooks. A conflict or a refusal puts everything back and merges nothing; the ticket stays where it was.
 //! 3. **Squash-merge** into the host's branch in the host's worktree: one commit named after this ticket, the user's
 //!    hooks running as for any commit; a hook that refuses it leaves the host's worktree as it was.
 //! 4. This ticket waits as Merged into the host. It isn't Done, so tickets waiting on it keep waiting; its worktree is
@@ -15,7 +15,7 @@
 //!
 //! When the host is closed without landing (Close ticket, Mark closed), every ticket merged into it goes back to the
 //! human check before its Delivery on its own kept branch ([`Review::host_closed`]): its worktree is added again from
-//! that branch, and the host's commits that the free rebase put under its own come off again, so it can land alone or
+//! that branch, and the host's commits that Otaq's merge brought into it come off again, so it can land alone or
 //! be merged into another ticket. The host's worktree and branch are never touched.
 
 use std::path::{Path, PathBuf};
@@ -27,7 +27,6 @@ use crate::board::merge_into::can_be_merged_in;
 use crate::board::tickets::Ticket;
 use crate::board::{BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey};
-use crate::git::checkpoint::{RebaseError, RebaseOutcome};
 use crate::git::merge::uncommitted_files_message;
 use crate::session::SessionKind;
 
@@ -43,7 +42,7 @@ pub enum MergeIntoOutcome {
     },
     /// "SHOP-20 has 2 uncommitted files" (this ticket's or the host's): nothing was merged.
     RefusedUncommitted { files: Vec<String>, message: String },
-    /// The rebase onto the host's branch conflicted on these files: everything was put back and nothing merged.
+    /// Merging the host's branch into this one conflicted on these files: everything was put back and nothing merged.
     Conflict { into: TicketKey, files: Vec<String> },
 }
 
@@ -70,11 +69,12 @@ impl Review {
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
         let host = board.ticket(into).await?;
-        if !can_be_merged_in(&ticket) {
+        let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+        if !can_be_merged_in(&ticket, &flow) {
             let why = match ticket.flags.pr_number {
                 Some(n) => format!("{} has PR #{n} open; push to it instead", ticket.key),
                 None => format!(
-                    "{} is {}; Merge into another ticket works on a ticket in your review",
+                    "{} is {}; Merge into another ticket works on a ticket in the review before its Delivery",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -86,8 +86,8 @@ impl Review {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} can't take {}: it must be a ticket of the same project and base that waits in a review, \
-                     at its Delivery or with a PR open, with a branch",
+                    "{} can't take {}: it must be a ticket of the same project and base that waits in the review \
+                     before its Delivery, at its Delivery or with a PR open, with a branch",
                     host.key, ticket.key
                 ),
             ));
@@ -110,7 +110,7 @@ impl Review {
         let host_wt = worktree_of(&host)?;
         let project = board.project(ticket.key.project.as_str()).await?;
         let repo = PathBuf::from(&project.repo_path);
-        // With the project's variables: the rebase and the commit run the user's hooks (ENV-02).
+        // With the project's variables: the merge commit and the squash commit run the user's hooks (ENV-02).
         let git = board.project_git(&project.key).await?;
 
         // 1. Both worktrees clean.
@@ -124,7 +124,8 @@ impl Review {
             }
         }
 
-        // 2. The free rebase onto the host's branch, in this ticket's worktree.
+        // 2. The host's branch merged into this ticket's, in this ticket's worktree (clean, by step 1), never a rebase:
+        // by its name, so the message is git's plain "Merge branch …"; the merge commit runs the user's hooks.
         let branch_ref = format!("refs/heads/{branch}");
         let before = git.resolve(&repo, &branch_ref).await?;
         let onto = git
@@ -136,27 +137,24 @@ impl Review {
                     format!("{}'s branch {host_branch} is gone", host.key),
                 )
             })?;
-        match git.rebase_with_checkpoint(&ticket_wt, &onto).await {
-            Ok(RebaseOutcome::Clean) => {}
-            Ok(RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files }) => {
-                return Ok(MergeIntoOutcome::Conflict {
-                    into: host.key,
-                    files,
-                });
-            }
-            Err(RebaseError::Git(e)) => return Err(e.into()),
-            // Step 1 found it clean: no checkpoint was made.
-            Err(e) => return Err(BoardError::refused(Refusal::MoveRefused, e.to_string())),
+        if let Some(files) = git.merge_in(&ticket_wt, host_branch).await? {
+            return Ok(MergeIntoOutcome::Conflict {
+                into: host.key,
+                files,
+            });
         }
-        // The free rebase isn't a change to review (GIT-05), whatever happens next.
+        // Otaq's own update isn't a change to review (GIT-05), whatever happens next.
         if let (Some(before), Some(after)) = (before, git.resolve(&repo, &branch_ref).await?) {
             board
-                .record_otaq_rebase(&ticket.id, &before, &after)
+                .record_otaq_update(&ticket.id, &before, &after)
                 .await?;
         }
         let range = format!("{onto}..{branch}");
         let subjects = git
-            .run(&repo, &["log", "--reverse", "--format=%s", &range])
+            .run(
+                &repo,
+                &["log", "--reverse", "--no-merges", "--format=%s", &range],
+            )
             .await?;
         if subjects.trim().is_empty() {
             return Err(BoardError::refused(
@@ -254,16 +252,16 @@ impl Review {
     }
 
     /// Adds `ticket`'s worktree again on its own kept branch, as a reopened ticket's start does, then takes the host's
-    /// commits off it: the free rebase had put the branch on the host's, at the parent of `squash` (the squash commit
-    /// on the host's branch), and the branch goes back onto where it left its base. A rebase that doesn't apply puts
-    /// everything back and leaves the branch as it was.
+    /// commits off it: Otaq had merged the host's branch into it, at the parent of `squash` (the squash commit on the
+    /// host's branch), and the branch goes back to the commit before that merge. Anything else on the branch since
+    /// leaves it as it was.
     async fn own_worktree_again(&self, ticket: &Ticket, squash: &str) -> Result<(), BoardError> {
         let inner = &self.inner;
         let board = &inner.board;
         let branch = branch_of(ticket)?.to_owned();
         let project = board.project(ticket.key.project.as_str()).await?;
         let repo = PathBuf::from(&project.repo_path);
-        // With the project's variables: `worktree add` and the rebase run the user's hooks (ENV-02).
+        // With the project's variables: `worktree add` runs the user's hooks (ENV-02).
         let git = board.project_git(&project.key).await?;
         let repo_name = repo
             .file_name()
@@ -310,22 +308,28 @@ impl Review {
         if !git.uncommitted_files(&path).await?.is_empty() {
             return Ok(());
         }
+        // Otaq's merge of the host's branch is the branch's head (its second parent the host's tip then): the branch
+        // goes back to its first parent. A fast-forward onto the host's tip goes back to the base.
+        let parents = git
+            .run(&repo, &["rev-list", "--parents", "-n", "1", &before])
+            .await?;
+        let parents: Vec<&str> = parents.split_whitespace().skip(1).collect();
+        let back_to = match parents.as_slice() {
+            [own, host] if *host == onto => own.to_string(),
+            _ if before == onto => base.clone(),
+            _ => return Ok(()),
+        };
         if let Err(e) = git
-            .run(
-                &path,
-                &["rebase", "--no-autostash", "--quiet", "--onto", &base, onto],
-            )
+            .run(&path, &["reset", "--quiet", "--hard", &back_to])
             .await
         {
-            // Abort if git left a rebase in progress (it may also have refused to start).
-            let _ = git.run(&path, &["rebase", "--abort"]).await;
             tracing::warn!(ticket = %ticket.key, error = %e, "the host's commits don't come off its branch; left as it was");
             return Ok(());
         }
-        // Otaq's own rebase isn't a change to review (GIT-05).
+        // Otaq's own update isn't a change to review (GIT-05).
         if let Some(after) = git.resolve(&repo, &branch_ref).await? {
             board
-                .record_otaq_rebase(&ticket.id, &before, &after)
+                .record_otaq_update(&ticket.id, &before, &after)
                 .await?;
         }
         Ok(())

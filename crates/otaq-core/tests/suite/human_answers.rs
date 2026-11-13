@@ -15,7 +15,8 @@ async fn answered_questions_are_listed_oldest_first() {
             "Which email provider?",
             &["Postmark".into(), "SES".into()],
             &[],
-            Some(1),
+            &[1],
+            false,
         )
         .await
         .unwrap();
@@ -24,7 +25,7 @@ async fn answered_questions_are_listed_oldest_first() {
         .await
         .unwrap();
     w.board
-        .store_question(&t.id, "Still open?", &[], &[], None)
+        .store_question(&t.id, "Still open?", &[], &[], &[], false)
         .await
         .unwrap();
     let answered = w.board.answered_human_questions(&t.id).await.unwrap();
@@ -47,7 +48,14 @@ async fn later_stages_and_the_checker_read_the_users_answers() {
     let t = w.create("SHOP", "Change the greeting").await;
     let asked = w
         .board
-        .store_question(&t.id, "Which greeting should it print?", &[], &[], None)
+        .store_question(
+            &t.id,
+            "Which greeting should it print?",
+            &[],
+            &[],
+            &[],
+            false,
+        )
         .await
         .unwrap();
     w.board
@@ -55,7 +63,7 @@ async fn later_stages_and_the_checker_read_the_users_answers() {
         .await
         .unwrap();
     w.board
-        .store_question(&t.id, "Anything else?", &[], &[], None)
+        .store_question(&t.id, "Anything else?", &[], &[], &[], false)
         .await
         .unwrap();
     let key = t.key.to_string();

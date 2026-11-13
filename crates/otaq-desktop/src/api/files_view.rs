@@ -17,7 +17,6 @@ use otaq_view::view_models::board::{BoardInput, ticket_card};
 use otaq_view::view_models::diff_page;
 use otaq_view::view_models::files_tab::{self, SearchView, TreeRow};
 use otaq_view::view_models::files_view::{self as vm, Filter};
-use otaq_view::view_models::flow_columns::Columns;
 use serde::{Deserialize, Serialize};
 use serde_json::Value;
 use ts_rs::TS;
@@ -321,7 +320,7 @@ async fn owner_facts(
         paused: board.project.paused_since.is_some(),
         helpers: &[],
     };
-    let columns = Columns::of(&flow);
+    let columns = otaq_view::view_models::board::columns(&input);
     tickets
         .iter()
         .filter(|t| keys.contains(&t.key.to_string()))
@@ -472,7 +471,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()

@@ -18,6 +18,7 @@
 //!
 //! Hook status changes are not written to the History tab (they come several times per turn).
 
+pub mod asks;
 pub mod background;
 pub mod hooks;
 pub mod model_refused;
@@ -45,8 +46,8 @@ use crate::store::now_ms;
 use crate::store::tickets::set_state_since;
 use background::{BackgroundTask, BackgroundWork};
 pub use hooks::{
-    HELPER_PROMPT_PREFIX, Signal, TOOL_ERROR_PREFIX, TurnFacts, reports_activity, signal,
-    tool_error, tool_error_text,
+    HELPER_PROMPT_PREFIX, Signal, TOOL_ERROR_PREFIX, ToolStop, TurnFacts, prompt_line,
+    reports_activity, signal, stopped_on_error, tool_error, tool_error_text,
 };
 pub use model_refused::Refusals;
 pub use reminder::reminder_text;
@@ -92,6 +93,10 @@ struct Inner {
     quiet_timing: Mutex<quiet::QuietTiming>,
     /// One reminder before Idle (d0042 2026-10-28).
     reminders: reminder::Reminders,
+    /// Each agent session's open permission prompts and the one on screen ([`asks`]).
+    asks: Mutex<HashMap<String, asks::OpenPrompts>>,
+    /// What applies a prompt the screen shows later (set once at service start, [`asks`]).
+    on_shown: OnceLock<asks::OnShown>,
 }
 
 /// One session's current turn.
@@ -119,6 +124,8 @@ impl Signals {
                 quiet: Mutex::new(HashMap::new()),
                 quiet_timing: Mutex::new(quiet::QuietTiming::default()),
                 reminders: reminder::Reminders::default(),
+                asks: Mutex::new(HashMap::new()),
+                on_shown: OnceLock::new(),
             }),
         }
     }
@@ -205,7 +212,7 @@ impl Signals {
             .map_hook(event, payload, context);
         self.tool_reported(caller, &events);
         if events.is_empty() {
-            return Ok(vec![self.on_signal(caller, Signal::Ignored).await?]);
+            return Ok(vec![self.on_signal(caller, tool, Signal::Ignored).await?]);
         }
         self.apply_events_from(caller, reporter, tool, &events)
             .await
@@ -274,7 +281,7 @@ impl Signals {
                             .model_refused(caller, tool, session, model.as_deref(), message)
                             .await?
                     {
-                        signals.push(self.on_signal(caller, signal).await?);
+                        signals.push(self.on_signal(caller, tool, signal).await?);
                     }
                     continue;
                 }
@@ -311,14 +318,39 @@ impl Signals {
                 {
                     self.turn_got_through(session).await?;
                 }
-                signals.push(self.on_signal(caller, signal).await?);
+                signals.push(self.on_signal(caller, tool, signal).await?);
             }
         }
         Ok(signals)
     }
 
-    /// Applies one signal of `caller`'s hook and returns it as applied.
-    async fn on_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
+    /// Applies one signal of `caller`'s hook from `tool` and returns it as applied: a permission prompt only once it is
+    /// the one on its session's screen ([`asks`]).
+    async fn on_signal(
+        &self,
+        caller: &Caller,
+        tool: Tool,
+        signal: Signal,
+    ) -> Result<Signal, BoardError> {
+        let signal = match session_of(caller) {
+            Some(session) => {
+                let (signal, changed) = self.track_prompts(caller, tool, session, signal);
+                if changed
+                    && let Caller::Agent {
+                        ticket, ticket_id, ..
+                    } = caller
+                {
+                    self.prompt_changed(ticket, ticket_id);
+                }
+                signal
+            }
+            None => signal,
+        };
+        self.apply_signal(caller, signal).await
+    }
+
+    /// Applies one signal of `caller` and returns it as applied.
+    async fn apply_signal(&self, caller: &Caller, signal: Signal) -> Result<Signal, BoardError> {
         // A validator's hook only says where its turn is; its effect on the ticket is the validation's.
         if let Caller::Validator { .. } = caller {
             return Ok(signal);
@@ -538,7 +570,13 @@ impl Signals {
     /// The agent ran an `otaq` command that acts ([`crate::service::AgentActivity::Acts`]): it is active, so Needs
     /// you and Idle clear (ATT-02, never an open question, d0119) and the last signal moves (ATT-05).
     pub async fn command(&self, caller: &Caller) -> Result<(), BoardError> {
-        if let Caller::Agent { ticket_id, .. } = caller {
+        if let Caller::Agent {
+            ticket,
+            ticket_id,
+            session,
+        } = caller
+        {
+            self.prompt_answered(ticket, ticket_id, session);
             self.inner.board.first_prompt_delivered(ticket_id).await?;
             self.apply(ticket_id, &Input::Command).await?;
         }
@@ -546,7 +584,9 @@ impl Signals {
     }
 
     /// `otaq ask human` for `ticket_id`: the ticket shows Asks you with the question (ATT-01). From the
-    /// ticket's agent, this turn's `Stop` won't turn it into Idle.
+    /// ticket's agent, this turn's `Stop` won't turn it into Idle. On a ticket waiting in a check of the user's its
+    /// status stays and the question reads Asks you over it (`Ticket::question_in_place`); the moved last signal
+    /// tells clients.
     pub async fn ask_human(
         &self,
         caller: &Caller,
@@ -589,14 +629,22 @@ impl Signals {
     }
 
     /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`, the line the ticket showed
-    /// for it), or its question was passed on to the user or answered. The ticket's status follows.
+    /// for it), or its question was passed on to the user or answered. The ticket's status follows. Clients are told
+    /// the ticket changed even when its status stays (it already shows the agent in charge's prompt, or another
+    /// helper's): the helper's own row on the card and in the Session list changed.
     pub async fn helper_wait_changed(
         &self,
         ticket_id: &str,
         ended_prompt: Option<String>,
     ) -> Result<(), BoardError> {
-        self.apply(ticket_id, &Input::HelperWait { ended_prompt })
-            .await
+        let told = self
+            .apply_told(ticket_id, &Input::HelperWait { ended_prompt })
+            .await?;
+        if !told {
+            let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+            self.publish(&ticket, false);
+        }
+        Ok(())
     }
 
     /// The line of the ticket's helper prompt that has been open the longest, of a helper whose session still runs:
@@ -692,6 +740,11 @@ impl Signals {
 
     /// Runs one transition on the stored state, writes what changed and tells clients.
     async fn apply(&self, ticket_id: &str, input: &Input) -> Result<(), BoardError> {
+        self.apply_told(ticket_id, input).await.map(|_| ())
+    }
+
+    /// [`Self::apply`], returning whether the state changed (and so clients were told).
+    async fn apply_told(&self, ticket_id: &str, input: &Input) -> Result<bool, BoardError> {
         let _one_at_a_time = self.inner.applying.lock().await;
         let pool = self.inner.board.store().pool();
         let row: Option<StoredSignal> = sqlx::query_as(
@@ -702,13 +755,15 @@ impl Signals {
         .fetch_optional(pool)
         .await?;
         let Some((state, text, since, wakeup_at, last_signal_at, interrupted_from)) = row else {
-            return Ok(());
+            return Ok(false);
         };
         let Ok(status) = state.parse::<Status>() else {
-            return Ok(());
+            return Ok(false);
         };
-        // An agent that waits for the user during a validation is marked so (interrupted_from validating).
+        // An agent that waits for the user during a validation is marked so (interrupted_from validating), and one
+        // that waits for the user while fixing a delivery problem too (interrupted_from fixing).
         let behind = interrupted_from.as_deref() == Some(Status::Checking.as_str());
+        let fixing_mark = interrupted_from.as_deref() == Some(Status::MergeConflictFixing.as_str());
         // The store decides (d0119): an open question holds Asks you.
         let question = self
             .inner
@@ -726,21 +781,38 @@ impl Signals {
             validating: status == Status::Checking
                 || status == Status::CheckerNeedsYou
                 || (behind && status.is_agent_waiting()),
+            fixing: status == Status::MergeConflictFixing
+                || (fixing_mark && status.is_agent_waiting()),
             question,
             helper_prompt,
         };
         let after = transition(&before, input, now_ms());
         if after == before {
-            return Ok(());
+            // While the ticket waits in a check of the user's, its agent's question reads Asks you without changing its
+            // status (`Ticket::question_in_place`): asking and answering (from the box or the terminal) change nothing stored
+            // here, so clients are told the ticket changed and it reads "Ready for you" again.
+            if status.set() == crate::domain::StatusSet::HumanCheck
+                && matches!(input, Input::AskHuman(_) | Input::Answered | Input::Enter)
+            {
+                let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
+                self.publish(&ticket, false);
+            }
+            return Ok(false);
         }
         // An agent the plan limit stopped is at work again (Claude Code continued it, or the user did): it is no
         // longer the limit's to hide from Needs you (ATT-09).
         if before.status == Status::WaitingForLimitReset && after.status != before.status {
             self.inner.board.limit_stops().mark(ticket_id, None);
         }
-        // Only a validating ticket's mark changes: set while its agent waits, cleared once it validates again.
-        let behind_after = (before.validating && after.status.is_agent_waiting())
-            .then_some(Status::Checking.as_str());
+        // Only a validating or fixing ticket's mark changes: set while its agent waits, cleared once it validates or
+        // fixes again. A fixing mark left on a ticket that no longer waits is dropped.
+        let waits = after.status.is_agent_waiting();
+        let mark_after = if before.validating {
+            waits.then_some(Status::Checking.as_str())
+        } else {
+            (before.fixing && waits).then_some(Status::MergeConflictFixing.as_str())
+        };
+        let mark_changes = before.validating || before.fixing || fixing_mark;
         sqlx::query(concat!(
             "UPDATE tickets SET state = ?, signal_text = ?, signal_since = ?, wakeup_at = ?,
                                 last_signal_at = ?,
@@ -753,8 +825,8 @@ impl Signals {
         .bind(after.since)
         .bind(after.wakeup_at)
         .bind(after.last_signal_at)
-        .bind(before.validating)
-        .bind(behind_after)
+        .bind(mark_changes)
+        .bind(mark_after)
         .bind(after.status.as_str())
         .bind(now_ms())
         .bind(ticket_id)
@@ -762,7 +834,7 @@ impl Signals {
         .await?;
         let ticket = self.inner.board.ticket_by_id(ticket_id).await?;
         self.publish(&ticket, after.status != before.status);
-        Ok(())
+        Ok(true)
     }
 
     fn publish(&self, ticket: &Ticket, status_changed: bool) {

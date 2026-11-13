@@ -444,7 +444,8 @@
   color: var(--st-error);
 }
 
-.settings-tool[data-look="missing_optional"] > .icon {
+.settings-tool[data-look="missing_optional"] > .icon,
+.settings-tool[data-look="checking"] > .icon {
   color: var(--text-muted);
 }
 
@@ -2046,6 +2047,7 @@
 }
 
 .agent-tool-pill[data-look="not_signed_in"],
+.agent-tool-pill[data-look="could_not_check"],
 .agent-tool-pill[data-look="update_needed"] {
   background: var(--st-paused-bg);
   color: var(--st-paused);

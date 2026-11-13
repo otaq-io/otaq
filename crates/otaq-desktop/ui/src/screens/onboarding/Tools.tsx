@@ -1,7 +1,8 @@
 // The Tools step: connect an agent tool, only what's needed to start (d0021, d0011, d0086). The agent tools first
 // ("AGENT TOOLS", how many are ready, the blocking line said once at the top while none is, and the same rows as
 // Settings → Agent tools in their compact form: Sign in…, Install, Show, the install command before Install, the
-// tool's own warning, the … menu without Disconnect…), then git ("ALSO NEEDED") with its version or why it is
+// … menu without Disconnect…; no permission warning: that is said once, as a hint at the first permission prompt,
+// and Settings → Agents keeps it on the row), then git ("ALSO NEEDED") with its version or why it is
 // missing, its command and Install button; each button runs its command in a short terminal under the row
 // (`RowTerminal`); Check again, Continue (off while no agent tool is ready), and where more tools are added later. All
 // of it is `OnboardingTools`'.
@@ -21,8 +22,8 @@ import {
   InstallLine,
   MARK_ICONS,
   markOf,
+  RecheckButton,
   RowMenu,
-  ToolWarning,
 } from "../settings/AgentTools";
 import { GitIdentityBox } from "../settings/GitIdentity";
 import { RowTerminal, type RowTerminals } from "./RowTerminal";
@@ -68,13 +69,13 @@ function AgentRow({
             }}
           />
         )}
+        <RecheckButton row={row} onAction={onAction} compact />
         <RowMenu row={row} label={menuLabel} onAction={onAction} />
       </div>
       {row.install !== null && <CommandBox command={row.install} label={false} />}
       <InstallLine row={row} onAction={onAction} />
       {row.update !== null && <CommandBox command={row.update} />}
       {terminals && <RowTerminal row={row.tool} texts={texts} terminals={terminals} />}
-      <ToolWarning row={row} onAction={onAction} />
     </li>
   );
 }

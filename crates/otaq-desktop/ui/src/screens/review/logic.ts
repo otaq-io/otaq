@@ -13,7 +13,10 @@ export type Step =
   | { kind: "changed"; changed: ReviewChanged; checkedFirst: boolean }
   | { kind: "confirm" }
   | { kind: "merging" }
-  | { kind: "result"; result: Exclude<LocalMergeResult, { kind: "merged" } | { kind: "changed" }> }
+  | {
+      kind: "result";
+      result: Exclude<LocalMergeResult, { kind: "merged" } | { kind: "on_ticket" } | { kind: "changed" }>;
+    }
   /** Open PR or Push to PR: T-0227's dialog takes over. */
   | { kind: "open_pr" }
   /** "Done, nothing to merge": `review.done` runs at once (no confirmation), its toasts say how it ended. */
@@ -85,10 +88,22 @@ export function messageAfter(
   return next.message;
 }
 
+/** How long the message must stay unchanged before the edit is kept on the ticket (closing the dialog keeps it at
+ * once). */
+export const KEEP_AFTER_MS = 400;
+
+/** The message isn't the proposal (spaces around it don't count, as in Rust's `kept_edit`): Use the proposed message
+ * shows. */
+export function isEdited(message: string, proposed: string): boolean {
+  return message.trim() !== proposed.trim();
+}
+
 /** The step a Local merge's answer leads to. */
 export function afterMerge(result: LocalMergeResult): Step {
   switch (result.kind) {
+    // On ticket: a hook refused it; the ticket shows the refusal (Rust's toast points there) and the dialog closes.
     case "merged":
+    case "on_ticket":
       return { kind: "done" };
     case "changed":
       return { kind: "changed", changed: result.changed, checkedFirst: false };

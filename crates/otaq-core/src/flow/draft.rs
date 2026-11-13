@@ -1,8 +1,8 @@
 //! The draft (FED-02, FED-08; d0115 "The user edits stages directly", "Both edit the same draft"): the flow a project
 //! is being changed to, in the flow editor, before the user applies it.
 //!
-//! **Where it lives**: the project's open proposal (`flow_proposals`), so nothing new is stored: one per project, or
-//! during Flow setup the user's own beside one entry per asked tool (ASK-03, FED-03). What it remembers besides its
+//! **Where it lives**: the project's open proposal (`flow_proposals`), so nothing new is stored: one per project.
+//! What it remembers besides its
 //! document ([`DraftMemory`]: the marks, the draft before the agent's changes, whether it is a swap) is kept in the
 //! row's `source_json`. With no open proposal the draft is the flow as it will be, unchanged, and nothing is stored
 //! until something changes.
@@ -24,7 +24,7 @@ use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
-use super::apply::{ProposeFrom, Span, Wait, affected_span, still_working};
+use super::apply::{ProposeFrom, Span, Wait, affected_span, standing, still_working};
 use super::model::{Flow, FlowFile, Stage};
 use super::proposal::{
     ApplyChoices, Change, Proposal, ProposedBy, Row, Source, applied_now, edits_only,
@@ -191,11 +191,12 @@ pub enum DraftEdit {
     UndoAll,
     /// Start from a preset, another project, an earlier flow or a file (Import a flow…): copied in, a swap.
     StartFrom { source: ProposeFrom },
-    /// Start from a tool's proposal under Made for <project> (Flow setup, FED-03): copied in, a swap.
+    /// Start from another open proposal of the project (FED-03): copied in, a swap.
     Entry { proposal: u32 },
     /// Start from the flow in use: the draft goes back to it.
     FlowInUse,
-    /// **Ask the agent to write it** (FED-06): the stage's skill is being written by the Project agent `agent`.
+    /// **Ask the agent to write it** (FED-06): the stage's skill is being written by the Project agent `agent`. An
+    /// earlier request to the same agent for another stage goes when it named no folder yet, and stays once it did.
     SkillWriting {
         stage: String,
         #[serde(default, skip_serializing_if = "Option::is_none")]
@@ -217,13 +218,15 @@ pub struct DraftUpdateParams {
 }
 
 /// The marks of the changes from `before` to `now` (one per stage: Added, New and Removed first, then Changed over
-/// Moved), by the agent `by`; `keep`, when given, limits them to those stages.
+/// Moved), by the agent `by`; `keep`, when given, limits them to those stages. Each mark's why is the proposal's reason
+/// for that stage (`whys`, by its id or name), else the stage's description.
 fn marks_between(
     before: &FlowFile,
     now: &FlowFile,
     by: &str,
     stored: &[Agent],
     keep: Option<&HashSet<String>>,
+    whys: &yaml::Whys,
 ) -> Vec<StageMark> {
     let mut marks: Vec<StageMark> = Vec::new();
     for change in stage_changes(&before.flow, &now.flow, false) {
@@ -244,12 +247,21 @@ fn marks_between(
             }
             continue;
         }
+        let why = whys
+            .get(&change.stage_id)
+            .or_else(|| {
+                whys.iter()
+                    .find(|(k, _)| k.eq_ignore_ascii_case(&change.stage))
+                    .map(|(_, v)| v)
+            })
+            .cloned()
+            .or_else(|| stage.and_then(|s| s.description.clone()));
         marks.push(StageMark {
             stage_id: change.stage_id,
             stage: change.stage,
             mark,
             by: by.to_owned(),
-            why: stage.and_then(|s| s.description.clone()),
+            why,
         });
     }
     marks
@@ -431,6 +443,14 @@ impl Board {
                     .map(|w| (w.folder.clone(), w.made.clone()))
                     .unwrap_or_default();
                 row.draft.writing.retain(|w| w.stage_id != id);
+                // A newer request replaces an older one to the same agent that never started (named no folder), so
+                // an abandoned request doesn't block this one and its stage stops reading "Being written…". One
+                // already writing in its folder is left alone: no half-written skill is dropped silently.
+                if agent.is_some() {
+                    row.draft
+                        .writing
+                        .retain(|w| w.agent != *agent || w.folder.is_some());
+                }
                 row.draft.writing.push(SkillWriting {
                     stage_id: id,
                     agent: agent.clone(),
@@ -482,7 +502,7 @@ impl Board {
         self.draft(&key, models).await
     }
 
-    /// A proposal from `otaq flow propose` outside Flow setup (FED-02): it replaces the draft's content instead of
+    /// A proposal from `otaq flow propose` (FED-02): it replaces the draft's content instead of
     /// opening a separate preview. A Project agent's marks each stage it changed against the draft before its first
     /// change still marked, and becomes the one the answer goes to; the user's own (their terminal) keeps a mark only
     /// where that stage still differs. `--from` another project copies another flow in: a swap. `file` was checked.
@@ -492,6 +512,7 @@ impl Board {
         file: FlowFile,
         source: &Source,
         by: &ProposedBy,
+        whys: &yaml::Whys,
         models: &dyn ModelCatalog,
     ) -> Result<Proposal, BoardError> {
         let existing = self.draft_row(key).await?;
@@ -507,7 +528,8 @@ impl Board {
                     (Some(before), false) => before.clone(),
                     _ => row.yaml.clone(),
                 };
-                row.draft.marks = marks_between(&read(&before)?, &file, name, &stored_agents, None);
+                row.draft.marks =
+                    marks_between(&read(&before)?, &file, name, &stored_agents, None, whys);
                 row.draft.before = Some(before);
                 row.proposed_by = by.clone();
             }
@@ -528,28 +550,15 @@ impl Board {
         Ok(proposal)
     }
 
-    /// The row holding the draft: the open proposal; during Flow setup the user's own (no tool), beside the tools'
-    /// entries.
+    /// The row holding the draft: the open proposal.
     pub(crate) async fn draft_row(&self, project: &str) -> Result<Option<Row>, BoardError> {
         let project = self.project(project).await?;
-        let id: Option<i64> = match project.flow_setup_since {
-            Some(_) => {
-                sqlx::query_scalar(
-                    "SELECT id FROM flow_proposals WHERE project_id = ? AND tool IS NULL ORDER BY id DESC LIMIT 1",
-                )
-                .bind(&project.id)
-                .fetch_optional(self.store().pool())
-                .await?
-            }
-            None => {
-                sqlx::query_scalar(
-                    "SELECT id FROM flow_proposals WHERE project_id = ? ORDER BY id DESC LIMIT 1",
-                )
-                .bind(&project.id)
-                .fetch_optional(self.store().pool())
-                .await?
-            }
-        };
+        let id: Option<i64> = sqlx::query_scalar(
+            "SELECT id FROM flow_proposals WHERE project_id = ? ORDER BY id DESC LIMIT 1",
+        )
+        .bind(&project.id)
+        .fetch_optional(self.store().pool())
+        .await?;
         match id {
             Some(id) => {
                 self.proposal_row_by_id(&project.key, u32::try_from(id).unwrap_or(0))
@@ -574,8 +583,8 @@ impl Board {
         })
     }
 
-    /// Stores `row` as the draft: in place of the row `existing`, else as a new open proposal (outside Flow setup it
-    /// replaces any other, FLW-03). Its id.
+    /// Stores `row` as the draft: in place of the row `existing`, else as a new open proposal that replaces any other
+    /// (FLW-03). Its id.
     pub(super) async fn write_draft(
         &self,
         project: &str,
@@ -598,11 +607,7 @@ impl Board {
                 id
             }
             None => {
-                let replaced = match project.flow_setup_since {
-                    Some(_) => "DELETE FROM flow_proposals WHERE project_id = ? AND tool IS NULL",
-                    None => "DELETE FROM flow_proposals WHERE project_id = ?",
-                };
-                sqlx::query(replaced)
+                sqlx::query("DELETE FROM flow_proposals WHERE project_id = ?")
                     .bind(&project.id)
                     .execute(&mut *tx)
                     .await?;
@@ -662,13 +667,17 @@ impl Board {
         };
         let tickets = self.tickets(&row.project).await?;
         let delivering = self.delivering().await?;
-        let mut inside: Vec<Inside> = still_working(&tickets, &file.flow, &delivering, &wait)
-            .into_iter()
-            .map(|t| Inside {
-                ticket: t.key.clone(),
-                stage: t.place.stage_id().unwrap_or_default().to_owned(),
-            })
-            .collect();
+        let mut inside: Vec<Inside> =
+            still_working(&tickets, &base.flow, &file.flow, &delivering, &wait)
+                .into_iter()
+                .map(|t| Inside {
+                    ticket: t.key.clone(),
+                    stage: standing(t, &base.flow, &file.flow)
+                        .stage_id()
+                        .unwrap_or_default()
+                        .to_owned(),
+                })
+                .collect();
         inside.sort_by(|a, b| a.ticket.cmp(&b.ticket));
         Ok(match wait {
             Wait::WholeBoard => DraftApplies::WholeBoard { inside },
@@ -694,10 +703,19 @@ fn kept_marks(
         .map(|m| m.stage_id.clone())
         .filter(|id| Some(id.as_str()) != undone)
         .collect();
-    let mut marks = marks_between(&read(before)?, now, "", stored, Some(&keep));
+    let mut marks = marks_between(
+        &read(before)?,
+        now,
+        "",
+        stored,
+        Some(&keep),
+        &yaml::Whys::new(),
+    );
     for mark in &mut marks {
         if let Some(earlier) = memory.marks.iter().find(|m| m.stage_id == mark.stage_id) {
             mark.by.clone_from(&earlier.by);
+            // The agent's reason stays with its mark.
+            mark.why.clone_from(&earlier.why);
         }
     }
     Ok(marks)
@@ -730,7 +748,14 @@ mod tests {
         let ids =
             |f: &FlowFile| -> Vec<String> { f.flow.stages.iter().map(|s| s.id.clone()).collect() };
         assert_eq!(ids(&now), ["plan", "validate", "dev"]);
-        let marks = marks_between(&before, &now, "Checkout slowness", &[], None);
+        let marks = marks_between(
+            &before,
+            &now,
+            "Checkout slowness",
+            &[],
+            None,
+            &yaml::Whys::new(),
+        );
         let tags: Vec<(&str, Mark)> = marks
             .iter()
             .map(|m| (m.stage_id.as_str(), m.mark))
@@ -752,6 +777,41 @@ mod tests {
         let dev_back = undo_stage(&before, &now, "dev");
         assert_eq!(ids(&dev_back), ["dev", "plan", "validate"]);
         assert_eq!(dev_back.flow.stage("dev"), before.flow.stage("dev"));
+    }
+
+    /// A proposal's reason for a stage (by its id or name) is the mark's why, shown under Why these changes; a stage it
+    /// gives no reason for falls back to its description. The proposed document's `why:` never reaches the flow.
+    #[test]
+    fn a_proposals_why_is_its_marks_reason() {
+        let before = file(default_flow());
+        let text = "\
+flow:
+  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: work-ticket, description: Builds it.}
+  - {id: security, name: Security, kind: check, by: agent, agent: Checker, rounds: 2, description: Settles whether it is safe.}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Checker, skill: validate, rounds: 2}
+  - {id: review, name: Review, kind: check, by: you}
+delivery: {delivers: local, mode: click}
+why:
+  Security: From 41 /security-review runs in shop-web (Claude Code).
+  validate: \"  \"
+";
+        let (now, _, whys) = yaml::read_proposal(text).unwrap();
+        assert_eq!(whys.len(), 1, "an empty reason is dropped: {whys:?}");
+        assert!(!yaml::write(&now).contains("why"));
+        let marks = marks_between(&before, &now, "Checkout slowness", &[], None, &whys);
+        let why = |id: &str| {
+            marks
+                .iter()
+                .find(|m| m.stage_id == id)
+                .and_then(|m| m.why.clone())
+        };
+        assert_eq!(
+            why("security").as_deref(),
+            Some("From 41 /security-review runs in shop-web (Claude Code).")
+        );
+        // No reason given: the stage's description, as before.
+        assert_eq!(why("validate"), None);
+        assert_eq!(why("dev").as_deref(), Some("Builds it."));
     }
 
     /// The memory reads back from a row's `source_json`, beside the source's own fields.

@@ -1,5 +1,5 @@
 {
-  "protocol_version": 11,
+  "protocol_version": 13,
   "root": "crate::protocol::Message",
   "types": {
     "About": {
@@ -95,10 +95,6 @@
           "ty": "Option<String>",
           "omittable": true
         },
-        "flow_setup": {
-          "ty": "bool",
-          "omittable": true
-        },
         "key": {
           "ty": "Option<String>",
           "omittable": true
@@ -152,6 +148,10 @@
     "AgentAskHumanParams": {
       "kind": "struct",
       "fields": {
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -165,8 +165,11 @@
           "required": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=crate::board::questions::one_or_many"
+          ]
         }
       }
     },
@@ -516,6 +519,13 @@
             "account": {
               "ty": "Option<String>"
             },
+            "version": {
+              "ty": "Option<String>"
+            }
+          }
+        },
+        "could_not_check": {
+          "fields": {
             "version": {
               "ty": "Option<String>"
             }
@@ -882,6 +892,10 @@
           "ty": "String",
           "required": true
         },
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -895,8 +909,11 @@
           "required": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=crate::board::questions::one_or_many"
+          ]
         },
         "send_back": {
           "ty": "Option<String>",
@@ -979,8 +996,10 @@
         "base_diverged",
         "checkout_dirty",
         "delivery_failed",
+        "hook_refused",
         "keeps_conflicting",
-        "keeps_failing_merge_check"
+        "keeps_failing_merge_check",
+        "push_not_landed"
       ]
     },
     "Base": {
@@ -1226,6 +1245,10 @@
         "key": {
           "ty": "TicketKey",
           "required": true
+        },
+        "own_agent": {
+          "ty": "Option<OwnAgent>",
+          "omittable": true
         },
         "refused_agent": {
           "ty": "Option<String>",
@@ -1858,6 +1881,10 @@
           "ty": "Vec<String>",
           "required": true
         },
+        "moved": {
+          "ty": "Vec<Moved>",
+          "omittable": true
+        },
         "reason": {
           "ty": "ConflictReason",
           "required": true
@@ -1880,6 +1907,9 @@
     "CreatedAndChanged": {
       "kind": "struct",
       "fields": {
+        "changes": {
+          "ty": "Vec<TicketChange>"
+        },
         "created": {
           "ty": "Vec<CreatedTicket>",
           "required": true
@@ -1929,6 +1959,10 @@
         "title": {
           "ty": "String",
           "required": true
+        },
+        "waits_for": {
+          "ty": "Vec<TicketKey>",
+          "omittable": true
         }
       }
     },
@@ -2247,6 +2281,10 @@
         "since": {
           "ty": "Option<String>",
           "omittable": true
+        },
+        "until": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },
@@ -2557,6 +2595,27 @@
         }
       }
     },
+    "EditedMessage": {
+      "kind": "struct",
+      "fields": {
+        "commits": {
+          "ty": "BTreeMap<String, String>",
+          "omittable": true
+        },
+        "description": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "merge": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "title": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
     "EffectiveSettings": {
       "kind": "struct",
       "fields": {
@@ -2687,16 +2746,12 @@
             }
           }
         },
-        "flow_setup_changed": {
-          "fields": {
-            "project": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
         "merged_automatically": {
           "fields": {
+            "hook_changed": {
+              "ty": "Option<HookChanges>",
+              "omittable": true
+            },
             "key": {
               "ty": "TicketKey",
               "required": true
@@ -3014,6 +3069,7 @@
         "fixed_created_ticket",
         "held",
         "helper",
+        "hook_refused",
         "host_closed",
         "interrupted",
         "landed",
@@ -3024,9 +3080,11 @@
         "merged_in",
         "merged_into",
         "moved",
+        "noyan_change_undone",
         "parked",
         "passed",
         "pinned",
+        "post_merge_hook",
         "pr_cancelled",
         "pr_confirmed",
         "pr_opened",
@@ -3415,10 +3473,6 @@
         "body": {
           "ty": "String",
           "required": true
-        },
-        "report": {
-          "ty": "Option<ReportSource>",
-          "omittable": true
         }
       }
     },
@@ -3515,12 +3569,24 @@
           "ty": "bool",
           "omittable": true
         },
+        "git": {
+          "ty": "Option<GitProgress>",
+          "omittable": true
+        },
         "hand_off": {
           "ty": "Option<HandOffKind>",
           "omittable": true
         },
         "helpers_to_resume": {
           "ty": "Vec<String>",
+          "omittable": true
+        },
+        "hook_refusal": {
+          "ty": "Option<RefusedHook>",
+          "omittable": true
+        },
+        "in_line": {
+          "ty": "Option<u32>",
           "omittable": true
         },
         "last_signal_at": {
@@ -3579,6 +3645,10 @@
           "ty": "bool",
           "omittable": true
         },
+        "prompts_drawn_in": {
+          "ty": "Vec<String>",
+          "omittable": true
+        },
         "ready_to_start": {
           "ty": "bool",
           "omittable": true
@@ -3597,6 +3667,10 @@
         },
         "sent_back": {
           "ty": "Option<SentBack>",
+          "omittable": true
+        },
+        "session_prompt": {
+          "ty": "Option<SessionPrompt>",
           "omittable": true
         },
         "submitted_by_you": {
@@ -3749,100 +3823,6 @@
         "push"
       ]
     },
-    "FlowSetup": {
-      "kind": "struct",
-      "fields": {
-        "project": {
-          "ty": "String",
-          "required": true
-        },
-        "project_name": {
-          "ty": "String",
-          "required": true
-        },
-        "proposals": {
-          "ty": "Vec<crate::flow::proposal::Proposal>",
-          "required": true
-        },
-        "since": {
-          "ty": "Option<i64>",
-          "omittable": true
-        },
-        "tools": {
-          "ty": "Vec<FlowSetupTool>",
-          "required": true
-        }
-      }
-    },
-    "FlowSetupRow": {
-      "kind": "enum",
-      "attrs": [
-        "tag=row"
-      ],
-      "variants": {
-        "ended": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            }
-          }
-        },
-        "not_asked": {},
-        "not_signed_in": {},
-        "plan_limit": {
-          "fields": {
-            "agent": {
-              "ty": "Option<String>",
-              "omittable": true
-            },
-            "resets_at": {
-              "ty": "Option<i64>",
-              "omittable": true
-            }
-          }
-        },
-        "proposed": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            },
-            "proposal": {
-              "ty": "u32",
-              "required": true
-            }
-          }
-        },
-        "working": {
-          "fields": {
-            "agent": {
-              "ty": "String",
-              "required": true
-            },
-            "since": {
-              "ty": "i64",
-              "required": true
-            }
-          }
-        }
-      }
-    },
-    "FlowSetupTool": {
-      "kind": "struct",
-      "fields": {
-        "..row": {
-          "ty": "FlowSetupRow",
-          "attrs": [
-            "flatten"
-          ]
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
     "FlowStage": {
       "kind": "struct",
       "fields": {
@@ -3961,8 +3941,29 @@
         "places": {
           "ty": "Vec<SkillPlace>"
         },
+        "skipped": {
+          "ty": "Vec<crate::agent_tools::Tool>",
+          "omittable": true
+        },
         "tools": {
           "ty": "Vec<crate::agent_tools::Tool>"
+        }
+      }
+    },
+    "GitHookRunning": {
+      "kind": "struct",
+      "fields": {
+        "folder": {
+          "ty": "String",
+          "required": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "since_ms": {
+          "ty": "i64",
+          "required": true
         }
       }
     },
@@ -3977,6 +3978,54 @@
           "ty": "String",
           "required": true
         }
+      }
+    },
+    "GitOperation": {
+      "kind": "enum",
+      "variants": {
+        "merge": {},
+        "start": {}
+      }
+    },
+    "GitProgress": {
+      "kind": "struct",
+      "fields": {
+        "earlier": {
+          "ty": "Vec<GitStep>",
+          "omittable": true
+        },
+        "hook": {
+          "ty": "Option<GitHookRunning>",
+          "omittable": true
+        },
+        "operation": {
+          "ty": "GitOperation",
+          "required": true
+        },
+        "step": {
+          "ty": "Option<GitStep>",
+          "omittable": true
+        },
+        "target": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "GitStep": {
+      "kind": "enum",
+      "variants": {
+        "add_worktree": {},
+        "commit": {},
+        "merge_check": {},
+        "move_target": {},
+        "prepare_scratch": {},
+        "restore_uncommitted": {},
+        "reword": {},
+        "save_uncommitted": {},
+        "squash": {},
+        "update_branch": {},
+        "update_target": {}
       }
     },
     "GlobalSettings": {
@@ -4361,6 +4410,27 @@
         "tool_unavailable"
       ]
     },
+    "HookChanges": {
+      "kind": "struct",
+      "fields": {
+        "files": {
+          "ty": "Vec<String>",
+          "required": true
+        },
+        "hook": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "landed": {
+          "ty": "String",
+          "required": true
+        },
+        "reviewed": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "HookParams": {
       "kind": "struct",
       "fields": {
@@ -4413,6 +4483,10 @@
           "ty": "String",
           "required": true
         },
+        "multiple": {
+          "ty": "bool",
+          "omittable": true
+        },
         "notes": {
           "ty": "Vec<Option<String>>",
           "omittable": true
@@ -4422,8 +4496,11 @@
           "omittable": true
         },
         "recommended": {
-          "ty": "Option<u32>",
-          "omittable": true
+          "ty": "Vec<u32>",
+          "omittable": true,
+          "attrs": [
+            "with=one_or_many"
+          ]
         },
         "send_back": {
           "ty": "Option<SendBackTo>",
@@ -4553,6 +4630,21 @@
           "omittable": true
         },
         "project": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
+    "KeepMessageParams": {
+      "kind": "struct",
+      "fields": {
+        "..edit": {
+          "ty": "MessageEdit",
+          "attrs": [
+            "flatten"
+          ]
+        },
+        "key": {
           "ty": "String",
           "required": true
         }
@@ -4806,6 +4898,9 @@
             "exit": {
               "ty": "Option<i32>"
             },
+            "output": {
+              "ty": "String"
+            },
             "target": {
               "ty": "String",
               "required": true
@@ -4832,11 +4927,31 @@
             }
           }
         },
+        "hook_refused": {
+          "fields": {
+            "hook": {
+              "ty": "String",
+              "required": true
+            },
+            "message": {
+              "ty": "String",
+              "required": true
+            },
+            "step": {
+              "ty": "Option<GitStep>",
+              "omittable": true
+            }
+          }
+        },
         "merged": {
           "fields": {
             "commit": {
               "ty": "String",
               "required": true
+            },
+            "hook_changed": {
+              "ty": "Option<HookChanges>",
+              "omittable": true
             },
             "started": {
               "ty": "Vec<TicketKey>",
@@ -4883,6 +4998,14 @@
               "required": true
             },
             "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
+        "stopped": {
+          "fields": {
+            "target": {
               "ty": "String",
               "required": true
             }
@@ -5062,8 +5185,16 @@
     "MergeProposal": {
       "kind": "struct",
       "fields": {
+        "asks_in": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "commits": {
           "ty": "u32"
+        },
+        "edited": {
+          "ty": "Option<String>",
+          "omittable": true
         },
         "key": {
           "ty": "TicketKey",
@@ -5147,6 +5278,34 @@
         "name": {
           "ty": "String",
           "required": true
+        }
+      }
+    },
+    "MessageEdit": {
+      "kind": "enum",
+      "attrs": [
+        "tag=dialog"
+      ],
+      "variants": {
+        "merge": {
+          "fields": {
+            "message": {
+              "ty": "Option<String>"
+            }
+          }
+        },
+        "pr": {
+          "fields": {
+            "commits": {
+              "ty": "BTreeMap<String, String>"
+            },
+            "description": {
+              "ty": "Option<String>"
+            },
+            "title": {
+              "ty": "Option<String>"
+            }
+          }
         }
       }
     },
@@ -5296,6 +5455,19 @@
         }
       }
     },
+    "Moved": {
+      "kind": "struct",
+      "fields": {
+        "by": {
+          "ty": "String",
+          "required": true
+        },
+        "files": {
+          "ty": "Vec<String>",
+          "required": true
+        }
+      }
+    },
     "MovedOn": {
       "kind": "struct",
       "fields": {
@@ -5425,6 +5597,10 @@
         "status": {
           "ty": "Status",
           "required": true
+        },
+        "stopped": {
+          "ty": "Option<String>",
+          "omittable": true
         },
         "title": {
           "ty": "String",
@@ -5636,19 +5812,6 @@
         }
       }
     },
-    "OnboardingAskParams": {
-      "kind": "struct",
-      "fields": {
-        "project": {
-          "ty": "String",
-          "required": true
-        },
-        "tool": {
-          "ty": "crate::agent_tools::Tool",
-          "required": true
-        }
-      }
-    },
     "OnboardingState": {
       "kind": "struct",
       "fields": {
@@ -5656,10 +5819,6 @@
           "ty": "bool"
         },
         "has_projects": {
-          "ty": "bool",
-          "required": true
-        },
-        "permission_warning_dismissed": {
           "ty": "bool",
           "required": true
         },
@@ -5706,6 +5865,15 @@
         }
       }
     },
+    "OsDarkParams": {
+      "kind": "struct",
+      "fields": {
+        "dark": {
+          "ty": "bool",
+          "required": true
+        }
+      }
+    },
     "OtherSkill": {
       "kind": "struct",
       "fields": {
@@ -5730,6 +5898,23 @@
         "kept",
         "open"
       ]
+    },
+    "OwnAgent": {
+      "kind": "struct",
+      "fields": {
+        "agent": {
+          "ty": "String",
+          "required": true
+        },
+        "instead_of": {
+          "ty": "String",
+          "required": true
+        },
+        "stage": {
+          "ty": "String",
+          "required": true
+        }
+      }
     },
     "OwnerLines": {
       "kind": "struct",
@@ -6233,6 +6418,10 @@
     "PrFlowView": {
       "kind": "struct",
       "fields": {
+        "asks_in": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
         "branch": {
           "ty": "String",
           "required": true
@@ -6244,6 +6433,10 @@
         "commits": {
           "ty": "Vec<FlowCommit>",
           "required": true
+        },
+        "edited": {
+          "ty": "EditedMessage",
+          "omittable": true
         },
         "flow": {
           "ty": "Option<PrFlow>",
@@ -6271,6 +6464,10 @@
         "target": {
           "ty": "String",
           "required": true
+        },
+        "waits": {
+          "ty": "Option<SessionPrompt>",
+          "omittable": true
         }
       }
     },
@@ -6301,8 +6498,24 @@
             }
           }
         },
+        "hook_refused": {
+          "fields": {
+            "hook": {
+              "ty": "String",
+              "required": true
+            },
+            "message": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -6714,6 +6927,23 @@
         }
       }
     },
+    "ProjectAgentUndoneParams": {
+      "kind": "struct",
+      "fields": {
+        "change": {
+          "ty": "WhatChanged",
+          "required": true
+        },
+        "id": {
+          "ty": "String",
+          "required": true
+        },
+        "ticket": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "ProjectChanges": {
       "kind": "struct",
       "fields": {
@@ -6919,10 +7149,6 @@
         "base_branch": {
           "ty": "String",
           "required": true
-        },
-        "flow_setup_since": {
-          "ty": "Option<i64>",
-          "omittable": true
         },
         "key": {
           "ty": "String",
@@ -7314,6 +7540,21 @@
         }
       }
     },
+    "PromptTurn": {
+      "kind": "enum",
+      "variants": {
+        "answering": {
+          "fields": {
+            "asking": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        },
+        "open_pr": {},
+        "push_to_pr": {}
+      }
+    },
     "ProposalProblem": {
       "kind": "struct",
       "fields": {
@@ -7632,6 +7873,31 @@
         }
       }
     },
+    "RefusedHook": {
+      "kind": "struct",
+      "fields": {
+        "message": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "name": {
+          "ty": "String",
+          "required": true
+        },
+        "output": {
+          "ty": "String",
+          "required": true
+        },
+        "step": {
+          "ty": "Option<GitStep>",
+          "omittable": true
+        },
+        "what": {
+          "ty": "String",
+          "required": true
+        }
+      }
+    },
     "RemoteWarning": {
       "kind": "struct",
       "fields": {
@@ -7776,9 +8042,6 @@
         "flow_proposal": {
           "newtype": "Option<crate::flow::proposal::Proposal>"
         },
-        "flow_setup": {
-          "newtype": "FlowSetup"
-        },
         "flow_version": {
           "newtype": "FlowVersion"
         },
@@ -7855,9 +8118,6 @@
           "newtype": "NotificationsState"
         },
         "ok": {},
-        "onboarding_sources": {
-          "newtype": "Sources"
-        },
         "onboarding_state": {
           "newtype": "OnboardingState"
         },
@@ -8029,6 +8289,9 @@
         },
         "uninstall_scan": {
           "newtype": "UninstallScan"
+        },
+        "unsent": {
+          "newtype": "bool"
         },
         "update_prefs": {
           "newtype": "UpdatePrefs"
@@ -8352,20 +8615,7 @@
         "notifications.ask_answered": {},
         "notifications.dismiss_blocked": {},
         "notifications.state": {},
-        "onboarding.ask": {
-          "newtype": "OnboardingAskParams"
-        },
-        "onboarding.dismiss_permission_warning": {},
-        "onboarding.flow_setup": {
-          "newtype": "ProjectParams"
-        },
-        "onboarding.sources": {
-          "newtype": "ProjectParams"
-        },
         "onboarding.state": {},
-        "onboarding.use_default": {
-          "newtype": "ProjectParams"
-        },
         "ping": {},
         "project.add": {
           "newtype": "AddProject"
@@ -8415,6 +8665,9 @@
         },
         "project_agent.send": {
           "newtype": "ProjectAgentSendParams"
+        },
+        "project_agent.undone": {
+          "newtype": "ProjectAgentUndoneParams"
         },
         "project_settings.get": {
           "newtype": "ProjectParams"
@@ -8524,7 +8777,13 @@
         "session.send_again": {
           "newtype": "DeliverNowParams"
         },
+        "session.unsent": {
+          "newtype": "SessionIdParams"
+        },
         "settings.get": {},
+        "settings.os_dark": {
+          "newtype": "OsDarkParams"
+        },
         "settings.set": {
           "newtype": "GlobalSettings"
         },
@@ -8612,11 +8871,17 @@
         "ticket.get": {
           "newtype": "KeyParams"
         },
+        "ticket.git_stop": {
+          "newtype": "KeyParams"
+        },
         "ticket.history": {
           "newtype": "KeyParams"
         },
         "ticket.human_answers": {
           "newtype": "KeyParams"
+        },
+        "ticket.keep_message": {
+          "newtype": "KeepMessageParams"
         },
         "ticket.list": {
           "newtype": "ProjectParams"
@@ -8748,6 +9013,7 @@
           "newtype": "ResumeAllParams"
         },
         "tools.check": {},
+        "tools.check_git": {},
         "tools.git_identity": {
           "newtype": "GitIdentityParams"
         },
@@ -8841,6 +9107,10 @@
         },
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -9613,6 +9883,27 @@
         }
       }
     },
+    "SessionPrompt": {
+      "kind": "struct",
+      "fields": {
+        "prompt": {
+          "ty": "String",
+          "required": true
+        },
+        "session": {
+          "ty": "String",
+          "required": true
+        },
+        "since": {
+          "ty": "i64",
+          "required": true
+        },
+        "turn": {
+          "ty": "PromptTurn",
+          "required": true
+        }
+      }
+    },
     "SessionRole": {
       "kind": "strings",
       "values": [
@@ -10036,19 +10327,6 @@
         }
       }
     },
-    "Sources": {
-      "kind": "struct",
-      "fields": {
-        "project_name": {
-          "ty": "String",
-          "required": true
-        },
-        "tools": {
-          "ty": "Vec<crate::agent_tools::Tool>",
-          "required": true
-        }
-      }
-    },
     "Span": {
       "kind": "struct",
       "fields": {
@@ -10319,6 +10597,10 @@
     "StartProblem": {
       "kind": "struct",
       "fields": {
+        "hook": {
+          "ty": "Option<RefusedHook>",
+          "omittable": true
+        },
         "message": {
           "ty": "String",
           "required": true
@@ -10908,6 +11190,27 @@
         },
         "project": {
           "ty": "Option<String>"
+        }
+      }
+    },
+    "TicketChange": {
+      "kind": "struct",
+      "fields": {
+        "at": {
+          "ty": "i64",
+          "required": true
+        },
+        "change": {
+          "ty": "WhatChanged",
+          "required": true
+        },
+        "ticket": {
+          "ty": "TicketKey",
+          "required": true
+        },
+        "undone": {
+          "ty": "bool",
+          "omittable": true
         }
       }
     },
@@ -12186,6 +12489,66 @@
         "started": {}
       }
     },
+    "WhatChanged": {
+      "kind": "enum",
+      "attrs": [
+        "tag=kind"
+      ],
+      "variants": {
+        "field": {
+          "fields": {
+            "after": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "before": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "field": {
+              "ty": "Field",
+              "required": true
+            }
+          }
+        },
+        "no_longer_waits_for": {
+          "fields": {
+            "parent": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        },
+        "stage_choice": {
+          "fields": {
+            "after": {
+              "ty": "String",
+              "required": true
+            },
+            "before": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
+            "stage": {
+              "ty": "String",
+              "required": true
+            },
+            "stage_id": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
+        "waits_for": {
+          "fields": {
+            "parent": {
+              "ty": "TicketKey",
+              "required": true
+            }
+          }
+        }
+      }
+    },
     "WhyLine": {
       "kind": "struct",
       "fields": {
@@ -12477,7 +12840,19 @@
         "other": {
           "newtype": "String"
         },
-        "send_back": {}
+        "send_back": {},
+        "several": {
+          "fields": {
+            "options": {
+              "ty": "Vec<u32>",
+              "required": true
+            },
+            "other": {
+              "ty": "Option<String>",
+              "omittable": true
+            }
+          }
+        }
       }
     },
     "crate::board::stage_choices::Choice": {

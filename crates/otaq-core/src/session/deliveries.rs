@@ -21,15 +21,23 @@
 //! [`Deliveries::hand_off`] (the user's click) or [`Deliveries::queue_hand_off`] (automatic): from the moment it is
 //! typed its ticket shows "waiting for the agent to pick it up" until the agent's tool reports activity, and
 //! [`Deliveries::send_again`] types it once more (d0118, [`super::hand_offs`]).
+//!
+//! A message never waits for a session that has ended ([`Deliveries::session_ended`]): one for the ticket's agent goes
+//! to the ticket's live agent session, and any other (a check's, a helper's) is dropped. The waiting count a ticket
+//! shows is its live agent session's alone, the session its Deliver now types into.
 
 use std::collections::HashMap;
+use std::future::Future;
+use std::pin::Pin;
 use std::sync::{Arc, Mutex};
 use std::time::Duration;
 
 use serde::{Deserialize, Serialize};
 
+use tokio::sync::{broadcast, watch};
+
 use super::hand_offs::{HandOff, HandOffs};
-use super::{SessionError, Sessions};
+use super::{SessionError, SessionInfo, SessionKind, SessionState, Sessions};
 use crate::agent_tools::{Adapters, InputQuirks};
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
@@ -104,6 +112,9 @@ pub struct PendingDelivery {
     pub message_part: Option<String>,
 }
 
+/// Whether a queued delivery is still wanted when its turn to be typed comes (see [`Deliveries::queue_while`]).
+pub type StillWanted = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>> + Send + Sync>;
+
 /// Lets the program take a typed message in before Enter submits it (a tool may ask for a longer pause), and
 /// a cleared line settle before the text.
 const SUBMIT_PAUSE: Duration = Duration::from_millis(80);
@@ -122,6 +133,11 @@ pub struct Deliveries {
     /// One sender at a time per session: a caller that waited for another finds the queue empty, so two at once (a
     /// hook's delivery and a queued one's) never type a message twice.
     senders: Arc<Mutex<HashMap<String, Arc<tokio::sync::Mutex<()>>>>>,
+    /// By `pending_deliveries.id`: the deliveries typed only if still wanted then ([`Self::queue_while`]).
+    conditions: Arc<Mutex<HashMap<String, StillWanted>>>,
+    /// By session: whether its input line held unsent text when a person's key last settled
+    /// ([`Self::line_settled`]).
+    lines: Arc<Mutex<HashMap<String, bool>>>,
 }
 
 impl Deliveries {
@@ -140,6 +156,8 @@ impl Deliveries {
             adapters,
             hand_offs: HandOffs::default(),
             senders: Arc::default(),
+            conditions: Arc::default(),
+            lines: Arc::default(),
         }
     }
 
@@ -166,6 +184,26 @@ impl Deliveries {
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
+    /// Like [`queue_delivery`](Self::queue_delivery), for a request that only makes sense while something holds: when
+    /// its turn comes (the agent idle, the input line empty, or Deliver now) `still_wanted` is asked, and if the answer
+    /// is no it is dropped and never typed. The delivery's agent's request for the message is one: it waits behind
+    /// unsent text or a busy turn, and once its ticket was sent back to Dev it is no longer typed there.
+    pub async fn queue_while(
+        &self,
+        session: &str,
+        kind: DeliveryKind,
+        text: &str,
+        still_wanted: StillWanted,
+    ) -> Result<(), SessionError> {
+        let id = self.hold(session, kind, text).await?;
+        self.conditions
+            .lock()
+            .expect("delivery conditions")
+            .insert(id, still_wanted);
+        self.not_for_an_ended(session).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
     /// Stores an automatic delivery without typing it, even if the session is idle: it waits for the plan's usage
     /// limit to pass (the limit's Resume types it with [`deliver_if_ready`](Self::deliver_if_ready)).
     pub async fn hold_delivery(
@@ -174,7 +212,8 @@ impl Deliveries {
         kind: DeliveryKind,
         text: &str,
     ) -> Result<(), SessionError> {
-        self.hold(session, kind, text).await.map(|_| ())
+        self.hold(session, kind, text).await?;
+        self.not_for_an_ended(session).await
     }
 
     /// Stores an automatic delivery and tells clients the waiting count; returns its id.
@@ -211,6 +250,7 @@ impl Deliveries {
             .hold(session, DeliveryKind::Skill, &hand_off.text)
             .await?;
         self.hand_offs.queued(&id, hand_off);
+        self.not_for_an_ended(session).await?;
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
@@ -311,7 +351,98 @@ impl Deliveries {
         .await
         .map_err(store_error)?;
         self.publish_waiting(session).await?;
+        self.not_for_an_ended(session).await?;
         self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// Watches session ends until the service stops: what still waited for an ended session is moved or dropped
+    /// ([`Self::session_ended`]).
+    pub async fn run(self, mut stop: watch::Receiver<bool>) {
+        let mut listener = self.events.listen();
+        loop {
+            let event = tokio::select! {
+                _ = stop.wait_for(|s| *s) => return,
+                event = listener.receiver.recv() => event,
+            };
+            match event {
+                Ok(Event::SessionState { session }) if !session.is_running() => {
+                    if let Err(e) = self.session_ended(&session).await {
+                        tracing::warn!(session = session.id, error = %e, "can't move an ended session's messages");
+                    }
+                }
+                Ok(_) => {}
+                Err(broadcast::error::RecvError::Lagged(missed)) => {
+                    tracing::warn!(missed, "deliveries fell behind on session events");
+                }
+                Err(broadcast::error::RecvError::Closed) => return,
+            }
+        }
+    }
+
+    /// A message queued just as its session ended (after [`Self::run`] saw the end) doesn't stay behind it.
+    async fn not_for_an_ended(&self, session: &str) -> Result<(), SessionError> {
+        match self.sessions.info(session) {
+            Ok(info) if !info.is_running() => self.session_ended(&info).await,
+            _ => Ok(()),
+        }
+    }
+
+    /// `ended` has ended: the messages still waiting for it don't wait for nothing. Those for the ticket's agent (its
+    /// agent session's) go to the ticket's live agent session, typed there once it is ready; every other one (a
+    /// check's, a helper's, or the agent's with no live agent session left) is dropped. A new session starts by
+    /// reading its ticket, so nothing it needs is lost.
+    pub async fn session_ended(&self, ended: &SessionInfo) -> Result<(), SessionError> {
+        self.lines.lock().expect("input lines").remove(&ended.id);
+        let pending = self.pending(&ended.id).await?;
+        if pending.is_empty() {
+            return Ok(());
+        }
+        let live = if ended.kind == SessionKind::Agent {
+            self.live_agent_session(&ended.id).await?
+        } else {
+            None
+        };
+        if let Some(live) = live {
+            sqlx::query("UPDATE pending_deliveries SET session_id = ? WHERE session_id = ?")
+                .bind(&live)
+                .bind(&ended.id)
+                .execute(self.store.pool())
+                .await
+                .map_err(store_error)?;
+            self.publish_waiting(&ended.id).await?;
+            self.publish_waiting(&live).await?;
+            self.deliver_if_ready(&live).await?;
+            return Ok(());
+        }
+        for delivery in &pending {
+            sqlx::query("DELETE FROM pending_deliveries WHERE id = ?")
+                .bind(&delivery.id)
+                .execute(self.store.pool())
+                .await
+                .map_err(store_error)?;
+            self.forget_condition(&delivery.id);
+            self.hand_offs.take_queued(&delivery.id);
+        }
+        self.publish_waiting(&ended.id).await
+    }
+
+    /// The running agent session of `session`'s ticket other than `session`, the newest.
+    async fn live_agent_session(&self, session: &str) -> Result<Option<String>, SessionError> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT n.id FROM sessions n JOIN sessions o ON o.ticket_id = n.ticket_id
+             WHERE o.id = ? AND n.id <> o.id AND n.kind = ? AND n.state = ?
+             ORDER BY n.started_at DESC, n.id DESC",
+        )
+        .bind(session)
+        .bind(SessionKind::Agent.as_str())
+        .bind(SessionState::Running.as_str())
+        .fetch_all(self.store.pool())
+        .await
+        .map_err(store_error)?;
+        // The row says running; the session itself must still be.
+        Ok(ids
+            .into_iter()
+            .find(|id| self.sessions.info(id).is_ok_and(|i| i.is_running())))
     }
 
     /// Types every pending delivery, oldest first, if the agent is idle **and** the input line is empty.
@@ -321,7 +452,24 @@ impl Deliveries {
         if !self.is_ready(session)? {
             return Ok(0);
         }
-        self.send_pending(session).await
+        self.send_pending(session, true).await
+    }
+
+    /// A person's key reached the session and the program has drawn it: `unsent` is whether its input line holds text
+    /// now ([`Sessions::has_unsent_input`]). The Session tab says "Unsent text in the input line" only while messages
+    /// wait behind such text, so when the answer changes with messages waiting, `messages_waiting` goes out again and
+    /// the tab looks again: a key a tool's prompt took, or one typed after a prompt closed and then cleared, never
+    /// leaves that line up over an empty input line.
+    pub async fn line_settled(&self, session: &str, unsent: bool) -> Result<(), SessionError> {
+        let before = self
+            .lines
+            .lock()
+            .expect("input lines")
+            .insert(session.to_owned(), unsent);
+        if before == Some(unsent) || self.pending(session).await?.is_empty() {
+            return Ok(());
+        }
+        self.publish_waiting(session).await
     }
 
     /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns and its
@@ -337,7 +485,7 @@ impl Deliveries {
         if self.sessions.has_unsent_input(session)? {
             return Ok(self.needs_confirmation(session));
         }
-        let count = self.send_pending(session).await?;
+        let count = self.send_pending(session, false).await?;
         Ok(Delivery::Sent { count })
     }
 
@@ -377,7 +525,7 @@ impl Deliveries {
                 self.idle.delivered(session);
                 1
             }
-            None => self.send_pending(session).await?,
+            None => self.send_pending(session, false).await?,
         };
         Ok(Delivery::Sent { count })
     }
@@ -399,7 +547,9 @@ impl Deliveries {
         .map_err(store_error)
     }
 
-    async fn send_pending(&self, session: &str) -> Result<usize, SessionError> {
+    /// Types the waiting messages. `when_ready`: an automatic delivery, typed only if the agent is still idle with an
+    /// empty input line once this sender's turn comes (another sender may have typed meanwhile, starting a turn).
+    async fn send_pending(&self, session: &str, when_ready: bool) -> Result<usize, SessionError> {
         let sender = self
             .senders
             .lock()
@@ -408,8 +558,30 @@ impl Deliveries {
             .or_default()
             .clone();
         let _sending = sender.lock().await;
+        if when_ready && !self.is_ready(session)? {
+            return Ok(0);
+        }
         let pending = self.pending(session).await?;
+        let mut typed = 0;
         for delivery in &pending {
+            // A request no longer wanted is dropped, not typed.
+            let condition = self
+                .conditions
+                .lock()
+                .expect("delivery conditions")
+                .get(&delivery.id)
+                .cloned();
+            if let Some(still_wanted) = condition
+                && !still_wanted().await
+            {
+                sqlx::query("DELETE FROM pending_deliveries WHERE id = ?")
+                    .bind(&delivery.id)
+                    .execute(self.store.pool())
+                    .await
+                    .map_err(store_error)?;
+                self.forget_condition(&delivery.id);
+                continue;
+            }
             // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).
             if let Some(hand_off) = self.hand_offs.take_queued(&delivery.id) {
                 self.typed_hand_off(session, hand_off);
@@ -420,6 +592,8 @@ impl Deliveries {
                 .execute(self.store.pool())
                 .await
                 .map_err(store_error)?;
+            self.forget_condition(&delivery.id);
+            typed += 1;
             // A question or answer between agents: it reached the other agent now.
             if let (Some(message), Some(part)) = (&delivery.message_id, &delivery.message_part) {
                 let column = if part == crate::messages::PART_ANSWER {
@@ -446,23 +620,45 @@ impl Deliveries {
                 }
             }
         }
-        if !pending.is_empty() {
+        if typed > 0 {
             self.idle.delivered(session);
+        }
+        if !pending.is_empty() {
             self.publish_waiting(session).await?;
         }
-        Ok(pending.len())
+        Ok(typed)
     }
 
-    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message), then the tool's
-    /// keys before Enter, if any, then Enter.
+    fn forget_condition(&self, delivery: &str) {
+        self.conditions
+            .lock()
+            .expect("delivery conditions")
+            .remove(delivery);
+    }
+
+    /// Types `text` (as a bracketed paste when it has line breaks, so they stay inside the message, or when it is a
+    /// line longer than the tool takes typed, [`InputQuirks::paste_line_over`]; a pasted `/name args` keeps its
+    /// name typed in front of the paste when the tool asks, [`InputQuirks::command_before_paste`]) with the tool's
+    /// bytes after the text, if any, then the tool's keys before Enter, if any, then one Enter. The text is one
+    /// write: the program joins a bracketed paste however the terminal splits it into reads.
     async fn type_and_submit(&self, session: &str, text: &str) -> Result<(), SessionError> {
-        let typed = if text.contains('\n') {
-            format!("\x1b[200~{text}\x1b[201~")
-        } else {
-            text.to_owned()
-        };
         let input = self.input(session);
-        self.sessions.write(session, typed.as_bytes())?;
+        let paste =
+            text.contains('\n') || input.paste_line_over.is_some_and(|over| text.len() > over);
+        let command = text
+            .split_once(' ')
+            .filter(|(name, _)| name.starts_with('/') && !name.contains('\n'))
+            .filter(|_| paste && input.command_before_paste);
+        let mut typed = if let Some((name, rest)) = command {
+            format!("{name} \x1b[200~{rest}\x1b[201~").into_bytes()
+        } else if paste {
+            format!("\x1b[200~{text}\x1b[201~").into_bytes()
+        } else {
+            text.as_bytes().to_vec()
+        };
+        // In the same write, so the tool takes it as part of what was typed.
+        typed.extend_from_slice(input.after_text);
+        self.sessions.write(session, &typed)?;
         if !input.before_enter.is_empty() {
             tokio::time::sleep(SUBMIT_PAUSE).await;
             self.sessions.write(session, input.before_enter)?;

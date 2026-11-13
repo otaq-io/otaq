@@ -371,6 +371,8 @@ async fn apply_cancel_and_ask_for_more_changes_reach_the_project_agent() {
         "The user asks for more changes to Proposal 1: Keep Validate for API tickets",
     )
     .await;
+    // The proposal stays open while the agent redrafts (UX-63); its next proposal replaces it in the draft.
+    assert!(w.board.proposed_by(&api, 1).await.unwrap().is_some());
 
     answered(&w, &agent, &api, |_| {
         Request::FlowCancelProposal(ProjectParams {
@@ -378,7 +380,7 @@ async fn apply_cancel_and_ask_for_more_changes_reach_the_project_agent() {
         })
     })
     .await;
-    reaches(&w, &agent, "The user cancelled Proposal 2.").await;
+    reaches(&w, &agent, "The user cancelled Proposal 1.").await;
 
     answered(&w, &agent, &api, |id| {
         Request::FlowApply(ApplyParams {
@@ -389,7 +391,7 @@ async fn apply_cancel_and_ask_for_more_changes_reach_the_project_agent() {
     })
     .await;
     // Dropping Validate is a shape change; nothing is working, so it applies at once.
-    reaches(&w, &agent, "The user applied Proposal 3.").await;
+    reaches(&w, &agent, "The user applied Proposal 2.").await;
     let stages: Vec<String> = w
         .board
         .effective_flow(&api)

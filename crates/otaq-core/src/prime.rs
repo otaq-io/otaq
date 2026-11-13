@@ -47,7 +47,7 @@ pub struct PrimeContext {
     /// The restack skill in the caller's tool's syntax: `/otaq:restack`.
     pub restack_skill: String,
     /// The branch conflicts with the one it merges into: the agent resolves that first, with the restack skill
-    /// (a Delivery's conflict, or a reopened ticket's rebase; GIT-03, GIT-06, FLW-17).
+    /// (a Delivery's conflict, or merging the base into a reopened ticket's branch; GIT-03, GIT-06, FLW-17).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub conflict: Option<Conflict>,
     /// The agent's own instructions and the project's notes (AGM-06).
@@ -856,7 +856,8 @@ impl Board {
         let Some(work) = &ticket.work else {
             return Ok(String::new());
         };
-        let (Some(worktree), Some(base)) = (&work.worktree, &work.base_sha) else {
+        let base = self.current_base_sha(ticket).await?;
+        let (Some(worktree), Some(base)) = (&work.worktree, &base) else {
             return Ok(String::new());
         };
         Ok(self
@@ -964,17 +965,17 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
 fn render_conflict(c: &Conflict, restack: &str) -> String {
     let lead = match c.reason {
         ConflictReason::Reopen => format!(
-            "Reopened: the rebase onto `{}` conflicted. Resolve it first with the restack skill (`{restack}`).",
+            "Reopened: merging `{}` into this branch conflicted. Resolve it first with the restack skill (`{restack}`).",
             c.target
         ),
         ConflictReason::Merge | ConflictReason::TestMerge => format!(
-            "This branch conflicts with the latest `{}`. Rebase it onto `{}` and resolve the conflicts first, \
+            "This branch conflicts with the latest `{}`. Merge `{}` into it and resolve the conflicts first, \
              with the restack skill (`{restack}`).",
             c.target, c.target
         ),
         ConflictReason::MergeCheck => format!(
-            "The project's merge check failed on this branch rebased onto the latest `{}`; nothing was merged. \
-             Rebase it onto `{}` with the restack skill (`{restack}`), fix what failed (the latest comment's \
+            "The project's merge check failed on this branch with the latest `{}` merged in; nothing was merged. \
+             Merge `{}` into it with the restack skill (`{restack}`), fix what failed (the latest comment's \
              report has the output), then submit again.",
             c.target, c.target
         ),
@@ -1361,7 +1362,9 @@ pub fn render(ctx: &PrimeContext) -> String {
          getting context or ending your stage."
             .to_owned(),
         format!(
-            "{commit} before you end your stage. Never push and never open a PR: the user does that."
+            "{commit} before you end your stage. Don't push unless the user asks; when you do, wait for the push to \
+             finish, however long a pre-push hook takes, and never use `--no-verify`. Never open a PR: the user does \
+             that."
         ),
         format!(
             "When your stage's work is done, as the ticket's description describes, end it: `{cmd} stage next \

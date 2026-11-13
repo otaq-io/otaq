@@ -15,9 +15,9 @@
 //! - `otaq helper list`, `otaq helper diff <n>` (the helper's branch against the ticket's);
 //! - `otaq helper back <n> --stdin`: the note is typed into the helper's session when it is idle (d0048), status
 //!   `sent back`;
-//! - `otaq helper merge <n>` ([`merge`]): refused while either worktree has uncommitted files; a free rebase of the
-//!   helper's branch onto the ticket's (d0038, no tokens); a conflict merges nothing and the reply says to send the
-//!   helper back to rebase; clean, a squash commit on the ticket's branch in its worktree, the helper's session
+//! - `otaq helper merge <n>` ([`merge`]): refused while either worktree has uncommitted files; the ticket's branch
+//!   merged into the helper's, never a rebase (d0038, no tokens); a conflict merges nothing and the reply says to send
+//!   the helper back to merge it in; clean, a squash commit on the ticket's branch in its worktree, the helper's session
 //!   ended, its worktree removed (its branch stays until the ticket is Done, d0018) and the files recorded for the
 //!   Files tab's piece tags;
 //! - `otaq helper drop <n> --stdin` ([`drop`], T10): the piece is dropped with the reason on stdin: its helper

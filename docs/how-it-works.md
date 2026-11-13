@@ -66,7 +66,7 @@ Backlog ──► Dev ───────────────────�
 5. **You review.** The ticket arrives in Review and opens on Overview: what the agent did, what the checker found and
    every decision the agent recorded; the Changes tab has the diff. Comment on lines and **Send back**, or approve.
 6. **Deliver.** How work leaves the flow is the flow's own setting, shown on Done ("Merge or PR · on Approve").
-   **Approve & merge into main** squashes the branch into your base branch (rebasing first if the base moved).
+   **Approve & merge into main** squashes the branch into your base branch (merging the base into the branch first if it moved; Otaq never rebases).
    **Approve & open PR** pushes and opens a pull request, with a dialog where you edit the branch name, title and
    description first; the ticket then waits in Review as "PR open" until you **Mark merged** (Otaq doesn't watch the
    PR). Once it's merged, tickets that were waiting for it start on their own.
@@ -103,8 +103,9 @@ a new model needs no Otaq update.
   agent. A ticket's own agent never picks or skips: only you do. A card waiting for its tool offers **Change
   agent…**, the same choice for the waiting stage.
 - **Nothing is skipped on its own.** A stage runs unless you skip it for that ticket, even when every stage before
-  it was skipped. **Skip this check** and **Move on anyway** show only on checks the flow marks skippable; on other
-  checks you wait, pick another agent, or send the ticket back. A skipped or moved-past check doesn't change the
+  it was skipped. **Skip this check** shows only on checks the flow marks skippable; on other checks you wait, pick
+  another agent, or send the ticket back. A check that fails all its rounds can always be sent on to the next stage
+  (**Send it on**), with the checker's last report, so you judge it at Review. A skipped or moved-past check doesn't change the
   Delivery: it does what the flow says, so an automatic one still delivers on its own, and its card says
   "Delivered without all checks".
 - **Limits per tool.** When one tool hits its usage limit, is logged out, not installed, hidden or needs an update,
@@ -156,7 +157,7 @@ and you can also type a name. A stage that names no skill runs Otaq's own skill 
 that runs the command and name that skill instead.
 
 **A stage runs only on a tool that has its skill.** A stage due to start on a tool that doesn't have the skill it
-names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `/team-validate`", **Check
+names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `$team-validate`", **Check
 again** (Otaq looks for the skill again and starts the stage if it is found) and **Change agent…** (only agents
 whose tool has the skill). A tool has a skill when it finds it in the ticket's worktree: in its own personal
 folder, in the project's folders when the skill is committed, or, for Claude Code, in the checkout's

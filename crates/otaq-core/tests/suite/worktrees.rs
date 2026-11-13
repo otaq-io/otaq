@@ -7,10 +7,18 @@ use otaq_core::data_dir::DataDir;
 use otaq_core::git::Git;
 use otaq_core::git::testing::{commit, git, snapshot};
 use otaq_core::start::prepare_worktree;
-use otaq_core::start::worktree::create_branch_unless_exists;
+use otaq_core::start::worktree::{Made, Worktree, create_branch_unless_exists};
 
 fn data(f: &Fixture) -> DataDir {
     DataDir::new(f.home.path().join("home"))
+}
+
+/// Where a start left the ticket, without what that start made.
+fn place(worktree: Worktree) -> Worktree {
+    Worktree {
+        made: Made::default(),
+        ..worktree
+    }
 }
 
 fn repo(f: &Fixture) -> PathBuf {
@@ -75,19 +83,34 @@ async fn rerunning_converges_from_any_partial_state() {
     let t = f.create("t").await;
     let key = t.key.to_string();
     let first = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
-
-    // Plain re-run.
+    let main = git(&repo(&f), &["rev-parse", "main"]);
     assert_eq!(
-        prepare_worktree(&f.board, &data(&f), &key).await.unwrap(),
-        first
+        first.made,
+        Made {
+            worktree: true,
+            branch_at: Some(main)
+        },
+        "the first start made both"
     );
+    let first = place(first);
+
+    // Plain re-run: it made nothing.
+    let rerun = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
+    assert_eq!(rerun.made, Made::default());
+    assert_eq!(place(rerun), first);
 
     // The worktree folder vanished but git still has it registered.
     std::fs::remove_dir_all(&first.path).unwrap();
+    let readded = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
     assert_eq!(
-        prepare_worktree(&f.board, &data(&f), &key).await.unwrap(),
-        first
+        readded.made,
+        Made {
+            worktree: true,
+            branch_at: None
+        },
+        "the worktree again, never the branch"
     );
+    assert_eq!(place(readded), first);
     assert!(first.path.join("file1.txt").is_file());
 
     // The worktree is gone entirely, only the branch exists; and base_sha was never stored.
@@ -101,13 +124,13 @@ async fn rerunning_converges_from_any_partial_state() {
     // The base moved on meanwhile: base_sha stays where the branch left it.
     commit(&repo(&f), "later.txt", "later\n");
     let again = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
-    assert_eq!(again, first);
+    assert_eq!(place(again), first);
 
     // An empty folder at the path (left by a failed add) is fine too.
     git(&repo(&f), &["worktree", "remove", "--force", &path]);
     std::fs::create_dir_all(&first.path).unwrap();
     assert_eq!(
-        prepare_worktree(&f.board, &data(&f), &key).await.unwrap(),
+        place(prepare_worktree(&f.board, &data(&f), &key).await.unwrap()),
         first
     );
 }
@@ -158,4 +181,38 @@ async fn an_existing_branch_is_reused_not_recreated() {
         .await
         .unwrap_err();
     assert!(err.to_string().contains("not-a-commit"), "{err}");
+}
+
+/// A repository that already has `otaq/SHOP-1` (left by a project added before, or the user's own) keeps it: the new
+/// ticket SHOP-1 takes the next free name, a remote's branch counting too, and keeps that one on every start after.
+#[tokio::test]
+async fn a_branch_the_ticket_didnt_make_is_never_taken_over() {
+    let f = Fixture::shop().await;
+    let repo = repo(&f);
+    let main = git(&repo, &["rev-parse", "main"]);
+    git(&repo, &["branch", "otaq/SHOP-1", &main]);
+    commit(&repo, "theirs.txt", "someone else's work\n");
+    git(
+        &repo,
+        &["update-ref", "refs/remotes/origin/otaq/SHOP-1-2", "main"],
+    );
+    let theirs = git(&repo, &["rev-parse", "main"]);
+    git(&repo, &["update-ref", "refs/heads/otaq/SHOP-1", &theirs]);
+
+    let t = f.create("Checkout API").await;
+    let key = t.key.to_string();
+    let wt = prepare_worktree(&f.board, &data(&f), &key).await.unwrap();
+    assert_eq!(wt.branch, "otaq/SHOP-1-3");
+    assert_eq!(
+        git(&repo, &["rev-parse", "otaq/SHOP-1"]),
+        theirs,
+        "the other branch is left as it was"
+    );
+    let row = f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.branch_name.as_deref(), Some("otaq/SHOP-1-3"));
+    // A start after keeps the ticket's own branch.
+    assert_eq!(
+        place(prepare_worktree(&f.board, &data(&f), &key).await.unwrap()),
+        place(wt)
+    );
 }

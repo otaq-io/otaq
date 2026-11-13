@@ -3,6 +3,7 @@
 
 pub mod agent_created;
 pub mod agent_edits;
+pub mod base;
 pub mod batch;
 pub mod change_note;
 pub mod close;
@@ -14,6 +15,7 @@ pub mod deps;
 pub mod diff;
 pub mod files;
 pub mod fixes;
+pub mod git_steps;
 pub mod hand_over;
 pub mod human_check;
 pub mod manual_checks;
@@ -34,6 +36,7 @@ pub mod reports;
 pub mod review;
 pub mod send_back;
 pub mod send_back_question;
+pub mod session_prompts;
 pub mod settings;
 pub mod skill_tools;
 pub mod snapshot;
@@ -62,7 +65,8 @@ pub struct Board {
     store: Store,
     /// `None` when git isn't installed; git work then fails with [`GitError::NotFound`].
     git: Option<Git>,
-    /// Which tickets' terminals have focus (ATT-03): their waiting agents show "your turn", not turquoise.
+    /// Which tickets' terminals have focus (ATT-03): their waiting agents raise no needs-you item or notification;
+    /// the cards still read Needs you.
     focus: Focus,
     /// Agents stopped by the plan limit, and whether their items are left out (ATT-09).
     limit_stops: LimitStops,
@@ -70,8 +74,13 @@ pub struct Board {
     run_ports: RunPorts,
     /// Tickets whose Merge check runs now: "Merging · running the merge check" (d0120).
     merge_checks: merge_check::MergeChecks,
+    /// Tickets running Approve & merge or a start: the step git is on and the hook that runs ("running your
+    /// pre-commit hook · 40 s").
+    git_steps: git_steps::GitSteps,
     /// Hand-offs typed into live sessions that their agents haven't picked up yet (d0118).
     hand_offs: HandOffs,
+    /// The permission prompts on tickets' own sessions' screens now (the signals mirror them here).
+    session_prompts: session_prompts::SessionPrompts,
     /// Every owner's changes for the project Files view, per ticket (FIL-10).
     project_files: project_files::ProjectFilesCache,
     /// Each ticket's changes for its Files tab and its sheet's count (one read serves the requests that arrive together).
@@ -99,7 +108,9 @@ impl Board {
             limit_stops: LimitStops::default(),
             run_ports: RunPorts::default(),
             merge_checks: merge_check::MergeChecks::default(),
+            git_steps: git_steps::GitSteps::default(),
             hand_offs: HandOffs::default(),
+            session_prompts: session_prompts::SessionPrompts::default(),
             project_files: Default::default(),
             ticket_changes_cache: Default::default(),
             trust: Trust::default(),
@@ -150,9 +161,19 @@ impl Board {
         &self.merge_checks
     }
 
+    /// Otaq's own git operations running on tickets now; Local merge and the starts keep it.
+    pub fn git_steps(&self) -> &git_steps::GitSteps {
+        &self.git_steps
+    }
+
     /// The hand-offs waiting for their agents to pick them up (d0118); the deliveries and the signals share it.
     pub fn hand_offs(&self) -> &HandOffs {
         &self.hand_offs
+    }
+
+    /// The permission prompts on tickets' own sessions' screens now ([`session_prompts`]); the signals keep it.
+    pub fn session_prompts(&self) -> &session_prompts::SessionPrompts {
+        &self.session_prompts
     }
 
     /// The automatic Delivery's side of board moves (FLW-15).

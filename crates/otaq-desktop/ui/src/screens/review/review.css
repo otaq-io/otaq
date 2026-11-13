@@ -1,5 +1,5 @@
 /*
- * *07 · Send back · review & confirm, Local merge · confirm / rebasing / conflict / refused, Approve · changed since
+ * *07 · Send back · review & confirm, Local merge · confirm / merging / conflict / refused, Approve · changed since
  * review, Uncommitted files · refused*: the bodies inside the shared dialog shell. Colors are the theme's tokens.
  */
 .review-body {
@@ -49,9 +49,22 @@
   gap: 6px;
 }
 
-.review-writing .icon {
+.review-writing > .icon {
   flex: none;
   margin-top: 2px;
+}
+
+/* Answer in terminal, at the end of the writer's line (Approve & merge, Approve & open PR). */
+.writer-asks {
+  flex: none;
+  margin-left: auto;
+}
+
+.writer-terminal {
+  height: 380px;
+  overflow: hidden;
+  border-radius: var(--r-md);
+  background: var(--term-bg);
 }
 
 .review-link {
@@ -61,6 +74,12 @@
   color: var(--accent);
   font: inherit;
   cursor: pointer;
+}
+
+/* Use the proposed message, under the message box while it holds the user's edit. */
+.review-use-proposed {
+  align-self: flex-start;
+  font-size: 12px;
 }
 
 .review-link:hover {
@@ -232,11 +251,25 @@
   color: var(--text-muted);
 }
 
-.review-step[data-first] {
+.review-step[data-current] {
   color: var(--text-primary);
 }
 
-.review-step[data-first] > .icon {
+.review-step[data-done] > .icon {
+  color: var(--st-approved);
+}
+
+/* The hook that runs on the current step, under its words. */
+.review-step-hook {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin: 2px 0 0 24px;
+  color: var(--text-secondary);
+  font-variant-numeric: tabular-nums;
+}
+
+.review-step[data-current] > .icon {
   color: var(--accent);
   animation: review-spin 1s linear infinite;
 }
@@ -248,7 +281,7 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .review-step[data-first] > .icon {
+  .review-step[data-current] > .icon {
     animation: none;
   }
 }
@@ -265,6 +298,20 @@
 
 .review-files[data-tone="error"] {
   background: var(--st-error-bg);
+}
+
+.review-output {
+  margin: 0;
+  max-height: 240px;
+  overflow: auto;
+  padding: 10px 12px;
+  border-radius: var(--r-md);
+  background: var(--st-error-bg);
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+  user-select: text;
 }
 
 .review-file {

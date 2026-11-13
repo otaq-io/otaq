@@ -7,13 +7,21 @@
 //!    a base branch up to date: fetch, fast-forward if only behind, refuse if diverged (a local-only target, such as
 //!    a ticket's own branch, skips this). A fetch that fails goes on into the local target when the request allows it (d0121);
 //!    otherwise it is the error;
-//! 3. **free rebase** of the ticket's branch onto the target: in its worktree with the checkpoint rule, or in the
-//!    scratch worktree when the branch has no worktree; a conflict merges nothing;
-//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run);
-//! 5. the project's **Merge check** (d0120), when it has one and the rebase brought in commits the branch didn't
+//! 3. **bring the branch up to date**: the target is merged into the ticket's branch, never rebased onto it (a team's
+//!    pre-rebase hook or rule never stops it), in its worktree or in the scratch worktree when the branch has no
+//!    worktree. The merge commit runs the project's hooks: a refusal merges nothing; a conflict merges nothing;
+//! 4. **squash-merge** with the confirmed message in the scratch worktree (the user's hooks run). A hook that changes
+//!    the commit's files (a formatter's pre-commit) isn't stopped: the commit lands as the hook left it, and the
+//!    outcome says which hook changed which files ([`HookChanges`]), comparing the commit's tree with the branch that
+//!    was squashed (the reviewed work with the target merged in), never with the target. The Merge check doesn't run
+//!    again because of it;
+//! 5. the project's **Merge check** (d0120), when it has one and the update brought in commits the branch didn't
 //!    have (or the caller asks again, [`MergeRequest::recheck`]): run on the squash commit in the scratch worktree,
 //!    then the scratch worktree is cleaned. A failure or the user's Stop merges nothing;
-//! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere.
+//! 6. move the target: fast-forward its clean checkout, or update the ref when it isn't checked out anywhere. The
+//!    fast-forward runs the user's post-merge hook in their own folder: the merge has landed by then, so whatever
+//!    the hook does (an install that fails) doesn't change the outcome; the outcome keeps its output
+//!    ([`PostMergeHook`]) for the ticket's History.
 //!
 //! **Never pushes, never stashes, never commits in the user's folder.**
 
@@ -21,8 +29,10 @@ use std::fmt;
 use std::path::{Path, PathBuf};
 use std::sync::Arc;
 
-use super::checkpoint::RebaseOutcome;
-use super::{BaseSync, FetchFailure, Git, GitError};
+use serde::{Deserialize, Serialize};
+
+use super::diff::DiffSpec;
+use super::{BaseSync, FetchFailure, Git, GitError, GitStep, HookRun};
 
 /// One Local merge.
 #[derive(Debug, Clone)]
@@ -48,8 +58,8 @@ pub struct MergeRequest {
     pub message: String,
     /// The project's Merge check, if it has one (d0120).
     pub check: Option<MergeCheck>,
-    /// Run the check even when the rebase brings in nothing new: an earlier merge of this branch rebased it onto
-    /// new commits and ended before a check passed on them (failed, stopped, refused, or the target didn't move).
+    /// Run the check even when the update brings in nothing new: an earlier merge of this branch merged new commits
+    /// into it and ended before a check passed on them (failed, stopped, refused, or the target didn't move).
     pub recheck: bool,
 }
 
@@ -94,11 +104,92 @@ impl fmt::Debug for MergeCheck {
     }
 }
 
+/// A hook changed the files of the commit Approve & merge made: it landed as the hook left it, so the target differs
+/// from the branch the user reviewed.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct HookChanges {
+    /// `pre-commit`; `None` when git didn't say which hook ran.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<String>,
+    /// The files it changed, as git names them.
+    pub files: Vec<String>,
+    /// The commit that was squashed: what the user reviewed, with the target merged in.
+    pub reviewed: String,
+    /// The commit that landed. Show changes is the difference from `reviewed` to it.
+    pub landed: String,
+}
+
+impl HookChanges {
+    /// "Your pre-commit hook changed 2 files"; "A hook changed 1 file" when git didn't say which.
+    pub fn sentence(&self) -> String {
+        let files = match self.files.len() {
+            1 => "1 file".to_owned(),
+            n => format!("{n} files"),
+        };
+        match &self.hook {
+            Some(hook) => format!("Your {hook} hook changed {files}"),
+            None => format!("A hook changed {files}"),
+        }
+    }
+}
+
+/// The user's post-merge hook that ran in their own folder when the target moved there. Passed or failed, it is
+/// only told: the merge had landed before it ran.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct PostMergeHook {
+    /// The folder it ran in, the home shortened: `~/code/shop-web`.
+    pub folder: String,
+    /// Its exit code; `None` when git didn't say.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub exit: Option<i32>,
+    /// Everything it printed, paths under the home shortened.
+    pub output: String,
+    pub started_ms: i64,
+    pub ended_ms: i64,
+}
+
+impl PostMergeHook {
+    fn of(run: &HookRun) -> Self {
+        Self {
+            folder: super::hooks::shorten_home(&run.folder.display().to_string()),
+            exit: run.exit,
+            output: run.output.clone(),
+            started_ms: run.started_ms,
+            ended_ms: run.ended_ms,
+        }
+    }
+
+    pub fn passed(&self) -> bool {
+        self.exit == Some(0)
+    }
+
+    /// "Your post-merge hook ran in ~/shop-web"; "Your post-merge hook failed in ~/shop-web (exit 1)".
+    pub fn sentence(&self) -> String {
+        match (self.passed(), self.exit) {
+            (true, _) => format!("Your post-merge hook ran in {}", self.folder),
+            (false, Some(code)) => format!(
+                "Your post-merge hook failed in {} (exit {code})",
+                self.folder
+            ),
+            (false, None) => format!("Your post-merge hook failed in {}", self.folder),
+        }
+    }
+}
+
+/// The hook named for a change to a commit's files, of those its `git commit` ran: pre-commit, the one that changes
+/// what is committed; else post-commit, which can only change it by amending the commit.
+fn changing_hook(runs: &[HookRun]) -> Option<String> {
+    ["pre-commit", "post-commit"]
+        .into_iter()
+        .find(|name| runs.iter().any(|r| r.name == *name))
+        .map(str::to_owned)
+}
+
 /// What a Local merge did.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum MergeOutcome {
-    /// Merged as `commit` on top of `onto` (the target's commit the branch was rebased onto). `brought_in`: the
-    /// rebase brought in commits the branch didn't have; `checked`: the Merge check ran and passed.
+    /// Merged as `commit` on top of `onto` (the target's commit merged into the branch). `brought_in`: the
+    /// update brought in commits the branch didn't have; `checked`: the Merge check ran and passed.
     Merged {
         commit: String,
         onto: String,
@@ -106,6 +197,11 @@ pub enum MergeOutcome {
         checked: bool,
         /// The fetch before it failed and it merged into the local target as it was (d0121).
         fetch_failed: Option<FetchFailure>,
+        /// A hook changed the commit's files; `None` when what landed is what was squashed.
+        hook_changed: Option<HookChanges>,
+        /// The user's post-merge hook ran in their folder as the target moved there; `None` without one (or when the
+        /// target wasn't checked out anywhere, so only its ref moved and no hook ran).
+        post_merge: Option<Box<PostMergeHook>>,
     },
     RefusedUncommitted {
         files: Vec<String>,
@@ -117,7 +213,7 @@ pub enum MergeOutcome {
     RefusedDirtyCheckout {
         message: String,
     },
-    /// The free rebase conflicted on these files: nothing was merged.
+    /// Merging the target into the branch conflicted on these files: nothing was merged.
     Conflict {
         files: Vec<String>,
     },
@@ -159,6 +255,7 @@ impl Git {
         }
         let mut fetch_failed = None;
         if m.sync_target {
+            self.step(GitStep::UpdateTarget);
             match self.sync_base(&m.repo, &m.target).await? {
                 BaseSync::FetchFailed(failure) if m.goes_on_without_remote => {
                     fetch_failed = Some(failure);
@@ -197,27 +294,48 @@ impl Git {
                 stderr: format!("the branch `{}` doesn't exist", m.target),
             })?;
 
-        // 3. The free rebase onto the target. It brings in new commits unless the branch already has `onto`.
+        // 3. Merge the target into the branch. It brings in new commits unless the branch already has `onto`.
         let branch_ref = format!("refs/heads/{}", m.branch);
         let brought_in = match self.resolve(&m.repo, &branch_ref).await? {
             Some(head) => !self.is_ancestor(&m.repo, &onto, &head).await?,
             None => true,
         };
         self.ensure_scratch(&m.repo, &m.scratch, &onto).await?;
-        if let Some(files) = self.rebase_branch(m, &onto).await? {
+        if let Some(files) = self.update_branch(m, &onto).await? {
             return Ok(MergeOutcome::Conflict { files });
         }
 
         // 4. Squash-merge in the scratch worktree, then move the target.
         let scratch = m.scratch.as_path();
+        self.step(GitStep::PrepareScratch);
         self.run(
             scratch,
             &["checkout", "--quiet", "--force", "--detach", &onto],
         )
         .await?;
         self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
-        self.run(scratch, &["merge", "--quiet", "--squash", &m.branch])
-            .await?;
+        self.step(GitStep::Squash);
+        // What is squashed: the reviewed work with the target merged in. A hook's changes are compared with it.
+        let squashed =
+            self.resolve(&m.repo, &branch_ref)
+                .await?
+                .ok_or_else(|| GitError::Failed {
+                    args: format!("rev-parse {branch_ref}"),
+                    code: None,
+                    stderr: format!("the branch `{}` doesn't exist", m.branch),
+                })?;
+        if let Err(e) = self
+            .run(scratch, &["merge", "--quiet", "--squash", &squashed])
+            .await
+        {
+            // Stopped: the scratch worktree is left clean, as after a refused commit.
+            if e.is_stopped() {
+                let _ = self
+                    .run(scratch, &["reset", "--quiet", "--hard", &onto])
+                    .await;
+            }
+            return Err(e);
+        }
         let message_file = tempfile::NamedTempFile::new().map_err(|e| GitError::Spawn {
             args: "commit -F".into(),
             error: e,
@@ -227,13 +345,15 @@ impl Git {
             error: e,
         })?;
         let message_path = message_file.path().display().to_string();
-        if let Err(e) = self
-            .run(
+        self.step(GitStep::Commit);
+        let (committed, commit_hooks) = self
+            .run_with_hooks(
                 scratch,
                 &["commit", "--quiet", "--allow-empty", "-F", &message_path],
+                &[],
             )
-            .await
-        {
+            .await;
+        if let Err(e) = committed {
             // A hook refused the squash commit: leave the scratch worktree clean; the target never moved.
             let _ = self
                 .run(scratch, &["reset", "--quiet", "--hard", &onto])
@@ -245,10 +365,20 @@ impl Git {
             .await?
             .trim()
             .to_owned();
+        let changed = self
+            .changed_files(scratch, &DiffSpec::between(&squashed, &commit))
+            .await?;
+        let hook_changed = (!changed.is_empty()).then(|| HookChanges {
+            hook: changing_hook(&commit_hooks),
+            files: changed.into_iter().map(|f| f.path).collect(),
+            reviewed: squashed.clone(),
+            landed: commit.clone(),
+        });
 
         // 5. The Merge check on the merged result, before anything moves (d0120).
         let checked = match &m.check {
             Some(check) if brought_in || m.recheck => {
+                self.step(GitStep::MergeCheck);
                 let ran = (check.0)(m.scratch.clone()).await;
                 // Cleaned whatever happened: the seeded build and anything the command wrote go.
                 let at = match &ran {
@@ -268,19 +398,31 @@ impl Git {
             _ => false,
         };
 
-        // 6. Move the target.
+        // 6. Move the target. A Stop that came after the last command (during the Merge check's end) still counts;
+        // once the target moves, nothing can be stopped.
+        if let Err(stopped) = self.step_unstoppable(GitStep::MoveTarget) {
+            let _ = self
+                .run(scratch, &["reset", "--quiet", "--hard", &onto])
+                .await;
+            return Err(stopped);
+        }
+        let mut post_merge = None;
         match &checkout {
             Some(folder) => {
-                if self
-                    .run(folder, &["merge", "--quiet", "--ff-only", &commit])
-                    .await
-                    .is_err()
-                {
+                let (moved, hooks) = self
+                    .run_with_hooks(folder, &["merge", "--quiet", "--ff-only", &commit], &[])
+                    .await;
+                if moved.is_err() {
                     // Something in the folder (an untracked file in the way) stops the fast-forward.
                     return Ok(MergeOutcome::RefusedDirtyCheckout {
                         message: dirty_checkout_message(&m.project_name, &m.target),
                     });
                 }
+                // A failing post-merge doesn't fail git's merge: its own exit code says how it went.
+                post_merge = hooks
+                    .iter()
+                    .find(|run| run.name == "post-merge")
+                    .map(|run| Box::new(PostMergeHook::of(run)));
             }
             None => {
                 self.run(&m.repo, &["update-ref", &target_ref, &commit, &onto])
@@ -293,11 +435,18 @@ impl Git {
             brought_in,
             checked,
             fetch_failed,
+            hook_changed,
+            post_merge,
         })
     }
 
     /// Whether `ancestor` is an ancestor of (or is) `of`.
-    async fn is_ancestor(&self, repo: &Path, ancestor: &str, of: &str) -> Result<bool, GitError> {
+    pub(crate) async fn is_ancestor(
+        &self,
+        repo: &Path,
+        ancestor: &str,
+        of: &str,
+    ) -> Result<bool, GitError> {
         let args = ["merge-base", "--is-ancestor", ancestor, of];
         match self.run_with_code(repo, &args).await? {
             (0, _) => Ok(true),
@@ -310,54 +459,43 @@ impl Git {
         }
     }
 
-    /// Rebases the branch onto `onto`; `Some(files)` on a conflict (everything is as before then).
-    async fn rebase_branch(
+    /// Brings the branch up to date by merging the target into it, never by rebasing; `Some(files)` on a conflict
+    /// (everything is as before then). The merge commit runs the project's hooks; a refusal is the error, with
+    /// nothing merged.
+    async fn update_branch(
         &self,
         m: &MergeRequest,
         onto: &str,
     ) -> Result<Option<Vec<String>>, GitError> {
-        if let Some(worktree) = m.worktree.as_deref().filter(|w| w.is_dir()) {
-            return match self.rebase_with_checkpoint(worktree, onto).await {
-                Ok(RebaseOutcome::Clean) => Ok(None),
-                Ok(
-                    RebaseOutcome::RebaseConflict { files } | RebaseOutcome::UndoConflict { files },
-                ) => Ok(Some(files)),
-                Err(super::checkpoint::RebaseError::Git(e)) => Err(e),
-                // The worktree was checked clean in step 1, so no checkpoint was made.
-                Err(e) => Err(GitError::Failed {
-                    args: "rebase".into(),
-                    code: None,
-                    stderr: e.to_string(),
-                }),
-            };
-        }
-        // No worktree holds the branch: rebase it in the scratch worktree, then let go of it.
-        let scratch = m.scratch.as_path();
-        self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
-            .await?;
-        let rebased = self
-            .run(scratch, &["rebase", "--no-autostash", "--quiet", onto])
-            .await;
-        let conflict = if rebased.is_err() {
-            let files: Vec<String> = self
-                .run(scratch, &["diff", "--name-only", "--diff-filter=U"])
-                .await?
-                .lines()
-                .map(str::to_owned)
-                .collect();
-            let _ = self.run(scratch, &["rebase", "--abort"]).await;
-            if files.is_empty() {
-                self.run(scratch, &["checkout", "--quiet", "--detach"])
-                    .await?;
-                return Err(rebased.expect_err("failed"));
-            }
-            Some(files)
-        } else {
-            None
+        // By the target's name while it still points at `onto`, so the message is git's plain "Merge branch 'main'
+        // into otaq/SHOP-18"; otherwise by the commit.
+        let target_ref = format!("refs/heads/{}", m.target);
+        let rev = match self.resolve(&m.repo, &target_ref).await? {
+            Some(at) if at == onto => m.target.as_str(),
+            _ => onto,
         };
-        self.run(scratch, &["checkout", "--quiet", "--detach"])
-            .await?;
-        Ok(conflict)
+        if let Some(worktree) = m.worktree.as_deref().filter(|w| w.is_dir()) {
+            // The worktree was checked clean in step 1: nothing to keep aside.
+            return self.merge_in(worktree, rev).await;
+        }
+        // No worktree holds the branch: merge in the scratch worktree, then let go of it.
+        let scratch = m.scratch.as_path();
+        self.step(GitStep::UpdateBranch);
+        let merged = async {
+            self.run(scratch, &["checkout", "--quiet", "--force", &m.branch])
+                .await?;
+            self.run(scratch, &["clean", "--quiet", "-fdx"]).await?;
+            self.merge_in(scratch, rev).await
+        }
+        .await;
+        // Let go of the branch whatever happened (a Stop during the checkout's post-checkout hook included), so a
+        // later start can check it out in a worktree again.
+        let detached = self
+            .run(scratch, &["checkout", "--quiet", "--detach"])
+            .await;
+        let merged = merged?;
+        detached?;
+        Ok(merged)
     }
 
     /// Creates the scratch worktree (detached at `at`) or reuses it.
@@ -376,6 +514,7 @@ impl Git {
         if registered && scratch.is_dir() {
             return Ok(());
         }
+        self.step(GitStep::PrepareScratch);
         if let Some(parent) = scratch.parent() {
             crate::data_dir::DataDir::ensure_dir(parent).map_err(|e| GitError::Spawn {
                 args: "worktree add".into(),

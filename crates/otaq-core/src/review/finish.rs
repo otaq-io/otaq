@@ -1,6 +1,6 @@
 //! Done cleanup (REC-05; d0018, d0035, d0026): when a ticket reaches Done (Local merge, Close ticket, later Mark
 //! merged), pure bookkeeping follows without asking, because the user's click finished it: its agent session
-//! ends, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
+//! and a delivery session (the message writer's) end, its **ports return to the pool**, its worktree is **removed when clean** (the branch is kept), and a
 //! worktree with uncommitted changes is **kept** and flagged for the Cleanup view. A clean one's gitignored files
 //! are first kept as the project's warm build (WRM-03, `warm::keep`), unless they were freed at Review already
 //! (M19-c, [`TicketEnv::release`](crate::ticket_env::TicketEnv::release)). Then the ticket's resources are
@@ -67,7 +67,8 @@ impl Review {
     /// tickets merged into it (see the module), even when its own cleanup failed.
     pub async fn finish(&self, ticket: &Ticket) -> Result<Cleanup, BoardError> {
         if ticket.status == Status::Merged {
-            // The first ticket approved into Done closes a new user's first run: the box for new work shows from now.
+            // The first ticket approved into Done closes a new user's first run: the box for new work shows from now. (Approve
+            // & open PR counts too, at its confirm.)
             if let Err(e) = self.inner.board.store().reach_first_approve().await {
                 tracing::warn!(error = %e, "couldn't remember the first approve");
             }
@@ -109,13 +110,17 @@ impl Review {
     async fn cleanup(&self, ticket: &Ticket) -> Result<Cleanup, BoardError> {
         let inner = &self.inner;
         let mut cleanup = Cleanup::default();
-        if let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent) {
-            inner
-                .sessions
-                .stop(&session.id)
-                .await
-                .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
-            cleanup.session_stopped = true;
+        // The agent's session, and a delivery session (the message writer's): nothing keeps running for a finished
+        // ticket, nor holds its worktree while it is removed.
+        for kind in [SessionKind::Agent, SessionKind::Delivery] {
+            if let Some(session) = inner.sessions.running_of(&ticket.id, kind) {
+                inner
+                    .sessions
+                    .stop(&session.id)
+                    .await
+                    .map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?;
+                cleanup.session_stopped = true;
+            }
         }
         let finished = FinishedTicket {
             id: ticket.id.clone(),

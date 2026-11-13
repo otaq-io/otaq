@@ -39,7 +39,9 @@
 //!
 //! Data that the service doesn't fill yet comes in through [`CardExtras`]; fixtures fill it.
 
-use otaq_core::agents::facts::{BoardAgents, CardAgents, CardHold, CardStart, RunsOnTool};
+use otaq_core::agents::facts::{
+    BoardAgents, CardAgents, CardHold, CardStart, OwnAgent, RunsOnTool,
+};
 use otaq_core::agents::{HoldReason, SessionRole as Role};
 use otaq_core::board::human_check::Arrival;
 use otaq_core::board::needs_you::change_agent;
@@ -47,7 +49,7 @@ use otaq_core::board::tickets::{Base, Ticket};
 use otaq_core::domain::{Actor, HandOffKind, MergeCheckState, Priority, Status, TicketKey};
 use otaq_core::flow::model::Delivers;
 use otaq_core::signals::background::{minutes, wakeup_text};
-use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale, tool_error};
+use otaq_core::signals::{HELPER_PROMPT_PREFIX, is_stale, prompt_line, tool_error};
 
 use serde::{Deserialize, Serialize};
 use ts_rs::TS;
@@ -69,6 +71,13 @@ pub const PARENT_CLOSED: &str = "Parent closed";
 pub const VALIDATOR_ASKS: &str = "Checker asks";
 /// The full label of an Idle that a failed turn left (F10): the tool stopped on an error of its own.
 pub const IDLE_ON_ERROR: &str = "Idle \u{b7} stopped on an error";
+/// The delivery's click on a PR: what happens, in the button's words.
+pub const APPROVE_AND_OPEN_PR: &str = "Approve & open PR";
+
+/// The delivery's click on a local merge: "Approve & merge into main".
+pub fn approve_and_merge_into(base: &str) -> String {
+    format!("Approve & merge into {base}")
+}
 
 /// Facts about a ticket that aren't on [`Ticket`] yet or come from elsewhere on the board.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
@@ -102,7 +111,7 @@ pub struct CardExtras {
     pub diff: Option<(u32, u32, u32)>,
     /// The PR provider's name ("GitHub").
     pub pr_provider: Option<String>,
-    /// The user's terminal has focus on this ticket and the agent ended its turn: calm "your turn".
+    /// The user's terminal has focus on this ticket and the agent waits: its alerts are held back ("in terminal · no alert").
     pub your_turn: bool,
     /// The branch name shown on a parked ticket.
     pub branch: Option<String>,
@@ -129,8 +138,8 @@ pub struct CardExtras {
     /// renames and new features (PR comments, conflicts) show on every flow.
     pub custom_flow: bool,
     /// It stands in an agent check its flow marks skippable (`options: [skip]`,
-    /// [`otaq_core::flow::engine::user_may_move_past`]): only there are Skip this check (held for the plan limit)
-    /// and Move on anyway (after the last failed round) offered.
+    /// [`otaq_core::flow::engine::user_may_move_past`]): only there is Skip this check (held for the plan limit)
+    /// offered. Move on anyway after the last failed round shows on every check.
     pub skippable_check: bool,
     /// Its project is paused (PAU-03, d0112): a ticket the pause stopped reads "Paused" in amber with what it was
     /// doing, its timer held; one that needs the user keeps its question.
@@ -175,10 +184,10 @@ pub struct AgentFacts {
     pub starts: Option<CardStart>,
     /// The agent whose model the tool refused (Open agent…).
     pub refused_agent: Option<String>,
-    /// The agent of the stage the ticket is in or waits before, and that stage's own agent when the ticket chose
-    /// `stage_agent` instead.
+    /// The agent of the stage the ticket is in or waits before.
     pub stage_agent: Option<String>,
-    pub instead_of: Option<String>,
+    /// The agent the ticket chose for a stage instead of the stage's own, from the moment it is set (Backlog on).
+    pub own_agent: Option<OwnAgent>,
     /// The stages the user chose to skip for the ticket, by name.
     pub skips: Vec<String>,
 }
@@ -196,7 +205,7 @@ impl AgentFacts {
             starts: card.starts.clone(),
             refused_agent: card.refused_agent.clone(),
             stage_agent: card.stage_agent.clone(),
-            instead_of: card.instead_of.clone(),
+            own_agent: card.own_agent.clone(),
             skips: card.skips.clone(),
         }
     }
@@ -233,20 +242,35 @@ impl CardExtras {
     /// a needs-you ticket (and whether a helper agent asks), or what a ticket works on in the background with how
     /// long it has run ("test run, 1 helper agent · 6 min"), or when it wakes up ("wakes up at 4:10pm").
     pub fn with_signal(mut self, ticket: &Ticket, now_ms: i64) -> Self {
+        // A session's prompt shown without changing the ticket's status: the prompt, as any Needs you's; a question
+        // in a check of the user's, the question, as any Asks you's. Not a finished card's answer session's: that card
+        // only says it answers.
+        let waiting = ticket.waiting_in_place();
+        let ticket = waiting.as_ref().unwrap_or(ticket);
         let Some(signal) = &ticket.signal else {
             return self;
         };
-        if ticket.status.is_needs_you_family() {
+        if ticket.status.is_needs_you_family() || ticket.stopped_in_place().is_some() {
+            // A permission prompt shows its first line: a command that writes a whole file would fill the card (the
+            // ticket's Overview and its terminal have it whole).
+            let prompt = matches!(ticket.status, Status::NeedsYou | Status::CheckerNeedsYou);
+            let shown = |text: &str| {
+                if prompt {
+                    prompt_line(text)
+                } else {
+                    text.to_owned()
+                }
+            };
             match signal
                 .text
                 .as_deref()
                 .and_then(|t| t.strip_prefix(HELPER_PROMPT_PREFIX))
             {
-                Some(prompt) => {
+                Some(text) => {
                     self.helper_agent = true;
-                    self.question = Some(prompt.to_owned());
+                    self.question = Some(shown(text));
                 }
-                None => self.question = signal.text.clone(),
+                None => self.question = signal.text.as_deref().map(shown),
             }
         } else if ticket.status == Status::WorkingInBackground {
             match (&signal.text, signal.wakeup_at) {
@@ -379,6 +403,9 @@ pub enum CardActionKind {
     LocalMerge,
     /// …or the Open PR dialog.
     OpenPr,
+    /// An automatic PR delivery that found no PR provider for the remote: app Settings → Git & pull requests, where
+    /// providers are set up.
+    SetUpProvider,
     /// A PR open (FLW-16): the "Send SHOP-26 back with PR comments?" dialog.
     SendBackPr,
     /// An agent check's last round failed (FLW-13): on to the next stage; its Delivery as the flow says.
@@ -390,6 +417,9 @@ pub enum CardActionKind {
     SkipCheck,
     /// "Merging · running the merge check" (d0120, Q475): Stop ends the check and nothing is merged.
     StopMergeCheck,
+    /// "Merging · running your pre-commit hook · 2 min", "Starting · making its worktree": Stop ends the git step and
+    /// its hook; the merge or start leaves things as a refusal does. Never on the target's move, once merged.
+    StopGitStep,
 }
 
 impl CardActionKind {
@@ -410,7 +440,8 @@ impl CardActionKind {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 pub struct CardAction {
     pub kind: CardActionKind,
-    pub label: &'static str,
+    #[ts(type = "string")]
+    pub label: std::borrow::Cow<'static, str>,
     pub icon: Option<IconName>,
     pub primary: bool,
 }
@@ -807,6 +838,19 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
             Tone::Muted,
         ));
     }
+    // Approve & merge or a start running its git steps: the step git is really on, and the hook that runs and for how
+    // long, whether the Merging dialog is open or not.
+    if let Some(git) = &flags.git {
+        let line = crate::view_models::git_progress::card_line(git, now_ms);
+        return Some(match git.operation {
+            otaq_core::domain::GitOperation::Merge => Part::flag(
+                flag(R::Busy, MERGING, &line, Legend::Validating).colored(Palette::Working),
+                Some(line),
+                Tone::Muted,
+            ),
+            otaq_core::domain::GitOperation::Start => Part::quiet(line, Tone::Muted),
+        });
+    }
     Some(match status {
         Status::NeedsYou => {
             let text = x
@@ -1041,6 +1085,19 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 Some(AutoMergeStop::DeliveryFailed) => {
                     ("Not delivered".to_owned(), "Couldn\u{2019}t deliver")
                 }
+                // The delivery agent reported a push the remote doesn't have: "Needs you: the branch isn't on the
+                // remote as expected · the remote has no branch `…`".
+                Some(AutoMergeStop::PushNotLanded) => {
+                    ("Needs you".to_owned(), "Branch not on the remote")
+                }
+                // A project's git hook refused Approve & merge, or a PR's commit message: "Needs you", its text
+                // "commit-msg hook refused the merge" (the stop's own).
+                Some(AutoMergeStop::HookRefused) if refused_pr_message(ticket) => {
+                    ("Needs you".to_owned(), "Hook refused the PR")
+                }
+                Some(AutoMergeStop::HookRefused) => {
+                    ("Needs you".to_owned(), "Hook refused the merge")
+                }
                 _ => (format!("Conflicts \u{d7}{n}"), "Keeps conflicting"),
             };
             Part::flag(
@@ -1107,7 +1164,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         Status::Working | Status::MergeConflictFixing if let Some(kind) = flags.hand_off => {
             Part::quiet(hand_off_line(kind), Tone::Muted)
         }
-        // The Merge check failed on the rebased result (d0120): back with the agent, as after a conflict.
+        // The Merge check failed on the result with the target merged in (d0120): back with the agent, as after a conflict.
         Status::MergeConflictFixing if flags.merge_check == Some(MergeCheckState::Failed) => {
             let f = flag(
                 R::Busy,
@@ -1129,7 +1186,7 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
                 },
             )
         }
-        // The agent of the nearest earlier Agent stage rebases with restack, no click (FLW-17; amber, `s03-46`). A
+        // The agent of the nearest earlier Agent stage merges the target in with restack, no click (FLW-17; amber, `s03-46`). A
         // conflict the test merge found in Review says which branch: "Conflicts with main · fixing" (d0127).
         Status::MergeConflictFixing => {
             let fixing = match flags.conflicts_with.as_deref() {
@@ -1232,12 +1289,12 @@ fn status_part(ticket: &Ticket, status: Status, x: &CardExtras, now_ms: i64) -> 
         // Finished without a merge (the Approve menu, or `otaq stage done`); it counts as merged: "Done · nothing to
         // merge".
         Status::Merged if flags.done_without_merge => {
-            let (status, line) = match &flags.nothing_to_merge {
-                Some(reason) => (DONE_NOTHING_TO_MERGE, nothing_to_merge_line(reason)),
-                None => (DONE_NOT_MERGED, "finished without merging".to_owned()),
+            let line = match &flags.nothing_to_merge {
+                Some(reason) => nothing_to_merge_line(reason),
+                None => "finished without merging".to_owned(),
             };
             Part::flag(
-                flag(R::Outcome, "Done", status, Legend::Merged),
+                flag(R::Outcome, "Done", ticket.status_words(), Legend::Merged),
                 Some(line),
                 Tone::Muted,
             )
@@ -1343,7 +1400,7 @@ fn start_action(ticket: &Ticket) -> Option<CardAction> {
     (ticket.place.is_backlog() && matches!(ticket.status, Status::Backlog | Status::Parked))
         .then_some(CardAction {
             kind: CardActionKind::Start,
-            label: START,
+            label: START.into(),
             icon: Some(IconName::Play),
             primary: false,
         })
@@ -1504,6 +1561,11 @@ fn your_check_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     })
 }
 
+/// An automatic PR delivery's card when no PR provider matches the remote: what is wrong and what to do.
+pub const NO_PR_PROVIDER: &str = "Can\u{2019}t open the PR: no PR provider for this repository. Set one up, or use your own Open PR skill";
+/// Its button: app Settings → Git & pull requests.
+pub const SET_UP_PROVIDER: &str = "Set up\u{2026}";
+
 /// A To deliver card (FLW-15, `s03-46`, `s03-54`): "Ready to merge" or "Ready for PR", with the checks it was moved
 /// past ("Failed Security 3 times · moved by you · open the PR when ready") or how it got here ("Passed Review"). An
 /// automatic Delivery under way says its agent opens the PR.
@@ -1512,6 +1574,14 @@ fn delivery_part(ticket: &Ticket, x: &CardExtras) -> Option<Part> {
     let pr = x.delivers == Some(Delivers::Pr);
     let label = if pr { READY_FOR_PR } else { READY_TO_MERGE };
     let flag = HeadFlag::new(Rank::Outcome, label, label, Legend::ReadyForReview);
+    // Delivery problems say what to do: no PR provider matches the remote, so the PR can't open by itself.
+    if pr && flags.pr_provider_not_detected {
+        return Some(Part::flag(
+            flag,
+            Some(NO_PR_PROVIDER.to_owned()),
+            Tone::Attention,
+        ));
+    }
     if flags.delivering_automatically {
         let text = match &x.delivery_agent {
             Some(agent) => format!("{agent} is opening the PR"),
@@ -1576,12 +1646,20 @@ fn keeps_conflicting(ticket: &Ticket, x: &CardExtras) -> String {
 
 impl CardViewModel {
     pub fn from(ticket: &Ticket, extras: &CardExtras, now_ms: i64) -> Self {
+        // A session's prompt shown without changing the ticket's status reads as any Needs you card: the turquoise
+        // edge, the prompt's command and Open. Only the card reads so; the ticket and its actions are as they are. A
+        // finished card answering another ticket's question stays a finished card ([`card_line::words`]). An agent's
+        // question in a check of the user's reads as any Asks you card the same way: its question, options and Send
+        // answer.
+        let waiting = ticket.waiting_in_place();
+        let ticket = waiting.as_ref().unwrap_or(ticket);
         Self::build(ticket, extras, now_ms, extras.several_tools)
     }
 
     /// [`Self::from`] with avatars shown or hidden on purpose.
     fn build(ticket: &Ticket, x: &CardExtras, now_ms: i64, avatars: bool) -> Self {
-        // The user is in its terminal: the card stays calm, "your turn · in terminal" (ATT-03, d0042).
+        // The user in its terminal changes no state: a waiting agent reads Needs you as the sheet's pill does, with a
+        // quiet "in terminal · no alert" for why none came (ATT-03, d0042).
         let status = status::shown(ticket);
         let flags = &ticket.flags;
         let paused = paused_stop(ticket, status, x);
@@ -1665,7 +1743,7 @@ impl CardViewModel {
             ));
         }
         if ticket.flags.your_turn {
-            parts.push(Part::quiet("your turn \u{b7} in terminal", Tone::Accent));
+            parts.push(Part::quiet("in terminal \u{b7} no alert", Tone::Accent));
         }
         parts.extend(marker(ticket));
         if flags.messages_waiting > 0 {
@@ -1684,11 +1762,11 @@ impl CardViewModel {
             .then_some(ticket.question.as_ref())
             .flatten()
             .and_then(crate::view_models::answer_options::AnswerOptions::of);
-        let (action, second) = if options.as_ref().is_some_and(|o| o.pick.is_some()) {
+        let (action, second) = if options.as_ref().is_some_and(|o| o.has_pick()) {
             (
                 Some(CardAction {
                     kind: CardActionKind::SendAnswer,
-                    label: "Send answer",
+                    label: "Send answer".into(),
                     icon: Some(IconName::CornerDownLeft),
                     primary: true,
                 }),
@@ -1775,6 +1853,10 @@ impl CardViewModel {
             .then(|| card_line::words(ticket, shown, x, paused))
             .flatten();
         if let Some(words) = words {
+            one.line = Some(words.line);
+            one.edge = words.edge;
+        }
+        if let Some(words) = card_line::git_words(ticket, now_ms) {
             one.line = Some(words.line);
             one.edge = words.edge;
         }
@@ -1945,7 +2027,7 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
     if ticket.status == Status::CheckFailed {
         return Some(CardAction {
             kind: CardActionKind::Decide,
-            label: DECIDE,
+            label: DECIDE.into(),
             icon: None,
             primary: true,
         });
@@ -1954,19 +2036,19 @@ fn one_action(ticket: &Ticket, footer: Option<&Footer>, edge: bool) -> Option<Ca
     match action.kind {
         CardActionKind::Pass => Some(CardAction {
             kind: CardActionKind::Review,
-            label: "Review",
+            label: "Review".into(),
             icon: Some(IconName::Eye),
             primary: true,
         }),
         // The answer options are the sheet's: Reply opens it.
         CardActionKind::SendAnswer => Some(CardAction {
             kind: CardActionKind::Open,
-            label: "Reply",
+            label: "Reply".into(),
             icon: None,
             primary: true,
         }),
         // Stop is quiet, but it is all the card offers while the Merge check runs (d0120).
-        CardActionKind::StopMergeCheck => Some(action),
+        CardActionKind::StopMergeCheck | CardActionKind::StopGitStep => Some(action),
         _ if edge || action.primary => Some(action),
         _ => None,
     }
@@ -2165,7 +2247,7 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
             Some(cant_run(format!("{tool} isn\u{2019}t available"))),
             Tone::Error,
         ),
-        // "Can't start · Codex doesn't have the skill `/team-validate`" (the sentence also under the line).
+        // "Can't start · Codex doesn't have the skill `$team-validate`" (the sentence also under the line).
         HoldReason::MissingSkill => {
             let why = match &h.skill {
                 Some(skill) => otaq_core::flow::proposal::missing_skill_text(h.tool, skill),
@@ -2219,11 +2301,9 @@ fn hold_part(h: &CardHold, x: &CardExtras, now_ms: i64) -> Part {
     }
 }
 
-/// A ticket finished without a merge ([`otaq_core::domain::Outcome::DoneWithoutMerge`]) whose branch had nothing
-/// beyond its base: the card's status and History's line.
-pub const DONE_NOTHING_TO_MERGE: &str = "Done \u{b7} nothing to merge";
-/// A ticket finished without a merge whose branch had commits: they didn't land, the branch keeps them.
-pub const DONE_NOT_MERGED: &str = "Done \u{b7} not merged";
+/// How a ticket finished without a merge reads: the card's status, History's line, the sheet and `otaq list` share
+/// them (`Ticket::status_words`).
+pub use otaq_core::domain::outcome::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 
 /// "Nothing to merge · already fixed in SHOP-31": the agent's reason as the line goes on (its first line, without
 /// the closing full stop, starting lower case).
@@ -2374,6 +2454,25 @@ fn fact_parts(ticket: &Ticket, x: &CardExtras) -> Vec<Part> {
         );
     }
     parts
+}
+
+/// The hook refusal of Approve & merge the ticket shows now: a project's git hook refused a step of the merge and the
+/// ticket's Delivery is still stopped for it (a refused start keeps its hook on its Start interrupted problem). The
+/// card's Needs you line and the sheet's callout read it from here.
+pub fn hook_refusal(ticket: &Ticket) -> Option<&otaq_core::git::RefusedHook> {
+    let stopped = ticket.stopped_in_place() == Some(otaq_core::domain::AutoMergeStop::HookRefused);
+    ticket.flags.hook_refusal.as_ref().filter(|_| stopped)
+}
+
+/// "Needs you · commit-msg hook refused the merge": the card's line while a hook's refusal waits for the user.
+pub fn hook_refusal_line(ticket: &Ticket) -> Option<String> {
+    hook_refusal(ticket).map(|r| format!("Needs you \u{b7} {}", r.line()))
+}
+
+/// The hook refused one of the PR's commit messages (Approve & open PR), not a step of the merge: the way on is the PR
+/// dialog again, on the user's kept edits.
+pub fn refused_pr_message(ticket: &Ticket) -> bool {
+    hook_refusal(ticket).is_some_and(|r| r.step == Some(otaq_core::git::GitStep::Reword))
 }
 
 /// "Couldn't update main from origin · started from your local main" (or "· merged into your local main"): the fetch
@@ -2656,15 +2755,15 @@ pub const MOVE_ON_ANYWAY: &str = "Move on anyway";
 /// The second button: on a held session Open agent… after Change agent…, Change agent… after Skip this check
 /// (`s03-54`); Fail after Pass, Mark merged after Send back with PR comments (`s03-46`).
 fn second_action(status: Status, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
-    let quiet = |kind, label| {
+    let quiet = |kind, label: &'static str| {
         Some(CardAction {
             kind,
-            label,
+            label: label.into(),
             icon: None,
             primary: false,
         })
     };
-    if ticket.flags.merge_check == Some(MergeCheckState::Running) {
+    if ticket.flags.merge_check == Some(MergeCheckState::Running) || ticket.flags.git.is_some() {
         return None;
     }
     if let Some(hold) = held(ticket, status, x) {
@@ -2704,10 +2803,10 @@ pub fn open_agent(ticket: &Ticket, x: &CardExtras) -> Option<String> {
 /// start…; the others stay in the sheet.
 fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option<CardAction> {
     let has_pr = ticket.flags.pr_number.is_some();
-    let a = |kind, label, icon, primary| {
+    let a = |kind, label: &'static str, icon, primary| {
         Some(CardAction {
             kind,
-            label,
+            label: label.into(),
             icon,
             primary,
         })
@@ -2718,6 +2817,19 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
     if ticket.flags.merge_check == Some(MergeCheckState::Running) {
         return a(
             CardActionKind::StopMergeCheck,
+            STOP,
+            Some(IconName::Square),
+            false,
+        );
+    }
+    // While a merge or a start runs its git steps nothing on the card starts another: Stop is all there is, with no
+    // time limit (a hook runs until it ends or the user stops it); none once the target moves, the merge landed.
+    if let Some(git) = &ticket.flags.git {
+        if !git.step.is_none_or(otaq_core::git::GitStep::stoppable) {
+            return None;
+        }
+        return a(
+            CardActionKind::StopGitStep,
             STOP,
             Some(IconName::Square),
             false,
@@ -2753,9 +2865,8 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         Status::NeedsYou | Status::CheckerNeedsYou => open("Answer"),
         Status::AsksYou | Status::Idle => open("Reply"),
         Status::ParentClosed | Status::DeliveryStopped => open("Open"),
-        // Not on a check the flow doesn't mark skippable: another round and Answer the agent are in the sheet.
-        Status::CheckFailed if !x.custom_flow || !x.skippable_check => open("Open"),
-        // Only Move on anyway (FLW-13, `s03-44`); another round and Answer the agent stay in the sheet.
+        Status::CheckFailed if !x.custom_flow => open("Open"),
+        // Only Move on anyway (FLW-13, `s03-44`), on every check; another round and Answer the agent stay in the sheet.
         Status::CheckFailed => a(CardActionKind::MoveOnAnyway, MOVE_ON_ANYWAY, None, false),
         Status::Interrupted => a(CardActionKind::Resume, "Resume", Some(IconName::Play), true),
         // *16 → Resume failed*: Start from scratch, the frame's primary; Retry stays in the sheet.
@@ -2785,10 +2896,21 @@ fn action(status: Status, kept: bool, ticket: &Ticket, x: &CardExtras) -> Option
         // To deliver (FLW-15): the click the delivery waits for, on any flow (a ticket waits To deliver in its last
         // stage, Review on the default flow); nothing while an automatic one runs.
         Status::ToDeliver if ticket.flags.delivering_automatically => None,
-        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
-            a(CardActionKind::OpenPr, "Open PR", None, true)
+        Status::ToDeliver
+            if x.delivers == Some(Delivers::Pr) && ticket.flags.pr_provider_not_detected =>
+        {
+            a(CardActionKind::SetUpProvider, SET_UP_PROVIDER, None, true)
         }
-        Status::ToDeliver => a(CardActionKind::LocalMerge, "Local merge", None, true),
+        // The button says what happens, as Review's Approve does: "Approve & open PR", "Approve & merge into main".
+        Status::ToDeliver if x.delivers == Some(Delivers::Pr) => {
+            a(CardActionKind::OpenPr, APPROVE_AND_OPEN_PR, None, true)
+        }
+        Status::ToDeliver => Some(CardAction {
+            kind: CardActionKind::LocalMerge,
+            label: approve_and_merge_into(ticket.base.branch()).into(),
+            icon: None,
+            primary: true,
+        }),
         // Send back with PR comments, then Mark merged (FLW-16); Mark closed stays in the sheet and the card's menu.
         Status::PrOpen if has_pr => a(
             CardActionKind::SendBackPr,
@@ -3328,25 +3450,25 @@ mod tests {
                 "Ready to merge \u{b7} passed Review",
                 Some("Ready to merge"),
                 Some("Passed Review"),
-                Some("[Local merge]"),
+                Some("[Approve & merge into main]"),
             ),
             (
                 "Ready to merge \u{b7} moved past Validate",
                 Some("Ready to merge"),
                 Some("Failed Validate 3 times \u{b7} moved by you \u{b7} merge when ready"),
-                Some("[Local merge]"),
+                Some("[Approve & merge into main]"),
             ),
             (
                 "Ready for PR \u{b7} moved past Security",
                 Some("Ready for PR"),
                 Some("Failed Security 3 times \u{b7} moved by you \u{b7} open the PR when ready"),
-                Some("[Open PR]"),
+                Some("[Approve & open PR]"),
             ),
             (
                 "Ready for PR \u{b7} skipped Security",
                 Some("Ready for PR"),
                 Some("Skipped Security \u{b7} by you \u{b7} open the PR when ready"),
-                Some("[Open PR]"),
+                Some("[Approve & open PR]"),
             ),
             (
                 "Ready for PR \u{b7} delivering automatically",
@@ -3398,17 +3520,16 @@ mod tests {
         }
     }
 
-    /// Skip this check and Move on anyway only on a check the flow marks skippable: the same cards on a check that
-    /// isn't offer Change agent… and Open agent… (the held one waits for its tool) and Open (another round and Answer the agent are in
-    /// the sheet).
+    /// Skip this check only on a check the flow marks skippable: the held card on a check that isn't offers Change
+    /// agent… and Open agent… (it waits for its tool). A check out of rounds offers Move on anyway either way.
     #[test]
-    fn no_skip_or_move_on_on_a_check_not_marked_skippable() {
+    fn no_skip_on_a_check_not_marked_skippable() {
         for (name, footer) in [
             (
                 "Plan limit \u{b7} Skip this check",
                 "Security reviewer [Change agent\u{2026}] [Open agent\u{2026}]",
             ),
-            ("Security failed \u{d7}3", "[Open]"),
+            ("Security failed \u{d7}3", "[Move on anyway]"),
         ] {
             let mut v = card_fixtures::flow_variants()
                 .into_iter()
@@ -4284,10 +4405,10 @@ mod tests {
                 "GitHub",
             ),
             (
-                "your turn",
+                "in terminal",
                 Status::Idle,
                 |t, _| t.flags.your_turn = true,
-                "your turn · in terminal",
+                "in terminal · no alert",
             ),
             (
                 "parked branch",
@@ -4333,6 +4454,58 @@ mod tests {
 
     fn from_signal(t: &Ticket, now: i64) -> CardViewModel {
         CardViewModel::from(t, &main_project().with_signal(t, now), now)
+    }
+
+    /// A session that ended on its tool's error: the status line names why, in red with the red edge (it broke and
+    /// waits), and the card opens the sheet rather than offering an answer; a plain Idle stays turquoise.
+    #[test]
+    fn a_tool_error_says_why_the_agent_stopped() {
+        let text = otaq_core::signals::tool_error_text(
+            "authentication_failed",
+            Some("Login expired \u{b7} Please run /login"),
+        );
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some(&text), 0), NOW);
+        let line = vm.one_line.line.as_ref().unwrap();
+        assert_eq!(line.text, "Stopped \u{b7} login expired");
+        assert_eq!(line.tone, Tone::Error);
+        assert_eq!(line.dot, Palette::Error);
+        assert_eq!(vm.one_line.edge, Some(Tone::Error));
+        assert_eq!(vm.one_line.action.as_ref().unwrap().label, "Open");
+
+        let text = otaq_core::signals::tool_error_text("server_error", Some("API Error: 500"));
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some(&text), 0), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().unwrap().text,
+            "Stopped \u{b7} API Error: 500"
+        );
+
+        let vm = from_signal(&live("SHOP-1", Status::Idle, Some("All done."), 0), NOW);
+        assert_eq!(vm.one_line.line.as_ref().unwrap().text, "Idle");
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.one_line.action.as_ref().unwrap().label, "Answer");
+    }
+
+    /// A permission prompt for a command that writes a whole file (`@' … '@ | Set-Content`) shows the command's
+    /// first line on the card, cut with "…", for the agent and for the checker.
+    #[test]
+    fn a_long_commands_prompt_shows_its_first_line() {
+        let body = "Update the docs for the ticket. ".repeat(60);
+        let command = format!(
+            "Run command: @'\n---\nname: update-docs\n---\n\n{body}\n'@ | Set-Content -LiteralPath SKILL.md"
+        );
+        for status in [Status::NeedsYou, Status::CheckerNeedsYou] {
+            let vm = from_signal(&live("SHOP-1", status, Some(&command), 0), NOW);
+            let line = &vm.one_line.line.as_ref().unwrap().text;
+            assert!(
+                !line.contains('\n') && !line.contains("update-docs"),
+                "{line}"
+            );
+            assert!(line.ends_with("@' \u{2026}"), "{line}");
+        }
+        let helper = format!("{HELPER_PROMPT_PREFIX}{command}");
+        let x =
+            main_project().with_signal(&live("SHOP-1", Status::NeedsYou, Some(&helper), 0), NOW);
+        assert_eq!(x.question.as_deref(), Some("Run command: @' \u{2026}"));
     }
 
     /// T-0075: the live signal states map to the card.
@@ -4460,7 +4633,8 @@ mod tests {
             id: "q".into(),
             text: "Which email provider should the order confirmation use?".into(),
             options: vec!["Postmark".into(), "SES".into(), "Resend".into()],
-            recommended: Some(1),
+            recommended: vec![1],
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -4471,22 +4645,154 @@ mod tests {
         assert!(rows[0].recommended && rows[0].picked);
         assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
         // Without a recommendation: Reply, which opens the sheet.
-        t.question.as_mut().unwrap().recommended = None;
+        t.question.as_mut().unwrap().recommended.clear();
         assert_eq!(foot(&card(&t)).as_deref(), Some("[Reply]"));
         t.question.as_mut().unwrap().options.clear();
         assert!(card(&t).options.is_none());
     }
 
+    /// Re-test 5: with the agent's terminal focused, a Codex prompt left the card "Working" while the sheet's pill read
+    /// "Needs you". Being in the terminal holds back only the alert: the card reads the real state, as the pill does.
     #[test]
-    fn a_focused_waiting_ticket_stays_calm() {
-        let mut t = ticket("SHOP-19", "Price table", Status::Idle);
-        t.flags.your_turn = true;
-        let vm = card(&t);
-        assert_eq!(flag_of(&vm), Some("Working"));
-        assert_eq!(vm.outline, Outline::Normal);
-        assert_eq!(line(&vm), Some("your turn · in terminal"));
-        t.flags.your_turn = false;
-        assert_eq!(card(&t).outline, Outline::Attention);
+    fn a_focused_waiting_ticket_reads_its_real_state() {
+        for status in [Status::NeedsYou, Status::AsksYou, Status::Idle] {
+            let mut t = ticket("SHOP-19", "Price table", status);
+            t.flags.your_turn = true;
+            let vm = card(&t);
+            let pill = status::PillView::of(t.status).label;
+            assert_eq!(flag_of(&vm), Some(pill.as_str()), "{status:?}");
+            assert_eq!(vm.outline, Outline::Attention, "{status:?}");
+            assert_eq!(vm.one_line.edge, Some(Tone::Attention), "{status:?}");
+            let text = line(&vm).unwrap_or_default();
+            assert!(
+                text.ends_with("in terminal · no alert"),
+                "{status:?}: {text}"
+            );
+            t.flags.your_turn = false;
+            let unfocused = card(&t);
+            assert_eq!(flag_of(&unfocused), Some(pill.as_str()), "{status:?}");
+            assert_eq!(unfocused.outline, Outline::Attention, "{status:?}");
+        }
+    }
+
+    /// Re-test 6: Push to PR's skill stopped at a Codex prompt while the card still read "Ready for you". A session's
+    /// prompt shown without changing the ticket's status reads Needs you naming the command, with the turquoise edge;
+    /// answered, the card is the Review card it was.
+    #[test]
+    fn a_skill_turns_prompt_in_review_reads_needs_you() {
+        let mut t = ticket("SHOP-35", "Push the fix", Status::WaitingForYou);
+        t.flags.pr_number = Some(2);
+        let calm = card(&t);
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: NOW - 60_000,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        let text = vm
+            .one_line
+            .line
+            .as_ref()
+            .map(|l| l.text.clone())
+            .unwrap_or_default();
+        assert!(text.contains("git push origin main"), "{text}");
+        assert_eq!(t.status, Status::WaitingForYou, "only the card reads so");
+        assert_eq!(status::shown(&t), Status::NeedsYou);
+        t.flags.session_prompt = None;
+        assert_eq!(card(&t), calm);
+    }
+
+    /// Re-test 8 (NEW-b2): an agent's question on a ticket waiting in Review was stored and shown nowhere. It reads
+    /// Asks you on the card, with the question, its options and Send answer, and the turquoise edge; the pill reads
+    /// Asks you; a prompt in place shows on top of it. Answered, the card is the Review card it was.
+    #[test]
+    fn a_question_in_review_reads_asks_you() {
+        let mut t = ticket("SHOP-13", "Hooks", Status::WaitingForYou);
+        let calm = card(&t);
+        t.question = Some(otaq_core::board::questions::HumanQuestion {
+            id: "q".into(),
+            text: "Should this show?".into(),
+            options: vec!["Yes".into(), "No".into()],
+            recommended: vec![1],
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: NOW - 60_000,
+            send_back: None,
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(flag_of(&vm), Some("Asks you"));
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.options.as_ref().map(|o| o.rows().len()), Some(3));
+        assert_eq!(foot(&vm).as_deref(), Some("[Send answer]"));
+        assert_eq!(t.status, Status::WaitingForYou, "only the card reads so");
+        assert_eq!(status::shown(&t), Status::AsksYou);
+        assert_eq!(status::PillView::of_ticket(&t).label, "Asks you");
+        // A custom flow's "Your check" doesn't hide it.
+        assert_eq!(
+            crate::view_models::validation_texts::pill_label(&t, true),
+            None
+        );
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: NOW,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        assert_eq!(status::shown(&t), Status::NeedsYou, "a prompt on top");
+        t.flags.session_prompt = None;
+        t.question = None;
+        assert_eq!(card(&t), calm);
+    }
+
+    /// Re-test 6 (NEW-4): SHOP-35, merged and answering SHOP-36's question, read "Merged into main" while its answer
+    /// session waited at a Codex prompt. Its line reads "answering SHOP-36" while the session runs and "Needs you ·
+    /// answering SHOP-36" with the Needs you edge at a prompt; the card stays a finished card (its status, its pill,
+    /// its finished time, no float) and reads as before once the prompt is answered.
+    #[test]
+    fn a_finished_cards_answer_session_reads_answering() {
+        let mut t = ticket("SHOP-35", "Retest6 restack", Status::Merged);
+        t.status_since = Some(NOW - 60_000);
+        let merged = card(&t);
+        let asking: TicketKey = "SHOP-36".parse().unwrap();
+        t.flags.answering = Some(asking.clone());
+        let line_of = |vm: &CardViewModel| vm.one_line.line.as_ref().map(|l| l.text.clone());
+        let running = card(&t);
+        assert_eq!(line_of(&running).as_deref(), Some("answering SHOP-36"));
+        assert_eq!(running.one_line.edge, None);
+        assert_eq!(
+            running.one_line.time, merged.one_line.time,
+            "its finished time"
+        );
+        let answered_card = running.clone();
+
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "answer".into(),
+            prompt: "Run command: git show --stat HEAD".into(),
+            since: NOW - 5_000,
+            turn: otaq_core::domain::PromptTurn::Answering { asking },
+        });
+        let vm = CardViewModel::from(&t, &main_project().with_signal(&t, NOW), NOW);
+        assert_eq!(
+            line_of(&vm).as_deref(),
+            Some("Needs you \u{b7} answering SHOP-36")
+        );
+        assert_eq!(vm.one_line.edge, Some(Tone::Attention));
+        assert_eq!(vm.one_line.time, merged.one_line.time, "never reads live");
+        assert_eq!(vm.one_line.who, None);
+        assert_eq!(status::shown(&t), Status::Merged, "the pill keeps Merged");
+        assert!(!t.needs_user() && !t.shows_needs_you(), "it doesn't float");
+        assert_eq!(t.prompt_in_place(), None);
+        assert!(t.as_needs_you().is_some(), "its Needs you item reads it");
+
+        t.flags.session_prompt = None;
+        assert_eq!(card(&t), answered_card);
+        t.flags.answering = None;
+        assert_eq!(card(&t), merged);
     }
 
     /// An interrupted question keeps its flag and is answered, not resumed, from the card (d0045).
@@ -4738,6 +5044,109 @@ mod tests {
         assert_eq!(vm.outline, Outline::Attention);
     }
 
+    /// A project's git hook refused Approve & merge (the click or the automatic delivery): the ticket stays in Review
+    /// with Needs you, naming the hook and the step; the sheet offers Edit message and retry, and Send back and Run
+    /// as in Review.
+    #[test]
+    fn a_hook_that_refused_the_merge() {
+        use crate::view_models::sheet_actions::{Action as A, Look, all_buttons};
+        use otaq_core::domain::AutoMergeStop;
+        let mut t = ticket("HOOK-1", "Add subtract", Status::WaitingForYou);
+        t.auto_merge_stop = Some(AutoMergeStop::HookRefused);
+        let refused = otaq_core::git::RefusedHook {
+            name: "pre-commit".into(),
+            step: Some(otaq_core::git::GitStep::Commit),
+            what: "the merge".into(),
+            output: "lint failed".into(),
+            message: None,
+        };
+        t.flags.hook_refusal = Some(refused.clone());
+        let x = CardExtras {
+            question: Some(refused.line()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(
+            (flag_of(&vm), line(&vm)),
+            (Some("Needs you"), Some("pre-commit hook refused the merge"))
+        );
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            hook_refusal_line(&t).as_deref(),
+            Some("Needs you \u{b7} pre-commit hook refused the merge")
+        );
+        assert_eq!(
+            all_buttons(&t),
+            [
+                (A::EditMessage, Look::Primary),
+                (A::SendBack, Look::Secondary),
+                (A::Run, Look::Secondary),
+            ]
+        );
+        // A PR's commit message refused: Edit messages and retry instead.
+        t.flags.hook_refusal = Some(otaq_core::git::RefusedHook {
+            step: Some(otaq_core::git::GitStep::Reword),
+            ..refused.clone()
+        });
+        assert!(refused_pr_message(&t));
+        assert_eq!(all_buttons(&t)[0], (A::EditPrMessages, Look::Primary));
+        // Waiting To deliver (an automatic delivery's refusal): the retry and Run.
+        t.flags.hook_refusal = Some(refused);
+        t.status = Status::ToDeliver;
+        assert_eq!(
+            all_buttons(&t),
+            [(A::EditMessage, Look::Primary), (A::Run, Look::Secondary)]
+        );
+        // Once the ticket left Review (sent back to the agent), the refusal kept on it shows nowhere.
+        t.status = Status::Working;
+        assert_eq!(hook_refusal(&t), None);
+    }
+
+    /// A PR delivery's agent reported a push the remote doesn't have: still in Review, "Needs you: the branch isn't on
+    /// the remote as expected · the remote has …", and Retry push leads the sheet's bar.
+    #[test]
+    fn a_push_that_did_not_land() {
+        use crate::view_models::sheet_actions::{Action as A, Look, all_buttons};
+        use otaq_core::domain::AutoMergeStop;
+        use otaq_core::pr::verify::PushNotLanded;
+        let mut t = ticket("SHOP-1", "Login redirect", Status::WaitingForYou);
+        t.auto_merge_stop = Some(AutoMergeStop::PushNotLanded);
+        let text = PushNotLanded {
+            branch: "feature/SHOP-1-login".into(),
+            expected: "5d6e7f8a9b".into(),
+            remote: None,
+        }
+        .message();
+        let x = CardExtras {
+            question: Some(text.clone()),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(flag_of(&vm), Some("Needs you"));
+        // What the remote has is the hover's and the sheet's; the card's one line says it needs the user.
+        assert_eq!(line(&vm), Some(text.as_str()));
+        assert_eq!(
+            text,
+            "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has no branch \
+             `feature/SHOP-1-login`"
+        );
+        let one = vm.one_line.line.as_ref().unwrap();
+        assert_eq!(
+            one.text,
+            "Needs you \u{b7} the branch isn\u{2019}t on the remote as expected"
+        );
+        assert_eq!(one.tone, Tone::Attention);
+        assert_eq!(vm.outline, Outline::Attention);
+        assert_eq!(
+            all_buttons(&t),
+            [
+                (A::RetryPush, Look::Primary),
+                (A::SendBack, Look::Secondary),
+                (A::Run, Look::Secondary),
+            ]
+        );
+    }
+
     #[test]
     fn labels() {
         assert_eq!(tokens_label(182_400), "182k");
@@ -4856,6 +5265,54 @@ mod tests {
         );
     }
 
+    /// A To deliver card's button says what happens, in Review's Approve words: "Approve & merge into <its base>"
+    /// or "Approve & open PR".
+    #[test]
+    fn the_delivery_button_says_what_happens() {
+        let label = |delivers: Delivers, t: &Ticket| {
+            let x = CardExtras {
+                custom_flow: true,
+                delivers: Some(delivers),
+                ..main_project()
+            };
+            let vm = CardViewModel::from(t, &x, NOW);
+            let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+            (action.kind, action.label.to_string())
+        };
+        let t = ticket("SHOP-2", "Card", Status::ToDeliver);
+        assert_eq!(
+            label(Delivers::Local, &t),
+            (
+                CardActionKind::LocalMerge,
+                "Approve & merge into main".to_owned()
+            )
+        );
+        assert_eq!(
+            label(Delivers::Pr, &t),
+            (CardActionKind::OpenPr, "Approve & open PR".to_owned())
+        );
+    }
+
+    /// Delivery problems say what to do: an automatic PR delivery that found no PR provider for the remote says so on
+    /// its card, with Set up… (app Settings, where providers are set up).
+    #[test]
+    fn an_automatic_pr_with_no_provider_says_what_to_do() {
+        let mut t = ticket("SHOP-2", "Card", Status::ToDeliver);
+        t.flags.pr_provider_not_detected = true;
+        let x = CardExtras {
+            custom_flow: true,
+            delivers: Some(Delivers::Pr),
+            ..main_project()
+        };
+        let vm = CardViewModel::from(&t, &x, NOW);
+        assert_eq!(line(&vm), Some(NO_PR_PROVIDER));
+        let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
+        assert_eq!(
+            (action.kind, action.label.as_ref()),
+            (CardActionKind::SetUpProvider, "Set up\u{2026}")
+        );
+    }
+
     /// d0120: "Merging · running the merge check" with Stop (and nothing else) while Local merge runs the check, in
     /// Review or To deliver; "Merge check failed · fixing" while the agent fixes what it found.
     #[test]
@@ -4877,7 +5334,7 @@ mod tests {
             let footer = vm.footer.as_ref().unwrap();
             let stop = footer.action.as_ref().unwrap();
             assert_eq!(
-                (stop.kind, stop.label, stop.primary),
+                (stop.kind, stop.label.as_ref(), stop.primary),
                 (CardActionKind::StopMergeCheck, "Stop", false)
             );
             assert_eq!(footer.second, None, "no Fail beside it");
@@ -4904,6 +5361,88 @@ mod tests {
         );
         assert_eq!(vm.outline, Outline::Normal, "the agent has it");
         assert_eq!(vm.one_line.action, None);
+    }
+
+    /// While Approve & merge runs its git steps the card says the step git is really on and, while one of the user's
+    /// hooks runs, which one and for how long; Stop is the only thing to click meanwhile, and none once the target
+    /// moves (the merge has landed). A start says the same.
+    #[test]
+    fn a_running_git_step_and_hook_show_on_the_card() {
+        use otaq_core::domain::{GitHookRunning, GitOperation, GitProgress};
+        use otaq_core::git::GitStep;
+        let mut t = ticket("SHOP-2", "Card", Status::WaitingForYou);
+        t.flags.git = Some(GitProgress {
+            operation: GitOperation::Merge,
+            target: "main".into(),
+            step: Some(GitStep::Squash),
+            earlier: vec![GitStep::UpdateTarget, GitStep::UpdateBranch],
+            hook: None,
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(flag_of(&vm), Some("Merging\u{2026}"));
+        let one = &vm.one_line;
+        assert_eq!(
+            one.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} squashing into main")
+        );
+        assert_eq!(
+            (one.action.as_ref().map(|a| a.kind), one.edge),
+            (Some(CardActionKind::StopGitStep), None)
+        );
+
+        let git = t.flags.git.as_mut().unwrap();
+        git.step = Some(GitStep::Commit);
+        git.hook = Some(GitHookRunning {
+            name: "pre-commit".into(),
+            folder: "~/code/shop-web".into(),
+            since_ms: NOW - 40_000,
+        });
+        let vm = CardViewModel::from(&t, &main_project(), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} running your pre-commit hook \u{b7} 40 s")
+        );
+        let later = CardViewModel::from(&t, &main_project(), NOW + 5_000);
+        assert_eq!(
+            later.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Merging \u{b7} running your pre-commit hook \u{b7} 45 s")
+        );
+        let stop = vm.footer.as_ref().and_then(|f| f.action.as_ref()).unwrap();
+        assert_eq!(
+            (stop.kind, stop.label.as_ref(), stop.primary),
+            (CardActionKind::StopGitStep, "Stop", false)
+        );
+        assert_eq!(vm.footer.as_ref().and_then(|f| f.second.as_ref()), None);
+
+        let mut landed = t.clone();
+        let git = landed.flags.git.as_mut().unwrap();
+        git.step = Some(GitStep::MoveTarget);
+        git.hook = None;
+        let vm = CardViewModel::from(&landed, &main_project(), NOW);
+        assert_eq!(vm.footer.as_ref().and_then(|f| f.action.as_ref()), None);
+        assert_eq!(vm.one_line.action, None);
+
+        let mut start = ticket("SHOP-3", "Card", Status::Queued);
+        start.flags.git = Some(GitProgress {
+            operation: GitOperation::Start,
+            target: "main".into(),
+            step: Some(GitStep::AddWorktree),
+            earlier: vec![GitStep::UpdateTarget],
+            hook: Some(GitHookRunning {
+                name: "post-checkout".into(),
+                folder: "~/worktrees/shop-web/SHOP-3".into(),
+                since_ms: NOW - 3_000,
+            }),
+        });
+        let vm = CardViewModel::from(&start, &main_project(), NOW);
+        assert_eq!(
+            vm.one_line.line.as_ref().map(|l| l.text.as_str()),
+            Some("Starting \u{b7} running your post-checkout hook \u{b7} 3 s")
+        );
+        assert_eq!(
+            vm.one_line.action.as_ref().map(|a| a.kind),
+            Some(CardActionKind::StopGitStep)
+        );
     }
 
     /// "Sent back · 1 decision changed · round 2" (DEC-06); no line comments, "Sent back · round 2" (#20).
@@ -5003,7 +5542,7 @@ mod tests {
         assert_eq!(hover.sections[0].text, card_fixtures::MODEL_ISSUE_MESSAGE);
         let action = vm.footer.as_ref().unwrap().action.as_ref().unwrap();
         assert_eq!(
-            (action.kind, action.primary, action.label),
+            (action.kind, action.primary, action.label.as_ref()),
             (CardActionKind::OpenAgent, true, "Open agent\u{2026}")
         );
         assert_eq!(start_refusal(&t), Some(card_fixtures::MODEL_ISSUE_MESSAGE));
@@ -5035,6 +5574,7 @@ mod tests {
         other.start_problem = Some(otaq_core::board::tickets::StartProblem {
             step: otaq_core::domain::StartStep::Setup,
             message: "exit 1".into(),
+            hook: None,
         });
         assert_eq!(start_refusal(&other), None);
         let vm = card(&other);
@@ -5352,8 +5892,8 @@ mod tests {
         let footer = vm.footer.unwrap();
         assert_eq!(
             (
-                footer.action.map(|a| (a.kind, a.label)),
-                footer.second.map(|a| (a.kind, a.label))
+                footer.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
+                footer.second.as_ref().map(|a| (a.kind, a.label.as_ref()))
             ),
             (
                 Some((CardActionKind::CheckAgain, "Check again")),
@@ -5393,8 +5933,8 @@ mod tests {
         let footer = vm.footer.unwrap();
         assert_eq!(
             (
-                footer.action.map(|a| (a.kind, a.label)),
-                footer.second.map(|a| (a.kind, a.label))
+                footer.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
+                footer.second.as_ref().map(|a| (a.kind, a.label.as_ref()))
             ),
             (
                 Some((CardActionKind::ChangeAgent, "Change agent\u{2026}")),
@@ -5464,6 +6004,13 @@ mod tests {
             line(&vm),
             Some("Nothing to merge \u{b7} already fixed in SHOP-31")
         );
+
+        // "Done, don't merge" with commits on the branch.
+        t.flags.nothing_to_merge = None;
+        let vm = card(&t);
+        assert_eq!(flag_of(&vm), Some("Done"));
+        assert_eq!(vm.hover.status, "Done \u{b7} not merged");
+        assert_eq!(line(&vm), Some("finished without merging"));
     }
 
     /// With one tool connected the same cards show no avatar and name no tool beside the agent (d0086): the model's
@@ -5626,6 +6173,7 @@ mod tests {
             refused_agent: None,
             stage_agent: None,
             instead_of: None,
+            own_agent: None,
             skips: Vec::new(),
         };
         let board = |connected: Vec<Tool>| BoardAgents {

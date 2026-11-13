@@ -1,0 +1,216 @@
+// An agent question's text, the same wherever the answer UI draws it: the first line is the question, bold; the rest is
+// its context, regular weight, at a readable line length, simple Markdown drawn (`questionContext`). The question line
+// and the context are one text that scrolls together when its place caps it, while the options and Send stay in view.
+// The split itself is `otaq-view`'s (`SheetAnswer.line`, `.context`).
+import {
+  type CSSProperties,
+  type ReactNode,
+  type Ref,
+  type RefObject,
+  useCallback,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+
+import type { SheetAnswer } from "../../generated/SheetAnswer";
+import { Icon } from "../../theme/Icon";
+import { type Span, contextBlocks } from "./questionContext";
+
+function Spans({ spans }: { spans: Span[] }): ReactNode {
+  return spans.map((span, i) => {
+    switch (span.kind) {
+      case "code":
+        return (
+          <code key={i} className="sheet-answer-code">
+            {span.text}
+          </code>
+        );
+      case "bold":
+        return <strong key={i}>{span.text}</strong>;
+      case "text":
+        return span.text;
+    }
+  });
+}
+
+/** The context's blocks: paragraphs (line breaks kept), lists, code blocks, headings as bold paragraphs, tables as
+ * plain text. */
+function QuestionContext({ context }: { context: string }) {
+  return (
+    <div className="sheet-answer-context">
+      {contextBlocks(context).map((block, i) => {
+        switch (block.kind) {
+          case "paragraph":
+            return (
+              <p key={i}>
+                <Spans spans={block.spans} />
+              </p>
+            );
+          case "heading":
+            return (
+              <p key={i} className="sheet-answer-heading">
+                <Spans spans={block.spans} />
+              </p>
+            );
+          case "list":
+            return (
+              <ul key={i}>
+                {block.items.map((item, j) => (
+                  <li key={j}>
+                    <span className="sheet-answer-marker" aria-hidden>
+                      {item.marker}
+                    </span>
+                    <span>
+                      <Spans spans={item.spans} />
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            );
+          case "code":
+            return (
+              <pre key={i} className="sheet-answer-pre">
+                {block.text}
+              </pre>
+            );
+          case "table":
+            return (
+              <p key={i} className="sheet-answer-table">
+                {block.text}
+              </p>
+            );
+        }
+      })}
+    </div>
+  );
+}
+
+/** How much of the question's text stays in view however tight its place: about six lines, or the whole text when it is
+ * shorter. Past it the options give way (they scroll), never the question. */
+export const QUESTION_FLOOR = 120;
+
+/** The text's floor for a text `whole` pixels tall. */
+export function questionFloor(whole: number): number {
+  return Math.min(QUESTION_FLOOR, Math.ceil(whole));
+}
+
+function setRef<T>(ref: Ref<T> | undefined, value: T | null): void {
+  if (typeof ref === "function") ref(value);
+  else if (ref) ref.current = value;
+}
+
+/** The question line and its context, one text that scrolls when its place caps it; the icon sits at its top. Where
+ * the options don't leave it room, it keeps its floor (`questionFloor`) and the options scroll instead. */
+export function QuestionText({
+  answer,
+  textRef,
+  cap = null,
+}: {
+  /** The question line and its context: an answer box's, or a passed-on question's in the strip. */
+  answer: Pick<SheetAnswer, "line" | "context">;
+  textRef?: Ref<HTMLDivElement>;
+  /** The text's cap in pixels, past which it scrolls; `null` for none of its own. */
+  cap?: number | null;
+}) {
+  const own = useRef<HTMLDivElement | null>(null);
+  const [floor, setFloor] = useState(0);
+  useLayoutEffect(() => {
+    const words = own.current?.firstElementChild;
+    if (!(words instanceof HTMLElement)) return;
+    const measure = () => {
+      const next = questionFloor(words.offsetHeight);
+      setFloor((current) => (current === next ? current : next));
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(words);
+    return () => {
+      observer.disconnect();
+    };
+  }, []);
+  const style: CSSProperties = {
+    ...(cap !== null && { maxHeight: cap }),
+    ...(floor > 0 && { minHeight: floor }),
+  };
+  return (
+    <div
+      ref={(el) => {
+        own.current = el;
+        setRef(textRef, el);
+      }}
+      className="sheet-answer-text"
+      style={style}
+    >
+      <div className="sheet-answer-question">
+        <Icon name="message-circle-question-mark" size={16} />
+        <div className="sheet-answer-words">
+          <p className="sheet-answer-line">{answer.line}</p>
+          {answer.context !== null && <QuestionContext context={answer.context} />}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * On a ticket's Overview the question box is first on the page and has no cap of its own: the page scrolls. Only when
+ * Send would fall below the sheet does the box cap at the room left under its top, and its text at that room less the
+ * rest of the box (the options with their notes, the hint and Send), never under the text's floor; past the floor the
+ * options scroll instead. So the options and Send stay in view. Outside a sheet (the Gallery) nothing caps. `box`
+ * goes on the whole box (with `boxCap`), `text` on the question's text, `cap` on the text.
+ */
+export function useSendInView(): {
+  box: RefObject<HTMLDivElement | null>;
+  text: RefObject<HTMLDivElement | null>;
+  cap: number | null;
+  boxCap: number | null;
+} {
+  const box = useRef<HTMLDivElement>(null);
+  const text = useRef<HTMLDivElement>(null);
+  const [caps, setCaps] = useState<Caps>(NO_CAPS);
+  const measure = useCallback(() => {
+    const b = box.current;
+    const t = text.current;
+    const body = b?.closest<HTMLElement>(".sheet-body");
+    if (!b || !t || !body) return;
+    // The text whole and the rest of the box with its options whole, wherever the caps are now: measured from
+    // `scrollHeight`, so a cap set here doesn't change what the next measure finds.
+    const options = b.querySelector<HTMLElement>(".sheet-answer-options");
+    const optionsCut = options ? options.scrollHeight - options.clientHeight : 0;
+    const whole = t.scrollHeight;
+    const rest = b.offsetHeight - t.clientHeight + optionsCut;
+    const top = b.getBoundingClientRect().top - body.getBoundingClientRect().top + body.scrollTop;
+    const room = Math.floor(body.clientHeight - top);
+    const next =
+      rest + whole <= room
+        ? NO_CAPS
+        : { cap: Math.max(room - Math.ceil(rest), questionFloor(whole)), boxCap: room };
+    setCaps((current) => (current.cap === next.cap && current.boxCap === next.boxCap ? current : next));
+  }, []);
+  useLayoutEffect(() => {
+    const b = box.current;
+    const t = text.current;
+    const body = b?.closest<HTMLElement>(".sheet-body");
+    if (!b || !t || !body || typeof ResizeObserver === "undefined") return;
+    const observer = new ResizeObserver(measure);
+    observer.observe(body);
+    observer.observe(b);
+    if (t.firstElementChild) observer.observe(t.firstElementChild);
+    return () => {
+      observer.disconnect();
+    };
+  }, [measure]);
+  // Measured once drawn too, before the first paint.
+  useLayoutEffect(measure, [measure]);
+  return { box, text, ...caps };
+}
+
+/** The question box's caps on a ticket's Overview: its text's and the whole box's, in pixels. */
+interface Caps {
+  cap: number | null;
+  boxCap: number | null;
+}
+
+const NO_CAPS: Caps = { cap: null, boxCap: null };

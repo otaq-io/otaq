@@ -70,6 +70,8 @@ export type KeyOutcome =
   | { kind: "burst" }
   /** Not in the map, but the webview would act on it: swallowed. */
   | { kind: "swallowed" }
+  /** Ctrl+Q on Windows and Linux: Quit Otaq, as ⌘Q on a Mac (NEW-a2). */
+  | { kind: "quit" }
   /** Neither: the page's elements get it as usual. */
   | { kind: "passed" };
 
@@ -90,7 +92,9 @@ const DESCRIPTION_EDITOR = ".md-editor";
 const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
 /** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys. */
 const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]';
-const RADIO_GROUP = '[role="radiogroup"]';
+/** Where the digits are the focus's own: a radio group, and an answer box's options, whose number keys pick or tick
+ * (a question that takes several answers draws a plain `group` of checkboxes, so it says so itself). */
+const DIGIT_WIDGETS = '[role="radiogroup"], [data-number-keys]';
 /** A menu or dialog open anywhere on the page holds the letters back too; a leaving copy (`data-leaving`) doesn't. */
 const OPEN_WIDGETS = '[role="menu"], [role="dialog"]';
 
@@ -125,7 +129,7 @@ export function lettersKeptBy(element: FocusLike | null): LetterHold {
   if (element === null) return "none";
   if (keptByElement(element) === TEXT_FIELD_KEYS || isSelect(element)) return "all";
   if (element.closest?.(DESCRIPTION_EDITOR) || element.closest?.(LETTER_WIDGETS)) return "all";
-  return element.closest?.(RADIO_GROUP) ? "digits" : "none";
+  return element.closest?.(DIGIT_WIDGETS) ? "digits" : "none";
 }
 
 const isSelect = (element: FocusLike) => element.tagName.toLowerCase() === "select";
@@ -357,6 +361,8 @@ export interface Dispatch {
   wait: (on: boolean) => void;
   /** Whether this is a Mac (only used before the map arrived). */
   mac: boolean;
+  /** Quit Otaq (asks first while agents work): Ctrl+Q on Windows and Linux. */
+  quit: () => void;
   /** The fast-typing guard (d0126); without one each key is judged alone. */
   burst?: Burst;
 }
@@ -455,6 +461,14 @@ function lettersRun(map: Keymap, ctx: KeyContext): boolean {
   return map.letters && !ctx.inTerminal && !ctx.modal && ctx.letters !== "all";
 }
 
+/**
+ * Ctrl+Q on Windows and Linux: Quit Otaq, everywhere in the window, a terminal and a dialog too, as ⌘Q on a Mac (whose
+ * app menu has it). It can't be recorded for an action (`keymap_edit.rs`).
+ */
+export function isQuitKey(e: KeyLike, mac: boolean): boolean {
+  return !mac && e.ctrlKey && !e.metaKey && !e.altKey && !e.shiftKey && letterOf(e) === "q";
+}
+
 /** Decides one key and does it (runs a handler, leaves the terminal, waits after `g`); the caller stops the event for
  * `ran`, `waiting`, `cancelled` and swallowed keys. */
 export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcome {
@@ -462,6 +476,11 @@ export function dispatchKey(d: Dispatch, e: KeyLike, ctx: KeyContext): KeyOutcom
   if (ctx.recording) {
     d.wait(false);
     return { kind: "passed" };
+  }
+  if (isQuitKey(e, map ? map.platform === "mac" : d.mac)) {
+    d.wait(false);
+    d.quit();
+    return { kind: "quit" };
   }
   if (d.waiting()) {
     d.wait(false);
@@ -515,6 +534,7 @@ export function stopsEvent(outcome: KeyOutcome): boolean {
     case "cancelled":
     case "burst":
     case "swallowed":
+    case "quit":
       return true;
     case "unhandled":
       return outcome.swallowed;
@@ -547,6 +567,8 @@ export function logLine(e: KeyLike, outcome: KeyOutcome): string {
       return `${name} → dropped (typed fast with nothing focused)`;
     case "swallowed":
       return `${name} → swallowed (webview key)`;
+    case "quit":
+      return `${name} → Quit Otaq`;
     case "passed":
       return `${name} → page`;
   }

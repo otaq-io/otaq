@@ -339,9 +339,11 @@ pub fn ticket_card(input: &BoardInput, t: &Ticket) -> CardViewModel {
         project_base: input.project_base.map(str::to_owned),
         start_failure: (t.status == Status::StartInterrupted)
             .then(|| {
-                t.start_problem
-                    .as_ref()
-                    .map(|p| p.step.failure_label().to_owned())
+                t.start_problem.as_ref().map(|p| match &p.hook {
+                    // "post-checkout hook refused the start": the hook and what it stopped, in place of the step.
+                    Some(hook) => hook.line(),
+                    None => p.step.failure_label().to_owned(),
+                })
             })
             .flatten(),
         held_reason: (t.status == Status::Held)
@@ -411,6 +413,12 @@ fn next_stage(t: &Ticket, flow: &Flow) -> Option<String> {
     flow.stages.get(at + 1).map(|s| s.name.clone())
 }
 
+/// The board's columns for `input`, knowing where each waiting ticket starts (its card's agents): a held ticket shows
+/// in the column of the stage it starts at, not in one it skips.
+pub fn columns<'f>(input: &BoardInput<'f>) -> Columns<'f> {
+    Columns::of(input.flow).knowing(input.agents)
+}
+
 pub fn build(input: &BoardInput) -> Vec<ColumnView> {
     let all = input.tickets;
     let cards: Vec<&TicketKey> = all.iter().map(|t| &t.key).collect();
@@ -424,7 +432,7 @@ pub fn build(input: &BoardInput) -> Vec<ColumnView> {
         Some(CardEntry::Ticket(ticket_card(input, t)))
     };
     let entries = |keys: &[TicketKey]| keys.iter().filter_map(entry).collect::<Vec<_>>();
-    let columns = Columns::of(input.flow);
+    let columns = columns(input);
     let quiet = !keeps_default_look(input.flow);
     columns
         .iter()
@@ -688,10 +696,10 @@ mod tests {
         }
     }
 
-    /// A card offers Move on anyway only on a check its flow marks skippable: Security failed its rounds on the test
-    /// flow opens the ticket; once the flow marks Security skippable the card's action is Move on anyway.
+    /// A check out of rounds can always be sent on: Security failed its rounds on the test flow, which doesn't mark it
+    /// skippable, and the card's action is Move on anyway; marking Security skippable changes nothing.
     #[test]
-    fn move_on_anyway_only_on_a_check_the_flow_marks_skippable() {
+    fn move_on_anyway_on_every_check_out_of_rounds() {
         let mut flow = crate::view_models::flow_columns::every_kind();
         let mut t = ticket("NOTE-3", "Search", Status::CheckFailed);
         t.place = otaq_core::domain::Place::stage_of("security");
@@ -708,7 +716,7 @@ mod tests {
         };
         assert_eq!(
             action(&flow),
-            Some(crate::view_models::card::CardActionKind::Open)
+            Some(crate::view_models::card::CardActionKind::MoveOnAnyway)
         );
         for stage in flow.stages.iter_mut().filter(|s| s.id == "security") {
             stage.options.push(otaq_core::flow::StageOption::Skip);
@@ -968,6 +976,37 @@ mod tests {
         assert_eq!(line("SHOP-31"), "Waits for a free agent \u{b7} 2nd in line");
     }
 
+    /// A start a hook refused: the card names the hook and what it stopped, where another failure names its step.
+    #[test]
+    fn a_start_a_hook_refused_names_the_hook_on_the_card() {
+        let mut refused = ticket("HOOK-3", "Add divide", Status::StartInterrupted);
+        refused.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Worktree,
+            message: "Your post-checkout hook refused the start.".into(),
+            hook: Some(otaq_core::git::RefusedHook {
+                name: "post-checkout".into(),
+                step: Some(otaq_core::git::GitStep::AddWorktree),
+                what: "the start".into(),
+                output: "npm ERR!".into(),
+                message: None,
+            }),
+        });
+        let mut setup = ticket("HOOK-4", "Add modulo", Status::StartInterrupted);
+        setup.start_problem = Some(otaq_core::board::tickets::StartProblem {
+            step: otaq_core::domain::StartStep::Setup,
+            message: "setup command failed (exit 1)".into(),
+            hook: None,
+        });
+        let tickets = vec![refused, setup];
+        let columns = build(&input(&tickets, None));
+        let line = |key: &str| find_card(&columns, key).one_line.line.unwrap().text;
+        assert_eq!(
+            line("HOOK-3"),
+            "Start failed \u{b7} post-checkout hook refused the start"
+        );
+        assert_eq!(line("HOOK-4"), "Start failed \u{b7} setup command failed");
+    }
+
     #[test]
     fn dev_sections_float_waiting_needs_you_and_pins() {
         let tickets = board();
@@ -1076,6 +1115,78 @@ mod tests {
         assert_eq!(more_stages(7).as_deref(), Some("7 more stages"));
     }
 
+    /// A held ticket stays in a column it runs: one that skips Spec first's planning and is held for its Dev agent's
+    /// signed-out tool shows in Dev, not in Product spec, which it skips. Queued, it waits at the top of Product spec
+    /// saying "Dev next · skips planning" (`s30-01`).
+    #[test]
+    fn a_held_ticket_shows_in_the_stage_it_starts_at() {
+        use otaq_core::agents::facts::{CardAgents, CardStart};
+        let file = otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+            .unwrap()
+            .read();
+        let waiting = |key: &str, status| {
+            let mut t = ticket(key, "Work", status);
+            t.place = Place::Waiting(None);
+            t
+        };
+        let tickets = vec![
+            waiting("NOTE-12", Status::Held),
+            waiting("SHOP-35", Status::Queued),
+            waiting("SHOP-36", Status::Held),
+        ];
+        let card = |key: &str, starts: &str| CardAgents {
+            instead_of: None,
+            own_agent: None,
+            skips: Vec::new(),
+            key: key.parse().unwrap(),
+            running_developer: None,
+            running_validator: None,
+            running_developer_on: None,
+            running_validator_on: None,
+            holds: Vec::new(),
+            starts: Some(CardStart {
+                stage: starts.into(),
+                agent: "Spec writer".into(),
+                model: None,
+            }),
+            refused_agent: None,
+            stage_agent: None,
+        };
+        let agents = BoardAgents {
+            agent_count: 5,
+            cards: vec![
+                card("NOTE-12", "Dev"),
+                card("SHOP-35", "Dev"),
+                card("SHOP-36", "Product spec"),
+            ],
+            connected: Vec::new(),
+        };
+        let input = BoardInput {
+            flow: &file.flow,
+            agents: Some(&agents),
+            ..input(&tickets, None)
+        };
+        let columns = columns(&input);
+        let spot = |key: &str| {
+            let t = tickets.iter().find(|t| t.key.to_string() == key).unwrap();
+            columns.spot(t).to_owned()
+        };
+        assert_eq!(spot("NOTE-12"), "dev");
+        assert_eq!(spot("SHOP-35"), "product-spec");
+        assert_eq!(spot("SHOP-36"), "product-spec");
+        let totals: Vec<(String, usize)> = build(&input)
+            .into_iter()
+            .map(|c| (c.id.0.to_string(), c.total))
+            .filter(|(_, n)| *n > 0)
+            .collect();
+        assert_eq!(
+            totals,
+            [("product-spec".to_owned(), 2), ("dev".to_owned(), 1)]
+        );
+        // Without the cards' agents it can't say where a ticket starts: the first stage, as before.
+        assert_eq!(Columns::of(&file.flow).spot(&tickets[0]), "product-spec");
+    }
+
     /// Spec first's board (`s30-01`; d0129, d0093): no waiting column (a started ticket waits at the top of Product
     /// spec), and each planning card says what it is doing, as the board words it from the flow and the card's
     /// agents.
@@ -1126,6 +1237,7 @@ mod tests {
         ];
         let card = |key: &str, starts: Option<&str>| CardAgents {
             instead_of: None,
+            own_agent: None,
             skips: Vec::new(),
             key: key.parse().unwrap(),
             running_developer: None,

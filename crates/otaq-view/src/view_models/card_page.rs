@@ -244,7 +244,7 @@ mod tests {
     }
 
     /// A stage held because its tool doesn't have its skill is red: the line says, word for word, "Codex doesn't
-    /// have the skill `/team-validate`".
+    /// have the skill `$team-validate`".
     #[test]
     fn a_stage_held_for_its_skill_says_which_on_its_line() {
         use crate::view_models::card_fixtures::{NOW, ticket};
@@ -262,7 +262,7 @@ mod tests {
         assert_eq!(
             line(&card),
             (
-                "Codex doesn\u{2019}t have the skill `/team-validate`",
+                "Codex doesn\u{2019}t have the skill `$team-validate`",
                 Palette::Error,
                 Tone::Error
             )
@@ -365,12 +365,25 @@ mod tests {
         assert_eq!(card.edge, Some(Tone::Attention));
         let action = card.action.as_ref().unwrap();
         assert_eq!(
-            (action.kind, action.label),
+            (action.kind, action.label.as_ref()),
             (CardActionKind::Decide, "Decide")
         );
         let card = cell(&g, "Validation failed 3 times (0063)");
         assert_eq!(card.action.as_ref().unwrap().kind, CardActionKind::Decide);
         assert_eq!(line(card).0, "Validate failed 3 times \u{b7} decide");
+    }
+
+    /// With rounds 1 the check failed once: "failed 1 time", not "1 times".
+    #[test]
+    fn a_check_out_of_one_round_says_one_time() {
+        let v = card_fixtures::variants()
+            .into_iter()
+            .find(|v| v.name == "Validation failed 3 times (0063)")
+            .unwrap();
+        let mut ticket = v.ticket;
+        ticket.validation_round = 1;
+        let card = TicketCardView::of(&ticket, &v.extras, NOW);
+        assert_eq!(line(&card).0, "Validate failed 1 time \u{b7} decide");
     }
 
     #[test]
@@ -396,7 +409,7 @@ mod tests {
         let pr = cell(&g, "PR #481 open \u{b7} opened by Shipper");
         assert_eq!(line(pr).0, "PR #481 open");
         assert_eq!(
-            pr.action.as_ref().map(|a| (a.kind, a.label)),
+            pr.action.as_ref().map(|a| (a.kind, a.label.as_ref())),
             Some((CardActionKind::MarkMerged, "Mark merged"))
         );
         assert_eq!(pr.edge, None);

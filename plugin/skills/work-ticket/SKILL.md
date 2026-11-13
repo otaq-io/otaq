@@ -433,6 +433,7 @@ otaq ask human \
   --option "CSV only" --note "One small library, about half a day. No printable copy for customers." \
   --option "CSV and PDF" --note "Printable invoices too, but needs a page layout and a PDF library: about two days." \
   --recommended 1 --stdin <<'QUESTION'
+Which format should the orders page export?
 Question 1 of 2: SHOP-31 says "Add export" to the orders page but not which format. The accounting team's
 spreadsheet import (docs/accounting.md) reads CSV.
 QUESTION
@@ -468,6 +469,7 @@ move the ticket back: ask the user, naming that stage, with your reason on stdin
 
 ```sh
 otaq ask human --send-back "Product spec" --stdin <<'QUESTION'
+Should Product spec decide what happens to refunds over 30 days?
 Product gap: refunds over 30 days aren't specified, and the order rules decide what Dev builds.
 QUESTION
 ```
@@ -521,6 +523,9 @@ QUESTION
 - A note is one or two short sentences, at most about 200 characters: what the option costs (time, a new dependency, setup) and what it changes for
   the user or for later work. Give every option one, so the user can weigh the side effects of each choice.
 - Recommend one with `--recommended N` (1-based) when there is a sensible default; leave it out when there isn't.
+- When the user may want several of the options at once (which pages get the change, which providers to support), add
+  `--multiple`: they tick any of them, and `--recommended` may name several (`--recommended 1,3`). The answer names
+  each pick.
 - Never invent options for an open question.
 - The question text always goes through stdin; only the short labels and notes are arguments.
 - The user's Agent instructions take precedence over this guidance.
@@ -529,7 +534,12 @@ QUESTION
 
 - **Always finish with `otaq stage next --stdin`** (or `otaq stage done --stdin` when there is nothing to deliver), as
   step 6 says. A summary in this chat isn't a hand-over.
-- **Never push, never open a PR, never merge.** The user does that from the board. The one merge that is yours:
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** The user does that from the board. The one merge that is yours:
   your helpers' pieces into this ticket's branch, with `otaq helper merge`.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments: comments, questions, ticket bodies.
   Long command output never does: it goes to a file (see "Long output").
@@ -554,7 +564,8 @@ branch. The agent in charge reviews your work, merges it and moves the ticket; y
    notes it names, as far as they apply to your piece.
 2. **Build only your piece**, as the Plan describes it. Anything else you notice goes in your hand-back, not in your
    code. If the piece turns out too big for one agent, see step 7.
-3. **Commit everything** with Otaq's `commit` skill. Never push and never merge: the agent in charge merges your branch.
+3. **Commit everything** with Otaq's `commit` skill. Don't push unless the user asks (as in "Rules"), and never merge:
+   the agent in charge merges your branch.
 4. **Questions** go through `otaq ask human --stdin`, as in "When you need the user": they reach the agent in charge
    first, which answers or passes them on to the user. End your turn and wait; the answer is typed into this session.
 5. **Hand your piece back** with what you built and what you couldn't check yourself (a real browser, a device), then

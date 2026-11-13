@@ -4,7 +4,8 @@
 // the board's cards stay in their columns, dimmed, and Backlog and Done are locked at the ends (Done carries how work
 // leaves the flow). A stage's header is dragged (or moved with Alt+←/→) to reorder, × removes it, **+** between two
 // columns opens the palette of ready stages, and a click opens its details beside the columns. The first time, a
-// one-time hint says how it works. Everything it says is `flow_board.view`'s (`otaq-view`'s `flow_board.rs`); every
+// one-time hint says how it works. Under the columns, Noyan's box asks for a change in the user's words or for a whole
+// flow; it stays while Noyan's panel is open (the board's own box hides then). Everything it says is `flow_board.view`'s (`otaq-view`'s `flow_board.rs`); every
 // edit goes to the project's draft, and nothing changes on the board until Save flow.
 import { type PointerEvent, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
@@ -30,6 +31,7 @@ import {
 import type { BoardView } from "../../generated/BoardView";
 import type { FlowBoardColumn } from "../../generated/FlowBoardColumn";
 import type { FlowBoardDelivery } from "../../generated/FlowBoardDelivery";
+import type { FlowBoardDeliverySkill } from "../../generated/FlowBoardDeliverySkill";
 import type { FlowBoardDetails } from "../../generated/FlowBoardDetails";
 import type { FlowBoardParams } from "../../generated/FlowBoardParams";
 import type { FlowBoardView } from "../../generated/FlowBoardView";
@@ -56,6 +58,7 @@ import {
   askForChanges,
   clampStep,
   closeFlowBoard,
+  discardDraft,
   dropDraft,
   dropTo,
   exportFile,
@@ -68,8 +71,10 @@ import {
   restore,
   saveDraft,
   stepOf,
+  stopDrafting,
   suggest,
 } from "./logic";
+import { NoyanBox } from "./NoyanBox";
 import "./flow_board.css";
 
 const ignore = () => undefined;
@@ -117,7 +122,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   const [startFrom, setStartFrom] = useState(false);
   const [more, setMore] = useState(false);
   const [watching, setWatching] = useState<Watching | null>(null);
-  const [asking, setAsking] = useState(false);
   const [writing, setWriting] = useState<{ stage: string; text: string } | null>(null);
   const [busy, setBusy] = useState(false);
   const agents = useStore(editorAgents);
@@ -127,7 +131,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   // The first-time hint sits under Watch a ticket, which it names, so it never covers Backlog's column.
   const watchButton = useRef<HTMLButtonElement>(null);
   const moreButton = useRef<HTMLButtonElement>(null);
-  const askButton = useRef<HTMLButtonElement>(null);
 
   const load = useCallback(() => {
     const p: FlowBoardParams = {
@@ -140,6 +143,10 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   }, [project, selected, agent, choices]);
   const state = useServiceView(load, FLOW_BOARD_EVENTS);
   const view = state.view;
+  // ⤢ opens Noyan's question larger; it stays so for that question only, until ⤡, Esc or its answer is sent.
+  const [expandedQuestion, setExpandedQuestion] = useState<string | null>(null);
+  const asked = view?.ask.state.kind === "asking" ? view.ask.state.question.answer.question : null;
+  const expanded = asked !== null && expandedQuestion === asked;
 
   // Every edit keeps the document before it, so Undo can put it back.
   const edit = useCallback(
@@ -195,15 +202,16 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
     if (gap && button) setPalette({ after: gap.after, title: gap.title, anchor: button });
   }, [open.addAfter, view]);
 
-  // Esc closes what is open, then the details; the editor itself stays until Cancel or Save flow. The palette and the
+  // Esc closes what is open (Noyan's question opened larger first: it sits over everything), then the details; the editor itself stays until Cancel or Save flow. The palette and the
   // other popovers close on their own Esc. Esc is the page's Close: it comes here as that key, or as a key a focused
   // field in the details passed on.
   const closeOne = useCallback(() => {
-    if (watching !== null) setWatching(null);
+    if (expanded) setExpandedQuestion(null);
+    else if (watching !== null) setWatching(null);
     else if (selected !== null) setSelected(null);
     else return false;
     return true;
-  }, [selected, watching]);
+  }, [expanded, selected, watching]);
   useShortcut("close_sheet", closeOne);
   useEffect(() => {
     const onKey = (e: globalThis.KeyboardEvent) => {
@@ -300,11 +308,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
   if (view === undefined) {
     return (
       <div className="fb-screen">
-        {state.error !== undefined && (
-          <p className="fb-problem" role="alert">
-            {state.error.message}
-          </p>
-        )}
+        {state.error !== undefined && <FlowBoardProblem project={project} message={state.error.message} />}
       </div>
     );
   }
@@ -340,42 +344,30 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           </div>
         </div>
         <span className="fb-spacer" />
+        <Button
+          ref={watchButton}
+          compact
+          variant="ghost"
+          icon="play"
+          label={view.watch.label}
+          onClick={() => {
+            setSelected(null);
+            setWatching(watching === null ? { fails: false, at: 0 } : null);
+          }}
+        />
         {suggestion !== null ? (
-          <>
-            <Button
-              ref={askButton}
-              compact
-              variant="secondary"
-              icon="message-square"
-              label={suggestion.ask}
-              onClick={() => {
-                setAsking(true);
-              }}
-            />
-            <Button
-              compact
-              variant="ghost"
-              label={suggestion.discard}
-              disabled={busy}
-              onClick={() => {
-                setHistory([]);
-                dropDraft(view).catch(toast);
-              }}
-            />
-          </>
+          <Button
+            compact
+            variant="ghost"
+            label={suggestion.discard}
+            disabled={busy}
+            onClick={() => {
+              setHistory([]);
+              dropDraft(view).catch(toast);
+            }}
+          />
         ) : (
           <>
-            <Button
-              ref={watchButton}
-              compact
-              variant="ghost"
-              icon="play"
-              label={view.watch.label}
-              onClick={() => {
-                setSelected(null);
-                setWatching(watching === null ? { fails: false, at: 0 } : null);
-              }}
-            />
             <Button
               ref={startButton}
               compact
@@ -418,97 +410,113 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           />
         </Tooltip>
       </div>
-      {view.drafting !== null && (
-        <div className="fb-drafting" role="status">
-          <Icon name="loader-circle" size={14} />
-          <span>{view.drafting.text}</span>
-          <button
-            type="button"
-            className="fb-link"
-            onClick={() => {
-              if (view.drafting !== null) showAgentInPanel(project, view.drafting.agent);
-            }}
-          >
-            {view.drafting.show}
-          </button>
-        </div>
-      )}
       {view.bar.applies !== null && suggestion === null && (
         <p className="fb-applies">
           <Icon name="info" size={13} />
           <span>{view.bar.applies}</span>
         </p>
       )}
+      {state.error !== undefined && (
+        // The view didn't reload (a stage clicked, an edit made): what went wrong, over the editor as it last drew.
+        <p className="fb-problem" role="alert">
+          {state.error.message}
+        </p>
+      )}
       <div className="fb-board">
-        <div className="fb-columns">
-          {view.columns.map((column) => {
-            const shown = boardColumn(column.id);
-            const cards = shown ? cardsOf(shown) : [];
-            const here = step !== null && step.column === column.id;
-            return (
-              <div key={column.id} className="fb-slot">
-                <section
-                  className="fb-column"
-                  data-kind={column.kind}
-                  data-selected={column.selected || undefined}
-                  data-marked={column.mark !== null || undefined}
-                  data-lifted={lifted !== null && column.index === lifted ? true : undefined}
-                  data-over={over !== null && column.index === over && over !== lifted ? true : undefined}
-                  data-fb-index={column.index ?? undefined}
-                  aria-label={column.name}
-                >
-                  <ColumnHead
-                    column={column}
-                    count={stageCount}
-                    onDown={onHeadDown(column)}
-                    onMove={onHeadMove}
-                    onUp={onHeadUp(column)}
-                    onSelect={() => {
-                      setSelected(column.id);
-                    }}
-                    onMoveKey={(to) => {
-                      edit({ edit: "move", stage: column.id, to });
-                    }}
-                    onRemove={() => {
-                      if (selected === column.id) setSelected(null);
-                      edit({ edit: "remove", stage: column.id });
-                    }}
-                  />
-                  <div className="fb-cards">
-                    {here && (
-                      <div className="fb-pretend" role="status">
-                        <span className="fb-pretend-label">{view.watch.ticket_label}</span>
-                        <span className="fb-pretend-title">{view.watch.ticket_title}</span>
-                        <span className="fb-pretend-state">{step.state}</span>
-                      </div>
-                    )}
-                    <div className="fb-dimmed" aria-hidden inert>
-                      {cards.map((c) => (
-                        <TicketCard key={c.card.key} card={c.card} />
-                      ))}
-                    </div>
-                  </div>
-                </section>
-                {column.add !== null && (
-                  <Tooltip text={column.add.title}>
-                    <button
-                      type="button"
-                      className="fb-gap"
-                      data-fb-gap={column.id}
-                      aria-label={column.add.title}
-                      onClick={(e) => {
-                        const gap = column.add;
-                        if (gap !== null)
-                          setPalette({ after: gap.after, title: gap.title, anchor: e.currentTarget });
+        <div className="fb-main">
+          <div className="fb-columns">
+            {view.columns.map((column) => {
+              const shown = boardColumn(column.id);
+              const cards = shown ? cardsOf(shown) : [];
+              const here = step !== null && step.column === column.id;
+              return (
+                <div key={column.id} className="fb-slot">
+                  <section
+                    className="fb-column"
+                    data-kind={column.kind}
+                    data-selected={column.selected || undefined}
+                    data-marked={column.mark !== null || undefined}
+                    data-lifted={lifted !== null && column.index === lifted ? true : undefined}
+                    data-over={over !== null && column.index === over && over !== lifted ? true : undefined}
+                    data-fb-index={column.index ?? undefined}
+                    aria-label={column.name}
+                  >
+                    <ColumnHead
+                      column={column}
+                      count={stageCount}
+                      onDown={onHeadDown(column)}
+                      onMove={onHeadMove}
+                      onUp={onHeadUp(column)}
+                      onSelect={() => {
+                        setSelected(column.id);
                       }}
-                    >
-                      <Icon name="plus" size={13} />
-                    </button>
-                  </Tooltip>
-                )}
-              </div>
-            );
-          })}
+                      onMoveKey={(to) => {
+                        edit({ edit: "move", stage: column.id, to });
+                      }}
+                      onRemove={() => {
+                        if (selected === column.id) setSelected(null);
+                        edit({ edit: "remove", stage: column.id });
+                      }}
+                    />
+                    <div className="fb-cards">
+                      {here && (
+                        <div className="fb-pretend" role="status">
+                          <span className="fb-pretend-label">{view.watch.ticket_label}</span>
+                          <span className="fb-pretend-title">{view.watch.ticket_title}</span>
+                          <span className="fb-pretend-state">{step.state}</span>
+                        </div>
+                      )}
+                      <div className="fb-dimmed" aria-hidden inert>
+                        {cards.map((c) => (
+                          <TicketCard key={c.card.key} card={c.card} />
+                        ))}
+                      </div>
+                    </div>
+                  </section>
+                  {column.add !== null && (
+                    <Tooltip text={column.add.title}>
+                      <button
+                        type="button"
+                        className="fb-gap"
+                        data-fb-gap={column.id}
+                        aria-label={column.add.title}
+                        onClick={(e) => {
+                          const gap = column.add;
+                          if (gap !== null)
+                            setPalette({ after: gap.after, title: gap.title, anchor: e.currentTarget });
+                        }}
+                      >
+                        <Icon name="plus" size={13} />
+                      </button>
+                    </Tooltip>
+                  )}
+                </div>
+              );
+            })}
+          </div>
+          {/* Under the columns, never over them: the last cards and Done's line stay in view. */}
+          <NoyanBox
+            ask={view.ask}
+            expanded={expanded}
+            onExpand={(open) => {
+              setExpandedQuestion(open ? asked : null);
+            }}
+            onSend={(text) =>
+              (view.ask.state.kind === "proposal"
+                ? askForChanges(view, text ?? "")
+                : suggest(project, text)
+              ).catch((error: unknown) => {
+                toast(error);
+                throw error;
+              })
+            }
+            onShow={(agent) => {
+              showAgentInPanel(project, agent);
+            }}
+            onStop={(agent) => {
+              stopDrafting(project, agent).catch(toast);
+            }}
+          />
         </div>
         {watching !== null && step !== null ? (
           <aside className="fb-side fb-watch" aria-label={view.watch.title}>
@@ -589,6 +597,7 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
         ) : view.delivery !== null ? (
           <DeliveryPanel
             delivery={view.delivery}
+            focusSkill={focusSkill === "done"}
             onEdit={edit}
             onClose={() => {
               setSelected(null);
@@ -650,9 +659,12 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
                 <span className="fb-pop-words">
                   <span className="fb-pop-name">{t.title}</span>
                   <span className="fb-muted">{t.line}</span>
-                  {t.skill_note !== null && (
-                    <span className="fb-muted fb-skill-note">
-                      <CodeText text={t.skill_note} />
+                  {t.warning !== null && (
+                    <span className="fb-head-warning fb-pop-warning">
+                      <Icon name="triangle-alert" size={11} />
+                      <span>
+                        <CodeText text={t.warning} />
+                      </span>
                     </span>
                   )}
                 </span>
@@ -672,25 +684,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
         >
           <div className="fb-start">
-            <button
-              type="button"
-              className="fb-pop-row fb-suggest"
-              disabled={view.start_from.suggest.off !== null}
-              onClick={() => {
-                setStartFrom(false);
-                suggest(project).then((id) => {
-                  showAgentInPanel(project, id);
-                }, toast);
-              }}
-            >
-              <Icon name="sparkles" size={15} />
-              <span className="fb-pop-words">
-                <span className="fb-pop-name">{view.start_from.suggest.label}</span>
-                <span className="fb-muted">
-                  {view.start_from.suggest.off ?? view.start_from.suggest.text}
-                </span>
-              </span>
-            </button>
             <span className="fb-pop-section">{view.start_from.shipped_label}</span>
             {view.start_from.presets.map((p) => (
               <button
@@ -757,21 +750,6 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
           }}
         />
       )}
-      {asking && suggestion !== null && (
-        <AskBox
-          anchor={askButton}
-          label={suggestion.ask}
-          placeholder={suggestion.ask_placeholder}
-          initial=""
-          onSend={(text) => {
-            setAsking(false);
-            askForChanges(view, text).catch(toast);
-          }}
-          onClose={() => {
-            setAsking(false);
-          }}
-        />
-      )}
       {writing !== null && (
         <AskBox
           anchor={bar}
@@ -796,6 +774,37 @@ export function FlowBoard({ open, board }: FlowBoardProps) {
 }
 
 /** ⋯ in the bar: Export, Import, Copy from another project (each project), Go back to the previous flow. */
+/**
+ * The editor when its view doesn't come: what went wrong, and the ways out, so the editor never stays blank. Discard
+ * the draft drops whatever draft the project has open (the flow in use draws next); Close leaves the editor.
+ */
+export function FlowBoardProblem({ project, message }: { project: string; message: string }) {
+  return (
+    <div className="fb-problem-box" role="alert">
+      <p className="fb-problem-title">The flow editor can’t draw this flow</p>
+      <p className="fb-problem">{message}</p>
+      <div className="fb-problem-actions">
+        <Button
+          compact
+          variant="secondary"
+          label="Discard the draft"
+          onClick={() => {
+            discardDraft(project).catch(toast);
+          }}
+        />
+        <Button
+          compact
+          variant="ghost"
+          label="Close"
+          onClick={() => {
+            closeFlowBoard();
+          }}
+        />
+      </div>
+    </div>
+  );
+}
+
 function moreItems(view: FlowBoardView): MenuItem[] {
   const item = (id: string, label: string, hint: string | null, separated = false): MenuItem => ({
     id,
@@ -1112,6 +1121,7 @@ function StagePanel({
         </p>
       )}
       <div className="fb-remove-row">
+        <span className="fe-muted">{details.remove_note}</span>
         <Button
           compact
           variant="ghost"
@@ -1122,7 +1132,6 @@ function StagePanel({
             onEdit({ edit: "remove", stage });
           }}
         />
-        {details.remove_note !== null && <span className="fe-muted">{details.remove_note}</span>}
       </div>
     </aside>
   );
@@ -1161,13 +1170,17 @@ function TextField({
 
 function DeliveryPanel({
   delivery,
+  focusSkill,
   onEdit,
   onClose,
 }: {
   delivery: FlowBoardDelivery;
+  /** Opened from "Set the delivery's PR skill": the PR skill field gets the keyboard. */
+  focusSkill: boolean;
   onEdit: (edit: FlowEditorStageEdit) => void;
   onClose: () => void;
 }) {
+  const skill = delivery.skill;
   return (
     <aside className="fb-side" aria-label={delivery.title}>
       <header className="fb-side-head">
@@ -1191,29 +1204,85 @@ function DeliveryPanel({
         ))}
         {delivery.delivers_note !== null && <span className="fe-hint">{delivery.delivers_note}</span>}
       </div>
-      {delivery.modes.length > 0 && (
-        <div className="fe-field" role="radiogroup" aria-label={delivery.mode_label}>
-          <span className="fe-label">{delivery.mode_label}</span>
-          {delivery.modes.map((c) => (
-            <Radio
-              key={c.id}
-              name="fb-mode"
-              checked={c.selected}
-              label={c.label}
-              onChange={(on) => {
-                if (on && !c.selected) onEdit({ edit: "delivery", field: delivery.mode_field, value: c.id });
-              }}
-            />
-          ))}
-          {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
-        </div>
+      <div className="fe-field" role="radiogroup" aria-label={delivery.mode_label}>
+        <span className="fe-label">{delivery.mode_label}</span>
+        {delivery.modes.map((c) => (
+          <Radio
+            key={c.id}
+            name="fb-mode"
+            checked={c.selected}
+            label={c.label}
+            disabled={delivery.modes_off}
+            onChange={(on) => {
+              if (on && !c.selected) onEdit({ edit: "delivery", field: delivery.mode_field, value: c.id });
+            }}
+          />
+        ))}
+        {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
+      </div>
+      <div className="fe-field">
+        <span className="fe-label">{delivery.agent.label}</span>
+        <Select
+          label={delivery.agent.label}
+          value={delivery.agent.value}
+          items={delivery.agent.items}
+          onChange={(agent) => {
+            onEdit({ edit: "delivery", field: delivery.agent.field, value: agent });
+          }}
+        />
+        <span className="fe-hint">{delivery.agent.hint}</span>
+      </div>
+      {skill !== null && (
+        <DeliverySkillField key={skill.value} skill={skill} focus={focusSkill} onEdit={onEdit} />
       )}
       <p className="fe-hint">{delivery.note}</p>
     </aside>
   );
 }
 
-/** A small box for the user's words: Ask for changes…, or what Ask the agent to write it sends. */
+/** Done's PR skill: the user's own Open PR skill by name, saved when the field loses focus; empty, Otaq's own runs. */
+function DeliverySkillField({
+  skill,
+  focus,
+  onEdit,
+}: {
+  skill: FlowBoardDeliverySkill;
+  focus: boolean;
+  onEdit: (edit: FlowEditorStageEdit) => void;
+}) {
+  const [text, setText] = useState(skill.value);
+  const input = useRef<HTMLInputElement>(null);
+  useEffect(() => {
+    if (focus) input.current?.focus();
+  }, [focus]);
+  return (
+    <label className="fe-field">
+      <span className="fe-label">{skill.label}</span>
+      <TextInput
+        ref={input}
+        value={text}
+        label={skill.label}
+        placeholder={skill.placeholder}
+        mono
+        onChange={setText}
+        onBlur={() => {
+          if (text.trim() !== skill.value) onEdit({ edit: "delivery", field: skill.field, value: text });
+        }}
+      />
+      {skill.warning !== null && (
+        <span className="fb-head-warning">
+          <Icon name="triangle-alert" size={11} />
+          <span>
+            <CodeText text={skill.warning} />
+          </span>
+        </span>
+      )}
+      <span className="fe-hint">{skill.hint}</span>
+    </label>
+  );
+}
+
+/** A small box for the user's words: what Ask the agent to write it sends. */
 function AskBox({
   anchor,
   label,

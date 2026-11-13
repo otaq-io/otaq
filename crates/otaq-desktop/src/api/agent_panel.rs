@@ -5,12 +5,16 @@
 //! agent each project shows, + and the empty agent panel are the page's own state: nothing here starts without a message
 //! or a click. The empty agent panel names the agent Noyan uses (one app setting, "Noyan uses <agent>"), which
 //! [`project_agent`] finds for Ask the agent too, and lets the new conversation pick another agent for itself.
+//! `agent_panel.undo` is a CHANGED row's Undo (decision 013): it takes back one change Noyan made on a ticket.
 
 use otaq_core::agents::Agent;
-use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList};
+use otaq_core::board::stage_choices::TicketChoices;
+use otaq_core::board::tickets::Ticket;
+use otaq_core::project_agents::{CreatedAndChanged, ProjectAgent, ProjectAgentList, WhatChanged};
 use otaq_core::protocol::{
     IdParams, KeyParams, ProjectAgentCloseParams, ProjectAgentOpenParams, ProjectAgentRenameParams,
-    ProjectParams, Reply, Request,
+    ProjectAgentUndoneParams,
+    ProjectParams, Reply, Request, TicketChoicesParams,
 };
 use otaq_view::view_models::agent_panel::{self as vm, EditedTicket, AgentPanelView};
 use otaq_view::view_models::project_agent_page::{self as agent_page, CloseDialog};
@@ -31,6 +35,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "agent_panel.close_ended" => reply(&close_ended(app, parse(params)?).await?),
         "agent_panel.resume" => reply(&resume(app, parse(params)?).await?),
         "agent_panel.answer" => reply(&answer(app, parse(params)?).await?),
+        "agent_panel.undo" => reply(&undo(app, parse(params)?).await?),
         _ => Err(unknown(method)),
     }
 }
@@ -75,32 +80,88 @@ async fn created_of(app: &App, id: &str) -> Result<CreatedAndChanged, RequestErr
     }
 }
 
-/// The tickets it edited, with their titles and places as the board names them (one that is gone is left out).
+async fn ticket_of(app: &App, key: &str) -> Option<Ticket> {
+    match app
+        .service
+        .send(Request::TicketGet(KeyParams {
+            key: key.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::Ticket(t)) => Some(*t),
+        _ => None,
+    }
+}
+
+/// The ticket's stage choices, read only when one of `changes` is a stage's choice (Undo's check needs them).
+async fn choices_for<'c>(
+    app: &App,
+    key: &str,
+    mut changes: impl Iterator<Item = &'c WhatChanged>,
+) -> Option<TicketChoices> {
+    if !changes.any(|c| matches!(c, WhatChanged::StageChoice { .. })) {
+        return None;
+    }
+    match app
+        .service
+        .send(Request::TicketChoices(TicketChoicesParams {
+            key: Some(key.to_owned()),
+            project: None,
+        }))
+        .await
+    {
+        Ok(Reply::TicketChoices(c)) => Some(*c),
+        _ => None,
+    }
+}
+
+/// The tickets it edited, with their titles and places as the board names them and the changes on each that still
+/// read as Noyan left them (their rows have Undo); one that is gone is left out.
 async fn edited_of(app: &App, created: &CreatedAndChanged) -> Vec<EditedTicket> {
     let mut edited = Vec::new();
-    let mut flows: Vec<(String, otaq_core::flow::Flow)> = Vec::new();
+    // Each project's flow and cards' agents: a held ticket is named at the stage it starts at, as on the board.
+    type Board = (
+        String,
+        otaq_core::flow::Flow,
+        Option<otaq_core::agents::facts::BoardAgents>,
+    );
+    let mut flows: Vec<Board> = Vec::new();
     for key in &created.edited {
-        if let Ok(Reply::Ticket(t)) = app
-            .service
-            .send(Request::TicketGet(KeyParams {
-                key: key.to_string(),
-            }))
-            .await
-        {
+        if let Some(t) = ticket_of(app, &key.to_string()).await {
+            let on_it = || {
+                created
+                    .changes
+                    .iter()
+                    .filter(|c| c.ticket == t.key)
+                    .map(|c| &c.change)
+            };
+            let choices = choices_for(app, &key.to_string(), on_it()).await;
+            let undo = on_it()
+                .filter(|c| vm::still_as_left(c, &t, choices.as_ref()))
+                .cloned()
+                .collect();
             let project = t.key.project.to_string();
-            if !flows.iter().any(|(p, _)| *p == project) {
-                let flow = super::board::flow(app, &project).await;
-                flows.push((project.clone(), flow));
+            if !flows.iter().any(|(p, _, _)| *p == project) {
+                let (flow, agents) = tokio::join!(
+                    super::board::flow(app, &project),
+                    super::board::agents(app, &project)
+                );
+                flows.push((project.clone(), flow, agents));
             }
             let place = flows
                 .iter()
-                .find(|(p, _)| *p == project)
-                .map(|(_, flow)| t.place_name(flow))
+                .find(|(p, _, _)| *p == project)
+                .map(|(_, flow, agents)| {
+                    let columns = otaq_view::view_models::flow_columns::Columns::of(flow)
+                        .knowing(agents.as_ref());
+                    otaq_view::view_models::dependencies::place_name(&columns, &t)
+                })
                 .unwrap_or_default();
             edited.push(EditedTicket {
                 key: t.key,
                 title: t.title,
                 place,
+                undo,
             });
         }
     }
@@ -375,7 +436,8 @@ pub async fn resume(app: &App, params: ResumeParams) -> Result<String, RequestEr
 }
 
 /// What `agent_panel.answer` takes (OTQ-9): the conversation, its open question, the picked number (Other… is the
-/// last; none for an open question), the typed text, and whether the terminal's typed line is cleared first.
+/// last; none for an open question), the typed text, and whether the terminal's typed line is cleared first. A
+/// question that takes several answers sends every ticked number in `picks` instead.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "AgentAnswerParams")]
 pub struct AnswerParams {
@@ -385,6 +447,9 @@ pub struct AnswerParams {
     #[serde(default)]
     #[ts(optional)]
     pub pick: Option<u32>,
+    #[serde(default)]
+    #[ts(optional)]
+    pub picks: Option<Vec<u32>>,
     #[serde(default)]
     pub other: String,
     #[serde(default)]
@@ -410,7 +475,11 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<super::sheet::Sen
         .as_ref()
         .filter(|q| q.id == params.question)
         .ok_or_else(changed)?;
-    let choice = answer_options::choice_for(question, params.pick, &params.other)
+    let picks = match params.picks.as_deref() {
+        Some(several) if !several.is_empty() => several,
+        _ => params.pick.as_slice(),
+    };
+    let choice = answer_options::choice_for(question, picks, &params.other)
         .ok_or_else(|| RequestError::plain("Pick an answer or type one"))?;
     let request = Request::ProjectAgentAnswer(ProjectAgentAnswerParams {
         id: agent.id.clone(),
@@ -438,6 +507,59 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<super::sheet::Sen
     }
 }
 
+/// What `agent_panel.undo` takes: a CHANGED row of the shown conversation, by its ticket and what it says changed
+/// ("now waits for SHOP-6"), which names one change: each part of a ticket has one row.
+#[derive(Debug, Clone, Deserialize, TS)]
+#[ts(rename = "AgentPanelUndoParams")]
+pub struct UndoParams {
+    pub agent: String,
+    pub ticket: String,
+    pub change: String,
+}
+
+/// Undo on a CHANGED row (decision 013): takes Noyan's change back on the ticket through the board's own edit
+/// ([`vm::undo_request`]), so History records it as the user's. Only while that part still reads as Noyan left it
+/// ([`vm::still_as_left`]), checked again here: Undo never overwrites a later edit. Then the service records the Undo
+/// (`project_agent.undone`), so the row says it was undone ("Undone · SHOP-7 no longer waits for SHOP-6") with no Undo;
+/// a row whose part someone else changed keeps what it says and only loses Undo.
+pub async fn undo(app: &App, params: UndoParams) -> Result<(), RequestError> {
+    const TITLE: &str = "Noyan\u{2019}s change wasn\u{2019}t undone";
+    let result = async {
+        let created = created_of(app, &params.agent).await?;
+        let change = created
+            .changes
+            .iter()
+            .find(|c| c.ticket.to_string() == params.ticket && vm::what_changed(&c.change) == params.change)
+            .ok_or_else(|| RequestError::plain(format!("Noyan no longer lists this change on {}", params.ticket)))?;
+        let ticket = ticket_of(app, &params.ticket)
+            .await
+            .ok_or_else(|| RequestError::plain(format!("{} is gone", params.ticket)))?;
+        let choices = choices_for(app, &params.ticket, std::iter::once(&change.change)).await;
+        if !vm::still_as_left(&change.change, &ticket, choices.as_ref()) {
+            return Err(RequestError::plain(format!(
+                "{} has changed since Noyan changed it; Undo would overwrite that",
+                params.ticket
+            )));
+        }
+        let request = vm::undo_request(&ticket.key, &change.change, choices.as_ref())
+            .ok_or_else(|| RequestError::plain("There is nothing to put back"))?;
+        app.service.send(request).await?;
+        app.service
+            .send(Request::ProjectAgentUndone(ProjectAgentUndoneParams {
+                id: params.agent.clone(),
+                ticket: params.ticket.clone(),
+                change: change.change.clone(),
+            }))
+            .await
+            .map(|_| ())
+    }
+    .await;
+    if let Err(e) = &result {
+        toast_error(app, TITLE, e);
+    }
+    result
+}
+
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -461,7 +583,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -597,6 +718,142 @@ mod tests {
         .await
         .unwrap_err();
         assert_eq!(refused.message, "Noyan\u{2019}s question has changed");
+        h.service.stop_all().await;
+    }
+
+    /// Undo on a CHANGED row (decision 013): "now waits for …" has Undo while the wait is there, and Undo removes it as
+    /// the user's edit; the row keeps what it says and loses Undo. A wait the user removed themselves has no Undo, and
+    /// Undo sent anyway is refused, so it never puts back what the user did.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn undo_takes_back_noyans_wait_and_never_a_later_edit() {
+        use otaq_core::board::Board;
+        use otaq_core::board::tickets::{EventKind, NewTicketInput};
+        use otaq_core::domain::Actor;
+
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let path = repos.repo("shop", 1);
+        let project = match h
+            .app
+            .service
+            .send(Request::ProjectAdd(AddProject {
+                path: path.display().to_string(),
+                key: None,
+                base_branch: None,
+            }))
+            .await
+            .unwrap()
+        {
+            Reply::ProjectAdded { project: p, .. } => p,
+            other => panic!("{other:?}"),
+        };
+        let mut keys = Vec::new();
+        for title in ["Checkout API", "Check total", "Coupons"] {
+            let Reply::Ticket(t) = h
+                .app
+                .service
+                .send(Request::TicketCreate(NewTicketInput {
+                    project: project.key.clone(),
+                    title: title.into(),
+                    body: String::new(),
+                    plan: String::new(),
+                    priority: None,
+                    base_branch: None,
+                    first_comment: None,
+                }))
+                .await
+                .unwrap()
+            else {
+                panic!("no ticket");
+            };
+            keys.push(t.key.to_string());
+        }
+        let (parent, waits, also) = (&keys[0], &keys[1], &keys[2]);
+
+        // Noyan (a conversation's row, its edits made as it) makes two tickets wait for the first.
+        let data = h.service.data.clone();
+        let store = otaq_core::store::Store::open(&data.database_path())
+            .await
+            .unwrap();
+        sqlx::query(
+            "INSERT INTO project_agents (id, project_id, tool, state, created_at) SELECT 'n1', id, 'claude', 'running', 1 FROM projects WHERE key = ?",
+        )
+        .bind(&project.key)
+        .execute(store.pool())
+        .await
+        .unwrap();
+        let board = Board::new(store, None, data);
+        let noyan = Actor::ProjectAgent("n1".into());
+        for child in [waits, also] {
+            board.add_dependency(child, parent, &noyan).await.unwrap();
+        }
+        let row_says = format!("now waits for {parent}");
+        let undoable = |edited: &[EditedTicket], key: &str| {
+            edited
+                .iter()
+                .find(|t| t.key.to_string() == key)
+                .is_some_and(|t| !t.undo.is_empty())
+        };
+        let created = created_of(&h.app, "n1").await.unwrap();
+        let edited = edited_of(&h.app, &created).await;
+        assert!(undoable(&edited, waits) && undoable(&edited, also));
+
+        // Undo removes the wait, recorded in History as the user's.
+        table(
+            &h.app,
+            "agent_panel.undo",
+            json!({ "agent": "n1", "ticket": waits, "change": row_says }),
+        )
+        .await
+        .unwrap();
+        let after = ticket_of(&h.app, waits).await.unwrap();
+        assert!(after.depends_on.is_empty());
+        let removed = board
+            .history(waits)
+            .await
+            .unwrap()
+            .into_iter()
+            .find(|e| e.kind == EventKind::DependencyRemoved)
+            .unwrap();
+        assert!(matches!(removed.actor, Actor::User(_)), "{:?}", removed.actor);
+        // The row stays, says it was undone, and has no Undo.
+        let created = created_of(&h.app, "n1").await.unwrap();
+        let undone = |created: &CreatedAndChanged, key: &str| {
+            created
+                .changes
+                .iter()
+                .find(|c| c.ticket.to_string() == key && vm::what_changed(&c.change) == row_says)
+                .map(|c| c.undone)
+        };
+        assert_eq!(undone(&created, waits), Some(true));
+        assert_eq!(undone(&created, also), Some(false));
+        let edited = edited_of(&h.app, &created).await;
+        assert!(!undoable(&edited, waits) && undoable(&edited, also));
+
+        // The user removes the other wait themselves: its Undo is gone, and Undo sent anyway changes nothing.
+        h.app
+            .service
+            .send(Request::DepRemove(otaq_core::protocol::DepParams {
+                child: also.clone(),
+                parent: parent.clone(),
+            }))
+            .await
+            .unwrap();
+        let edited = edited_of(&h.app, &created).await;
+        assert!(!undoable(&edited, also));
+        // Not by Undo: the row keeps what it says.
+        let created = created_of(&h.app, "n1").await.unwrap();
+        assert_eq!(undone(&created, also), Some(false));
+        let refused = table(
+            &h.app,
+            "agent_panel.undo",
+            json!({ "agent": "n1", "ticket": also, "change": row_says }),
+        )
+        .await
+        .unwrap_err();
+        assert!(refused.message.contains("has changed since Noyan changed it"));
+        assert!(ticket_of(&h.app, also).await.unwrap().depends_on.is_empty());
         h.service.stop_all().await;
     }
 }

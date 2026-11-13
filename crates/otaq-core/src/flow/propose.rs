@@ -9,10 +9,10 @@
 //! (`--from`), by a Project agent or the user's own terminal. It goes through T-0413's checks; a document the same as
 //! the flow as it will be is refused with [`SAME`] (nothing to ask the user), and so is one with a problem the editor
 //! can't fix (a Project agent's with any problem: it can act on them). Otherwise it lands in the project's draft, the
-//! agent's changes marked (FED-02, [`super::draft`]), or during Flow setup becomes that tool's entry (ASK-03), and the
-//! command returns at once.
+//! agent's changes marked (FED-02, [`super::draft`]), and the command returns at once.
 //!
-//! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes reaches the proposing Project agent's
+//! **The answer** ([`Answer`]): the user's Apply, Cancel or Ask for more changes (which leaves the proposal open until
+//! the agent's next one replaces it) reaches the proposing Project agent's
 //! session as its next message ([`deliver_answer`]), typed once the agent is idle and its input line is empty (d0048),
 //! whatever triggered it (the flow editor, a request). A proposal from the user's terminal gets nothing.
 
@@ -210,11 +210,11 @@ impl Board {
     ) -> Result<Proposal, BoardError> {
         let refuse = |message: String| BoardError::refused(Refusal::BadFlow, message);
         let key = self.project(project).await?.key;
-        let (file, written, source) = match proposed {
+        let (file, written, source, whys) = match proposed {
             Proposed::Document { yaml: text, file } => {
-                let (read, written) = yaml::read_with_written_ids(text)
+                let (read, written, whys) = yaml::read_proposal(text)
                     .map_err(|e| refuse(format!("The flow doesn't read: {e}")))?;
-                (read, written, Source::Document { file: file.clone() })
+                (read, written, Source::Document { file: file.clone() }, whys)
             }
             Proposed::Project { project: other } => {
                 let other = self.project_named(other).await?;
@@ -234,7 +234,7 @@ impl Board {
                     key: other.key,
                     name: other.name,
                 };
-                (file, written, source)
+                (file, written, source, yaml::Whys::new())
             }
         };
         // Looked at before it is stored, so a refusal leaves the open proposal as it was.
@@ -259,22 +259,9 @@ impl Board {
         if view.diff.same {
             return Err(refuse(SAME.to_owned()));
         }
-        // Outside Flow setup it lands in the draft (FED-02); during it each tool's is its own entry (ASK-03, FED-03).
-        if self.project(&key).await?.flow_setup_since.is_none() {
-            return self
-                .propose_into_draft(&key, matched, &source, by, models)
-                .await;
-        }
-        self.open_read_proposal(
-            &key,
-            file,
-            &written,
-            &source,
-            by,
-            &super::draft::DraftMemory::default(),
-            models,
-        )
-        .await
+        // It lands in the draft (FED-02).
+        self.propose_into_draft(&key, matched, &source, by, &whys, models)
+            .await
     }
 
     /// Who proposed `project`'s open proposal `id`; `None` when it isn't open (any more).
@@ -289,8 +276,10 @@ impl Board {
             .map(|r| r.proposed_by))
     }
 
-    /// **Ask for more changes** (`flow.ask_for_changes`): closes the open proposal `id` of a Project agent; its text
-    /// goes to the agent, which proposes again. Who proposed it.
+    /// **Ask for more changes** (`flow.ask_for_changes`): the user's text on the open proposal `id` of a Project agent
+    /// goes to the agent, which proposes again. The proposal stays in the draft meanwhile (UX-63): the board keeps
+    /// showing it while the agent redrafts, its next proposal replaces it, and stopping the agent keeps it. Who
+    /// proposed it.
     pub async fn ask_for_changes(
         &self,
         project: &str,
@@ -310,7 +299,6 @@ impl Board {
                 "Proposal {id} isn't from Noyan: nobody to ask"
             )));
         }
-        self.drop_proposal(id).await?;
         Ok(by)
     }
 }

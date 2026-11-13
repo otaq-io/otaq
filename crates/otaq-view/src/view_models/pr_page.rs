@@ -22,6 +22,8 @@ use crate::view_models::toasts::{NewToast, ToastLevel, ToastLink};
 pub struct CommitView {
     pub sha: String,
     pub message: String,
+    /// It still holds the message the project's commit-msg hook refused at the last confirm: the field is marked.
+    pub refused: bool,
 }
 
 /// The line under the branch name: "Valid name · not taken on origin", or the problem in red.
@@ -148,12 +150,59 @@ pub struct DialogView {
     pub prepared: Option<String>,
     /// "Strong is still writing the title and description. …": the fields hold the plain text meanwhile.
     pub writing: Option<String>,
+    /// The writer waits for permission: Answer in terminal opens its terminal, beside the plain text.
+    pub asks: Option<super::review_page::WriterAsks>,
+    /// While the skill prepares or pushes: its agent waits at a permission prompt, with Answer in terminal.
+    pub waits: Option<SkillWaits>,
     /// The provider isn't set up on this machine.
     pub set_up: Option<SetUpView>,
     /// "Or merge into main instead", when the flow delivers either way.
     pub merge_instead: Option<String>,
     /// Grows each time the fields were filled for the user: the page takes them again.
     pub filled: u64,
+    /// "Use the proposed message" while the title, description or a commit message differs from the proposal (the
+    /// user's edit, kept on the ticket until the PR is opened or pushed with it).
+    pub use_proposed: Option<&'static str>,
+}
+
+/// The PR's skill waits at a permission prompt while the dialog says Preparing or Pushing: what it waits for, and
+/// Answer in terminal, which opens its session's terminal over the dialog. The ticket reads Needs you meanwhile.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "PrSkillWaits")]
+pub struct SkillWaits {
+    /// "The agent is waiting for your permission to run a command"
+    pub line: String,
+    /// The command, or the tool's prompt as it said it.
+    pub text: String,
+    /// `text` is a shell command: drawn as code after a `$`.
+    pub command: bool,
+    pub asks: super::review_page::WriterAsks,
+}
+
+/// [`SkillWaits`] for the dialog's stage: only while it says Preparing or Pushing.
+fn skill_waits(d: &PrDialog) -> Option<SkillWaits> {
+    if !matches!(d.stage, Stage::Preparing | Stage::Pushing) {
+        return None;
+    }
+    let waits = d.waits.as_ref()?;
+    let line = otaq_core::signals::prompt_line(&waits.prompt);
+    let (text, command) = match line.strip_prefix("Run command: ").map(str::trim) {
+        Some(c) if !c.is_empty() => (c.to_owned(), true),
+        _ => (line.clone(), false),
+    };
+    Some(SkillWaits {
+        line: if command {
+            "The agent is waiting for your permission to run a command".to_owned()
+        } else {
+            "The agent is waiting for your permission".to_owned()
+        },
+        text,
+        command,
+        asks: super::review_page::WriterAsks::in_session(
+            &waits.session,
+            format!("{} \u{b7} {}", d.key, waits.turn.label()),
+        ),
+    })
 }
 
 fn provider_name(d: &PrDialog) -> Option<&str> {
@@ -254,6 +303,7 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .map(|c| CommitView {
                 sha: c.sha.clone(),
                 message: c.message.clone(),
+                refused: d.is_refused(&c.message),
             })
             .collect(),
         title_label: "Title",
@@ -270,12 +320,22 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .as_deref()
             .filter(|_| d.writing.is_none())
             .map(|agent| format!("Prepared by {agent} while {} waited in Review.", d.key)),
-        writing: d.writing.as_deref().map(|agent| {
-            format!(
+        writing: d.writing.as_deref().map(|agent| match d.asks_in {
+            Some(_) => format!(
+                "{agent} wants to run a command to write the title and description. Push now with these, edit them, \
+                 or wait: they fill in once you answer, unless you\u{2019}ve typed."
+            ),
+            None => format!(
                 "{agent} is still writing the title and description. Push now with these, edit them, or wait: they \
                  fill in when ready unless you\u{2019}ve typed."
-            )
+            ),
         }),
+        asks: d
+            .writing
+            .as_deref()
+            .zip(d.asks_in.as_deref())
+            .map(|(agent, session)| super::review_page::WriterAsks::new(session, agent, &d.key)),
+        waits: skill_waits(d),
         set_up: d
             .not_set_up
             .as_deref()
@@ -287,6 +347,8 @@ pub fn dialog_view(d: &PrDialog) -> DialogView {
             .filter(|_| !push)
             .map(|target| format!("Or merge into {target} instead")),
         filled: d.filled,
+        use_proposed: (d.stage == Stage::Proposed && d.is_edited())
+            .then_some(super::approve::USE_THE_PROPOSED_MESSAGE),
     }
 }
 
@@ -356,25 +418,28 @@ pub fn success_toast(ticket: &Ticket, kind: FlowKind, target: &str) -> Option<To
     })
 }
 
-/// The toast when Open PR didn't go through: the refusal's text; with `delivery` (the project and its Delivery stage),
-/// a refusal because the built-in skill can't open a PR on this remote links to that stage's Skill field in the flow
-/// editor, where the user's own Open PR skill goes.
-pub fn refused_toast(key: &str, message: String, delivery: Option<(&str, &str)>) -> NewToast {
+/// The toast when Open PR didn't go through: the refusal's text. A refusal because the built-in skill can't open a PR on
+/// this remote ([`otaq_core::pr::service::asks_for_own_open_pr_skill`]) links to Edit flow's Done panel of `project`,
+/// where the delivery's PR skill, the user's own Open PR skill, goes.
+pub fn refused_toast(key: &str, message: String, project: Option<&str>) -> NewToast {
+    let own_skill = otaq_core::pr::service::asks_for_own_open_pr_skill(&message);
     let mut toast = NewToast::new(
         ToastLevel::Error,
         format!("Open PR for {key} didn\u{2019}t go through"),
         Some(message),
     );
-    toast.link = delivery.map(|(project, stage)| ToastLink::StageSkill {
-        label: OWN_SKILL_LINK.to_owned(),
-        project: project.to_owned(),
-        stage: stage.to_owned(),
-    });
+    toast.link = project
+        .filter(|_| own_skill)
+        .map(|project| ToastLink::StageSkill {
+            label: OWN_SKILL_LINK.to_owned(),
+            project: project.to_owned(),
+            stage: None,
+        });
     toast
 }
 
-/// The refused Open PR toast's link to the Delivery stage's Skill field.
-pub const OWN_SKILL_LINK: &str = "Set the Delivery stage\u{2019}s skill";
+/// The refused Open PR toast's link to Edit flow's Done panel, where the delivery's PR skill is.
+pub const OWN_SKILL_LINK: &str = "Set the delivery\u{2019}s PR skill";
 
 /// *05 → SHOP-26 · Approved, PR open*: the PR box under the tabs.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
@@ -507,6 +572,9 @@ mod tests {
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
             skill: "open-pr".to_owned(),
             message: None,
+            asks_in: None,
+            waits: None,
+            edited: Default::default(),
         }
     }
 
@@ -613,6 +681,86 @@ mod tests {
         assert!(!v.can_confirm);
     }
 
+    /// The writer of the title and description waits for permission: the line says so, Answer in terminal opens its
+    /// session's terminal, and the plain text stays pushable; once its prompt closes the line says it still writes.
+    #[test]
+    fn a_writer_waiting_for_permission_offers_answer_in_terminal() {
+        use otaq_core::pr::message::{DeliveryMessage, MessageState};
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let writing = PrFlowView {
+            message: Some(DeliveryMessage {
+                state: MessageState::Writing,
+                agent: "Developer".into(),
+                head: None,
+                title: String::new(),
+                description: String::new(),
+                branch: None,
+            }),
+            asks_in: Some("s-writer".into()),
+            ..flow(FlowState::Proposed, None)
+        };
+        d.update(&writing);
+        let v = dialog_view(&d);
+        assert_eq!(
+            v.writing.as_deref(),
+            Some(
+                "Developer wants to run a command to write the title and description. Push now with these, edit \
+                 them, or wait: they fill in once you answer, unless you\u{2019}ve typed."
+            )
+        );
+        let asks = v.asks.expect("Answer in terminal");
+        assert_eq!(
+            (asks.answer, asks.session.as_str()),
+            ("Answer in terminal", "s-writer")
+        );
+
+        d.update(&PrFlowView {
+            asks_in: None,
+            ..writing
+        });
+        let v = dialog_view(&d);
+        assert!(v.writing.unwrap().starts_with("Developer is still writing"));
+        assert_eq!(v.asks, None);
+    }
+
+    /// The PR's skill waits at a permission prompt: while the dialog says Preparing or Pushing it says so, with the
+    /// command and Answer in terminal on the skill's session; not over the proposal.
+    #[test]
+    fn a_skill_waiting_for_permission_shows_while_preparing_or_pushing() {
+        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let waits = otaq_core::domain::SessionPrompt {
+            session: "s-push".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: 0,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        };
+        let preparing = PrFlowView {
+            waits: Some(waits.clone()),
+            ..flow(FlowState::Preparing, Some(481))
+        };
+        d.update(&preparing);
+        let v = dialog_view(&d).waits.expect("said while preparing");
+        assert_eq!(
+            v.line,
+            "The agent is waiting for your permission to run a command"
+        );
+        assert_eq!((v.text.as_str(), v.command), ("git push origin main", true));
+        assert_eq!(
+            (v.asks.answer, v.asks.session.as_str()),
+            ("Answer in terminal", "s-push")
+        );
+        d.update(&PrFlowView {
+            waits: Some(waits.clone()),
+            ..flow(FlowState::Pushing, Some(481))
+        });
+        assert!(dialog_view(&d).waits.is_some(), "and while pushing");
+        d.update(&PrFlowView {
+            waits: None,
+            ..flow(FlowState::Pushing, Some(481))
+        });
+        assert_eq!(dialog_view(&d).waits, None, "answered");
+    }
+
     #[test]
     fn push_to_pr_has_its_intro_and_a_locked_branch() {
         let mut t = shop18();
@@ -675,8 +823,8 @@ mod tests {
         t.status = Status::WaitingForYou;
         assert!(open_box(&t, 0).is_none(), "only while the PR is open");
     }
-    /// On a GitLab remote the built-in Open PR is refused; the toast says to name your own skill as the Delivery
-    /// stage's skill and links to that stage's Skill field in the flow editor, never to the agent's skills.
+    /// On a GitLab remote the built-in Open PR is refused; the toast says to name your own skill as the delivery's
+    /// skill and links to Edit flow's Done panel, where the PR skill is, never to the agent's skills.
     #[test]
     fn refused_open_pr_on_gitlab_links_to_the_delivery_stage_skill() {
         let gitlab = PrProvider {
@@ -688,7 +836,7 @@ mod tests {
         };
         let why = gitlab.open_pr_blocked().unwrap();
         let message = otaq_core::pr::service::own_open_pr_skill(why);
-        let toast = refused_toast("SHOP-18", message, Some(("SHOP", "done")));
+        let toast = refused_toast("SHOP-18", message, Some("SHOP"));
         assert_eq!(toast.title, "Open PR for SHOP-18 didn\u{2019}t go through");
         let text = toast.text.unwrap();
         assert!(
@@ -702,11 +850,16 @@ mod tests {
         assert_eq!(
             toast.link,
             Some(ToastLink::StageSkill {
-                label: "Set the Delivery stage\u{2019}s skill".into(),
+                label: "Set the delivery\u{2019}s PR skill".into(),
                 project: "SHOP".into(),
-                stage: "done".into(),
+                stage: None,
             })
         );
-        assert_eq!(refused_toast("SHOP-18", "Nope".into(), None).link, None);
+        // Any other refusal has no link.
+        assert_eq!(
+            refused_toast("SHOP-18", "Nope".into(), Some("SHOP")).link,
+            None
+        );
+        assert_eq!(refused_toast("SHOP-18", text, None).link, None);
     }
 }

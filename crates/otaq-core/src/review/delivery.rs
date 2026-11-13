@@ -9,7 +9,9 @@
 //!   With a check before it not passed (skipped, moved past) or none at all, the ticket records "Delivered without
 //!   checks"; a skipped or moved-past check never stops it. A base that diverged or the
 //!   user's dirty checkout stops it, turquoise, with the Local merge's message; Retry merge and Move to Review are
-//!   the user's ([`crate::board::merge`]).
+//!   the user's ([`crate::board::merge`]). A project's hook refusing the merge or a PR's commit message, or a push
+//!   that didn't land, keeps the ticket where it was (To deliver, or Review for the user's click) with Needs you and
+//!   its retry: none of them is the agent's to fix.
 //! - **Click mode** stays the user's Local merge or Open PR (0050's dialog).
 //! - **A conflict**, in either mode ([`Review::delivery_conflict`]): nothing merged; the ticket's nearest earlier
 //!   Agent stage takes it back and its session gets `restack` **without a click** (typed once its input line is
@@ -17,7 +19,7 @@
 //!   stages again. The third conflict in a row stops it there, turquoise: "Keeps conflicting with `<target>`". A
 //!   merge in between resets the count.
 //! - **A failed Merge check** (d0120, [`Review::delivery_check_failed`]): the same path, with a comment "Merge check
-//!   `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit again." holding the output as
+//!   `npm test` failed on the result with main merged in (exit 1). Fix it, then submit again." holding the output as
 //!   its report (d0109): "Merge check failed · fixing". It counts toward the same three in a row; when the third is a
 //!   failed check the stop says "Merge check keeps failing on `<target>`".
 //! - **Send back with PR comments** ([`Review::send_back_pr`]): a card whose PR is open goes back to its nearest
@@ -63,7 +65,7 @@ pub enum Delivered {
     /// The PR Delivery's agent was started with its skill, no dialog.
     PrStarted,
     /// Left waiting in the Delivery for the user's click: uncommitted files in the worktree (never auto-fixed),
-    /// the user stopped the Merge check, or the PR couldn't start.
+    /// the user stopped the Merge check or another git step, or the PR couldn't start.
     Left,
     /// Not an automatic Delivery: the ticket isn't waiting in one, or its Delivery is click mode.
     NotAutomatic,
@@ -93,7 +95,13 @@ pub async fn run_automatic(
         Delivers::Pr => match prs.open_automatically(&key, now.without_checks).await {
             Ok(()) => Ok(Delivered::PrStarted),
             Err(e) => {
-                // Left for the user's Open PR click, with the reason in the log (the card offers the click).
+                // Left for the user's click. With no PR provider for the remote the card says so and offers Set up…
+                // (delivery problems say what to do); any other reason is in the log and the card offers the click.
+                if e.refusal() == Some(crate::board::Refusal::NotAllowed)
+                    && e.to_string().contains(crate::pr::provider::NO_PROVIDER)
+                {
+                    board.mark_no_pr_provider(&ticket.id, true).await?;
+                }
                 tracing::warn!(ticket = %ticket.key, error = %e, "the automatic PR didn't start");
                 Ok(Delivered::Left)
             }
@@ -114,7 +122,10 @@ impl Review {
         let proposal = board.merge_proposal(key).await?;
         let actor = Actor::current_user();
         let ticket = board.ticket(key).await?;
-        let Merge { outcome, failed } = self.merge(key, &proposal.message, true, &actor).await?;
+        // The user's kept edit of the message, once they made one (after a hook refused the proposal, say), else the
+        // proposal.
+        let message = proposal.edited.as_deref().unwrap_or(&proposal.message);
+        let Merge { outcome, failed } = self.merge(key, message, true, &actor).await?;
         if let Some(failed) = failed {
             return self.delivery_check_failed(&ticket, &failed, &actor).await;
         }
@@ -122,6 +133,7 @@ impl Review {
             LocalMergeOutcome::Merged {
                 ticket: merged,
                 started,
+                hook_changed,
                 ..
             } => {
                 board
@@ -136,14 +148,19 @@ impl Review {
                         .map_or(ticket.validation_round, |e| e.round)
                 });
                 let started: Vec<String> = started.iter().map(ToString::to_string).collect();
-                let (title, message) =
+                let (title, mut message) =
                     merged_toast(&ticket.key.to_string(), &into, round, &started);
+                // A hook changed what landed: said as Approve & merge says it, with Show changes.
+                if let Some(changes) = &hook_changed {
+                    message.push_str(&format!(" \u{b7} {}", changes.sentence()));
+                }
                 Delivered::Merged {
                     toast: Box::new(Event::MergedAutomatically {
                         project: ticket.key.project.to_string(),
                         key: ticket.key.clone(),
                         title,
                         message,
+                        hook_changed,
                     }),
                 }
             }
@@ -170,17 +187,20 @@ impl Review {
                     .await?;
                 Delivered::Stopped(AutoMergeStop::DeliveryFailed)
             }
+            // Stopped already, waiting To deliver with the refusal on it, as after the user's click.
+            LocalMergeOutcome::HookRefused { .. } => Delivered::Stopped(AutoMergeStop::HookRefused),
             LocalMergeOutcome::RefusedUncommitted { message, .. } => {
                 tracing::warn!(ticket = %ticket.key, %message, "not merged automatically");
                 Delivered::Left
             }
             LocalMergeOutcome::Changed { .. }
             | LocalMergeOutcome::CheckStopped { .. }
+            | LocalMergeOutcome::Stopped { .. }
             | LocalMergeOutcome::CheckFailed { .. } => Delivered::Left,
         })
     }
 
-    /// A Delivery's rebase conflicted with `target` (FLW-17), in either mode: the nearest earlier Agent stage's
+    /// Merging `target` into the branch for a Delivery conflicted (FLW-17), in either mode: the nearest earlier Agent stage's
     /// session fixes it with `restack`, no click; the third conflict in a row stops it, turquoise.
     pub(crate) async fn delivery_conflict(
         &self,
@@ -192,7 +212,7 @@ impl Review {
     }
 
     /// The Merge check failed on the merged result (d0120), in either mode: as a conflict ([`Self::delivery_conflict`])
-    /// with the comment "Merge check `npm test` failed on the result rebased onto main (exit 1). Fix it, then submit
+    /// with the comment "Merge check `npm test` failed on the result with main merged in (exit 1). Fix it, then submit
     /// again." and the output as its report (d0109), posted as the user's (the click or the flow is their go-ahead).
     pub(crate) async fn delivery_check_failed(
         &self,
@@ -272,6 +292,7 @@ impl Review {
         let skill = super::RESTACK_SKILL;
         let full = self.limit_full().await?;
         let live = inner.sessions.running_of(&ticket.id, SessionKind::Agent);
+        let back_at_work = live.is_some() && !full;
         match (&live, full) {
             (Some(session), false) => {
                 // A build freed at Review comes back first (M19-c); a queued or resumed ticket gets it at its start.
@@ -316,7 +337,34 @@ impl Review {
         }
         inner.board.count_delivery_conflict(&ticket.id).await?;
         tracing::info!(ticket = %ticket.key, %target, merge_check = check.is_some(), "conflict handed to the agent");
+        // The ticket is out of Review in a session that keeps running: a prompt Review kept calm there (the message
+        // writer's, still waiting) reads Needs you now, and the restack waits behind it until the user answers it.
+        if back_at_work {
+            let back = super::finish::FinishedTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+                status: Status::MergeConflictFixing,
+            };
+            let hooks = inner
+                .back_at_work_hooks
+                .lock()
+                .expect("back at work hooks")
+                .clone();
+            for hook in hooks {
+                hook(&back).await;
+            }
+        }
         Ok(())
+    }
+
+    /// Registers a hook run when a conflict or a failed Merge check sent the ticket back to its agent's running
+    /// session to be fixed.
+    pub fn on_back_at_work(&self, hook: super::finish::FinishedHook) {
+        self.inner
+            .back_at_work_hooks
+            .lock()
+            .expect("back at work hooks")
+            .push(hook);
     }
 
     /// **Send back with PR comments** (FLW-16): a ticket whose PR is open goes back to its nearest earlier Agent

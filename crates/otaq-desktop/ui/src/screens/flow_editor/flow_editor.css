@@ -25,7 +25,7 @@
 
 .fe-details {
   display: flex;
-  flex: 1;
+  flex: none;
   flex-direction: column;
   gap: 10px;
   min-width: 0;
@@ -214,6 +214,11 @@
   flex-direction: column;
   gap: 6px;
   min-width: 0;
+}
+
+/* "Pick one, or Ask the agent to write it." under a missing skill: links inside the sentence, at its size. */
+.fe-skill-fix .fe-link {
+  font-size: inherit;
 }
 
 .fe-fix-line {

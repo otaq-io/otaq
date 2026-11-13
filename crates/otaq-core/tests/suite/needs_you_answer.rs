@@ -63,7 +63,8 @@ async fn asks(w: &TestService, ticket: &Ticket, session: &str, options: &[&str])
             "Which email provider should I use?",
             &options,
             &[],
-            (!options.is_empty()).then_some(1),
+            if options.is_empty() { &[] } else { &[1] },
+            false,
         )
         .await
         .unwrap();
@@ -188,6 +189,135 @@ async fn an_answer_is_typed_into_the_session_and_clears_the_item() {
             .refusal(),
         Some(Refusal::BadQuestion)
     );
+    w.sessions.stop(&session).await.unwrap();
+    w.stop().await;
+}
+
+/// A question that takes several answers: two options and Other… ticked are typed as one answer naming each, and the
+/// ticket's Messages log it the same. A question stored before several answers existed still takes one pick.
+#[tokio::test(flavor = "multi_thread")]
+async fn several_answers_are_typed_and_logged_together() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    let t = w.create("SHOP", "Order confirmation email").await;
+    w.force_status(&t, Status::Working).await;
+    let session = cat_agent(&w, &t).await;
+    let agent = Caller::Agent {
+        ticket: t.key.clone(),
+        ticket_id: t.id.clone(),
+        session: session.clone(),
+    };
+    let question = "Which email providers should the fallback chain use?";
+    let stored = w
+        .board
+        .store_question(
+            &t.id,
+            question,
+            &["Postmark".into(), "SES".into(), "Resend".into()],
+            &[],
+            &[3, 1],
+            true,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (stored.recommended.clone(), stored.multiple),
+        (vec![1, 3], true)
+    );
+    w.signals.ask_human(&agent, &t.id, question).await.unwrap();
+    let open = w.board.open_question(&t.id).await.unwrap().unwrap();
+    assert_eq!((open.recommended, open.multiple), (vec![1, 3], true));
+
+    // An option that isn't there is refused, and so is ticking nothing.
+    for nothing in [
+        Choice::Several {
+            options: vec![1, 4],
+            other: None,
+        },
+        Choice::Several {
+            options: Vec::new(),
+            other: None,
+        },
+    ] {
+        assert!(
+            w.needs_you
+                .answer("SHOP-1", &nothing, false, &me())
+                .await
+                .is_err()
+        );
+    }
+    let typed =
+        "Answer to your question: Postmark (option 1), SES (option 2). Also: Mailgun for receipts";
+    assert_eq!(
+        w.needs_you
+            .answer(
+                "SHOP-1",
+                &Choice::Several {
+                    options: vec![1, 2],
+                    other: Some(" Mailgun for receipts ".into()),
+                },
+                false,
+                &me()
+            )
+            .await
+            .unwrap(),
+        Delivery::Sent { count: 1 }
+    );
+    w.wait_for_output(&session, typed).await;
+    let logged = w.board.answered_human_questions(&t.id).await.unwrap();
+    assert_eq!(
+        logged
+            .iter()
+            .map(|a| (a.question.as_str(), a.answer.as_str()))
+            .collect::<Vec<_>>(),
+        [(question, typed)]
+    );
+
+    // A question stored before: no `multiple`, one recommended option. It reads as one answer and takes one pick.
+    sqlx::query(
+        "INSERT INTO human_questions (id, ticket_id, question, options_json, recommended, asked_at)
+         VALUES ('old', ?, 'Which one?', '[\"Postmark\",\"SES\"]', 2, ?)",
+    )
+    .bind(&t.id)
+    .bind(now_ms())
+    .execute(w.board.store().pool())
+    .await
+    .unwrap();
+    w.signals
+        .ask_human(&agent, &t.id, "Which one?")
+        .await
+        .unwrap();
+    let old = w.board.open_question(&t.id).await.unwrap().unwrap();
+    assert_eq!(
+        (old.id.as_str(), old.recommended.clone(), old.multiple),
+        ("old", vec![2], false)
+    );
+    assert_eq!(
+        w.needs_you
+            .answer(
+                "SHOP-1",
+                &Choice::Several {
+                    options: vec![1, 2],
+                    other: None
+                },
+                false,
+                &me()
+            )
+            .await
+            .unwrap_err()
+            .refusal(),
+        Some(Refusal::BadQuestion),
+        "one answer only"
+    );
+    assert_eq!(
+        w.needs_you
+            .answer("SHOP-1", &Choice::Option(2), false, &me())
+            .await
+            .unwrap(),
+        Delivery::Sent { count: 1 }
+    );
+    w.wait_for_output(&session, "Answer to your question: SES (option 2).")
+        .await;
     w.sessions.stop(&session).await.unwrap();
     w.stop().await;
 }

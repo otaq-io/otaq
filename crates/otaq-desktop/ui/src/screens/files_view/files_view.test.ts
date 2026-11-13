@@ -312,7 +312,7 @@ const PRICING: FilesViewFile = {
   new_ticket_body: "`src/lib/pricing.ts`\n\n",
   copy_path: "Copy path",
   same_file: [
-    "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58). Whichever merges second will rebase on the other.",
+    "SHOP-19 and SHOP-29 both edit applyDiscount (lines 41–58). Whichever merges second will merge the other in first.",
   ],
   other_base: null,
   huge: null,

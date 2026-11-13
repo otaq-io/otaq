@@ -1,7 +1,7 @@
 // The page's side of the service link (T-0211): one event stream shared by every screen, a view that loads once and
 // refetches on named events, and the connection state. Screens use the hooks; the plain functions under them hold the
 // logic and are what the tests drive.
-import { useEffect, useState } from "react";
+import { type Dispatch, type SetStateAction, useEffect, useState } from "react";
 
 import type { PageEvent } from "./generated/PageEvent";
 import type { RequestError } from "./generated/RequestError";
@@ -54,7 +54,11 @@ export interface ViewState<T> {
 
 /**
  * Loads a view once the event stream is open, then again on each event named in `refetchOn` (the service's event
- * kinds, e.g. `ticket_changed`) and on every resync. Only the newest load's answer is shown. Returns the stop.
+ * kinds, e.g. `ticket_changed`) and on every resync. One load at a time: events that come while one is out ask for
+ * one more load once it answers, and every answer is shown. (Dropping an answer because a newer load had started
+ * starved a view while events kept coming: every view's loads wait in line on the one link to the service, so a
+ * working agent's stream of events kept the board's card a step behind the sheet's pill, or the pill behind the
+ * card, for seconds.) Returns the stop.
  */
 export function watchView<T>(
   load: () => Promise<T>,
@@ -63,19 +67,34 @@ export function watchView<T>(
   events: PageEvents = pageEvents,
 ): () => void {
   let stopped = false;
-  let newest = 0;
+  let loading = false;
+  let again = false;
   let view: T | undefined;
   const fetch = () => {
-    const mine = ++newest;
-    const current = () => !stopped && mine === newest;
+    if (stopped) return;
+    if (loading) {
+      again = true;
+      return;
+    }
+    loading = true;
+    const done = () => {
+      loading = false;
+      if (again) {
+        again = false;
+        fetch();
+      }
+    };
     load().then(
       (loaded) => {
-        if (!current()) return;
+        if (stopped) return;
         view = loaded;
         onChange({ view });
+        done();
       },
       (error: unknown) => {
-        if (current()) onChange({ view, error: asRequestError(error) });
+        if (stopped) return;
+        onChange({ view, error: asRequestError(error) });
+        done();
       },
     );
   };
@@ -129,6 +148,21 @@ export function useServiceView<T>(load: () => Promise<T>, refetchOn: readonly st
   const names = refetchOn.join(" ");
   useEffect(() => watchView(load, names.split(" "), setState), [load, names]);
   return state;
+}
+
+/**
+ * Bumps `tick` every second while `on`: a view that shows a time in seconds (a running hook's) loads again with it.
+ */
+export function useEverySecond(on: boolean, tick: Dispatch<SetStateAction<number>>): void {
+  useEffect(() => {
+    if (!on) return;
+    const timer = setInterval(() => {
+      tick((t) => t + 1);
+    }, 1_000);
+    return () => {
+      clearInterval(timer);
+    };
+  }, [on, tick]);
 }
 
 /** The link to the service; `undefined` until its state is known. */

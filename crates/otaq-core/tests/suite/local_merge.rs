@@ -5,9 +5,10 @@ use std::path::{Path, PathBuf};
 
 use otaq_core::board::projects::AddProject;
 use otaq_core::board::tickets::{EventKind, Ticket};
-use otaq_core::domain::{Actor, RemoteWarning, Status, WentOn};
+use otaq_core::domain::{Actor, AutoMergeStop, RemoteWarning, Status, WentOn};
 use otaq_core::flow::Delivers;
 use otaq_core::flow::default::testing::delivering;
+use otaq_core::git::GitStep;
 use otaq_core::git::testing::{commit, git, snapshot};
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::service::testing::TestService;
@@ -54,7 +55,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
         .await
         .unwrap();
     w.force_status(&waiting, Status::Queued).await;
-    // main moved on after the ticket left it: the free rebase takes care of it.
+    // main moved on after the ticket left it: merging it into the branch takes care of it.
     commit(&repo, "other.ts", "other\n");
     let old_main = git(&repo, &["rev-parse", "main"]);
 
@@ -77,10 +78,13 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
         target,
         commit,
         started,
+        hook_changed,
     } = outcome
     else {
         panic!("expected merged, got {outcome:?}");
     };
+    // No hook changed anything: nothing extra.
+    assert_eq!(hook_changed, None);
     assert_eq!(target, "main");
     assert_eq!(ticket.status, Status::Merged);
     assert_eq!(started, ["SHOP-2".parse().unwrap()]);
@@ -108,7 +112,7 @@ async fn a_clean_merge_squashes_into_main_and_fast_forwards_the_clean_checkout()
     assert_eq!(
         row.base_sha.as_deref(),
         Some(old_main.as_str()),
-        "rebased onto it"
+        "main merged into the branch"
     );
     // The Done ticket's diff is still its own change.
     let diff = w.board.diff_summary("SHOP-1").await.unwrap();
@@ -175,7 +179,7 @@ async fn uncommitted_files_in_the_ticket_are_refused() {
 }
 
 #[tokio::test]
-async fn a_rebase_conflict_merges_nothing() {
+async fn a_conflict_merging_main_in_merges_nothing() {
     let w = TestService::start().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -511,4 +515,376 @@ async fn saving_a_git_identity_refuses_what_git_cant_use() {
         assert_eq!(err.to_string(), why);
     }
     assert_eq!(std::fs::read_to_string(&global).unwrap(), "");
+}
+
+/// A hook script in the repository's `.git/hooks` (shared by its worktrees and Otaq's scratch worktree).
+fn hook(repo: &Path, name: &str, body: &str) {
+    let path = repo.join(".git/hooks").join(name);
+    std::fs::write(&path, format!("#!/bin/sh\n{body}\n")).unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&path, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
+/// A team that forbids rebasing: with main moved on, Approve & merge merges main into the branch (git's plain
+/// message, the hooks running on it) and lands one squash commit; the pre-rebase hook never runs.
+#[tokio::test]
+async fn a_refusing_pre_rebase_hook_never_stops_approve_and_merge() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    commit(&repo, "other.ts", "other\n");
+    let old_main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let log = w.repos.root().join("hooks.log");
+    hook(
+        &repo,
+        "pre-rebase",
+        &format!(
+            "echo pre-rebase >> '{}'\necho 'merge instead' >&2\nexit 1",
+            log.display()
+        ),
+    );
+    for name in ["pre-merge-commit", "commit-msg"] {
+        hook(&repo, name, &format!("echo {name} >> '{}'", log.display()));
+    }
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(outcome, LocalMergeOutcome::Merged { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(
+        git(&repo, &["rev-parse", "main~1"]),
+        old_main,
+        "one squash commit"
+    );
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%B", "main"]),
+        "SHOP-1: Checkout API"
+    );
+    let branch = otaq_core::naming::branch("SHOP-1");
+    assert_eq!(git(&repo, &["rev-parse", &format!("{branch}^1")]), head);
+    assert_eq!(git(&repo, &["rev-parse", &format!("{branch}^2")]), old_main);
+    assert_eq!(
+        git(&repo, &["log", "-1", "--format=%s", &branch]),
+        format!("Merge branch 'main' into {branch}")
+    );
+    let ran = std::fs::read_to_string(&log).unwrap();
+    assert!(!ran.contains("pre-rebase"), "pre-rebase never ran: {ran}");
+    assert!(
+        ran.contains("pre-merge-commit"),
+        "the merge commit runs the hooks: {ran}"
+    );
+    no_stash(&repo);
+    w.stop().await;
+}
+
+/// A hook that refuses the merge commit on the branch is a refusal like any other: nothing merged, main, the branch
+/// and the worktree as they were, the refusal on the ticket.
+#[tokio::test]
+async fn a_hook_refusing_the_merge_of_main_into_the_branch_changes_nothing() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    commit(&repo, "other.ts", "other\n");
+    let main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    hook(
+        &repo,
+        "commit-msg",
+        "grep -q '^SHOP-' \"$1\" || { echo 'messages start with the ticket key' >&2; exit 1; }",
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::HookRefused { hook, step, .. } = outcome else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(hook, "commit-msg");
+    assert_eq!(step, Some(GitStep::UpdateBranch));
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    let refused = ticket.flags.hook_refusal.clone().unwrap();
+    assert!(
+        refused
+            .output
+            .contains("messages start with the ticket key"),
+        "{refused:?}"
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD"]),
+        head,
+        "the branch unchanged"
+    );
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+    let merge_head = git(&wt, &["rev-parse", "--git-path", "MERGE_HEAD"]);
+    assert!(!wt.join(merge_head).exists(), "no merge left in progress");
+    // Still in Review: a refusal isn't the agent's work going wrong.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    no_stash(&repo);
+    w.stop().await;
+}
+
+/// A hook that refuses Approve & merge's squash commit (the user's click, the dialog since closed): the refusal is on
+/// the ticket, not only in a toast. The ticket stays in Review with "commit-msg hook refused the merge" (the card's
+/// Needs you, in Needs you's turquoise group), the hook's whole output is kept for the sheet, History lists it with
+/// that output, and main, the branch and the worktree are as they were. Edited to pass, the merge goes through from
+/// Review and the refusal goes.
+#[tokio::test]
+async fn a_hook_refusing_approve_and_merge_shows_on_the_ticket() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Checkout API", "api.ts", "api\n").await;
+    let main = git(&repo, &["rev-parse", "main"]);
+    let head = git(&wt, &["rev-parse", "HEAD"]);
+    let user = user_files(&repo);
+    hook(
+        &repo,
+        "commit-msg",
+        "grep -q '^feat: ' \"$1\" && exit 0\n\
+         echo 'commitlint: subject may not be empty' >&2\n\
+         echo 'commitlint: type must be one of [feat, fix]' >&2\n\
+         exit 1",
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Checkout API", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::HookRefused {
+        hook: name,
+        step,
+        message,
+    } = outcome
+    else {
+        panic!("{outcome:?}");
+    };
+    assert_eq!(name, "commit-msg");
+    assert_eq!(step, Some(GitStep::Commit));
+    assert_eq!(message, "commit-msg hook refused the merge");
+
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    // Kept in Review, where the user approved it: not moved back to the agent's stage.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(ticket.auto_merge_stop, Some(AutoMergeStop::HookRefused));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    assert!(ticket.shows_needs_you(), "Needs you");
+    let items = w
+        .board
+        .needs_you_items(otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.key == ticket.key)
+        .expect("in Needs you");
+    assert_eq!(
+        item.group,
+        otaq_core::board::needs_you::NeedsYouGroup::Family
+    );
+    assert_eq!(item.status, Status::DeliveryStopped);
+    assert!(
+        item.reason.contains("commit-msg hook refused the merge"),
+        "{}",
+        item.reason
+    );
+    assert_eq!(
+        ticket.signal.and_then(|s| s.text).as_deref(),
+        Some("commit-msg hook refused the merge")
+    );
+    let refused = ticket.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.name, "commit-msg");
+    assert_eq!(refused.what, "the merge");
+    assert!(
+        refused.output.contains(
+            "commitlint: subject may not be empty\ncommitlint: type must be one of [feat, fix]"
+        ),
+        "the hook's whole output: {:?}",
+        refused.output
+    );
+    let events = w.board.history("SHOP-1").await.unwrap();
+    let logged = events
+        .iter()
+        .find(|e| e.kind == EventKind::HookRefused)
+        .expect("History lists it");
+    assert!(
+        logged.payload["hook"]["output"]
+            .as_str()
+            .is_some_and(|o| o.contains("type must be one of")),
+        "{:?}",
+        logged.payload
+    );
+    assert_eq!(git(&repo, &["rev-parse", "main"]), main, "main unchanged");
+    assert_eq!(
+        git(&wt, &["rev-parse", "HEAD"]),
+        head,
+        "the branch unchanged"
+    );
+    assert_eq!(
+        git(&wt, &["status", "--porcelain"]),
+        "",
+        "the worktree clean"
+    );
+    assert_eq!(user_files(&repo), user, "the user's checkout unchanged");
+    no_stash(&repo);
+
+    // Edit the message and retry, from Review.
+    let merged = w
+        .review
+        .local_merge("SHOP-1", "feat: checkout API (SHOP-1)", false, &me())
+        .await
+        .unwrap();
+    assert!(
+        matches!(merged, LocalMergeOutcome::Merged { .. }),
+        "{merged:?}"
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::Merged);
+    assert_eq!(ticket.flags.hook_refusal, None, "the refusal went");
+    w.stop().await;
+}
+
+/// A formatter's pre-commit adds a header to each staged `.js` of the squash commit: it lands as the hook left it,
+/// the outcome and History say "Your pre-commit hook changed 2 files", and Show changes is the hook's two lines.
+#[tokio::test]
+async fn a_hooks_changes_to_the_landing_commit_land_and_are_said() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    let (_, wt) = reviewed(&w, "Calc", "calc.js", "add\n").await;
+    commit(&wt, "util.js", "util\n");
+    hook(
+        &repo,
+        "pre-commit",
+        r#"for f in $(git diff --cached --name-only --diff-filter=ACM -- '*.js'); do
+  { echo '// formatted'; cat "$f"; } > "$f.tmp" && mv "$f.tmp" "$f"
+  git add "$f"
+done"#,
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged {
+        commit: landed,
+        hook_changed: Some(changes),
+        ..
+    } = outcome
+    else {
+        panic!("expected merged with a hook's changes, got {outcome:?}");
+    };
+    assert_eq!(changes.sentence(), "Your pre-commit hook changed 2 files");
+    assert_eq!(git(&repo, &["show", "main:util.js"]), "// formatted\nutil");
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let merged = history
+        .iter()
+        .find(|e| e.kind == EventKind::Merged)
+        .unwrap();
+    assert_eq!(
+        merged.payload["hook_changed"],
+        serde_json::to_value(&changes).unwrap()
+    );
+    // Show changes: each file's difference between what was reviewed and what landed.
+    for file in &changes.files {
+        let diff = w
+            .board
+            .diff_file_between("SHOP-1", file, &changes.reviewed, &landed)
+            .await
+            .unwrap();
+        let lines: Vec<_> = diff.hunks.iter().flat_map(|h| &h.lines).collect();
+        let added: Vec<&str> = lines
+            .iter()
+            .filter(|l| l.kind == otaq_core::git::diff::LineKind::Added)
+            .map(|l| l.text.as_str())
+            .collect();
+        assert_eq!(added, ["// formatted"], "{file}");
+        assert!(
+            !lines
+                .iter()
+                .any(|l| l.kind == otaq_core::git::diff::LineKind::Removed)
+        );
+    }
+    // Only commit ids are taken.
+    assert!(
+        w.board
+            .diff_file_between("SHOP-1", "calc.js", "--output=x", &landed)
+            .await
+            .is_err()
+    );
+    w.stop().await;
+}
+
+/// The user's post-merge hook runs in their own folder when main moves there. Failing, it changes nothing: the ticket
+/// is merged, and History keeps the hook's output on a line after the Merged one.
+#[tokio::test]
+async fn a_failing_post_merge_hook_leaves_the_ticket_merged_with_its_output_in_history() {
+    let w = TestService::start().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    reviewed(&w, "Calc", "calc.js", "add\n").await;
+    // It fails only in the user's folder, where main is checked out (the squash runs it in Otaq's scratch worktree).
+    hook(
+        &repo,
+        "post-merge",
+        "[ \"$(git rev-parse --abbrev-ref HEAD)\" = main ] || exit 0\necho 'npm install: 3 packages'\necho 'npm ERR! EACCES' >&2\nexit 1",
+    );
+
+    let outcome = w
+        .review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let LocalMergeOutcome::Merged { commit: landed, .. } = outcome else {
+        panic!("expected merged, got {outcome:?}");
+    };
+    assert_eq!(git(&repo, &["rev-parse", "main"]), landed);
+    assert_eq!(w.status("SHOP-1").await, Status::Merged);
+    let history = w.board.history("SHOP-1").await.unwrap();
+    let ran = history
+        .iter()
+        .find(|e| e.kind == EventKind::PostMergeHook)
+        .expect("the post-merge hook's line");
+    assert_eq!(ran.payload["target"], "main");
+    let hook: otaq_core::git::merge::PostMergeHook =
+        serde_json::from_value(ran.payload["hook"].clone()).unwrap();
+    assert_eq!(hook.exit, Some(1));
+    assert_eq!(hook.output, "npm install: 3 packages\nnpm ERR! EACCES");
+    assert!(hook.folder.ends_with("shop-web"), "{}", hook.folder);
+    w.stop().await;
+}
+
+/// Without a post-merge hook nothing extra is recorded.
+#[tokio::test]
+async fn without_a_post_merge_hook_history_has_no_line_for_it() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    reviewed(&w, "Calc", "calc.js", "add\n").await;
+    w.review
+        .local_merge("SHOP-1", "SHOP-1: Calc", false, &me())
+        .await
+        .unwrap();
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::Merged));
+    assert!(!history.iter().any(|e| e.kind == EventKind::PostMergeHook));
+    w.stop().await;
 }

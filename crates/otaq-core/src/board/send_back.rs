@@ -317,7 +317,7 @@ pub(crate) async fn return_to_dev(
                             queued_at = CASE WHEN ? THEN ? ELSE queued_at END,
                             last_signal_at = CASE WHEN ? THEN ? ELSE last_signal_at END,
                             signal_text = NULL, signal_since = NULL, wakeup_at = NULL,
-                            review_entry = NULL,
+                            review_entry = NULL, auto_merge_stop = NULL, hook_refusal = NULL,
                             updated_by = ?, updated_at = ?, ",
         set_state_since!(),
         " WHERE id = ?"
@@ -336,8 +336,7 @@ pub(crate) async fn return_to_dev(
     .bind(&ticket.id)
     .execute(&mut **tx)
     .await?;
-    // A human Fail: every agent check's counter restarts at 0 (FLW-13).
-    super::validation::reset_check_counters(tx, &ticket.id).await?;
+    went_back(tx, &ticket.id).await?;
     record_event(
         tx,
         &ticket.id,
@@ -346,6 +345,18 @@ pub(crate) async fn return_to_dev(
         json!({ "from": ticket.status, "to": to }),
     )
     .await
+}
+
+/// What every move back to an earlier stage writes, inside its transaction (a human check's Send back, a drag back,
+/// an accepted send-back question, a delivery's conflict sent to be fixed): every agent check's counter restarts at
+/// 0, as after a human Fail (FLW-13), and its agent's open question for the user closes, since the stage that asked
+/// is left behind ([`super::questions::close_on_send_back`]).
+pub(crate) async fn went_back(
+    tx: &mut sqlx::Transaction<'_, sqlx::Sqlite>,
+    ticket_id: &str,
+) -> Result<(), BoardError> {
+    super::validation::reset_check_counters(tx, ticket_id).await?;
+    super::questions::close_on_send_back(tx, ticket_id).await
 }
 
 impl Board {

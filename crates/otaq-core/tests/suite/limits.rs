@@ -378,3 +378,65 @@ async fn wait_for(w: &otaq_core::service::testing::TestService, key: &str, statu
     .await
     .unwrap_or_else(|_| panic!("{key} never reached {status}"));
 }
+
+/// "2nd in line" counts the queue the agent limit takes from, which is every project's: a ticket waiting in
+/// billing-api behind one waiting in shop-web is 2nd, and shop-web's next one 3rd.
+#[tokio::test]
+async fn the_place_in_line_counts_every_projects_waiting_tickets() {
+    let f = Fixture::shop().await;
+    f.add_project("billing-api").await;
+    let recorder = Arc::new(Recorder::default());
+    let scheduler = Scheduler::new(
+        f.board.clone(),
+        recorder.clone(),
+        EventBus::new(16),
+        Duration::from_secs(3600),
+    );
+    limits(
+        &f,
+        AgentLimits {
+            enabled: true,
+            max_concurrency: 1,
+            back_pressure: 3,
+        },
+    )
+    .await;
+    queued(&f, "a").await;
+    scheduler.pass().await.unwrap();
+    set(&f, "SHOP-1", Status::Working).await;
+    queued(&f, "b").await;
+    scheduler.pass().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    let bill = f
+        .create_with(NewTicketInput {
+            project: "BILL".into(),
+            title: "VAT rounding fix".into(),
+            ..Default::default()
+        })
+        .await;
+    f.board
+        .move_ticket(&bill.key.to_string(), DropTarget::ReadyForDev, false, &me())
+        .await
+        .unwrap();
+    scheduler.pass().await.unwrap();
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    queued(&f, "c").await;
+    scheduler.pass().await.unwrap();
+    assert_eq!(*recorder.0.lock().unwrap(), ["SHOP-1"]);
+    for (key, place) in [
+        ("SHOP-2", Some(1)),
+        ("BILL-1", Some(2)),
+        ("SHOP-3", Some(3)),
+        ("SHOP-1", None),
+    ] {
+        assert_eq!(f.ticket(key).await.flags.in_line, place, "{key}");
+    }
+    // The board reads the same places.
+    let board = f.board.board_snapshot("SHOP").await.unwrap();
+    let places: Vec<(String, Option<u32>)> = board
+        .tickets()
+        .filter(|t| t.status == Status::WaitingForSlot)
+        .map(|t| (t.key.to_string(), t.flags.in_line))
+        .collect();
+    assert!(places.contains(&("SHOP-3".into(), Some(3))), "{places:?}");
+}

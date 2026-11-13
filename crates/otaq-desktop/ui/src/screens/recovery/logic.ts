@@ -39,5 +39,13 @@ export function setUnchecked(
   return next;
 }
 
+/**
+ * Whether the after-restart dialog closes once its Resume answered: every row it asked for resumed, so nothing is
+ * left for it to show (the rows not ticked wait in Needs you). One that couldn't resume keeps it open on its Retry.
+ */
+export function closesAfterResume(asked: number, resumed: unknown): boolean {
+  return asked > 0 && resumed === asked;
+}
+
 /** Bumped after each Cleanup scan, so the rail's broom asks for its count again. */
 export const cleanupScans: Store<number> = createStore(0);

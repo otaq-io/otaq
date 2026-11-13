@@ -28,6 +28,7 @@ use ts_rs::TS;
 
 use crate::view_models::card::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
 use crate::view_models::clock;
+use crate::view_models::review_page::{HookChangesView, hook_changes_view};
 use crate::view_models::stage_choices::{self, HistoryLine};
 use crate::view_models::ticket_comments::{self as comments, AttachmentChip, Mark, Thumbnail};
 use crate::view_models::tool_problems::tool_word;
@@ -260,6 +261,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::SentBack
         | EventKind::SentBackWithPrComments
         | EventKind::Merged
+        | EventKind::PostMergeHook
         | EventKind::DoneWithoutMerge
         | EventKind::MergedAutomatically
         | EventKind::MergedInto
@@ -276,6 +278,7 @@ fn kind_of(kind: EventKind) -> Kind {
         | EventKind::PrCancelled
         | EventKind::PrOpened
         | EventKind::AutoMergeStopped
+        | EventKind::HookRefused
         | EventKind::Helper => Kind::Stage,
         _ => Kind::Other,
     }
@@ -305,6 +308,8 @@ pub struct HistoryRow {
     pub mark: Mark,
     /// What the row opens: a before / after, or what a comment said.
     pub opens: Option<Opens>,
+    /// A merge whose landing commit a hook changed: the row's Show changes.
+    pub hook_changes: Option<HookChangesView>,
     /// Activity's filter it shows under.
     pub kind: Kind,
     /// An agent session's start: its quiet row's words, "Session · Dev · Strong" ([`one_row_per_session`] makes it
@@ -462,6 +467,7 @@ pub fn rows_with_rounds(
             session: None,
             mark: comments::agent_mark(tool, facts.avatars),
             opens: None,
+            hook_changes: None,
             kind: Kind::Check,
             quiet: None,
             ended: None,
@@ -551,6 +557,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         session: Some(s.id.clone()),
         mark: mark.clone(),
         opens: None,
+        hook_changes: None,
         kind,
         quiet,
         ended: s.ended_at,
@@ -1055,6 +1062,7 @@ fn told(
         session: None,
         mark,
         opens: Some(opens),
+        hook_changes: None,
         kind,
         quiet: None,
         ended: None,
@@ -1263,6 +1271,96 @@ fn comment_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     }
 }
 
+/// A start a hook refused: "Start failed" · "post-checkout hook refused the start", opening the hook's whole output,
+/// kept after the worktree it ran in is gone. `None` for any other event.
+fn refused_hook_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    // A start, Approve & merge (the click or the automatic delivery) or a PR's commit message: the same row, its
+    // title naming what stopped.
+    if !matches!(e.kind, EventKind::StartInterrupted | EventKind::HookRefused) {
+        return None;
+    }
+    let hook: otaq_core::git::RefusedHook =
+        serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
+    let title = match e.kind {
+        EventKind::StartInterrupted => "Start failed",
+        _ if hook.step == Some(otaq_core::git::GitStep::Reword) => "PR didn\u{2019}t go through",
+        _ => "Merge didn\u{2019}t go through",
+    };
+    let output = super::sheet::hook_output(&hook);
+    Some(told(
+        e,
+        title.to_owned(),
+        Some(hook.line()),
+        event_mark(e, facts),
+        hook_output_opens(
+            &output.label,
+            // The message it refused, when it checked a PR's.
+            hook.message
+                .as_deref()
+                .map(|m| format!("The message it refused: \u{201c}{}\u{201d}", m.trim())),
+            output.note.as_deref(),
+            &output.output,
+        ),
+        kind_of(e.kind),
+    ))
+}
+
+/// What a hook's row opens: "OUTPUT OF YOUR POST-MERGE HOOK" and its output, line by line. A sentence above the
+/// output (a hook that asks in the terminal) comes first, set apart by an empty line.
+fn hook_output_opens(
+    label: &str,
+    caption: Option<String>,
+    note: Option<&str>,
+    output: &str,
+) -> Opens {
+    Opens {
+        label: label.to_uppercase(),
+        caption,
+        lines: note
+            .into_iter()
+            .flat_map(|note| [note, ""])
+            .chain(output.lines())
+            .map(|line| DiffLine {
+                kind: LineKind::Same,
+                sign: String::new(),
+                text: line.to_owned(),
+            })
+            .collect(),
+        thumbnails: Vec::new(),
+        attachments: Vec::new(),
+    }
+}
+
+/// The user's post-merge hook that ran in their own folder as a merge moved the target there: "Your post-merge hook
+/// ran in ~/shop-web" (or "failed in ~/shop-web (exit 1)") · the last line it printed, opening its whole output.
+/// Passed or failed it is only told: the merge had landed. `None` for any other event.
+fn post_merge_row(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
+    if e.kind != EventKind::PostMergeHook {
+        return None;
+    }
+    let hook: otaq_core::git::merge::PostMergeHook =
+        serde_json::from_value(e.payload.get("hook")?.clone()).ok()?;
+    let last = hook
+        .output
+        .lines()
+        .rev()
+        .map(str::trim)
+        .find(|l| !l.is_empty())
+        .map(str::to_owned);
+    let output = match hook.output.trim() {
+        "" => "(the hook printed nothing)",
+        _ => hook.output.as_str(),
+    };
+    Some(told(
+        e,
+        hook.sentence(),
+        last,
+        event_mark(e, facts),
+        hook_output_opens("Output of your post-merge hook", None, None, output),
+        kind_of(e.kind),
+    ))
+}
+
 #[cfg(test)]
 fn event_row(e: &HistoryEvent) -> Option<HistoryRow> {
     event_row_in(e, &Facts::default())
@@ -1272,15 +1370,28 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
     if let Some(row) = comment_row(e, facts) {
         return Some(row);
     }
+    if let Some(row) = refused_hook_row(e, facts) {
+        return Some(row);
+    }
+    if let Some(row) = post_merge_row(e, facts) {
+        return Some(row);
+    }
     let p = &e.payload;
     let first_line = |s: String| s.lines().next().unwrap_or_default().to_owned();
     let (title, detail) = match e.kind {
         // The session row stands for a successful start.
-        EventKind::Started | EventKind::AgentEditsSeen => return None,
-        // Each drawn by `comment_row`.
-        EventKind::CommentPosted | EventKind::CommentEdited | EventKind::CommentDeleted => {
+        EventKind::Started | EventKind::AgentEditsSeen | EventKind::NoyanChangeUndone => {
             return None;
         }
+        // Each drawn by `comment_row`, a hook's refusal by `hook_refused_row`.
+        EventKind::CommentPosted
+        | EventKind::CommentEdited
+        | EventKind::CommentDeleted
+        | EventKind::HookRefused => {
+            return None;
+        }
+        // Drawn by `post_merge_row`; one it can't read has nothing to say.
+        EventKind::PostMergeHook => return None,
         // "You created the ticket" (Q432, `s25-07`).
         EventKind::Created => (format!("{} created the ticket", changed_by(e)), None),
         // The agent filed another ticket (#47): "Created DEMO-12 Fix the build" · "by DEMO-7's agent · in Backlog".
@@ -1414,9 +1525,14 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             format!("Finished {}", text(p, "stage").unwrap_or_default()),
             text(p, "summary").map(first_line),
         ),
+        // "Merged" · "into main · Your pre-commit hook changed 2 files" when a hook changed what landed (with Show
+        // changes); nothing extra otherwise.
         EventKind::Merged => (
             "Merged".to_owned(),
-            text(p, "target").map(|t| format!("into {t}")),
+            text(p, "target").map(|t| match landed_changes(e) {
+                Some(changes) => format!("into {t} \u{b7} {}", changes.sentence()),
+                None => format!("into {t}"),
+            }),
         ),
         // Finished without a merge (the Approve menu, or `otaq stage done` with its reason): it counts as merged.
         EventKind::DoneWithoutMerge if p.get("nothing_to_merge").is_some() => (
@@ -1521,7 +1637,15 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             };
             (title, Some(removed(p, detail)))
         }
-        EventKind::Rebased => (
+        // Main merged into the branch; events from before Otaq stopped rebasing say so.
+        EventKind::UpdatedFromBase if text(p, "how").as_deref() == Some("merge") => (
+            "Brought up to date".to_owned(),
+            text(p, "onto").map(|b| match p.get("conflict") {
+                Some(_) => format!("{b} conflicts: the agent merges it in first"),
+                None => format!("merged {b} in"),
+            }),
+        ),
+        EventKind::UpdatedFromBase => (
             "Rebased".to_owned(),
             text(p, "onto").map(|b| match p.get("conflict") {
                 Some(_) => format!("onto {b}: conflicts, the agent resolves them first"),
@@ -1712,6 +1836,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
             )
         }
     };
+    let hook_changes = landed_changes(e).map(|c| hook_changes_view(&c));
     Some(HistoryRow {
         title,
         detail,
@@ -1724,10 +1849,19 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         session: None,
         mark: event_mark(e, facts),
         opens: None,
+        hook_changes,
         kind: kind_of(e.kind),
         quiet: None,
         ended: None,
     })
+}
+
+/// A merge's record of a hook that changed what landed.
+fn landed_changes(e: &HistoryEvent) -> Option<otaq_core::git::merge::HookChanges> {
+    if e.kind != EventKind::Merged {
+        return None;
+    }
+    serde_json::from_value(e.payload.get("hook_changed")?.clone()).ok()
 }
 
 /// Who an event's row shows (Q432): Otaq for what happened on its own (a restart, a start that failed, an automatic
@@ -1740,6 +1874,7 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::StartNote
             | EventKind::RemoteUnreachable
             | EventKind::TemplateRefreshFailed
+            | EventKind::PostMergeHook
             | EventKind::ChoiceDropped
             | EventKind::StageChoiceCleared
             | EventKind::SchemaOverlap
@@ -1749,9 +1884,10 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
             | EventKind::StartedFromScratch
             | EventKind::MergedAutomatically
             | EventKind::AutoMergeStopped
+            | EventKind::HookRefused
             | EventKind::ValidationEnded
             | EventKind::SentToFix
-            | EventKind::Rebased
+            | EventKind::UpdatedFromBase
     );
     if otaq {
         return Mark::Otaq;
@@ -1808,6 +1944,7 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 session: None,
                 mark: Mark::Otaq,
                 opens: None,
+                hook_changes: None,
                 kind: Kind::Session,
                 quiet: None,
                 ended: None,
@@ -1902,6 +2039,166 @@ mod tests {
     }
 
     const MIN: i64 = 60_000;
+
+    /// A start a hook refused stays in History with the hook's whole output, which the row opens; a start that failed
+    /// for another reason keeps its one line.
+    #[test]
+    fn a_start_a_hook_refused_keeps_the_hooks_output() {
+        let row = event_row(&event(
+            EventKind::StartInterrupted,
+            0,
+            serde_json::json!({
+                "step": "worktree",
+                "message": "Your post-checkout hook refused the start.",
+                "hook": {
+                    "name": "post-checkout",
+                    "step": "add_worktree",
+                    "what": "the start",
+                    "output": "npm install\nERR! missing ~/.npmrc",
+                },
+            }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "Start failed");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("post-checkout hook refused the start")
+        );
+        assert_eq!(row.mark, Mark::Otaq);
+        let opens = row.opens.unwrap();
+        assert_eq!(opens.label, "OUTPUT OF YOUR POST-CHECKOUT HOOK");
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(lines, ["npm install", "ERR! missing ~/.npmrc"]);
+
+        // A merge refused by a hook that asks in the terminal: the sheet's sentence above the output.
+        let tty = event_row(&event(
+            EventKind::HookRefused,
+            0,
+            serde_json::json!({
+                "hook": {
+                    "name": "pre-push",
+                    "what": "the merge",
+                    "output": ".git/hooks/pre-push: line 3: /dev/tty: Device not configured",
+                },
+            }),
+        ))
+        .unwrap();
+        let lines: Vec<String> = tty
+            .opens
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert_eq!(
+            lines,
+            [
+                crate::view_models::sheet::terminal_note("pre-push").as_str(),
+                "",
+                ".git/hooks/pre-push: line 3: /dev/tty: Device not configured",
+            ]
+        );
+
+        let plain = event_row(&event(
+            EventKind::StartInterrupted,
+            0,
+            serde_json::json!({ "step": "setup", "message": "setup command failed (exit 1)" }),
+        ))
+        .unwrap();
+        assert_eq!(plain.opens, None);
+    }
+
+    /// The post-merge hook that ran in the user's folder as main moved there: its own line, passed or failed, with
+    /// the last line it printed, opening its whole output.
+    #[test]
+    fn the_post_merge_hook_in_the_users_folder_is_a_line_with_its_output() {
+        let ran = |exit: i64, output: &str| {
+            event_row(&event(
+                EventKind::PostMergeHook,
+                MIN,
+                serde_json::json!({
+                    "target": "main",
+                    "hook": {
+                        "folder": "~/code/shop-web",
+                        "exit": exit,
+                        "output": output,
+                        "started_ms": 0,
+                        "ended_ms": 20_000,
+                    },
+                }),
+            ))
+            .unwrap()
+        };
+        let failed = ran(1, "npm install\nnpm ERR! code EACCES\n");
+        assert_eq!(
+            failed.title,
+            "Your post-merge hook failed in ~/code/shop-web (exit 1)"
+        );
+        assert_eq!(failed.detail.as_deref(), Some("npm ERR! code EACCES"));
+        assert_eq!(failed.mark, Mark::Otaq);
+        let opens = failed.opens.unwrap();
+        assert_eq!(opens.label, "OUTPUT OF YOUR POST-MERGE HOOK");
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(lines, ["npm install", "npm ERR! code EACCES"]);
+
+        let passed = ran(0, "added 3 packages");
+        assert_eq!(passed.title, "Your post-merge hook ran in ~/code/shop-web");
+        assert_eq!(passed.detail.as_deref(), Some("added 3 packages"));
+
+        let quiet = ran(0, "");
+        assert_eq!(quiet.detail, None);
+        let lines: Vec<String> = quiet
+            .opens
+            .unwrap()
+            .lines
+            .into_iter()
+            .map(|l| l.text)
+            .collect();
+        assert_eq!(lines, ["(the hook printed nothing)"]);
+    }
+
+    /// A hook changed the commit that landed: the Merged row says which hook changed how many files, with Show
+    /// changes from what was reviewed to what landed; a merge no hook changed says nothing extra.
+    #[test]
+    fn a_merge_a_hook_changed_says_so_with_show_changes() {
+        let changed = event(
+            EventKind::Merged,
+            MIN,
+            serde_json::json!({
+                "target": "main",
+                "commit": "bbb",
+                "hook_changed": {
+                    "hook": "pre-commit",
+                    "files": ["calc.js", "util.js"],
+                    "reviewed": "aaa",
+                    "landed": "bbb",
+                },
+            }),
+        );
+        let row = event_row_in(&changed, &Facts::default()).unwrap();
+        assert_eq!(row.title, "Merged");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("into main \u{b7} Your pre-commit hook changed 2 files")
+        );
+        let show = row.hook_changes.expect("Show changes");
+        assert_eq!(show.title, "Your pre-commit hook changed 2 files");
+        assert_eq!(show.show, "Show changes");
+        assert_eq!(
+            (show.reviewed.as_str(), show.landed.as_str()),
+            ("aaa", "bbb")
+        );
+        assert_eq!(show.files, ["calc.js", "util.js"]);
+
+        let plain = event(
+            EventKind::Merged,
+            MIN,
+            serde_json::json!({"target": "main", "commit": "bbb"}),
+        );
+        let row = event_row_in(&plain, &Facts::default()).unwrap();
+        assert_eq!(row.detail.as_deref(), Some("into main"));
+        assert_eq!(row.hook_changes, None);
+    }
 
     /// d0133 (`s30-03`): a helper's rows name the agent in charge then, under the Stages filter: "Developer started a
     /// helper for 40.3" · "Wishlist page", "Developer sent 40.3 back: no empty state", "Developer merged 40.1",
@@ -2137,6 +2434,58 @@ mod tests {
             row.detail.as_deref(),
             Some("git fetch --quiet origin failed (exit 128): Host key verification failed.")
         );
+    }
+
+    /// A hook's refusal stays in History with the hook's whole output, which the row opens.
+    #[test]
+    fn a_hook_refusal_keeps_its_output() {
+        let row = event_row(&event(
+            EventKind::HookRefused,
+            MIN,
+            json!({ "hook": { "name": "commit-msg", "step": "commit", "what": "the merge",
+                    "output": "commitlint: subject may not be empty\ncommitlint: type must be one of [feat, fix]\n",
+                    } }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "Merge didn\u{2019}t go through");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("commit-msg hook refused the merge")
+        );
+        assert_eq!(row.mark, Mark::Otaq);
+        assert_eq!(row.kind, Kind::Stage);
+        let opens = row.opens.unwrap();
+        let lines: Vec<&str> = opens.lines.iter().map(|l| l.text.as_str()).collect();
+        assert_eq!(
+            lines,
+            [
+                "commitlint: subject may not be empty",
+                "commitlint: type must be one of [feat, fix]"
+            ]
+        );
+    }
+
+    /// A PR's commit message the commit-msg hook refused: its own title, and the message above the hook's output.
+    #[test]
+    fn a_refused_pr_message_keeps_the_message() {
+        let row = event_row(&event(
+            EventKind::HookRefused,
+            MIN,
+            json!({ "hook": { "name": "commit-msg", "step": "reword", "what": "the PR",
+                    "output": "commitlint: type must be one of [feat, fix]", "message": "update stuff" } }),
+        ))
+        .unwrap();
+        assert_eq!(row.title, "PR didn\u{2019}t go through");
+        assert_eq!(
+            row.detail.as_deref(),
+            Some("commit-msg hook refused the PR")
+        );
+        let opens = row.opens.unwrap();
+        assert_eq!(
+            opens.caption.as_deref(),
+            Some("The message it refused: \u{201c}update stuff\u{201d}")
+        );
+        assert_eq!(opens.lines.len(), 1);
     }
 
     /// A failed round that sent the ticket back names its check and where it went (d0131), the nearest stage or not.
@@ -3367,7 +3716,7 @@ mod tests {
         let row = |payload| event_row(&event(EventKind::Dragged, 1, payload)).unwrap();
         let sent = row(serde_json::json!({
             "stage": "Product spec", "back": true, "skipped": [], "run_by_you": false,
-            "note": "Dev asked to send SHOP-1 back to Product spec: Refunds over 30 days aren't specified.",
+            "note": "Dev sent it back to Product spec: Refunds over 30 days aren't specified.",
             "asked_by": "Dev", "reason": "Refunds over 30 days aren't specified.\nMore lines.",
             "skip_cleared": true,
         }));

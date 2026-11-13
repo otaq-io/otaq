@@ -12,7 +12,8 @@ use otaq_core::pr::flow::PrFlowView;
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::pr::service::PrOutcome;
 use otaq_core::protocol::{
-    BranchRenameParams, KeyParams, OpenPrParams, PrConfirmParams, ProjectParams, Reply, Request,
+    BranchRenameParams, KeepMessageParams, KeyParams, OpenPrParams, PrConfirmParams, ProjectParams,
+    Reply, Request,
 };
 use otaq_core::review::LocalMergeOutcome;
 use otaq_view::view_models::pr_dialog::{PrDialog, Stage};
@@ -33,7 +34,8 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "pr.open" => reply(&open(app, parse(params)?).await?),
         "pr.start" => reply(&start(app, parse(params)?).await?),
         "pr.view" => reply(&view(app, parse(params)?).await?),
-        "pr.edit" => reply(&edit(app, parse(params)?)?),
+        "pr.edit" => reply(&edit(app, parse(params)?).await?),
+        "pr.use_proposed" => reply(&use_proposed(app, parse(params)?).await?),
         "pr.check" => reply(&check(app, parse(params)?).await?),
         "pr.confirm" => reply(&confirm(app, parse(params)?).await?),
         "pr.retry" => reply(&retry(app, parse(params)?).await?),
@@ -254,12 +256,14 @@ async fn answered(
         Ok(Reply::PrOutcome(PrOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
+            prompt,
         })) => {
             let sending = with(app, key, |d| d.skill.clone()).unwrap_or_default();
             Ok(Answer::Ask {
                 unsent: Unsent::of(
                     &UnsentPrompt::for_click(ticket, None, sending, click)
-                        .unclearable_by(unclearable_by),
+                        .unclearable_by(unclearable_by)
+                        .over_prompt(prompt),
                 ),
             })
         }
@@ -278,12 +282,31 @@ async fn answered(
                 None => Ok(dialog(app, key)),
             }
         }
+        // A hook refused a commit message: the refusal is on the ticket, the dialog closes, and the toast only points
+        // there (a click on it opens the ticket).
+        Ok(Reply::PrOutcome(PrOutcome::HookRefused { message, .. })) => {
+            forget(app, key);
+            let (title, text) =
+                otaq_view::view_models::hook_refusal::toast(key, &message);
+            app.notices.toast(NewToast {
+                ticket: Some(key.to_owned()),
+                ..NewToast::new(ToastLevel::Error, title, Some(text))
+            });
+            Ok(Answer::Closed)
+        }
         Ok(other) => Err(unexpected("ticket.open_pr", &other)),
         Err(e) => {
             // The built-in skill can't open a PR on this remote: the message says to name your own Open PR skill as
-            // the flow's delivery skill. The delivery is no stage, so the toast has no stage to link to.
-            app.notices
-                .toast(page::refused_toast(key, e.message.clone(), None));
+            // the flow's delivery skill, and the toast links to Edit flow's Done panel, where it goes.
+            let project = key
+                .parse::<otaq_core::domain::TicketKey>()
+                .ok()
+                .map(|k| k.project.to_string());
+            app.notices.toast(page::refused_toast(
+                key,
+                e.message.clone(),
+                project.as_deref(),
+            ));
             if click == Click::OpenPr {
                 forget(app, key);
             }
@@ -350,7 +373,7 @@ pub struct EditParams {
     pub value: String,
 }
 
-pub fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
+pub async fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
     let known = with(app, &params.key, |d| match params.field.as_str() {
         "branch" => {
             if d.branch != params.value {
@@ -382,8 +405,43 @@ pub fn edit(app: &App, params: EditParams) -> Result<Answer, RequestError> {
             "no such field: {}",
             params.field
         ))),
-        _ => Ok(dialog(app, &params.key)),
+        _ => {
+            // The title, description and commit messages are kept on the ticket as typed, until the PR is opened or
+            // pushed with them; the branch name isn't part of the message.
+            if params.field != "branch" {
+                keep(app, &params.key).await;
+            }
+            Ok(dialog(app, &params.key))
+        }
     }
+}
+
+/// Keeps the open dialog's edit of the title, description and commit messages on the ticket (nothing kept where
+/// they are the proposal). A failure is only logged: the dialog goes on with the edit in hand.
+async fn keep(app: &App, key: &str) {
+    let Some(edit) = with(app, key, |d| d.edit()) else {
+        return;
+    };
+    if let Err(e) = app
+        .service
+        .send(Request::TicketKeepMessage(KeepMessageParams {
+            key: key.to_owned(),
+            edit,
+        }))
+        .await
+    {
+        eprintln!("can't keep {key}'s edited PR message: {}", e.message);
+    }
+}
+
+/// **Use the proposed message**: the title, description and commit messages go back to the skill's proposal (the
+/// delivery's agent's once written), and the kept edit goes.
+pub async fn use_proposed(app: &App, params: Params) -> Result<Answer, RequestError> {
+    if with(app, &params.key, PrDialog::use_proposed).is_none() {
+        return Ok(Answer::Closed);
+    }
+    keep(app, &params.key).await;
+    Ok(dialog(app, &params.key))
 }
 
 /// The live branch-name check, asked once the name stayed the same for `check_after_ms`; a newer edit wins.
@@ -469,15 +527,32 @@ pub async fn retry(app: &App, params: StartParams) -> Result<Answer, RequestErro
     answered(app, &params.key, sent, Click::PrRetry).await
 }
 
-/// **Cancel** before pushing: the proposal is discarded; nothing was pushed.
+/// **Cancel**: the proposal is discarded. Before pushing nothing was pushed; while pushing Otaq only stops waiting,
+/// the agent's session goes on, and a toast says its push may still be running.
 pub async fn cancel(app: &App, params: Params) -> Result<Answer, RequestError> {
     if let Some(d) = forget(app, &params.key)
         && !matches!(d.stage, Stage::NotLoggedIn { .. })
     {
-        let _ = app
+        let sent = app
             .service
-            .send(Request::TicketPrCancel(KeyParams { key: params.key }))
+            .send(Request::TicketPrCancel(KeyParams {
+                key: params.key.clone(),
+            }))
             .await;
+        if d.stage == Stage::Pushing && sent.is_ok() {
+            app.notices.toast(NewToast {
+                ticket: Some(params.key.clone()),
+                ..NewToast::new(
+                    ToastLevel::Success,
+                    format!("Stopped waiting for {}\u{2019}s PR", params.key),
+                    Some(format!(
+                        "A push may still be running in the agent\u{2019}s session. If it opens the PR, {} \
+                         records it.",
+                        otaq_core::naming::PRODUCT_NAME
+                    )),
+                )
+            });
+        }
     }
     Ok(Answer::Closed)
 }
@@ -513,7 +588,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -566,3 +640,6 @@ mod tests {
         h.service.stop_all().await;
     }
 }
+
+#[cfg(test)]
+mod commit_msg_tests;

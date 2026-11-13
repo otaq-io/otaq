@@ -146,7 +146,7 @@ fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
         "you committed nothing",
         "It is refused once the branch has commits",
         &format!("{cmd} ask human --stdin"),
-        "Never push",
+        "Don't push unless the user asks",
         "Long text always goes through stdin",
     ] {
         assert!(body.contains(needle), "work-ticket must say {needle:?}");
@@ -154,13 +154,13 @@ fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
 }
 
 #[test]
-fn the_commit_skill_commits_everything_and_never_pushes() {
+fn the_commit_skill_commits_everything_and_pushes_only_when_asked() {
     let (name, body) = skill("commit");
     assert_eq!(name, "commit");
     for needle in [
         "git add -A",
         "SHOP-19: ",
-        "Never push",
+        "Don't push unless the user asks",
         "never use\n   `--no-verify`",
     ] {
         assert!(body.contains(needle), "commit must say {needle:?}");
@@ -262,7 +262,8 @@ fn work_ticket_teaches_answer_options() {
     );
 }
 
-/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question.
+/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question, the
+/// question on its first line and where they are in the questions after it.
 #[test]
 fn the_spec_skills_teach_answer_options() {
     assert_teaches_answer_options(
@@ -270,14 +271,14 @@ fn the_spec_skills_teach_answer_options() {
         "--option \"Anyone with the link\" --note \"Easy to send in a chat; anyone who gets the link sees the list.\" \
          --option \"Signed-in friends\" --note \"Private, but each friend needs an account first: fewer people will look.\" \
          --recommended 1",
-        "Question 2 of about 4.",
+        "Who asked for wishlist sharing, and what do they want to do with it?\nQuestion 2 of about 4.",
     );
     assert_teaches_answer_options(
         "tech-spec",
         "--option \"Links never expire\" --note \"Simplest; an old link keeps working until the list is deleted.\" \
          --option \"Expire after 30 days\" --note \"Safer, but friends get a 'link expired' page and ask for a new one.\" \
          --recommended 1",
-        "Question 2 of 2.",
+        "How many wishlists does your largest customer have today, roughly?\nQuestion 2 of 2.",
     );
     let (_, plan) = skill("milestone-plan");
     assert_every_ask_human_reads_stdin(&plan);
@@ -479,7 +480,7 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
             .unwrap_or_else(|| panic!("address-review must say {step:?} after the step before"));
         at += found;
     }
-    assert!(body.contains("Never push"));
+    assert!(body.contains("Don't push unless the user asks"));
     assert_teaches_answer_options(
         "address-review",
         "--option \"Add a setting\" --note \"Users can pick their page size; a new Settings row and a migration.\" \
@@ -489,17 +490,18 @@ fn address_review_reads_the_feedback_fixes_commits_and_submits() {
     );
 }
 
-/// T-0090 (GIT-03, d0038; AGM-12): restack rebases onto the target prime names, resolves, commits and ends its stage
-/// with `stage next`.
+/// T-0090 (GIT-03, d0038; AGM-12): restack merges the target prime names into the branch (never a rebase), resolves,
+/// commits and ends its stage with `stage next`.
 #[test]
-fn restack_rebases_resolves_commits_and_submits() {
+fn restack_merges_the_target_in_resolves_commits_and_submits() {
     let (name, body) = skill("restack");
     assert_eq!(name, "restack");
     let cmd = naming::COMMAND_NAME;
     let order = [
         format!("`{cmd} prime`"),
         "Follow the Agent instructions".to_owned(),
-        "Rebase onto the target".to_owned(),
+        "Merge the target into your branch".to_owned(),
+        "git merge main".to_owned(),
         "Resolve every conflict".to_owned(),
         COMMIT_STEP.to_owned(),
         format!("{cmd} stage next --stdin"),
@@ -512,12 +514,15 @@ fn restack_rebases_resolves_commits_and_submits() {
         at += found;
     }
     for needle in [
-        "Never push",
+        "Don't push unless the user asks",
         "never stash",
+        "never rebase",
+        "never `--no-verify`",
         "Long text always goes through stdin",
     ] {
         assert!(body.contains(needle), "restack must say {needle:?}");
     }
+    assert!(!body.contains("git rebase"), "restack never rebases");
 }
 
 /// T-0140 (REV-10, PLG-05, d0050; T-0415 FLW-21): open-pr proposes after prime, waits for the confirmation (the
@@ -583,6 +588,96 @@ fn push_proposes_the_new_commits_and_pushes_after_the_confirmation() {
         at += found;
     }
     assert!(body.contains("never with `--force`"));
+}
+
+/// Decision 033 (issue 03): a skill that commits doesn't push unless the user asks, with no "override" words, and
+/// says how to push: wait for the push however long the pre-push hook takes, report what it really said, never bypass
+/// a refusal with `--no-verify`, and ask the user how to go on. "Never open a PR, never merge" stays.
+#[test]
+fn committing_skills_push_only_when_the_user_asks_and_wait_for_the_pre_push_hook() {
+    let cmd = naming::COMMAND_NAME;
+    for name in [
+        WORK_TICKET_SKILL,
+        "commit",
+        "address-review",
+        "restack",
+        "product-spec",
+        "tech-spec",
+        "milestone-plan",
+    ] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        assert!(
+            !text.contains("Never push"),
+            "{name} must not say \"Never push\" any more"
+        );
+        for needle in [
+            "Don't push unless the user asks",
+            "a plain request is enough",
+            "wait for `git push` to finish, however long the project's pre-push hook takes",
+            "report what it really said",
+            "`git ls-remote origin <branch>`",
+            "`--no-verify`",
+            &format!("ask how to go on with `{cmd} ask human --stdin`"),
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+        if name != "commit" {
+            assert!(
+                text.contains("**Never open a PR, never merge"),
+                "{name} still never opens a PR or merges"
+            );
+        }
+    }
+}
+
+/// Decisions 033 and 034 (issue 03): the delivery skills push only after Otaq's go-ahead, wait for the pre-push hook
+/// however long it takes, report the real result, and never bypass a refusal.
+#[test]
+fn delivery_skills_wait_for_the_pre_push_hook_and_never_bypass_it() {
+    let cmd = naming::COMMAND_NAME;
+    for name in ["push", "open-pr"] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        for needle in [
+            "**Wait for the push to finish**",
+            "however long the project's pre-push hook takes",
+            "report only what git really said",
+            "`git ls-remote origin <branch>`",
+            "never bypass it with `--no-verify`",
+            &format!("`{cmd} ask human --stdin`, ask how to go on"),
+            "never with `--force` or `--no-verify`",
+        ] {
+            assert!(text.contains(needle), "{name} must say {needle:?}");
+        }
+    }
+}
+
+/// A hook that asks in the terminal can't pass in an agent's session either: the skills that commit and push name it
+/// to the user in the words the ticket's refusal uses, and don't retry it.
+#[test]
+fn skills_name_a_hook_that_asks_in_the_terminal() {
+    let product = naming::PRODUCT_NAME;
+    for (name, hook) in [
+        ("commit", "pre-commit"),
+        ("commit", "pre-push"),
+        ("push", "pre-push"),
+        ("open-pr", "pre-push"),
+    ] {
+        let (_, body) = skill(name);
+        let text = flat(&body);
+        for needle in [
+            format!("Your {hook} hook asks a question in the"),
+            format!(
+                "{product} can't answer it. Make the hook skip its question when there's no terminal, or do"
+            ),
+            "/dev/tty: No such device or address".to_owned(),
+            "Device not configured".to_owned(),
+            "don't retry".to_owned(),
+        ] {
+            assert!(text.contains(&needle), "{name} must say {needle:?}");
+        }
+    }
 }
 
 /// T-0140 (MSG-03, d0030): answer-question answers only and replies with `answer <ID> --stdin`.
@@ -978,15 +1073,15 @@ fn project_agent_investigates_and_files_backlog_tickets() {
     }
     assert_every_ask_human_reads_stdin(&body);
     // Noyan is intake only (T2): it opens as this project's coordinator, takes a light look, hands on notes with
-    // open questions left unanswered, asks the user only about the request, and files several tickets only for
-    // separate deliverables.
+    // open questions left unanswered, asks the user only about the request, and files one ticket per scope, several
+    // only for several scopes (decision 047).
     let text = flat(&body);
     for needle in [
         "# Work as Noyan, an Otaq project's coordinator",
         "You are Noyan, this project's coordinator. You turn the user's requests into tickets, look into how tickets are doing, and change the board's flow when asked. The flow's stages plan and build the work.",
         "**Take a light look at the code**",
         "read enough to write a useful ticket, no more",
-        "One deliverable is one ticket, however big",
+        "One scope is one ticket, however big",
         "## What a ticket carries",
         "**Where the code lives:**",
         "**What you saw:** what the code does now, with `file:line` where you can",
@@ -994,7 +1089,12 @@ fn project_agent_investigates_and_files_backlog_tickets() {
         "Ask the user only about the **request**",
         "never about design or architecture",
         "Open questions: - Should the prices come from the same batched query?",
-        "**Several tickets** only when the request holds separate deliverables, each reviewed and merged on its own",
+        "**One ticket for one scope:**",
+        "Never split a scope into several tickets yourself",
+        "**Several tickets only for several scopes:**",
+        "propose one ticket and ask",
+        "**The user asks for several tickets for one scope?** Ask once",
+        "When no stage in the flow says it splits the work into pieces, don't recommend either",
     ] {
         assert!(text.contains(needle), "noyan must say {needle:?}");
     }

@@ -39,7 +39,7 @@ impl Preset {
             .collect()
     }
 
-    /// How it delivers, under its name ([`super::model::Delivery::line`]): "Local merge or PR · click", "Local merge · automatic".
+    /// How it delivers, under its name ([`super::model::Delivery::line`]): "Merge or PR · on Approve", "Merge · automatically".
     pub fn delivers(&self) -> String {
         self.read().flow.delivery.line()
     }

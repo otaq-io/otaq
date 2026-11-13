@@ -29,8 +29,8 @@ pub struct DoneOutcome {
 /// The refusal when the branch has work to deliver: "SHOP-18 has 2 commits; Local merge or Open PR delivers them."
 pub fn has_commits_message(key: &TicketKey, commits: u32) -> String {
     match commits {
-        1 => format!("{key} has 1 commit; Local merge or Open PR delivers it."),
-        n => format!("{key} has {n} commits; Local merge or Open PR delivers them."),
+        1 => format!("{key} has 1 commit; Approve & merge or Approve & open PR delivers it."),
+        n => format!("{key} has {n} commits; Approve & merge or Approve & open PR delivers them."),
     }
 }
 
@@ -109,6 +109,8 @@ impl Review {
         actor: &Actor,
     ) -> Result<DoneOutcome, BoardError> {
         let board = &self.inner.board;
+        // Its waiting children start below, from the fetched base, not in a pass the record sets off.
+        let _landing = self.inner.scheduler.landing(&ticket.key);
         let done = board
             .record_done_without_merge(ticket, nothing_to_merge, actor)
             .await?;

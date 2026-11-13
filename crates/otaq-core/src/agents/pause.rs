@@ -456,12 +456,19 @@ impl Pause {
             .into_iter()
             .filter(|s| s.is_running() && s.kind.runs_agent_tool())
             .collect();
+        // Tickets whose PR is being opened or pushed: their own agent's session delivers them.
+        let delivering: std::collections::HashSet<String> =
+            sqlx::query_scalar("SELECT ticket_id FROM pr_flows")
+                .fetch_all(self.inner.board.store().pool())
+                .await?
+                .into_iter()
+                .collect();
         let mut projects = Vec::new();
         for key in keys {
             let project = self.inner.board.project(&key).await?;
             let tickets = self.inner.board.tickets(&key).await?;
             // A ticket counts once while an agent is at work on it (a session kept while it waits for your review
-            // isn't); a Project agent once per session.
+            // isn't); a Noyan conversation once per session, only while it replies (idle, it waits for you).
             let working: BTreeSet<String> = running
                 .iter()
                 .filter(|s| s.project == key)
@@ -469,9 +476,9 @@ impl Pause {
                     Some(ticket) => tickets
                         .iter()
                         .find(|t| &t.key == ticket)
-                        .is_some_and(|t| s.kind.at_work_on(t.status))
+                        .is_some_and(|t| s.kind.at_work_on(t.status, delivering.contains(&t.id)))
                         .then(|| ticket.to_string()),
-                    None => Some(s.id.clone()),
+                    None => self.inner.project_agents.replying(s).then(|| s.id.clone()),
                 })
                 .collect();
             let paused = resume_all_eligible(&tickets).len()

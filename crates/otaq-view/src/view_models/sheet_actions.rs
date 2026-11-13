@@ -76,11 +76,22 @@ pub enum Action {
     RetryMerge,
     /// Auto-merge stopped: Ready for Review, not merged again (AMG-04).
     MoveToReview,
+    /// A project's git hook refused Approve & merge: the Approve & merge confirmation again, on the message the user
+    /// edited, to change it and merge from where it stopped.
+    EditMessage,
+    /// The project's commit-msg hook refused one of the PR's commit messages: the Approve & open PR dialog again, on
+    /// the messages the user edited, to fix it and open the PR from where it stopped.
+    EditPrMessages,
+    /// The delivery's agent reported a push the remote doesn't have: Push to PR again, which only pushes.
+    RetryPush,
     /// A model the tool refused (AGT-05: Start failed, or a check's No result on the model): Settings → Agents on
     /// that agent's page (d0108 second gap review rule 7; replaces Change agent, Q280).
     OpenAgent,
     /// "Merging · running the merge check" (d0120, Q475): the check ends and nothing is merged.
     StopMergeCheck,
+    /// "Merging · running your pre-commit hook", "Starting · making its worktree": the git step and its hook end, and
+    /// the merge or start leaves things as a refusal does.
+    StopGitStep,
 }
 
 /// How a button looks. `SheetButtonLook` on the page.
@@ -118,7 +129,7 @@ impl Action {
             Self::RetryResume => "Retry",
             Self::StartFromScratch => "Start from scratch",
             Self::RetryStart => "Retry start",
-            Self::Approve => "Approve · Local merge",
+            Self::Approve => "Approve & merge",
             Self::SendBack => SEND_BACK,
             Self::Pass => APPROVE,
             Self::SendBackPr => crate::view_models::card::SEND_BACK_WITH_PR_COMMENTS,
@@ -135,8 +146,11 @@ impl Action {
             Self::RetryValidation => "Retry validation",
             Self::RetryMerge => "Retry merge",
             Self::MoveToReview => "Move to Review",
+            Self::EditMessage => "Edit message and retry",
+            Self::EditPrMessages => "Edit messages and retry",
+            Self::RetryPush => "Retry push",
             Self::OpenAgent => "Open agent\u{2026}",
-            Self::StopMergeCheck => crate::view_models::card::STOP,
+            Self::StopMergeCheck | Self::StopGitStep => crate::view_models::card::STOP,
         }
     }
 
@@ -150,7 +164,10 @@ impl Action {
             | Self::AnswerValidator => IconName::SquareTerminal,
             // *Action bar · every state → Validation failed 3 times, … ended without a result, Auto-merge stopped*.
             Self::MoveOnAnyway | Self::MoveToReview => IconName::Eye,
-            Self::AnotherRound | Self::RetryValidation | Self::RetryMerge => IconName::RotateCcw,
+            Self::AnotherRound | Self::RetryValidation | Self::RetryMerge | Self::RetryPush => {
+                IconName::RotateCcw
+            }
+            Self::EditMessage | Self::EditPrMessages => IconName::Pencil,
             Self::AnswerAgent => IconName::MessageSquare,
             Self::SendAgain => IconName::Send,
             Self::Run => IconName::Play,
@@ -164,7 +181,7 @@ impl Action {
             Self::MarkMerged => IconName::GitMerge,
             Self::ViewDiff => IconName::FileDiff,
             Self::Reopen => IconName::RotateCcw,
-            Self::StopMergeCheck => IconName::Square,
+            Self::StopMergeCheck | Self::StopGitStep => IconName::Square,
             // *05 → Start failed on the model*, *No result: the validator's model*: labels only.
             Self::Approve | Self::Pass | Self::MarkClosed | Self::OpenAgent => {
                 return None;
@@ -191,7 +208,7 @@ impl Action {
             Self::Resume | Self::RetryResume | Self::StartFromScratch => None,
             Self::OpenPrInBrowser | Self::MarkMerged | Self::MarkClosed => None,
             Self::Reopen => None,
-            Self::OpenAgent | Self::StopMergeCheck => None,
+            Self::OpenAgent | Self::StopMergeCheck | Self::StopGitStep => None,
             Self::OpenValidator
             | Self::AnswerValidator
             | Self::MoveOnAnyway
@@ -199,7 +216,10 @@ impl Action {
             | Self::AnswerAgent
             | Self::RetryValidation
             | Self::RetryMerge
-            | Self::MoveToReview => None,
+            | Self::MoveToReview
+            | Self::EditMessage
+            | Self::EditPrMessages
+            | Self::RetryPush => None,
         }
     }
 }
@@ -239,8 +259,8 @@ pub fn all_buttons(ticket: &Ticket) -> Vec<(Action, Look)> {
 /// [`all_buttons`] in a flow that isn't the default's shape (`custom`, `flow_columns::keeps_default_look`): a human
 /// check's Approve is its Pass there (FLW-14), which moves it on; on the default flow it opens the delivery choices.
 /// Every human check offers Send back (d0093). Every flow offers Send back with PR comments on an open PR (FLW-16).
-/// Move on anyway only on a check the flow marks skippable (`skippable`,
-/// [`otaq_core::flow::engine::user_may_move_past`]).
+/// Move on anyway after no result only on a check the flow marks skippable (`skippable`,
+/// [`otaq_core::flow::engine::user_may_move_past`]); a check that ran out of rounds can always be sent on.
 pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Action, Look)> {
     use Action as A;
     use Look::*;
@@ -249,12 +269,47 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
     if ticket.flags.merge_check == Some(otaq_core::domain::MergeCheckState::Running) {
         return vec![(A::StopMergeCheck, Secondary)];
     }
+    // While a merge or a start runs a git step, Stop is all there is to do (none once the target moves).
+    if ticket
+        .flags
+        .git
+        .as_ref()
+        .is_some_and(|git| git.step.is_none_or(otaq_core::git::GitStep::stoppable))
+    {
+        return vec![(A::StopGitStep, Secondary)];
+    }
     // A hand-off typed in that the agent hasn't picked up (d0118): Send again first.
     if card::pending_hand_off(ticket, s).is_some() {
         let mut bar = vec![(A::SendAgain, Primary), (A::OpenTerminal, Secondary)];
         if s == Status::Working {
             bar.push((A::Run, Secondary));
         }
+        return bar;
+    }
+    // A session's prompt shown without changing the ticket's status: Answer in terminal first, and every action the
+    // ticket has where it waits stays as it is.
+    if ticket.session_prompt().is_some() {
+        let mut plain = ticket.clone();
+        plain.flags.session_prompt = None;
+        let mut bar = all_buttons_in(&plain, custom, skippable);
+        bar.retain(|(action, _)| *action != A::AnswerInTerminal);
+        bar.insert(0, (A::AnswerInTerminal, Secondary));
+        return bar;
+    }
+    // A hook refused the merge or a PR's commit message, or the push didn't land: the ticket waits where it was
+    // (Review, To deliver) and its retry leads, the merge or the PR dialog again on the user's kept edits, or Push to
+    // PR again. Send back and Run stay as in Review.
+    if let Some(stop) = ticket.stopped_in_place() {
+        let retry = match stop {
+            otaq_core::domain::AutoMergeStop::PushNotLanded => A::RetryPush,
+            _ if card::refused_pr_message(ticket) => A::EditPrMessages,
+            _ => A::EditMessage,
+        };
+        let mut bar = vec![(retry, Primary)];
+        if s == Status::WaitingForYou {
+            bar.push((A::SendBack, Secondary));
+        }
+        bar.push((A::Run, Secondary));
         return bar;
     }
     match s {
@@ -283,6 +338,10 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         Status::StartInterrupted => vec![(A::RetryStart, Primary)],
         Status::Working | Status::WorkingInBackground | Status::WaitingForLimitReset => {
             vec![(A::OpenTerminal, Secondary), (A::Run, Secondary)]
+        }
+        // Its tool stopped on an error: once the cause is fixed (signed in), Resume has the agent go on.
+        Status::Idle if otaq_core::signals::stopped_on_error(ticket).is_some() => {
+            vec![(A::Resume, Primary), (A::AnswerInTerminal, Secondary)]
         }
         Status::AsksYou | Status::NeedsYou | Status::Idle => vec![(A::AnswerInTerminal, Attention)],
         Status::Interrupted => vec![(A::Resume, Primary)],
@@ -313,12 +372,11 @@ pub fn all_buttons_in(ticket: &Ticket, custom: bool, skippable: bool) -> Vec<(Ac
         // The M12 rows (d0063, d0064): Stop this check and Skip this check are in the "…" menu.
         Status::Checking => vec![(A::OpenValidator, Secondary), (A::Run, Secondary)],
         Status::CheckerNeedsYou => vec![(A::AnswerValidator, Attention)],
-        Status::CheckFailed if skippable => vec![
+        Status::CheckFailed => vec![
             (A::MoveOnAnyway, Primary),
             (A::AnotherRound, Secondary),
             (A::AnswerAgent, Secondary),
         ],
-        Status::CheckFailed => vec![(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)],
         // No result on the validator's model: Open agent… first, then today's two.
         Status::CheckNoResult if card::validator_refusal(ticket).is_some() => {
             let mut bar = vec![(A::OpenAgent, Primary), (A::RetryValidation, Secondary)];
@@ -487,8 +545,48 @@ mod tests {
         );
     }
 
+    /// While a merge or a start runs a git step (a hook that hangs), Stop is all there is; not once the target moves.
+    #[test]
+    fn a_running_git_step_offers_only_stop() {
+        use otaq_core::domain::{GitOperation, GitProgress};
+        use otaq_core::git::GitStep;
+        let running = |operation, step| GitProgress {
+            operation,
+            target: "main".into(),
+            step: Some(step),
+            earlier: Vec::new(),
+            hook: None,
+        };
+        let mut t = ticket("SHOP-1", "t", Status::WaitingForYou);
+        t.flags.git = Some(running(GitOperation::Merge, GitStep::Commit));
+        assert_eq!(buttons(&t), [(A::StopGitStep, Look::Secondary)]);
+        t.flags.git = Some(running(GitOperation::Merge, GitStep::MoveTarget));
+        assert!(!buttons(&t).contains(&(A::StopGitStep, Look::Secondary)));
+        let mut t = ticket("SHOP-2", "t", Status::Queued);
+        t.flags.git = Some(running(GitOperation::Start, GitStep::AddWorktree));
+        assert_eq!(buttons(&t), [(A::StopGitStep, Look::Secondary)]);
+        assert_eq!(A::StopGitStep.label(), "Stop");
+    }
+
     fn all(status: Status) -> Vec<(Action, Look)> {
         all_buttons(&ticket("SHOP-1", "t", status))
+    }
+
+    /// A session's prompt shown without changing the ticket's status: Answer in terminal comes first, and Review's
+    /// Approve and Send back stay as they are.
+    #[test]
+    fn a_skill_turns_prompt_in_review_adds_answer_in_terminal() {
+        let mut t = ticket("SHOP-1", "t", Status::WaitingForYou);
+        let review = all_buttons(&t);
+        t.flags.session_prompt = Some(otaq_core::domain::SessionPrompt {
+            session: "s1".into(),
+            prompt: "Run command: git push origin main".into(),
+            since: 0,
+            turn: otaq_core::domain::PromptTurn::PushToPr,
+        });
+        let waiting = all_buttons(&t);
+        assert_eq!(waiting[0], (Action::AnswerInTerminal, Look::Secondary));
+        assert_eq!(waiting[1..], review[..]);
     }
 
     /// DEC-05: the label for 0, 1 and 3 open decisions; with any, Local merge and Open PR are the ▾ menu's choices.
@@ -510,7 +608,7 @@ mod tests {
             &[],
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )
         .into_iter()
         .map(|o| o.choice)
@@ -528,6 +626,25 @@ mod tests {
     }
 
     /// Every row of *Action bar · every state*, as designed (later features included).
+    /// An agent whose tool stopped on an error: Resume leads (it goes on once signed in), the terminal beside it.
+    #[test]
+    fn a_tool_error_offers_resume() {
+        use Look::*;
+        let mut t = ticket("SHOP-1", "Tidy the README", Status::Idle);
+        t.signal = Some(otaq_core::board::tickets::AgentSignal {
+            text: Some(otaq_core::signals::tool_error_text(
+                "authentication_failed",
+                Some("Login expired \u{b7} Please run /login"),
+            )),
+            since: None,
+            wakeup_at: None,
+        });
+        assert_eq!(
+            all_buttons(&t),
+            [(A::Resume, Primary), (A::AnswerInTerminal, Secondary)]
+        );
+    }
+
     #[test]
     fn every_row_of_the_frame() {
         use Look::*;
@@ -671,6 +788,7 @@ mod tests {
             step: otaq_core::domain::StartStep::SyncBase,
             message: "`develop` and `origin/develop` have diverged. Push or pull, then retry"
                 .into(),
+            hook: None,
         });
         assert_eq!(buttons(&held)[0], (A::RetryStart, Look::Primary));
     }
@@ -727,21 +845,17 @@ mod tests {
             all(Status::CheckerNeedsYou),
             [(A::AnswerValidator, Attention)]
         );
-        // Move on anyway only on a check the flow marks skippable (not the default flow's Validate).
-        assert_eq!(
-            all(Status::CheckFailed),
-            [(A::AnotherRound, Primary), (A::AnswerAgent, Secondary)]
-        );
+        // A check out of rounds is sent on whether or not the flow marks it skippable; after no result, Move on
+        // anyway only on a skippable one (not the default flow's Validate).
+        let failed = [
+            (A::MoveOnAnyway, Primary),
+            (A::AnotherRound, Secondary),
+            (A::AnswerAgent, Secondary),
+        ];
+        assert_eq!(all(Status::CheckFailed), failed);
         assert_eq!(all(Status::CheckNoResult), [(A::RetryValidation, Primary)]);
         let skippable = |status| all_buttons_in(&ticket("SHOP-1", "t", status), false, true);
-        assert_eq!(
-            skippable(Status::CheckFailed),
-            [
-                (A::MoveOnAnyway, Primary),
-                (A::AnotherRound, Secondary),
-                (A::AnswerAgent, Secondary)
-            ]
-        );
+        assert_eq!(skippable(Status::CheckFailed), failed);
         assert_eq!(
             skippable(Status::CheckNoResult),
             [(A::RetryValidation, Primary), (A::MoveOnAnyway, Secondary)]

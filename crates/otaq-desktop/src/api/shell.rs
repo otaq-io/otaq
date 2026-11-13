@@ -10,7 +10,7 @@ use std::time::Instant;
 
 use otaq_core::board::settings::{AgentLimits, GlobalSettings};
 use otaq_core::board::snapshot::ProjectInfo;
-use otaq_core::protocol::{ProjectParams, Reply, Request};
+use otaq_core::protocol::{Reply, Request};
 use otaq_core::scheduler::SchedulerStatus;
 use otaq_core::terminals::run::RunInfo;
 use otaq_core::usage::activity::Activity;
@@ -39,11 +39,6 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         "shell.quick" => reply(&quick(app, parse(params)?)),
         "shell.project_for_digit" => reply(&project_for_digit(app, parse(params)?)),
         "shell.step_limit" => reply(&step_limit(app, parse(params)?).await?),
-        "shell.cleanup" => reply(&cleanup(app).await?),
-        "shell.open_folder" => {
-            open_folder(app, parse(params)?).await?;
-            Ok(Value::Null)
-        }
         _ => Err(unknown(method)),
     }
 }
@@ -171,6 +166,11 @@ impl ActivityData {
                 .as_ref()
                 .map(|a| activity::connected_among(a, connected))
                 .unwrap_or_default(),
+            others: self
+                .activity
+                .as_ref()
+                .map(|a| activity::others_running(a, connected))
+                .unwrap_or_default(),
             tokens_today: self.activity.as_ref().map_or(0, |a| a.tokens_today),
             limits: &self.limits,
             scheduler: self.scheduler.as_ref(),
@@ -230,17 +230,6 @@ fn header_view(
         search: Hint::new(search_page::PLACEHOLDER, KeyAction::FilterBoard, keys),
         activity: activity::button(activity, keys),
     }
-}
-
-/// `shell.open_folder {project}`: Open in Finder, the project's folder in the file manager.
-async fn open_folder(app: &App, params: ProjectParams) -> Result<(), RequestError> {
-    let folder = projects(app)
-        .await?
-        .into_iter()
-        .find(|p| p.key == params.project)
-        .map(|p| p.repo_path)
-        .ok_or_else(|| RequestError::plain(format!("no project {}", params.project)))?;
-    open::that_detached(&folder).map_err(|e| RequestError::plain(e.to_string()))
 }
 
 /// The Activity popover (⇧⌘U or a click on Activity).
@@ -411,36 +400,6 @@ pub async fn step_limit(app: &App, params: StepParams) -> Result<Popover, Reques
     }
 }
 
-/// The broom at the bottom of the rail (*16 → Where Cleanup lives*): a dot only while leftovers wait.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
-#[ts(rename = "CleanupBroom")]
-pub struct Broom {
-    pub count: u32,
-    pub tooltip: String,
-    pub detail: &'static str,
-}
-
-fn broom(count: usize) -> Broom {
-    let tooltip = match count {
-        0 => "Cleanup".to_owned(),
-        1 => "Cleanup · 1 leftover".to_owned(),
-        n => format!("Cleanup · {n} leftovers"),
-    };
-    Broom {
-        count: u32::try_from(count).unwrap_or(u32::MAX),
-        tooltip,
-        detail: "Nothing is deleted without your click",
-    }
-}
-
-/// A read-only scan of the leftovers; the page asks at start and after a resync, not on every event.
-pub async fn cleanup(app: &App) -> Result<Broom, RequestError> {
-    match app.service.send(Request::CleanupScan).await? {
-        Reply::CleanupScan(items) => Ok(broom(items.len())),
-        other => Err(unexpected("cleanup.scan", &other)),
-    }
-}
-
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
@@ -461,7 +420,6 @@ mod tests {
             base_branch: "main".into(),
             agents_working: working,
             needs_you: needs,
-            flow_setup_since: None,
             paused_since: None,
             paused_by: None,
         }
@@ -563,13 +521,6 @@ mod tests {
         h.service.stop_all().await;
     }
 
-    #[test]
-    fn the_broom_names_its_leftovers() {
-        assert_eq!(broom(0).tooltip, "Cleanup");
-        assert_eq!(broom(1).tooltip, "Cleanup · 1 leftover");
-        assert_eq!(broom(3).count, 3);
-    }
-
     async fn add(h: &Harness, repos: &TempRepos, name: &str) -> ProjectInfo {
         let path = repos.repo(name, 1);
         match h
@@ -579,7 +530,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()
@@ -671,8 +621,6 @@ mod tests {
         assert_eq!(popover["processes"], Value::Null);
         assert_eq!(popover["open_terminals"]["label"], "Open Terminal");
 
-        let broom = request(&h.app, "shell.cleanup", Value::Null).await.unwrap();
-        assert_eq!(broom["count"], 0);
         h.service.stop_all().await;
     }
 

@@ -28,7 +28,7 @@ use serde::{Deserialize, Serialize};
 use serde_json::json;
 use sha2::{Digest, Sha256};
 
-use super::apply::{Wait, still_working};
+use super::apply::{Wait, standing, still_working};
 use super::engine::{self, At, RunResult, skipped_by_drag};
 use super::model::{Flow, Stage};
 use super::store::{FlowVersion, NewFlowVersion};
@@ -298,8 +298,10 @@ pub fn with_removed(walk: &Flow, new: &Flow, removed: &Stage, place: usize) -> (
 }
 
 /// The removed stage a ticket is in or waits before, if it is one: a stage of the old flow the new flow doesn't have.
+/// A held ticket counts as in the stage it is held before ([`standing`]).
 fn removed_stage(old: &Flow, new: &Flow, ticket: &Ticket) -> Option<Stage> {
-    let id = ticket.place.stage_id()?;
+    let standing = standing(ticket, old, new);
+    let id = standing.stage_id()?;
     match new.stage(id) {
         Some(_) => None,
         None => old.stage(id).cloned(),
@@ -335,10 +337,11 @@ pub fn plan(facts: &PlanFacts<'_>) -> ApplyNowPlan {
             moves.push(planned_move(facts, ticket, &stage));
         }
     }
-    let working: HashSet<&str> = still_working(facts.tickets, new, facts.delivering, facts.wait)
-        .into_iter()
-        .map(|t| t.id.as_str())
-        .collect();
+    let working: HashSet<&str> =
+        still_working(facts.tickets, old, new, facts.delivering, facts.wait)
+            .into_iter()
+            .map(|t| t.id.as_str())
+            .collect();
     let keep: Vec<KeptTicket> = tickets
         .iter()
         .filter(|t| working.contains(t.id.as_str()) && !moving.contains(&t.id))
@@ -571,11 +574,7 @@ impl Board {
         }
         let mut skips = HashMap::new();
         for ticket in &tickets {
-            if ticket
-                .place
-                .stage_id()
-                .is_some_and(|id| new.stage(id).is_none())
-            {
+            if removed_stage(&old, &new, ticket).is_some() {
                 skips.insert(ticket.id.clone(), self.ticket_skips(ticket, &new).await?);
             }
         }
@@ -830,6 +829,18 @@ impl Board {
             .execute(&mut *tx)
             .await?;
             write_move(&mut tx, ticket, write, actor).await?;
+            // A ticket that moves loses the hold of the stage it left (a missing skill there, its tool): where it
+            // goes is checked afresh when that stage starts.
+            sqlx::query("DELETE FROM agent_holds WHERE ticket_id = ?")
+                .bind(&ticket.id)
+                .execute(&mut *tx)
+                .await?;
+            sqlx::query(
+                "UPDATE tickets SET start_problem_step = NULL, start_problem_message = NULL WHERE id = ?",
+            )
+            .bind(&ticket.id)
+            .execute(&mut *tx)
+            .await?;
             if planned.stops_agent() {
                 // The run the move opened doesn't belong to the agent that stops once this is written.
                 sqlx::query(

@@ -38,6 +38,7 @@ import type { AgentPanelEnded } from "../../generated/AgentPanelEnded";
 import type { AgentPanelParams } from "../../generated/AgentPanelParams";
 import type { AgentPanelSwitcher } from "../../generated/AgentPanelSwitcher";
 import type { AgentPanelSwitcherRow } from "../../generated/AgentPanelSwitcherRow";
+import type { AgentPanelUndoParams } from "../../generated/AgentPanelUndoParams";
 import type { AgentPanelView } from "../../generated/AgentPanelView";
 import type { RecentAgents } from "../../generated/RecentAgents";
 import type { ToolProblemCallout as ToolProblemCalloutView } from "../../generated/ToolProblemCallout";
@@ -291,11 +292,23 @@ function NameField({
 
 /** One created or changed ticket: its key (opens it), title, then Start while it is in Backlog (only the user starts
  * a ticket; `board.start`, as a Backlog card's Start), else where it is and what its card says; Delete while it never
- * started. */
-function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key: string) => void }) {
+ * started. A changed row has Undo while that part of the ticket still reads as Noyan left it. */
+function CreatedRow({
+  row,
+  onStart,
+  onUndo,
+}: {
+  row: AgentPanelCreatedRow;
+  onStart: (key: string) => void;
+  onUndo?: (row: AgentPanelCreatedRow) => void;
+}) {
   return (
     <div className="agent-panel-created-row" data-edited={row.edited || undefined}>
       <Icon name={row.icon} size={13} />
+      {row.undone !== null && (
+        // An undone change reads "Undone · SHOP-7 no longer waits for SHOP-6".
+        <span className="agent-panel-created-undone">{`${row.undone} ·`}</span>
+      )}
       <button
         type="button"
         className="agent-panel-created-key"
@@ -306,7 +319,15 @@ function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key
         {row.key}
       </button>
       <span className="agent-panel-created-text">
-        <span className="agent-panel-created-title">{row.title}</span>
+        {row.change !== null ? (
+          // A changed row says what changed ("SHOP-7 · now waits for SHOP-6"), a created one what it was given
+          // ("SHOP-16 · waits for SHOP-15"); the title is its tooltip.
+          <span className="agent-panel-created-title" title={row.title || undefined}>
+            {row.undone !== null ? row.change : `· ${row.change}`}
+          </span>
+        ) : (
+          <span className="agent-panel-created-title">{row.title}</span>
+        )}
         {row.line !== null && <span className="agent-panel-created-line">{row.line}</span>}
       </span>
       {row.place !== "" && <span className="agent-panel-created-place">{row.place}</span>}
@@ -335,6 +356,17 @@ function CreatedRow({ row, onStart }: { row: AgentPanelCreatedRow; onStart: (key
           }}
         />
       )}
+      {row.undo !== null && onUndo !== undefined && (
+        <Button
+          compact
+          variant="secondary"
+          icon="undo-2"
+          label={row.undo}
+          onClick={() => {
+            onUndo(row);
+          }}
+        />
+      )}
     </div>
   );
 }
@@ -347,12 +379,14 @@ function CreatedBox({
   onToggle,
   onShowOnBoard,
   onStart,
+  onUndo,
 }: {
   created: AgentPanelCreated;
   open: boolean;
   onToggle: () => void;
   onShowOnBoard: () => void;
   onStart: (key: string) => void;
+  onUndo: (row: AgentPanelCreatedRow) => void;
 }) {
   // Open, the head names the created tickets ("CREATED 2 · IN BACKLOG"), or the changed ones when none was created.
   const head = open ? (created.title ?? created.changed_title ?? created.line) : created.line;
@@ -376,7 +410,13 @@ function CreatedBox({
           ))}
           {changedTitle !== null && <span className="agent-panel-caps">{changedTitle}</span>}
           {created.changed.map((row) => (
-            <CreatedRow key={`${row.key}-changed`} row={row} onStart={onStart} />
+            // One row per change: a ticket can have several, each saying something else.
+            <CreatedRow
+              key={`${row.key}-changed-${row.change ?? ""}`}
+              row={row}
+              onStart={onStart}
+              onUndo={onUndo}
+            />
           ))}
         </>
       )}
@@ -550,6 +590,16 @@ function RunningAgent({
           onShowOnBoard={onShowOnBoard}
           onStart={(key) => {
             void startTicket(key);
+          }}
+          onUndo={(row) => {
+            if (row.change !== null && agent.created !== null) {
+              const params: AgentPanelUndoParams = {
+                agent: agent.created.show_on_board.agent,
+                ticket: row.key,
+                change: row.change,
+              };
+              request("agent_panel.undo", params).catch(ignore);
+            }
           }}
         />
       )}

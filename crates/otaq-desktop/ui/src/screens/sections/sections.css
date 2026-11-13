@@ -180,7 +180,8 @@
   color: var(--st-attn);
 }
 
-.message-reply {
+.message-reply,
+.message-actions {
   display: flex;
   gap: 8px;
 }
@@ -246,6 +247,21 @@
   color: var(--text-muted);
   font: 400 12px var(--font-ui);
   overflow-wrap: anywhere;
+}
+
+/* Show changes on a merge a hook changed: a link under its detail. */
+.history-show-changes {
+  align-self: flex-start;
+  padding: 0;
+  border: none;
+  background: none;
+  color: var(--accent);
+  font: 500 12px var(--font-ui);
+  cursor: pointer;
+}
+
+.history-show-changes:hover {
+  text-decoration: underline;
 }
 
 .history-copy {

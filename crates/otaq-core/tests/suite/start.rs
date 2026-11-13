@@ -134,6 +134,48 @@ fn repo(f: &Fixture) -> PathBuf {
     f.repos.root().join("shop-web")
 }
 
+/// Whether git has a worktree registered at `path`.
+fn registered(f: &Fixture, path: &Path) -> bool {
+    let name = path.file_name().unwrap().to_string_lossy().into_owned();
+    git(&repo(f), &["worktree", "list", "--porcelain"])
+        .lines()
+        .filter_map(|l| l.strip_prefix("worktree "))
+        .any(|l| l.replace('\\', "/").ends_with(&format!("/{name}")))
+}
+
+fn branch_exists(f: &Fixture, branch: &str) -> bool {
+    !git(
+        &repo(f),
+        &[
+            "for-each-ref",
+            "--format=%(refname)",
+            &format!("refs/heads/{branch}"),
+        ],
+    )
+    .is_empty()
+}
+
+/// A post-checkout hook in the test repository that logs each run to `log` and refuses its first run.
+fn post_checkout_failing_once(repo: &Path, log: &Path, mark: &Path) {
+    let hook = repo.join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\necho ran >> '{log}'\nif [ ! -f '{mark}' ]; then\n  : > '{mark}'\n  \
+             echo 'post-checkout: failing on purpose' >&2\n  exit 1\nfi\n",
+            log = log.display(),
+            mark = mark.display()
+        ),
+    )
+    .unwrap();
+    // Git for Windows runs hooks with its own sh; only macOS and Linux need the executable bit.
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+}
+
 #[tokio::test]
 async fn a_successful_start_leaves_the_ticket_working() {
     let s = setup().await;
@@ -267,14 +309,18 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
         after.start_problem,
         Some(StartProblem {
             step: StartStep::Setup,
-            message: message.clone()
+            message: message.clone(),
+            hook: None,
         })
     );
-    // Nothing rolled back: the worktree and branch stay; no session, no ports yet.
+    // Nothing half-made stays: the worktree and branch this start made are gone; no session, no ports yet.
     let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
-    assert!(worktree.is_dir());
+    assert!(!worktree.exists());
+    assert!(!registered(&s.f, &worktree));
+    assert!(!branch_exists(&s.f, "otaq/SHOP-1"));
+    assert_eq!(after.work.as_ref().and_then(|w| w.worktree.clone()), None);
     assert!(s.sessions.running_of(&t.id, SessionKind::Agent).is_none());
-    assert_eq!(after.work.as_ref().unwrap().agent_port, None);
+    assert_eq!(after.work.as_ref().and_then(|w| w.agent_port), None);
     let log = std::fs::read_to_string(s.data.setup_log_path("SHOP-1").unwrap()).unwrap();
     assert!(log.contains("resolving packages"), "{log}");
 
@@ -289,7 +335,7 @@ async fn a_failed_setup_is_start_interrupted_and_retry_runs_it_all_again() {
     );
     assert_eq!(s.f.ticket("SHOP-1").await.status, Status::StartInterrupted);
 
-    // The user fixes the command and clicks Retry start: the whole sequence runs and reuses the worktree.
+    // The user fixes the command and clicks Retry start: the whole sequence runs again.
     set_project(
         &s.f,
         ProjectSettings {
@@ -340,6 +386,405 @@ async fn without_a_launch_context_the_launch_step_stops() {
     assert_eq!(step, StartStep::Launch);
     assert!(message.contains("plugin wasn't found"), "{message}");
     assert!(sessions.in_memory().is_empty());
+}
+
+/// A start that fails only at launching the agent (every start hook and setup already ran) keeps the ready worktree
+/// and its branch; Retry start launches in it without running post-checkout or setup again.
+#[tokio::test]
+async fn a_failed_launch_keeps_the_ready_worktree_and_retry_only_launches() {
+    let f = Fixture::shop().await;
+    let hooks = f.home.path().join("hooks.log");
+    let setups = f.home.path().join("setups.log");
+    let hook = repo(&f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!("#!/bin/sh\necho ran >> '{}'\n", hooks.display()),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    set_project(
+        &f,
+        ProjectSettings {
+            setup_command: format!("echo setup>> \"{}\"", setups.display()),
+            ..Default::default()
+        },
+    )
+    .await;
+    let t = queued(&f, "Launch").await;
+    let runs = |log: &Path| {
+        std::fs::read_to_string(log)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+
+    // No launch context: the start goes through the worktree, its hook and setup, and fails at the launch.
+    let (_, unlaunched, data) = starter_for(&f, None);
+    let outcome = unlaunched
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            outcome,
+            StartOutcome::Interrupted {
+                step: StartStep::Launch,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    let worktree = data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(
+        worktree.join("file1.txt").is_file(),
+        "the ready worktree stays"
+    );
+    assert!(registered(&f, &worktree));
+    assert!(branch_exists(&f, "otaq/SHOP-1"));
+    let row = f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.branch_name.as_deref(), Some("otaq/SHOP-1"));
+    assert!(row.worktree_path.is_some());
+    assert_eq!((runs(&hooks), runs(&setups)), (1, 1));
+
+    // Retry start reuses it and only launches: no post-checkout, no setup again.
+    let (sessions, starter, _) = starter_for(&f, Some(stand_in()));
+    starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert_eq!((runs(&hooks), runs(&setups)), (1, 1));
+    assert_eq!(f.ticket("SHOP-1").await.status, Status::Working);
+    assert_eq!(
+        git(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "otaq/SHOP-1"
+    );
+    sessions.shutdown().await;
+}
+
+/// A post-checkout hook that refuses after git made the worktree fails the start and leaves nothing half-made; Retry
+/// start does the whole start again, the hook runs again, and the ticket starts.
+#[tokio::test]
+async fn a_post_checkout_refusal_leaves_nothing_and_retry_runs_the_hook_again() {
+    let s = setup().await;
+    let log = s.f.home.path().join("hooks.log");
+    let mark = s.f.home.path().join("refused-once");
+    post_checkout_failing_once(&repo(&s.f), &log, &mark);
+    let t = queued(&s.f, "Checkout").await;
+
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    let StartOutcome::Interrupted { step, message } = &outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(*step, StartStep::Worktree);
+    assert!(
+        message.starts_with("Your post-checkout hook refused the start"),
+        "{message}"
+    );
+    // The ticket names the hook and keeps its whole output, though the worktree it ran in is gone.
+    let problem = s.f.ticket("SHOP-1").await.start_problem.unwrap();
+    let hook = problem.hook.expect("the hook is kept on the ticket");
+    assert_eq!(hook.name, "post-checkout");
+    assert_eq!(hook.step, Some(otaq_core::git::GitStep::AddWorktree));
+    assert_eq!(hook.line(), "post-checkout hook refused the start");
+    assert!(
+        hook.output.contains("post-checkout: failing on purpose"),
+        "{}",
+        hook.output
+    );
+    // History keeps it with its output.
+    let (payload,): (String,) = sqlx::query_as(
+        "SELECT payload_json FROM events WHERE ticket_id = ? AND kind = 'start_interrupted'",
+    )
+    .bind(&t.id)
+    .fetch_one(s.f.board.store().pool())
+    .await
+    .unwrap();
+    let payload: serde_json::Value = serde_json::from_str(&payload).unwrap();
+    assert_eq!(payload["hook"]["name"], "post-checkout");
+    assert!(
+        payload["hook"]["output"]
+            .as_str()
+            .unwrap()
+            .contains("failing on purpose")
+    );
+    let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(!worktree.exists(), "the half-made worktree is gone");
+    assert!(!registered(&s.f, &worktree), "and git no longer lists it");
+    assert!(
+        !branch_exists(&s.f, "otaq/SHOP-1"),
+        "the new branch is gone"
+    );
+    let row = s.f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.worktree_path, None);
+    assert_eq!(row.branch_name, None);
+    assert_eq!(std::fs::read_to_string(&log).unwrap().lines().count(), 1);
+
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert_eq!(
+        std::fs::read_to_string(&log).unwrap().lines().count(),
+        2,
+        "the hook ran again"
+    );
+    assert!(worktree.join("file1.txt").is_file());
+    assert!(registered(&s.f, &worktree));
+    assert_eq!(
+        git(&worktree, &["rev-parse", "--abbrev-ref", "HEAD"]),
+        "otaq/SHOP-1"
+    );
+    assert_eq!(s.f.ticket("SHOP-1").await.status, Status::Working);
+    s.sessions.shutdown().await;
+}
+
+/// While a start runs its git steps the ticket says the step git is really on and the user's hook that runs (a slow
+/// post-checkout on `worktree add`), for its card; once the worktree is made nothing says it any more. Otaq waits for
+/// the hook however long it takes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_start_shows_its_git_step_and_the_running_hook() {
+    let s = setup().await;
+    let marks = tempfile::tempdir().unwrap();
+    let started = marks.path().join("started");
+    let release = marks.path().join("release");
+    let hook = repo(&s.f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\ntouch '{}'\nwhile [ ! -e '{}' ]; do sleep 0.05; done\n",
+            started.display(),
+            release.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    queued(&s.f, "Checkout").await;
+    let starter = s.starter.clone();
+    let start = tokio::spawn(async move {
+        starter
+            .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+            .await
+    });
+
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while !started.exists() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the post-checkout hook started");
+    let progress = tokio::time::timeout(Duration::from_secs(10), async {
+        loop {
+            if let Some(git) = s.f.ticket("SHOP-1").await.flags.git
+                && git.hook.is_some()
+            {
+                return git;
+            }
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await
+    .expect("the running hook shows on the ticket");
+    assert_eq!(progress.operation, otaq_core::domain::GitOperation::Start);
+    assert_eq!(progress.target, "main");
+    assert_eq!(progress.step, Some(otaq_core::git::GitStep::AddWorktree));
+    let hook = progress.hook.unwrap();
+    assert_eq!(hook.name, "post-checkout");
+    assert!(hook.since_ms <= otaq_core::store::now_ms());
+
+    std::fs::write(&release, "").unwrap();
+    let outcome = start.await.unwrap().unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert_eq!(s.f.ticket("SHOP-1").await.flags.git, None);
+    s.sessions.shutdown().await;
+}
+
+/// A post-checkout that hangs runs until the user's Stop (no time limit); Stop ends git, the hook and what it started,
+/// and the start ends as after a refusal: Start failed in its column with Retry start, nothing half-made kept, and
+/// Retry start does the whole start again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hanging_post_checkout_is_stopped_and_leaves_nothing() {
+    let s = setup().await;
+    let marks = tempfile::tempdir().unwrap();
+    let pids = marks.path().join("pids");
+    let hook = repo(&s.f).join(".git/hooks/post-checkout");
+    std::fs::write(
+        &hook,
+        format!(
+            "#!/bin/sh\necho $$ >> '{p}'\nsleep 1000 &\necho $! >> '{p}'\nsleep 1000\n",
+            p = pids.display()
+        ),
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let t = queued(&s.f, "Checkout").await;
+    let starter = s.starter.clone();
+    let start = tokio::spawn(async move {
+        starter
+            .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+            .await
+    });
+    let written = || {
+        std::fs::read_to_string(&pids)
+            .unwrap_or_default()
+            .lines()
+            .map(str::to_owned)
+            .collect::<Vec<_>>()
+    };
+    tokio::time::timeout(Duration::from_secs(20), async {
+        while written().len() < 2 {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the post-checkout hook started");
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    assert!(!start.is_finished(), "no time limit");
+
+    s.f.board.stop_git_step("SHOP-1").await.unwrap();
+    let outcome = tokio::time::timeout(Duration::from_secs(20), start)
+        .await
+        .expect("the start ends at Stop")
+        .unwrap()
+        .unwrap();
+    let StartOutcome::Interrupted { step, message } = &outcome else {
+        panic!("{outcome:?}")
+    };
+    assert_eq!(*step, StartStep::Worktree);
+    assert_eq!(
+        message,
+        "You stopped the start while your post-checkout hook was running. Retry start starts it again."
+    );
+    #[cfg(unix)]
+    for pid in written() {
+        tokio::time::timeout(Duration::from_secs(10), async {
+            while std::process::Command::new("kill")
+                .args(["-0", &pid])
+                .stderr(std::process::Stdio::null())
+                .status()
+                .unwrap()
+                .success()
+            {
+                tokio::time::sleep(Duration::from_millis(50)).await;
+            }
+        })
+        .await
+        .unwrap_or_else(|_| panic!("process {pid} is left"));
+    }
+    let after = s.f.ticket("SHOP-1").await;
+    assert_eq!(after.status, Status::StartInterrupted);
+    assert_eq!(after.flags.git, None);
+    let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(!worktree.exists(), "the half-made worktree is gone");
+    assert!(!registered(&s.f, &worktree), "and git no longer lists it");
+    assert!(
+        !branch_exists(&s.f, "otaq/SHOP-1"),
+        "the new branch is gone"
+    );
+    let row = s.f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.worktree_path, None);
+
+    std::fs::remove_file(&hook).unwrap();
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    s.sessions.shutdown().await;
+}
+
+/// A failed start removes only what it made: a branch an earlier start made, with work on it, stays where it is.
+#[tokio::test]
+async fn a_failed_start_keeps_a_branch_it_did_not_make() {
+    let s = setup().await;
+    let t = queued(&s.f, "Checkout").await;
+    // The branch an earlier start chose and made, with a commit on it.
+    let main = git(&repo(&s.f), &["rev-parse", "main"]);
+    git(&repo(&s.f), &["branch", "otaq/SHOP-1", &main]);
+    let scratch = s.f.home.path().join("scratch");
+    git(
+        &repo(&s.f),
+        &[
+            "worktree",
+            "add",
+            "--quiet",
+            &scratch.display().to_string(),
+            "otaq/SHOP-1",
+        ],
+    );
+    commit(&scratch, "earlier.txt", "earlier work\n");
+    git(
+        &repo(&s.f),
+        &["worktree", "remove", &scratch.display().to_string()],
+    );
+    let earlier = git(&repo(&s.f), &["rev-parse", "otaq/SHOP-1"]);
+    sqlx::query("UPDATE tickets SET branch_name = 'otaq/SHOP-1', base_sha = ? WHERE id = ?")
+        .bind(&main)
+        .bind(&t.id)
+        .execute(s.f.board.store().pool())
+        .await
+        .unwrap();
+    let log = s.f.home.path().join("hooks.log");
+    let mark = s.f.home.path().join("refused-once");
+    post_checkout_failing_once(&repo(&s.f), &log, &mark);
+
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(
+            outcome,
+            StartOutcome::Interrupted {
+                step: StartStep::Worktree,
+                ..
+            }
+        ),
+        "{outcome:?}"
+    );
+    let worktree = s.data.worktree_path("shop-web", "SHOP-1").unwrap();
+    assert!(!worktree.exists());
+    assert!(!registered(&s.f, &worktree));
+    assert_eq!(git(&repo(&s.f), &["rev-parse", "otaq/SHOP-1"]), earlier);
+    let row = s.f.board.store().ticket(&t.id).await.unwrap().unwrap();
+    assert_eq!(row.branch_name.as_deref(), Some("otaq/SHOP-1"));
+
+    s.starter.retry("SHOP-1", &me()).await.unwrap();
+    let outcome = s
+        .starter
+        .start("SHOP-1", &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(matches!(outcome, StartOutcome::Started(_)), "{outcome:?}");
+    assert!(
+        worktree.join("earlier.txt").is_file(),
+        "on the earlier work"
+    );
+    s.sessions.shutdown().await;
 }
 
 #[tokio::test]

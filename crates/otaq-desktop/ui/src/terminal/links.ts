@@ -131,7 +131,8 @@ export function createLinkGate({ mac, onHint, element, keys = window }: LinkGate
   const release = () => {
     hold({ metaKey: false, ctrlKey: false });
   };
-  element.addEventListener("mousemove", onMouse);
+  // Heard on the way down: the terminal may keep a move from going further (to keep a selection on Windows).
+  element.addEventListener("mousemove", onMouse, true);
   keys.addEventListener("keydown", onKey, true);
   keys.addEventListener("keyup", onKey, true);
   keys.addEventListener("blur", release);
@@ -175,7 +176,7 @@ export function createLinkGate({ mac, onHint, element, keys = window }: LinkGate
     wrap,
     register: (term, provider) => term.registerLinkProvider(wrap(provider)),
     dispose: () => {
-      element.removeEventListener("mousemove", onMouse);
+      element.removeEventListener("mousemove", onMouse, true);
       keys.removeEventListener("keydown", onKey, true);
       keys.removeEventListener("keyup", onKey, true);
       keys.removeEventListener("blur", release);

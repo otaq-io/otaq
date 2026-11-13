@@ -295,6 +295,9 @@ export function useSheetActions(view: SheetView): SheetActions {
       case "open_agent":
         openOverlay("settings", agentSettings(view.open_agent));
         return;
+      case "provider_settings":
+        openOverlay("settings", { section: "git" });
+        return;
       case "start":
         void startTicket(view.key);
         return;

@@ -106,10 +106,42 @@ impl Board {
             .ok_or_else(|| BoardError::NotFound(format!("{path} isn't changed in {}", ticket.key)))
     }
 
+    /// One file's change between two commits of the ticket's project: a hook's changes to what landed, from the
+    /// commit that was squashed to the one that landed. Both are commit ids (never a name or an option).
+    pub async fn diff_file_between(
+        &self,
+        key: &str,
+        path: &str,
+        from: &str,
+        to: &str,
+    ) -> Result<FileDiff, BoardError> {
+        let ticket = self.ticket(key).await?;
+        for id in [from, to] {
+            if id.is_empty() || !id.chars().all(|c| c.is_ascii_hexdigit()) {
+                return Err(BoardError::refused(
+                    Refusal::NotAllowed,
+                    format!("not a commit id: {id}"),
+                ));
+            }
+        }
+        let project = self.project(ticket.key.project.as_str()).await?;
+        self.git()?
+            .file_diff(
+                &PathBuf::from(project.repo_path),
+                &DiffSpec::between(from, to),
+                path,
+            )
+            .await?
+            .ok_or_else(|| {
+                BoardError::NotFound(format!("{path} isn't changed between {from} and {to}"))
+            })
+    }
+
     async fn diff_source(&self, ticket: &Ticket) -> Result<DiffSource, BoardError> {
         let project = self.project(ticket.key.project.as_str()).await?;
         let work = ticket.work.clone().unwrap_or_default();
-        let (Some(branch), Some(base_sha)) = (work.branch, work.base_sha) else {
+        let base_sha = self.current_base_sha(ticket).await?;
+        let (Some(branch), Some(base_sha)) = (work.branch, base_sha) else {
             return Err(BoardError::refused(
                 Refusal::NoBranch,
                 format!("{} has no branch yet: it hasn't started", ticket.key),

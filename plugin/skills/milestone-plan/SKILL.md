@@ -1,6 +1,6 @@
 ---
 name: milestone-plan
-description: Run the Milestone plan stage of the Otaq ticket named by $OTAQ_TICKET - get the context with `otaq prime`, read what Product spec and Tech spec committed, decide the pieces and their order, write the ticket's Plan (the why, then the Pieces list) with `otaq update --plan-file`, write the plan into the project's docs where it keeps one and commit it, file no tickets, and end your stage with a comment through `otaq stage next`.
+description: Run the Milestone plan stage of the Otaq ticket named by $OTAQ_TICKET - get the context with `otaq prime`, read what Product spec and Tech spec committed, decide the pieces and their order, write the ticket's Plan (the why, then the Pieces list) with `otaq update --plan-file`, write the plan into the project's docs where it keeps one and commit it, keep all the ticket's work on this ticket (a ticket only as a follow-up for something new outside it), and end your stage with a comment through `otaq stage next`.
 disable-model-invocation: true
 ---
 
@@ -12,7 +12,10 @@ Your job is to turn them into work: the ticket's **Plan**, which says why the wo
 its **pieces**, their order and what each waits for. The user checks it at Spec review, and in the build stage the
 ticket's agent starts a helper for each piece and merges their work.
 
-**You file nothing.** The whole deliverable stays this one ticket; its pieces live in its Plan.
+**The ticket stays one ticket.** Everything it holds, even a goal unrelated to the rest, becomes pieces in its Plan:
+small pieces keep each helper's work and context small. Never suggest splitting it into several tickets. Something
+new you discover outside what the ticket asks for (a separate bug, a missing test elsewhere) you may file as a
+follow-up in Backlog with `otaq create "Title" --stdin`.
 
 **Your stage ends only when you run `otaq stage next`**, or pauses while you wait for the user's answer to `otaq ask
 human --stdin`. A summary in this chat reaches no one: the board, the user and the next stage see only what those
@@ -46,15 +49,14 @@ and end your stage. If you end your turn without either, Otaq types a reminder i
    - **Order them by what each needs**: a piece waits for the pieces whose code it builds on ("the button waits for the
      API"). Pieces that wait for nothing, or for the same pieces, are built side by side, so don't chain what doesn't
      need chaining.
-   - **Too big for one ticket?** When the work is really several deliverables, each worth reviewing and merging on its
-     own, ask the user (see "Asking"). If they want several tickets, they ask Noyan to file them; you still file
-     nothing, and you plan only what stays on this ticket.
+   - **Big work stays one ticket**: however big it is, and even when parts of it could be reviewed and merged apart,
+     split it into more pieces, never into tickets.
 5. **Write the ticket's Plan** with `otaq update` (see "Writing the Plan"): first the why (how the work is split and
    the order, in a few lines, naming the decisions it follows), then the **Pieces** list in its fixed shape.
 6. **Write the plan into the project's docs** where it keeps one, as the project's notes say (for example "milestone
    plans are rows in SDD.md §24", or a file per milestone in docs/milestones/). With no such place, the ticket's Plan
    is enough: write nothing else. Then **commit everything** on the ticket's branch with Otaq's `commit` skill. Nothing may stay uncommitted: `otaq stage next` is refused while files are
-   uncommitted. **Never push.**
+   uncommitted. **Don't push unless the user asks** (see "Rules").
 7. **End your stage** with a short comment on stdin, then end your turn: the number of pieces and each file you wrote,
    in a line or two (at most 2,000 characters). The user reads it at Spec review:
 
@@ -133,17 +135,16 @@ comparison of options). It goes into the repo only when the project's notes say 
 
 ## Asking
 
-Ask the user only what the specs don't answer and changes the plan (one ticket or several, a piece the user may not
-want). One question per turn, then end your turn; the answer arrives as the user's next message. When there are clear
+Ask the user only what the specs don't answer and changes the plan (a piece the user may not want). One question per turn, then end your turn; the answer arrives as the user's next message. When there are clear
 alternatives, offer **2–4 options**, each with a note of its pros and cons, and recommend one when there is a sensible
 default:
 
 ```sh
 otaq ask human \
-  --option "One ticket, 6 pieces" --note "One review and one merge; the share link waits for the whole wishlist." \
-  --option "Two tickets" --note "Wishlist and Share link reviewed and merged apart; Noyan files the second one." \
+  --option "Plan it now" --note "One more piece, after the page; the ticket takes longer to finish." \
+  --option "Leave it out" --note "The wishlist is done sooner; the share link becomes a follow-up ticket." \
   --recommended 1 --stdin <<'QUESTION'
-The wishlist and the share link are each several pieces, and each could be reviewed and merged on its own. Plan them as one ticket or two?
+The product spec mentions a share link "later". Plan it on this ticket now, or leave it out?
 QUESTION
 ```
 
@@ -152,9 +153,15 @@ Agent instructions take precedence over this guidance.
 
 ## Rules
 
-- **File nothing**: you never create tickets. Several tickets are Noyan's, at the user's request.
+- **No tickets for this ticket's work**: its work is its pieces. File a ticket only as a follow-up for something new
+  outside what it asks for (`otaq create "Title" --stdin`, in Backlog).
 - Plan the work; don't build it. The build stage's agent and its helpers write the code from the Plan.
-- **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`) or a file, never quoted arguments. Long command output goes to
   a file.
 - Always finish with `otaq stage next --stdin`.

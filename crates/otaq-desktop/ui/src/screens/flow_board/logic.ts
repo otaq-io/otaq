@@ -52,7 +52,7 @@ export const STAGE_SKILL_ROUTES: StageSkillRoutes = {
 
 /**
  * "Use your own Open PR skill" (the refused Open PR toast's link): the board's editor on that stage's Skill field, or
- * on How work leaves the flow (Done) when no stage is named.
+ * when no stage is named on How work leaves the flow (Done), its PR skill field focused.
  */
 export function openStageSkill(
   project: string,
@@ -60,7 +60,7 @@ export function openStageSkill(
   routes: StageSkillRoutes = STAGE_SKILL_ROUTES,
 ): void {
   routes.closeSettings();
-  routes.open(stage === null ? { project, select: "done" } : { project, select: stage, focusSkill: true });
+  routes.open({ project, select: stage ?? "done", focusSkill: true });
 }
 
 /** Cancel, Save flow or Esc: the board is the board again. */
@@ -133,6 +133,14 @@ export function dropDraft(view: FlowBoardView, ask: Ask = request): Promise<unkn
   return ask("flow_editor.cancel", { project: view.project, proposal: view.proposal });
 }
 
+/**
+ * Discard the draft when the editor can't draw it: there is no view to name it, so whatever draft the project has
+ * open goes, and the next view is the flow in use.
+ */
+export function discardDraft(project: string, ask: Ask = request): Promise<unknown> {
+  return ask("flow_editor.cancel", { project });
+}
+
 /** Import a flow file…: the open dialog, then its flow in the draft. Cancelling the dialog does nothing. */
 export async function importFile(
   project: string,
@@ -158,29 +166,67 @@ export async function exportFile(
 }
 
 /**
- * Suggest a flow for <project>…: Noyan's agent starts on the `flow` skill and drafts one; the editor follows that
- * agent while it drafts. Resolves to the agent's id.
+ * The box's send: Noyan's agent starts on the `flow` skill with the user's words, or (`null`, Suggest a whole flow)
+ * asked for a whole flow, and drafts; the editor follows that agent while it drafts. The agent panel stays as it is.
+ * Resolves to the agent's id.
  */
 export async function suggest(
   project: string,
+  text: string | null = null,
   ask: Ask = request,
   agents: Store<Readonly<Record<string, string>>> = editorAgents,
 ): Promise<string> {
-  const started = (await ask("flow_board.suggest", { project })) as FlowEditorStarted;
+  const words = text?.trim() ?? "";
+  const params = text === null ? { project } : { project, text: words };
+  const started = (await ask("flow_board.suggest", params)) as FlowEditorStarted;
   showEditorAgent(project, started.agent, agents);
   return started.agent;
 }
 
-/** Ask for changes…: the user's words go back to the agent that made the suggestion. Nothing for empty words. */
-export async function askForChanges(view: FlowBoardView, text: string, ask: Ask = request): Promise<boolean> {
+/**
+ * The box's Stop while Noyan's agent drafts: that conversation ends, as the agent panel's End agent does, without
+ * the panel's question (it is mid-turn by definition, and Stop is the user's answer). The draft keeps what it proposed.
+ */
+export function stopDrafting(project: string, agent: string, ask: Ask = request): Promise<unknown> {
+  return ask("agent_panel.end", { project, id: agent, confirm: true });
+}
+
+/**
+ * The box's send while a suggestion shows: the user's words go back to the agent that made it, which the editor then
+ * follows, so the box shows it redrafting while its proposal stays on the columns (UX-63). Nothing for empty words.
+ */
+export async function askForChanges(
+  view: FlowBoardView,
+  text: string,
+  ask: Ask = request,
+  agents: Store<Readonly<Record<string, string>>> = editorAgents,
+): Promise<boolean> {
   if (text.trim() === "") return false;
   await ask("flow_board.ask_changes", { project: view.project, proposal: view.proposal, text: text.trim() });
+  if (view.ask.state.kind === "proposal") showEditorAgent(view.project, view.ask.state.agent, agents);
   return true;
 }
 
 /** Undo: the draft's document before the last edit, which the page kept. */
 export function restore(project: string, yaml: string, ask: Ask = request): Promise<unknown> {
   return ask("flow_board.restore", { project, yaml });
+}
+
+/** The answer box's size in the editor: its width, and the height it grows to before its question scrolls. */
+export interface AnswerBoxSize {
+  width: number;
+  cap: number;
+}
+
+/** The editor's width from which the answer box is 760 px wide: a 1440 px window has it, the narrowest (1280) not. */
+export const WIDE_EDITOR = 1300;
+
+/**
+ * Edit flow's box while Noyan asks, in an editor (the area under the bar) `width` × `height` px: it grows with the
+ * question up to 55% of the editor's height, 760 px wide where there is room and 680 px in the narrowest window.
+ */
+export function answerBoxSize(width: number, height: number): AnswerBoxSize {
+  return { width: width >= WIDE_EDITOR ? 760 : 680, cap: Math.round(height * 0.55) };
 }
 
 /** The service events that change what the editor shows. */

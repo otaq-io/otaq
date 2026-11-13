@@ -1,5 +1,5 @@
 //! **The Merge check** (d0120, Q475): the project's command (`npm test`) that Local merge runs on the merged result
-//! in Otaq's scratch worktree before the target moves, when the rebase brought in commits the branch didn't have
+//! in Otaq's scratch worktree before the target moves, when merging the target in brought in commits the branch didn't have
 //! ([`crate::git::merge`] decides when; this module runs it).
 //!
 //! - **The build:** the scratch worktree is seeded copy-on-write from the ticket's worktree build, else the warm
@@ -171,6 +171,74 @@ pub(crate) fn capped_output(output: &Path) -> std::io::Result<PathBuf> {
     Ok(capped)
 }
 
+/// How many of the check's last lines the failure dialog shows.
+const TAIL_LINES: usize = 40;
+/// How much of the end of the output is read for them: a runaway line can't fill the dialog.
+const TAIL_BYTES: u64 = 16 * 1024;
+
+/// The end of the check's output for the failure dialog: its last lines without the `$ command` header, colour codes
+/// or blank lines around them, "…" first when the start was cut. Empty when it printed nothing or can't be read.
+pub(crate) fn output_tail(output: &Path) -> String {
+    let read = || -> std::io::Result<(Vec<u8>, bool)> {
+        let mut file = std::fs::File::open(output)?;
+        let from = file.metadata()?.len().saturating_sub(TAIL_BYTES);
+        file.seek(SeekFrom::Start(from))?;
+        let mut bytes = Vec::new();
+        file.read_to_end(&mut bytes)?;
+        Ok((bytes, from > 0))
+    };
+    let (bytes, cut) = match read() {
+        Ok(read) => read,
+        Err(e) => {
+            tracing::warn!(output = %output.display(), error = %e, "can't read the merge check's output");
+            return String::new();
+        }
+    };
+    let text = strip_escapes(&String::from_utf8_lossy(&bytes));
+    let mut lines: Vec<&str> = text.lines().map(str::trim_end).collect();
+    // A cut read starts mid-line; a whole one starts with the `$ command` header the dialog already names.
+    if !lines.is_empty() && (cut || lines[0].starts_with("$ ")) {
+        lines.remove(0);
+    }
+    while lines.first().is_some_and(|l| l.is_empty()) {
+        lines.remove(0);
+    }
+    while lines.last().is_some_and(|l| l.is_empty()) {
+        lines.pop();
+    }
+    let cut = cut || lines.len() > TAIL_LINES;
+    let kept = &lines[lines.len().saturating_sub(TAIL_LINES)..];
+    let mut tail = String::new();
+    if cut && !kept.is_empty() {
+        tail.push_str("\u{2026}\n");
+    }
+    tail.push_str(&kept.join("\n"));
+    tail
+}
+
+/// `text` without terminal escape sequences (a test runner's colours) and carriage returns.
+fn strip_escapes(text: &str) -> String {
+    let mut out = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        match c {
+            '\u{1b}' => {
+                if chars.next() == Some('[') {
+                    // Parameters up to the final byte (a letter, `@`, `~`…).
+                    for c in chars.by_ref() {
+                        if ('\u{40}'..='\u{7e}').contains(&c) {
+                            break;
+                        }
+                    }
+                }
+            }
+            '\r' => {}
+            c => out.push(c),
+        }
+    }
+    out
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -196,5 +264,36 @@ mod tests {
         assert_eq!(text.len() as u64, REPORT_LIMIT_BYTES);
         assert!(text.starts_with(b"[The start of the merge check's output was cut"));
         assert!(text.ends_with(b"FAIL the end\n"));
+    }
+
+    #[test]
+    fn the_dialog_shows_the_end_of_the_output() {
+        let dir = tempfile::tempdir().unwrap();
+        let short = dir.path().join("short.log");
+        std::fs::write(
+            &short,
+            "$ npm test\r\n\u{1b}[31mFAIL\u{1b}[0m a.test.ts\r\n  expected 1, got 2\r\n\r\n",
+        )
+        .unwrap();
+        assert_eq!(output_tail(&short), "FAIL a.test.ts\n  expected 1, got 2");
+
+        let long = dir.path().join("long.log");
+        let lines: Vec<String> = (1..=100).map(|n| format!("line {n}")).collect();
+        std::fs::write(&long, format!("$ npm test\n{}\n", lines.join("\n"))).unwrap();
+        let tail = output_tail(&long);
+        assert!(tail.starts_with("\u{2026}\nline 61\n"), "{tail}");
+        assert!(tail.ends_with("line 100"));
+
+        let huge = dir.path().join("huge.log");
+        let mut file = std::fs::File::create(&huge).unwrap();
+        file.write_all(&vec![b'x'; 64 * 1024]).unwrap();
+        file.write_all(b"\nFAIL the end\n").unwrap();
+        drop(file);
+        assert_eq!(output_tail(&huge), "\u{2026}\nFAIL the end");
+
+        let empty = dir.path().join("empty.log");
+        std::fs::write(&empty, "$ npm test\n").unwrap();
+        assert_eq!(output_tail(&empty), "");
+        assert_eq!(output_tail(&dir.path().join("missing.log")), "");
     }
 }

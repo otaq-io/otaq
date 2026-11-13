@@ -197,6 +197,33 @@ pub async fn run(
     path: &std::ffi::OsStr,
     cwd: &Path,
 ) -> Result<ModelList, ModelListError> {
+    parse_answer(&session_answer(program, path, cwd).await?)
+}
+
+/// Whether a `session/new` answer says Copilot is signed in: its models → signed in; `Authentication required`
+/// (code -32000) → signed out; any other error (offline, a refusal) → no answer.
+pub fn signed_in_from_answer(answer: &Value) -> Option<bool> {
+    let Some(error) = answer.get("error") else {
+        return answer.get("result").map(|_| true);
+    };
+    let required = error.get("code").and_then(Value::as_i64) == Some(AUTHENTICATION_REQUIRED)
+        || error
+            .get("message")
+            .and_then(Value::as_str)
+            .is_some_and(|m| m.eq_ignore_ascii_case("Authentication required"));
+    required.then_some(false)
+}
+
+/// The JSON-RPC error code of `session/new` signed out.
+const AUTHENTICATION_REQUIRED: i64 = -32000;
+
+/// The `session/new` answer as Copilot sent it (an error answer included); an error when there is none to read
+/// (it couldn't start, ended without answering, refused `initialize` or took longer than [`LIST_TIMEOUT`]).
+pub async fn session_answer(
+    program: &std::ffi::OsStr,
+    path: &std::ffi::OsStr,
+    cwd: &Path,
+) -> Result<Value, ModelListError> {
     let command = list_command(cwd);
     let launch = crate::tools::cmd_shim::command(program, path)
         .map_err(|e| failed(e.message(Some(super::DISPLAY_NAME))))?;
@@ -232,7 +259,7 @@ pub async fn run(
                 sent_session = true;
             } else if answers(&line, SESSION_ID) {
                 tracing::debug!(answer = %line, "copilot session/new answer");
-                return parse_answer(&line);
+                return Ok(line);
             }
         }
         Err(failed("it ended without answering"))

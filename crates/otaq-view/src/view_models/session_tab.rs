@@ -197,12 +197,10 @@ pub fn lands_on(status: Status) -> Content {
     }
 }
 
-/// The ticket's agent session: the running one, else the newest.
+/// The ticket's agent session: the running one, else a running answer session (a finished ticket's agent started
+/// again to answer another ticket's question, reached like any agent session), else the newest agent session.
 pub fn agent_session(sessions: &[SessionInfo]) -> Option<&SessionInfo> {
-    let agents = || sessions.iter().filter(|s| s.kind == SessionKind::Agent);
-    agents()
-        .find(|s| s.is_running())
-        .or_else(|| agents().max_by_key(|s| s.started_at))
+    otaq_core::session::agent_terminal(sessions)
 }
 
 /// What the switch is made of.
@@ -236,8 +234,9 @@ pub fn parts(f: &Facts) -> Vec<PartView> {
     let checking = checking(ticket.status);
     let agent_dot = agent_session(f.sessions)
         .filter(|s| s.is_running() && !checking)
-        .map(|_| {
-            if ticket.shows_needs_you() {
+        .map(|s| {
+            // A prompt on its screen waits for the user too (a finished ticket's answer session's).
+            if ticket.shows_needs_you() || ticket.flags.prompts_drawn_in.contains(&s.id) {
                 Dot::Waiting
             } else {
                 Dot::Running
@@ -609,6 +608,35 @@ mod tests {
             labels(&parts),
             [("Agent", Some(Dot::Waiting)), ("Terminal", None)]
         );
+    }
+
+    /// A merged ticket's running answer session is its Agent part: running, and turquoise while a prompt is on its
+    /// screen; its old ended agent session isn't what Session shows.
+    #[test]
+    fn a_merged_tickets_answer_session_is_its_agent_part() {
+        let mut t = ticket("SHOP-35", "Retest6 restack", Status::Merged);
+        let mut answer = session("answer", SessionKind::Answer, true, Some("Developer"));
+        answer.started_at = 30;
+        let sessions = [
+            session("dev", SessionKind::Agent, false, Some("Developer")),
+            answer,
+        ];
+        assert_eq!(
+            agent_session(&sessions).map(|s| s.id.as_str()),
+            Some("answer")
+        );
+        let dot = |t: &Ticket| {
+            labels(&parts(&Facts {
+                ticket: t,
+                sessions: &sessions,
+                checks: &[],
+                run: None,
+            }))[0]
+                .1
+        };
+        assert_eq!(dot(&t), Some(Dot::Running));
+        t.flags.prompts_drawn_in = vec!["answer".into()];
+        assert_eq!(dot(&t), Some(Dot::Waiting));
     }
 
     fn run(state: RunState) -> RunInfo {

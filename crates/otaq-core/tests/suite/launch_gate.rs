@@ -281,7 +281,7 @@ impl World {
 
 const ARGS: &str = "printf 'ARGS %s\\n' \"$*\"; exec cat";
 
-/// Claude Code and Codex found and connected (stand-ins printing a version), so the default model is Claude Code's
+/// Claude Code and Codex found and connected (stand-ins printing a version and a signed-in status), so the default model is Claude Code's
 /// own. Project SHOP (`shop-web`, the default flow) and BILL
 /// (`billing-api`, its Agent stage on "Codex developer", Codex's default model).
 async fn world() -> World {
@@ -289,8 +289,16 @@ async fn world() -> World {
     let bin = tools.path().join("bin");
     std::fs::create_dir_all(&bin).unwrap();
     std::fs::create_dir_all(tools.path().join("claude")).unwrap();
-    otaq_core::process::testing::stub_command(&bin, "claude", r#"echo "2.1.4 (Claude Code)""#);
-    otaq_core::process::testing::stub_command(&bin, "codex", r#"echo "codex-cli 0.157.1""#);
+    otaq_core::process::testing::stub_command(
+        &bin,
+        "claude",
+        r#"case "$1" in auth) echo '{"loggedIn": true}';; *) echo "2.1.4 (Claude Code)";; esac"#,
+    );
+    otaq_core::process::testing::stub_command(
+        &bin,
+        "codex",
+        r#"case "$1" in login) echo "Logged in using ChatGPT";; *) echo "codex-cli 0.157.1";; esac"#,
+    );
     let root = tools.path().to_path_buf();
     let agent_path = std::env::join_paths(
         std::iter::once(bin.clone()).chain(otaq_core::process::testing::sh_dirs()),

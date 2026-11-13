@@ -112,7 +112,8 @@ pub struct Ticket {
     /// What the agent waits for or runs in the background (needs-you family and Working in background, d0042).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub signal: Option<AgentSignal>,
-    /// Asks you: the open question with its answer options (d0061).
+    /// Asks you: the open question with its answer options (d0061). Also while the ticket waits in a check of the
+    /// user's, where it reads Asks you without changing its status ([`Self::question_in_place`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub question: Option<super::questions::HumanQuestion>,
     /// After a push: the PR branch's content differs from what was reviewed (REV-06, T-0145).
@@ -192,18 +193,129 @@ pub struct Work {
     pub remote_warning: Option<RemoteWarning>,
 }
 
+/// Kept in a ticket's `start_problem_step` while it waits To deliver because its automatic PR delivery found no PR
+/// provider for the remote: its card says so, with Set up… ([`crate::domain::Flags::pr_provider_not_detected`]).
+pub(crate) const NO_PR_PROVIDER_MARK: &str = "no_pr_provider";
+
 /// The step a start stopped at, and why: "setup command failed" + the command's last lines.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct StartProblem {
     pub step: StartStep,
     pub message: String,
+    /// The user's hook that refused the start, with its whole output; `None` for any other problem.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub hook: Option<crate::git::RefusedHook>,
 }
 
 impl Ticket {
+    /// The ticket's status in words, with how a finished ticket ended: "Done · nothing to merge" or "Done · not
+    /// merged" for one done without a merge (stored as Merged so its dependants start; filters and the Done column
+    /// still go by that status), else its status's label ("Merged" once a merge landed). A ticket landed with its host
+    /// carries the host's outcome, so it reads as the host does.
+    pub fn status_words(&self) -> &'static str {
+        use crate::domain::outcome::{DONE_NOT_MERGED, DONE_NOTHING_TO_MERGE};
+        match self.status {
+            Status::Merged if self.flags.done_without_merge => match self.flags.nothing_to_merge {
+                Some(_) => DONE_NOTHING_TO_MERGE,
+                None => DONE_NOT_MERGED,
+            },
+            status => status.label(),
+        }
+    }
+
     /// The group of the board the ticket shows in ([`StatusSet::BOARD`]), from its status: the default flow's
     /// columns, until the board's columns come from the flow (STG-08).
     pub fn board_group(&self) -> StatusSet {
         self.status.set().board_group()
+    }
+
+    /// The Delivery stop the ticket waits with where the Delivery started, in the user's check or To deliver: a
+    /// hook refused its merge or a PR's commit message, or its push didn't land
+    /// ([`crate::domain::AutoMergeStop::keeps_place`]). The card shows Needs you, the sheet the stop and its retry,
+    /// as for any Delivery stop. `None` once the ticket moved on.
+    pub fn stopped_in_place(&self) -> Option<crate::domain::AutoMergeStop> {
+        self.auto_merge_stop.filter(|stop| {
+            stop.keeps_place() && matches!(self.status, Status::WaitingForYou | Status::ToDeliver)
+        })
+    }
+
+    /// A ticket's session prompt, shown without changing its status: the permission prompt one of its sessions waits
+    /// at while the ticket stays where it is ([`crate::domain::SessionPrompt`]). Read like a Delivery stop that kept
+    /// its place: Needs you on the card, the pill, the strip and in notifications; its status and actions as they are.
+    pub fn session_prompt(&self) -> Option<&crate::domain::SessionPrompt> {
+        self.flags.session_prompt.as_ref()
+    }
+
+    /// A session prompt that reads as the ticket's own Needs you where it waits (Review, To deliver): its card, pill
+    /// and place in its column read Needs you. Not an answer session's: a finished card answering another ticket's
+    /// question only says so on its line ([`Self::answering_prompt`]).
+    pub fn prompt_in_place(&self) -> Option<&crate::domain::SessionPrompt> {
+        self.session_prompt().filter(|p| p.turn.asking().is_none())
+    }
+
+    /// The prompt an answer session of this finished ticket waits at, with the ticket whose question it holds up
+    /// ("Needs you · answering SHOP-36"). The card stays in Done with its status, never floats and never reads live;
+    /// the prompt gets its own Needs you item, notification and sheet prompt.
+    pub fn answering_prompt(
+        &self,
+    ) -> Option<(&crate::domain::SessionPrompt, &crate::domain::TicketKey)> {
+        let prompt = self.session_prompt()?;
+        Some((prompt, prompt.turn.asking()?))
+    }
+
+    /// The ticket as Needs you shows it while a session prompt is shown without changing its status: Needs you, with
+    /// the prompt as its signal since it was drawn. `None` without one. For what the user reads (the card of a ticket
+    /// waiting in place, the Overview's prompt, the Needs you item), never for what the ticket can do.
+    pub fn as_needs_you(&self) -> Option<Ticket> {
+        let prompt = self.session_prompt()?;
+        Some(Ticket {
+            status: Status::NeedsYou,
+            signal: Some(AgentSignal {
+                text: Some(prompt.prompt.clone()),
+                since: Some(prompt.since),
+                wakeup_at: None,
+            }),
+            status_since: Some(prompt.since),
+            ..self.clone()
+        })
+    }
+
+    /// The agent's open question while the ticket waits in a check of the user's (Review, Code review, Spec review):
+    /// read like a Delivery stop that kept its place, Asks you on the card, the pill, the strip and in notifications,
+    /// with its box on the Overview, while the ticket keeps its column, its status and its actions (Approve, Send back,
+    /// Move, dragging). Once the question is answered or closed it reads as before ("Ready for you"). `None` anywhere
+    /// else: at work, the question is the ticket's own Asks you.
+    pub fn question_in_place(&self) -> Option<&super::questions::HumanQuestion> {
+        self.question
+            .as_ref()
+            .filter(|_| self.status.set() == StatusSet::HumanCheck)
+    }
+
+    /// The ticket as the user reads it while its question shows without changing its status
+    /// ([`Self::question_in_place`]): Asks you, with the question as its signal since it was asked. `None` without
+    /// one. For what the user reads, never for what the ticket can do.
+    pub fn as_asks_you(&self) -> Option<Ticket> {
+        let question = self.question_in_place()?;
+        Some(Ticket {
+            status: Status::AsksYou,
+            signal: Some(AgentSignal {
+                text: Some(question.text.clone()),
+                since: Some(question.asked_at),
+                wakeup_at: None,
+            }),
+            status_since: Some(question.asked_at),
+            ..self.clone()
+        })
+    }
+
+    /// The ticket as the user reads it while it waits for them where it is, without changing its status: a session's
+    /// prompt in place reads Needs you ([`Self::prompt_in_place`]), shown on top of a question in place as a prompt is
+    /// on top of a question at work; else the question reads Asks you ([`Self::as_asks_you`]). `None` otherwise.
+    pub fn waiting_in_place(&self) -> Option<Ticket> {
+        match self.prompt_in_place() {
+            Some(_) => self.as_needs_you(),
+            None => self.as_asks_you(),
+        }
     }
 
     /// Has this ticket ever been to Dev? Never-started tickets can be deleted (d0060).
@@ -211,15 +323,23 @@ impl Ticket {
         self.started_at.is_some()
     }
 
-    /// Turquoise as the user sees it: the agent waits and no terminal of the ticket has focus (ATT-03, d0042).
+    /// Turquoise as the user sees it: the agent waits. Also while its terminal has focus: being there holds back
+    /// only the alert ([`crate::domain::Flags::your_turn`]), never the card's state. A finished ticket answering
+    /// another's question at a prompt isn't: its card stays where Done keeps it.
     pub fn shows_needs_you(&self) -> bool {
-        self.status.is_needs_you_family() && !self.flags.your_turn
+        self.status.is_needs_you_family()
+            || self.stopped_in_place().is_some()
+            || self.prompt_in_place().is_some()
+            || self.question_in_place().is_some()
     }
 
-    /// Whether the ticket waits for the user where they can see it: turquoise (unless its terminal has focus) or
-    /// Needs you's second group. Such cards float to the top of Dev and count in the project's needs-you number.
+    /// Whether the ticket waits for the user where they can see it: turquoise or Needs you's second group. Such cards
+    /// float to the top of Dev, focused terminal or not. A finished card's answer session prompt doesn't float it.
     pub fn needs_user(&self) -> bool {
-        super::order::needs_user(self.status) && !self.flags.your_turn
+        super::order::needs_user(self.status)
+            || self.stopped_in_place().is_some()
+            || self.prompt_in_place().is_some()
+            || self.question_in_place().is_some()
     }
 
     /// The stage of `flow` the board shows the ticket in: the one it is in or waits before (a started ticket waiting
@@ -357,6 +477,9 @@ stored_enum! {
         DependencyRemoved = "dependency_removed",
         Closed = "closed",
         AgentEditsSeen = "agent_edits_seen",
+        /// Undo on one of Noyan's CHANGED rows took that change back (the edit itself is recorded as its own event):
+        /// payload `agent` (the conversation's id) and `change` (what Noyan had changed). Not in History.
+        NoyanChangeUndone = "noyan_change_undone",
         /// The start sequence finished: the agent is working (SES-01).
         Started = "started",
         /// The start stopped at a step (SES-02).
@@ -378,6 +501,11 @@ stored_enum! {
         SentBack = "sent_back",
         /// Local merge: Done · Merged; the payload has the target and the squash commit (T-0089).
         Merged = "merged",
+        /// The user's post-merge hook ran in their own folder as a Local merge moved the target there, passed or
+        /// failed; it changes nothing about the merge. Payload `target` and `hook` (as
+        /// [`crate::git::merge::PostMergeHook`]). History reads "Your post-merge hook ran in ~/shop-web" · the last
+        /// line it printed, opening its whole output.
+        PostMergeHook = "post_merge_hook",
         /// The ticket finished without a merge (the Approve menu's "Done, nothing to merge", or an agent's `stage
         /// done`): Done, counting as merged ([`crate::domain::Outcome::DoneWithoutMerge`]). Payload `from`, and
         /// `nothing_to_merge` (with `stage done`'s `reason`) when the branch had nothing beyond its base. History
@@ -393,8 +521,9 @@ stored_enum! {
         Reopened = "reopened",
         /// Park: Dev → Backlog with the work kept (T-0104); payload `from`, `to` and `stage_id`, the stage it left.
         Parked = "parked",
-        /// The rebase of a reopened ticket's branch onto the current base, on its way to Dev (GIT-06).
-        Rebased = "rebased",
+        /// A reopened ticket's branch brought up to date with the current base on its way to Dev (GIT-06): the base is
+        /// merged into it (payload `how: "merge"`); events from before that say a rebase. Stored as `rebased`.
+        UpdatedFromBase = "rebased",
         /// The agent's session ended while it was at work: Interrupted (REC-01). The payload has the reason
         /// (`restart` or the session's end) and the status before.
         Interrupted = "interrupted",
@@ -430,6 +559,11 @@ stored_enum! {
         MergedAutomatically = "merged_automatically",
         /// The Delivery stopped (FLW-17; AMG-03, AMG-04): payload `stop`, `message`.
         AutoMergeStopped = "auto_merge_stopped",
+        /// A project's git hook refused a step of Approve & merge (the click or the automatic delivery): payload
+        /// `hook`, a [`crate::git::RefusedHook`] (`name`, `step`, `what`, `output`), and the stop's `stop` and
+        /// `message`. History reads "Merge didn't go through" · "pre-commit hook refused the merge" and opens the
+        /// hook's output, as a refused start's row does.
+        HookRefused = "hook_refused",
         /// `otaq decision record` (DEC-02, d0084): payload `ordinal`, `question`, `built`, `other_options`, `why`.
         /// History reads "Recorded a decision: <question>" · "Built: … · Other option: …".
         DecisionRecorded = "decision_recorded",
@@ -556,7 +690,6 @@ impl Board {
         actor: &Actor,
     ) -> Result<Ticket, BoardError> {
         let project = self.project(&input.project).await?;
-        super::projects::refuse_in_flow_setup(&project)?;
         let title = required_title(&input.title)?;
         let base_branch = match &input.base_branch {
             Some(b) if !b.trim().is_empty() => b.trim().to_owned(),
@@ -571,7 +704,7 @@ impl Board {
         // are copied once the key is known.
         let first_comment = match &input.first_comment {
             Some(c) => {
-                let sources = c.sources();
+                let sources = c.attachments.clone();
                 Some((
                     super::ticket_comments::check_comment(&c.body, sources.len())?,
                     sources,
@@ -898,7 +1031,11 @@ impl Board {
         let project_id = record.row.project_id.clone();
         // Boxed: assembling is a large future, and nearly every request awaits it (keeps callers' frames small).
         let mut tickets = Box::pin(self.assemble(vec![record], &project_id)).await?;
-        Ok(tickets.remove(0))
+        let mut ticket = tickets.remove(0);
+        if ticket.status == Status::WaitingForSlot {
+            ticket.flags.in_line = self.slot_line().await?.get(&ticket.id).copied();
+        }
+        Ok(ticket)
     }
 
     /// Every ticket of a project, by key.
@@ -917,6 +1054,13 @@ impl Board {
             .collect();
         for (ticket, ready) in tickets.iter_mut().zip(ready) {
             ticket.flags.ready_to_start = ready;
+        }
+        // A ticket waiting for a free agent is in line with every project's (the agent limit counts across them).
+        if tickets.iter().any(|t| t.status == Status::WaitingForSlot) {
+            let line = self.slot_line().await?;
+            for ticket in &mut tickets {
+                ticket.flags.in_line = line.get(&ticket.id).copied();
+            }
         }
         Ok(tickets)
     }
@@ -943,9 +1087,15 @@ impl Board {
         .bind(project_id)
         .fetch_all(pool)
         .await?;
+        // "1 message waiting · Deliver now": only what waits for the ticket's live agent session (its newest running
+        // one), the one its header shows and its Deliver now types into; never a check's or an ended session's.
         let waiting: std::collections::HashMap<String, i64> = sqlx::query_as(
             "SELECT s.ticket_id, COUNT(*) FROM pending_deliveries d JOIN sessions s ON s.id = d.session_id
-             WHERE s.project_id = ? AND s.ticket_id IS NOT NULL GROUP BY s.ticket_id",
+             WHERE s.project_id = ? AND s.ticket_id IS NOT NULL
+               AND s.id = (SELECT a.id FROM sessions a
+                           WHERE a.ticket_id = s.ticket_id AND a.kind = 'agent' AND a.state = 'running'
+                           ORDER BY a.started_at DESC, a.id DESC LIMIT 1)
+             GROUP BY s.ticket_id",
         )
         .bind(project_id)
         .fetch_all(pool)
@@ -962,6 +1112,31 @@ impl Board {
         .await?
         .into_iter()
         .collect();
+        // The PR flows under way, read only while a ticket's session shows a prompt: which turn the prompt came in.
+        let flows: std::collections::HashMap<String, super::session_prompts::FlowUnderWay> =
+            if self.session_prompts().is_empty() {
+                std::collections::HashMap::new()
+            } else {
+                let rows: Vec<(String, String, String, bool)> = sqlx::query_as(
+                    "SELECT f.ticket_id, f.kind, f.state, f.automatic FROM pr_flows f
+                     JOIN tickets t ON t.id = f.ticket_id WHERE t.project_id = ?",
+                )
+                .bind(project_id)
+                .fetch_all(pool)
+                .await?;
+                rows.into_iter()
+                    .filter_map(|(id, kind, state, automatic)| {
+                        Some((
+                            id,
+                            super::session_prompts::FlowUnderWay {
+                                kind: kind.parse().ok()?,
+                                state: state.parse().ok()?,
+                                automatic,
+                            },
+                        ))
+                    })
+                    .collect()
+            };
         // "answering SHOP-42" (MSG-03): the asker of the question a running answer session serves.
         let answering: std::collections::HashMap<String, String> = sqlx::query_as(
             "SELECT m.to_ticket_id, m.from_ticket_id FROM messages m
@@ -1177,6 +1352,7 @@ impl Board {
                     } else {
                         None
                     },
+                    git: self.git_steps().progress(&row.id),
                     sent_back,
                     pinned_at: row.pinned_at,
                     pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
@@ -1212,9 +1388,16 @@ impl Board {
                         .and_then(|f| serde_json::from_str(f).ok())
                         .unwrap_or_default(),
                     merged_automatically: row.merged_automatically && status == Status::Merged,
+                    hook_refusal: row
+                        .hook_refusal
+                        .as_deref()
+                        .and_then(|j| serde_json::from_str(j).ok()),
                     delivered_without_checks: row.delivered_without_checks
                         && status == Status::Merged,
                     delivering_automatically: delivering.contains(&row.id),
+                    pr_provider_not_detected: status == Status::ToDeliver
+                        && !delivering.contains(&row.id)
+                        && row.start_problem_step.as_deref() == Some(NO_PR_PROVIDER_MARK),
                     done_without_merge: done_without_merge(&row, status),
                     nothing_to_merge: row.nothing_to_merge.clone().filter(|_| {
                         status == Status::ClosedNotMerged || done_without_merge(&row, status)
@@ -1252,6 +1435,28 @@ impl Board {
                     .filter(|_| status == Status::MergedInto)
                     .cloned();
                 flags.missing_skill = missing_skills.remove(&row.id);
+                // Its sessions' prompts on screen; one in a delivery skill turn reads Needs you while the ticket keeps
+                // its status, and so does one in a finished ticket's answer session ("answering SHOP-36"). Being in
+                // that terminal holds back only its alert, as for any prompt.
+                let drawn = self.session_prompts().of_ticket(&row.id);
+                flags.prompts_drawn_in = drawn.iter().map(|p| p.session.clone()).collect();
+                flags.session_prompt = drawn.into_iter().find_map(|p| {
+                    let turn = super::session_prompts::shown_without_status(
+                        status,
+                        p.kind,
+                        flows.get(&row.id).copied(),
+                        flags.answering.as_ref(),
+                    )?;
+                    Some(crate::domain::SessionPrompt {
+                        session: p.session,
+                        prompt: p.prompt,
+                        since: p.since,
+                        turn,
+                    })
+                });
+                if flags.session_prompt.is_some() {
+                    flags.your_turn = self.focus.covers(&row.id, Status::NeedsYou);
+                }
                 let port = |p: Option<i64>| p.and_then(|p| u16::try_from(p).ok());
                 let work = Work {
                     branch: row.branch_name,
@@ -1284,6 +1489,11 @@ impl Board {
                     .map(|step| StartProblem {
                         step,
                         message: row.start_problem_message.unwrap_or_default(),
+                        hook: row
+                            .start_problem_hook
+                            .as_deref()
+                            .filter(|_| status == Status::StartInterrupted)
+                            .and_then(|j| serde_json::from_str(j).ok()),
                     });
                 let interrupted_from = row
                     .interrupted_from
@@ -1291,18 +1501,27 @@ impl Board {
                     .filter(|_| status == Status::Interrupted)
                     .and_then(|s| s.parse::<Status>().ok())
                     .filter(|s| s.is_needs_you_family() || *s == Status::Checking);
+                // A Delivery stop that kept the ticket where it was has its text there too.
+                let auto_merge_stop: Option<crate::domain::AutoMergeStop> =
+                    row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok());
+                let stopped_in_place = auto_merge_stop.is_some_and(|s| s.keeps_place())
+                    && matches!(status, Status::WaitingForYou | Status::ToDeliver);
                 let signal = (status.is_needs_you_family()
                     || status == Status::WorkingInBackground
-                    || interrupted_from.is_some())
-                .then_some(AgentSignal {
-                    text: row.signal_text,
-                    since: row.signal_since,
-                    wakeup_at: row.wakeup_at,
-                });
+                    || interrupted_from.is_some()
+                    || stopped_in_place)
+                    .then_some(AgentSignal {
+                        text: row.signal_text,
+                        since: row.signal_since,
+                        wakeup_at: row.wakeup_at,
+                    });
+                // In a check of the user's an open question shows without changing the status
+                // ([`Ticket::question_in_place`]).
                 let question = (status == Status::AsksYou
-                    || interrupted_from == Some(Status::AsksYou))
-                .then(|| questions.get(&row.id).map(|open| open.question.clone()))
-                .flatten();
+                    || interrupted_from == Some(Status::AsksYou)
+                    || status.set() == StatusSet::HumanCheck)
+                    .then(|| questions.get(&row.id).map(|open| open.question.clone()))
+                    .flatten();
                 let pushed_differs: Option<crate::pr::verify::PushedDiff> = row
                     .pushed_differs
                     .as_deref()
@@ -1340,7 +1559,7 @@ impl Board {
                     ready_since: row.ready_since,
                     validation_round: counted.count.shown_round(),
                     auto_merge_conflicts: u32::try_from(row.auto_merge_conflicts).unwrap_or(0),
-                    auto_merge_stop: row.auto_merge_stop.as_deref().and_then(|s| s.parse().ok()),
+                    auto_merge_stop,
                     id: row.id,
                 })
             })

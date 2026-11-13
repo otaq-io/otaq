@@ -22,9 +22,10 @@ REPO=$(git -C $HERE rev-parse --show-toplevel)
 export OTAQ_APP_PID=$(pgrep -f "^$REPO/target/debug/otaq-app" | head -1)
 [[ -n $OTAQ_APP_PID ]] || { echo "the demo app isn't running (start.sh)" >&2; exit 1; }
 read id X Y W H < <($DEMO/bin/window) || { echo "no Otaq window found" >&2; exit 1; }
-# The first click on an inactive window only activates it: spend that click on the top edge of the header, which is
-# a drag area and does nothing else.
-$DEMO/bin/mouse $((X + W / 2)) $((Y + 3)) click
+# Bring the demo app forward by its pid, with no click: a click on the window (even its header's edge) would close an
+# open dialog or menu, and the first click on an inactive window only activates it.
+osascript -e "tell application \"System Events\" to set frontmost of (first process whose unix id is $OTAQ_APP_PID) to true" \
+  >/dev/null || { echo "can't bring the demo app forward (System Events needs Accessibility for this terminal)" >&2; exit 1; }
 sleep 0.4
 while (( $# > 0 )); do
   case $1 in

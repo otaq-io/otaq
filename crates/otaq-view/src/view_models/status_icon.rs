@@ -472,7 +472,7 @@ fn ticket_reason(t: &NeedsYouItem, target: Target) -> String {
 // - The images: macOS draws a template per look with the count as the status item's text; Windows and Linux draw
 //   the count into the image (1–9, 9+), one image per taskbar (light or dark) and size (16 and 32 px).
 
-/// The id prefix of a line that opens something: `open:<OTAQ_OPEN value>` ("open:SHOP-22", "open:review:WEB-7").
+/// The id prefix of a line that opens something: `open:<OTAQ_OPEN value>` ("open:SHOP-22", "open:sheet:WEB-7").
 pub const OPEN_PREFIX: &str = "open:";
 
 /// The id of "and 31 more · Open Otaq": it opens the window.
@@ -882,7 +882,7 @@ mod summary_tests {
                 (o("Quit @"), true)
             ]
         );
-        // Picking SHOP-22 opens its terminal; WEB-7 its review (d0139 G5).
+        // Picking SHOP-22 opens its terminal; WEB-7, waiting for your review, opens on Overview.
         let targets: Vec<&Target> = s
             .lines
             .iter()
@@ -895,7 +895,7 @@ mod summary_tests {
             matches!(targets[0], Target::Ticket { key, tab: Content::Agent, .. } if key == "SHOP-22")
         );
         assert!(
-            matches!(targets[1], Target::Ticket { key, tab: Content::Files, .. } if key == "WEB-7")
+            matches!(targets[1], Target::Ticket { key, tab: Content::Overview, .. } if key == "WEB-7")
         );
     }
 
@@ -1160,7 +1160,7 @@ mod summary_tests {
                 "(2 agents running)",
                 "(shop 1 \u{b7} web 1)",
                 "(YOUR CHECKS AND STOPPED TICKETS)",
-                "WEB-7 \u{b7} your check [open:review:WEB-7] Some(Review)",
+                "WEB-7 \u{b7} your check [open:sheet:WEB-7] Some(Review)",
                 "SHOP-30 \u{b7} Interrupted [open:sheet:SHOP-30] Some(Stopped)",
                 "---",
                 &o("Open @ CmdOrCtrl+O"),

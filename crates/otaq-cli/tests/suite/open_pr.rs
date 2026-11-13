@@ -504,6 +504,154 @@ async fn extra_pushed_content_shows_the_changed_since_review_warning() {
     s.w.stop().await;
 }
 
+/// Opens SHOP-1's PR flow and confirms its two commits under `feature/SHOP-1-login`: the delivery's agent would push
+/// now.
+async fn confirmed(s: &Setup) {
+    let w = &s.w;
+    w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    let first = commits(&s.repo, &format!("main..{}", naming::branch("SHOP-1")));
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &first[0].0, "message": "SHOP-1: one"}, {"sha": &first[1].0, "message": "SHOP-1: two"}],
+        "title": "SHOP-1 Login redirect"
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+}
+
+/// The delivery agent's report isn't taken alone: `pr opened` with nothing pushed leaves the ticket in Review, in Needs
+/// you with "The branch isn't on the remote as expected" and what the remote has. The reworded commits stay on the
+/// local branch, and Retry push is Push to PR from Review, which only pushes.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_reported_push_the_remote_does_not_have_needs_you() {
+    use otaq_core::domain::AutoMergeStop;
+    let s = setup().await;
+    let w = &s.w;
+    confirmed(&s).await;
+    let reworded = commits(&s.repo, "main..feature/SHOP-1-login");
+    // The agent says it is done without having pushed.
+    let ran = s
+        .agent
+        .run(&format!(
+            "'{CB}' pr opened https://github.com/acme/shop-web/pull/7 --json"
+        ))
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    // Still in Review, where the user approved it: a push that didn't land isn't the agent's work going wrong.
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(
+        ticket.stopped_in_place(),
+        Some(AutoMergeStop::PushNotLanded)
+    );
+    assert!(ticket.shows_needs_you());
+    assert_eq!(ticket.flags.pr_number, Some(7));
+    let said = "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has no branch \
+                `feature/SHOP-1-login`";
+    assert_eq!(
+        ticket.signal.as_ref().and_then(|s| s.text.as_deref()),
+        Some(said)
+    );
+    let items = w
+        .board
+        .needs_you_items(otaq_core::store::now_ms())
+        .await
+        .unwrap();
+    let item = items
+        .iter()
+        .find(|i| i.key == ticket.key)
+        .expect("in Needs you");
+    assert!(
+        item.reason
+            .contains("the branch isn\u{2019}t on the remote as expected"),
+        "{}",
+        item.reason
+    );
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    // Nothing undone: the reworded commits are still the local branch's.
+    assert_eq!(commits(&s.repo, "main..feature/SHOP-1-login"), reworded);
+
+    // Retry push: Approve from Review, which with a PR is Push to PR; confirmed, the push goes again and the stop
+    // clears; the push and its report land.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&s.ticket.id).await.unwrap().unwrap();
+    assert_eq!(flow.kind, otaq_core::pr::flow::FlowKind::Push);
+    let again = commits(&s.repo, "main..feature/SHOP-1-login");
+    let proposal = json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": again.iter().map(|c| json!({"sha": &c.0, "message": &c.1})).collect::<Vec<_>>(),
+    });
+    let ran = s
+        .agent
+        .run_with_stdin(&format!("'{CB}' pr propose --stdin"), &proposal.to_string())
+        .await;
+    assert_eq!(ran.status, 0, "{ran:?}");
+    let edits: Proposal = serde_json::from_value(proposal).unwrap();
+    w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    let pushing = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(
+        pushing.stopped_in_place(),
+        None,
+        "the stop clears as it pushes"
+    );
+    assert_eq!(pushing.status, Status::WaitingForYou);
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let ticket = w
+        .prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
+        .await
+        .unwrap();
+    assert_eq!(ticket.status, Status::PrOpen);
+    assert_eq!(ticket.auto_merge_stop, None);
+    s.w.stop().await;
+}
+
+/// A push that left the remote behind the local branch (a commit made after it) is a mismatch too, naming both
+/// commits.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_remote_branch_behind_the_local_one_needs_you() {
+    let s = setup().await;
+    let w = &s.w;
+    confirmed(&s).await;
+    git(
+        &s.repo,
+        &["push", "--quiet", "origin", "feature/SHOP-1-login"],
+    );
+    let pushed = git(&s.repo, &["rev-parse", "feature/SHOP-1-login"]);
+    commit(&s.worktree, "late.txt", "after the push\n");
+    let local = git(&s.repo, &["rev-parse", "feature/SHOP-1-login"]);
+    let ticket = w
+        .prs
+        .opened("SHOP-1", "https://github.com/acme/shop-web/pull/7", &me())
+        .await
+        .unwrap();
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert_eq!(
+        ticket.stopped_in_place(),
+        Some(otaq_core::domain::AutoMergeStop::PushNotLanded)
+    );
+    assert_eq!(
+        ticket.signal.as_ref().and_then(|s| s.text.clone()),
+        Some(format!(
+            "The branch isn\u{2019}t on the remote as expected \u{b7} the remote has `feature/SHOP-1-login` at {}, \
+             not {}",
+            &pushed.trim()[..7],
+            &local.trim()[..7]
+        ))
+    );
+    s.w.stop().await;
+}
+
 /// T-0149: a skill that can't push reports it with `ask human`; during the flow that goes to the dialog (the
 /// ticket stays in Ready for Review), and Retry asks the skill again.
 #[tokio::test(flavor = "multi_thread")]
@@ -560,5 +708,149 @@ async fn a_reported_problem_goes_to_the_dialog_and_retry_asks_again() {
         tokio::time::sleep(std::time::Duration::from_millis(50)).await;
     }
     assert!(typed >= 2, "typed {typed} times");
+    s.w.stop().await;
+}
+
+/// A project's `feat:`/`fix:` commit-msg hook checks every confirmed message before Otaq rewords: "update stuff" is
+/// refused, nothing is rewritten, renamed or pushed, the ticket shows the hook's output and the message, and the
+/// user's edits stay; fixed to `fix: …`, the PR goes on with the message as the hook left it (its `Change-Id`).
+#[tokio::test(flavor = "multi_thread")]
+async fn a_refused_pr_message_changes_nothing_and_shows_on_the_ticket() {
+    use otaq_core::board::tickets::EventKind;
+    use otaq_core::domain::AutoMergeStop;
+    use otaq_core::git::GitStep;
+    use otaq_core::pr::message::MessageEdit;
+    let s = setup().await;
+    let w = &s.w;
+    let hook = s.repo.join(".git/hooks/commit-msg");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\n\
+         grep -qE '^(feat|fix):' \"$1\" || { echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }\n\
+         grep -q '^Change-Id:' \"$1\" || printf '\\nChange-Id: I0123\\n' >> \"$1\"\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let branch = naming::branch("SHOP-1");
+    let before = commits(&s.repo, &format!("main..{branch}"));
+
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let mut edits = w
+        .board
+        .pr_flow(&s.ticket.id)
+        .await
+        .unwrap()
+        .unwrap()
+        .proposal
+        .unwrap();
+    edits.branch = "feature/SHOP-1-login".into();
+    edits.commits[0].message = "update stuff".into();
+    edits.commits[1].message = "fix: cover deep links".into();
+    // The dialog keeps the user's edits as they type.
+    let kept = w
+        .board
+        .keep_edited_message(
+            "SHOP-1",
+            MessageEdit::Pr {
+                title: None,
+                description: None,
+                commits: edits
+                    .commits
+                    .iter()
+                    .map(|c| (c.sha.clone(), c.message.clone()))
+                    .collect(),
+            },
+        )
+        .await
+        .unwrap();
+
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    let PrOutcome::HookRefused { hook, message } = outcome else {
+        panic!("refused: {outcome:?}");
+    };
+    assert_eq!(hook, "commit-msg");
+    assert_eq!(message, "commit-msg hook refused the PR");
+    // Nothing rewritten, renamed or pushed.
+    assert_eq!(commits(&s.repo, &format!("main..{branch}")), before);
+    assert!(
+        git(&s.origin, &["branch", "--list", "feature/*"])
+            .trim()
+            .is_empty()
+    );
+    assert!(
+        git(&s.worktree, &["status", "--porcelain"])
+            .trim()
+            .is_empty(),
+        "the worktree is clean"
+    );
+    // On the ticket, still in Review: the hook, its output and the message; History keeps it.
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert!(ticket.place.is_in(otaq_core::flow::default::REVIEW));
+    assert_eq!(ticket.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    assert!(!ticket.work.as_ref().unwrap().branch_locked);
+    let refused = ticket
+        .flags
+        .hook_refusal
+        .clone()
+        .expect("kept on the ticket");
+    assert_eq!(refused.name, "commit-msg");
+    assert_eq!(refused.step, Some(GitStep::Reword));
+    assert_eq!(refused.message.as_deref(), Some("update stuff"));
+    assert!(
+        refused
+            .output
+            .contains("commitlint: type must be one of [feat, fix]"),
+        "{}",
+        refused.output
+    );
+    let history = w.board.history("SHOP-1").await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::HookRefused));
+    assert!(w.board.pr_flow(&s.ticket.id).await.unwrap().is_none());
+    // The user's edits stay to fix it.
+    assert_eq!(w.board.edited_message(&s.ticket.id).await.unwrap(), kept);
+
+    // Edit messages and retry: the dialog opens again from Review; fixed, the PR goes on.
+    let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    // What the dialog fills its commit fields from: the same commits, the refused one's kept text over it.
+    let reopened = w.board.pr_flow_view("SHOP-1").await.unwrap();
+    let again = reopened.flow.unwrap().proposal.unwrap();
+    assert_eq!(
+        again.commits.iter().map(|c| &c.sha).collect::<Vec<_>>(),
+        edits.commits.iter().map(|c| &c.sha).collect::<Vec<_>>()
+    );
+    assert_eq!(
+        reopened
+            .edited
+            .commits
+            .get(&edits.commits[0].sha)
+            .map(String::as_str),
+        Some("update stuff")
+    );
+    edits.commits[0].message = "fix: redirect after login".into();
+    let outcome = w.prs.confirm("SHOP-1", &edits, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let after = commits(&s.repo, "main..feature/SHOP-1-login");
+    assert_eq!(
+        after.iter().map(|c| c.1.as_str()).collect::<Vec<_>>(),
+        ["fix: redirect after login", "fix: cover deep links"]
+    );
+    assert_eq!(
+        git(&s.repo, &["log", "-1", "--format=%B", &after[0].0]).trim(),
+        "fix: redirect after login\n\nChange-Id: I0123",
+        "as the hook left it"
+    );
+    let ticket = w.board.ticket("SHOP-1").await.unwrap();
+    assert_eq!(ticket.status, Status::WaitingForYou);
+    assert_eq!(ticket.auto_merge_stop, None);
+    assert_eq!(ticket.flags.hook_refusal, None);
+    w.wait_for_output(&s.agent.session, "The user confirmed the pull request")
+        .await;
     s.w.stop().await;
 }

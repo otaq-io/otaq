@@ -77,7 +77,8 @@ fn shop_web() -> Vec<Ticket> {
         id: "q".into(),
         text: "Should fullName be split everywhere, or only in the profile form?".into(),
         options: Vec::new(),
-        recommended: None,
+        recommended: Vec::new(),
+        multiple: false,
         notes: Vec::new(),
         asked_at: NOW - 6 * MIN,
         send_back: None,
@@ -86,6 +87,7 @@ fn shop_web() -> Vec<Ticket> {
     start.start_problem = Some(StartProblem {
         step: StartStep::Setup,
         message: "setup command failed (exit 1)".into(),
+        hook: None,
     });
     vec![
         needs_you(

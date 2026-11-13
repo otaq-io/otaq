@@ -10,8 +10,12 @@
 //! - `event_msg` `token_count` → the limit windows in its `rate_limits` ([`super::usage::windows_of`]). Its tokens
 //!   are read by the usage reader ([`super::usage`]), not here.
 //!
-//! Every other record (the messages, `task_started`, `turn_aborted`, which the `Interrupt` hook already reports…)
-//! gives nothing. A line that isn't such a record is *unrecognised* (logged raw), so the watcher can tell that Codex
+//! - `event_msg` `turn_aborted` with the reason `interrupted` (Esc at the approval dialog or during a turn) → *turn
+//!   ended*. Its `Interrupt` hook comes as the Esc is pressed, before Codex has stopped the turn, so it isn't the end
+//!   ([`super::hooks`]): only now is Codex idle at an empty input line, ready for a message Otaq types.
+//!
+//! Every other record (the messages, `task_started`, a turn aborted for another reason, such as a new turn replacing
+//! it…) gives nothing. A line that isn't such a record is *unrecognised* (logged raw), so the watcher can tell that Codex
 //! changed its file.
 
 use std::path::{Path, PathBuf};
@@ -63,6 +67,15 @@ fn map_line(line: &str) -> Vec<ToolEvent> {
             };
             tracing::debug!(tool = %Tool::Codex, line, "Codex turn failed");
             vec![failed_turn(error)]
+        }
+        Some("turn_aborted")
+            if payload.get("reason").and_then(Value::as_str) == Some("interrupted") =>
+        {
+            tracing::debug!(tool = %Tool::Codex, line, "Codex turn interrupted");
+            vec![ToolEvent::TurnEnded {
+                background: Default::default(),
+                last_message: None,
+            }]
         }
         Some("token_count") => {
             tracing::debug!(tool = %Tool::Codex, line, "Codex token count");
@@ -168,12 +181,23 @@ mod tests {
         }
     }
 
-    /// A TUI session of several turns: each `token_count` reports the Plus account's one weekly window; nothing
-    /// else gives an event (the turn ends come from hooks).
+    /// A TUI session of several turns: each `token_count` reports the Plus account's one weekly window, and the one
+    /// interrupted turn (Esc) ends; nothing else gives an event (the other turn ends come from hooks).
     #[test]
     fn token_counts_report_the_windows() {
-        let reported: Vec<(String, f64, Option<i64>)> = map(&session_lines("turns.jsonl"))
+        let events = map(&session_lines("turns.jsonl"));
+        let interrupted = ToolEvent::TurnEnded {
+            background: Default::default(),
+            last_message: None,
+        };
+        assert_eq!(
+            events.iter().filter(|e| **e == interrupted).count(),
+            1,
+            "the interrupted turn"
+        );
+        let reported: Vec<(String, f64, Option<i64>)> = events
             .into_iter()
+            .filter(|e| *e != interrupted)
             .map(|event| match event {
                 ToolEvent::LimitWindows { windows } if windows.len() == 1 => (
                     windows[0].key.clone(),
@@ -276,6 +300,27 @@ mod tests {
                 resets_at: Some(1_792_807_562_000)
             }
         );
+    }
+
+    /// Esc in Codex: its turn ends once Codex wrote `turn_aborted` (the line as re-test 3 captured it), not at its
+    /// `Interrupt` hook. A turn a new one replaced isn't idle.
+    #[test]
+    fn an_interrupted_turn_ends_when_codex_wrote_it() {
+        let aborted = |reason: &str| {
+            serde_json::json!({"timestamp": "2026-11-10T23:00:21.197Z", "ordinal": 109, "type": "event_msg",
+                "payload": {"type": "turn_aborted", "root_turn_id": "01a1c7b0-3c67-74e2-ba3c-0402a4187a6b",
+                    "turn_id": "01a1c7b0-3c67-74e2-ba3c-0402a4187a6b", "reason": reason,
+                    "started_at": 1_794_351_578, "completed_at": 1_794_351_621, "duration_ms": 42_962}})
+            .to_string()
+        };
+        assert_eq!(
+            map(&aborted("interrupted")),
+            [ToolEvent::TurnEnded {
+                background: Default::default(),
+                last_message: None
+            }]
+        );
+        assert_eq!(map(&aborted("replaced")), []);
     }
 
     /// A line that isn't a record (a partial write is never handed over; this is a changed format) is

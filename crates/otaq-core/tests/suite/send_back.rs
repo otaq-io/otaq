@@ -131,6 +131,7 @@ async fn unsent_text_asks_first_and_clear_it_and_send_goes_on() {
         ReturnOutcome::NeedsConfirmation {
             ticket: t.key.clone(),
             unclearable_by: None,
+            prompt: None,
         }
     );
     assert_eq!(world.status("SHOP-1").await, Status::WaitingForYou);
@@ -336,7 +337,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
             .unwrap(),
     );
     assert!(
-        prime.contains("This branch conflicts with the latest `main`. Rebase it onto `main`"),
+        prime.contains("This branch conflicts with the latest `main`. Merge `main` into it"),
         "{prime}"
     );
     assert!(prime.contains("- lib.ts"), "{prime}");
@@ -354,7 +355,9 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         .board
         .submit_for_review(
             "SHOP-1",
-            said(&world.board, "SHOP-1", "rebased").await.as_ref(),
+            said(&world.board, "SHOP-1", "merged main in")
+                .await
+                .as_ref(),
             &Actor::Agent(t.key.clone()),
         )
         .await

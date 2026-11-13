@@ -5,11 +5,11 @@
 import type { ComponentType } from "react";
 
 import { openOverlay } from "../../app/overlays";
-import type { Screen } from "../../app/registry";
+import type { OverlayProps, Screen } from "../../app/registry";
 import type { GlobalSection } from "../../app/registry";
 import { AboutSection } from "./About";
 import { AgentsSection } from "./Agents";
-import { AgentToolsSection } from "./AgentTools";
+import { AgentToolsSection, SignInDialog } from "./AgentTools";
 import { GitSection } from "./Git";
 import { KeyboardSection } from "./Keyboard";
 import { sectionComponent } from "./Rows";
@@ -41,8 +41,14 @@ const OWN: Partial<Record<GlobalSection, ComponentType>> = {
   usage: UsageSection,
 };
 
+/** A tool problem's Sign in… (the sheet, the agent panel, a notice): the same terminal dialog as Settings → Agents'. */
+export function SignInOverlay({ params, close }: OverlayProps<"sign_in">) {
+  return <SignInDialog signIn={params} onClose={close} />;
+}
+
 export const settings: Screen = (app) => {
   app.overlays.register("settings", { Component: Settings });
+  app.overlays.register("sign_in", { Component: SignInOverlay });
   const globalComponent = (id: GlobalSection) => OWN[id] ?? sectionComponent(id);
   for (const id of GLOBAL) app.settings.global.register(id, { Component: globalComponent(id) });
   app.shortcuts.on("settings", () => {

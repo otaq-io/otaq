@@ -10,7 +10,8 @@ use super::proposal::{self, Proposal};
 use crate::board::tickets::{EventKind, Ticket, record_event};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, Status, TicketKey, stored_enum};
-use crate::git::reword::CommitInfo;
+use crate::git::reword::{CommitInfo, MessageCheck};
+use crate::git::{GitStep, RefusedHook};
 use crate::store::now_ms;
 
 stored_enum! {
@@ -128,6 +129,21 @@ pub struct PrFlowView {
     /// fills in with it when it arrives, unless the user typed.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub message: Option<super::message::DeliveryMessage>,
+    /// The agent still writing `message` waits for permission: its session, whose terminal answers the prompt (the
+    /// service fills it in).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub asks_in: Option<String>,
+    /// The agent running the PR's skill waits at a permission prompt (the ticket reads Needs you meanwhile): the
+    /// prompt and the session whose terminal answers it.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub waits: Option<crate::domain::SessionPrompt>,
+    /// The user's own edit of the title, description and commit messages, kept on the ticket until the PR is opened
+    /// or pushed with it, or the user chooses Use the proposed message: the dialog shows it over the proposal.
+    #[serde(
+        default,
+        skip_serializing_if = "super::message::EditedMessage::is_empty"
+    )]
+    pub edited: super::message::EditedMessage,
 }
 
 /// The answer to a live branch-name check (REV-10).
@@ -175,7 +191,8 @@ impl Board {
             .ticket(&ticket.id)
             .await?
             .ok_or_else(|| BoardError::NotFound(ticket.key.to_string()))?;
-        let (Some(branch), Some(base_sha)) = (row.branch_name, row.base_sha) else {
+        let base_sha = self.current_base_sha(ticket).await?.or(row.base_sha);
+        let (Some(branch), Some(base_sha)) = (row.branch_name, base_sha) else {
             return Err(BoardError::refused(
                 Refusal::NoBranch,
                 format!("{} has no branch to push", ticket.key),
@@ -253,6 +270,9 @@ impl Board {
             pr_number: row.pr_number.and_then(|n| u32::try_from(n).ok()),
             pr_url: row.pr_url,
             message: self.delivery_message(&ticket.id).await?,
+            asks_in: None,
+            waits: ticket.flags.session_prompt.clone(),
+            edited: self.edited_message(&ticket.id).await?,
             key: ticket.key,
         })
     }
@@ -419,34 +439,66 @@ impl Board {
         Ok(checked)
     }
 
-    /// The user's confirmed edits, applied by Otaq itself (REV-10): the commits are reworded (trees
-    /// unchanged, checked) and the branch renamed; then the name is locked and the flow is "pushing". Any failure
-    /// leaves the branch as it was.
+    /// The user's confirmed edits, applied by Otaq itself (REV-10): every message first goes through the project's
+    /// commit-msg hook, as a commit's would; then the commits are reworded (trees unchanged, checked) and the branch
+    /// renamed; then the name is locked and the flow is "pushing". Any failure leaves the branch as it was. A message
+    /// the hook refuses changes nothing at all: the refusal, with that message, is kept on the ticket, which stops
+    /// as a refused merge does, the flow ends, and it is returned; the user's kept edits stay to fix it.
     pub(crate) async fn apply_confirmed(
         &self,
         ticket: &Ticket,
         kind: FlowKind,
         confirmed: &Proposal,
         actor: &Actor,
-    ) -> Result<(), BoardError> {
+    ) -> Result<Option<RefusedHook>, BoardError> {
         let commits = self.pr_commits(ticket).await?;
         let git = self.git()?;
         let repo = commits.repo.as_path();
-        let parent = match commits.pushed {
-            0 => self
-                .store()
-                .ticket(&ticket.id)
+        // In the ticket's worktree, where a commit of the branch runs its hooks, with the project's variables.
+        let worktree = ticket
+            .work
+            .as_ref()
+            .and_then(|w| w.worktree.as_ref())
+            .map(PathBuf::from)
+            .filter(|w| w.is_dir())
+            .unwrap_or_else(|| commits.repo.clone());
+        let hook_git = self.project_git(ticket.key.project.as_str()).await?;
+        let mut messages = Vec::with_capacity(confirmed.commits.len());
+        for proposed in &confirmed.commits {
+            match hook_git
+                .commit_msg_hook(&worktree, &proposed.message)
                 .await?
-                .and_then(|r| r.base_sha)
-                .ok_or_else(|| no_commits(&ticket.key))?,
+            {
+                MessageCheck::Passed(kept) => messages.push(kept),
+                MessageCheck::Refused(refusal) => {
+                    let refused = RefusedHook::of(&refusal, GitStep::Reword, "the PR")
+                        .with_message(proposed.message.trim());
+                    self.pr_refused_by_hook(&ticket.id, &refused).await?;
+                    self.end_pr_flow(&ticket.id).await?;
+                    return Ok(Some(refused));
+                }
+            }
+        }
+        let parent = match commits.pushed {
+            // The first commit's own parent: after the base was merged into the branch, its first commits still stand
+            // on the base they left, not on `base_sha`.
+            0 => match commits.commits.first() {
+                Some(first) => git
+                    .run(repo, &["rev-parse", &format!("{}^1", first.sha)])
+                    .await?
+                    .trim()
+                    .to_owned(),
+                None => self
+                    .store()
+                    .ticket(&ticket.id)
+                    .await?
+                    .and_then(|r| r.base_sha)
+                    .ok_or_else(|| no_commits(&ticket.key))?,
+            },
             n => commits.commits[n - 1].sha.clone(),
         };
-        let pairs: Vec<(CommitInfo, String)> = commits
-            .editable()
-            .iter()
-            .cloned()
-            .zip(confirmed.commits.iter().map(|c| c.message.clone()))
-            .collect();
+        let pairs: Vec<(CommitInfo, String)> =
+            commits.editable().iter().cloned().zip(messages).collect();
         let tip = git.reword(repo, &parent, &pairs).await?;
         // No file changes: every new commit has its old commit's tree.
         let new = git.commits_between(repo, &parent, &tip).await?;
@@ -478,7 +530,7 @@ impl Board {
             return Err(e.into());
         }
         // The reviewed head follows the reworded commits (no new content, GIT-05).
-        self.record_otaq_rebase(&ticket.id, &commits.head, &tip)
+        self.record_otaq_update(&ticket.id, &commits.head, &tip)
             .await?;
         let mut tx = self.store().begin_write().await?;
         sqlx::query(
@@ -517,7 +569,7 @@ impl Board {
         .await?;
         tx.commit().await?;
         tracing::info!(key = %ticket.key, branch = %confirmed.branch, "PR edits applied");
-        Ok(())
+        Ok(None)
     }
 }
 

@@ -50,10 +50,10 @@ use crate::board::tickets::Ticket;
 use crate::board::validation::Transition;
 use crate::board::{Board, BoardError, Refusal};
 use crate::data_dir::DataDir;
-use crate::domain::{Actor, HandOffKind, Status, TicketKey, ValidationTrigger};
+use crate::domain::{Actor, GitOperation, HandOffKind, Status, TicketKey, ValidationTrigger};
 use crate::flow::Delivers;
 use crate::flow::engine::Counters;
-use crate::git::merge::{MergeOutcome, MergeRequest};
+use crate::git::merge::{HookChanges, MergeOutcome, MergeRequest};
 use crate::ports::PortPool;
 use crate::scheduler::Scheduler;
 use crate::session::deliveries::{Deliveries, Delivery};
@@ -65,7 +65,7 @@ use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
 pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
-/// The skill a Delivery's conflict runs, with no click: rebase onto the target and resolve the conflicts (GIT-03,
+/// The skill a Delivery's conflict runs, with no click: merge the target in and resolve the conflicts (GIT-03,
 /// FLW-17).
 pub const RESTACK_SKILL: &str = "restack";
 
@@ -83,7 +83,24 @@ pub enum ReturnOutcome {
         ticket: TicketKey,
         #[serde(default)]
         unclearable_by: Option<String>,
+        /// It isn't text: the session waits at this permission prompt, answered in its terminal first. Nothing is
+        /// typed over a prompt.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
+}
+
+/// The ticket's live `session` waits at a permission prompt: the question a click that would type into it asks
+/// instead of the unsent-text one, since typing there would answer the prompt.
+pub(crate) fn prompt_first(board: &Board, ticket: &Ticket, session: &str) -> Option<ReturnOutcome> {
+    board
+        .session_prompts()
+        .on_screen(session)
+        .map(|prompt| ReturnOutcome::NeedsConfirmation {
+            ticket: ticket.key.clone(),
+            unclearable_by: None,
+            prompt: Some(prompt),
+        })
 }
 
 /// The answer to a Pass on a human check (FLW-14).
@@ -112,6 +129,10 @@ pub enum LocalMergeOutcome {
         commit: String,
         #[serde(default, skip_serializing_if = "Vec::is_empty")]
         started: Vec<TicketKey>,
+        /// A hook changed the squash commit's files and it landed as the hook left it: "Your pre-commit hook changed
+        /// 2 files", with Show changes. `None` when what landed is what was reviewed.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        hook_changed: Option<HookChanges>,
     },
     /// "SHOP-19 has 2 uncommitted files" · View · Send back.
     RefusedUncommitted { files: Vec<String>, message: String },
@@ -119,7 +140,7 @@ pub enum LocalMergeOutcome {
     RefusedDiverged { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry."
     RefusedDirtyCheckout { message: String },
-    /// The free rebase conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
+    /// Merging the target into the branch conflicted: nothing was merged; the ticket went back to its nearest earlier Agent stage,
     /// whose session fixes it with `restack` (no click), or stopped there after the third conflict in a row
     /// (FLW-17).
     Conflict { target: String, files: Vec<String> },
@@ -131,15 +152,30 @@ pub enum LocalMergeOutcome {
         target: String,
         command: String,
         exit: Option<i32>,
+        /// The end of what the check printed, for the dialog; the whole output stays attached to the comment.
+        #[serde(default)]
+        output: String,
     },
     /// The user stopped the Merge check (Q475): nothing was merged and the ticket stays where it was.
     CheckStopped { target: String },
+    /// The user stopped one of its git steps (a hook that hung, or ran too long for them): nothing was merged, the
+    /// target, the branch and its worktree are as they were and the ticket stays where it was.
+    Stopped { target: String },
     /// New commits since the review (REV-06): nothing was done; approve again with `approve_anyway`, or Send
     /// back.
     Changed { check: ApproveCheck },
     /// git doesn't know the user's name and email, so it can't make the merge's commits: nothing was done. `has` is
     /// what git has so far, to fill in; the user sets them and merges again.
     NeedsIdentity { has: crate::git::Identity },
+    /// A project's git hook refused a step: nothing was merged and main, the branch and the worktree are as they were.
+    /// The refusal is on the ticket, which stays where it was (the card's Needs you, the sheet's output, History),
+    /// whether the user's click or the automatic delivery merged; `message` is "pre-commit hook refused the merge".
+    HookRefused {
+        hook: String,
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        step: Option<crate::git::GitStep>,
+        message: String,
+    },
 }
 
 /// Runs review actions. Cheap to clone.
@@ -166,6 +202,9 @@ struct Inner {
     parked_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Run when a drag stopped the ticket's agent where the card was (d0133: its helpers stop with it).
     drag_stopped_hooks: Mutex<Vec<finish::FinishedHook>>,
+    /// Run when a conflict or a failed Merge check sent the ticket back to its agent's running session to be fixed (a
+    /// prompt left open there from Review reads Needs you).
+    back_at_work_hooks: Mutex<Vec<finish::FinishedHook>>,
     /// Resumes a ticket interrupted while it validated: a fresh validation, not the agent (d0063).
     validation_resume: Mutex<Option<resume::ValidationResume>>,
 }
@@ -192,6 +231,7 @@ impl Review {
                 finished_hooks: Mutex::new(Vec::new()),
                 parked_hooks: Mutex::new(Vec::new()),
                 drag_stopped_hooks: Mutex::new(Vec::new()),
+                back_at_work_hooks: Mutex::new(Vec::new()),
                 validation_resume: Mutex::new(None),
                 sessions,
                 deliveries,
@@ -349,8 +389,28 @@ impl Review {
     }
 
     /// The Local merge itself, from a human check that offers it or from the Delivery stage (the click, or an
-    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket.
+    /// automatic Delivery): a conflict or a failed Merge check is only recorded on the ticket. The user's Stop on one
+    /// of its git steps is [`LocalMergeOutcome::Stopped`]: nothing merged, the ticket where it was.
     async fn merge(
+        &self,
+        key: &str,
+        message: &str,
+        approve_anyway: bool,
+        actor: &Actor,
+    ) -> Result<Merge, BoardError> {
+        match self.merge_steps(key, message, approve_anyway, actor).await {
+            Err(BoardError::Git(e)) if e.is_stopped() => {
+                let board = &self.inner.board;
+                let ticket = board.ticket(key).await?;
+                let target = board.merge_target(&ticket).await?.target;
+                tracing::info!(ticket = %key, error = %e, "merge stopped by the user: nothing merged");
+                Ok(LocalMergeOutcome::Stopped { target }.into())
+            }
+            merged => merged,
+        }
+    }
+
+    async fn merge_steps(
         &self,
         key: &str,
         message: &str,
@@ -361,11 +421,14 @@ impl Review {
         let board = &inner.board;
         let _one_at_a_time = inner.merging.lock().await;
         let ticket = board.ticket(key).await?;
+        // A merge a hook refused waits where it was, in Review or To deliver, and is merged again from there with the
+        // message the user edited. A refused PR message or a push that didn't land waits there too: the ticket is in
+        // Review all the same, so either way of delivering may be tried, and the one that goes through clears it.
         if !matches!(ticket.status, Status::WaitingForYou | Status::ToDeliver) {
             return Err(BoardError::refused(
                 Refusal::MoveRefused,
                 format!(
-                    "{} is {}; Local merge works on a ticket in your review",
+                    "{} is {}; Approve & merge works on a ticket in your review",
                     ticket.key,
                     ticket.status.label()
                 ),
@@ -390,9 +453,17 @@ impl Review {
             .file_name()
             .map(|n| n.to_string_lossy().into_owned())
             .unwrap_or_else(|| project.name.clone());
-        // With the project's variables: the merge's rebase, commit and checkouts run the user's hooks (ENV-02).
-        let git = &board.project_git(&project.key).await?;
-        // The rebase and the squash commit both sign with the user's name and email: without them git fails half
+        // The card and, while it is open, the Merging dialog follow the step git is really on and the hook that runs,
+        // until the merge has ended.
+        let running = board
+            .git_steps()
+            .begin(&ticket, GitOperation::Merge, &target.target);
+        // With the project's variables: the merge of the target into the branch, the commit and the checkouts run the user's hooks (ENV-02).
+        let git = &board
+            .project_git(&project.key)
+            .await?
+            .watched(running.watch());
+        // The merge into the branch and the squash commit both sign with the user's name and email: without them git fails half
         // way with "Author identity unknown", so they are asked for first, in plain words.
         if let Some(has) = git.missing_identity(&repo).await? {
             tracing::warn!(ticket = %ticket.key, "not merged: git has no name and email for commits");
@@ -434,15 +505,15 @@ impl Review {
         let branch_ref = format!("refs/heads/{}", target.branch);
         let head_before = git.resolve(&request.repo, &branch_ref).await?;
         let outcome = git.local_merge(&request).await;
-        // The free rebase isn't a change to review (GIT-05), even when a later step failed.
+        // Merging the target into the branch isn't a change to review (GIT-05), even when a later step failed.
         if !matches!(outcome, Ok(MergeOutcome::Merged { .. }))
             && let (Some(before), Ok(Some(after))) = (
                 head_before.as_deref(),
                 git.resolve(&request.repo, &branch_ref).await,
             )
         {
-            board.record_otaq_rebase(&ticket.id, before, &after).await?;
-            // Rebased onto new commits and no check passed on them: the next merge checks even so (d0120).
+            board.record_otaq_update(&ticket.id, before, &after).await?;
+            // New commits merged in and no check passed on them: the next merge checks even so (d0120).
             if before != after {
                 board.set_merge_check_due(&ticket.id, true).await?;
             }
@@ -450,16 +521,41 @@ impl Review {
         if matches!(outcome, Ok(MergeOutcome::CheckFailed { .. })) {
             board.set_merge_check_due(&ticket.id, true).await?;
         }
+        // A hook refused a step: the refusal goes on the ticket, the same for the click and the automatic delivery.
+        let outcome = match outcome {
+            Err(crate::git::GitError::HookRefused(refusal)) => {
+                let refused = board.merge_refused_by_hook(&ticket.id, &refusal).await?;
+                return Ok(LocalMergeOutcome::HookRefused {
+                    message: refused.line(),
+                    hook: refused.name,
+                    step: refused.step,
+                }
+                .into());
+            }
+            outcome => outcome?,
+        };
         let mut failed = None;
-        let outcome = match outcome? {
+        let outcome = match outcome {
             MergeOutcome::Merged {
                 commit,
                 onto,
                 fetch_failed,
+                hook_changed,
+                post_merge,
                 ..
             } => {
+                // Its waiting children start below, from the fetched base, not in a pass the record sets off.
+                let _landing = inner.scheduler.landing(&ticket.key);
                 let merged = board
-                    .record_local_merge(&ticket, &target.target, &commit, &onto, actor)
+                    .record_local_merge(
+                        &ticket,
+                        &target.target,
+                        &commit,
+                        &onto,
+                        hook_changed.as_ref(),
+                        post_merge.as_deref(),
+                        actor,
+                    )
                     .await?;
                 self.remote_after_merge(&merged, &request, fetch_failed, actor)
                     .await?;
@@ -493,6 +589,7 @@ impl Review {
                     target: target.target,
                     commit,
                     started,
+                    hook_changed,
                 }
             }
             MergeOutcome::RefusedUncommitted { files, message } => {
@@ -512,6 +609,7 @@ impl Review {
                             target: target.target.clone(),
                             files: files.clone(),
                             reason: ConflictReason::Merge,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;
@@ -529,10 +627,12 @@ impl Review {
                             target: target.target.clone(),
                             files: Vec::new(),
                             reason: ConflictReason::MergeCheck,
+                            moved: Vec::new(),
                         },
                     )
                     .await?;
                 let command = command.unwrap_or_default();
+                let tail = merge_check::output_tail(&output);
                 failed = Some(CheckFailure {
                     target: target.target.clone(),
                     command: command.clone(),
@@ -543,6 +643,7 @@ impl Review {
                     target: target.target,
                     command,
                     exit,
+                    output: tail,
                 }
             }
             MergeOutcome::CheckStopped => LocalMergeOutcome::CheckStopped {
@@ -652,6 +753,14 @@ impl Review {
             }
             None => inner.sessions.running_of(&ticket.id, SessionKind::Agent),
         };
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if !full
+            && !clear_first
+            && let Some(session) = &live
+            && let Some(asks) = prompt_first(&inner.board, ticket, &session.id)
+        {
+            return Ok(asks);
+        }
         if !full
             && !clear_first
             && let Some(session) = &live
@@ -666,6 +775,7 @@ impl Review {
                     .deliveries
                     .unclearable_by(&session.id)
                     .map_err(other)?,
+                prompt: None,
             });
         }
         let key = ticket.key.to_string();

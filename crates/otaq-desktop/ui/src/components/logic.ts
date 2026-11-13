@@ -94,6 +94,11 @@ export function withTyped(items: readonly MenuItem[], typed: MenuItem | null): r
   return [...items, typed];
 }
 
+/** A list's rows with its `last` row after them, whatever the search left (none: the rows as they are). */
+export function withLast(items: readonly MenuItem[], last: MenuItem | undefined): readonly MenuItem[] {
+  return last === undefined ? items : [...items, last];
+}
+
 /**
  * What a key does in a searchable list, whose focus is in its search field: as in a menu, except that Space, Home
  * and End stay with the field (typing, moving the caret).

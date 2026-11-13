@@ -154,7 +154,8 @@ pub fn submitted_line(note: &str) -> String {
     }
 }
 
-/// The Park confirmation (*03 → Park · Dev → Backlog*): what stops and what is kept.
+/// The Park confirmation (*03 → Park · Dev → Backlog*): what stops and what is kept. The conversation resumes in the
+/// stage it is parked from, which it returns to when dragged back: "resumes on Product spec" for one parked there.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct ParkText {
     pub title: String,
@@ -163,7 +164,11 @@ pub struct ParkText {
     pub kept: Vec<(IconName, String)>,
 }
 
-pub fn park_text(ticket: &Ticket) -> ParkText {
+pub fn park_text(ticket: &Ticket, flow: &otaq_core::flow::Flow) -> ParkText {
+    let resumes_on = ticket
+        .shown_stage(flow)
+        .or_else(|| flow.first_agent_stage())
+        .map_or("Dev", |stage| stage.name.as_str());
     let branch = ticket
         .work
         .as_ref()
@@ -182,7 +187,7 @@ pub fn park_text(ticket: &Ticket) -> ParkText {
             ),
             (
                 IconName::MessageSquare,
-                "conversation \u{b7} resumes on Dev".to_owned(),
+                format!("conversation \u{b7} resumes on {resumes_on}"),
             ),
         ],
     }
@@ -308,7 +313,10 @@ mod tests {
         let text = close_text(&t, &[], true);
         assert_eq!(text.lines, [line.to_owned()]);
         assert_eq!(text.confirm, "Stop both & close");
-        assert_eq!(park_text(&t).message, line);
+        assert_eq!(
+            park_text(&t, &otaq_core::flow::default_flow()).message,
+            line
+        );
         t.status = Status::Working;
         assert_eq!(close_text(&t, &[], true).confirm, "Stop agent & close");
     }
@@ -338,7 +346,8 @@ mod tests {
     #[test]
     fn the_park_confirmation_says_what_is_kept() {
         let t = ticket("SHOP-25", "Upgrade to Next.js 15", Status::Working);
-        let text = park_text(&t);
+        let flow = otaq_core::flow::default_flow();
+        let text = park_text(&t, &flow);
         assert_eq!(text.title, "Park SHOP-25?");
         assert_eq!(
             text.message,
@@ -352,6 +361,25 @@ mod tests {
             )
         );
         assert_eq!(text.kept[1].0, IconName::Folder);
+    }
+
+    /// Parked from another stage, the conversation resumes there, as the drag back does: the dialog names it.
+    #[test]
+    fn the_park_confirmation_names_the_stage_it_is_parked_from() {
+        let file = otaq_core::flow::presets::preset(otaq_core::flow::presets::SPEC_FIRST_FILE)
+            .unwrap()
+            .read();
+        let mut t = ticket("NOTE-15", "Retest3 codex spec park", Status::Idle);
+        t.place = otaq_core::domain::Place::stage_of("product-spec");
+        assert_eq!(
+            park_text(&t, &file.flow).kept[2].1,
+            "conversation \u{b7} resumes on Product spec"
+        );
+        t.place = otaq_core::domain::Place::stage_of("dev");
+        assert_eq!(
+            park_text(&t, &file.flow).kept[2].1,
+            "conversation \u{b7} resumes on Dev"
+        );
     }
 
     #[test]

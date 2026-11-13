@@ -21,6 +21,7 @@ pub mod deliveries;
 pub mod env;
 pub mod hand_offs;
 pub mod input;
+pub mod input_line;
 pub mod screen;
 pub mod scrollback;
 
@@ -86,15 +87,26 @@ impl SessionKind {
         )
     }
 
-    /// Whether a live session of this kind on a ticket in `status` is an agent at work, which Running counts and
-    /// Pause stops: the ticket's agent while the ticket is in an agent stage or an agent check (asking you
-    /// included), its checker during the check, a helper during the build stage, and a delivery or answer session
-    /// whenever it runs. A session kept for later, such as the build stage's while the ticket waits for your review,
-    /// isn't running.
-    pub fn at_work_on(self, status: crate::domain::Status) -> bool {
+    /// Whether a live session of this kind on a ticket in `status` is an agent working now: the one count of
+    /// Running in the title bar, the rail, the tray's "1 agent running" and Quit Otaq's "1 agent is working". It is
+    /// an agent at work on the ticket ([`Self::at_work_on`]) that isn't waiting for you: an agent idle at its prompt,
+    /// asking you or a checker that needs you shows under Needs you instead, not as running.
+    pub fn works_now(self, status: crate::domain::Status, delivering: bool) -> bool {
+        self.at_work_on(status, delivering) && !status.is_needs_you_family()
+    }
+
+    /// Whether a live session of this kind on a ticket in `status` is an agent at work, which Pause stops (Running
+    /// counts those of them that aren't waiting for you, [`Self::works_now`]): the ticket's agent while the ticket is in an agent stage or an agent check (asking you
+    /// included) or while it delivers the ticket (`delivering`: a PR is being opened or pushed, as a delivery
+    /// session would), its checker during the check, a helper during the build stage, and a delivery or answer
+    /// session whenever it runs. A session kept for later, such as the build stage's while the ticket waits for your
+    /// review, isn't running.
+    pub fn at_work_on(self, status: crate::domain::Status, delivering: bool) -> bool {
         use crate::domain::StatusSet;
         match self {
-            Self::Agent => matches!(status.set(), StatusSet::AgentStage | StatusSet::AgentCheck),
+            Self::Agent => {
+                delivering || matches!(status.set(), StatusSet::AgentStage | StatusSet::AgentCheck)
+            }
             Self::Validator => status.set() == StatusSet::AgentCheck,
             Self::Helper => status.set() == StatusSet::AgentStage,
             Self::Delivery | Self::Answer => true,
@@ -214,6 +226,31 @@ impl SessionInfo {
     pub fn is_running(&self) -> bool {
         self.state == SessionState::Running
     }
+}
+
+/// The session a ticket's agent terminal shows, among the ticket's `sessions`: its running agent session, else a
+/// running answer session (a finished ticket's agent started again to answer another ticket's question, reached like
+/// any agent session: the Session tab, `otaq attach`), else its newest agent session.
+pub fn agent_terminal<'a>(
+    sessions: impl IntoIterator<Item = &'a SessionInfo>,
+) -> Option<&'a SessionInfo> {
+    let mut running_answer = None;
+    let mut newest: Option<&SessionInfo> = None;
+    for s in sessions {
+        match s.kind {
+            SessionKind::Agent if s.is_running() => return Some(s),
+            SessionKind::Agent => {
+                if newest.is_none_or(|n| s.started_at >= n.started_at) {
+                    newest = Some(s);
+                }
+            }
+            SessionKind::Answer if s.is_running() && running_answer.is_none() => {
+                running_answer = Some(s);
+            }
+            _ => {}
+        }
+    }
+    running_answer.or(newest)
 }
 
 /// The ticket a session belongs to.
@@ -627,6 +664,9 @@ const KILL_GRACE: Duration = Duration::from_secs(2);
 const TOOL_ID_POLL: Duration = Duration::from_millis(50);
 /// How long the waiter lets the reader drain the last output after the program exited.
 const DRAIN_WAIT: Duration = Duration::from_millis(500);
+/// How long after a person's key the program's screen isn't read for the input line ([`input_line`]): it may not
+/// have drawn the key yet.
+pub const KEY_SETTLE: Duration = Duration::from_millis(500);
 
 /// Owns every live session. Cheap to clone.
 #[derive(Clone)]
@@ -674,6 +714,10 @@ struct Live {
     output: Mutex<Output>,
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
+    /// The last read of the input line on screen ([`input_line`]), for the output and size it was read at.
+    input_line: Mutex<Option<(u64, TerminalSize, input_line::InputLine)>>,
+    /// The last read of the visible screen ([`Sessions::visible_screen`]), for the output and size it was read at.
+    screen: Mutex<Option<(u64, TerminalSize, Arc<str>)>>,
     /// Set when Otaq stops the session; the end reason then says so.
     stop_reason: Mutex<Option<&'static str>>,
     ended: watch::Sender<bool>,
@@ -986,6 +1030,8 @@ impl Sessions {
                 answering: 0,
             }),
             input: Mutex::new(InputTracker::new()),
+            input_line: Mutex::new(None),
+            screen: Mutex::new(None),
             stop_reason: Mutex::new(None),
             ended,
             colors: theme.terminal_colors(),
@@ -1136,24 +1182,67 @@ impl Sessions {
         self.live(id)?.write(id, bytes)
     }
 
-    /// Whether the session's input line may hold text the user hasn't sent (d0048).
+    /// Whether the session's input line may hold text the user hasn't sent (d0048). **The one answer to "is the
+    /// line empty"**: every automatic message, every click that types into a session and the unsent-text question
+    /// ask here.
+    ///
+    /// The screen decides wherever it can tell ([`input_line`]): its prompt marker with text after it is text,
+    /// whatever the typed keys counted (a tool that pastes the clipboard itself on Ctrl+V puts there text no key
+    /// accounts for, and one Backspace would bring the count to nothing); only the tool's placeholder after its
+    /// prompt marker is empty, as after a key its own menu took. Where the screen can't tell (a hidden cursor, a
+    /// shell's line), the typed keys answer. Until the program has drawn a person's key, text they counted stands.
     pub fn has_unsent_input(&self, id: &str) -> Result<bool, SessionError> {
-        Ok(self
-            .live(id)?
-            .input
-            .lock()
-            .expect("session input")
-            .has_unsent_text())
+        let live = self.live(id)?;
+        let (keys, lines_above, settled) = {
+            let input = live.input.lock().expect("session input");
+            (
+                input.has_unsent_text(),
+                input.may_have_lines_above_cursor(),
+                !input.typed_within(KEY_SETTLE),
+            )
+        };
+        if keys && !settled {
+            return Ok(true);
+        }
+        Ok(match live.input_line() {
+            input_line::InputLine::Typed => true,
+            input_line::InputLine::Placeholder => false,
+            // Lines of a draft may sit above a bare marker row (a line break, a history entry). A program's own
+            // paste on Ctrl+V ends at the cursor, so after it a bare marker means it pasted nothing.
+            input_line::InputLine::Blank => keys && lines_above,
+            input_line::InputLine::Unknown => keys,
+        })
+    }
+
+    /// The session's screen as the user sees it now, as plain text without the lines above it ([`screen::render`]),
+    /// read again only after new output or a resize. `None` once the session is gone from memory.
+    pub fn visible_screen(&self, id: &str) -> Option<Arc<str>> {
+        let live = self.live(id).ok()?;
+        let (bytes, end, size) = {
+            let output = live.output.lock().expect("session output");
+            let (end, size) = (output.scrollback.end(), output.size);
+            if let Some((at, at_size, text)) = &*live.screen.lock().expect("session screen")
+                && *at == end
+                && *at_size == size
+            {
+                return Some(text.clone());
+            }
+            (output.scrollback.contents().0, end, size)
+        };
+        let text: Arc<str> = screen::render_above(&bytes, size, 0).into();
+        *live.screen.lock().expect("session screen") = Some((end, size, text.clone()));
+        Some(text)
     }
 
     /// Whether the unsent text may run over several lines (SES-07, ADP-06).
     pub fn has_multi_line_input(&self, id: &str) -> Result<bool, SessionError> {
-        Ok(self
-            .live(id)?
-            .input
-            .lock()
-            .expect("session input")
-            .has_multi_line_text())
+        Ok(self.has_unsent_input(id)?
+            && self
+                .live(id)?
+                .input
+                .lock()
+                .expect("session input")
+                .has_multi_line_text())
     }
 
     /// A client reports that its terminal for this session gained or lost keyboard focus (SES-10). Focus is kept
@@ -1712,6 +1801,25 @@ impl Drop for Inner {
 }
 
 impl Live {
+    /// The input line as the program's screen shows it now ([`input_line::read`]), read again only after new
+    /// output or a resize.
+    fn input_line(&self) -> input_line::InputLine {
+        let (bytes, end, size) = {
+            let output = self.output.lock().expect("session output");
+            let (end, size) = (output.scrollback.end(), output.size);
+            if let Some((at, at_size, line)) = *self.input_line.lock().expect("session input line")
+                && at == end
+                && at_size == size
+            {
+                return line;
+            }
+            (output.scrollback.contents().0, end, size)
+        };
+        let line = input_line::read(&bytes, size, self.colors);
+        *self.input_line.lock().expect("session input line") = Some((end, size, line));
+        line
+    }
+
     /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a
     /// ticket, the agent it acts for (an agent's Run, agents run the app), else none (the user's).
     fn agent_root(&self, info: &SessionInfo) -> Option<AgentRoot> {

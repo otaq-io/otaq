@@ -1,5 +1,5 @@
 // The ticket sheet's Files tab (FTB-01…FTB-05, SHT-06; T-0468; `s25-07`, `s25-08`, `s25-09`). On the left the source
-// ("SHOP-22’s worktree · otaq/SHOP-22 · from main"), the search box (⌥⌘P: matches flat with their folder, ↑ ↓,
+// ("SHOP-22’s copy · otaq/SHOP-22 · from main"), the search box (⌥⌘P: matches flat with their folder, ↑ ↓,
 // Return opens, Esc clears), All files · Changed · N, and the tree folder by folder or the changed files. On the right
 // a file as File or Diff with New ticket from this file, or All changes: every changed file's diff in one scroll,
 // Unified · Split, Open file, with line comments while the ticket waits in your check. What it says is Rust's

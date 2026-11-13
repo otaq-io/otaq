@@ -21,6 +21,7 @@ use serde::{Deserialize, Serialize};
 use ts_rs::TS;
 
 use crate::icons::IconName;
+use crate::view_models::flow_board::tooltip_text;
 use crate::view_models::session_tab;
 use crate::view_models::sheet::Content;
 
@@ -57,28 +58,40 @@ impl Item {
     /// What opening it shows: a ticket on its tab, a Project agent in the panel.
     pub fn target(&self) -> Target {
         match self {
-            Self::Ticket(i) => Target::Ticket {
-                project: i.project.clone(),
-                key: i.key.to_string(),
-                tab: if i.group == NeedsYouGroup::Review {
-                    Content::Files
-                } else if i.status == otaq_core::domain::Status::AsksYou
-                    && i.question.is_some()
-                    && i.piece.is_none()
-                {
-                    // A question is answered where it shows first: the ticket's Overview.
-                    Content::Overview
-                } else {
-                    // Session, on the side that needs you (the check's while it asks).
-                    session_tab::lands_on(i.status)
-                },
+            Self::Ticket(i) => {
                 // A helper's permission prompt opens its own terminal (d0133 audit 3).
-                piece: i
+                let piece = i
                     .piece
                     .as_ref()
                     .filter(|w| w.kind == otaq_core::domain::PieceWaitKind::NeedsYou)
-                    .map(|w| w.label.clone()),
-            },
+                    .map(|w| w.label.clone());
+                Target::Ticket {
+                    project: i.project.clone(),
+                    key: i.key.to_string(),
+                    // A ticket waiting for your review opens on Overview: what the agent did, then the checker.
+                    tab: if i.group == NeedsYouGroup::Review {
+                        Content::Overview
+                    } else if i.status == otaq_core::domain::Status::AsksYou
+                        && i.question.is_some()
+                        && i.piece.is_none()
+                    {
+                        // A question is answered where it shows first: the ticket's Overview.
+                        Content::Overview
+                    } else if piece.is_none()
+                        && matches!(i.status, Status::StartInterrupted | Status::DeliveryStopped)
+                    {
+                        // A start that failed or a Delivery that stopped (one that kept its place reads as Delivery
+                        // stopped here) has nothing to answer in a terminal: its reason and Retry are on Overview. A
+                        // session prompt drawn over the stop reads as Needs you and still opens that terminal.
+                        Content::Overview
+                    } else {
+                        // Session, on the side that needs you (the check's while it asks); an Interrupted or Resume
+                        // failed ticket's Resume, Retry and Start from scratch are there too.
+                        session_tab::lands_on(i.status)
+                    },
+                    piece,
+                }
+            }
             Self::Agent(a) => Target::Agent {
                 project: a.project.clone(),
                 agent: a.agent.clone(),
@@ -244,17 +257,26 @@ pub struct Chip {
     pub asks: Option<AsksPopover>,
     /// A Project agent's question (OTQ-9, d0119): the chip opens it with its answer options, or a free-text box.
     pub agent_asks: Option<crate::view_models::agent_question::AgentQuestion>,
+    /// "Open in the agent panel", under the agent's question in its popover: the panel shows the question whole,
+    /// above its terminal. `None` without a question.
+    pub open_in_panel: Option<String>,
 }
 
-/// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, the agent in
-/// charge's note, **Answer 40.2…** and **Open in the ticket**. `StripAsks` on the page.
+/// The link under a Project agent's question in the strip's popover.
+pub const OPEN_IN_PANEL: &str = "Open in the agent panel";
+
+/// The passed-on question's popover (`s30-02` "A helper's question comes to you"): the question, drawn as every agent
+/// question is (its first line asks, the rest is context), the agent in charge's note, **Answer 40.2…** (the
+/// ticket's Overview, where the question reads whole) and **Open in the ticket**. `StripAsks` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "StripAsks")]
 pub struct AsksPopover {
     /// "SHOP-40 · 40.2 asks".
     pub title: String,
-    /// "Keep the heart filled after sign-out?"
-    pub question: String,
+    /// The question's first line: "Keep the heart filled after sign-out?"
+    pub line: String,
+    /// Everything after its first line; `None` for a question of one line.
+    pub context: Option<String>,
     /// "The agent in charge passed this to you: it's a product question the plan doesn't answer."
     pub note: Option<String>,
     /// "Answer 40.2…": the ticket's answer box, on Overview.
@@ -280,10 +302,11 @@ fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
         .trim()
         .to_owned();
     let mut question_chars = question.chars();
-    let question = match question_chars.next() {
+    let question: String = match question_chars.next() {
         Some(first) => first.to_uppercase().chain(question_chars).collect(),
         None => question,
     };
+    let (line, context) = crate::view_models::answer_options::split_question(&question);
     let ticket = |tab: Content, piece: Option<String>| Target::Ticket {
         project: item.project.clone(),
         key: item.key.to_string(),
@@ -292,7 +315,8 @@ fn asks_popover(item: &NeedsYouItem) -> Option<AsksPopover> {
     };
     Some(AsksPopover {
         title: wait.chip.clone(),
-        question,
+        line,
+        context,
         note: wait.note.as_deref().map(|n| {
             let n = n.trim().trim_end_matches('.');
             format!("The agent in charge {n}.")
@@ -492,6 +516,17 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
             Tone::Error,
             "missing skill".to_owned(),
         )
+    } else if let Some(why) = item
+        .stopped
+        .as_ref()
+        .filter(|_| item.status == Status::Idle)
+    {
+        // Its tool stopped on an error: red, as the card, with the reason ("stopped · login expired").
+        (
+            IconName::CircleX,
+            Tone::Error,
+            format!("stopped \u{b7} {why}"),
+        )
     } else if item.group == NeedsYouGroup::Review {
         let reason = match item.waiting_in.as_ref().and_then(|w| w.delivers) {
             Some(Delivers::Pr) => "open the PR",
@@ -533,10 +568,16 @@ pub(crate) fn ticket_chip(item: &NeedsYouItem, target: Target) -> Option<Chip> {
         reason,
         icon,
         tone,
-        title: format!("{} {} \u{b7} {}", item.key, item.title, item.reason),
+        title: format!(
+            "{} {} \u{b7} {}",
+            item.key,
+            item.title,
+            tooltip_text(&item.reason)
+        ),
         target,
         asks: asks_popover(item),
         agent_asks: None,
+        open_in_panel: None,
     })
 }
 
@@ -545,19 +586,21 @@ pub(crate) fn agent_chip(a: &AgentNeedsYou, target: Target) -> Chip {
         Status::NeedsYou => "allow a command",
         _ => "a question",
     };
+    let agent_asks = a
+        .question
+        .as_ref()
+        .filter(|_| a.status == Status::AsksYou)
+        .map(|q| crate::view_models::agent_question::of(&a.project, &a.agent, &a.name, q));
     Chip {
         label: "Agent".to_owned(),
         reason: reason.to_owned(),
         icon: IconName::Bot,
         tone: Tone::Investigate,
-        title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, a.reason),
+        title: format!("Noyan \u{b7} {} \u{b7} {}", a.name, tooltip_text(&a.reason)),
         target,
         asks: None,
-        agent_asks: a
-            .question
-            .as_ref()
-            .filter(|_| a.status == Status::AsksYou)
-            .map(|q| crate::view_models::agent_question::of(&a.project, &a.agent, &a.name, q)),
+        open_in_panel: agent_asks.as_ref().map(|_| OPEN_IN_PANEL.to_owned()),
+        agent_asks,
     }
 }
 
@@ -717,6 +760,7 @@ pub mod samples {
             piece: None,
             helpers_to_resume: Vec::new(),
             missing_skill: None,
+            stopped: None,
         }
     }
 
@@ -774,7 +818,8 @@ pub mod samples {
             id: "q4".into(),
             text: "Should the share link expire?".into(),
             options: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -809,7 +854,8 @@ pub mod samples {
                 id: "pq1".into(),
                 text: "Add an index on orders.created_at?".into(),
                 options: vec!["Add the index".into(), "Leave it".into()],
-                recommended: Some(1),
+                recommended: vec![1],
+                multiple: false,
                 notes: vec![
                     Some("Checkout's slow query drops from 900 ms to 20 ms; one migration.".into()),
                     Some("Nothing to migrate, but checkout stays slow on big carts.".into()),
@@ -857,6 +903,70 @@ mod tests {
             .collect()
     }
 
+    /// An agent whose tool stopped on an error is red in Needs you with the reason, as its card; a plain Idle stays
+    /// turquoise "idle".
+    #[test]
+    fn a_tool_error_is_a_red_chip_with_its_reason() {
+        let mut t = ticket(
+            "SHOP-1",
+            "Tidy the README",
+            Status::Idle,
+            "idle \u{b7} stopped on an error: \u{201c}Login expired\u{201d}",
+        );
+        t.stopped = Some("login expired".into());
+        let target = item(t.clone()).target();
+        let chip = ticket_chip(&t, target.clone()).unwrap();
+        assert_eq!(chip.reason, "stopped \u{b7} login expired");
+        assert_eq!(chip.tone, Tone::Error);
+        assert_eq!(chip.icon, IconName::CircleX);
+        t.stopped = None;
+        let chip = ticket_chip(&t, target).unwrap();
+        assert_eq!((chip.reason.as_str(), chip.tone), ("idle", Tone::Attn));
+    }
+
+    /// A long waiting prompt (a whole SKILL.md written in one command) is cut with "…" in the chip's hover, as Edit
+    /// flow's Needs you line cuts it; a short one shows whole.
+    #[test]
+    fn a_chips_hover_caps_a_long_prompt_like_edit_flows() {
+        let long = format!(
+            "permission: Run command: {}",
+            "line of the skill ".repeat(200)
+        );
+        let t = ticket("SHOP-31", "Retest4", Status::NeedsYou, &long);
+        let title = ticket_chip(&t, item(t.clone()).target()).unwrap().title;
+        let lead = "SHOP-31 Retest4 \u{b7} ";
+        assert!(title.starts_with(lead), "{title}");
+        assert!(title.ends_with('\u{2026}'), "{title}");
+        assert_eq!(
+            title.chars().count(),
+            lead.chars().count() + tooltip_text(&long).chars().count()
+        );
+        assert!(
+            title.chars().count() <= lead.chars().count() + 601,
+            "{title}"
+        );
+
+        let mut a = agent();
+        a.status = Status::NeedsYou;
+        a.reason = long.clone();
+        let title = agent_chip(&a, item(t).target()).title;
+        assert!(title.ends_with('\u{2026}'), "{title}");
+        assert!(title.chars().count() < 700, "{title}");
+
+        let short = ticket(
+            "SHOP-22",
+            "Fix flaky login",
+            Status::NeedsYou,
+            "permission: x",
+        );
+        assert_eq!(
+            ticket_chip(&short, item(short.clone()).target())
+                .unwrap()
+                .title,
+            "SHOP-22 Fix flaky login \u{b7} permission: x"
+        );
+    }
+
     /// OTQ-9: an open question (no options) is a free-text box; a permission prompt has no popover.
     #[test]
     fn a_project_agents_open_question_and_its_permission_prompt() {
@@ -866,7 +976,7 @@ mod tests {
         };
         let mut a = agent();
         a.question.as_mut().unwrap().options.clear();
-        a.question.as_mut().unwrap().recommended = None;
+        a.question.as_mut().unwrap().recommended.clear();
         a.question.as_mut().unwrap().notes.clear();
         let chip = agent_chip(&a, target.clone());
         let asks = chip.agent_asks.expect("the open question");
@@ -877,6 +987,7 @@ mod tests {
         let chip = agent_chip(&a, target);
         assert_eq!(chip.reason, "allow a command");
         assert_eq!(chip.agent_asks, None);
+        assert_eq!(chip.open_in_panel, None);
     }
 
     /// d0133 (`s30-02`): a helper's wait is its ticket's one chip, in the queue's place (d0016): "SHOP-40 · 40.2 asks"
@@ -911,7 +1022,8 @@ mod tests {
         );
         let asks = v.groups[0].chips[1].asks.clone().expect("the popover");
         assert_eq!(asks.title, "SHOP-40 · 40.2 asks");
-        assert_eq!(asks.question, "Keep the heart filled after sign-out?");
+        assert_eq!(asks.line, "Keep the heart filled after sign-out?");
+        assert_eq!(asks.context, None);
         assert_eq!(
             asks.note.as_deref(),
             Some(
@@ -935,6 +1047,23 @@ mod tests {
             Target::Ticket { tab: Content::Agent, piece: Some(ref p), .. } if p == "40.2"
         ));
         assert_eq!(v.groups[0].chips[0].asks, None);
+
+        // A long passed-on question: its first line asks, the rest is its context, as everywhere a question shows.
+        let mut long = ticket("SHOP-40", "Wishlist", Status::AsksYou, "…");
+        let mut wait = waiting(true).0;
+        wait.line = "40.2 asks: keep the heart filled after sign-out?\n\nThe wishlist forgets guests' items today.\n- \
+                     Keep: a cookie\n- Clear: nothing stored"
+            .into();
+        long.piece = Some(wait);
+        let v = draw(&[item(long)], None);
+        let asks = v.groups[0].chips[0].asks.clone().expect("the popover");
+        assert_eq!(asks.line, "Keep the heart filled after sign-out?");
+        assert_eq!(
+            asks.context.as_deref(),
+            Some(
+                "The wishlist forgets guests' items today.\n- Keep: a cookie\n- Clear: nothing stored"
+            )
+        );
 
         let v = draw(&[with(false)], None);
         assert_eq!(chips(&v.groups[0]), ["SHOP-40 40.3 needs you"]);
@@ -991,12 +1120,13 @@ mod tests {
         // Your review sits in the strip too, each chip "ready".
         assert_eq!(v.groups[1].title, "Your review \u{b7} 1");
         assert_eq!(chips(&v.groups[1]), ["SHOP-18 ready"]);
+        // A ticket in Review opens on Overview, not on Changes.
         assert_eq!(
             v.groups[1].chips[0].target,
             Target::Ticket {
                 project: "SHOP".into(),
                 key: "SHOP-18".into(),
-                tab: Content::Files,
+                tab: Content::Overview,
                 piece: None,
             }
         );
@@ -1032,7 +1162,8 @@ mod tests {
                     id: "q12".into(),
                     text: "Should dark mode follow the system setting?".into(),
                     options: Vec::new(),
-                    recommended: None,
+                    recommended: Vec::new(),
+                    multiple: false,
                     notes: Vec::new(),
                     asked_at: 0,
                     send_back: None,
@@ -1095,7 +1226,11 @@ mod tests {
             (asks.project.as_str(), asks.agent.as_str()),
             ("SHOP", "pa3")
         );
-        assert_eq!(asks.answer.text, "Add an index on orders.created_at?");
+        assert_eq!(asks.answer.line, "Add an index on orders.created_at?");
+        assert_eq!(
+            agent.open_in_panel.as_deref(),
+            Some("Open in the agent panel")
+        );
         assert_eq!(
             asks.answer
                 .rows
@@ -1159,7 +1294,8 @@ mod tests {
             id: "q1".into(),
             text: "Which email provider should I use?".into(),
             options: Vec::new(),
-            recommended: None,
+            recommended: Vec::new(),
+            multiple: false,
             notes: Vec::new(),
             asked_at: 0,
             send_back: None,
@@ -1208,6 +1344,95 @@ mod tests {
         assert_eq!(chips(&v.groups[0]), ["SHOP-22 a question"]);
         assert!(v.groups[1].chips.is_empty());
         assert_eq!(v.groups[1].resume_all, Some("Resume all"));
+    }
+
+    /// Where ⌘J and a chip open each kind of item: a terminal only when something waits in it (a prompt, the check's
+    /// prompt, a helper's, an Interrupted or Resume failed ticket's Resume); a start that failed or a Delivery that
+    /// stopped opens on Overview, where its reason and Retry are (re-test NEW-b4).
+    #[test]
+    fn each_item_opens_where_its_answer_is() {
+        use crate::view_models::pieces::fixtures::waiting;
+        use otaq_core::board::questions::HumanQuestion;
+
+        let tab = |t: NeedsYouItem| match item(t).target() {
+            Target::Ticket { tab, piece, .. } => (tab, piece),
+            Target::Agent { .. } => unreachable!("a ticket"),
+        };
+        let plain = |status: Status| tab(ticket("SHOP-9", "Search", status, "…"));
+        let question = HumanQuestion {
+            id: "q1".into(),
+            text: "Which email provider should I use?".into(),
+            options: Vec::new(),
+            recommended: Vec::new(),
+            multiple: false,
+            notes: Vec::new(),
+            asked_at: 0,
+            send_back: None,
+        };
+        let mut asks = ticket("SHOP-9", "Search", Status::AsksYou, "asks: …");
+        asks.question = Some(question);
+
+        assert_eq!(tab(asks), (Content::Overview, None));
+        assert_eq!(plain(Status::WaitingForYou), (Content::Overview, None));
+        assert_eq!(plain(Status::ToDeliver), (Content::Overview, None));
+        assert_eq!(plain(Status::StartInterrupted), (Content::Overview, None));
+        assert_eq!(plain(Status::DeliveryStopped), (Content::Overview, None));
+
+        assert_eq!(plain(Status::NeedsYou), (Content::Agent, None));
+        assert_eq!(plain(Status::Idle), (Content::Agent, None));
+        assert_eq!(plain(Status::CheckerNeedsYou), (Content::Check, None));
+        assert_eq!(plain(Status::Interrupted), (Content::Agent, None));
+        assert_eq!(plain(Status::ResumeFailed), (Content::Agent, None));
+
+        // A helper's permission prompt on a stopped Delivery still opens that helper's terminal.
+        let mut helper = ticket("SHOP-40", "Wishlist", Status::DeliveryStopped, "…");
+        helper.piece = Some(waiting(false).0);
+        assert_eq!(tab(helper), (Content::Agent, Some("40.3".to_owned())));
+    }
+
+    /// A Delivery stop that kept its place (a hook refused it) opens on Overview; once its skill session sits at a
+    /// permission prompt the item is that prompt's Needs you and opens the terminal (re-test NEW-b4).
+    #[test]
+    fn a_delivery_stop_opens_overview_until_its_session_asks() {
+        use crate::view_models::card_fixtures;
+        use otaq_core::board::needs_you::{ProjectTickets, needs_you_items};
+        use otaq_core::domain::{AutoMergeStop, PromptTurn, SessionPrompt};
+        use otaq_core::flow::default_flow;
+
+        let mut stopped = card_fixtures::ticket("SHOP-18", "Checkout API", Status::WaitingForYou);
+        stopped.auto_merge_stop = Some(AutoMergeStop::HookRefused);
+        let mut asking = stopped.clone();
+        asking.flags.session_prompt = Some(SessionPrompt {
+            session: "s-push".into(),
+            prompt: format!(
+                "Run command: git push origin {}",
+                otaq_core::naming::branch("SHOP-18")
+            ),
+            since: 0,
+            turn: PromptTurn::PushToPr,
+        });
+        let flow = default_flow();
+        let found = |t: otaq_core::board::tickets::Ticket| {
+            let tickets = [t];
+            let items = needs_you_items(
+                &[ProjectTickets {
+                    key: "SHOP",
+                    name: "shop-web",
+                    tickets: &tickets,
+                    flow: &flow,
+                }],
+                card_fixtures::NOW,
+            );
+            assert_eq!(items.len(), 1);
+            let i = items.into_iter().next().unwrap();
+            let status = i.status;
+            match item(i).target() {
+                Target::Ticket { tab, .. } => (status, tab),
+                Target::Agent { .. } => unreachable!("a ticket"),
+            }
+        };
+        assert_eq!(found(stopped), (Status::DeliveryStopped, Content::Overview));
+        assert_eq!(found(asking), (Status::NeedsYou, Content::Agent));
     }
 
     /// NYS-01 (`s24-12`): "Needs you · 0 here", "You’re through shop-web’s items." and the accent "Next ·

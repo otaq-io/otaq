@@ -193,6 +193,22 @@ pub async fn view(app: &App, params: ViewParams) -> Result<OverviewView, Request
         ),
         plan,
     );
+    // The ticket's own agent for a stage, as its card says it, from the moment it is set; unread, Overview goes on
+    // without the line.
+    if let Ok(Reply::BoardAgents(agents)) = app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: ticket.key.project.to_string(),
+        }))
+        .await
+    {
+        let own = agents
+            .cards
+            .iter()
+            .find(|c| c.key == ticket.key)
+            .and_then(|c| c.own_agent.as_ref());
+        view = vm::with_own_agent(view, &ticket, own);
+    }
     // The question you answered here stays, quietly, while the agent works on it in this stage's run.
     if matches!(
         ticket.status,
@@ -297,7 +313,75 @@ pub async fn file(params: FileParams) -> Result<FileChip, RequestError> {
 
 #[cfg(test)]
 mod tests {
+    use otaq_core::board::projects::AddProject;
+    use otaq_core::board::tickets::NewTicketInput;
+    use otaq_core::git::testing::TempRepos;
+    use otaq_core::protocol::SetChoiceParams;
+    use serde_json::json;
+
     use super::*;
+    use crate::api::request;
+    use crate::service::testing::{Harness, connected};
+
+    /// A ticket's own agent shows from the moment it is set: a Backlog ticket with Dev set to Checker says
+    /// "Dev: Checker instead of Developer" on its card and on its Overview, before Dev starts.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_backlog_ticket_shows_its_own_agent_on_its_card_and_overview() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let send = |r| h.app.service.send(r);
+        let Ok(Reply::ProjectAdded { project, .. }) = send(Request::ProjectAdd(AddProject {
+            path: repos.repo("shop-web", 1).display().to_string(),
+            key: None,
+            base_branch: None,
+        }))
+        .await
+        else {
+            panic!("no project");
+        };
+        let Ok(Reply::Ticket(t)) = send(Request::TicketCreate(NewTicketInput {
+            project: project.key.clone(),
+            title: "Fix the word tiny in README".into(),
+            ..Default::default()
+        }))
+        .await
+        else {
+            panic!("no ticket");
+        };
+        let key = t.key.to_string();
+        let line = "Dev: Checker instead of Developer";
+        let card_note = || async {
+            let view = request(
+                &h.app,
+                "board.view",
+                json!({ "project": project.key, "width": 1376.0, "height": 856.0 }),
+            )
+            .await
+            .unwrap();
+            assert_eq!(view["columns"][0]["id"], "backlog");
+            view["columns"][0]["cards"][0]["card"]["note"]["text"].clone()
+        };
+        let overview_line = || async {
+            request(&h.app, "overview.view", json!({ "key": key }))
+                .await
+                .unwrap()["own_agent"]
+                .clone()
+        };
+        assert_eq!(card_note().await, Value::Null, "nothing chosen yet");
+        assert_eq!(overview_line().await, Value::Null);
+
+        send(Request::TicketSetChoice(SetChoiceParams {
+            key: key.clone(),
+            stage: "Dev".into(),
+            choice: "Checker".into(),
+        }))
+        .await
+        .unwrap();
+        assert_eq!(card_note().await, line, "on the Backlog card");
+        assert_eq!(overview_line().await, line, "on Overview");
+        h.service.stop_all().await;
+    }
 
     /// A file for the chip: its name and size; a missing one and one over 20 MB refused with core's words.
     #[tokio::test]

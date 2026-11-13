@@ -63,7 +63,8 @@ mod tests {
             id: "q1".into(),
             text: "Import closed issues too?".into(),
             options: options.iter().map(|o| (*o).to_owned()).collect(),
-            recommended,
+            recommended: recommended.into_iter().collect(),
+            multiple: false,
             notes: options
                 .iter()
                 .map(|o| Some(format!("{o}: the note.")))
@@ -84,7 +85,7 @@ mod tests {
         assert_eq!(q.title, "Noyan \u{b7} Import issues asks");
         assert_eq!(q.agent, "a1");
         assert_eq!(q.answer.question, "q1");
-        assert_eq!(q.answer.text, "Import closed issues too?");
+        assert_eq!(q.answer.line, "Import closed issues too?");
         let rows: Vec<_> = q
             .answer
             .rows

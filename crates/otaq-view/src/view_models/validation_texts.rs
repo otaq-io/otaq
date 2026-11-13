@@ -11,7 +11,7 @@ use otaq_core::usage::TicketUsage;
 use crate::view_models::card::tokens_label;
 
 /// The header pill's label when it says more than the status: "Checking · round 1 of 3", "Validation failed 3
-/// times".
+/// times", "Merge check failed · fixing".
 pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
     use crate::view_models::card;
     let check = ticket.flags.check.as_deref();
@@ -31,8 +31,20 @@ pub fn pill_label(ticket: &Ticket, custom_flow: bool) -> Option<String> {
             check,
             ticket.validation_round.max(1),
         )),
-        // A human check in another flow than the default (FLW-14).
-        Status::WaitingForYou if custom_flow => Some(card::YOUR_CHECK.to_owned()),
+        // A delivery problem names itself as its card does: "Merge check failed · fixing", "Conflicts with main ·
+        // fixing".
+        Status::MergeConflictFixing => Some(crate::view_models::card_line::fixing_line(
+            &ticket.flags,
+            Some(ticket.base.branch()),
+        )),
+        // A human check in another flow than the default (FLW-14), while it reads as one: a question, a prompt or a
+        // Delivery stop shown in place keeps its own label.
+        Status::WaitingForYou
+            if custom_flow
+                && crate::view_models::status::shown(ticket) == Status::WaitingForYou =>
+        {
+            Some(card::YOUR_CHECK.to_owned())
+        }
         _ => None,
     }
 }
@@ -55,7 +67,7 @@ pub fn token_split(ticket: &Ticket, usage: &TicketUsage) -> Option<String> {
 /// Why Auto-merge stopped, under the action bar (*Auto-merge stop · messages*): "Keeps conflicting with
 /// otaq/SHOP-40 (3 tries in a row).", or the Local merge's own message.
 pub fn stop_message(ticket: &Ticket) -> Option<String> {
-    if ticket.status != Status::DeliveryStopped {
+    if ticket.status != Status::DeliveryStopped && ticket.stopped_in_place().is_none() {
         return None;
     }
     if let (Some(AutoMergeStop::KeepsConflicting), Some(target)) =
@@ -134,6 +146,31 @@ mod tests {
         let mut t = ticket("SHOP-29", "Coupon field", Status::Checking);
         t.flags.validating_round = Some(ValidationRound { round: 1, of: 3 });
         t
+    }
+
+    /// A failed merge check and a conflict each name themselves on the badge, in the card's words.
+    #[test]
+    fn the_header_names_the_delivery_problem() {
+        use otaq_core::domain::MergeCheckState;
+        let mut check = ticket("NOTE-1", "Fix the typo", Status::MergeConflictFixing);
+        check.flags.merge_check = Some(MergeCheckState::Failed);
+        assert_eq!(
+            pill_label(&check, false).as_deref(),
+            Some("Merge check failed \u{b7} fixing")
+        );
+        let mut conflict = ticket("SHOP-5", "Fix the word", Status::MergeConflictFixing);
+        conflict.flags.conflicts_with = Some("main".into());
+        conflict.flags.conflict_in_review = true;
+        assert_eq!(
+            pill_label(&conflict, false).as_deref(),
+            Some("Conflicts with main \u{b7} fixing")
+        );
+        // A Delivery's own conflict reads the same as one found while it waited.
+        conflict.flags.conflict_in_review = false;
+        assert_eq!(
+            pill_label(&conflict, true).as_deref(),
+            Some("Conflicts with main \u{b7} fixing")
+        );
     }
 
     #[test]

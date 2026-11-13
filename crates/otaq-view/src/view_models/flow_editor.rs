@@ -14,9 +14,13 @@
 //! the agent to write it** (Noyan's agent writes it into the project's checkout, which Otaq doesn't commit); while it
 //! writes the field says so with Stop, then shows the skill tinted, where it was saved, with Open and Undo
 //! ([`SkillState`]). A stage whose skill nobody has shows "You don't have the skill `<name>`" as a warning (the
-//! draft's); it never keeps Save off. A stage's Agent field offers only the agents whose tool has the stage's skill
+//! draft's), with "Pick one, or Ask the agent to write it." under it ([`SkillFix`]); once the agent has written it,
+//! the warning says "`<name>` is written but not committed yet: commit it so agents get it". It never keeps Save
+//! off. Pick a skill… always ends with Ask the agent to write it…, so a stage that already names a skill can have one
+//! written too, and shows it being written. A stage's Agent field offers only the agents whose tool has the stage's skill
 //! (every agent for one of Otaq's own); a stage whose agent's tool lacks it shows "GitHub Copilot doesn’t have the
-//! skill `/<name>`", only a warning too. Save stays off while an agent stage has no skill ("Plan needs a skill"). **Ask
+//! skill `/<name>`", only a warning too. A stage with no skill saves: Otaq's own skill for that stage runs
+//! (`work-ticket`, `validate`), and the field says so. **Ask
 //! the agent to write it** sends nothing (Q441): it puts "Write a skill for the Plan stage: " in the agent's box
 //! ([`write_skill_prefill`]) for the user to finish and send.
 //!
@@ -40,7 +44,7 @@ use otaq_core::flow::draft::{DraftApplies, Inside, Mark, SkillWriting, StageMark
 use otaq_core::flow::model::{CheckBy, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
 use otaq_core::flow::proposal::{
     About, AgentChange, AgentChangeKind, ApplyChoices, Change, ClashChoice, Fix, NEAREST, Proposal,
-    ProposalProblem, Source, missing_skill_text, unknown_skill_text,
+    ProposalProblem, Source, missing_skill_text, skipped_skill_text, unknown_skill_text,
 };
 use otaq_core::flow::write_skill::saved_text;
 use otaq_core::project_agents::ProjectAgent;
@@ -349,13 +353,15 @@ pub struct FailToField {
 #[ts(rename = "FlowEditorSkillState")]
 pub enum SkillState {
     /// The stage's skill (clicking it picks another); `warning` "You don't have the skill `<name>`" when nobody has it
-    /// (amber, Apply still works).
+    /// (amber, Apply still works), or why a tool that finds it doesn't load it (a byte order mark), with `fix` under it:
+    /// "Pick one, or Ask the agent to write it."
     Set {
         skill: String,
         warning: Option<String>,
+        fix: Option<SkillFix>,
     },
-    /// "No skill yet. An agent stage needs one: it’s what the agent follows in Plan.", with Pick a skill… and Ask the
-    /// agent to write it, which puts `prefill` in the agent's box ([`write_skill_prefill`], Q441).
+    /// "No skill of yours: Plan runs Otaq’s `work-ticket`.", with Pick a skill… and Ask the agent to write it, which
+    /// puts `prefill` in the agent's box ([`write_skill_prefill`], Q441).
     Empty {
         text: String,
         pick: &'static str,
@@ -394,7 +400,37 @@ pub struct SkillPicker {
     pub items: Vec<MenuItem>,
     /// The last item while searching, for a name typed by hand: "Use `{name}`", `{name}` the typed text (its id).
     pub use_typed: &'static str,
+    /// Always the very last row, searching or not: "Ask the agent to write it…" (id [`ASK_TO_WRITE`]), which puts
+    /// `prefill` in the agent's box ([`write_skill_prefill`]); nothing is sent before the user sends.
+    pub ask: MenuItem,
+    pub prefill: String,
 }
+
+/// The line under "You don't have the skill `<name>`": "**Pick one**, or **Ask the agent to write it**." Pick one
+/// opens Pick a skill…; Ask the agent to write it puts the picker's `prefill` in the agent's box, as the empty
+/// field's button does. `FlowEditorSkillFix` on the page.
+#[derive(Debug, Clone, PartialEq, Serialize, TS)]
+#[ts(rename = "FlowEditorSkillFix")]
+pub struct SkillFix {
+    pub pick: &'static str,
+    /// Between the two: ", or ".
+    pub or: &'static str,
+    pub ask: &'static str,
+    /// After the second: ".".
+    pub end: &'static str,
+}
+
+/// The fix line under a missing skill's warning.
+pub const SKILL_FIX: SkillFix = SkillFix {
+    pick: "Pick one",
+    or: ", or ",
+    ask: "Ask the agent to write it",
+    end: ".",
+};
+
+/// Pick a skill…'s "Ask the agent to write it…" row's id, which no skill can have (a skill's name is letters, digits
+/// and dashes).
+pub const ASK_TO_WRITE: &str = ":ask-the-agent";
 
 /// The Skill field (FED-06).
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
@@ -590,12 +626,9 @@ pub(crate) fn left<'a>(f: &Facts<'a>) -> Option<&'a ProposalProblem> {
     f.proposal.problems.iter().find(|p| !f.choices.fix(p))
 }
 
-/// A step's problem (the first one no pick fixed yet), in the error colour; "needs a skill" for an agent stage with
-/// none.
+/// A step's problem (the first one no pick fixed yet), in the error colour. A stage with no skill has none: Otaq's own
+/// skill for it runs.
 pub(crate) fn step_problem(f: &Facts, stage: &Stage) -> Option<String> {
-    if stage.needs_skill() {
-        return Some(NEEDS_A_SKILL.to_owned());
-    }
     f.proposal
         .problems
         .iter()
@@ -855,7 +888,46 @@ pub(crate) fn missing_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let tools = skill_holders(f, stage)?;
     let tool = agent_tool(f, the_agent(stage)?)?;
     let skill = stage.skill.as_deref()?.trim();
+    // A tool that finds the skill but skips it says why on the Skill field ([`skipped_skill`]) instead.
+    if found_skill(f, skill).is_some_and(|s| s.skipped.contains(&tool)) {
+        return None;
+    }
     (!tools.contains(&tool)).then(|| missing_skill_text(tool, skill))
+}
+
+/// The user's own skill `skill` from `skills.list`, if they have it.
+fn found_skill<'f>(f: &'f Facts, skill: &str) -> Option<&'f FoundSkill> {
+    f.skills.iter().find(|s| !s.otaq && s.name == skill)
+}
+
+/// "Codex doesn’t load the skill `$retest-docs`: its SKILL.md starts with a byte order mark" on a stage whose
+/// skill a tool finds but doesn't load: when no tool loads it, or when the stage's agent's tool is one that skips it.
+/// Only a warning, the flow still applies; a ticket reaching the stage is held.
+pub(crate) fn skipped_skill(f: &Facts, stage: &Stage) -> Option<String> {
+    let skill = stage.skill.as_deref()?.trim();
+    if skill.is_empty() || otaq_core::skills::found::is_shipped(skill) {
+        return None;
+    }
+    let found = found_skill(f, skill)?;
+    if found.skipped.is_empty() {
+        return None;
+    }
+    if found.tools.is_empty() {
+        return Some(skipped_skill_text(&found.skipped, skill));
+    }
+    let tool = agent_tool(f, the_agent(stage)?)?;
+    found
+        .skipped
+        .contains(&tool)
+        .then(|| skipped_skill_text(&[tool], skill))
+}
+
+/// The warning on a stage's card for its skill: one nobody has (or the agent wrote and nobody has committed yet), one
+/// a tool skips, or one its agent's tool lacks.
+pub(crate) fn stage_skill_warning(f: &Facts, stage: &Stage) -> Option<String> {
+    unknown_skill(f, stage)
+        .or_else(|| skipped_skill(f, stage))
+        .or_else(|| missing_skill(f, stage))
 }
 
 pub(crate) fn agent_field(f: &Facts, stage: &Stage) -> Option<AgentField> {
@@ -939,9 +1011,6 @@ pub(crate) fn fail_to_field(f: &Facts, stage: &Stage) -> Option<FailToField> {
     })
 }
 
-/// A step's "needs a skill" (`s27-05`).
-pub const NEEDS_A_SKILL: &str = "needs a skill";
-
 /// Whether the Project agent is writing the skill of the stage `id`.
 pub(crate) fn writing(f: &Facts, id: &str) -> bool {
     f.writing.iter().any(|w| w.stage_id == id)
@@ -975,17 +1044,18 @@ fn skill_place(skill: &FoundSkill) -> String {
 }
 
 /// The tools that have one of the user's skills, for Pick a skill…'s second line (S6): "Claude Code, Codex"; a
-/// project skill no tool reads until it is committed says so.
+/// project skill no tool reads until it is committed says so, and one the only tools that find it skip says why.
 fn skill_tools(skill: &FoundSkill) -> String {
     if skill.tools.is_empty() {
+        if !skill.skipped.is_empty() {
+            return format!(
+                "{} doesn\u{2019}t load it: its SKILL.md starts with a byte order mark",
+                otaq_core::flow::proposal::tool_names(&skill.skipped)
+            );
+        }
         return "Not committed yet: no tool has it".to_owned();
     }
-    skill
-        .tools
-        .iter()
-        .map(|tool| tool.display_name())
-        .collect::<Vec<_>>()
-        .join(", ")
+    otaq_core::flow::proposal::tool_names(&skill.tools)
 }
 
 /// Pick a skill…'s items: the user's own skills (personal ones, then the project's, each by name), then Otaq's own
@@ -1025,7 +1095,9 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
 }
 
 /// "You don't have the skill `<name>`" on `stage`: the draft's warning for its skill, which neither Otaq ships nor
-/// the user has. Only a warning: Apply still works.
+/// the user has. Only a warning: Apply still works. A skill the agent wrote for the stage is in the project's checkout,
+/// but no tool reads it until the user commits it, which Apply doesn't do: the warning says so instead
+/// ([`uncommitted_skill_text`]).
 pub(crate) fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
     let skill = stage.skill.as_deref()?.trim();
     // Otaq's own skills never warn.
@@ -1033,12 +1105,23 @@ pub(crate) fn unknown_skill(f: &Facts, stage: &Stage) -> Option<String> {
         return None;
     }
     let text = unknown_skill_text(skill);
-    f.proposal
+    let warned = f
+        .proposal
         .diff
         .warnings
         .iter()
-        .find(|w| w.stage.as_deref() == Some(stage.name.as_str()) && w.text == text)
-        .map(|w| w.text.clone())
+        .any(|w| w.stage.as_deref() == Some(stage.name.as_str()) && w.text == text);
+    match (warned, written_of(f, stage)) {
+        (false, _) => None,
+        (true, Some(_)) => Some(uncommitted_skill_text(skill)),
+        (true, None) => Some(text),
+    }
+}
+
+/// The warning on a stage whose skill the agent wrote into the project's checkout, which Otaq doesn't commit:
+/// "`update-docs` is written but not committed yet: commit it so agents get it".
+pub(crate) fn uncommitted_skill_text(skill: &str) -> String {
+    format!("`{skill}` is written but not committed yet: commit it so agents get it")
 }
 
 /// The Skill field of a stage an agent runs (FED-06): set, empty with Pick and Ask, being written, or written.
@@ -1055,21 +1138,27 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             open: (!written.folder.is_empty()).then_some("Open"),
             undo: "Undo",
         }
-    } else if stage.skill.is_none() && writing(f, &stage.id) {
+    } else if writing(f, &stage.id) {
+        // A stage that already names a skill (one nobody has, say) shows it being written too: Ask the agent to write
+        // it is offered there, and the written skill takes that name's place.
         SkillState::Writing {
             text: "Being written by Noyan\u{2026}",
             stop: "Stop",
         }
     } else if let Some(skill) = &stage.skill {
+        let warning = unknown_skill(f, stage).or_else(|| skipped_skill(f, stage));
         SkillState::Set {
             skill: skill.clone(),
-            warning: unknown_skill(f, stage),
+            fix: warning.is_some().then_some(SKILL_FIX),
+            warning,
         }
     } else {
         SkillState::Empty {
             text: format!(
-                "No skill yet. An agent stage needs one: it\u{2019}s what the agent follows in {}.",
-                stage.name
+                "No skill of yours: {} runs {}\u{2019}s `{}`.",
+                stage.name,
+                otaq_core::naming::PRODUCT_NAME,
+                stage.own_skill().unwrap_or_default()
             ),
             pick: "Pick a skill\u{2026}",
             ask: "Ask the agent to write it",
@@ -1088,6 +1177,11 @@ pub(crate) fn skill_field(f: &Facts, stage: &Stage) -> Option<SkillField> {
             },
             items: skill_choices(f, stage),
             use_typed: "Use `{name}`",
+            ask: MenuItem::new(ASK_TO_WRITE, "Ask the agent to write it\u{2026}")
+                .icon(IconName::Sparkles)
+                .hint("Starts Noyan on the right and uses tokens.")
+                .separated(),
+            prefill: write_skill_prefill(f.file, &stage.id),
         },
     })
 }
@@ -1150,8 +1244,9 @@ fn shape_words(f: &Facts) -> String {
     words.join(" ")
 }
 
-/// "the 6 there now (4 in Dev, 2 in Security)": the tickets inside, by stage in the order they come.
-fn inside_words(inside: &[Inside]) -> String {
+/// "the 6 there now (4 in Dev, 2 in Security)": the tickets inside, by stage in the order they come, each stage by
+/// the name the user sees (a removed stage's is in the flow in use, a new one's in the draft), never its id.
+fn inside_words(f: &Facts, inside: &[Inside]) -> String {
     let mut by: Vec<(&str, usize)> = Vec::new();
     for i in inside {
         match by.iter_mut().find(|(s, _)| *s == i.stage) {
@@ -1159,8 +1254,15 @@ fn inside_words(inside: &[Inside]) -> String {
             None => by.push((&i.stage, 1)),
         }
     }
+    let name = |id: &str| -> String {
+        f.in_use
+            .flow
+            .stage(id)
+            .or_else(|| f.file.flow.stage(id))
+            .map_or_else(|| id.to_owned(), |s| s.name.clone())
+    };
     by.iter()
-        .map(|(stage, n)| format!("{n} in {stage}"))
+        .map(|(stage, n)| format!("{n} in {}", name(stage)))
         .collect::<Vec<_>>()
         .join(", ")
 }
@@ -1186,8 +1288,11 @@ pub(crate) fn change_line(f: &Facts) -> Option<String> {
                 format!("{what}No ticket is between {first} and {last} now, so it applies at once.")
             } else {
                 let there = match inside.len() {
-                    1 => format!("the ticket there now ({}) finishes", inside_words(inside)),
-                    n => format!("the {n} there now ({}) finish", inside_words(inside)),
+                    1 => format!(
+                        "the ticket there now ({}) finishes",
+                        inside_words(f, inside)
+                    ),
+                    n => format!("the {n} there now ({}) finish", inside_words(f, inside)),
                 };
                 format!(
                     "{what}This waits until no ticket is between {first} and {last}: {there} on the current \
@@ -1214,11 +1319,23 @@ pub(crate) fn change_line(f: &Facts) -> Option<String> {
 }
 
 pub(crate) fn footer(f: &Facts) -> Footer {
-    // "Plan needs a skill · being written" while the agent writes it (`s27-06`).
-    let reason = left(f).map(|p| match &p.about {
-        About::Stage { id, .. } if writing(f, id) => format!("{} \u{b7} being written", p.message),
-        _ => problem_text(f, p),
-    });
+    // "<problem> · being written" while the agent writes the stage's skill (`s27-06`); with no problem left, Save
+    // still waits for a skill being written ("Plan's skill is being written"), so the written skill isn't lost.
+    let reason = left(f)
+        .map(|p| match &p.about {
+            About::Stage { id, .. } if writing(f, id) => {
+                format!("{} \u{b7} being written", p.message)
+            }
+            _ => problem_text(f, p),
+        })
+        .or_else(|| {
+            f.file
+                .flow
+                .stages
+                .iter()
+                .find(|s| writing(f, &s.id))
+                .map(|s| format!("{}\u{2019}s skill is being written", s.name))
+        });
     if f.proposal.diff.same {
         Footer {
             cancel: "Cancel",
@@ -1370,6 +1487,40 @@ fn bring_named<'n>(
     }
 }
 
+/// A reorder that leaves a check with no stage where an agent works before it is refused, in words the user reads
+/// on the toast: a check sends its fails back to such a stage, so it can't come first. Only a check that had one
+/// before the move counts, so a flow already like that can still be put right by dragging.
+fn refuse_stranded_check(before: &Flow, after: &Flow, moved: &str) -> Result<(), String> {
+    let agent_before = |flow: &Flow, id: &str| {
+        flow.position(id)
+            .is_some_and(|at| flow.stages[..at].iter().any(Stage::is_agent_stage))
+    };
+    let stranded = after.stages.iter().find(|s| {
+        matches!(s.kind, StageKind::Check { .. })
+            && agent_before(before, &s.id)
+            && !agent_before(after, &s.id)
+    });
+    let Some(check) = stranded else {
+        return Ok(());
+    };
+    let why = "a check sends its fails back to a stage where an agent works, so one has to come before it";
+    if check.id == moved {
+        let first = after
+            .first_agent_stage()
+            .map_or("the stages where an agent works", |s| s.name.as_str());
+        Err(format!(
+            "{} can\u{2019}t go before {first}: {why}",
+            check.name
+        ))
+    } else {
+        let name = after.stage(moved).map_or(moved, |s| s.name.as_str());
+        Err(format!(
+            "{name} can\u{2019}t go after {}: {why}",
+            check.name
+        ))
+    }
+}
+
 /// The draft's document after `edit`, and the stage to select after it (a new one). Refused with why when the edit
 /// doesn't fit the flow (a stage that isn't there). `stored` are the user's agents: a picked skill's stage agent, and
 /// a preset template's agents the user doesn't have.
@@ -1420,9 +1571,11 @@ pub fn edited(
         }
         StageEdit::Move { stage, to } => {
             let i = at(stage)?;
+            let before = out.flow.clone();
             let moved = out.flow.stages.remove(i);
             let end = out.flow.stages.len();
             out.flow.stages.insert((*to).min(end), moved);
+            refuse_stranded_check(&before, &out.flow, stage)?;
         }
         StageEdit::Remove { stage } => {
             let i = at(stage)?;
@@ -1566,6 +1719,7 @@ pub(crate) mod fixtures {
                 tools: tools.to_vec(),
             }],
             tools: tools.to_vec(),
+            skipped: Vec::new(),
         }
     }
 
@@ -1707,8 +1861,8 @@ flow:
         ]
     }
 
-    /// shop-web with a Blank stage named Plan after Product spec, its skill `skill` (none: "Plan needs a skill"), and the
-    /// draft's proposal.
+    /// shop-web with a Blank stage named Plan after Product spec, its skill `skill` (none: Otaq's own `work-ticket`
+    /// runs), and the draft's proposal.
     pub fn plan_draft(skill: Option<&str>) -> (FlowFile, Proposal) {
         let (mut file, new) = edited(
             &shop_web(),
@@ -1729,17 +1883,7 @@ flow:
         plan.id = "plan".into();
         plan.name = "Plan".into();
         plan.skill = skill.map(str::to_owned);
-        let mut draft = proposal(&file, false);
-        if skill.is_none() {
-            draft.problems.push(ProposalProblem {
-                about: About::Stage {
-                    id: "plan".into(),
-                    name: "Plan".into(),
-                },
-                message: "Plan needs a skill".into(),
-                fix: None,
-            });
-        }
+        let draft = proposal(&file, false);
         (file, draft)
     }
 
@@ -1925,12 +2069,7 @@ mod tests {
                 .flow
                 .stages
                 .iter()
-                .map(|s| {
-                    (
-                        s.id.clone(),
-                        unknown_skill(&f, s).or_else(|| missing_skill(&f, s)),
-                    )
-                })
+                .map(|s| (s.id.clone(), stage_skill_warning(&f, s)))
                 .collect(),
         }
     }
@@ -2000,6 +2139,7 @@ mod tests {
             Some(SkillState::Set {
                 skill: "work-ticket".into(),
                 warning: None,
+                fix: None,
             })
         );
         let v = render(&e, &d, &file, &file, Some("review"));
@@ -2080,12 +2220,12 @@ mod tests {
                 last: "Review".into(),
             },
             inside: vec![
-                inside("SHOP-22", "Dev"),
-                inside("SHOP-33", "Dev"),
-                inside("SHOP-29", "Dev"),
-                inside("SHOP-30", "Dev"),
-                inside("SHOP-19", "Security"),
-                inside("SHOP-32", "Security"),
+                inside("SHOP-22", "dev"),
+                inside("SHOP-33", "dev"),
+                inside("SHOP-29", "dev"),
+                inside("SHOP-30", "dev"),
+                inside("SHOP-19", "security"),
+                inside("SHOP-32", "security"),
             ],
         };
         let v = render(&e, &d, &file, &in_use, None);
@@ -2099,6 +2239,49 @@ mod tests {
         );
         assert_eq!(v.footer.apply, "Apply to shop-web");
         assert!(v.footer.apply_enabled);
+    }
+
+    #[test]
+    fn the_change_line_names_a_removed_stage_holding_a_ticket_by_its_name() {
+        let e = env();
+        let in_use = shop_web();
+        let (file, _) = edited(
+            &in_use,
+            &StageEdit::Remove {
+                stage: "validate".into(),
+            },
+        )
+        .unwrap();
+        let mut d = draft(&file, false);
+        d.proposal.diff.stages.push(StageChange {
+            stage_id: "validate".into(),
+            stage: "Validate".into(),
+            change: Change::Removed,
+            text: String::new(),
+            label: String::new(),
+            applies: Applies::Span {
+                first: "Validate".into(),
+                last: "Validate".into(),
+            },
+        });
+        d.applies = DraftApplies::Span {
+            span: Span {
+                stages: vec!["validate".into()],
+                first: "Validate".into(),
+                last: "Validate".into(),
+            },
+            inside: vec![Inside {
+                ticket: "SHOP-22".parse().unwrap(),
+                stage: "validate".into(),
+            }],
+        };
+        let v = render(&e, &d, &file, &in_use, None);
+        let line = v.change_line.expect("the draft waits");
+        assert!(
+            line.contains("the ticket there now (1 in Validate) finishes"),
+            "{line}"
+        );
+        assert!(!line.contains("in validate"), "{line}");
     }
 
     #[test]
@@ -2269,6 +2452,38 @@ mod tests {
         assert_eq!(sent.models.len(), 2);
     }
 
+    /// Dragging a check in front of every stage where an agent works, or the last such stage after a check, is
+    /// refused with why; a move that keeps an Agent stage before every check goes.
+    #[test]
+    fn a_reorder_that_leaves_a_check_first_is_refused_with_why() {
+        let file = otaq_default();
+        let mv = |f: &FlowFile, stage: &str, to: usize| {
+            edited(
+                f,
+                &StageEdit::Move {
+                    stage: stage.into(),
+                    to,
+                },
+            )
+        };
+        assert_eq!(
+            mv(&file, "validate", 0).unwrap_err(),
+            "Validate can\u{2019}t go before Dev: a check sends its fails back to a stage where an agent works, \
+             so one has to come before it"
+        );
+        assert_eq!(
+            mv(&file, "dev", 2).unwrap_err(),
+            "Dev can\u{2019}t go after Validate: a check sends its fails back to a stage where an agent works, so \
+             one has to come before it"
+        );
+
+        // With a second Agent stage in front, Validate may go before Dev.
+        let (added, _) = edited(&file, &add_blank(None)).unwrap();
+        let (moved, _) = mv(&added, "validate", 1).unwrap();
+        let ids: Vec<&str> = moved.flow.stages.iter().map(|s| s.id.as_str()).collect();
+        assert_eq!(ids, ["new-stage", "validate", "dev", "review"]);
+    }
+
     #[test]
     fn edits_change_the_document() {
         let file = shop_web();
@@ -2433,10 +2648,10 @@ mod tests {
         v.details.as_ref().expect("Plan's details")
     }
 
-    /// FED-05, FED-06 (`s27-05`): a new stage with no skill has an empty Skill field with both options; its column
-    /// says it needs a skill; Apply is off with the reason.
+    /// A new stage with no skill has an empty Skill field with both options, saying Otaq's own skill for the stage
+    /// runs; nothing marks its column and Apply stays on: a stage with no skill runs Otaq's own.
     #[test]
-    fn a_stage_without_a_skill_has_an_empty_skill_with_both_options() {
+    fn a_stage_without_a_skill_runs_otaqs_own_and_saves() {
         let e = env();
         let shop = shop_web();
         let (file, d) = plan_draft(None);
@@ -2455,7 +2670,10 @@ mod tests {
         assert_eq!(
             skill.state,
             SkillState::Empty {
-                text: "No skill yet. An agent stage needs one: it\u{2019}s what the agent follows in Plan.".into(),
+                text: format!(
+                    "No skill of yours: Plan runs {}\u{2019}s `work-ticket`.",
+                    otaq_core::naming::PRODUCT_NAME
+                ),
                 pick: "Pick a skill\u{2026}",
                 ask: "Ask the agent to write it",
                 hint: "Pick: your own skills, searchable. Ask: starts Noyan on the right and uses tokens.",
@@ -2465,11 +2683,10 @@ mod tests {
         // Pick a skill…: the user's own first, nothing checked yet.
         assert_eq!(skill.picker.items[0].id, "security-review");
         assert!(!skill.picker.items.iter().any(|i| i.checked));
-        // The column: "needs a skill".
-        assert_eq!(v.problem("plan").as_deref(), Some("needs a skill"));
-        // Apply is off with the reason.
-        assert!(!v.footer.apply_enabled);
-        assert_eq!(v.footer.reason.as_deref(), Some("Plan needs a skill"));
+        // Nothing marks the column, and Apply is on.
+        assert_eq!(v.problem("plan"), None);
+        assert!(v.footer.apply_enabled);
+        assert_eq!(v.footer.reason, None);
         // Q441: the request is only prefilled, the caret after it; the user finishes it and sends.
         assert_eq!(
             write_skill_prefill(&file, "plan"),
@@ -2532,6 +2749,51 @@ mod tests {
         assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
     }
 
+    /// A personal Codex skill says Codex has it; one Codex finds but skips (its SKILL.md starts with a byte order
+    /// mark) says why, not "Not committed yet".
+    #[test]
+    fn pick_a_skill_says_codex_has_or_skips_a_personal_skill() {
+        let mut e = env();
+        let codex = "/Users/me/.codex/skills";
+        let mut skipped = users_skill("bommed", "B.", SkillScope::Personal, codex, &[]);
+        skipped.skipped = vec![Tool::Codex];
+        e.skills = vec![
+            users_skill(
+                "reltest-docs",
+                "R.",
+                SkillScope::Personal,
+                codex,
+                &[Tool::Codex],
+            ),
+            skipped,
+        ];
+        let shop = shop_web();
+        let (file, d) = plan_draft(None);
+        let d = Draft {
+            proposal: d,
+            ..draft(&file, false)
+        };
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
+        let hint = |id: &str| {
+            picker
+                .items
+                .iter()
+                .find(|i| i.id == id)
+                .and_then(|i| i.hint.clone())
+        };
+        assert_eq!(
+            hint("reltest-docs").as_deref(),
+            Some("Personal \u{b7} Codex \u{b7} R.")
+        );
+        assert_eq!(
+            hint("bommed").as_deref(),
+            Some(
+                "Personal \u{b7} Codex doesn\u{2019}t load it: its SKILL.md starts with a byte order mark \u{b7} B."
+            )
+        );
+    }
+
     /// A name typed by hand is the stage's skill as it is, with nothing imported or copied; a skill nobody has shows
     /// "You don't have the skill `<name>`" (the draft's warning) in its Skill field and on its column, amber, and Apply
     /// still works. Otaq's own skills never warn.
@@ -2564,6 +2826,7 @@ mod tests {
             SkillState::Set {
                 skill: "team-validate".into(),
                 warning: Some("You don't have the skill `team-validate`".into()),
+                fix: Some(SKILL_FIX),
             }
         );
         assert_eq!(
@@ -2592,6 +2855,7 @@ mod tests {
             SkillState::Set {
                 skill: "validate".into(),
                 warning: None,
+                fix: None,
             }
         );
         assert!(v.warnings.iter().all(|(_, w)| w.is_none()));
@@ -2624,7 +2888,7 @@ mod tests {
         );
         assert_eq!(
             v.footer.reason.as_deref(),
-            Some("Plan needs a skill \u{b7} being written")
+            Some("Plan\u{2019}s skill is being written")
         );
         assert!(!v.footer.apply_enabled);
 
@@ -2654,6 +2918,20 @@ mod tests {
         assert_eq!(v.problem("plan"), None);
         assert!(v.footer.apply_enabled);
         assert_eq!(v.footer.reason, None);
+        // No tool reads it until it is committed, so the draft warns the user doesn't have it: the stage's warning
+        // says it is written but not committed yet instead, and stays only a warning.
+        let mut d = d;
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-ticket`".into(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        assert_eq!(
+            v.warning("plan").as_deref(),
+            Some("`plan-ticket` is written but not committed yet: commit it so agents get it")
+        );
+        assert!(v.footer.apply_enabled);
         // One an older Otaq wrote has no folder in the project: no saved line, and no Open.
         let mut old = e.written.clone();
         old[0].folder.clear();
@@ -2683,7 +2961,70 @@ mod tests {
             SkillState::Set {
                 skill: "security-review".into(),
                 warning: None,
+                fix: None,
             }
+        );
+    }
+
+    /// Ask the agent to write it is offered on a stage that already has a skill too: as Pick a skill…'s last row
+    /// (searching or not, it puts "Write a skill for the Plan stage: " in the agent's box), and under a missing skill's
+    /// warning ("Pick one, or Ask the agent to write it."). Once the user sends, the stage shows it being written in
+    /// place of the name nobody has, and Apply waits for it.
+    #[test]
+    fn a_stage_with_a_skill_nobody_has_can_ask_the_agent_to_write_it() {
+        let mut e = env();
+        let shop = shop_web();
+        let (file, p) = plan_draft(Some("plan-steps"));
+        let mut d = Draft {
+            proposal: p,
+            ..draft(&file, false)
+        };
+        d.proposal.diff.warnings = vec![Warning {
+            level: Level::Amber,
+            stage: Some("Plan".into()),
+            text: "You don't have the skill `plan-steps`".into(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        let field = plan_details(&v).skill.clone().unwrap();
+        assert_eq!(
+            field.state,
+            SkillState::Set {
+                skill: "plan-steps".into(),
+                warning: Some("You don't have the skill `plan-steps`".into()),
+                fix: Some(SkillFix {
+                    pick: "Pick one",
+                    or: ", or ",
+                    ask: "Ask the agent to write it",
+                    end: ".",
+                }),
+            }
+        );
+        assert_eq!(field.picker.ask.id, ASK_TO_WRITE);
+        assert_eq!(field.picker.ask.label, "Ask the agent to write it\u{2026}");
+        assert!(field.picker.ask.separated);
+        assert_eq!(field.picker.prefill, "Write a skill for the Plan stage: ");
+        // No skill can be named like the row's id, so choosing it never sets a skill.
+        assert!(field.picker.items.iter().all(|i| i.id != ASK_TO_WRITE));
+
+        // The user's send starts the writer: the field says it is being written, and Apply waits for it.
+        e.writing = vec![SkillWriting {
+            folder: None,
+            stage_id: "plan".into(),
+            agent: Some("pa-1".into()),
+            made: Vec::new(),
+        }];
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        assert_eq!(
+            plan_details(&v).skill.as_ref().unwrap().state,
+            SkillState::Writing {
+                text: "Being written by Noyan\u{2026}",
+                stop: "Stop",
+            }
+        );
+        assert!(!v.footer.apply_enabled);
+        assert_eq!(
+            v.footer.reason.as_deref(),
+            Some("Plan\u{2019}s skill is being written")
         );
     }
 
@@ -2746,10 +3087,9 @@ mod tests {
             (the_agent(s).map(String::as_str), s.skill.as_deref()),
             (Some("Checker"), None)
         );
-        // The draft with no skill reads back (the checks say "Plan needs a skill").
+        // The draft with no skill reads back and passes the checks: Otaq's own skill for the stage runs.
         let again = otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&plan)).unwrap();
-        let problems = otaq_core::flow::check(&again.flow).unwrap_err();
-        assert_eq!(problems[0].message, "Plan needs a skill");
+        assert_eq!(otaq_core::flow::check(&again.flow), Ok(()));
         // Pick a skill…: Plan runs security-review.
         let (picked, _) = edited(
             &plan,

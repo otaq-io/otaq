@@ -282,7 +282,6 @@ mod tests {
             m.create_input().unwrap().first_comment,
             Some(FirstComment {
                 body: String::new(),
-                report: None,
                 attachments: vec![
                     ReportSource::Path("/Users/me/Pasted image.png".into()),
                     ReportSource::Path("/Users/me/test-run-login.md".into()),

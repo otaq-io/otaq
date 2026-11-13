@@ -3,6 +3,7 @@
 //! folder trust ([`trust`]); its tokens and "Before the restart" come from its saved conversations
 //! ([`transcript`]).
 
+mod auth;
 pub mod hooks;
 mod launch;
 pub mod limits;
@@ -39,6 +40,13 @@ use transcript::{Transcript, find_transcript, read_transcript};
 /// What clears Claude Code's input line before Otaq types (SES-07 "Clear it and send"): Ctrl+E (end of line) then
 /// Ctrl+U (delete to the start of the line). Implementation choice; verified by hand against the real `claude`.
 const CLEAR_LINE: &[u8] = b"\x05\x15";
+
+/// A one-line text longer than this is typed as a bracketed paste ([`InputQuirks::paste_line_over`]). Well under
+/// both the terminal's read (1,024 bytes in Otaq's ConPTY on Windows, 1,022 on macOS) and Claude Code's
+/// 800-character paste threshold (2.1.322), so a text the terminal could split into a paste read and a typing read
+/// never goes in unbracketed. A bracketed short line arrives as plain text (checked against the real Claude Code
+/// 2.1.322 on Windows and macOS).
+const LONG_LINE: usize = 512;
 
 /// Claude Code's own folder under `home`: `$CLAUDE_CONFIG_DIR` (read with `var`; empty is unset, as Claude Code
 /// reads it, see [`trust::ClaudeConfig::locate`]), else `~/.claude`.
@@ -88,6 +96,11 @@ pub struct ClaudeContext {
     pub data: DataDir,
     /// Claude Code's config file for folder trust; `None` when it can't be located.
     pub trust: Option<ClaudeConfig>,
+}
+
+/// A skill as the tool calls it ([`launch::skill_reference`]).
+pub(super) fn skill_reference(skill: &str) -> String {
+    launch::skill_reference(skill)
 }
 
 /// The name shown to people.
@@ -297,13 +310,29 @@ impl AgentTool for ClaudeCode {
     fn detect(&self) -> BoxFuture<'_, Detection> {
         Box::pin(async move {
             let status = tools::check_one(tools::Tool::Claude, &self.context.check).await;
+            // Signed in only as its own `auth status` says, never from its config files.
+            let signed_in = match status.path.as_deref().filter(|_| status.found) {
+                Some(program) => {
+                    auth::signed_in(Path::new(program), &self.context.check.path).await
+                }
+                None => None,
+            };
             Detection {
                 installed: status.found,
-                signed_in: status.logged_in,
+                signed_in,
                 version: status.version,
                 ..Detection::default()
             }
         })
+    }
+
+    /// **Sign in…**: `claude auth login` ("Sign in to your Anthropic account", Claude Code 2.1.x).
+    fn login_command(&self) -> Option<Vec<String>> {
+        Some(
+            [command_name(), auth::LOGIN_ARGS[0], auth::LOGIN_ARGS[1]]
+                .map(str::to_owned)
+                .to_vec(),
+        )
     }
 
     fn install_command(&self, os: Os) -> &'static str {
@@ -486,16 +515,19 @@ impl AgentTool for ClaudeCode {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: b"",
             enter_delay: Duration::ZERO,
             before_enter: b"",
             multi_line_clearable: true,
+            paste_line_over: Some(LONG_LINE),
+            command_before_paste: true,
         }
     }
 
     /// `/otaq:commit` for Otaq's skill (a plugin's skill is `/<plugin>:<skill>`), `/team-validate` for the user's
     /// (its skills page, code.claude.com/docs/en/skills: "invoke one directly with `/skill-name`").
     fn skill_reference(&self, skill: &str) -> String {
-        launch::skill_reference(skill)
+        skill_reference(skill)
     }
 }
 
@@ -604,6 +636,7 @@ mod tests {
     fn input_quirks() {
         let quirks = fixture().adapter.input();
         assert_eq!(quirks.clear_line, b"\x05\x15");
+        assert_eq!(quirks.after_text, b"");
         assert_eq!(quirks.enter_delay, Duration::ZERO);
         assert!(quirks.multi_line_clearable);
     }

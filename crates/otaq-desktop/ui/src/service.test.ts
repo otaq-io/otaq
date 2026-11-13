@@ -89,7 +89,7 @@ describe("a view", () => {
     expect(requestMock).toHaveBeenCalledTimes(3);
   });
 
-  it("keeps the last view when a refetch fails, and shows only the newest answer", async () => {
+  it("keeps the last view when a refetch fails, and loads once more for the events that came during a load", async () => {
     const stream = fakeStream();
     let answerSlow: (value: string) => void = () => undefined;
     const slow = new Promise<string>((resolve) => (answerSlow = resolve));
@@ -107,16 +107,67 @@ describe("a view", () => {
     await settle();
     stream.send({ kind: "resync" });
     await settle();
+    // Two events while the slow load is out: one more load after it, not two.
+    stream.send({ kind: "resync" });
     stream.send({ kind: "resync" });
     stream.send({ kind: "resync" });
     await settle();
-    answerSlow("stale");
+    expect(calls).toBe(3);
+    answerSlow("slow");
     await settle();
+    expect(calls).toBe(4);
     expect(states).toEqual([
       { view: "first" },
       { view: "first", error: expect.objectContaining({ message: "no ticket" }) as unknown },
+      { view: "slow" },
       { view: "newest" },
     ]);
+  });
+
+  it("never falls behind while events keep coming: the card and the sheet's pill show the same update", async () => {
+    const stream = fakeStream();
+    // The one link to the service: it answers one request at a time, in order, reading the ticket as it answers.
+    let status = "Working";
+    const line: (() => void)[] = [];
+    const link = (view: string) =>
+      new Promise<string>((resolve) => {
+        line.push(() => {
+          resolve(`${view} ${status}`);
+        });
+      });
+    const answerOne = async () => {
+      line.shift()?.();
+      await settle();
+    };
+    const card: unknown[] = [];
+    const pill: unknown[] = [];
+    watchView(
+      () => link("card"),
+      ["ticket_changed"],
+      (s) => card.push(s.view),
+      stream.events,
+    );
+    watchView(
+      () => link("pill"),
+      ["ticket_changed"],
+      (s) => pill.push(s.view),
+      stream.events,
+    );
+    stream.open();
+    await settle();
+    // An agent at work: another event comes before each answer.
+    const changed = () => {
+      stream.send({ kind: "service", name: "ticket_changed", event: { kind: "ticket_changed" } });
+    };
+    for (let i = 0; i < 4; i++) {
+      if (i === 2) status = "Idle";
+      changed();
+      await answerOne();
+    }
+    expect(card.at(-1)).toBe("card Idle");
+    expect(pill.at(-1)).toBe("pill Idle");
+    // The line to the service stays short: one load out per view, whatever the events.
+    expect(line.length).toBeLessThanOrEqual(2);
   });
 });
 

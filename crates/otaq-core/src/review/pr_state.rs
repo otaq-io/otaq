@@ -44,6 +44,8 @@ impl Review {
         }
         let to = Status::Merged;
         let now = now_ms();
+        // Its waiting children start below, from the fetched base, not in a pass the record sets off.
+        let _landing = inner.scheduler.landing(&ticket.key);
         // The Delivery finished (STG-06).
         let moved = board
             .moved(&ticket, ticket.status, crate::flow::engine::Move::Delivered)

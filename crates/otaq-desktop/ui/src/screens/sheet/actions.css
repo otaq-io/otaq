@@ -106,6 +106,57 @@
   overflow-wrap: anywhere;
 }
 
+/* A project's git hook refused one of Otaq's own git steps: which hook, its whole output, the way on. */
+.sheet-hook-refusal {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+  margin-bottom: 10px;
+  padding: 10px 12px;
+  border: 1px solid var(--st-attn);
+  border-radius: var(--r-md);
+}
+
+.sheet-hook-refusal-heading {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  color: var(--text-primary);
+  font: 600 13px/normal var(--font-ui);
+}
+
+.sheet-hook-refusal-heading .icon {
+  flex: none;
+  color: var(--st-attn);
+}
+
+.sheet-hook-refusal-text {
+  margin: 0;
+  color: var(--text-secondary);
+  font-size: 12px;
+  line-height: 1.45;
+}
+
+/* The PR's commit message the commit-msg hook refused, as it was written. */
+.sheet-hook-refusal-message {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+}
+
+.sheet-hook-refusal-message-label {
+  color: var(--text-secondary);
+  font: 600 11px/normal var(--font-ui);
+}
+
+.sheet-hook-refusal-message-text {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 11px/1.45 var(--font-mono);
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
 .sheet-stop-message {
   display: flex;
   align-items: flex-start;
@@ -182,7 +233,7 @@
 
 .sheet-conflict {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 8px;
   padding: 6px 10px;
   border-radius: var(--r-md);
@@ -190,33 +241,166 @@
   color: var(--st-paused);
 }
 
-.sheet-conflict-line {
+.sheet-conflict > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.sheet-conflict-text {
+  display: flex;
   flex: 1;
+  flex-direction: column;
+  gap: 2px;
   min-width: 0;
+}
+
+.sheet-conflict-line {
   color: var(--text-primary);
   font-size: 12px;
 }
 
+/* What moved, and that nothing was merged. */
+.sheet-conflict-more {
+  color: var(--text-secondary);
+  font-size: 12px;
+}
+
+/* "1 of 3": where it stands among the ones in a row that stop it. */
+.sheet-conflict-count {
+  flex: none;
+  color: var(--st-paused);
+  font-size: 11px;
+  font-variant-numeric: tabular-nums;
+}
+
 /* *SHOP-21 · Asks you · answer options*. */
 .sheet-answer {
+  /* The context's line length: about 70 characters at 13 px (60 in the agent panel). */
+  --answer-measure: 400px;
+
   display: flex;
   flex-direction: column;
   gap: 10px;
+  min-height: 0;
   padding: 12px;
   border-radius: var(--r-lg);
   background: var(--st-attn-bg);
 }
 
+/* The question's text: its line and its context, one text that scrolls together when its place caps it (a ticket's
+   Overview sets the cap only when Send would fall below the sheet; the agent panel and Edit flow's box cap their
+   band). It gives way first, the options and Send staying in view under it, but only down to its floor (about six
+   lines, `QuestionText`'s min-height): past that the options give way and scroll, never the question. */
+.sheet-answer-text {
+  flex: 0 1000 auto;
+  min-height: 0;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+/* The options scroll once the text is down to its floor; the 3 px keep a focused option's ring in view. */
+.sheet-answer-options {
+  flex: 0 1 auto;
+  min-height: 0;
+  margin: -3px;
+  padding: 3px;
+  overflow-y: auto;
+  overscroll-behavior: contain;
+}
+
+.sheet-answer > .sheet-answer-box,
+.sheet-answer > .agent-question-text {
+  flex: none;
+}
+
+/* The icon at the top of the question line, not halfway down a long text. */
 .sheet-answer-question {
   display: flex;
-  align-items: center;
-  gap: 8px;
+  align-items: flex-start;
+  gap: 10px;
   color: var(--st-attn);
 }
 
-.sheet-answer-question > span:last-child {
+.sheet-answer-question > svg {
+  flex: none;
+  margin-top: 2px;
+}
+
+.sheet-answer-words {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 8px;
+  min-width: 0;
+}
+
+/* The first line: the question, bold. */
+.sheet-answer-line {
+  margin: 0;
   color: var(--text-primary);
-  font: 600 13px/18px var(--font-ui);
+  font: 600 15px/1.35 var(--font-ui);
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+/* The rest: the context, regular weight, its paragraphs and line breaks kept. */
+.sheet-answer-context {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  max-width: var(--answer-measure);
+  color: var(--text-primary);
+  font: 400 13px/1.55 var(--font-ui);
+}
+
+.sheet-answer-context p,
+.sheet-answer-context ul {
+  margin: 0;
+  overflow-wrap: break-word;
+  white-space: pre-wrap;
+}
+
+.sheet-answer-context strong,
+.sheet-answer-context .sheet-answer-heading {
+  font-weight: 600;
+}
+
+.sheet-answer-context ul {
+  display: flex;
+  flex-direction: column;
+  gap: 4px;
+  padding: 0;
+  list-style: none;
+}
+
+.sheet-answer-context li {
+  display: flex;
+  gap: 4px;
+}
+
+.sheet-answer-marker {
+  flex: none;
+  min-width: 12px;
+  color: var(--text-muted);
+}
+
+.sheet-answer-code {
+  padding: 1px 4px;
+  border-radius: 4px;
+  background: var(--bg-column);
+  font-family: var(--font-mono);
+  font-size: 0.92em;
+}
+
+/* A code block: monospace, scrolling sideways rather than wrapping. */
+.sheet-answer-pre {
+  margin: 0;
+  padding: 8px 10px;
+  overflow-x: auto;
+  border-radius: 6px;
+  background: var(--bg-column);
+  font: 400 12px/1.5 var(--font-mono);
+  white-space: pre;
 }
 
 .sheet-answer-options {
@@ -225,9 +409,10 @@
   gap: 6px;
 }
 
+/* The radio, the recommended mark and the number sit at the top of the option's text. */
 .sheet-answer-option {
   display: flex;
-  align-items: center;
+  align-items: flex-start;
   gap: 10px;
   padding: 10px 12px;
   border: 1px solid var(--border);
@@ -259,6 +444,7 @@
   box-sizing: border-box;
   width: 16px;
   height: 16px;
+  margin-top: 0.5px;
   border: 1.5px solid var(--border-strong);
   border-radius: 8px;
   background: var(--bg-raised);
@@ -266,6 +452,27 @@
 
 .sheet-answer-option[data-picked] .sheet-answer-radio {
   border: 5px solid var(--accent);
+}
+
+/* A question that takes several answers: a checkbox where the radio sits, ticked rows filled with the accent. */
+.sheet-answer-check {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  justify-content: center;
+  box-sizing: border-box;
+  width: 16px;
+  height: 16px;
+  margin-top: 0.5px;
+  border: 1.5px solid var(--border-strong);
+  border-radius: var(--r-sm);
+  background: var(--bg-raised);
+  color: var(--text-on-accent);
+}
+
+.sheet-answer-option[data-picked] .sheet-answer-check {
+  border-color: var(--accent);
+  background: var(--accent);
 }
 
 .sheet-answer-label {
@@ -527,6 +734,8 @@
 /* A ticket's question, first on Overview: one turquoise-edged card with the question, its options or a box for your
    own words, and the hint with Answer in terminal and Send answer under them. */
 .sheet-question {
+  /* Overview's cap (Send in view) is the whole box's, its edge and padding included. */
+  box-sizing: border-box;
   display: flex;
   flex-direction: column;
   gap: 12px;
@@ -539,6 +748,12 @@
 .sheet-question .sheet-answer {
   padding: 0;
   background: none;
+}
+
+/* When Overview caps the box so Send stays in view, the question and its options give way inside it; the hint and
+   Send never do. */
+.sheet-question > .sheet-bar {
+  flex: none;
 }
 
 /* The answer box: a few lines of normal text, growing by hand; ↵ sends, ⇧↵ a new line. */
@@ -568,4 +783,22 @@
   color: var(--text-primary);
   font: 400 13px/1.5 var(--font-ui);
   white-space: pre-wrap;
+}
+
+/* A hook's refusal: its label, a sentence when the hook needs one, and its whole output (`HookOutput.tsx`). */
+.sheet-hook-output {
+  display: flex;
+  flex-direction: column;
+  gap: 6px;
+}
+
+.sheet-hook-output-label {
+  color: var(--text-secondary);
+  font: 600 11px/normal var(--font-ui);
+}
+
+.sheet-hook-output-note {
+  margin: 0;
+  color: var(--text-primary);
+  font: 400 12px/1.5 var(--font-ui);
 }

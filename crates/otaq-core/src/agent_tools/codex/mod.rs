@@ -39,6 +39,11 @@ use crate::agent_tools::events::LimitWindow;
 use crate::usage::limit::LimitKind;
 pub use plugins::plugin_skills;
 
+/// A skill as Codex calls it: `$team-validate`, Otaq's own `$otaq:commit`.
+pub(super) fn skill_reference(skill: &str) -> String {
+    super::namespaced_reference("$", skill)
+}
+
 /// The name shown to people.
 pub(super) const DISPLAY_NAME: &str = "Codex";
 
@@ -60,6 +65,13 @@ const CLEAR_LINE: &[u8] = b"\x05\x15";
 
 /// Codex takes text typed at once as a paste; Enter right after it is part of the paste, so it waits (ADP-06).
 const ENTER_DELAY: Duration = Duration::from_millis(100);
+
+/// A space after the typed text, in the same write. A skill typed alone (`$otaq:push`) leaves Codex's skill popup
+/// open, and Enter in that popup only inserts the item ("enter insert · esc close"): nothing is sent. Text after the
+/// name closes the popup first, so `$otaq:push ` and its Enter start the skill's turn (Codex 0.166.0, Windows ConPTY;
+/// the popup isn't OS-specific). A multi-line paste followed by the space is sent whole. Never a second Enter: it
+/// could land on a permission prompt and pick its default.
+const AFTER_TEXT: &[u8] = b" ";
 
 /// End, between the text and Enter on Windows. Codex's TUI joins an Enter to the typed text while its paste burst
 /// is still open (`newline_should_insert_instead_of_submit` in its `paste_burst.rs`), and on Windows the ConPTY
@@ -284,9 +296,12 @@ impl AgentTool for Codex {
     fn input(&self) -> InputQuirks {
         InputQuirks {
             clear_line: CLEAR_LINE,
+            after_text: AFTER_TEXT,
             enter_delay: ENTER_DELAY,
             before_enter: BEFORE_ENTER,
             multi_line_clearable: false,
+            paste_line_over: None,
+            command_before_paste: false,
         }
     }
 
@@ -294,8 +309,25 @@ impl AgentTool for Codex {
         false
     }
 
+    /// "y" (or another option's letter) at Codex's approval prompt approves it; Codex sends nothing until the turn
+    /// ends or asks again.
+    fn key_alone_approves_prompt(&self) -> bool {
+        true
+    }
+
+    /// Codex fires the hooks of the commands it runs at once together but draws their approval dialogs one at a time.
+    fn prompt_screen(&self) -> Option<&dyn crate::agent_tools::PromptScreen> {
+        Some(&hooks::Dialog)
+    }
+
     fn turn_end_reports_background(&self) -> bool {
         false
+    }
+
+    /// Codex starts its code-mode host during the first turn and keeps it until it quits (seen on Windows with Codex
+    /// 0.166: after the turn's `UserPromptSubmit`, before its `Stop`).
+    fn own_helper_programs(&self) -> &'static [&'static str] {
+        &["codex-code-mode-host"]
     }
 
     fn swaps_refused_model(&self) -> bool {
@@ -310,7 +342,7 @@ impl AgentTool for Codex {
     /// mentions a skill with `$` (its skills page, learn.chatgpt.com/docs/build-skills, formerly
     /// developers.openai.com/codex/skills).
     fn skill_reference(&self, skill: &str) -> String {
-        super::namespaced_reference("$", skill)
+        skill_reference(skill)
     }
 
     /// Codex's ids are models.dev's `openai` ids exactly (d0086).

@@ -248,6 +248,10 @@ pub struct FileParams {
     /// `files.diff` only: the commit the review saw, to show only what changed after it (REV-06).
     #[ts(optional)]
     pub since: Option<String>,
+    /// `files.diff` with `since` only: up to this commit instead of the branch's head (what a hook changed in the
+    /// commit that landed, from the commit that was squashed).
+    #[ts(optional)]
+    pub until: Option<String>,
 }
 
 /// A file as it is, highlighted off the runtime's threads (a long file takes a while); a deleted one says so.
@@ -307,13 +311,15 @@ pub async fn read(app: &App, params: FileParams) -> Result<vm::FilePage, Request
     }
 }
 
-/// A file's hunks against the base (uncommitted edits included), or since the reviewed commit, highlighted.
+/// A file's hunks against the base (uncommitted edits included), or since the reviewed commit (up to `until` when
+/// given), highlighted.
 pub async fn diff(app: &App, params: FileParams) -> Result<page::FileView, RequestError> {
     let request = match params.since {
         Some(since) => Request::DiffFile(DiffFileParams {
             key: params.key,
             path: params.path,
             since: Some(since),
+            until: params.until,
         }),
         None => Request::FilesDiff(FilesPathParams {
             key: params.key,
@@ -359,10 +365,10 @@ pub async fn review(app: &App, params: Params) -> Result<ReviewNotes, RequestErr
         Ok(Reply::History(events)) => events,
         _ => Vec::new(),
     };
-    // The agent's last word when its stage finished (`prime`'s review summary).
+    // The agent's last word when its stage last finished (`prime`'s review summary). History is newest first, so
+    // after a send back or a conflict fix this is the latest round's handoff, never the first one's.
     let summary = events
         .iter()
-        .rev()
         .find(|e| matches!(e.kind, EventKind::ReviewSubmitted | EventKind::StageFinished))
         .and_then(|e| e.payload.get("summary")?.as_str().map(str::to_owned));
     let review = match ticket.flags.review_entry {
@@ -635,7 +641,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }))
             .await
             .unwrap()

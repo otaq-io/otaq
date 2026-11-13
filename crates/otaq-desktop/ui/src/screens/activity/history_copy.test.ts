@@ -35,6 +35,7 @@ const VIEW: HistoryView = {
       range: "10:22–10:40",
       mark: { kind: "agent" },
       opens: null,
+      hook_changes: null,
       kind: "session",
     },
   ],

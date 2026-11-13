@@ -60,7 +60,7 @@ types a reminder into this session.
 6. **Write the architecture decisions and docs** there, then **commit everything** on the ticket's branch with
    Otaq's `commit` skill. You may edit any file the spec needs (an architecture doc, a schema
    sketch, a config sample), but don't build the feature: Dev does that. Nothing may stay uncommitted:
-   `otaq stage next` is refused while files are uncommitted. **Never push.**
+   `otaq stage next` is refused while files are uncommitted. **Don't push unless the user asks** (see "Rules").
 7. **End your stage** with a short comment on stdin, then end your turn. It names **each file and decision you
    wrote**, then the main choices, in a line or two (at most 2,000 characters). Milestone plan and
    the user at Spec review read it:
@@ -145,7 +145,8 @@ otaq ask human \
   --option "Links never expire" --note "Simplest; an old link keeps working until the list is deleted." \
   --option "Expire after 30 days" --note "Safer, but friends get a 'link expired' page and ask for a new one." \
   --recommended 1 --stdin <<'QUESTION'
-Question 1 of 2. A share link is a random token in the wishlists table. Should it expire?
+Should a share link expire?
+Question 1 of 2. A share link is a random token in the wishlists table.
 QUESTION
 ```
 
@@ -153,7 +154,8 @@ An **open question** stays free text, with no options:
 
 ```sh
 otaq ask human --stdin <<'QUESTION'
-Question 2 of 2. How many wishlists does your largest customer have today, roughly?
+How many wishlists does your largest customer have today, roughly?
+Question 2 of 2.
 QUESTION
 ```
 
@@ -170,7 +172,12 @@ QUESTION
 - Decide how to build it; don't build it. Dev writes the code from your decisions and the Plan.
 - Don't reopen what Product spec settled with the user. When the product decisions can't be built as written, ask the
   user, with the options you see.
-- **Never push, never open a PR, never merge.** Commit on the ticket's branch only.
+- **Don't push unless the user asks**, in the ticket, a comment or a message in this session: a plain request is
+  enough. When you push, wait for `git push` to finish, however long the project's pre-push hook takes, and report
+  what it really said; if your shell stopped waiting first, check what reached the remote
+  (`git ls-remote origin <branch>`) before you report. Never bypass a pre-push hook that refuses the push (never
+  `--no-verify`): tell the user what the hook said and ask how to go on with `otaq ask human --stdin`.
+- **Never open a PR, never merge.** Commit on the ticket's branch only.
 - **Long text always goes through stdin** (`--stdin`), never quoted arguments. Long command output never does: it
   goes to a file.
 - Always finish with `otaq stage next --stdin`.

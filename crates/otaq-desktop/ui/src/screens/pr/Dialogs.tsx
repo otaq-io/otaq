@@ -12,10 +12,12 @@ import type { PrAnswer } from "../../generated/PrAnswer";
 import type { PrDialogView } from "../../generated/PrDialogView";
 import type { PrOpenBox } from "../../generated/PrOpenBox";
 import type { PrPushIntro } from "../../generated/PrPushIntro";
+import type { PrSkillWaits } from "../../generated/PrSkillWaits";
 import { useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 import { ChangedBody, ResultDialog } from "../review/Dialogs";
+import { AnswerInTerminal } from "../review/WriterAsks";
 import {
   checkDue,
   type Fields,
@@ -51,6 +53,25 @@ function CodeBox({ text }: { text: string }) {
   );
 }
 
+/** While the skill prepares or pushes, its agent waits at a permission prompt: what it asks, and Answer in terminal,
+ * which opens its terminal over the dialog. The words are Rust's (`PrSkillWaits`). */
+export function SkillWaits({ waits }: { waits: PrSkillWaits }) {
+  return (
+    <div className="pr-waits" role="status">
+      <div className="pr-waits-line">
+        <Icon name="hand" size={14} />
+        <span>{waits.line}</span>
+      </div>
+      {waits.command ? (
+        <code className="pr-mono pr-waits-text">$ {waits.text}</code>
+      ) : (
+        <p className="pr-waits-text">{waits.text}</p>
+      )}
+      <AnswerInTerminal asks={waits.asks} />
+    </div>
+  );
+}
+
 /** The greyed fields while the skill prepares (*Open PR · skill is preparing…*). */
 export function Waiting({ view }: { view: PrDialogView }) {
   const labels = view.push
@@ -72,10 +93,12 @@ export function Proposed({
   view,
   fields,
   onEdit,
+  onUseProposed,
 }: {
   view: PrDialogView;
   fields: Fields;
   onEdit: (field: "branch" | "title" | "description" | "commit", value: string, index?: number) => void;
+  onUseProposed: () => void;
 }) {
   const hint = view.branch_hint;
   return (
@@ -120,23 +143,21 @@ export function Proposed({
         {!view.branch_locked && <Icon name={hint.error ? "circle-x" : "circle-check"} size={12} />}
         {hint.text}
       </span>
-      {/* A Push rewords its new commits; an Open PR keeps them as they are (`ticket-05`). */}
-      {view.push && (
-        <>
-          <span className="pr-label">{view.commits_label}</span>
-          {fields.commits.map((message, i) => (
-            <TextInput
-              key={view.commits[i]?.sha ?? i}
-              mono
-              label={view.commits[i]?.sha ?? view.commits_label}
-              value={message}
-              onChange={(v) => {
-                onEdit("commit", v, i);
-              }}
-            />
-          ))}
-        </>
-      )}
+      {/* Open PR and Push to PR both reword the commits they push: each message is editable, and the one the
+          project's commit-msg hook refused last time is marked while the field still holds it. */}
+      <span className="pr-label">{view.commits_label}</span>
+      {fields.commits.map((message, i) => (
+        <TextInput
+          key={view.commits[i]?.sha ?? i}
+          mono
+          invalid={view.commits[i]?.refused}
+          label={view.commits[i]?.sha ?? view.commits_label}
+          value={message}
+          onChange={(v) => {
+            onEdit("commit", v, i);
+          }}
+        />
+      ))}
       {!view.push && (
         <>
           <Field label={view.title_label}>
@@ -164,13 +185,20 @@ export function Proposed({
           </Field>
           {view.writing !== null ? (
             <p className="pr-muted pr-writing">
-              <Icon name="loader-circle" size={12} />
+              <Icon name={view.asks === null ? "loader-circle" : "square-terminal"} size={12} />
               <span>{view.writing}</span>
+              {view.asks !== null && <AnswerInTerminal asks={view.asks} />}
             </p>
           ) : (
             view.prepared !== null && <p className="pr-muted">{view.prepared}</p>
           )}
         </>
+      )}
+      {/* The user's edit is kept on the ticket until the PR is opened or pushed with it; this puts the proposal back. */}
+      {view.use_proposed !== null && (
+        <button type="button" className="pr-link pr-use-proposed" onClick={onUseProposed}>
+          {view.use_proposed}
+        </button>
       )}
       <span className="pr-target">
         <Icon name="git-merge" size={12} />
@@ -280,6 +308,11 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
               ).then((a) => {
                 applied.current(a, press);
               }, ignore),
+            // Kept, before any dialog showed (the Push skill wasn't started): nothing of the PR dialog stays open, so
+            // the next Push to PR opens it again.
+            onCancel: () => {
+              if (shown.current === null) close();
+            },
           });
           return;
         }
@@ -371,6 +404,10 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
         : { ...f, [field]: value },
     );
     (request("pr.edit", { key, field, index, value }) as Promise<PrAnswer>).then(apply, ignore);
+  };
+  // The fields take the proposal again from the answer (its `filled` grows).
+  const onUseProposed = () => {
+    (request("pr.use_proposed", { key }) as Promise<PrAnswer>).then(apply, ignore);
   };
   const toSendBack = () => {
     request("pr.cancel", { key }).catch(ignore);
@@ -495,13 +532,16 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
           </div>
         </Dialog>
       );
+    // Cancel and Esc always work while pushing: Otaq stops waiting and the agent's session goes on (a delivery turn
+    // that never starts can't hold the window). A stray press outside doesn't cancel.
     case "pushing":
       return (
         <Dialog
           title={stage.title}
           width={480}
-          onCancel={ignore}
-          footer={<Button variant="ghost" label={view.cancel} disabled />}
+          keepOnOutsidePress
+          onCancel={cancel}
+          footer={<Button variant="ghost" label={view.cancel} onClick={cancel} />}
         >
           <div className="pr-body">
             {stage.steps.map((s) => (
@@ -515,6 +555,7 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
                 <span>{s.text}</span>
               </div>
             ))}
+            {view.waits !== null && <SkillWaits waits={view.waits} />}
           </div>
         </Dialog>
       );
@@ -569,10 +610,11 @@ export function OpenPrDialog({ params, close }: OverlayProps<"open_pr">) {
                     <span className="pr-mono pr-muted">{stage.detail}</span>
                   </div>
                 </div>
+                {view.waits !== null && <SkillWaits waits={view.waits} />}
                 <Waiting view={view} />
               </>
             ) : (
-              <Proposed view={view} fields={fields} onEdit={onEdit} />
+              <Proposed view={view} fields={fields} onEdit={onEdit} onUseProposed={onUseProposed} />
             )}
           </div>
         </Dialog>

@@ -79,22 +79,9 @@ pub fn told_session_kind(status: crate::domain::Status) -> crate::session::Sessi
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FirstComment {
     pub body: String,
-    /// One attachment, as an older app sends it: posted before [`Self::attachments`].
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub report: Option<ReportSource>,
+    /// Posted in this order.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<ReportSource>,
-}
-
-impl FirstComment {
-    /// Its attachments in the order they are posted.
-    pub fn sources(&self) -> Vec<ReportSource> {
-        self.report
-            .iter()
-            .chain(&self.attachments)
-            .cloned()
-            .collect()
-    }
 }
 
 /// How many characters of a comment History's "commented" line keeps.

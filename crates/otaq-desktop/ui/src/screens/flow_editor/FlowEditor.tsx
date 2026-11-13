@@ -35,8 +35,9 @@ export interface EditorActions {
 
 /**
  * The Skill field (FED-06): the stage's skill (click it to pick another), with "You don't have the skill `<name>`"
- * under it in amber when nobody has it; empty with Pick a skill… (the user's own skills, then Otaq's, searchable, and
- * "Use `<typed text>`" last while searching) and Ask the agent to write it; "Being written by Noyan…" with Stop; or the
+ * under it in amber when nobody has it, and "Pick one, or Ask the agent to write it." under that; empty with Pick a
+ * skill… (the user's own skills, then Otaq's, searchable, "Use `<typed text>`" while searching, and Ask the agent to
+ * write it… always last) and Ask the agent to write it; "Being written by Noyan…" with Stop; or the
  * skill the agent wrote, tinted, with Open and Undo, and where it was saved under it.
  */
 export function SkillField({
@@ -85,6 +86,25 @@ export function SkillField({
                 <span>
                   <CodeText text={state.warning} />
                 </span>
+                {state.fix !== null && (
+                  // "Pick one, or Ask the agent to write it.": one span too, its two links inline.
+                  <span className="fe-skill-fix">
+                    <button type="button" className="fe-link" onClick={pick}>
+                      {state.fix.pick}
+                    </button>
+                    {state.fix.or}
+                    <button
+                      type="button"
+                      className="fe-link"
+                      onClick={() => {
+                        actions.write(stage, field.picker.prefill);
+                      }}
+                    >
+                      {state.fix.ask}
+                    </button>
+                    {state.fix.end}
+                  </span>
+                )}
               </span>
             </div>
           )}
@@ -199,9 +219,11 @@ export function SkillField({
           list
           search={field.picker.search}
           typed={(text) => typedItem(field.picker.use_typed, text)}
+          last={field.picker.ask}
           onChoose={(skill) => {
             setPicking(false);
-            if (skill !== "") actions.edit({ edit: "skill", stage, skill });
+            if (skill === field.picker.ask.id) actions.write(stage, field.picker.prefill);
+            else if (skill !== "") actions.edit({ edit: "skill", stage, skill });
           }}
           onClose={() => {
             setPicking(false);

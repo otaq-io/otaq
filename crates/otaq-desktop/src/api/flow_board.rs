@@ -5,10 +5,11 @@
 //! `apply` / `cancel`); this area adds what only the board's editor does:
 //!
 //! - `flow_board.restore`: Undo, the draft's document as it was before the user's last edit.
-//! - `flow_board.suggest`: Suggest a flow for <project>: Noyan's agent starts on the `flow` skill and drafts one into
-//!   the draft, its changes marked (today's flow-proposal path).
-//! - `flow_board.ask_changes`: Ask for changes… on a suggestion: the user's words go back to the agent that made it
-//!   (`flow.ask_for_changes`).
+//! - `flow_board.suggest`: the box at the editor's foot: Noyan's agent starts on the `flow` skill with the user's
+//!   words, or (Suggest a whole flow, no words) asked for a whole flow, and drafts into the draft, its changes marked
+//!   (today's flow-proposal path).
+//! - `flow_board.ask_changes`: the box's send while a suggestion shows: the user's words go back to the agent that
+//!   made it (`flow.ask_for_changes`).
 //! - `flow_board.export`: Export flow file…: the draft's document where the save dialog said; with no draft, the
 //!   flow in use as `otaq flow show` prints it.
 
@@ -76,13 +77,17 @@ pub struct RestoreParams {
     pub yaml: String,
 }
 
+/// The box's send: the user's words, or none for Suggest a whole flow.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowBoardSuggestParams")]
 pub struct SuggestParams {
     pub project: String,
+    #[serde(default)]
+    #[ts(optional)]
+    pub text: Option<String>,
 }
 
-/// Ask for changes… on the suggestion `proposal`.
+/// The box's send while the suggestion `proposal` shows.
 #[derive(Debug, Clone, Deserialize, TS)]
 #[ts(rename = "FlowBoardAskChangesParams")]
 pub struct AskChangesParams {
@@ -134,8 +139,32 @@ async fn has_previous(app: &App, project: &str) -> bool {
     )
 }
 
+/// The stages of the flow in use with tickets in them, by id: a ticket held before a stage counts as in it, as the
+/// flow change that removes the stage waits for it.
+fn occupied(
+    tickets: &[otaq_core::board::tickets::Ticket],
+    in_use: &otaq_core::flow::model::Flow,
+) -> Vec<String> {
+    let mut ids: Vec<String> = tickets
+        .iter()
+        .filter_map(|t| {
+            otaq_core::flow::apply::standing(t, in_use, in_use)
+                .stage_id()
+                .map(str::to_owned)
+        })
+        .collect();
+    ids.sort();
+    ids.dedup();
+    ids
+}
+
 pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestError> {
     let gathered = gather(app, &params.project).await?;
+    let tickets: Vec<_> = super::board::snapshot(app, &params.project)
+        .await
+        .map(|b| b.tickets().cloned().collect())
+        .unwrap_or_default();
+    let occupied = occupied(&tickets, &gathered.in_use.flow);
     let all = projects(app).await?;
     let base = all
         .iter()
@@ -159,6 +188,7 @@ pub async fn view(app: &App, params: ViewParams) -> Result<vm::View, RequestErro
             base_branch: &base,
             others: &others,
             previous,
+            occupied: &occupied,
         },
     ))
 }
@@ -173,19 +203,32 @@ async fn restore(app: &App, params: RestoreParams) -> Result<(), RequestError> {
     Ok(())
 }
 
-/// Suggest a flow for <project>…: Noyan's agent drafts one on the `flow` skill; its proposal lands in the draft,
-/// marked.
+/// What the box asks Noyan's agent, on the `flow` skill: the user's words, or without them the whole-flow request
+/// for the project `name`. Words that are only spaces are refused: nothing would be asked.
+fn suggest_request(text: Option<&str>, name: &str) -> Result<String, RequestError> {
+    match text {
+        Some(words) if words.trim().is_empty() => Err(RequestError::plain(
+            otaq_core::project_agents::EMPTY_MESSAGE,
+        )),
+        Some(words) => Ok(super::flow_editor::flow_message(words)),
+        None => Ok(super::flow_editor::flow_message(&vm::suggest_message(name))),
+    }
+}
+
+/// The box's send (↵, or Suggest a whole flow): Noyan's agent starts on the `flow` skill; its proposal lands in the
+/// draft, marked. The page doesn't open the agent panel for it.
 async fn suggest(app: &App, params: SuggestParams) -> Result<Started, RequestError> {
     let name = projects(app)
         .await?
         .into_iter()
         .find(|p| p.key == params.project)
         .map_or_else(|| params.project.clone(), |p| p.name);
+    let message = suggest_request(params.text.as_deref(), &name)?;
     let agent = super::agent_panel::send(
         app,
         super::agent_panel::SendParams {
             project: params.project,
-            message: super::flow_editor::flow_message(&vm::suggest_message(&name)),
+            message,
             agent: None,
         },
     )
@@ -265,6 +308,72 @@ mod tests {
         .unwrap()
     }
 
+    /// The note beside Remove stage reads from the board: none while Dev is empty, a ticket in Backlog included.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn no_remove_note_on_an_empty_stage() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let note = |v: vm::View| v.details.expect("the stage's panel").remove_note;
+        assert_eq!(note(load(&h, Some("dev")).await), None, "Dev is empty");
+
+        let Reply::Ticket(_) = h
+            .app
+            .service
+            .send(Request::TicketCreate(otaq_core::board::tickets::NewTicketInput {
+                project: "SHOP".into(),
+                title: "Footer links go to old pages".into(),
+                body: String::new(),
+                plan: String::new(),
+                priority: None,
+                base_branch: None,
+                first_comment: None,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("no ticket");
+        };
+        assert_eq!(note(load(&h, Some("dev")).await), None, "in Backlog");
+    }
+
+    /// The stages with tickets in them, as a change removing them waits for: a ticket in a stage, one held before a
+    /// stage (waiting to begin the first one included); not one in Backlog, queued to begin, or done.
+    #[test]
+    fn occupied_stages_are_those_a_removal_waits_for() {
+        use otaq_core::domain::{Place, Status};
+        use otaq_view::view_models::card_fixtures::ticket;
+
+        let flow = otaq_core::flow::default_flow();
+        let at = |status: Status, place: Place| {
+            let mut t = ticket("SHOP-1", "Footer links", status);
+            t.place = place;
+            t
+        };
+        let in_stages = |tickets: &[otaq_core::board::tickets::Ticket]| occupied(tickets, &flow);
+        assert!(
+            in_stages(&[
+                at(Status::Backlog, Place::Backlog),
+                at(Status::Queued, Place::Waiting(None)),
+                at(Status::Merged, Place::Done),
+            ])
+            .is_empty()
+        );
+        assert_eq!(
+            in_stages(&[
+                at(Status::Working, Place::InStage("dev".into())),
+                at(Status::Working, Place::InStage("dev".into())),
+                at(Status::Held, Place::Waiting(Some("validate".into()))),
+            ]),
+            ["dev", "validate"]
+        );
+        assert_eq!(
+            in_stages(&[at(Status::Held, Place::Waiting(None))]),
+            ["dev"]
+        );
+    }
+
     /// + after Dev → Security review: the ready stage arrives with its description, agent and skill, marked New,
     /// the bar counts the change, and Save flow applies it at once, so the board's columns have it.
     #[tokio::test(flavor = "multi_thread")]
@@ -277,6 +386,26 @@ mod tests {
         let v = load(&h, None).await;
         let names: Vec<&str> = v.columns.iter().map(|c| c.name.as_str()).collect();
         assert_eq!(names, ["Backlog", "Dev", "Validate", "Review", "Done"]);
+        // The palette's ready stages whose skill nobody here has carry the usual missing-skill warning; Otaq ships no
+        // skill for them.
+        let warning = |id: &str| {
+            v.palette
+                .templates
+                .iter()
+                .find(|t| t.id == id)
+                .unwrap_or_else(|| panic!("no ready stage {id}"))
+                .warning
+                .clone()
+        };
+        assert_eq!(
+            warning("security-review").as_deref(),
+            Some("You don't have the skill `security-check`")
+        );
+        assert_eq!(
+            warning("test-in-browser").as_deref(),
+            Some("You don't have the skill `test-in-browser`")
+        );
+        assert_eq!(warning("product-spec"), None, "a shipped skill");
         assert_eq!(v.bar.changes, None);
         assert!(!v.bar.save_enabled);
         assert_eq!(
@@ -362,7 +491,8 @@ mod tests {
         let panel = v.delivery.unwrap();
         assert!(panel.delivers.iter().any(|c| c.id == "pr" && c.selected));
         assert!(panel.modes.iter().any(|c| c.id == "automatic" && c.selected));
-        // Either is chosen at your click: picking it sets On Approve, and Automatically isn't offered with it.
+        // Either is chosen at your click: picking it sets On Approve, and the modes stay, switched off, as on the
+        // project's Repository card.
         request(
             &h.app,
             "flow_editor.edit",
@@ -371,7 +501,58 @@ mod tests {
         .await
         .unwrap();
         let v = load(&h, Some("done")).await;
-        assert!(v.delivery.unwrap().modes.is_empty());
+        let panel = v.delivery.unwrap();
+        assert!(panel.modes_off);
+        let modes: Vec<(&str, bool)> = panel.modes.iter().map(|c| (c.id.as_str(), c.selected)).collect();
+        assert_eq!(modes, [("click", true), ("automatic", false)]);
+        assert_eq!(
+            panel.delivers_note.as_deref(),
+            Some(otaq_view::view_models::project_settings::EITHER_NOTE)
+        );
+    }
+
+    /// Done's panel names the delivery's agent and, for a PR, its PR skill: the user's own Open PR skill goes there
+    /// (empty: Otaq's own `open-pr`); a local merge has no PR skill and may name no agent.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn dones_panel_sets_the_deliverys_agent_and_pr_skill() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let edit = async |field: &str, value: &str| {
+            request(
+                &h.app,
+                "flow_editor.edit",
+                json!({ "project": "SHOP", "edit": { "edit": "delivery", "field": field, "value": value } }),
+            )
+            .await
+        };
+        edit("delivery.delivers", "pr").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        let skill = panel.skill.expect("a PR has a PR skill");
+        // The default flow names Otaq's own, which never warns.
+        assert_eq!((skill.value.as_str(), skill.placeholder), ("open-pr", "open-pr"));
+        assert_eq!(skill.warning, None);
+        assert!(panel.agent.items.iter().all(|i| !i.id.is_empty()), "a PR needs an agent");
+
+        edit("delivery.skill", " /my-pr ").await.unwrap();
+        edit("delivery.agent", "Checker").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        assert_eq!(panel.agent.value, "Checker");
+        let skill = panel.skill.unwrap();
+        assert_eq!(skill.value, "my-pr");
+        assert_eq!(skill.warning.as_deref(), Some("You don't have the skill `my-pr`"));
+        assert!(edit("delivery.agent", "").await.is_err(), "a PR keeps an agent");
+        // Emptied, Otaq's own runs.
+        edit("delivery.skill", "").await.unwrap();
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().skill.unwrap().value, "");
+
+        edit("delivery.delivers", "local").await.unwrap();
+        let panel = load(&h, Some("done")).await.delivery.unwrap();
+        assert_eq!(panel.skill, None);
+        assert_eq!(panel.agent.items[0].id, "", "None, for the plain message");
+        edit("delivery.agent", "").await.unwrap();
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().agent.value, "None");
     }
 
     /// Import a flow file…, then Export flow file…: the same file comes back.
@@ -427,6 +608,53 @@ mod tests {
         assert_eq!(again.flow, sent.flow);
     }
 
+    /// The box asks with the user's words on the `flow` skill; without words it asks for a whole flow for the project.
+    #[test]
+    fn the_box_asks_with_the_users_words_or_for_a_whole_flow() {
+        let words = suggest_request(Some("  Add a security review after Validate "), "shop-web").unwrap();
+        assert_eq!(words, "/flow Add a security review after Validate");
+        assert_eq!(otaq_core::project_agents::first_skill(&words).0, "flow");
+        let whole = suggest_request(None, "shop-web").unwrap();
+        assert_eq!(
+            whole,
+            super::super::flow_editor::flow_message(&vm::suggest_message("shop-web"))
+        );
+        assert!(whole.starts_with("/flow Suggest a flow for shop-web."), "{whole}");
+        assert!(suggest_request(Some(" \n "), "shop-web").is_err());
+    }
+
+    /// Edit flow's box, as the editor first shows it: who answers and what it does; Noyan isn't drafting, so it can be
+    /// asked. Words that are only spaces start nothing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_box_asks_noyan_and_empty_words_start_nothing() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        let v = load(&h, None).await;
+        assert_eq!(v.ask.placeholder, "Ask Noyan to change this flow\u{2026}");
+        assert_eq!(v.ask.whole, Some("Suggest a whole flow"));
+        assert_eq!(
+            v.ask.line,
+            "Proposes a draft \u{b7} nothing changes until you save"
+        );
+        assert!(v.ask.agent.starts_with("Noyan \u{b7} "), "{}", v.ask.agent);
+        assert_eq!(v.ask.send, "Ask Noyan");
+        assert_eq!(v.ask.off, None);
+
+        let refused = request(
+            &h.app,
+            "flow_board.suggest",
+            json!({ "project": "SHOP", "text": "   " }),
+        )
+        .await;
+        assert!(refused.is_err());
+        let agents = super::super::agent_panel::agents(&h.app, "SHOP")
+            .await
+            .unwrap();
+        assert!(agents.open.is_empty(), "nothing started");
+    }
+
     /// Undo puts the draft's document back as it was before the last edit.
     #[tokio::test(flavor = "multi_thread")]
     async fn undo_restores_the_document_before_the_edit() {
@@ -453,5 +681,85 @@ mod tests {
         let v = load(&h, None).await;
         assert_eq!(v.columns.len(), 5);
         assert_eq!(v.bar.changes, None);
+    }
+
+    /// The release test's refused reorder on shop: Validate's fails were set to go to Dev while another Agent stage
+    /// sat between them, that stage went again, then Validate was dragged in front of Dev. The drag is refused with
+    /// why, and the editor's view still builds after it; a draft stored that way before (Validate first, its fails to
+    /// Dev) draws too, its problem on Validate, instead of leaving the editor blank.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn the_editor_still_draws_after_a_check_is_dragged_before_dev() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        for edit in [
+            json!({ "edit": "add_template", "after": "dev", "template": "new-stage" }),
+            json!({ "edit": "fail_to", "stage": "validate", "to": "dev" }),
+            json!({ "edit": "remove", "stage": "new-stage" }),
+        ] {
+            request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
+                .await
+                .unwrap();
+        }
+        let refused = request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "move", "stage": "validate", "to": 0 } }),
+        )
+        .await
+        .unwrap_err();
+        assert_eq!(
+            refused.message,
+            "Validate can\u{2019}t go before Dev: a check sends its fails back to a stage where an agent works, so \
+             one has to come before it"
+        );
+        // The page's drag shows it as the toast the refusal raised.
+        let toast = h.app.notices.view().toasts.last().cloned().unwrap();
+        assert_eq!(toast.title, "The flow didn\u{2019}t change");
+        assert_eq!(toast.text.as_deref(), Some(refused.message.as_str()));
+        let v = load(&h, Some("validate")).await;
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "dev", "validate", "review", "done"]);
+        assert!(v.details.is_some());
+
+        // The draft the release test was left with, stored as it was: it draws.
+        let mut file = otaq_core::flow::yaml::read(&v.yaml).unwrap();
+        let validate = file.flow.position("validate").unwrap();
+        assert_eq!(file.flow.stages[validate].fail_to.as_deref(), Some("dev"));
+        let moved = file.flow.stages.remove(validate);
+        file.flow.stages.insert(0, moved);
+        request(
+            &h.app,
+            "flow_board.restore",
+            json!({ "project": "SHOP", "yaml": otaq_core::flow::yaml::write(&file) }),
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("validate")).await;
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "validate", "dev", "review", "done"]);
+        assert!(v.details.is_some());
+        assert!(!v.bar.save_enabled, "a check first can't be saved");
+        assert!(v.bar.reason.is_some());
+        assert!(!v.watch.fails.is_empty());
+        // The page's test draws this view (flow_board.test.ts); `OTAQ_WRITE_FIXTURES=1` writes it again.
+        if std::env::var_os(otaq_core::naming::env_var("WRITE_FIXTURES")).is_some() {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("ui/src/screens/flow_board/check_first.view.json");
+            std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
+
+        // The page's Discard the draft, when it has no view to name the draft: whatever is open goes, and again with
+        // nothing open is fine.
+        for _ in 0..2 {
+            request(&h.app, "flow_editor.cancel", json!({ "project": "SHOP" }))
+                .await
+                .unwrap();
+        }
+        let v = load(&h, None).await;
+        assert_eq!(v.proposal, 0);
+        let ids: Vec<&str> = v.columns.iter().map(|c| c.id.as_str()).collect();
+        assert_eq!(ids, ["backlog", "dev", "validate", "review", "done"]);
     }
 }

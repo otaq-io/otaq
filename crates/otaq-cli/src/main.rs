@@ -136,6 +136,7 @@ fn main() -> ExitCode {
             options,
             notes: _,
             recommended,
+            multiple,
             send_back,
         }) => agent::ask(
             agent::AskArgs {
@@ -144,6 +145,7 @@ fn main() -> ExitCode {
                 options,
                 notes: cli::option_notes(&matches),
                 recommended,
+                multiple,
                 send_back,
             },
             &cli.global,

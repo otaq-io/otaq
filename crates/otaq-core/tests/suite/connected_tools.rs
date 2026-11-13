@@ -43,12 +43,25 @@ impl Tools {
         std::fs::remove_file(otaq_core::process::testing::stub_file(&self.bin(), name)).unwrap();
     }
 
+    /// Claude Code 2.1.4, signed in (its `auth status --json`).
     fn claude(&self) {
-        self.stub("claude", r#"echo "2.1.4 (Claude Code)""#);
+        self.claude_with_status(r#"echo '{"loggedIn": true, "authMethod": "claude.ai"}'"#);
     }
 
+    /// Claude Code 2.1.4 whose `auth status` runs `status` (signed out, slow, failing).
+    fn claude_with_status(&self, status: &str) {
+        self.stub(
+            "claude",
+            &format!(r#"case "$1" in auth) {status};; *) echo "2.1.4 (Claude Code)";; esac"#),
+        );
+    }
+
+    /// Codex 0.157.1, signed in with ChatGPT (its `login status`).
     fn codex(&self) {
-        self.stub("codex", r#"echo "codex-cli 0.157.1""#);
+        self.stub(
+            "codex",
+            r#"case "$1" in login) echo "Logged in using ChatGPT";; *) echo "codex-cli 0.157.1";; esac"#,
+        );
     }
 
     fn claude_config(&self) -> ClaudeConfig {
@@ -147,7 +160,13 @@ async fn each_state_from_detect_and_hidden_wins() {
         row(&found, Tool::Claude).state,
         connected("Claude Code 2.1.4")
     );
-    assert_eq!(row(&found, Tool::Codex).state, connected("0.157.1"));
+    assert_eq!(
+        row(&found, Tool::Codex).state,
+        AgentToolState::Connected {
+            version: Some("0.157.1".into()),
+            account: Some("signed in with ChatGPT".into())
+        }
+    );
     assert_eq!(
         row(&found, Tool::Copilot).state,
         AgentToolState::UpdateNeeded {
@@ -196,6 +215,132 @@ async fn each_state_from_detect_and_hidden_wins() {
     w.stop().await;
 }
 
+/// A logged-out tool shows as signed out, from its own answer: Claude Code's `auth status` says `loggedIn: false`
+/// (as an expired login does) → Found · not signed in, Sign in… (`claude auth login`), not counted; a status command
+/// that fails or prints something else → Couldn't check, not counted, never signed in; Re-check after signing in →
+/// Connected. Seen in the Windows release test: logged out, the Tools step said signed in.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_logged_out_tool_shows_signed_out_and_recheck_updates_it() {
+    let tools = Tools::new();
+    tools.claude_with_status(
+        r#"echo '{"loggedIn": false, "authMethod": "none", "apiProvider": "firstParty"}'; exit 1"#,
+    );
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    let found = recheck(&client).await;
+    let claude = row(&found, Tool::Claude);
+    assert_eq!(
+        claude.state,
+        AgentToolState::FoundNotSignedIn {
+            version: Some("Claude Code 2.1.4".into())
+        }
+    );
+    assert!(claude.can_sign_in, "Sign in… offered");
+    assert!(!claude.can_disconnect);
+    assert!(!claude.state.is_connected(), "not counted");
+
+    // The status command fails, or answers with no sign-in state: couldn't check, never signed in.
+    for status in [
+        r#"echo "boom" >&2; exit 2"#,
+        r#"echo "2.1.4 (Claude Code)""#,
+    ] {
+        tools.claude_with_status(status);
+        let unchecked = recheck(&client).await;
+        let claude = row(&unchecked, Tool::Claude);
+        assert_eq!(
+            claude.state,
+            AgentToolState::CouldNotCheck {
+                version: Some("Claude Code 2.1.4".into())
+            },
+            "{status}"
+        );
+        assert!(!claude.state.is_connected());
+    }
+
+    // Signed in in the meantime: Re-check (this tool) makes it Connected.
+    tools.claude();
+    let rechecked = list(
+        ask(&client, "agent_tools.recheck", json!({"tool": "claude"}))
+            .await
+            .unwrap(),
+    );
+    assert_eq!(
+        row(&rechecked, Tool::Claude).state,
+        connected("Claude Code 2.1.4")
+    );
+    w.stop().await;
+}
+
+/// An agent that stops because its tool's login expired has the tool read signed out at once, with Sign in…,
+/// without a check of the tools: Claude Code's `auth status` (which would still say signed in here) isn't run again,
+/// and the row keeps its last check's time. Another error leaves the tool Connected. Seen in re-test 5: the stopped
+/// ticket offered Sign in… only once Settings → Agents had checked the tools again.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_login_expired_stop_reads_signed_out_at_once() {
+    let tools = Tools::new();
+    let asked = tools.dir.path().join("asked");
+    tools.claude_with_status(&format!(
+        r#"echo x >> '{}'; echo '{{"loggedIn": true, "authMethod": "claude.ai"}}'"#,
+        asked.display()
+    ));
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let before = recheck(&client).await;
+    assert!(row(&before, Tool::Claude).state.is_connected());
+    let checks = || {
+        std::fs::read_to_string(&asked)
+            .unwrap_or_default()
+            .lines()
+            .count()
+    };
+    let checked = checks();
+
+    w.add_project("shop-web").await;
+    let ticket = w.create("SHOP", "Order email").await;
+    w.force_status(&ticket, otaq_core::domain::Status::Working)
+        .await;
+    let agent = w.agent_shell(&ticket).await;
+    let stop = async |error: &str, message: &str| {
+        let payload = json!({"hook_event_name": "StopFailure", "error": error,
+            "last_assistant_message": message});
+        let request = json!({"protocol_version": otaq_core::protocol::PROTOCOL_VERSION, "id": 1, "request":
+            {"method": "hook", "params": {"tool": "claude", "event": "StopFailure", "payload": payload}}});
+        let ran = agent
+            .send_raw(&w.data.socket_path(), &request.to_string())
+            .await;
+        assert!(ran.stdout.contains("\"reply\":\"ok\""), "{ran:?}");
+    };
+
+    // Another error of the tool's own: still Connected.
+    stop("server_error", "API Error: 500").await;
+    assert!(w.connected.status(Tool::Claude).state.is_connected());
+
+    w.force_status(&ticket, otaq_core::domain::Status::Working)
+        .await;
+    stop(
+        "authentication_failed",
+        "Login expired \u{b7} Please run /login",
+    )
+    .await;
+    let claude = w.connected.list().tools.remove(0);
+    assert_eq!(claude.tool, Tool::Claude);
+    assert_eq!(
+        claude.state,
+        AgentToolState::FoundNotSignedIn {
+            version: Some("Claude Code 2.1.4".into())
+        }
+    );
+    assert!(claude.can_sign_in, "Sign in… offered");
+    assert_eq!(claude.checked_at, row(&before, Tool::Claude).checked_at);
+    assert_eq!(checks(), checked, "no check of the tool");
+    assert_eq!(
+        w.connected.is_available(Tool::Claude).unwrap_err().reason,
+        "signed out"
+    );
+    w.stop().await;
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn a_failed_launch_rechecks_only_its_tool() {
     let tools = Tools::new();
@@ -229,7 +374,7 @@ async fn sign_in_runs_the_login_in_a_terminal_then_rechecks() {
     tools.stub(
         "codex",
         &format!(
-            r#"case "$1" in --version) [ -f "{m}" ] && echo "codex-cli 0.157.1";; login) touch "{m}";; esac"#,
+            r#"case "$1$2" in --version) [ -f "{m}" ] && echo "codex-cli 0.157.1";; loginstatus) echo "Logged in using ChatGPT";; login) touch "{m}";; esac"#,
             m = marker.display()
         ),
     );
@@ -261,7 +406,7 @@ async fn sign_in_runs_the_login_in_a_terminal_then_rechecks() {
     .expect("rechecked once the sign-in terminal ended");
     assert!(marker.exists());
 
-    // A tool without its own sign-in command is refused.
+    // A tool that isn't installed is refused.
     let Err(ClientError::Service(e)) =
         ask(&client, "agent_tools.sign_in", json!({"tool": "claude"})).await
     else {
@@ -440,6 +585,45 @@ async fn the_first_run_needs_one_connected_agent_tool() {
     let codex = check().await;
     assert!(codex.agent_tool_connected());
     assert!(codex.required_found());
+    w.stop().await;
+}
+
+/// Settings → Git & pull requests' check looks at git, gh and az only: a tool installed since the last agent-tools
+/// check stays as it was found until something checks the agent tools again.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_git_check_leaves_the_agent_tools_alone() {
+    let tools = Tools::new();
+    tools.stub("git", r#"echo "git version 2.46.0""#);
+    let w = TestService::start_with(tools.with()).await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    assert!(
+        !row(&recheck(&client).await, Tool::Codex)
+            .state
+            .is_connected()
+    );
+
+    tools.codex();
+    let report = match client.request(Request::GitToolsCheck).await.unwrap() {
+        Reply::ToolsCheck(report) => report,
+        other => panic!("{other:?}"),
+    };
+    assert!(report.agent_tools.is_empty());
+    let git = report
+        .tools
+        .iter()
+        .find(|t| t.tool == otaq_core::tools::Tool::Git)
+        .unwrap();
+    assert_eq!(git.version.as_deref(), Some("2.46.0"));
+    let listed = list(ask(&client, "agent_tools.list", Value::Null).await.unwrap());
+    assert!(
+        !row(&listed, Tool::Codex).state.is_connected(),
+        "the git check ran the agent tools' check"
+    );
+
+    // Onboarding's check does look again.
+    client.request(Request::ToolsCheck).await.unwrap();
+    let listed = list(ask(&client, "agent_tools.list", Value::Null).await.unwrap());
+    assert!(row(&listed, Tool::Codex).state.is_connected());
     w.stop().await;
 }
 

@@ -427,25 +427,19 @@ impl Board {
     }
 
     /// Stores `new` as the project's next flow version and makes it the one the board runs. `new.yaml` must read
-    /// as a flow (what it says is checked before, by whoever proposes it), and every stage an agent runs has its
-    /// skill: only the draft holds one without (FED-06). The stored version.
+    /// as a flow (what it says is checked before, by whoever proposes it). A stage an agent runs may name no skill:
+    /// Otaq's own skill for that stage runs. The stored version.
     pub async fn store_flow(
         &self,
         project: &str,
         new: &NewFlowVersion,
     ) -> Result<FlowVersion, BoardError> {
-        let file = yaml::read(&new.yaml).map_err(|e| {
+        yaml::read(&new.yaml).map_err(|e| {
             BoardError::refused(
                 crate::board::Refusal::BadProposal,
                 format!("The flow doesn't read: {e}"),
             )
         })?;
-        if let Some(stage) = file.flow.stages.iter().find(|s| s.needs_skill()) {
-            return Err(BoardError::refused(
-                crate::board::Refusal::BadProposal,
-                super::check::needs_skill_message(stage),
-            ));
-        }
         let project = self.project(project).await?;
         let mut tx = self.store().begin_write().await?;
         Store::insert_flow_version_in(&mut tx, &project.id, new).await?;

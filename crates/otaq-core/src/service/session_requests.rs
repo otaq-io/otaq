@@ -7,11 +7,11 @@ use super::Shared;
 use super::board_requests::error_body;
 use super::connection::Then;
 use crate::attention::ClientId;
-use crate::board::Refusal;
+use crate::board::{BoardError, Refusal};
 use crate::protocol::{
     ErrorBody, ErrorKind, Reply, Request, SessionAttach, SessionTarget, decode_bytes, encode_bytes,
 };
-use crate::session::{SessionError, SessionKind, SessionTicket};
+use crate::session::{SessionError, SessionInfo, SessionKind, SessionTicket};
 
 pub(super) async fn handle(
     request: Request,
@@ -31,7 +31,8 @@ pub(super) async fn handle(
             Ok((Reply::Sessions(list), Then::Continue))
         }
         Request::SessionAttach(p) => {
-            let id = session_id(shared, p.target).await?;
+            // `otaq attach SHOP-35` reaches a finished ticket's running answer session like its agent's.
+            let id = session_id(shared, p.target, true).await?;
             let (attached, answers) = sessions
                 .attach_answering(&id, !p.quiet)
                 .map_err(session_error)?;
@@ -103,25 +104,37 @@ pub(super) async fn handle(
                     tracing::warn!(session = p.session, error = %e, "can't clear the signal");
                 }
             }
-            // Enter in a helper's terminal answers its permission prompt there, or its passed-on question (d0133 audit
-            // 3, d0119).
-            if effect.enters > 0
-                && info
+            // A key in a ticket's agent terminal answers its open permission prompt, whatever the ticket's status
+            // (Codex takes "y" alone): the message writer's prompt in Review closes here, and a card left at Needs you
+            // by such a key is Working again. Escape sequences (arrows, the mouse) and pastes don't.
+            if (effect.enters > 0 || bytes.len() == 1)
+                && let Some(info) = info
                     .as_ref()
-                    .is_some_and(|i| i.kind == crate::session::SessionKind::Helper)
-                && let Err(e) = shared.helpers.enter(&p.session, line).await
+                    .filter(|i| matches!(i.kind, SessionKind::Agent | SessionKind::Delivery))
+                && let Some(key) = &info.ticket
+                && shared.signals.open_prompt(&p.session).is_some()
+                && let Ok(id) = shared.board.ticket_id(&key.to_string()).await
+                && let Err(e) = shared
+                    .signals
+                    .key_answered_prompt(key, &id, &p.session)
+                    .await
             {
-                tracing::warn!(session = p.session, error = %e, "can't clear the helper's wait");
+                tracing::warn!(session = p.session, error = %e, "can't clear the prompt");
             }
-            // Enter in a Project agent's terminal answers its permission prompt (ATT-02, d0068), or its open question
-            // (d0119).
-            if effect.enters > 0
+            // The user's answer in any other agent session's terminal (ATT-02): Enter, or a key alone on a tool whose
+            // permission prompt takes one (Codex's "y", after which it sends nothing until its turn ends or asks
+            // again). Escape sequences and pastes don't count.
+            let key_alone = effect.enters == 0
+                && bytes.len() == 1
                 && info
                     .as_ref()
-                    .is_some_and(|i| i.kind == crate::session::SessionKind::ProjectAgent)
-                && let Err(e) = shared.project_agents.enter(&p.session, line).await
+                    .and_then(|i| i.tool)
+                    .is_some_and(|tool| shared.adapters.get(tool).key_alone_approves_prompt());
+            if (effect.enters > 0 || key_alone)
+                && let Some(info) = &info
+                && let Err(e) = answered(shared, info, line.filter(|_| !key_alone)).await
             {
-                tracing::warn!(session = p.session, error = %e, "can't clear the Project agent's wait");
+                tracing::warn!(session = p.session, error = %e, "can't clear the agent's wait");
             }
             // Any key may answer a tool's own prompt without a signal (Copilot's Esc, ADP-08).
             if !bytes.is_empty()
@@ -129,20 +142,29 @@ pub(super) async fn handle(
             {
                 tracing::warn!(session = p.session, error = %e, "can't check the typed key");
             }
-            // An Enter or a backspace may have emptied the line: waiting messages may go now.
-            if !sessions.has_unsent_input(&p.session).unwrap_or(true) {
-                let deliveries = shared.deliveries.clone();
-                let session = p.session.clone();
-                tokio::spawn(async move {
-                    if let Err(e) = deliveries.deliver_if_ready(&session).await {
-                        tracing::warn!(session, error = %e, "delivery failed");
-                    }
-                });
-            }
+            // An Enter or a backspace may have emptied the line: waiting messages may go now. A key a tool's own
+            // menu took leaves the line empty on screen, which counts once the program has drawn it: look again
+            // then. Whatever the answer, the Session tab's "Unsent text in the input line" follows it.
+            let deliveries = shared.deliveries.clone();
+            let sessions = sessions.clone();
+            let session = p.session.clone();
+            tokio::spawn(async move {
+                let mut unsent = sessions.has_unsent_input(&session).unwrap_or(true);
+                if unsent {
+                    tokio::time::sleep(crate::session::KEY_SETTLE).await;
+                    unsent = sessions.has_unsent_input(&session).unwrap_or(true);
+                }
+                if !unsent && let Err(e) = deliveries.deliver_if_ready(&session).await {
+                    tracing::warn!(session, error = %e, "delivery failed");
+                }
+                if let Err(e) = deliveries.line_settled(&session, unsent).await {
+                    tracing::warn!(session, error = %e, "can't tell the line's change");
+                }
+            });
             Ok((Reply::Ok, Then::Continue))
         }
         Request::SessionSendAgain(p) => {
-            let id = session_id(shared, p.target).await?;
+            let id = session_id(shared, p.target, false).await?;
             let delivery = shared
                 .deliveries
                 .send_again(&id, p.clear_first)
@@ -157,7 +179,7 @@ pub(super) async fn handle(
             Ok((Reply::Ok, Then::Continue))
         }
         Request::SessionDeliverNow(p) => {
-            let id = session_id(shared, p.target).await?;
+            let id = session_id(shared, p.target, false).await?;
             let delivery = if p.clear_first {
                 shared.deliveries.clear_and_send(&id, None).await
             } else {
@@ -166,6 +188,15 @@ pub(super) async fn handle(
             .map_err(session_error)?;
             Ok((Reply::Delivery(delivery), Then::Continue))
         }
+        Request::SessionUnsent(p) => {
+            // A session that isn't running takes no notes, so nothing waits behind its line.
+            let running = sessions.info(&p.session).is_ok_and(|i| i.is_running());
+            let unsent = running
+                && sessions
+                    .has_unsent_input(&p.session)
+                    .map_err(session_error)?;
+            Ok((Reply::Unsent(unsent), Then::Continue))
+        }
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,
             format!("{} isn't a session request", other.method()),
@@ -173,9 +204,63 @@ pub(super) async fn handle(
     }
 }
 
+/// The user answered in `info`'s terminal (Enter, with `line` its first line that isn't empty, or a key alone that
+/// answers its tool's prompt): its open permission prompt closes, wherever the session keeps it. A session with none
+/// open is left as it is. The ticket's agent and delivery sessions are answered in [`handle`], with the ticket's status.
+async fn answered(
+    shared: &Shared,
+    info: &SessionInfo,
+    line: Option<&str>,
+) -> Result<(), BoardError> {
+    let session = info.id.as_str();
+    // The prompt on its screen closes; the next one open reads Needs you once drawn (a helper's closes in its own).
+    if matches!(
+        info.kind,
+        SessionKind::ProjectAgent | SessionKind::Validator
+    ) {
+        shared.signals.answer_shown(session);
+    }
+    match info.kind {
+        // Or its passed-on question (d0133 audit 3, d0119).
+        SessionKind::Helper => shared.helpers.enter(session, line).await,
+        // Or its open question (d0068, d0119).
+        SessionKind::ProjectAgent => shared.project_agents.enter(session, line).await,
+        // A checker's: the ticket is Validating… again.
+        SessionKind::Validator => match &info.ticket {
+            Some(key) => {
+                let id = shared.board.ticket_id(&key.to_string()).await?;
+                shared.validation.prompt_answered(&id, session).await
+            }
+            None => Ok(()),
+        },
+        // A finished ticket's answer session: only the session shows its prompt.
+        SessionKind::Answer => {
+            if let Some(key) = &info.ticket
+                && shared.signals.open_prompt(session).is_some()
+            {
+                let id = shared.board.ticket_id(&key.to_string()).await?;
+                shared.signals.prompt_answered(key, &id, session);
+            }
+            Ok(())
+        }
+        SessionKind::Agent
+        | SessionKind::Delivery
+        | SessionKind::Shell
+        | SessionKind::Project
+        | SessionKind::Run => Ok(()),
+    }
+}
+
 /// A session by id, the newest session of a kind (agent by default) of a ticket by key or the one running its stage
-/// (FLW-20), or a project's Project terminal.
-async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, ErrorBody> {
+/// (FLW-20), or a project's Project terminal. `reach_answer`: a ticket's agent session asked for by key alone is its
+/// running answer session while no agent session of it runs (a finished ticket answering another's question); notes
+/// and hand-offs (`reach_answer` false) go to the agent session only.
+async fn session_id(
+    shared: &Shared,
+    target: SessionTarget,
+    reach_answer: bool,
+) -> Result<String, ErrorBody> {
+    let plain_agent = target.kind.is_none() && target.stage.is_none();
     let mut kind = target.kind.unwrap_or(SessionKind::Agent);
     match (target.session, target.key, target.project) {
         (Some(id), _, _) => Ok(id),
@@ -206,6 +291,16 @@ async fn session_id(shared: &Shared, target: SessionTarget) -> Result<String, Er
                 }
             }
             let ticket = ticket(shared, &key).await?;
+            if reach_answer
+                && plain_agent
+                && shared
+                    .sessions
+                    .running_of(&ticket.id, SessionKind::Agent)
+                    .is_none()
+                && let Some(answer) = shared.sessions.running_of(&ticket.id, SessionKind::Answer)
+            {
+                return Ok(answer.id);
+            }
             shared
                 .sessions
                 .latest_of(&ticket.id, kind)

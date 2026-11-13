@@ -11,25 +11,20 @@ import type { SheetConfirm } from "./SheetConfirm";
 import type { SheetConflict } from "./SheetConflict";
 import type { SheetFrame } from "./SheetFrame";
 import type { SheetHint } from "./SheetHint";
+import type { SheetHookRefusal } from "./SheetHookRefusal";
 import type { SheetNotice } from "./SheetNotice";
+import type { SheetPermissionPrompt } from "./SheetPermissionPrompt";
 import type { SheetRefusal } from "./SheetRefusal";
 import type { SheetRunPill } from "./SheetRunPill";
 import type { SheetSignal } from "./SheetSignal";
 import type { SheetStartProblem } from "./SheetStartProblem";
 import type { SheetTokens } from "./SheetTokens";
-import type { StageChoicesView } from "./StageChoicesView";
-import type { TicketPathView } from "./TicketPathView";
 import type { ToolProblemCallout } from "./ToolProblemCallout";
 
 /**
  * The open ticket's sheet.
  */
 export type SheetView = { key: string, title: string, priority: PriorityView, priority_hint: string, priority_menu: Array<MenuItem>, pill: PillView, branch: SheetBranch | null, copy_branch: string, base: string, signal: SheetSignal | null, tokens: SheetTokens | null, 
-/**
- * The tokens by named agent (VAL-14, d0086): "Strong 182k · validation —", "Strong 61k · Light 23k (1
- * round)"; "agent 61k · validation 23k (2 rounds)" when the rows can't be read.
- */
-token_split: string | null, 
 /**
  * The tickets before and after it in its column (j / k, ⌘[ / ⌘]).
  */
@@ -47,6 +42,11 @@ approve_opens_menu: boolean,
  */
 stop_message: string | null, 
 /**
+ * A project's git hook refused one of Otaq's own git steps: which hook, the step, its whole output and the way
+ * on, above the bar (whose primary button is that way on).
+ */
+hook_refusal: SheetHookRefusal | null, 
+/**
  * Validation failed N times: Answer the agent…'s note box.
  */
 answer_agent: SheetAnswerAgent | null, 
@@ -57,7 +57,11 @@ parent: string | null, menu: Array<MenuItem>,
 /**
  * What Ask Noyan about this puts in Noyan's box for a new conversation: "About SHOP-19: ".
  */
-ask_noyan: string, answer: SheetAnswer | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
+ask_noyan: string, answer: SheetAnswer | null, 
+/**
+ * A permission prompt the agent (or its checker) waits at: the command, above Answer in terminal.
+ */
+permission_prompt: SheetPermissionPrompt | null, notice: SheetNotice | null, conflict: SheetConflict | null, start_problem: SheetStartProblem | null, 
 /**
  * The tool refused a model (Start failed, No result): its callout above the bar, in place of `start_problem`.
  */
@@ -72,25 +76,13 @@ holds: Array<ToolProblemCallout>, mark_closed: SheetConfirm | null,
  */
 run: SheetRunPill | null, 
 /**
- * The sheet's header, details line and tabs (SHT-01, SHT-02).
+ * The sheet's header and tabs (SHT-01, SHT-02).
  */
 sheet: SheetFrame, 
 /**
  * The ticket's agent session runs.
  */
 live_agent: boolean, 
-/**
- * The ticket's stage choices (AGM-09, `s05-36`): none on a flow without options.
- */
-choices: StageChoicesView | null, 
-/**
- * The ticket's path (AGM-09): every stage with its agent and model.
- */
-path: TicketPathView | null, 
-/**
- * "Stages": the label over the choices and the path in Overview's right column.
- */
-stages_heading: string, 
 /**
  * The agent Open agent… opens (a held session's, or the one whose model the tool refused).
  */

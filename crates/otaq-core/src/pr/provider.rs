@@ -11,6 +11,9 @@ use crate::board::settings::WorkflowStep;
 use crate::git::Git;
 use crate::tools::{self, CheckEnv, Tool};
 
+/// Why the built-in Open PR skill can't open a PR: no GitHub or Azure DevOps repository matches the remote.
+pub const NO_PROVIDER: &str = "PR provider not detected";
+
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Provider {
@@ -110,9 +113,9 @@ impl PrProvider {
         self.open_pr_skill == WorkflowStep::OpenPr.own_skill()
     }
 
-    /// Why Open PR can't be offered: the built-in skill needs a detected provider.
+    /// Why Open PR can't be offered: the built-in skill needs a detected provider ([`NO_PROVIDER`]).
     pub fn open_pr_blocked(&self) -> Option<&'static str> {
-        (self.provider.is_none() && self.built_in_open_pr()).then_some("PR provider not detected")
+        (self.provider.is_none() && self.built_in_open_pr()).then_some(NO_PROVIDER)
     }
 
     /// "GitHub (detected from origin) · gh: logged in", or "Not detected: use your own Open PR skill".

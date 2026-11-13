@@ -171,6 +171,24 @@ pub(crate) async fn flow(app: &App, project: &str) -> Flow {
     }
 }
 
+/// The project's cards' named agents (`board.agents`): where each waiting ticket starts, which every view naming a
+/// ticket's column reads so a held ticket is in the stage it starts at. None when they can't be read.
+pub(crate) async fn agents(
+    app: &App,
+    project: &str,
+) -> Option<otaq_core::agents::facts::BoardAgents> {
+    match app
+        .service
+        .send(Request::BoardAgents(ProjectParams {
+            project: project.to_owned(),
+        }))
+        .await
+    {
+        Ok(Reply::BoardAgents(agents)) => Some(*agents),
+        _ => None,
+    }
+}
+
 /// The project's helpers (`board.helpers`, d0133): a build stage's piece rows on the card, the sheet's Session list.
 /// None when they can't be read (the cards look as they would without).
 pub(crate) async fn helpers(app: &App, project: &str) -> Vec<otaq_core::helpers::Helper> {
@@ -407,7 +425,8 @@ pub(crate) async fn whereabouts(
 pub async fn drag(app: &App, params: TicketParams) -> Result<DragAnswer, RequestError> {
     let ticket = ticket(app, &params.key).await?;
     let project = ticket.key.project.to_string();
-    let tickets: Vec<Ticket> = Vec::new();
+    // The project's tickets: a waiting ticket dragged ahead names the tickets it waits for to merge.
+    let tickets: Vec<Ticket> = snapshot(app, &project).await?.tickets().cloned().collect();
     let flow = flow(app, &project).await;
     let left = match ticket.status {
         Status::Parked => parked_from(app, &ticket, &flow).await,
@@ -432,7 +451,7 @@ pub async fn decide(
     Ok(otaq_view::view_models::decide_menu::menu(&ticket, &flow))
 }
 
-/// The Agent stage a parked ticket left, by name (its Parked event's stage; a check's Agent stage before it).
+/// The Agent stage a parked ticket left, by name (its latest Parked event's stage; a check's Agent stage before it).
 async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> {
     let history = app
         .service
@@ -443,9 +462,9 @@ async fn parked_from(app: &App, ticket: &Ticket, flow: &Flow) -> Option<String> 
     let Ok(Reply::History(events)) = history else {
         return None;
     };
+    // History is newest first: the first Parked event is the latest park.
     let id = events
         .iter()
-        .rev()
         .find(|e| e.kind == EventKind::Parked)?
         .payload
         .get("stage_id")?
@@ -537,7 +556,7 @@ async fn carry_out(
         DropStep::Nothing => DropOutcome::Nothing,
         DropStep::NotYet(message) => DropOutcome::NotYet { message },
         DropStep::Park => DropOutcome::Park {
-            dialog: board_page::park_dialog(ticket),
+            dialog: board_page::park_dialog(ticket, flow),
         },
         DropStep::Move => {
             // A move only follows a target the flow has (drop_step_in says Nothing otherwise).
@@ -599,7 +618,11 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
         }))
         .await;
     match sent? {
-        Reply::Returned(ReturnOutcome::NeedsConfirmation { unclearable_by, .. }) => {
+        Reply::Returned(ReturnOutcome::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        }) => {
             Ok(Sent::Ask(Unsent::of(
                 &UnsentPrompt::for_click(
                     ticket.key.clone(),
@@ -607,7 +630,8 @@ pub async fn drag_back(app: &App, params: DragBackParams) -> Result<Sent, Reques
                     sb::sending(0),
                     Click::SendBack { note: params.note },
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         // A refusal comes back as the error: the dialog shows it and stays open.
@@ -748,6 +772,9 @@ pub async fn delete(app: &App, params: TicketParams) -> Result<(), RequestError>
 }
 
 #[cfg(test)]
+mod parked_from_tests;
+
+#[cfg(test)]
 mod tests {
     use otaq_core::board::tickets::NewTicketInput;
     use otaq_core::git::testing::TempRepos;
@@ -775,7 +802,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -849,7 +875,6 @@ mod tests {
                 path: path.display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -929,7 +954,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -1044,6 +1068,74 @@ mod tests {
         h.service.stop_all().await;
     }
 
+    /// A started ticket that waits for another to merge, dragged ahead, is refused naming the ticket it waits for.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn a_waiting_ticket_dragged_ahead_names_what_it_waits_for() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        let Reply::ProjectAdded { project, .. } = send(
+            &h,
+            Request::ProjectAdd(AddProject {
+                path: repos.repo("shop-web", 1).display().to_string(),
+                key: None,
+                base_branch: None,
+            }),
+        )
+        .await
+        else {
+            panic!("no project");
+        };
+        let mut keys = Vec::new();
+        for title in ["Price table", "Checkout"] {
+            let Reply::Ticket(t) = send(
+                &h,
+                Request::TicketCreate(NewTicketInput {
+                    project: project.key.clone(),
+                    title: title.into(),
+                    ..Default::default()
+                }),
+            )
+            .await
+            else {
+                panic!("no ticket");
+            };
+            keys.push(t.key.to_string());
+        }
+        send(
+            &h,
+            Request::DepAdd(otaq_core::protocol::DepParams {
+                child: keys[1].clone(),
+                parent: keys[0].clone(),
+            }),
+        )
+        .await;
+        let started = request(&h.app, "board.start", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        assert_eq!(started["kind"], "moved", "{started}");
+
+        let drag = request(&h.app, "board.drag", json!({ "key": keys[1] }))
+            .await
+            .unwrap();
+        let validate = drag["targets"]
+            .as_array()
+            .unwrap()
+            .iter()
+            .find(|t| t["target"] == "validate")
+            .unwrap();
+        assert_eq!(validate["verdict"]["kind"], "forbidden", "{validate}");
+        assert_eq!(
+            validate["verdict"]["title"],
+            format!("{} can\u{2019}t go to Validate yet", keys[1])
+        );
+        assert_eq!(
+            validate["verdict"]["detail"],
+            format!("It waits for {} to merge, then starts by itself.", keys[0])
+        );
+        h.service.stop_all().await;
+    }
+
     /// T-0345, AGM-09: `board.agents` reaches the cards, and a card names no agent before it starts, whatever its
     /// flow's stages run (four agents on a fresh install).
     #[tokio::test(flavor = "multi_thread")]
@@ -1057,7 +1149,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await
@@ -1100,7 +1191,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await

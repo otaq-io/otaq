@@ -25,6 +25,10 @@
 //! **While the ticket validates** (d0063) the agent's Stop never makes it Idle (it was told to end its turn) and
 //! nothing else of the agent's moves it, except a request for the user: a permission prompt or a question turns
 //! the card turquoise, and once the user answers it shows Validating… again.
+//!
+//! **While the agent fixes a delivery problem** ("Merge check failed · fixing", "Conflicts with main · fixing") it is
+//! the same: a prompt, a question or a helper's prompt reads Needs you (or Asks you) like anywhere else, and once the
+//! user answers it reads "fixing" again ([`SignalState::fixing`]).
 
 use super::LIVE;
 use super::hooks::Signal;
@@ -46,6 +50,9 @@ pub struct SignalState {
     pub last_signal_at: Option<i64>,
     /// The ticket validates: Validating…, or its agent waits for the user during a validation.
     pub validating: bool,
+    /// The ticket's agent fixes a delivery problem (a failed Merge check, a conflict): "… · fixing", or its agent
+    /// waits for the user while fixing one.
+    pub fixing: bool,
     /// The ticket's open question to the user (d0119), read from the store; never written with the state.
     pub question: Option<String>,
     /// The line of a helper's open permission prompt ("40.3 needs you: allow …", d0133), read from the store; never
@@ -62,6 +69,7 @@ impl Default for SignalState {
             wakeup_at: None,
             last_signal_at: None,
             validating: false,
+            fixing: false,
             question: None,
             helper_prompt: None,
         }
@@ -79,6 +87,10 @@ pub enum Input {
     Command,
     /// Enter pressed in the ticket's terminal (the relay, T-0051).
     Enter,
+    /// A permission prompt already on the agent's screen, read again as its ticket moved: one drawn while the ticket
+    /// waited in Review, where it kept its calm (the message writer's), reads Needs you like a prompt drawn now once
+    /// the ticket is back at work. Not a signal of the tool's: the last signal stays.
+    Drawn { prompt: String },
     /// The user answered from Needs you, the card or the sheet (ATT-02, ATT-08): clears like Enter.
     Answered,
     /// A helper's wait changed (d0133 audit 3): its prompt opened or closed (`ended_prompt`: the line the ticket showed
@@ -91,12 +103,16 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
     let mut next = state.clone();
     if !matches!(
         input,
-        Input::Enter | Input::Answered | Input::HelperWait { .. }
+        Input::Enter | Input::Answered | Input::HelperWait { .. } | Input::Drawn { .. }
     ) {
         next.last_signal_at = Some(now);
     }
     if state.validating {
         validating(&mut next, input, now);
+        return next;
+    }
+    if state.fixing {
+        fixing(&mut next, input, now);
         return next;
     }
     if !LIVE.contains(&state.status) {
@@ -117,7 +133,7 @@ pub fn transition(state: &SignalState, input: &Input, now: i64) -> SignalState {
         }
     };
     match input {
-        Input::Hook(Signal::NeedsYou { prompt }) => {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } => {
             set(&mut next, Status::NeedsYou, Some(prompt.clone()), None);
         }
         Input::Hook(Signal::WorkingInBackground { work }) => {
@@ -240,7 +256,7 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
         next.wakeup_at = None;
     };
     match input {
-        Input::Hook(Signal::NeedsYou { prompt }) if open => {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } if open => {
             set(Status::NeedsYou, Some(prompt.clone()))
         }
         Input::AskHuman(question) if open => set(Status::AsksYou, Some(question.clone())),
@@ -257,6 +273,69 @@ fn validating(next: &mut SignalState, input: &Input, now: i64) {
         }
         // Stop, background work, the usage limit: the validation stands.
         _ => {}
+    }
+}
+
+/// The agent's signals while it fixes a delivery problem ("Merge check failed · fixing", "Conflicts with main ·
+/// fixing"). Like a validation, nothing of the agent's moves the ticket except a request for the user: a permission
+/// prompt, a question or a helper's prompt reads Needs you (or Asks you) as anywhere else, and once the user answers
+/// it reads "fixing" again. The agent's Stop, background work and the usage limit leave it fixing.
+fn fixing(next: &mut SignalState, input: &Input, now: i64) {
+    let status = next.status;
+    let waiting = status.is_agent_waiting();
+    let question = next.question.clone();
+    let helper_prompt = next.helper_prompt.clone();
+    let (text_before, since_before) = (next.text.clone(), next.since);
+    let mut set = |status: Status, text: Option<String>| {
+        if next.status != status || next.text != text {
+            next.since = Some(now);
+        }
+        next.status = status;
+        next.text = text;
+        next.wakeup_at = None;
+    };
+    // The user's wait is over: an open question still holds Asks you, else the ticket is fixing again.
+    let mut back = |question: Option<String>| match question {
+        Some(question) => set(Status::AsksYou, Some(question)),
+        None => set(Status::MergeConflictFixing, None),
+    };
+    match input {
+        Input::Hook(Signal::NeedsYou { prompt }) | Input::Drawn { prompt } => {
+            set(Status::NeedsYou, Some(prompt.clone()));
+        }
+        Input::AskHuman(question) => set(Status::AsksYou, Some(question.clone())),
+        // An open question isn't the agent's to clear.
+        Input::Command if status == Status::AsksYou => {}
+        Input::Hook(Signal::Working { .. }) | Input::Enter | Input::Answered | Input::Command
+            if waiting =>
+        {
+            back(question);
+        }
+        // The helper's wait the ticket showed is over: its prompt's line, or a question no longer open.
+        Input::HelperWait { ended_prompt } => {
+            let prompt_ended = status == Status::NeedsYou
+                && ended_prompt.is_some()
+                && text_before == *ended_prompt;
+            let question_ended = status == Status::AsksYou && question.is_none();
+            if prompt_ended || question_ended {
+                back(question);
+            }
+        }
+        _ => {}
+    }
+    // A helper's open prompt shows unless the agent's own does.
+    if let Some(prompt) = helper_prompt
+        && next.status != Status::NeedsYou
+    {
+        let text = Some(prompt);
+        next.since = if status == Status::NeedsYou && text_before == text {
+            since_before
+        } else {
+            Some(now)
+        };
+        next.status = Status::NeedsYou;
+        next.text = text;
+        next.wakeup_at = None;
     }
 }
 
@@ -288,6 +367,7 @@ mod tests {
             last_signal_at: Some(10),
             wakeup_at: None,
             validating: false,
+            fixing: false,
             question: None,
             helper_prompt: None,
         }
@@ -727,6 +807,149 @@ mod tests {
         assert_eq!(
             transition(&validator_waits, &prompt, 50).status,
             Status::CheckerNeedsYou
+        );
+    }
+
+    /// Re-test 5: while the agent fixes a failed Merge check or a conflict, a prompt or a question reads Needs you (or
+    /// Asks you) as anywhere else, and once the user answers it reads "fixing" again; the agent's Stop, background work
+    /// and the limit leave it fixing.
+    #[test]
+    fn the_agent_while_it_fixes_a_delivery_problem() {
+        const REBASE: &str = "Run command: git rebase main";
+        let fixing = SignalState {
+            status: Status::MergeConflictFixing,
+            fixing: true,
+            ..Default::default()
+        };
+        for input in [
+            Input::Hook(Signal::Idle { last_line: None }),
+            Input::Hook(Signal::TurnEnded),
+            Input::Hook(background()),
+            Input::Hook(Signal::Working { prompt: None }),
+            Input::Command,
+            Input::Enter,
+            Input::Answered,
+        ] {
+            assert_eq!(
+                transition(&fixing, &input, 50).status,
+                Status::MergeConflictFixing,
+                "{input:?}"
+            );
+        }
+        let waiting = transition(
+            &fixing,
+            &Input::Hook(Signal::NeedsYou {
+                prompt: REBASE.into(),
+            }),
+            50,
+        );
+        assert_eq!(
+            (waiting.status, waiting.text.as_deref(), waiting.since),
+            (Status::NeedsYou, Some(REBASE), Some(50))
+        );
+        // The next prompt drawn names its own command.
+        let next = transition(
+            &waiting,
+            &Input::Hook(Signal::NeedsYou {
+                prompt: "Run command: git diff".into(),
+            }),
+            55,
+        );
+        assert_eq!(next.text.as_deref(), Some("Run command: git diff"));
+        for clear in [
+            Input::Enter,
+            Input::Answered,
+            Input::Command,
+            Input::Hook(Signal::Working { prompt: None }),
+        ] {
+            let back = transition(&waiting, &clear, 60);
+            assert_eq!(
+                (back.status, back.text.as_deref(), back.since),
+                (Status::MergeConflictFixing, None, Some(60)),
+                "{clear:?}"
+            );
+        }
+        // A question reads Asks you; the agent's command never clears it, an answer does once it's closed.
+        let asks = transition(&fixing, &Input::AskHuman("Rebase or merge?".into()), 70);
+        assert_eq!(asks.status, Status::AsksYou);
+        assert_eq!(
+            transition(&asks, &Input::Command, 80).status,
+            Status::AsksYou
+        );
+        assert_eq!(
+            transition(&asks, &Input::Answered, 80).status,
+            Status::MergeConflictFixing
+        );
+        // An open question holds Asks you after a prompt on top of it is answered.
+        let held = SignalState {
+            question: Some("Rebase or merge?".into()),
+            ..waiting.clone()
+        };
+        let back = transition(&held, &Input::Answered, 90);
+        assert_eq!(
+            (back.status, back.text.as_deref()),
+            (Status::AsksYou, Some("Rebase or merge?"))
+        );
+        // A helper's prompt shows too, and gives way to "fixing" once it ends.
+        let helper = SignalState {
+            helper_prompt: Some("40.3 needs you: allow ls".into()),
+            ..fixing.clone()
+        };
+        let shown = transition(&helper, &Input::HelperWait { ended_prompt: None }, 100);
+        assert_eq!(
+            (shown.status, shown.text.as_deref()),
+            (Status::NeedsYou, Some("40.3 needs you: allow ls"))
+        );
+        let ended = SignalState {
+            helper_prompt: None,
+            ..shown
+        };
+        let input = Input::HelperWait {
+            ended_prompt: Some("40.3 needs you: allow ls".into()),
+        };
+        assert_eq!(
+            transition(&ended, &input, 110).status,
+            Status::MergeConflictFixing
+        );
+    }
+
+    /// A prompt drawn while the ticket waited in Review (the message writer's) kept its calm there; read again once a
+    /// conflict sends the ticket back to be fixed, it reads Needs you naming its command, and once answered the ticket
+    /// reads "fixing" again. Read again while the ticket still waits in Review, or a second time, it changes nothing,
+    /// not even the last signal: it isn't the tool's.
+    #[test]
+    fn a_prompt_drawn_in_review_reads_needs_you_once_read_again_at_work() {
+        let prompt = "Run command: git log --oneline main..HEAD";
+        let drawn = Input::Drawn {
+            prompt: prompt.into(),
+        };
+        let review = with(Status::WaitingForYou, "done");
+        assert_eq!(transition(&review, &drawn, 50), review, "Review stays calm");
+
+        let fixing = SignalState {
+            status: Status::MergeConflictFixing,
+            fixing: true,
+            since: Some(10),
+            last_signal_at: Some(10),
+            ..Default::default()
+        };
+        let waiting = transition(&fixing, &drawn, 50);
+        assert_eq!(
+            (waiting.status, waiting.text.as_deref(), waiting.since),
+            (Status::NeedsYou, Some(prompt), Some(50))
+        );
+        assert_eq!(waiting.last_signal_at, Some(10), "the last signal stays");
+        assert_eq!(transition(&waiting, &drawn, 60), waiting, "once");
+        let back = transition(&waiting, &Input::Answered, 70);
+        assert_eq!(
+            (back.status, back.text.as_deref()),
+            (Status::MergeConflictFixing, None)
+        );
+
+        let at_work = transition(&working(), &drawn, 50);
+        assert_eq!(
+            (at_work.status, at_work.text.as_deref()),
+            (Status::NeedsYou, Some(prompt))
         );
     }
 }

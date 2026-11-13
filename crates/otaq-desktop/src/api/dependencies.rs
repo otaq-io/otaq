@@ -99,8 +99,13 @@ pub async fn view(app: &App, params: ViewParams) -> Result<Option<Section>, Requ
     let Some((ticket, all)) = with_project(app, &params.key).await? else {
         return Ok(None);
     };
-    let flow = super::board::flow(app, &ticket.key.project.to_string()).await;
-    Ok(dependencies::section(&Columns::of(&flow), &ticket, &all, now_ms()))
+    let project = ticket.key.project.to_string();
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, &project),
+        super::board::agents(app, &project)
+    );
+    let columns = Columns::of(&flow).knowing(agents.as_ref());
+    Ok(dependencies::section(&columns, &ticket, &all, now_ms()))
 }
 
 /// Who searches for a ticket to wait for: an existing ticket, or a new one in the New ticket form.
@@ -144,9 +149,12 @@ pub async fn search(app: &App, params: SearchParams) -> Result<Vec<SearchRow>, R
             (project, all, taken)
         }
     };
-    let flow = super::board::flow(app, &project).await;
+    let (flow, agents) = tokio::join!(
+        super::board::flow(app, &project),
+        super::board::agents(app, &project)
+    );
     Ok(dependencies::search(
-        &Columns::of(&flow),
+        &Columns::of(&flow).knowing(agents.as_ref()),
         &all,
         &taken,
         &params.query,
@@ -218,7 +226,6 @@ mod tests {
                 path: repos.repo("shop-web", 1).display().to_string(),
                 key: None,
                 base_branch: None,
-                flow_setup: false,
             }),
         )
         .await

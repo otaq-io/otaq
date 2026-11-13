@@ -19,8 +19,9 @@
 //! **Any agent check of any flow** runs this way (FLW-13, d0108 second gap review rule 9): each counts its own fails
 //! in a row ([`crate::board::validation::CheckCounts`]) against its own rounds; a pass into another agent check opens
 //! that check's round and starts its checker; 0063's rules (VAL-02, VAL-07, VAL-08) and Stop this check hold
-//! whatever the check's skill. **Move on anyway** and **Skip this check**, only on a check the flow marks skippable
-//! (`options: [skip]`; refused on any other), take the card to the engine's next stage,
+//! whatever the check's skill. **Move on anyway** after the last failed round, on every check, and **Skip this
+//! check** (and Move on anyway after no result) only on a check the flow marks skippable (`options: [skip]`; refused
+//! on any other), take the card to the engine's next stage,
 //! and its Delivery then does what the flow says (automatic stays automatic); Skip this check is also offered on a check
 //! held for the plan limit (Q277), never on a held Agent stage.
 //!
@@ -861,15 +862,17 @@ impl Validation {
                 self.asking_of(ticket_id, |asking| {
                     asking.insert(session.to_owned());
                 });
-                board
+                // Also from Needs you: the prompt now on screen replaces the one answered or not drawn.
+                let set = board
                     .set_validation_status(
                         ticket_id,
-                        &[Status::Checking],
+                        &[Status::Checking, Status::CheckerNeedsYou],
                         Status::CheckerNeedsYou,
                         Some(prompt),
                         false,
                     )
                     .await?;
+                self.status_set(&ticket, set, Status::CheckerNeedsYou);
             }
             Signal::Working { .. } => {
                 // Validating… again once the checker no longer waits on a prompt.
@@ -878,7 +881,7 @@ impl Validation {
                     !asking.is_empty()
                 });
                 if !still {
-                    board
+                    let set = board
                         .set_validation_status(
                             ticket_id,
                             &[Status::CheckerNeedsYou],
@@ -887,6 +890,7 @@ impl Validation {
                             false,
                         )
                         .await?;
+                    self.status_set(&ticket, set, Status::Checking);
                 }
             }
             Signal::Idle { .. } | Signal::TurnEnded if validating(ticket.status) => {
@@ -910,7 +914,7 @@ impl Validation {
                     .await?;
             }
             Signal::LimitReached { .. } if validating(ticket.status) => {
-                board
+                let set = board
                     .set_validation_status(
                         ticket_id,
                         &[Status::Checking, Status::CheckerNeedsYou],
@@ -919,10 +923,46 @@ impl Validation {
                         true,
                     )
                     .await?;
+                self.status_set(&ticket, set, Status::WaitingForLimitReset);
             }
             _ => {}
         }
         Ok(())
+    }
+
+    /// A checker's hook moved the ticket to `status` (`set`: the store's update took): clients are told at once, so the
+    /// card and the sheet show its prompt as it is drawn (or Validating… once it is answered), not at the next change.
+    fn status_set(&self, ticket: &Ticket, set: bool, status: Status) {
+        if !set {
+            return;
+        }
+        let project = ticket.key.project.to_string();
+        self.inner.events.publish(Event::TicketChanged {
+            project: project.clone(),
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+        });
+        // Another prompt on screen changes only the line.
+        if ticket.status == status {
+            return;
+        }
+        self.inner.events.publish(Event::CardStatusChanged {
+            project,
+            id: ticket.id.clone(),
+            key: ticket.key.clone(),
+            status,
+        });
+    }
+
+    /// The user answered the checker `session`'s permission prompt in its terminal (Enter, or Codex's "y" alone, after
+    /// which its tool sends nothing until its turn ends or asks again): as when its turn goes on, the ticket is
+    /// Validating… again once no checker waits on one. A checker with no prompt open is left as it is.
+    pub async fn prompt_answered(&self, ticket_id: &str, session: &str) -> Result<(), BoardError> {
+        if !self.asking_of(ticket_id, |asking| asking.contains(session)) {
+            return Ok(());
+        }
+        self.validator_signal(ticket_id, session, &Signal::Working { prompt: None })
+            .await
     }
 
     /// The tool refused the validator's model (AGT-05, SDD §7.2 `[M22]` "No result: validator's model", VAL-07): the

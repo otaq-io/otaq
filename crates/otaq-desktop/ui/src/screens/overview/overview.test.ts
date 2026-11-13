@@ -16,7 +16,7 @@ import { attachRequests } from "../editor/CommentThread";
 import { FORM, READ, VIEW } from "../editor/editor_fixtures";
 import { DescriptionSection } from "./Description";
 import { asksFirst, descriptionDraft, descriptionState, isSaveDescriptionKey } from "./draft";
-import { Attachments } from "./Overview";
+import { Attachments, OwnAgentLine } from "./Overview";
 import { PlanningDid } from "./PlanningDid";
 import { DescriptionSaveBar } from "./SaveBar";
 
@@ -65,6 +65,7 @@ const OVERVIEW: OverviewView = {
   key: KEY,
   in_review: null,
   answered: null,
+  own_agent: null,
   description: "Description",
   click_to_edit: "Click to edit",
   editing: "Editing · Esc to discard, ⌘S to save",
@@ -363,6 +364,16 @@ describe("the description in place (s25-04)", () => {
     });
     expect(selection.get()).toMatchObject({ ticket: KEY, tab: null });
     expect(page.querySelector(".overview-edit")).not.toBeNull();
+  });
+});
+
+describe("the ticket's own agent for a stage", () => {
+  it("reads as one muted line with the person icon, as on its card", () => {
+    const out = renderToStaticMarkup(
+      createElement(OwnAgentLine, { line: "Dev: Checker instead of Developer" }),
+    );
+    expect(out).toContain('class="overview-own-agent"');
+    expect(out).toContain("Dev: Checker instead of Developer");
   });
 });
 

@@ -360,6 +360,8 @@ impl NeedsYouQueue {
             let ticket = board.ticket_by_id(&item.id).await?;
             let text = if ticket.status == Status::CheckFailed {
                 ticket.flags.verdict.clone()
+            } else if let Some(waiting) = ticket.session_prompt() {
+                Some(waiting.prompt.clone())
             } else {
                 ticket
                     .question
@@ -596,10 +598,17 @@ impl NeedsYouQueue {
                 typed.map_err(|e| BoardError::refused(Refusal::SessionEnded, e.to_string()))?
             }
             (Waiting::Live, None) => {
-                return Err(BoardError::refused(
-                    Refusal::SessionEnded,
-                    format!("{}'s session has ended", ticket.key),
-                ));
+                // Asked while the ticket waits in a check of the user's: Send back with the answer as the note is
+                // the way on (it closes the question).
+                let text = if ticket.question_in_place().is_some() {
+                    format!(
+                        "{}'s agent session has ended. Send the ticket back with your answer as the note.",
+                        ticket.key
+                    )
+                } else {
+                    format!("{}'s session has ended", ticket.key)
+                };
+                return Err(BoardError::refused(Refusal::SessionEnded, text));
             }
             (Waiting::Interrupted, _) => {
                 self.inner
@@ -761,13 +770,19 @@ struct Answerable {
 }
 
 /// Whether the ticket takes an answer: Asks you and Idle (a permission prompt is answered in the terminal, and
-/// simply asks again after a resume).
+/// simply asks again after a resume), and a question asked while the ticket waits in a check of the user's, which
+/// reads Asks you there ([`Ticket::question_in_place`]).
 fn answerable(ticket: &Ticket) -> Option<Answerable> {
     let takes_answer = |s: Status| matches!(s, Status::AsksYou | Status::Idle);
     if takes_answer(ticket.status) {
         Some(Answerable {
             how: Waiting::Live,
             label: ticket.status,
+        })
+    } else if ticket.question_in_place().is_some() {
+        Some(Answerable {
+            how: Waiting::Live,
+            label: Status::AsksYou,
         })
     } else if ticket.status == Status::Interrupted
         && let Some(label) = ticket.interrupted_from.filter(|s| takes_answer(*s))
@@ -799,6 +814,33 @@ pub fn answer_text(
         }
         (Some(q), Choice::Other(_)) => format_answer(q, choice),
         (None, Choice::Other(text)) => text.trim().to_owned(),
+        // Several answers: only a question that takes them, each a real option, at least one ticked.
+        (Some(q), Choice::Several { options, other }) if q.multiple => {
+            if let Some(n) = options
+                .iter()
+                .find(|&&n| n == 0 || n as usize > q.options.len())
+            {
+                return Err(BoardError::refused(
+                    Refusal::BadQuestion,
+                    format!("There is no option {n} to choose"),
+                ));
+            }
+            if other.as_deref().is_some_and(|t| t.trim().is_empty())
+                || (options.is_empty() && other.is_none())
+            {
+                return Err(BoardError::refused(
+                    Refusal::EmptyField,
+                    "Write the answer first",
+                ));
+            }
+            format_answer(q, choice)
+        }
+        (_, Choice::Several { .. }) => {
+            return Err(BoardError::refused(
+                Refusal::BadQuestion,
+                "This question takes one answer",
+            ));
+        }
         // Sending back moves the ticket: the send-back question's own request, never a typed answer.
         (_, Choice::SendBack) => {
             return Err(BoardError::refused(
@@ -896,6 +938,7 @@ mod tests {
             piece: None,
             helpers_to_resume: Vec::new(),
             missing_skill: None,
+            stopped: None,
         }
     }
 

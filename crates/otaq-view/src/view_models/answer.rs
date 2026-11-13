@@ -84,12 +84,18 @@ pub enum AnswerOutcome {
     Ask(UnsentPrompt),
 }
 
-/// What the unsent-text question says is being sent: "Your answer: option 2", "Your answer: Mailgun".
+/// What the unsent-text question says is being sent: "Your answer: option 2", "Your answer: Mailgun", and several
+/// answers each: "Your answer: option 1, option 3, Mailgun".
 pub fn sending(choice: &Choice) -> String {
     match choice {
         Choice::Other(text) => format!("Your answer: {text}"),
         Choice::Option(n) => format!("Your answer: option {n}"),
         Choice::SendBack => "Your answer: send it back".to_owned(),
+        Choice::Several { options, other } => {
+            let mut each: Vec<String> = options.iter().map(|n| format!("option {n}")).collect();
+            each.extend(other.iter().map(|text| text.trim().to_owned()));
+            format!("Your answer: {}", each.join(", "))
+        }
     }
 }
 
@@ -137,6 +143,7 @@ mod tests {
             piece: None,
             helpers_to_resume: Vec::new(),
             missing_skill: None,
+            stopped: None,
         }
     }
 

@@ -19,6 +19,7 @@ use otaq_core::agents::Agent;
 use otaq_core::flow::apply::{ApplyParams, ProposeFrom};
 use otaq_core::flow::draft::{Draft, DraftEdit, DraftUpdateParams};
 use otaq_core::flow::model::FlowFile;
+use otaq_core::flow::proposal::ProposedBy;
 use otaq_core::flow::yaml;
 use otaq_core::project_agents::{AgentState, FLOW_COMMAND};
 use otaq_core::protocol::{InputParams, ProjectParams, Reply, Request, encode_bytes};
@@ -267,7 +268,14 @@ impl Gathered {
             writing: &self.draft.writing,
             written: &self.draft.written,
             selected,
-            agent: agent.and_then(|id| self.open.iter().find(|a| a.id == id)),
+            // The conversation the page follows, else the one whose proposal the draft shows (the page forgot it,
+            // after a restart): the box names its agent and shows it redrafting (UX-63).
+            agent: agent
+                .or(match &self.draft.proposal.proposed_by {
+                    ProposedBy::ProjectAgent { agent, .. } => Some(agent.as_str()),
+                    ProposedBy::User => None,
+                })
+                .and_then(|id| self.open.iter().find(|a| a.id == id)),
             new_agent: self.new_agent.as_ref(),
             choices,
         }
@@ -343,22 +351,51 @@ async fn apply(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
 }
 
 /// Cancel drops the draft.
+/// Cancel drops the draft the page showed (`proposal`; `0`: none was stored, so nothing to drop). With no
+/// `proposal` the page had no view to say which (the draft doesn't draw): whatever draft is open goes. The skills the
+/// agent wrote for it go with it (the service deletes their folders), and an agent still writing one is interrupted,
+/// as Stop does, so it doesn't write the folder again.
 async fn cancel(app: &App, params: ProjectFrom) -> Result<(), RequestError> {
-    if params.proposal.unwrap_or(0) == 0 {
+    if params.proposal == Some(0) {
         return Ok(());
     }
+    let writers: Vec<String> = draft(app, &params.project)
+        .await
+        .map(|d| d.writing.into_iter().filter_map(|w| w.agent).collect())
+        .unwrap_or_default();
     match app
         .service
         .send(Request::FlowCancelProposal(ProjectParams {
-            project: params.project,
+            project: params.project.clone(),
         }))
         .await
     {
-        Ok(_) => Ok(()),
+        Ok(_) => {}
         // Gone meanwhile (applied or cancelled elsewhere): nothing left to drop.
-        Err(e) if e.not_found => Ok(()),
-        Err(e) => Err(e),
+        Err(e) if e.not_found => return Ok(()),
+        Err(e) => return Err(e),
     }
+    if writers.is_empty() {
+        return Ok(());
+    }
+    let open = super::agent_panel::agents(app, &params.project).await?.open;
+    for agent in open {
+        if writers.contains(&agent.id)
+            && agent.state == AgentState::Running
+            && agent.mid_turn
+            && let Some(session) = agent.session
+        {
+            app.service
+                .send(Request::SessionInput(InputParams {
+                    session: session.id,
+                    data: encode_bytes(b"\x1b"),
+                    reply: false,
+                    if_empty: false,
+                }))
+                .await?;
+        }
+    }
+    Ok(())
 }
 
 /// The first message, on the `flow` skill: `/flow <the user's words>`.
@@ -485,6 +522,7 @@ async fn open_skill(app: &App, params: SkillParams) -> Result<(), RequestError> 
 #[cfg(test)]
 mod tests {
     use otaq_core::board::projects::AddProject;
+    use otaq_core::flow::write_skill::WriteSkillParams;
     use otaq_core::git::testing::TempRepos;
     use otaq_view::view_models::flow_board::View as BoardEditor;
     use serde_json::json;
@@ -672,8 +710,8 @@ mod tests {
         assert_eq!(agent.name, "Developer");
     }
 
-    /// FED-05, FED-06: a Blank stage keeps Save off ("New stage needs a skill"); a skill typed for it turns Save on,
-    /// and it applies.
+    /// A Blank stage with no skill saves: Otaq's own skill for the stage runs; a skill typed for it is kept, and it
+    /// applies.
     #[tokio::test(flavor = "multi_thread")]
     async fn a_new_stage_waits_for_a_skill_and_takes_a_picked_one() {
         let h = Harness::new(None);
@@ -693,8 +731,7 @@ mod tests {
             details.skill.as_ref().map(|s| &s.state),
             Some(vm::SkillState::Empty { .. })
         ));
-        assert!(!v.bar.save_enabled);
-        assert_eq!(v.bar.reason.as_deref(), Some("New stage needs a skill"));
+        assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
         let picker = &details.skill.as_ref().unwrap().picker;
         assert!(picker.items.iter().any(|i| i.id == "validate"));
@@ -720,6 +757,7 @@ mod tests {
             Some(&vm::SkillState::Set {
                 skill: "plan-steps".into(),
                 warning: Some("You don't have the skill `plan-steps`".into()),
+                fix: Some(vm::SKILL_FIX),
             })
         );
         assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
@@ -730,6 +768,115 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// Ask the agent to write it on a stage whose skill nobody has: Pick a skill… and the warning offer it; once the
+    /// user's send has started the writer, the stage shows it being written; the writer gets a folder in the
+    /// project's checkout, in the skills folder its tool reads (`.claude/skills/<name>` for Claude Code), and once it
+    /// hands the skill in the field shows it, with where it was saved and that it needs committing.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn asking_the_agent_to_write_a_missing_skill_shows_it_being_written() {
+        let h = Harness::new(None);
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "add_template", "after": "dev", "template": "new-stage" } }),
+        )
+        .await
+        .unwrap();
+        request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "skill", "stage": "new-stage", "skill": "plan-steps" } }),
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("new-stage")).await;
+        let field = v.details.as_ref().unwrap().skill.clone().unwrap();
+        assert!(matches!(
+            field.state,
+            vm::SkillState::Set {
+                fix: Some(vm::SKILL_FIX),
+                ..
+            }
+        ));
+        assert_eq!(field.picker.ask.id, vm::ASK_TO_WRITE);
+        assert!(field.picker.prefill.starts_with("Write a skill for the "));
+
+        // What the user's send does once Noyan's agent has started (`write_skill`): the stage is being written.
+        update(
+            &h.app,
+            "SHOP",
+            DraftEdit::SkillWriting {
+                stage: "new-stage".into(),
+                agent: None,
+            },
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("new-stage")).await;
+        assert!(matches!(
+            v.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            Some(vm::SkillState::Writing { .. })
+        ));
+        assert!(!v.bar.save_enabled, "Save waits for the skill being written");
+
+        // The writer names the skill and gets its folder in the checkout, for Claude Code's agent.
+        let Reply::SkillWrite(at) = h
+            .app
+            .service
+            .send(Request::FlowWriteSkill(WriteSkillParams {
+                project: "SHOP".into(),
+                stage: "new-stage".into(),
+                name: Some("plan-steps".into()),
+                done: false,
+            }))
+            .await
+            .unwrap()
+        else {
+            panic!("flow.write_skill");
+        };
+        let folder = std::path::PathBuf::from(&at.folder);
+        assert!(
+            folder.ends_with(".claude/skills/plan-steps"),
+            "{}",
+            at.folder
+        );
+        let v = load(&h, Some("new-stage")).await;
+        assert!(matches!(
+            v.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            Some(vm::SkillState::Writing { .. })
+        ));
+        std::fs::write(
+            folder.join("SKILL.md"),
+            "---\nname: plan-steps\ndescription: Plans the steps.\n---\n\nPlan the steps.\n",
+        )
+        .unwrap();
+        h.app
+            .service
+            .send(Request::FlowWriteSkill(WriteSkillParams {
+                project: "SHOP".into(),
+                stage: "new-stage".into(),
+                name: None,
+                done: true,
+            }))
+            .await
+            .unwrap();
+        let v = load(&h, Some("new-stage")).await;
+        assert_eq!(
+            v.details.as_ref().unwrap().skill.as_ref().map(|s| &s.state),
+            Some(&vm::SkillState::Written {
+                skill: "plan-steps".into(),
+                note: "Written by the agent",
+                saved: Some(otaq_core::flow::write_skill::saved_text(".claude/skills/plan-steps")),
+                why: "Written by you".into(),
+                open: Some("Open"),
+                undo: "Undo",
+            })
+        );
     }
 
     /// A flow file naming a skill the user doesn't have still applies: Security carries no problem, shows "You don't
@@ -773,6 +920,7 @@ mod tests {
             Some(&vm::SkillState::Set {
                 skill: "team-security-review".into(),
                 warning: Some("You don't have the skill `team-security-review`".into()),
+                fix: Some(vm::SKILL_FIX),
             })
         );
         assert!(v.bar.save_enabled, "{:?}", v.bar.reason);

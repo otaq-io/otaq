@@ -1,5 +1,5 @@
 //! Approve ▾ and Local merge (GIT-03, REV-08, UI-02; d0015, d0038, d0050, d0058; *07 → Local merge · confirm,
-//! success, rebasing, conflict, refused*): the choice, the confirmation's texts, and one state per Local merge
+//! success, merging, conflict, refused*): the choice, the confirmation's texts, and one state per Local merge
 //! result. Approve offers exactly what the flow's delivery allows, named by what it does ("Approve & merge into
 //! main", "Approve & open PR"; both when the flow delivers either), then the other ways to finish the ticket. Nothing
 //! here pushes, and no state offers to stash or discard.
@@ -7,8 +7,8 @@
 use otaq_core::board::merge_into::{can_be_merged_in, can_take};
 use otaq_core::board::review::{ApproveCheck, changed_message};
 use otaq_core::board::tickets::Ticket;
-use otaq_core::domain::{Status, TicketKey};
-use otaq_core::flow::Delivers;
+use otaq_core::domain::{GitOperation, GitProgress, Status, TicketKey};
+use otaq_core::flow::{Delivers, Flow};
 use otaq_core::pr::provider::PrProvider;
 use otaq_core::review::LocalMergeOutcome;
 use otaq_core::review::merge_into::{MergeIntoOutcome, conflict_message};
@@ -168,8 +168,9 @@ pub fn options(
     tickets: &[Ticket],
     pr: Option<&PrProvider>,
     commits: Option<u32>,
-    delivers: Delivers,
+    flow: &Flow,
 ) -> Vec<ApproveOption> {
+    let delivers = flow.delivery.delivers;
     if let Some(n) = ticket.flags.pr_number {
         let provider = pr
             .and_then(|p| p.provider)
@@ -223,7 +224,7 @@ pub fn options(
             enabled: blocked.is_none(),
         });
     }
-    out.push(merge_into_option(ticket, target, tickets));
+    out.push(merge_into_option(ticket, target, tickets, flow));
     let done = ApproveOption {
         choice: ApproveChoice::Done,
         title: DONE_NOTHING_TO_MERGE.to_owned(),
@@ -281,8 +282,14 @@ pub fn delivery_note(ticket: &Ticket, target: &str, delivers: Delivers) -> Strin
 }
 
 /// "Merge into another ticket…": enabled when another ticket can take this one's branch (the picker lists them).
-fn merge_into_option(ticket: &Ticket, target: &str, tickets: &[Ticket]) -> ApproveOption {
-    let can = can_be_merged_in(ticket) && tickets.iter().any(|host| can_take(ticket, host));
+fn merge_into_option(
+    ticket: &Ticket,
+    target: &str,
+    tickets: &[Ticket],
+    flow: &Flow,
+) -> ApproveOption {
+    let can =
+        can_be_merged_in(ticket, flow) && tickets.iter().any(|host| can_take(ticket, host, flow));
     ApproveOption {
         choice: ApproveChoice::MergeInto,
         title: MERGE_INTO.to_owned(),
@@ -376,17 +383,27 @@ pub fn merge_into_view(key: &TicketKey, outcome: &MergeIntoOutcome) -> MergeInto
     }
 }
 
-/// "Open PR on GitHub", or plain "Open PR" when no provider is detected (a custom skill decides).
+/// "Approve & open PR on GitHub", or plain "Approve & open PR" when no provider is detected (a custom skill decides).
 pub fn open_pr_title(pr: Option<&PrProvider>) -> String {
     match pr.and_then(|p| p.provider) {
-        Some(provider) => format!("Open PR on {}", provider.name()),
-        None => "Open PR".to_owned(),
+        Some(provider) => format!("Approve & open PR on {}", provider.name()),
+        None => "Approve & open PR".to_owned(),
     }
 }
 
-/// "Local merge SHOP-18 Checkout API".
+/// Puts the agent's proposal back in Approve & merge's message, or in Approve & open PR's title, description and
+/// commit messages, in place of the user's kept edit.
+pub const USE_THE_PROPOSED_MESSAGE: &str = "Use the proposed message";
+
+/// The edit Approve & merge keeps on the ticket: the message as the user left it when it isn't the proposal (spaces
+/// around it don't count), else none, and the dialog opens on the proposal again.
+pub fn kept_edit(proposed: &str, message: &str) -> Option<String> {
+    (message.trim() != proposed.trim()).then(|| message.to_owned())
+}
+
+/// "Approve & merge SHOP-18 Checkout API".
 pub fn confirm_title(ticket: &Ticket) -> String {
-    format!("Local merge {} {}", ticket.key, ticket.title)
+    format!("Approve & merge {} {}", ticket.key, ticket.title)
 }
 
 /// "Into (SHOP-18’s base branch)".
@@ -429,18 +446,43 @@ pub fn merge_check_runs_first(command: &str, target: &str) -> String {
 pub fn check_failed_help(key: &TicketKey, target: &str) -> String {
     format!(
         "Nothing was merged into {target}. {key} went back to its agent, which fixes it and moves on again; the \
-         check\u{2019}s output is attached to its comment."
+         check\u{2019}s whole output is attached to its comment."
     )
 }
 
-/// The steps the "Merging…" state lists (*Local merge · rebasing onto main…*).
-pub fn merging_steps(target: &str) -> Vec<String> {
-    vec![
+/// The steps the "Merging…" state lists (*Local merge · merging*), in the order Local merge takes them; the Merge
+/// check's only when the project has one.
+pub fn merging_steps(target: &str, merge_check: bool) -> Vec<String> {
+    let mut steps = vec![
         format!("Fetch {target} and bring it up to date"),
-        format!("Rebase onto {target}"),
+        format!("Merge {target} into the branch"),
         format!("Squash into {target}"),
-        "Start waiting tickets whose dependencies are all merged".to_owned(),
-    ]
+    ];
+    if merge_check {
+        steps.push("Run the merge check".to_owned());
+    }
+    steps.push(format!("Move {target} to the new commit"));
+    steps.push("Start waiting tickets whose dependencies are all merged".to_owned());
+    steps
+}
+
+/// Which of [`merging_steps`] git is really on, from the merge's progress; the first until it says one. The scratch
+/// worktree is prepared before the branch is brought up to date (only when it isn't there yet) and again before the
+/// squash: what came before places it.
+pub fn merging_step(progress: Option<&GitProgress>, merge_check: bool) -> usize {
+    use otaq_core::git::GitStep as S;
+    let Some(progress) = progress.filter(|p| p.operation == GitOperation::Merge) else {
+        return 0;
+    };
+    let check = usize::from(merge_check);
+    match progress.step {
+        None | Some(S::UpdateTarget) => 0,
+        Some(S::PrepareScratch) if !progress.earlier.contains(&S::UpdateBranch) => 0,
+        Some(S::UpdateBranch | S::SaveUncommitted | S::RestoreUncommitted) => 1,
+        Some(S::PrepareScratch | S::Squash | S::Commit | S::AddWorktree | S::Reword) => 2,
+        Some(S::MergeCheck) => 2 + check,
+        Some(S::MoveTarget) => 3 + check,
+    }
 }
 
 /// What the sheet shows after the click.
@@ -457,10 +499,17 @@ pub enum MergeView {
         text: String,
         files: Vec<String>,
     },
-    /// The Merge check failed on the rebased result (d0120): nothing merged, the agent fixes it with no click.
-    CheckFailed { title: String, text: String },
+    /// The Merge check failed on the result with the target merged in (d0120): nothing merged, the agent fixes it with no click.
+    /// `output` is the end of what it printed (empty when it printed nothing).
+    CheckFailed {
+        title: String,
+        text: String,
+        output: String,
+    },
     /// The user's Stop of the Merge check (Q475): nothing merged, the ticket where it was.
     CheckStopped { message: String },
+    /// The user's Stop of one of its git steps (a hook that hangs): nothing merged, the ticket where it was.
+    Stopped { message: String },
     /// "shop-web has uncommitted changes on main. Clean up and retry." (Retry).
     DirtyCheckout { message: String },
     /// The base diverged from its remote (Retry).
@@ -469,6 +518,9 @@ pub enum MergeView {
     Uncommitted { message: String, files: Vec<String> },
     /// git has no name and email for the user: nothing merged; they're asked for, then the merge goes on.
     NeedsIdentity { has: otaq_core::git::Identity },
+    /// A project's git hook refused a step: nothing merged. The refusal is on the ticket (Needs you, its output and
+    /// the way on), so the dialog closes and a toast only points there.
+    HookRefused { title: String, text: String },
     /// "SHOP-18 changed since you reviewed it · 1 new commit": the new commits (short sha, subject) and the
     /// files they changed · Approve anyway / Send back (REV-06).
     Changed {
@@ -493,22 +545,37 @@ pub fn started_label(count: usize) -> Option<String> {
     }
 }
 
+/// The merged toast's title: "SHOP-1 merged into main".
+pub fn merged_title(key: &TicketKey, target: &str) -> String {
+    format!("{key} merged into {target}")
+}
+
+/// The merged toast's text: "Squashed as 9f3e2c1".
+pub fn squashed_as(commit: &str) -> String {
+    format!("Squashed as {}", short(commit))
+}
+
 pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
     match outcome {
         LocalMergeOutcome::Merged {
             target,
             commit,
             started,
+            hook_changed,
             ..
         } => MergeView::Merged {
-            title: format!("Local merge done \u{b7} {key}"),
-            text: format!("Squashed into {target} as {}", short(commit)),
+            title: merged_title(key, target),
+            // A hook changed what landed: said after it, "· Your pre-commit hook changed 2 files".
+            text: match hook_changed {
+                Some(changes) => format!("{} \u{b7} {}", squashed_as(commit), changes.sentence()),
+                None => squashed_as(commit),
+            },
             started: started_label(started.len()),
         },
         LocalMergeOutcome::Conflict { target, files } => MergeView::Conflict {
-            title: format!("Rebase onto {target} stopped \u{2014} conflict"),
+            title: format!("Merging {target} in stopped \u{2014} conflict"),
             text: format!(
-                "{target} moved since {key} was built. The rebase onto the latest {target} conflicts in {}. It \
+                "{target} moved since {key} was built. Merging the latest {target} into its branch conflicts in {}. It \
                  was aborted; {target} and your own checkout are unchanged.",
                 match files.len() {
                     1 => "1 file".to_owned(),
@@ -529,17 +596,29 @@ pub fn view(key: &TicketKey, outcome: &LocalMergeOutcome) -> MergeView {
         },
         LocalMergeOutcome::Changed { check } => changed_view(key, check),
         LocalMergeOutcome::NeedsIdentity { has } => MergeView::NeedsIdentity { has: has.clone() },
+        LocalMergeOutcome::HookRefused { message, .. } => {
+            let (title, text) = super::hook_refusal::toast(&key.to_string(), message);
+            MergeView::HookRefused { title, text }
+        }
         // Nothing merged; the ticket is back with its agent, the comment's words (d0120).
         LocalMergeOutcome::CheckFailed {
             target,
             command,
             exit,
+            output,
         } => MergeView::CheckFailed {
             title: format!("Merge check failed on {target}"),
             text: otaq_core::domain::validation::merge_check_failed(command, target, *exit),
+            output: output.clone(),
         },
         LocalMergeOutcome::CheckStopped { target } => MergeView::CheckStopped {
             message: format!("The merge check was stopped; nothing was merged into {target}."),
+        },
+        LocalMergeOutcome::Stopped { target } => MergeView::Stopped {
+            message: format!(
+                "You stopped the merge. Nothing was merged into {target}; the branch and its worktree are as they \
+                 were."
+            ),
         },
     }
 }
@@ -584,12 +663,60 @@ pub fn conflict_line(conflict: &otaq_core::board::conflicts::Conflict) -> String
     line
 }
 
+/// What moved on the target, under the strip: "SHOP-6 changed README.md", "SHOP-6 changed a.ts and b.ts · 4fa97d6
+/// changed c.ts". `None` when git couldn't say.
+pub fn moved_line(conflict: &otaq_core::board::conflicts::Conflict) -> Option<String> {
+    if conflict.moved.is_empty() {
+        return None;
+    }
+    Some(
+        conflict
+            .moved
+            .iter()
+            .map(|m| {
+                format!(
+                    "{} changed {}",
+                    m.by,
+                    crate::view_models::dependencies::and_list(&m.files)
+                )
+            })
+            .collect::<Vec<_>>()
+            .join(" \u{b7} "),
+    )
+}
+
+/// A delivery problem the agent fixes on its own merges nothing, and the ticket comes back to its human check once
+/// fixed: "Nothing was merged into main. SHOP-5 returns to Review when it's fixed."
+pub fn nothing_merged_line(key: &TicketKey, target: &str) -> String {
+    format!("Nothing was merged into {target}. {key} returns to Review when it\u{2019}s fixed.")
+}
+
+/// Where the problem stands among the ones in a row that stop the ticket: "1 of 3".
+pub fn in_a_row(count: u32) -> String {
+    format!(
+        "{count} of {}",
+        otaq_core::board::merge::DELIVERY_CONFLICT_LIMIT
+    )
+}
+
+/// What the count means, on hover.
+pub const IN_A_ROW_HINT: &str =
+    "Conflicts and failed merge checks in a row. After the third, it stops and waits for you.";
+
 /// What happens after the conflict (FLW-17, no click): the agent fixes it, or the user does by hand.
 pub fn conflict_help(key: &TicketKey, target: &str) -> String {
     format!(
-        "{key} went back to its agent, which rebases onto {target}, resolves the conflict and moves on again. Or \
+        "{key} went back to its agent, which merges {target} in, resolves the conflict and moves on again. Or \
          resolve it yourself in the worktree."
     )
+}
+
+/// Tests only: the default flow (Dev → Validate → Review), delivered by `delivers`.
+#[cfg(test)]
+pub(crate) fn test_flow(delivers: Delivers) -> Flow {
+    let mut flow = otaq_core::flow::default_flow();
+    flow.delivery.delivers = delivers;
+    flow
 }
 
 #[cfg(test)]
@@ -603,6 +730,19 @@ mod tests {
         let mut shop20 = ticket("SHOP-20", "Checkout page", Status::Queued);
         shop20.depends_on = vec![shop18.key.clone(), shop19.key.clone()];
         (shop18.clone(), vec![shop18, shop19, shop20])
+    }
+
+    /// Only a message that differs from the proposal is kept; the proposal typed back (or with spaces around it)
+    /// keeps nothing.
+    #[test]
+    fn only_a_message_that_isnt_the_proposal_is_kept() {
+        let proposed = "SHOP-18 Add subtraction\n\nAdds subtract().";
+        assert_eq!(kept_edit(proposed, proposed), None);
+        assert_eq!(kept_edit(proposed, &format!("{proposed}\n")), None);
+        assert_eq!(
+            kept_edit(proposed, "feat: add subtraction (SHOP-18)").as_deref(),
+            Some("feat: add subtraction (SHOP-18)")
+        );
     }
 
     #[test]
@@ -619,7 +759,7 @@ mod tests {
             &[],
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(only.len(), 1, "Local merge and Open PR are hidden");
         assert_eq!(only[0].choice, ApproveChoice::PushToPr);
@@ -646,7 +786,7 @@ mod tests {
             &tickets,
             Some(&pr),
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )[1];
         assert_eq!(open.title, "Approve & open PR");
         assert_eq!(open.detail, "PR provider not detected");
@@ -658,7 +798,7 @@ mod tests {
             &tickets,
             Some(&pr),
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         )[1];
         assert_eq!(open.title, "Approve & open PR");
         assert_eq!(
@@ -689,7 +829,7 @@ mod tests {
             &all,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let merge = &menu[2];
         assert_eq!(merge.choice, ApproveChoice::MergeInto);
@@ -701,7 +841,7 @@ mod tests {
             std::slice::from_ref(&shop20),
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert!(!alone[2].enabled, "nothing can take it");
         assert_eq!(alone[2].detail, NO_HOST);
@@ -734,6 +874,61 @@ mod tests {
         );
     }
 
+    /// A flow with a Spec review before Dev: a ticket waiting there (before any code) can't take the branch, so the
+    /// choice is disabled with the empty picker's line; one in the review before the Delivery or with a PR open can.
+    #[test]
+    fn merge_into_skips_a_ticket_in_a_spec_review_before_dev() {
+        use otaq_core::flow::{CheckBy, Delivers, Stage, StageKind};
+        let mut flow = test_flow(Delivers::Either);
+        flow.stages.insert(
+            0,
+            Stage {
+                id: "spec-review".into(),
+                name: "Spec review".into(),
+                kind: StageKind::Check { by: CheckBy::You },
+                agent: None,
+                skill: None,
+                options: Vec::new(),
+                rounds: None,
+                fail_to: None,
+                description: None,
+            },
+        );
+        let with_branch = |key: &str, status: Status| {
+            let mut t = ticket(key, "Work", status);
+            t.work = Some(otaq_core::board::tickets::Work {
+                branch: Some(otaq_core::naming::branch(key)),
+                ..Default::default()
+            });
+            t
+        };
+        let note26 = with_branch("NOTE-26", Status::WaitingForYou);
+        let mut note20 = with_branch("NOTE-20", Status::WaitingForYou);
+        note20.place = otaq_core::domain::Place::stage_of("spec-review");
+        let merge = |all: &[Ticket]| options(&note26, "main", all, None, Some(2), &flow)[2].clone();
+        let alone = merge(&[note20.clone(), note26.clone()]);
+        assert_eq!(alone.choice, ApproveChoice::MergeInto);
+        assert!(!alone.enabled, "a ticket in Spec review can't take it");
+        assert_eq!(alone.detail, NO_HOST);
+        // Nor can the one in Spec review be merged in: its Approve menu's choice stays off.
+        let own = options(
+            &note20,
+            "main",
+            &[note20.clone(), note26.clone()],
+            None,
+            Some(2),
+            &flow,
+        );
+        assert!(!own[2].enabled);
+
+        let mut review = with_branch("NOTE-21", Status::WaitingForYou);
+        review.place = otaq_core::domain::Place::stage_of(otaq_core::flow::default::REVIEW);
+        assert!(merge(&[note20.clone(), review, note26.clone()]).enabled);
+        let mut pr = with_branch("NOTE-22", Status::PrOpen);
+        pr.flags.pr_number = Some(481);
+        assert!(merge(&[note20, pr, note26.clone()]).enabled);
+    }
+
     #[test]
     fn the_menu_offers_local_merge_and_open_pr() {
         let (shop18, tickets) = sample();
@@ -743,7 +938,7 @@ mod tests {
             &tickets,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(menu_title(&shop18), "Approve SHOP-18 Checkout API");
         assert_eq!(options[0].choice, ApproveChoice::LocalMerge);
@@ -763,10 +958,17 @@ mod tests {
         use otaq_core::flow::Delivers;
         let (shop18, tickets) = sample();
         let menu = |delivers| -> Vec<(ApproveChoice, String)> {
-            options(&shop18, "main", &tickets, None, Some(2), delivers)
-                .into_iter()
-                .map(|o| (o.choice, o.title))
-                .collect()
+            options(
+                &shop18,
+                "main",
+                &tickets,
+                None,
+                Some(2),
+                &test_flow(delivers),
+            )
+            .into_iter()
+            .map(|o| (o.choice, o.title))
+            .collect()
         };
         let merge = (
             ApproveChoice::LocalMerge,
@@ -804,7 +1006,7 @@ mod tests {
             &tickets,
             None,
             Some(0),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let choices: Vec<_> = menu.iter().map(|o| (o.choice, o.enabled)).collect();
         assert_eq!(
@@ -832,7 +1034,7 @@ mod tests {
             &tickets,
             None,
             Some(1),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let done = with
             .iter()
@@ -850,7 +1052,7 @@ mod tests {
             &tickets,
             None,
             None,
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         assert_eq!(unknown[0].choice, ApproveChoice::LocalMerge);
         assert!(unknown.iter().all(|o| o.choice != ApproveChoice::Done));
@@ -867,7 +1069,7 @@ mod tests {
             &tickets,
             None,
             Some(2),
-            otaq_core::flow::Delivers::Either,
+            &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either),
         );
         let choices: Vec<_> = menu.iter().map(|o| o.choice).collect();
         assert_eq!(
@@ -894,7 +1096,7 @@ mod tests {
                 &tickets,
                 None,
                 None,
-                otaq_core::flow::Delivers::Either
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either)
             )
             .iter()
             .all(|o| o.choice != ApproveChoice::DoneNotMerged)
@@ -908,7 +1110,7 @@ mod tests {
                 &tickets,
                 None,
                 Some(2),
-                otaq_core::flow::Delivers::Either
+                &crate::view_models::approve::test_flow(otaq_core::flow::Delivers::Either)
             )
             .iter()
             .all(|o| o.choice != ApproveChoice::DoneNotMerged),
@@ -932,14 +1134,51 @@ mod tests {
     #[test]
     fn the_confirmation_names_the_target_and_who_keeps_waiting() {
         let (shop18, tickets) = sample();
-        assert_eq!(confirm_title(&shop18), "Local merge SHOP-18 Checkout API");
+        assert_eq!(
+            confirm_title(&shop18),
+            "Approve & merge SHOP-18 Checkout API"
+        );
         assert_eq!(into_label(&shop18), "Into (SHOP-18\u{2019}s base branch)");
         assert_eq!(
             confirm_note(&shop18, "main", &tickets),
             "SHOP-20 Checkout page still waits for SHOP-19 to merge; it starts from main once both parents are \
              merged. The worktree for SHOP-18 is removed unless it has uncommitted changes."
         );
-        assert_eq!(merging_steps("main").len(), 4);
+        assert_eq!(merging_steps("main", false).len(), 5);
+        assert_eq!(merging_steps("main", true)[3], "Run the merge check");
+    }
+
+    /// The Merging dialog follows the step git is really on, not the first one for the whole run; the scratch
+    /// worktree prepared before the branch's update is still the first step, after it the squash.
+    #[test]
+    fn the_merging_step_is_the_one_git_is_on() {
+        use otaq_core::git::GitStep as S;
+        let at = |step: S, earlier: &[S], check: bool| {
+            merging_step(
+                Some(&GitProgress {
+                    operation: GitOperation::Merge,
+                    target: "main".into(),
+                    step: Some(step),
+                    earlier: earlier.to_vec(),
+                    hook: None,
+                }),
+                check,
+            )
+        };
+        assert_eq!(merging_step(None, false), 0);
+        assert_eq!(at(S::UpdateTarget, &[], false), 0);
+        assert_eq!(at(S::PrepareScratch, &[S::UpdateTarget], false), 0);
+        assert_eq!(at(S::UpdateBranch, &[S::UpdateTarget], false), 1);
+        let updated = [S::UpdateTarget, S::UpdateBranch];
+        assert_eq!(at(S::PrepareScratch, &updated, false), 2);
+        assert_eq!(at(S::Commit, &updated, false), 2);
+        assert_eq!(at(S::MergeCheck, &updated, true), 3);
+        assert_eq!(at(S::MoveTarget, &updated, true), 4);
+        let steps = merging_steps("main", false);
+        assert_eq!(
+            steps[at(S::MoveTarget, &updated, false)],
+            "Move main to the new commit"
+        );
     }
 
     #[test]
@@ -952,11 +1191,43 @@ mod tests {
                 "src/lib/cart/validate.ts".into(),
             ],
             reason: ConflictReason::Merge,
+            moved: Vec::new(),
         };
         assert_eq!(
             conflict_line(&c),
             "Conflicts with main \u{b7} 2 files (src/lib/stripe/session.ts, src/lib/cart/validate.ts)"
         );
+        assert_eq!(moved_line(&c), None, "git said nothing: no line");
+    }
+
+    #[test]
+    fn the_conflict_says_what_moved_and_where_it_stands() {
+        use otaq_core::board::conflicts::{Conflict, ConflictReason, Moved};
+        let c = Conflict {
+            target: "main".into(),
+            files: vec!["README.md".into(), "a.ts".into(), "b.ts".into()],
+            reason: ConflictReason::TestMerge,
+            moved: vec![
+                Moved {
+                    by: "SHOP-6".into(),
+                    files: vec!["README.md".into()],
+                },
+                Moved {
+                    by: "4fa97d6".into(),
+                    files: vec!["a.ts".into(), "b.ts".into()],
+                },
+            ],
+        };
+        assert_eq!(
+            moved_line(&c).as_deref(),
+            Some("SHOP-6 changed README.md \u{b7} 4fa97d6 changed a.ts and b.ts")
+        );
+        let key: TicketKey = "SHOP-5".parse().unwrap();
+        assert_eq!(
+            nothing_merged_line(&key, "main"),
+            "Nothing was merged into main. SHOP-5 returns to Review when it\u{2019}s fixed."
+        );
+        assert_eq!(in_a_row(1), "1 of 3");
     }
 
     #[test]
@@ -971,11 +1242,12 @@ mod tests {
                     target: "main".into(),
                     commit: "9f3e2c1aaaa".into(),
                     started: vec!["SHOP-20".parse().unwrap(), "SHOP-21".parse().unwrap()],
+                    hook_changed: None,
                 }
             ),
             MergeView::Merged {
-                title: "Local merge done \u{b7} SHOP-18".into(),
-                text: "Squashed into main as 9f3e2c1".into(),
+                title: "SHOP-18 merged into main".into(),
+                text: "Squashed as 9f3e2c1".into(),
                 started: Some("2 waiting tickets started".into()),
             }
         );
@@ -988,7 +1260,7 @@ mod tests {
         ) else {
             panic!()
         };
-        assert_eq!(title, "Rebase onto main stopped \u{2014} conflict");
+        assert_eq!(title, "Merging main in stopped \u{2014} conflict");
         assert!(text.contains("conflicts in 2 files"));
         assert_eq!(files.len(), 2);
         assert!(matches!(

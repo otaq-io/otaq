@@ -22,6 +22,7 @@ use crate::board::hand_over::{HandOver, settled};
 use crate::board::moves::{DragWrite, DropOn, MoveAction, MoveCheck};
 use crate::board::reports::ReportSource;
 use crate::board::send_back::{SentBackTo, Tell, waits_before};
+use crate::board::ticket_comments::CommentAuthor;
 use crate::board::tickets::{EventKind, Ticket};
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::{Actor, MovedPast, Status};
@@ -123,13 +124,14 @@ impl Review {
     }
 
     /// [`Review::drag`] for the user's send back on an agent's question ([`crate::board::send_back_question`]):
-    /// `asked` joins the drag's History row (the stage that asked, its reason, a cleared skip).
+    /// `asked` joins the drag's History row (the stage that asked, its reason, a cleared skip), and the note is posted
+    /// as the asking agent's comment, not the user's: the reason is the agent's.
     pub(crate) async fn drag_asked(
         &self,
         key: &str,
         target: &DropOn,
         answers: DragAnswers<'_>,
-        asked: Option<&serde_json::Value>,
+        asked: Option<&Asked>,
         validation: &Validation,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
@@ -163,15 +165,13 @@ impl Review {
             }
             (MoveAction::RunCheckAgain, Some(to)) => {
                 // The note is checked and its report copied, then uncommitted changes refused, before anything stops.
-                let hand_over = board
-                    .user_hand_over(&ticket, answers.note, answers.attachments.to_vec(), actor)
-                    .await?;
+                let hand_over = note_hand_over(board, &ticket, answers, asked, actor).await?;
                 let ran = async {
                     let head = board.submit_head(&ticket).await?;
                     self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
                         .await?;
-                    let event =
-                        event_of(&flow, &ticket, to, true, &[], false, answers.note).with(asked);
+                    let event = event_of(&flow, &ticket, to, true, &[], false, answers.note)
+                        .with(asked.map(|a| &a.event));
                     let moved = board.drag_moved(&ticket, &to.id).await?;
                     board
                         .record_drag(
@@ -196,7 +196,8 @@ impl Review {
             (MoveAction::MoveBack, Some(to)) => {
                 self.stop_where_it_is(&ticket, &flow, Stop::WorkingHere, validation)
                     .await?;
-                let event = event_of(&flow, &ticket, to, true, &[], false, "").with(asked);
+                let event = event_of(&flow, &ticket, to, true, &[], false, "")
+                    .with(asked.map(|a| &a.event));
                 let moved = board.drag_moved(&ticket, &to.id).await?;
                 board
                     .record_drag(
@@ -246,21 +247,19 @@ impl Review {
         flow: &Flow,
         to: &Stage,
         answers: DragAnswers<'_>,
-        asked: Option<&serde_json::Value>,
+        asked: Option<&Asked>,
         validation: &Validation,
         actor: &Actor,
     ) -> Result<ReturnOutcome, BoardError> {
         let board = &self.inner.board;
-        let hand_over = board
-            .user_hand_over(ticket, answers.note, answers.attachments.to_vec(), actor)
-            .await?;
+        let hand_over = note_hand_over(board, ticket, answers, asked, actor).await?;
         let outcome = self
             .send_back_with(
                 ticket,
                 flow,
                 to,
                 answers,
-                asked,
+                asked.map(|a| &a.event),
                 hand_over.as_ref(),
                 validation,
                 actor,
@@ -306,6 +305,13 @@ impl Review {
             }
             _ => None,
         };
+        // A permission prompt on its screen is said as such: its line isn't the user's text.
+        if let Some(id) = &keep
+            && !answers.clear_first
+            && let Some(asks) = super::prompt_first(board, ticket, id)
+        {
+            return Ok(asks);
+        }
         if let Some(id) = &keep
             && !answers.clear_first
             && inner.sessions.has_unsent_input(id).map_err(super::other)?
@@ -313,6 +319,7 @@ impl Review {
             return Ok(ReturnOutcome::NeedsConfirmation {
                 ticket: ticket.key.clone(),
                 unclearable_by: inner.deliveries.unclearable_by(id).map_err(super::other)?,
+                prompt: None,
             });
         }
         let in_human_check = here(flow, ticket).is_some_and(Stage::is_human_check);
@@ -546,6 +553,37 @@ fn event_of(
         "run_by_you": run_by_you,
         "note": (!note.is_empty()).then_some(note),
     })
+}
+
+/// What the user's send back on an agent's question adds to the drag ([`crate::board::send_back_question`]).
+pub(crate) struct Asked {
+    /// The History row's fields: the stage that asked, its reason, a cleared skip.
+    pub event: serde_json::Value,
+    /// The asking agent: the reason goes to the stage sent back to as its comment, by its name.
+    pub author: CommentAuthor,
+}
+
+/// The drag's note as a comment: the user's own, or on a send back the asking agent's.
+async fn note_hand_over(
+    board: &Board,
+    ticket: &Ticket,
+    answers: DragAnswers<'_>,
+    asked: Option<&Asked>,
+    actor: &Actor,
+) -> Result<Option<HandOver>, BoardError> {
+    let attachments = answers.attachments.to_vec();
+    match asked {
+        Some(asked) => {
+            board
+                .hand_over(ticket, asked.author.clone(), answers.note, attachments)
+                .await
+        }
+        None => {
+            board
+                .user_hand_over(ticket, answers.note, attachments, actor)
+                .await
+        }
+    }
 }
 
 /// Adds a send back's fields ([`crate::board::send_back_question`]) to a drag's History payload.

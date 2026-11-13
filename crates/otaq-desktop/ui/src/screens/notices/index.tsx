@@ -5,6 +5,7 @@
 import { useEffect, useRef, useState } from "react";
 
 import type { OverlayProps, Screen } from "../../app/registry";
+import { openOverlay } from "../../app/overlays";
 import { openTicket, useSelection } from "../../app/selection";
 import { useStore } from "../../app/store";
 import { Banner, ConfirmDialog, Toast, useEnterExit } from "../../components";
@@ -193,6 +194,14 @@ function linkOf(toast: ToastView) {
         label: link.label,
         onClick: () => {
           openStageSkill(link.project, link.stage);
+        },
+      };
+    // "Your pre-commit hook changed 2 files" after a merge: what the hook changed in the commit that landed.
+    case "hook_changes":
+      return {
+        label: link.label,
+        onClick: () => {
+          openOverlay("hook_changes", { ticket: link.ticket, changes: link.changes });
         },
       };
   }

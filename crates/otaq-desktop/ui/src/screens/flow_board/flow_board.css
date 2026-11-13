@@ -2,7 +2,8 @@
  * Edit flow on the board: the editor's bar where the toolbar was, then the flow's columns at the board's width (each
  * at least `--column-width`, 12 px apart with a + between two), their headers as the stages and their cards dimmed;
  * a stage's details, How work leaves the flow, Watch a ticket or Why these changes on the right. Backlog and Done are
- * locked (muted, a lock). A stage this draft adds is marked with the accent's dashed outline.
+ * locked (muted, a lock). A stage this draft adds is marked with the accent's dashed outline. Noyan's box sits under
+ * the columns.
  */
 .fb-screen {
   position: relative;
@@ -83,7 +84,6 @@
   outline-offset: 1px;
 }
 
-.fb-drafting,
 .fb-applies {
   display: flex;
   flex: none;
@@ -96,7 +96,47 @@
   font: 400 12px/1.4 var(--font-ui);
 }
 
+/*
+ * Noyan's box while its agent drafts: the line takes the words' place, with Show and Stop. Waiting on the user, it
+ * says Needs you in that colour instead of "drafting a change".
+ */
+.fb-drafting {
+  color: var(--text-secondary);
+  font: 400 13px/1.4 var(--font-ui);
+}
+
+.fb-drafting[data-needs-you] {
+  margin: -4px -6px;
+  padding: 4px 6px;
+  border-radius: 6px;
+  background: var(--st-attn-bg);
+  color: var(--text-primary);
+}
+
+.fb-needs-you {
+  color: var(--st-attn);
+  font-weight: 600;
+}
+
+/* The line stays one line: what the agent waits on is cut with "…" to fit (the tooltip and its terminal have it all). */
+.fb-drafting > .tooltip-anchor {
+  min-width: 0;
+}
+
+.fb-drafting-text {
+  overflow: hidden;
+  min-width: 0;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.fb-needs-you,
+.fb-drafting > .fb-link {
+  flex: none;
+}
+
 .fb-board {
+  position: relative;
   display: flex;
   flex: 1;
   gap: 12px;
@@ -105,12 +145,199 @@
   overflow: hidden;
 }
 
+/* The columns over Noyan's box: the box takes its own room under them, so it never covers a card or Done's line. */
+.fb-main {
+  display: flex;
+  flex: 1;
+  flex-direction: column;
+  gap: 12px;
+  min-width: 0;
+  min-height: 0;
+}
+
 .fb-columns {
   display: flex;
   flex: 1;
   min-width: 0;
+  min-height: 0;
   overflow-x: auto;
   overflow-y: hidden;
+}
+
+/*
+ * Noyan's box (the board's box for new work, as Edit flow has it): 680 px, raised, 12 px corners, the focus colour
+ * around it while typing; the words and Suggest a whole flow (the investigate colour) on top, who answers and what it
+ * does under them. Theme variables only.
+ */
+.fb-noyan {
+  display: flex;
+  flex: none;
+  flex-direction: column;
+  gap: 8px;
+  align-self: center;
+  box-sizing: border-box;
+  width: min(680px, 100%);
+  padding: 10px 12px;
+  border-radius: 12px;
+  outline: 1px solid var(--border-strong);
+  outline-offset: -1px;
+  background: var(--bg-raised);
+  box-shadow: 0 8px 28px rgb(0 0 0 / 15%);
+  color: var(--text-muted);
+  font-family: var(--font-ui);
+}
+
+.fb-noyan:focus-within {
+  outline: 1.5px solid var(--focus);
+  outline-offset: -1.5px;
+}
+
+.fb-noyan-row,
+.fb-noyan-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+.fb-noyan-foot {
+  gap: 8px;
+  font: 400 11.5px/1.3 var(--font-ui);
+}
+
+.fb-noyan-row > .icon,
+.fb-noyan-foot > .kbd {
+  flex: none;
+}
+
+.fb-noyan-input {
+  flex: 1;
+  min-width: 0;
+  margin: 0;
+  padding: 0;
+  border: none;
+  outline: none;
+  background: none;
+  color: var(--text-primary);
+  font: 400 13.5px/1.4 var(--font-ui);
+}
+
+.fb-noyan-input::placeholder {
+  color: var(--text-muted);
+}
+
+button.fb-noyan-whole,
+button.fb-noyan-send {
+  display: inline-flex;
+  flex: none;
+  align-items: center;
+  gap: 5px;
+  margin: 0;
+  border: none;
+  border-radius: 6px;
+  font: 500 12px/1.3 var(--font-ui);
+  white-space: nowrap;
+  cursor: pointer;
+}
+
+button.fb-noyan-whole {
+  padding: 4px 9px;
+  outline: 1.5px solid transparent;
+  outline-offset: -1.5px;
+  background: var(--st-investigate-bg);
+  color: var(--st-investigate);
+}
+
+button.fb-noyan-whole:hover:not(:disabled),
+button.fb-noyan-whole:focus-visible {
+  outline-color: var(--st-investigate);
+}
+
+button.fb-noyan-send {
+  height: 28px;
+  padding: 0 10px;
+  background: var(--accent);
+  color: var(--text-on-accent);
+}
+
+button.fb-noyan-send:focus-visible {
+  outline: 2px solid var(--focus);
+  outline-offset: 1px;
+}
+
+button.fb-noyan-whole:disabled,
+button.fb-noyan-send:disabled {
+  opacity: 0.55;
+  cursor: default;
+}
+
+.fb-noyan-agent,
+.fb-noyan-line {
+  overflow: hidden;
+  color: var(--text-muted);
+  white-space: nowrap;
+  text-overflow: ellipsis;
+}
+
+.fb-noyan-agent {
+  flex: 0 1 auto;
+  min-width: 0;
+}
+
+.fb-noyan-line[data-off] {
+  color: var(--text-secondary);
+}
+
+/*
+ * The answer box, while Noyan asks: the attention colour around it (3 px on the left), "Needs you · Strong asks" with
+ * ⤢ on top, then the question as above Noyan's terminal. The page sets its width (760 px, 680 px in the narrowest
+ * window) and its cap (55% of the editor); past the cap the question's text scrolls, the options and Send never.
+ */
+.fb-noyan[data-state="asking"] {
+  gap: 10px;
+  max-width: 100%;
+  min-height: 0;
+  padding: 14px 16px;
+  overflow: hidden;
+  outline: none;
+  border: 1px solid var(--st-attn);
+  border-left-width: 3px;
+  color: var(--text-primary);
+}
+
+.fb-noyan[data-state="asking"]:focus-within {
+  outline: none;
+}
+
+.fb-noyan-head {
+  display: flex;
+  flex: none;
+  align-items: center;
+  gap: 8px;
+  font: 400 11.5px/1.3 var(--font-ui);
+}
+
+.fb-noyan[data-state="asking"] .sheet-answer {
+  padding: 0;
+  background: none;
+}
+
+/* Open larger: over a scrim on the editor, up to its full height (16 px under the bar, 20 px above the bottom). */
+.fb-noyan-scrim {
+  position: absolute;
+  z-index: 20;
+  inset: 0;
+  background: rgb(15 17 21 / 15%);
+}
+
+.fb-noyan[data-expanded] {
+  position: absolute;
+  z-index: 21;
+  bottom: 20px;
+  left: 50%;
+  max-width: calc(100% - 32px);
+  max-height: calc(100% - 36px);
+  transform: translateX(-50%);
 }
 
 .fb-slot {
@@ -235,10 +462,15 @@
   font: 400 11.5px/1.35 var(--font-ui);
 }
 
-/* A header inside its description's tooltip anchor (a row) may shrink to the column's width, so a long line in it
-   wraps instead of running past the column's edge; the skill's name breaks onto the next line. */
+/* A header inside its description's tooltip anchor fills the column's width, as the cards under it do, and may shrink
+   to it, so a long line in it wraps instead of running past the column's edge; the skill's name breaks onto the next
+   line. */
+.fb-column > .tooltip-anchor {
+  display: flex;
+}
+
 .tooltip-anchor > .fb-head {
-  flex: 0 1 auto;
+  flex: 1 1 auto;
   min-width: 0;
 }
 
@@ -247,8 +479,8 @@
   overflow-wrap: anywhere;
 }
 
-/* A ready stage's skill the user brings: a quiet line in the palette, not a warning. */
-.fb-skill-note {
+/* A ready stage whose skill the user has none of: the usual amber warning, under its line in the palette. */
+.fb-pop-warning {
   margin-top: 2px;
 }
 
@@ -365,7 +597,7 @@
   flex-direction: column;
   gap: 12px;
   box-sizing: border-box;
-  width: 340px;
+  width: 400px;
   padding: 14px;
   overflow-y: auto;
   border: 1px solid var(--border);
@@ -409,12 +641,19 @@
   text-align: center;
 }
 
+/* Remove stage sits at the panel's foot, whatever the panel holds: its note on the left, the button on the right. It
+   stays in view while the panel scrolls (the negative bottom covers the panel's padding). */
 .fb-remove-row {
+  position: sticky;
+  bottom: -14px;
   display: flex;
   align-items: center;
-  gap: 8px;
-  padding-top: 4px;
+  justify-content: space-between;
+  gap: 12px;
+  margin: auto -14px -14px;
+  padding: 10px 14px;
   border-top: 1px solid var(--border);
+  background: var(--bg-panel);
 }
 
 .fb-path {
@@ -557,12 +796,6 @@
   opacity: 0.6;
 }
 
-.fb-suggest {
-  border: 1px solid var(--accent);
-  background: var(--accent-soft);
-  color: var(--accent);
-}
-
 .fb-pop-words {
   display: flex;
   flex-direction: column;
@@ -593,6 +826,29 @@
   margin: 16px;
   color: var(--st-error);
   font: 400 12.5px/1.4 var(--font-ui);
+}
+
+.fb-problem-box {
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  max-width: 560px;
+  margin: 24px;
+}
+
+.fb-problem-box .fb-problem {
+  margin: 0;
+}
+
+.fb-problem-title {
+  margin: 0;
+  color: var(--text-primary);
+  font: 600 13px/1.4 var(--font-ui);
+}
+
+.fb-problem-actions {
+  display: flex;
+  gap: 8px;
 }
 
 .fb-end {

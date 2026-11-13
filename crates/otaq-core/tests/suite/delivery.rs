@@ -84,6 +84,16 @@ async fn working(w: &TestService, title: &str, file: &str) -> Ticket {
     w.board.ticket(&t.key.to_string()).await.unwrap()
 }
 
+/// What the delivery's agent does before `pr opened`: pushes the ticket's branch to `origin` (Otaq checks it is
+/// there).
+fn push_branch(t: &Ticket) {
+    let work = t.work.as_ref().unwrap();
+    git(
+        std::path::Path::new(work.worktree.as_ref().unwrap()),
+        &["push", "--quiet", "origin", work.branch.as_ref().unwrap()],
+    );
+}
+
 /// Submits and passes validation; returns the ticket after it.
 async fn pass(w: &TestService, t: &Ticket) -> Ticket {
     let key = t.key.to_string();
@@ -352,6 +362,55 @@ async fn a_merge_cleans_up_and_starts_the_waiting_tickets() {
     w.stop().await;
 }
 
+/// A formatter's pre-commit changes what an automatic Delivery lands: it lands as the hook left it and the toast says
+/// so, with what Show changes needs.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_automatic_merge_a_hook_changed_says_so() {
+    let w = world().await;
+    let project = w.add_project("shop-web").await;
+    let repo = PathBuf::from(&project.repo_path);
+    auto_merge(&w).await;
+    let hook = repo.join(".git/hooks/pre-commit");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\nfor f in $(git diff --cached --name-only --diff-filter=ACM -- '*.js'); do\n  { echo '// formatted'; cat \"$f\"; } > \"$f.tmp\" && mv \"$f.tmp\" \"$f\"\n  git add \"$f\"\ndone\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    let t = working(&w, "Calc", "calc.js").await;
+
+    let mut listener = w.events.listen();
+    let merged = pass(&w, &t).await;
+    assert_eq!(merged.status, Status::Merged);
+    let (message, changes) = tokio::time::timeout(std::time::Duration::from_secs(5), async {
+        loop {
+            if let Ok(otaq_core::protocol::Event::MergedAutomatically {
+                message,
+                hook_changed,
+                ..
+            }) = listener.receiver.recv().await
+            {
+                return (message, hook_changed);
+            }
+        }
+    })
+    .await
+    .expect("the merge's toast");
+    assert!(
+        message.ends_with(" · Your pre-commit hook changed 1 file"),
+        "{message}"
+    );
+    let changes = changes.expect("Show changes");
+    assert_eq!(changes.files, ["calc.js"]);
+    assert_eq!(changes.landed, git(&repo, &["rev-parse", "main"]));
+    assert!(git(&repo, &["show", "main:calc.js"]).starts_with("// formatted\n"));
+    w.stop().await;
+}
+
 /// FLW-17: a conflict goes to Dev's session with restack, no click ("Merge conflict · fixing"); the third in a row
 /// stops there, turquoise; Retry merge runs the automatic Delivery again, and a merge resets the count.
 #[tokio::test(flavor = "multi_thread")]
@@ -551,10 +610,11 @@ async fn an_unreachable_remote_still_merges_automatically() {
     w.stop().await;
 }
 
-/// d0121: a git step of an automatic Delivery that fails (here a hook refuses the squash commit) stops the card with
-/// "Couldn't deliver · <reason>" and Retry merge, not only a log line.
+/// A hook that refuses the automatic Delivery's squash commit stops it as it stops the user's click: "pre-commit
+/// hook refused the merge", the hook's output on the ticket and in History, nothing merged, and the ticket waits To
+/// deliver where the Delivery started, not back with the agent.
 #[tokio::test(flavor = "multi_thread")]
-async fn a_failed_git_step_says_so_on_the_card() {
+async fn a_hook_refusing_the_automatic_delivery_is_on_the_ticket() {
     let w = world().await;
     let project = w.add_project("shop-web").await;
     let repo = PathBuf::from(&project.repo_path);
@@ -572,14 +632,16 @@ async fn a_failed_git_step_says_so_on_the_card() {
     let main = git(&repo, &["rev-parse", "main"]);
 
     let after = pass(&w, &t).await;
-    assert_eq!(after.status, Status::DeliveryStopped);
-    assert_eq!(after.auto_merge_stop, Some(AutoMergeStop::DeliveryFailed));
+    let after = w.board.ticket_by_id(&after.id).await.unwrap();
+    assert_eq!(after.status, Status::ToDeliver);
+    assert_eq!(after.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    assert!(after.shows_needs_you(), "Needs you");
     let text = after.signal.unwrap().text.unwrap();
-    assert!(
-        text.starts_with("Couldn\u{2019}t deliver \u{b7} git commit"),
-        "{text}"
-    );
-    assert!(text.contains("lint failed"), "{text}");
+    assert_eq!(text, "pre-commit hook refused the merge");
+    let refused = after.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.output.trim(), "lint failed");
+    let history = w.board.history(&t.key.to_string()).await.unwrap();
+    assert!(history.iter().any(|e| e.kind == EventKind::HookRefused));
     assert_eq!(git(&repo, &["rev-parse", "main"]), main, "nothing merged");
     w.stop().await;
 }
@@ -693,6 +755,16 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
         .unwrap();
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
     assert_eq!(flow.state, FlowState::Pushing, "no dialog");
+    // An automatic delivery has no dialog to cancel from: once confirmed, Cancel can't stop it.
+    let refused = w.prs.cancel(&key, &me()).await.unwrap_err();
+    assert_eq!(
+        refused.refusal(),
+        Some(otaq_core::board::Refusal::MoveRefused)
+    );
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
     let prime = otaq_core::prime::render(
         &w.board
             .prime_context(&key, w.adapters.for_new_session())
@@ -858,6 +930,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
     );
     let worktree = t.work.as_ref().unwrap().worktree.clone().unwrap();
 
+    push_branch(&t);
     let open = w
         .prs
         .opened(
@@ -948,16 +1021,181 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
     assert!(!flow.automatic, "the click's flow keeps its dialog");
     // The dialog opened at once; the skill runs on the Delivery's agent once the user confirms.
+    assert!(
+        !w.board.store().first_approve().await.unwrap(),
+        "nothing approved yet"
+    );
     let outcome = w
         .prs
         .confirm(&key, &flow.proposal.unwrap(), false, &me())
         .await
         .unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    // Approve & open PR counts as the first approve, as a merge does.
+    assert!(w.board.store().first_approve().await.unwrap());
     assert!(
         w.sessions
             .running_of(&t.id, SessionKind::Delivery)
             .is_some()
+    );
+    w.stop().await;
+}
+
+/// Pushing can always be cancelled (re-test 10 NEW-r10-1: real Claude Code answered "Unknown command" to the delivery
+/// skill, and the dialog held the window). Cancel while pushing ends the flow and leaves the ticket in its review with
+/// no PR, and the delivery's session goes on; when its agent reports the PR anyway, the PR is recorded.
+#[tokio::test(flavor = "multi_thread")]
+async fn pushing_can_be_cancelled_and_a_late_pr_is_still_recorded() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::pr::flow::FlowState;
+    use otaq_core::pr::service::PrOutcome;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
+            file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
+        })
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    w.agent_shell(&t).await;
+    let in_review = pass(&w, &t).await;
+
+    let outcome = w.prs.open(&key, true, false, &me()).await.unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    let outcome = w
+        .prs
+        .confirm(&key, &flow.proposal.unwrap(), false, &me())
+        .await
+        .unwrap();
+    assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
+    let delivery = w
+        .sessions
+        .running_of(&t.id, SessionKind::Delivery)
+        .expect("the delivery's session");
+
+    let after = w.prs.cancel(&key, &me()).await.unwrap();
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    assert_eq!(
+        (after.status, &after.place, after.flags.pr_number),
+        (in_review.status, &in_review.place, None)
+    );
+    assert_eq!(
+        w.sessions
+            .running_of(&t.id, SessionKind::Delivery)
+            .map(|s| s.id),
+        Some(delivery.id),
+        "the delivery's session goes on"
+    );
+    let cancelled = w
+        .board
+        .history(&key)
+        .await
+        .unwrap()
+        .into_iter()
+        .find(|e| e.kind == EventKind::PrCancelled)
+        .expect("the cancel is recorded");
+    assert_eq!(cancelled.payload["pushing"], true);
+
+    // The agent pushes and reports the PR after all: recorded.
+    let t = w.board.ticket(&key).await.unwrap();
+    push_branch(&t);
+    let open = w
+        .prs
+        .opened(
+            &key,
+            "https://github.com/acme/shop-web/pull/12",
+            &Actor::Agent(t.key.clone()),
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        (open.status, open.flags.pr_number),
+        (Status::PrOpen, Some(12))
+    );
+    w.stop().await;
+}
+
+/// After Cancel while pushing, the agent's `otaq ask human` from the session that was pushing is an ordinary
+/// question on the board (Asks you in its review), not a problem reported to the closed dialog.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_question_after_cancel_while_pushing_shows_on_the_board() {
+    use otaq_core::board::settings::WorkflowStep;
+    use otaq_core::pr::flow::FlowState;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
+            file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
+        })
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    // Dev's agent delivers too: its session runs the skill.
+    let agent = w.agent_shell(&t).await;
+    let in_review = pass(&w, &t).await;
+    w.prs.open(&key, true, false, &me()).await.unwrap();
+    let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();
+    w.prs
+        .confirm(&key, &flow.proposal.unwrap(), false, &me())
+        .await
+        .unwrap();
+    assert_eq!(
+        w.board.pr_flow(&t.id).await.unwrap().unwrap().state,
+        FlowState::Pushing
+    );
+    w.prs.cancel(&key, &me()).await.unwrap();
+
+    let request = serde_json::json!({
+        "protocol_version": otaq_core::protocol::PROTOCOL_VERSION,
+        "id": 1,
+        "request": {
+            "method": "ticket.ask_human",
+            "params": {"key": key, "question": "The push was rejected: retry?"}
+        }
+    });
+    let ran = agent
+        .send_raw(&w.data.socket_path(), &request.to_string())
+        .await;
+    assert!(!ran.stdout.contains("\"error\""), "{ran:?}");
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    let ticket = w.board.ticket(&key).await.unwrap();
+    assert_eq!(
+        ticket.question_in_place().map(|q| q.text.as_str()),
+        Some("The push was rejected: retry?"),
+        "a question on the board"
+    );
+    assert_eq!(
+        (ticket.status, &ticket.place),
+        (in_review.status, &in_review.place)
     );
     w.stop().await;
 }
@@ -1022,7 +1260,8 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
             .any(|e| e.kind == EventKind::Interrupted)
     );
 
-    // The Delivery's own session reports the PR: PR open in the Delivery.
+    // The Delivery's own session pushes and reports the PR: PR open in the Delivery.
+    push_branch(&t);
     let open = w
         .prs
         .opened(
@@ -1070,6 +1309,7 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
     w.agent_shell(&t).await;
     assert_eq!(pass(&w, &t).await.status, Status::ToDeliver);
     w.force_stage(&t, DEV, Status::Interrupted).await;
+    push_branch(&t);
     let open = w
         .prs
         .opened(
@@ -1084,5 +1324,148 @@ async fn pr_opened_puts_the_card_in_its_delivery() {
         (Status::PrOpen, &Place::stage_of(VALIDATE))
     );
     assert_eq!(open.interrupted_from, None);
+    w.stop().await;
+}
+
+/// Delivery problems say what to do: an automatic PR delivery on a remote no PR provider matches (and with Otaq's own
+/// Open PR skill, which needs one) starts nothing and waits To deliver, its card saying there is no PR provider. The
+/// mark goes once the user's own Open PR skill lets the PR start.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_automatic_pr_with_no_provider_says_so_on_the_card() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    // origin is a local folder: no GitHub or Azure DevOps repository, and the flow uses Otaq's own Open PR skill.
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_pr_delivery)
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    w.agent_shell(&t).await;
+
+    let left = pass(&w, &t).await;
+    assert_eq!(left.status, Status::ToDeliver);
+    assert!(!left.flags.delivering_automatically);
+    assert!(left.flags.pr_provider_not_detected, "{:?}", left.flags);
+    assert!(
+        w.board.pr_flow(&t.id).await.unwrap().is_none(),
+        "nothing started"
+    );
+
+    // With the user's own Open PR skill the click starts it, and the card no longer says there is no provider.
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.prs.open(&key, true, false, &me()).await.unwrap();
+    assert!(
+        !w.board
+            .ticket(&key)
+            .await
+            .unwrap()
+            .flags
+            .pr_provider_not_detected
+    );
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
+    w.stop().await;
+}
+
+/// An automatic PR Delivery whose proposed commit message the project's commit-msg hook refuses: nothing is
+/// rewritten or pushed, the agent is told to stop, and the Delivery stops for the user with the hook's output and the
+/// message, as a refused merge does.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_hook_refusing_an_automatic_prs_message_is_on_the_ticket() {
+    use otaq_core::board::settings::WorkflowStep;
+
+    let w = world().await;
+    let repo = w.repos.clone_with_origin("shop-web", "main", 1);
+    w.board
+        .add_project(&otaq_core::board::projects::AddProject {
+            path: repo.display().to_string(),
+            ..Default::default()
+        })
+        .await
+        .unwrap();
+    let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
+    w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
+    w.board
+        .edit_flow_for_tests("SHOP", automatic_pr_delivery)
+        .await;
+    let t = working(&w, "Login redirect", "login.ts").await;
+    let key = t.key.to_string();
+    let _agent = w.agent_shell(&t).await;
+    let as_agent = Actor::Agent(t.key.clone());
+    let hook = repo.join(".git/hooks/commit-msg");
+    std::fs::write(
+        &hook,
+        "#!/bin/sh\ngrep -qE '^(feat|fix):' \"$1\" || { echo 'commitlint: type must be one of [feat, fix]' >&2; exit 1; }\n",
+    )
+    .unwrap();
+    #[cfg(unix)]
+    {
+        use std::os::unix::fs::PermissionsExt;
+        std::fs::set_permissions(&hook, std::fs::Permissions::from_mode(0o755)).unwrap();
+    }
+    pass(&w, &t).await;
+    let branch = naming::branch(&key);
+    let before = git(&repo, &["rev-parse", &branch]);
+    let ids = commits(&repo, &format!("main..{branch}"));
+    let proposal = serde_json::json!({
+        "branch": "feature/SHOP-1-login",
+        "commits": [{"sha": &ids[0][..7], "message": "SHOP-1: redirect after login"}],
+        "title": "SHOP-1 Login redirect",
+        "description": "Returns to the page you came from."
+    });
+
+    let err = w
+        .prs
+        .propose(&key, &proposal.to_string(), &as_agent)
+        .await
+        .unwrap_err();
+    assert!(err.to_string().contains("commit-msg hook refused"), "{err}");
+    assert_eq!(
+        git(&repo, &["rev-parse", &branch]),
+        before,
+        "nothing rewritten"
+    );
+    assert!(
+        git(&repo, &["branch", "--list", "feature/*"])
+            .trim()
+            .is_empty(),
+        "nothing renamed"
+    );
+    let after = w.board.ticket(&key).await.unwrap();
+    // Waits To deliver where the Delivery started: a refused message isn't the agent's work going wrong.
+    assert_eq!(after.status, Status::ToDeliver);
+    assert_eq!(after.stopped_in_place(), Some(AutoMergeStop::HookRefused));
+    let refused = after.flags.hook_refusal.expect("kept on the ticket");
+    assert_eq!(refused.step, Some(otaq_core::git::GitStep::Reword));
+    assert_eq!(
+        refused.message.as_deref(),
+        Some("SHOP-1: redirect after login")
+    );
+    assert!(refused.output.contains("commitlint"), "{}", refused.output);
+    assert!(w.board.pr_flow(&t.id).await.unwrap().is_none());
+    for s in w
+        .sessions
+        .in_memory()
+        .into_iter()
+        .filter(|s| s.is_running())
+    {
+        let _ = w.sessions.stop(&s.id).await;
+    }
     w.stop().await;
 }

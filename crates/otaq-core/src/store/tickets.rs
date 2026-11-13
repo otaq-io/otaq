@@ -42,6 +42,8 @@ pub struct TicketRow {
     pub updated_at: i64,
     pub start_problem_step: Option<String>,
     pub start_problem_message: Option<String>,
+    /// The hook that refused the start, JSON (migration 0118): [`crate::git::RefusedHook`].
+    pub start_problem_hook: Option<String>,
     pub signal_text: Option<String>,
     pub signal_since: Option<i64>,
     pub wakeup_at: Option<i64>,
@@ -93,8 +95,10 @@ pub struct TicketRow {
     /// Backlog, waiting to begin and Done (STG-04).
     pub stage_id: Option<String>,
     /// T-0491 (migration 0059): the next Local merge runs the Merge check even when the branch is current: an
-    /// earlier one rebased it onto new commits and no check passed on them (d0120).
+    /// earlier one merged new commits into it and no check passed on them (d0120).
     pub merge_check_due: bool,
+    /// Migration 0119: JSON [`crate::git::RefusedHook`], a hook refused one of Otaq's own git steps.
+    pub hook_refusal: Option<String>,
 }
 
 /// The SQL that keeps `tickets.state_since` (when the ticket entered its status) in an `UPDATE tickets SET …`
