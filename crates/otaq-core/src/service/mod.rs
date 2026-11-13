@@ -104,6 +104,10 @@ pub struct ServiceConfig {
     /// Whether the data folder's disk can clone (WRM-01): probed once, at service start. Tests force an answer
     /// ([`crate::warm::clone::CloneProbe::forced`]).
     pub clone_probe: Arc<crate::warm::clone::CloneProbe>,
+    /// Whether the data folder's disk records reads (OTAQ-5, [`crate::warm::usage`]): probed once, at service start,
+    /// next to the clone probe. Where it doesn't, warm builds are handed on whole. Tests force an answer
+    /// ([`crate::warm::usage::ReadProbe::forced`]).
+    pub read_probe: Arc<crate::warm::usage::ReadProbe>,
     /// Claude Code's config file, where the service records the folder trust of added projects (PRJ-06, d0085).
     /// Agents get the service's environment, so it is the service's file. `None` (the default, and in tests unless
     /// they pass a temporary one) records nothing; the daemon locates the real one ([`ServiceConfig::for_daemon`]).
@@ -149,6 +153,7 @@ impl ServiceConfig {
             usage_tick: usage::DEFAULT_TICK,
             terminals: TerminalEnv::from_process(),
             clone_probe: Arc::new(crate::warm::clone::CloneProbe::new()),
+            read_probe: Arc::new(crate::warm::usage::ReadProbe::new()),
             claude: None,
             read_model_lists: false,
             tool_home: None,
@@ -719,9 +724,10 @@ impl Service {
         }
         // Warm builds (d0082): what a crash left half-done goes first, then the disk is probed once.
         let trash = recovery::remove_interrupted_warm_work(data).await;
-        let warm = crate::warm::store::WarmBuilds::new(
+        let warm = crate::warm::store::WarmBuilds::with_probes(
             config.data.clone(),
             config.clone_probe.clone(),
+            config.read_probe.clone(),
             board.clone(),
             events.clone(),
         );
@@ -731,13 +737,17 @@ impl Service {
         }
         {
             let warm = warm.clone();
-            let support = tokio::task::spawn_blocking(move || warm.support().clone())
-                .await
-                .map_err(|e| ServiceError::Io(io::Error::other(e)))?;
+            // One after the other: both probes use `warm/.probe`.
+            let (support, reads) = tokio::task::spawn_blocking(move || {
+                (warm.support().clone(), warm.reads_recorded())
+            })
+            .await
+            .map_err(|e| ServiceError::Io(io::Error::other(e)))?;
             tracing::info!(
                 available = support.available,
                 file_system = %support.file_system,
                 volume = %support.volume,
+                reads_recorded = reads,
                 "copy-on-write cloning for warm builds"
             );
         }
