@@ -44,7 +44,7 @@ skills per session, and none renames them.
 The user's skills stay where they are. The agent tool finds them the way it always does. Otaq writes no skill folder
 into a worktree or a checkout. The one exception is S7, where the user asks for a skill to be written.
 
-### S2. Otaq's own skills come from its plugin
+### S2. Otaq's own skills come from its plugin (where they come from and when they change: changed by S9–S11)
 
 The skills in `plugin/skills/` (`work-ticket`, `commit`, `validate`, `open-pr`, `push`, `address-review`,
 `restack`, `answer-question`, `noyan`, `product-spec`, `tech-spec`, `milestone-plan`, `flow`) reach every session
@@ -64,7 +64,7 @@ Every shipped skill is in every session from its start, so a hand-off can always
 The shipped skills' SKILL.md files go out unchanged, `disable-model-invocation` included. If Copilot's skill tool
 still breaks on that flag (see T-0408's note), the task reports it, and nothing is rewritten without a decision.
 
-### S3. How a session names a skill
+### S3. How a session names a skill (Otaq's own skills: changed by S15)
 
 | Tool | Otaq's own skill | The user's own skill |
 |---|---|---|
@@ -246,3 +246,11 @@ From `ideas/gap-review/REPORT.md` (G-numbers) and its answers (`ideas/gap-review
   a problem on the stage in the flow editor, "`/security-review` is Claude Code's built-in command, not a skill.
   Write a small skill that runs it, and name that skill here." A user skill of that name the finder finds is the
   user's and is accepted (agreed 2026-11-06, before the PR).
+
+## Otaq's skills: tuq, otaq skills and releases without the app (agreed 2026-11-13/14)
+
+These change S2 and S3. The record is `tuq/decisions/057`–`088`, indexed in `tuq/README.md`; each file that came from
+here says which S-number it was. The gap review of them is `GAP-REVIEW.md` in this folder.
+
+**Agreed follow-up (G22, 2026-11-14):** the docs, the README and the website, which still show `/otaq:` and bare skill
+names, are updated at the end of this work, once the new names (decisions 063, 074) are built.
