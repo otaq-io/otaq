@@ -3,7 +3,7 @@
 import { type ReactNode, type RefObject, useRef } from "react";
 
 import { useEscapeLayer } from "./escape";
-import { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
+import { type Anchor, FloatingPortal, useFloatingStyle, usePressOutside } from "./Floating";
 
 export interface PopoverProps {
   /** What the popover is, for screen readers. */
@@ -39,8 +39,10 @@ export function Popover({ label, anchor, align, onClose, children }: PopoverProp
   const style = useFloatingStyle(anchor, floating, align, onClose);
   useEscape(onClose, floating);
   return (
-    <div ref={floating} className="popover" role="dialog" aria-label={label} style={style}>
-      {children}
-    </div>
+    <FloatingPortal>
+      <div ref={floating} className="popover" role="dialog" aria-label={label} style={style}>
+        {children}
+      </div>
+    </FloatingPortal>
   );
 }

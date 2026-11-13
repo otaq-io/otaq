@@ -20,12 +20,11 @@ import {
   useRef,
   useState,
 } from "react";
-import { createPortal } from "react-dom";
 
 import { closeOverlay, openOverlay } from "../../app/overlays";
 import { type OverlayProps, RegistriesContext } from "../../app/registry";
 import { useStore } from "../../app/store";
-import { IconButton, Tooltip } from "../../components";
+import { IconButton, inOverlayHost, Tooltip } from "../../components";
 import { DRAG_REGION } from "../../tauri";
 import { inKeyLayer, routeKey } from "../keys";
 import { ToolButton } from "../toolbar/Toolbar";
@@ -171,7 +170,7 @@ export function FullView({
   const Start = app?.slots.get("title_bar_start")?.Component;
   const End = app?.slots.get("title_bar_end")?.Component;
   const heading = ticketKey === null ? name : `${ticketKey} · ${name}`;
-  return createPortal(
+  return inOverlayHost(
     <div
       ref={root}
       className="md-fullview"

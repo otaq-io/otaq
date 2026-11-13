@@ -15,16 +15,17 @@ export {
 } from "./Button";
 export { CodeText } from "./CodeText";
 export { DecisionItem, DecisionsList, type DecisionItemProps, type DecisionsListProps } from "./DecisionItem";
-export {
-  ConfirmDialog,
-  Dialog,
-  inOverlayHost,
-  OVERLAY_HOST_ID,
-  type ConfirmDialogProps,
-  type DialogProps,
-} from "./Dialog";
+export { ConfirmDialog, Dialog, type ConfirmDialogProps, type DialogProps } from "./Dialog";
 export { Checkbox, Field, Radio, TextArea, TextInput, type FieldProps } from "./Field";
-export { type Anchor, useFloatingStyle, usePressOutside } from "./Floating";
+export {
+  type Anchor,
+  FloatingPortal,
+  inOverlayHost,
+  InsideLayer,
+  OVERLAY_HOST_ID,
+  useFloatingStyle,
+  usePressOutside,
+} from "./Floating";
 export { HintPopover, loadHint, OneTimeHint, type HintPopoverProps, type OneTimeHintProps } from "./Hint";
 export { Kbd } from "./Kbd";
 export { AnchoredMenu, Menu, type AnchoredMenuProps, type MenuClose, type MenuProps } from "./Menu";

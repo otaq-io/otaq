@@ -174,7 +174,9 @@ body {
   pointer-events: none;
 }
 
-.frame-layer > * {
+/* Without weight (`:where`), so a layer that never takes the pointer (a tooltip, the lifted card) keeps its own
+   `pointer-events: none` now that it is drawn here too. */
+:where(.frame-layer) > * {
   pointer-events: auto;
 }
 
