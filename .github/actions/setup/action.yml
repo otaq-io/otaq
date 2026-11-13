@@ -46,6 +46,9 @@ runs:
         "CARGO_TARGET_DIR=$drive\target" >> $env:GITHUB_ENV
         "TMP=$drive\tmp" >> $env:GITHUB_ENV
         "TEMP=$drive\tmp" >> $env:GITHUB_ENV
+        # Smaller PDBs and faster links; backtraces keep file and line.
+        "CARGO_PROFILE_DEV_DEBUG=line-tables-only" >> $env:GITHUB_ENV
+        "CARGO_PROFILE_TEST_DEBUG=line-tables-only" >> $env:GITHUB_ENV
     - name: Install Rust 1.99.0
       shell: bash
       run: |
