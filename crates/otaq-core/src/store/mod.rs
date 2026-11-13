@@ -9,6 +9,7 @@ pub mod projects;
 pub mod recents;
 pub mod restore;
 pub mod settings;
+pub mod testing;
 pub mod tickets;
 pub mod versions;
 
