@@ -34,6 +34,7 @@ use otaq_core::warm::seed::Seeder;
 use otaq_core::warm::store::{
     ClearOutcome, TrackedTimes, WarmBuilds, WarmRecord, record_file_name, times_file_name,
 };
+use otaq_core::warm::usage::{Ledger, ReadProbe};
 
 const MODES: [HandoffMode; 2] = [HandoffMode::Clone, HandoffMode::Move];
 
@@ -125,8 +126,13 @@ struct World {
     hand: Arc<Recording>,
 }
 
-/// A world whose disk hands builds over by `mode`: forced to clone (`Clone`) or not (`Move`).
+/// A world whose disk hands builds over by `mode`: forced to clone (`Clone`) or not (`Move`), and records reads.
 async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> World {
+    world_with(mode, true, change).await
+}
+
+/// [`world_in`] whose disk records reads (`reads`) or not, by the read probe forced.
+async fn world_with(mode: HandoffMode, reads: bool, change: impl FnOnce(&mut Recording)) -> World {
     let f = Fixture::shop().await;
     let data = f.data();
     let events = EventBus::new(64);
@@ -142,9 +148,10 @@ async fn world_in(mode: HandoffMode, change: impl FnOnce(&mut Recording)) -> Wor
             volume: "C:".into(),
         },
     };
-    let warm = WarmBuilds::new(
+    let warm = WarmBuilds::with_probes(
         data.clone(),
         Arc::new(CloneProbe::forced(support)),
+        Arc::new(ReadProbe::forced(reads)),
         f.board.clone(),
         events.clone(),
     );
@@ -472,6 +479,127 @@ async fn with_no_warm_build_the_checkout_seeds_without_its_env_files_only_where_
                 &head(&repo)[..7]
             )
         );
+    }
+}
+
+/// The user's own build in the checkout: `out/used.bin` and `out/lib/used.rlib` (which recent tickets used), and
+/// `out/stale.bin` and `out/old/` (which none did), all made an hour ago.
+fn checkout_build(repo: &Path) -> Vec<(PathBuf, SystemTime)> {
+    let files = [
+        "out/used.bin",
+        "out/lib/used.rlib",
+        "out/stale.bin",
+        "out/old/a.o",
+        "out/old/b.o",
+    ];
+    for file in files {
+        let path = repo.join(file);
+        std::fs::create_dir_all(path.parent().unwrap()).unwrap();
+        std::fs::write(&path, file).unwrap();
+        set_modified(&path, ago(3_600));
+    }
+    files_and_times(&repo.join("out"))
+}
+
+/// Every file under `folder` with its modified and access times, sorted.
+fn files_and_times(folder: &Path) -> Vec<(PathBuf, SystemTime)> {
+    let mut out = Vec::new();
+    let mut stack = vec![folder.to_owned()];
+    while let Some(dir) = stack.pop() {
+        for entry in std::fs::read_dir(&dir).unwrap() {
+            let path = entry.unwrap().path();
+            let meta = std::fs::symlink_metadata(&path).unwrap();
+            if meta.is_dir() {
+                stack.push(path);
+            } else {
+                out.push((path.clone(), meta.modified().unwrap()));
+                out.push((path, meta.accessed().unwrap()));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Every file under `folder`, relative to it, `/`-separated and sorted.
+fn files_in(folder: &Path) -> Vec<String> {
+    let mut files: Vec<String> = files_and_times(folder)
+        .into_iter()
+        .map(|(p, _)| {
+            p.strip_prefix(folder)
+                .unwrap()
+                .to_string_lossy()
+                .replace('\\', "/")
+        })
+        .collect();
+    files.dedup();
+    files
+}
+
+/// Records that `ticket` used `used` (paths relative to a worktree) in the project's usage ledger.
+async fn record_use(w: &World, ticket: &str, used: &[&str]) {
+    let path = w.warm.usage_path(&w.project().await).unwrap();
+    let mut ledger = Ledger::read(&path);
+    ledger.record(ticket, used.iter().map(|p| p.to_string()));
+    ledger.write(&path).unwrap();
+}
+
+#[tokio::test]
+async fn only_the_worktrees_copy_of_the_checkout_is_trimmed_to_what_recent_tickets_used() {
+    let w = world(HandoffMode::Clone).await;
+    let repo = w.repo();
+    let before = checkout_build(&repo);
+    record_use(&w, "SHOP-7", &["out/used.bin"]).await;
+    record_use(&w, "SHOP-8", &["out/lib/used.rlib", "src/a.txt"]).await;
+    w.queued("SHOP-1").await;
+
+    went_on(&w.start("SHOP-1").await);
+
+    let wt = w.worktree("SHOP-1");
+    // The copy holds only what the last tickets used; the folder nothing used is gone as a whole.
+    assert_eq!(files_in(&wt.join("out")), vec!["lib/used.rlib", "used.bin"]);
+    assert!(!wt.join("out/old").exists());
+    // The kept files are armed: read since, they would count as used.
+    for file in ["out/used.bin", "out/lib/used.rlib"] {
+        let meta = std::fs::metadata(wt.join(file)).unwrap();
+        assert!(
+            meta.accessed().unwrap() < meta.modified().unwrap(),
+            "{file}"
+        );
+    }
+    // The checkout's own build is unchanged: the same files, with the same times, and as many (decision 055).
+    assert_eq!(files_and_times(&repo.join("out")), before);
+    assert_eq!(files_in(&repo.join("out")).len(), 5);
+    // The timestamp trick still ran, and git sees the copy as ignored files only.
+    assert!(
+        w.log("SHOP-1")
+            .starts_with("Started from your checkout of shop-web")
+    );
+    assert_eq!(git(&wt, &["status", "--porcelain"]), "");
+}
+
+#[tokio::test]
+async fn with_an_empty_ledger_or_reads_not_recorded_the_copy_of_the_checkout_is_whole() {
+    for reads in [true, false] {
+        let w = world_with(HandoffMode::Clone, reads, |_| {}).await;
+        let repo = w.repo();
+        let before = checkout_build(&repo);
+        if !reads {
+            // Where reads aren't recorded, even a ledger trims nothing.
+            record_use(&w, "SHOP-7", &["out/used.bin"]).await;
+        }
+        w.queued("SHOP-1").await;
+
+        went_on(&w.start("SHOP-1").await);
+
+        let wt = w.worktree("SHOP-1");
+        assert_eq!(
+            files_in(&wt.join("out")),
+            files_in(&repo.join("out")),
+            "{reads}"
+        );
+        assert_eq!(files_in(&wt.join("out")).len(), 5, "{reads}");
+        assert_eq!(files_and_times(&repo.join("out")), before, "{reads}");
     }
 }
 
