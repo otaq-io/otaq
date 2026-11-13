@@ -206,6 +206,11 @@ fn build_using(wt: &Path, tickets: usize, used: usize) {
     }
     std::fs::write(wt.join("out/stale.bin"), "old").unwrap();
     set_untouched(&wt.join("out/stale.bin"), before);
+    let mut files: Vec<PathBuf> = (1..=tickets)
+        .map(|i| wt.join("out").join(format!("t{i}.bin")))
+        .collect();
+    files.push(wt.join("out/stale.bin"));
+    common::settle(&files);
 }
 
 fn ledger(w: &TestService, project: &Project) -> Ledger {

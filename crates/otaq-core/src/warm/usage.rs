@@ -780,6 +780,31 @@ mod tests {
         }
     }
 
+    /// Waits until no on-access scanner reads `files` any more, as the suite's `common::settle`: a scanner such as
+    /// Microsoft Defender reads a file shortly after it is written, which moves its access time. A file whose access
+    /// time moved gets its times back (re-timing doesn't make it scan again) until a quiet spell passes.
+    fn settle(files: &[PathBuf]) {
+        let times = |path: &Path| {
+            let meta = fs::symlink_metadata(path).unwrap();
+            (meta.accessed().unwrap(), meta.modified().unwrap())
+        };
+        let wanted: Vec<_> = files.iter().map(|f| (f, times(f))).collect();
+        for _ in 0..20 {
+            std::thread::sleep(Duration::from_millis(300));
+            let mut quiet = true;
+            for (file, (accessed, modified)) in &wanted {
+                if times(file).0 != *accessed {
+                    quiet = false;
+                    set_times(file, *accessed, *modified);
+                }
+            }
+            if quiet {
+                return;
+            }
+        }
+        panic!("something keeps reading the test's files");
+    }
+
     fn set_times(path: &Path, accessed: SystemTime, modified: SystemTime) {
         fs::File::options()
             .write(true)
@@ -811,6 +836,7 @@ mod tests {
             fs::write(&path, name).unwrap();
             set_times(&path, accessed, modified);
         }
+        settle(&["written", "read", "neither", "at-since"].map(|n| tmp.path().join(n)));
         let mut used = Vec::new();
         used_paths(
             &measure(tmp.path(), String::new(), Some(since)).unwrap(),
@@ -851,6 +877,7 @@ mod tests {
             let path = tmp.path().join(name);
             fs::write(&path, name).unwrap();
             set_times(&path, now, modified);
+            settle(std::slice::from_ref(&path));
             arm(&path).unwrap();
             let meta = fs::metadata(&path).unwrap();
             let (atime, mtime) = (meta.accessed().unwrap(), meta.modified().unwrap());
@@ -969,7 +996,7 @@ mod tests {
         let tmp = tempfile::tempdir().unwrap();
         let root = tmp.path().to_owned();
         let data = DataDir::new(root.join("data"));
-        let store = crate::store::Store::open(&root.join("otaq.db"))
+        let store = crate::store::Store::open(&root.join("board.db"))
             .await
             .unwrap();
         let board = crate::board::Board::new(store, None, data.clone());
@@ -1020,6 +1047,7 @@ mod tests {
             let t = if used.contains(f) { new } else { old };
             set_times(&path, old, t);
         }
+        settle(&files.iter().map(|f| dir.join(f)).collect::<Vec<_>>());
     }
 
     fn files_under(dir: &Path) -> Vec<String> {
@@ -1068,7 +1096,11 @@ mod tests {
             "target/deps/a.rlib".to_owned(),
         ];
         expected.sort();
-        assert_eq!(files_under(&incoming), expected, "Otaq's own files stay");
+        assert_eq!(
+            files_under(&incoming),
+            expected,
+            "the record and times files stay"
+        );
         let kept = fs::metadata(incoming.join("target/deps/a.rlib")).unwrap();
         assert!(
             kept.accessed().unwrap() < kept.modified().unwrap(),

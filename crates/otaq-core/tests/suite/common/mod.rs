@@ -218,3 +218,40 @@ pub async fn last_comment(
         .comments
         .pop()
 }
+
+/// Waits until no on-access scanner reads `files` any more, so their access times stay as the test set them. A
+/// scanner such as Microsoft Defender reads a file shortly after it is written, which moves its access time; a test
+/// that measures or arms access times right after writing a file then sees a read nothing in Otaq made. Re-timing a
+/// file doesn't make it scan again, so a file whose access time moved gets the times it had back, until a quiet
+/// spell passes with no read.
+pub fn settle(files: &[std::path::PathBuf]) {
+    use std::time::{Duration, SystemTime};
+    let times = |path: &std::path::Path| -> (SystemTime, SystemTime) {
+        let meta = std::fs::symlink_metadata(path).unwrap();
+        (meta.accessed().unwrap(), meta.modified().unwrap())
+    };
+    let wanted: Vec<_> = files.iter().map(|f| (f, times(f))).collect();
+    for _ in 0..20 {
+        std::thread::sleep(Duration::from_millis(300));
+        let mut quiet = true;
+        for (file, (accessed, modified)) in &wanted {
+            if times(file).0 != *accessed {
+                quiet = false;
+                std::fs::File::options()
+                    .write(true)
+                    .open(file)
+                    .unwrap()
+                    .set_times(
+                        std::fs::FileTimes::new()
+                            .set_accessed(*accessed)
+                            .set_modified(*modified),
+                    )
+                    .unwrap();
+            }
+        }
+        if quiet {
+            return;
+        }
+    }
+    panic!("something keeps reading the test's files");
+}
