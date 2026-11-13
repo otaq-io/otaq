@@ -498,6 +498,7 @@ fn checkout_build(repo: &Path) -> Vec<(PathBuf, SystemTime)> {
         std::fs::write(&path, file).unwrap();
         set_modified(&path, ago(3_600));
     }
+    crate::common::settle(&files.map(|file| repo.join(file)));
     files_and_times(&repo.join("out"))
 }
 
