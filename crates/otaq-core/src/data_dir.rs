@@ -263,12 +263,21 @@ fn path_component(part: &str) -> Result<&str, DataDirError> {
     }
 }
 
-/// The suffixes of the warm store's own folders next to a stock: `warm/<repo-name>.incoming`, `.old`, `.trash`, `.mig`.
-pub(crate) const WARM_SIBLING_SUFFIXES: [&str; 4] = [".incoming", ".old", ".trash", ".mig"];
+/// The suffixes of the warm store's own folders and files next to a stock: `warm/<repo-name>.incoming`, `.old`,
+/// `.trash`, the usage ledger `.usage` (and `.usage.tmp` while it is written), and `.mig` (an older Otaq's
+/// migration, thrown away at start; kept here so no project's stock is named like one).
+pub(crate) const WARM_SIBLING_SUFFIXES: [&str; 6] = [
+    ".incoming",
+    ".old",
+    ".trash",
+    ".usage",
+    ".usage.tmp",
+    ".mig",
+];
 
 /// A repository name for `warm/`: a [`path_component`] that doesn't end with one of [`WARM_SIBLING_SUFFIXES`] (any
 /// case, as Windows and macOS compare names), so a stock never shares a folder with another project's trash or
-/// migration (`app.trash` is `app`'s trash). Such a project has no warm builds.
+/// ledger (`app.trash` is `app`'s trash). Such a project has no warm builds.
 fn warm_component(part: &str) -> Result<&str, DataDirError> {
     let part = path_component(part)?;
     let lower = part.to_ascii_lowercase();
@@ -408,6 +417,8 @@ mod tests {
             "app.trash",
             "App.Trash",
             "app.mig",
+            "app.usage",
+            "app.usage.tmp",
             "app.incoming",
             "app.old",
         ] {
