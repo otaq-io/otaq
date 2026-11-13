@@ -2,7 +2,8 @@
 //! temporary data folder and temporary repositories. The "build" is fake: the test writes gitignored files and folders
 //! into the worktree. The probe is forced, so builds are cloned (a disk that can clone) or renamed (one that can't)
 //! whatever the test disk can do; keeping only renames either way. A seed after a keep clones where the test disk
-//! can, else a copying stand-in does; where builds are renamed it renames.
+//! can, else a copying stand-in does; where builds are renamed it renames. The read probe is forced too (reads are
+//! recorded, unless a test says otherwise), so a build is trimmed to what the last tickets used (d054).
 
 use crate::common;
 
@@ -21,6 +22,7 @@ use otaq_core::ticket_env::stock::Stock;
 use otaq_core::warm::clone::{CloneProbe, CloneSupport};
 use otaq_core::warm::seed::{SeededFrom, Seeder};
 use otaq_core::warm::store::{TrackedTimes, WarmRecord, record_file_name, times_file_name};
+use otaq_core::warm::usage::{Ledger, RECENT_TICKETS, ReadProbe};
 
 fn me() -> Actor {
     Actor::User("me".into())
@@ -30,12 +32,18 @@ fn me() -> Actor {
 const BOTH: [bool; 2] = [true, false];
 
 async fn world(available: bool) -> TestService {
+    world_reading(available, true).await
+}
+
+/// [`world`] on a disk that records reads (`reads`) or doesn't.
+async fn world_reading(available: bool, reads: bool) -> TestService {
     let w = TestService::start_with(|config| otaq_core::service::ServiceConfig {
         clone_probe: Arc::new(CloneProbe::forced(CloneSupport {
             available,
             file_system: if available { "apfs" } else { "NTFS" }.into(),
             volume: "/Volumes/Test".into(),
         })),
+        read_probe: Arc::new(ReadProbe::forced(reads)),
         ..config
     })
     .await;
@@ -151,6 +159,57 @@ fn set_modified(path: &Path, time: SystemTime) {
         .unwrap()
         .set_modified(time)
         .unwrap();
+}
+
+/// Sets both of `path`'s times: a file neither written nor read since.
+fn set_untouched(path: &Path, time: SystemTime) {
+    std::fs::File::options()
+        .write(true)
+        .open(path)
+        .unwrap()
+        .set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(time)
+                .set_modified(time),
+        )
+        .unwrap();
+}
+
+/// The project's newest stock entry.
+fn newest(w: &TestService, project: &Project) -> PathBuf {
+    let last = *entries(w, project).last().expect("an entry");
+    w.warm.path(project).unwrap().join(last.to_string())
+}
+
+/// The names in the newest entry's `out/`.
+fn kept_out(w: &TestService, project: &Project) -> Vec<String> {
+    let mut names: Vec<String> = std::fs::read_dir(newest(w, project).join("out"))
+        .unwrap()
+        .flatten()
+        .map(|e| e.file_name().to_string_lossy().into_owned())
+        .collect();
+    names.sort();
+    names
+}
+
+/// A build of `tickets` files in `out/`, of which only `out/t<used>.bin` is written by this ticket; the others and
+/// `out/stale.bin` were there before it started and nothing touched them.
+fn build_using(wt: &Path, tickets: usize, used: usize) {
+    std::fs::create_dir_all(wt.join("out")).unwrap();
+    let before = ago(3_600);
+    for i in 1..=tickets {
+        let file = wt.join("out").join(format!("t{i}.bin"));
+        std::fs::write(&file, format!("t{i}")).unwrap();
+        if i != used {
+            set_untouched(&file, before);
+        }
+    }
+    std::fs::write(wt.join("out/stale.bin"), "old").unwrap();
+    set_untouched(&wt.join("out/stale.bin"), before);
+}
+
+fn ledger(w: &TestService, project: &Project) -> Ledger {
+    Ledger::read(&w.warm.usage_path(project).unwrap())
 }
 
 fn ago(secs: u64) -> SystemTime {
@@ -560,6 +619,85 @@ async fn a_failure_halfway_still_removes_the_worktree() {
             !incoming.exists()
         })
         .await;
+        w.stop().await;
+    }
+}
+
+/// d054: each Done records what its ticket's build used, and the build goes on with only what the last 5 tickets
+/// used. Ticket i writes `out/t<i>.bin`; the other files it carries (the earlier and later tickets' files, and
+/// `stale.bin`) are older than its worktree and never read. After the sixth, the kept build holds what tickets 2–6
+/// used: not ticket 1's file, nor the file nobody used.
+#[tokio::test]
+async fn a_kept_build_holds_only_what_the_last_tickets_used() {
+    for available in BOTH {
+        let w = world(available).await;
+        let project = shop_web(&w).await;
+        let tickets = RECENT_TICKETS + 1;
+        let mut keys = Vec::new();
+        for i in 1..=tickets {
+            let (key, wt) = started(&w, &format!("Ticket {i}"), &format!("f{i}.ts")).await;
+            build_using(&wt, tickets, i);
+            merge(&w, &key).await;
+            assert!(!wt.exists(), "worktree removed");
+            keys.push(key);
+            if i == 1 {
+                assert_eq!(
+                    kept_out(&w, &project),
+                    ["t1.bin"],
+                    "only what ticket 1 used"
+                );
+            }
+        }
+        let expected: Vec<String> = (2..=tickets).map(|i| format!("t{i}.bin")).collect();
+        assert_eq!(kept_out(&w, &project), expected, "{available}");
+        let recorded = ledger(&w, &project);
+        let newest_first: Vec<String> = keys.iter().rev().take(RECENT_TICKETS).cloned().collect();
+        assert_eq!(recorded.tickets(), newest_first.as_slice());
+        assert!(!recorded.keeps("out/t1.bin"), "ticket 1 dropped out");
+        assert!(!recorded.keeps("out/stale.bin"));
+        assert!(recorded.keeps("out/t2.bin"));
+        let entry = newest(&w, &project);
+        assert_eq!(WarmRecord::read(&entry).unwrap().from, keys[tickets - 1]);
+        assert!(TrackedTimes::read(&entry).is_some(), "the times file stays");
+        // What was left out went to the trash, which empties in the background.
+        until("the trash empties", || trash_empty(&w)).await;
+        w.stop().await;
+    }
+}
+
+/// A Free at Review hands the build on the same way: it is recorded and trimmed.
+#[tokio::test]
+async fn a_free_records_and_trims_too() {
+    for available in BOTH {
+        let w = world(available).await;
+        let project = shop_web(&w).await;
+        let (key, wt) = started(&w, "Checkout API", "api.ts").await;
+        build_using(&wt, 2, 1);
+        let ticket = w.board.ticket(&key).await.unwrap();
+
+        w.ticket_env.free(&ticket.key).await;
+
+        assert!(!wt.join("out").exists(), "freed");
+        assert_eq!(ledger(&w, &project).tickets(), std::slice::from_ref(&key));
+        assert_eq!(kept_out(&w, &project), ["t1.bin"]);
+        assert_eq!(WarmRecord::read(&newest(&w, &project)).unwrap().from, key);
+        w.stop().await;
+    }
+}
+
+/// On a disk that doesn't record reads, a build is handed on whole, as before, and no ledger is written.
+#[tokio::test]
+async fn without_recorded_reads_the_build_is_kept_whole() {
+    for available in BOTH {
+        let w = world_reading(available, false).await;
+        let project = shop_web(&w).await;
+        let (key, wt) = started(&w, "Checkout API", "api.ts").await;
+        build_using(&wt, 2, 1);
+
+        merge(&w, &key).await;
+
+        assert_eq!(kept_out(&w, &project), ["stale.bin", "t1.bin", "t2.bin"]);
+        assert!(!w.warm.usage_path(&project).unwrap().exists(), "no ledger");
         w.stop().await;
     }
 }
