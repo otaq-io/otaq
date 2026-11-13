@@ -1,23 +1,44 @@
 # Otaq local checks on Windows: the frontend steps (Node version, npm ci, ts-rs freshness, tsc, ESLint, Prettier,
 # Vitest, the page build), then fmt, clippy, tests (cargo-nextest, then the doc examples). The same steps as
 # scripts/check.sh, in the same order (decision 0056, SDD section 23.2), plus fetching Microsoft's newer ConPTY for
-# the tests' sessions (scripts\conpty.ps1).
+# the tests' sessions (scripts\conpty.ps1). GitHub Actions runs it on Windows for every pull request
+# (.github/workflows/checks.yml).
 #
 # Run this before every commit made from a Windows machine. Works from any folder inside the repository. Stops at
 # the first failing step and exits non-zero. Needs Node 24 (the version in crates\otaq-desktop\.nvmrc) and npm on
 # PATH. Setup of a Windows machine or VM: scripts/README.md.
 #
-#   powershell -ExecutionPolicy Bypass -File scripts\check.ps1
+# With no arguments it runs every step. Naming groups runs only those, in the order above, so CI can run them in
+# parallel jobs: `frontend` (node to page), `lint` (fmt, clippy), `test` (conpty, nextest), `doctest` (conpty, doc
+# examples). CHECK_TEST_PARTITION (for example `hash:1/4`) runs one share of the nextest tests.
+#
+#   powershell -ExecutionPolicy Bypass -File scripts\check.ps1 [frontend] [lint] [test] [doctest]
+
+$groups = @($args)
+if ($groups.Count -eq 0) {
+    $groups = @('frontend', 'lint', 'test', 'doctest')
+}
+foreach ($group in $groups) {
+    if (@('frontend', 'lint', 'test', 'doctest') -cnotcontains $group) {
+        Write-Host "check.ps1: unknown group '$group' (frontend, lint, test, doctest)"
+        exit 1
+    }
+}
+function Test-Wants([string] $Group) {
+    return $groups -ccontains $Group
+}
 
 if (-not (Get-Command git -ErrorAction SilentlyContinue)) {
     Write-Error 'check.ps1: git is required (core tests run against temporary git repositories)'
     exit 1
 }
 
-cargo nextest --version *> $null
-if ($LASTEXITCODE -ne 0) {
-    Write-Host 'check.ps1: cargo-nextest is required: cargo install cargo-nextest --locked'
-    exit 1
+if (Test-Wants 'test') {
+    cargo nextest --version *> $null
+    if ($LASTEXITCODE -ne 0) {
+        Write-Host 'check.ps1: cargo-nextest is required: cargo install cargo-nextest --locked'
+        exit 1
+    }
 }
 
 $root = git -C $PSScriptRoot rev-parse --show-toplevel 2>$null
@@ -47,15 +68,17 @@ if (-not ($kept | Where-Object { $_.TrimEnd('\') -eq $gitCmd })) {
 $env:PATH = (($kept + $usrBin) -join ';')
 
 # The tests' sessions run in Microsoft's newer ConPTY, as the installed app's do (d0117 point 4, Q601): fetched once
-# into target\conpty, loaded from OTAQ_DEV_CONPTY_DIR.
-Write-Host '==> conpty: scripts\conpty.ps1'
-try {
-    $env:OTAQ_DEV_CONPTY_DIR = & (Join-Path $PSScriptRoot 'conpty.ps1') | Select-Object -Last 1
-} catch {
-    Write-Host "check.ps1: FAILED at step 'conpty': $_"
-    exit 1
+# into target\conpty, loaded from OTAQ_DEV_CONPTY_DIR. Only the test groups start sessions.
+if ((Test-Wants 'test') -or (Test-Wants 'doctest')) {
+    Write-Host '==> conpty: scripts\conpty.ps1'
+    try {
+        $env:OTAQ_DEV_CONPTY_DIR = & (Join-Path $PSScriptRoot 'conpty.ps1') | Select-Object -Last 1
+    } catch {
+        Write-Host "check.ps1: FAILED at step 'conpty': $_"
+        exit 1
+    }
+    Write-Host $env:OTAQ_DEV_CONPTY_DIR
 }
-Write-Host $env:OTAQ_DEV_CONPTY_DIR
 
 function Invoke-Step([string] $Name, [string[]] $Command) {
     Write-Host "==> ${Name}: $($Command -join ' ')"
@@ -68,35 +91,48 @@ function Invoke-Step([string] $Name, [string[]] $Command) {
 
 # The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
 # command runs there. npm.cmd rather than npm, so the exit code comes through whichever npm shim is first on PATH.
-$desktop = 'crates/otaq-desktop'
-$nodeWanted = ((Get-Content (Join-Path $desktop '.nvmrc') -Raw).Trim().TrimStart('v') -split '\.')[0]
-Write-Host "==> node: Node $nodeWanted (from $desktop/.nvmrc)"
-if (-not (Get-Command node -ErrorAction SilentlyContinue) -or -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
-    Write-Host "check.ps1: Node $nodeWanted is required (node or npm not found on PATH); see $desktop/.nvmrc"
-    exit 1
+if (Test-Wants 'frontend') {
+    $desktop = 'crates/otaq-desktop'
+    $nodeWanted = ((Get-Content (Join-Path $desktop '.nvmrc') -Raw).Trim().TrimStart('v') -split '\.')[0]
+    Write-Host "==> node: Node $nodeWanted (from $desktop/.nvmrc)"
+    if (-not (Get-Command node -ErrorAction SilentlyContinue) -or
+        -not (Get-Command npm.cmd -ErrorAction SilentlyContinue)) {
+        Write-Host "check.ps1: Node $nodeWanted is required (node or npm not found on PATH); see $desktop/.nvmrc"
+        exit 1
+    }
+    $nodeFound = (& node --version).Trim()
+    $nodeMajor = ($nodeFound.TrimStart('v') -split '\.')[0]
+    if ($nodeMajor -ne $nodeWanted) {
+        Write-Host "check.ps1: Node $nodeWanted is required (found $nodeFound); see $desktop/.nvmrc"
+        exit 1
+    }
+
+    Invoke-Step 'npm-ci' @('npm.cmd', '--prefix', $desktop, 'ci', '--no-audit', '--no-fund')
+    # Before tsc, so a stale generated type is reported as stale rather than as a type error.
+    Invoke-Step 'types' @('cargo', 'test', '-p', 'otaq-desktop', 'generated_types_are_fresh')
+    Invoke-Step 'tsc' @('npm.cmd', '--prefix', $desktop, 'run', 'typecheck')
+    Invoke-Step 'eslint' @('npm.cmd', '--prefix', $desktop, 'run', 'lint')
+    Invoke-Step 'prettier' @('npm.cmd', '--prefix', $desktop, 'run', 'format:check')
+    Invoke-Step 'vitest' @('npm.cmd', '--prefix', $desktop, 'run', 'test')
+    # Plain cargo builds don't embed ui/dist (only the Tauri CLI's release build does), but building the page here
+    # catches what tsc doesn't, such as an import Vite can't resolve, before the cargo steps.
+    Invoke-Step 'page' @('npm.cmd', '--prefix', $desktop, 'run', 'build:page')
 }
-$nodeFound = (& node --version).Trim()
-$nodeMajor = ($nodeFound.TrimStart('v') -split '\.')[0]
-if ($nodeMajor -ne $nodeWanted) {
-    Write-Host "check.ps1: Node $nodeWanted is required (found $nodeFound); see $desktop/.nvmrc"
-    exit 1
+
+if (Test-Wants 'lint') {
+    Invoke-Step 'fmt' @('cargo', 'fmt', '--all', '--check')
+    Invoke-Step 'clippy' @('cargo', 'clippy', '--workspace', '--all-targets', '--', '-D', 'warnings')
+}
+if (Test-Wants 'test') {
+    # Each test in its own process, in parallel, no retries (.config/nextest.toml); nextest skips doc examples.
+    $partition = @()
+    if ($env:CHECK_TEST_PARTITION) {
+        $partition = @('--partition', $env:CHECK_TEST_PARTITION)
+    }
+    Invoke-Step 'test' (@('cargo', 'nextest', 'run', '--workspace') + $partition)
+}
+if (Test-Wants 'doctest') {
+    Invoke-Step 'doctest' @('cargo', 'test', '--workspace', '--doc')
 }
 
-Invoke-Step 'npm-ci' @('npm.cmd', '--prefix', $desktop, 'ci', '--no-audit', '--no-fund')
-# Before tsc, so a stale generated type is reported as stale rather than as a type error.
-Invoke-Step 'types' @('cargo', 'test', '-p', 'otaq-desktop', 'generated_types_are_fresh')
-Invoke-Step 'tsc' @('npm.cmd', '--prefix', $desktop, 'run', 'typecheck')
-Invoke-Step 'eslint' @('npm.cmd', '--prefix', $desktop, 'run', 'lint')
-Invoke-Step 'prettier' @('npm.cmd', '--prefix', $desktop, 'run', 'format:check')
-Invoke-Step 'vitest' @('npm.cmd', '--prefix', $desktop, 'run', 'test')
-# Plain cargo builds don't embed ui/dist (only the Tauri CLI's release build does), but building the page here catches
-# what tsc doesn't, such as an import Vite can't resolve, before the cargo steps.
-Invoke-Step 'page' @('npm.cmd', '--prefix', $desktop, 'run', 'build:page')
-
-Invoke-Step 'fmt' @('cargo', 'fmt', '--all', '--check')
-Invoke-Step 'clippy' @('cargo', 'clippy', '--workspace', '--all-targets', '--', '-D', 'warnings')
-# Each test in its own process, in parallel, no retries (.config/nextest.toml); nextest skips doc examples.
-Invoke-Step 'test' @('cargo', 'nextest', 'run', '--workspace')
-Invoke-Step 'doctest' @('cargo', 'test', '--workspace', '--doc')
-
-Write-Host 'check.ps1: all checks passed'
+Write-Host "check.ps1: all checks passed ($($groups -join ' '))"
