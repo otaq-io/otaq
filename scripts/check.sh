@@ -9,8 +9,9 @@
 # version in crates/otaq-desktop/.nvmrc) and npm on PATH; setup: scripts/README.md.
 #
 # With no arguments it runs every step. Naming groups runs only those, in the order above, so CI can run them in
-# parallel jobs: `frontend` (node to page), `lint` (fmt, clippy), `test` (nextest), `doctest`. CHECK_TEST_PARTITION
-# (for example `hash:1/2`) runs one share of the nextest tests.
+# parallel jobs: `frontend` (node to page), `lint` (fmt, clippy), `test` (nextest), `doctest` (doc examples).
+# CHECK_TEST_PARTITION (for example `hash:1/2`) runs one share of the nextest tests. scripts/check.ps1 takes the same
+# groups on Windows.
 
 set -uo pipefail
 
