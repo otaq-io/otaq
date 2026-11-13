@@ -7,8 +7,11 @@
 //!   replace (forward only), the trash, Clear and the size (WRM-02, WRM-05…WRM-07).
 //! - [`keep`]: keeping a clean worktree's gitignored files at Done (WRM-03).
 //! - [`seed`]: seeding a new worktree at start, with the timestamp trick (WRM-04).
+//! - [`usage`]: what the last tickets used (decisions 054, 055): the usage ledger, arming and the read probe; a build
+//!   handed on, and a copy of the user's checkout, carry only that.
 
 pub mod clone;
 pub(crate) mod keep;
 pub mod seed;
 pub mod store;
+pub mod usage;

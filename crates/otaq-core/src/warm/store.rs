@@ -45,6 +45,7 @@ use serde::{Deserialize, Serialize};
 use tokio::sync::{Mutex as AsyncMutex, Notify, OwnedMutexGuard, oneshot};
 
 use super::clone::{CloneProbe, CloneSupport, remove_tree};
+use super::usage::ReadProbe;
 use crate::board::{Board, BoardError};
 use crate::data_dir::{DataDir, DataDirError};
 use crate::naming;
@@ -193,7 +194,7 @@ pub fn stock_marker_name() -> String {
 /// What the marker file holds: the stock's format.
 const STOCK_FORMAT: &str = "stock 1";
 
-/// `<repo-name>.incoming`, `<repo-name>.old` or `<repo-name>.mig`, next to the stock.
+/// `<repo-name>.incoming`, `<repo-name>.old`, `<repo-name>.mig` or `<repo-name>.usage`, next to the stock.
 fn sibling(data: &DataDir, repo: &str, suffix: &str) -> Result<PathBuf, DataDirError> {
     Ok(data
         .warm_path(repo)?
@@ -548,6 +549,8 @@ impl Slots {
 struct Inner {
     data: DataDir,
     probe: Arc<CloneProbe>,
+    /// Whether the data folder's disk records reads (OTAQ-5, [`super::usage`]).
+    reads: Arc<ReadProbe>,
     board: Board,
     events: EventBus,
     slots: Mutex<HashMap<String, Slots>>,
@@ -574,10 +577,23 @@ impl fmt::Debug for WarmBuilds {
 
 impl WarmBuilds {
     pub fn new(data: DataDir, probe: Arc<CloneProbe>, board: Board, events: EventBus) -> Self {
+        Self::with_probes(data, probe, Arc::new(ReadProbe::new()), board, events)
+    }
+
+    /// [`new`](Self::new) with the read probe given too: the service's, or a test's
+    /// [`forced`](ReadProbe::forced) one.
+    pub fn with_probes(
+        data: DataDir,
+        probe: Arc<CloneProbe>,
+        reads: Arc<ReadProbe>,
+        board: Board,
+        events: EventBus,
+    ) -> Self {
         Self {
             inner: Arc::new(Inner {
                 data,
                 probe,
+                reads,
                 board,
                 events,
                 slots: Mutex::new(HashMap::new()),
@@ -591,6 +607,17 @@ impl WarmBuilds {
     /// Whether the data folder's disk can clone (probed once, at service start).
     pub fn support(&self) -> &CloneSupport {
         self.inner.probe.support(&self.inner.data)
+    }
+
+    /// Whether the data folder's disk records reads (probed once, at service start): where it doesn't, builds are
+    /// handed on whole ([`super::usage`]). Blocking the first time.
+    pub fn reads_recorded(&self) -> bool {
+        self.inner.reads.recorded(&self.inner.data)
+    }
+
+    /// The project's usage ledger, `warm/<repo-name>.usage`, beside the stock ([`super::usage::Ledger`]).
+    pub fn usage_path(&self, project: &Project) -> Result<PathBuf, DataDirError> {
+        sibling(&self.inner.data, &repo_name(project), "usage")
     }
 
     /// How builds are handed over on the data folder's disk.
