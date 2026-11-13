@@ -181,3 +181,26 @@ describe("Any floating layer that can close and a press outside it", () => {
     expect(onClose).toHaveBeenCalledTimes(1);
   });
 });
+
+// Every floating layer draws in the overlay host unless it is inside a layer (OTAQ-3): a component that places one with
+// `useFloatingStyle` must draw its root through `FloatingPortal`, or a panel's stacking context can cover it again.
+describe("every useFloatingStyle user draws through FloatingPortal", () => {
+  it("finds none that doesn't", async () => {
+    const fsModule = "node:fs";
+    const fs = (await import(fsModule)) as {
+      readdirSync(path: string, options: { recursive: true }): string[];
+      readFileSync(path: string, encoding: "utf8"): string;
+    };
+    const src = `${(import.meta as ImportMeta & { dirname: string }).dirname}/..`;
+    const files = fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith(".tsx"));
+    const users = files.filter((f) => fs.readFileSync(`${src}/${f}`, "utf8").includes("useFloatingStyle("));
+    const missing = users.filter(
+      (f) =>
+        !/(^|\/)components\/Floating\.tsx$/.test(f) &&
+        !fs.readFileSync(`${src}/${f}`, "utf8").includes("<FloatingPortal"),
+    );
+    // The scan reaches the users it should: the shared layers and the ones that place themselves.
+    expect(users.length).toBeGreaterThanOrEqual(9);
+    expect(missing).toEqual([]);
+  });
+});

@@ -15,7 +15,7 @@ import {
   useState,
 } from "react";
 
-import { useFloatingStyle } from "../../components";
+import { FloatingPortal, useFloatingStyle } from "../../components";
 import { menuKey } from "../../components/logic";
 import type { AgentsModelChoice } from "../../generated/AgentsModelChoice";
 import type { AgentsModelDropdown } from "../../generated/AgentsModelDropdown";
@@ -366,11 +366,13 @@ function FloatingList({
     list.onClose("outside");
   });
   return (
-    <div ref={floating} className="floating" style={{ ...style, width, minWidth }}>
-      <ChoiceList {...list} className={className}>
-        {children}
-      </ChoiceList>
-    </div>
+    <FloatingPortal>
+      <div ref={floating} className="floating" style={{ ...style, width, minWidth }}>
+        <ChoiceList {...list} className={className}>
+          {children}
+        </ChoiceList>
+      </div>
+    </FloatingPortal>
   );
 }
 

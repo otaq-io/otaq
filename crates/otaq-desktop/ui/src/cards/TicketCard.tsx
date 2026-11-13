@@ -9,7 +9,15 @@
 // no room for; the quick actions (open terminal, open sheet) show on hover.
 import { type CSSProperties, type ReactNode, type RefObject, useEffect, useRef, useState } from "react";
 
-import { Button, CodeText, PriorityChip, ToolAvatar, Tooltip, useFloatingStyle } from "../components";
+import {
+  Button,
+  CodeText,
+  FloatingPortal,
+  PriorityChip,
+  ToolAvatar,
+  Tooltip,
+  useFloatingStyle,
+} from "../components";
 import { TOOLTIP_DELAY } from "../components/Tooltip";
 import type { CardActionKind } from "../generated/CardActionKind";
 import type { CardStatusHover } from "../generated/CardStatusHover";
@@ -51,9 +59,11 @@ function HoverBubble({ anchor, children }: { anchor: RefObject<HTMLElement | nul
   const card = useRef<HTMLDivElement>(null);
   const style = useFloatingStyle(anchor, card);
   return (
-    <div ref={card} role="tooltip" className="card-hover" style={style}>
-      {children}
-    </div>
+    <FloatingPortal>
+      <div ref={card} role="tooltip" className="card-hover" style={style}>
+        {children}
+      </div>
+    </FloatingPortal>
   );
 }
 

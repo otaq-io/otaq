@@ -6,7 +6,7 @@
 import { NodeViewContent, NodeViewWrapper, type ReactNodeViewProps } from "@tiptap/react";
 import { type KeyboardEvent, type RefObject, useLayoutEffect, useRef, useState } from "react";
 
-import { useEscape, useFloatingStyle, PLAIN_TEXT } from "../../components";
+import { FloatingPortal, useEscape, useFloatingStyle, PLAIN_TEXT } from "../../components";
 import { Icon } from "../../theme/Icon";
 import {
   type CodeLanguage,
@@ -141,59 +141,61 @@ function LanguagePicker({ anchor, language, onChoose, onClose }: LanguagePickerP
   };
 
   return (
-    <div
-      ref={floating}
-      className="popover md-code-picker"
-      role="dialog"
-      aria-label="Code language"
-      style={style}
-    >
-      <label className="md-code-filter">
-        <Icon name="search" size={12} />
-        <input
-          {...PLAIN_TEXT}
-          // eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens to be typed into
-          autoFocus
-          value={query}
-          placeholder="Filter languages…"
-          aria-label="Filter languages"
-          onChange={(e) => {
-            setQuery(e.target.value);
-            setHighlighted(0);
-          }}
-          onKeyDown={onKeyDown}
-        />
-      </label>
-      <div role="listbox" aria-label="Languages">
-        {rows.map((row, i) => {
-          const current = isCurrentLanguage(row, language);
-          return (
-            <button
-              key={row.label}
-              type="button"
-              role="option"
-              aria-selected={current}
-              tabIndex={-1}
-              className="md-code-option"
-              data-plain={row.id === null || undefined}
-              data-highlighted={i === shown || undefined}
-              onMouseDown={(e) => {
-                e.preventDefault();
-              }}
-              onMouseMove={() => {
-                if (i !== shown) setHighlighted(i);
-              }}
-              onClick={() => {
-                onChoose(row);
-              }}
-            >
-              <span className="md-code-option-label">{row.label}</span>
-              {row.id === null && <span className="md-code-option-note">none</span>}
-              {current && <Icon name="check" size={13} label="current" />}
-            </button>
-          );
-        })}
+    <FloatingPortal>
+      <div
+        ref={floating}
+        className="popover md-code-picker"
+        role="dialog"
+        aria-label="Code language"
+        style={style}
+      >
+        <label className="md-code-filter">
+          <Icon name="search" size={12} />
+          <input
+            {...PLAIN_TEXT}
+            // eslint-disable-next-line jsx-a11y/no-autofocus -- the picker opens to be typed into
+            autoFocus
+            value={query}
+            placeholder="Filter languages…"
+            aria-label="Filter languages"
+            onChange={(e) => {
+              setQuery(e.target.value);
+              setHighlighted(0);
+            }}
+            onKeyDown={onKeyDown}
+          />
+        </label>
+        <div role="listbox" aria-label="Languages">
+          {rows.map((row, i) => {
+            const current = isCurrentLanguage(row, language);
+            return (
+              <button
+                key={row.label}
+                type="button"
+                role="option"
+                aria-selected={current}
+                tabIndex={-1}
+                className="md-code-option"
+                data-plain={row.id === null || undefined}
+                data-highlighted={i === shown || undefined}
+                onMouseDown={(e) => {
+                  e.preventDefault();
+                }}
+                onMouseMove={() => {
+                  if (i !== shown) setHighlighted(i);
+                }}
+                onClick={() => {
+                  onChoose(row);
+                }}
+              >
+                <span className="md-code-option-label">{row.label}</span>
+                {row.id === null && <span className="md-code-option-note">none</span>}
+                {current && <Icon name="check" size={13} label="current" />}
+              </button>
+            );
+          })}
+        </div>
       </div>
-    </div>
+    </FloatingPortal>
   );
 }
