@@ -23,6 +23,12 @@
 //! resolve, or a warm build without a times file (kept before they were recorded), skips the trick: the files keep
 //! their checkout times and the first build redoes more, which is slower but correct.
 //!
+//! A copy of the user's checkout is then **trimmed to what recent tickets used** (decision 055,
+//! [`usage::trim_copy`]): the copied files none of the last finished tickets' builds used are left out of the
+//! worktree, and the rest armed so the ticket's own use shows. Only the worktree's copy changes: the checkout's files,
+//! their times and their count are never touched. With no ticket recorded yet, or a disk that doesn't record reads,
+//! the copy stays whole. The Merge check's scratch seed is never trimmed.
+//!
 //! Seeding never fails a start: a failure removes what was cloned, is logged, and the ticket builds from nothing.
 //! Nothing here knows any build tool: every gitignored file is treated the same.
 
@@ -36,6 +42,7 @@ use std::time::{Duration, Instant, SystemTime};
 
 use super::clone::{CloneError, Cloner, remove_tree};
 use super::store::{Claim, TrackedTimes, WarmBuilds, record_file_name, repo_name, times_file_name};
+use super::usage;
 use crate::board::Board;
 use crate::git::Git;
 use crate::store::now_ms;
@@ -249,7 +256,7 @@ impl Seeder {
             None => {
                 let repo = PathBuf::from(&project.repo_path);
                 let head = self
-                    .seed_from_folder(git, &repo, ticket, worktree, leave_out)
+                    .seed_from_folder(git, &repo, ticket, worktree, leave_out, Some(project))
                     .await?;
                 Some(SeededFrom::Checkout { head })
             }
@@ -305,7 +312,9 @@ impl Seeder {
 
     /// Clones the gitignored files of `folder` (the user's checkout, or a ticket's worktree) into `worktree`, with
     /// the times `folder`'s tracked files have and its own uncommitted changes marked new. `Some(head)` (`folder`'s
-    /// commit, `None` before its first) when something was cloned.
+    /// commit, `None` before its first) when something was cloned. With `trim` (the user's checkout of that project,
+    /// never the Merge check's scratch), the worktree's copy is trimmed to what recent tickets used before the
+    /// timestamp trick ([`usage::trim_copy`]); `folder` itself is never touched.
     async fn seed_from_folder(
         &self,
         git: &Git,
@@ -313,6 +322,7 @@ impl Seeder {
         ticket: &str,
         worktree: &Path,
         leave_out: Vec<PathBuf>,
+        trim: Option<&Project>,
     ) -> Option<Option<String>> {
         let handover = Handover::Clone(self.cloner.clone());
         let repo = folder.to_owned();
@@ -350,6 +360,9 @@ impl Seeder {
             }
         };
         let plan = hand_over(&handover, &repo, worktree, ignored, leave_out).await?;
+        if let Some(project) = trim {
+            usage::trim_copy(&self.warm, project, worktree, &plan.paths).await;
+        }
         if self
             .trick(git, worktree, head.as_deref(), times, uncommitted, ticket)
             .await
@@ -406,7 +419,7 @@ impl Seeder {
         };
         if let Some(from) = from.filter(|f| f.is_dir())
             && self
-                .seed_from_folder(git, from, ticket, scratch, leave_out.clone())
+                .seed_from_folder(git, from, ticket, scratch, leave_out.clone(), None)
                 .await
                 .is_some()
         {
