@@ -8,7 +8,14 @@
 import { type ReactNode, useCallback, useEffect, useLayoutEffect, useMemo, useRef, useState } from "react";
 
 import "./frame.css";
-import { OVERLAY_HOST_ID, playEnterWhenReady, playLeave, ResizeEdge, usePresence } from "../components";
+import {
+  InsideLayer,
+  OVERLAY_HOST_ID,
+  playEnterWhenReady,
+  playLeave,
+  ResizeEdge,
+  usePresence,
+} from "../components";
 import type { LayoutView } from "../generated/LayoutView";
 import { DRAG_REGION } from "../tauri";
 import { useTheme } from "../theme/theme";
@@ -72,7 +79,10 @@ function Overlays() {
 function OverlayHost() {
   return (
     <div className="frame-layer" id={OVERLAY_HOST_ID} data-slot="overlays">
-      <Overlays />
+      {/* Drawn here directly, not through `inOverlayHost`: the floating layers opened in an overlay stay in it. */}
+      <InsideLayer>
+        <Overlays />
+      </InsideLayer>
     </div>
   );
 }

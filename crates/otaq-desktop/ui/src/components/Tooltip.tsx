@@ -12,7 +12,7 @@ import { type ReactNode, type RefObject, useCallback, useEffect, useId, useRef, 
 
 import type { IconName } from "../generated/IconName";
 import { Icon } from "../theme/Icon";
-import { useFloatingStyle } from "./Floating";
+import { FloatingPortal, useFloatingStyle } from "./Floating";
 
 /** How long the pointer rests before a tooltip shows, in ms. */
 export const TOOLTIP_DELAY = 400;
@@ -45,23 +45,32 @@ function Bubble({
   const style = useFloatingStyle(anchor, bubble);
   const rich = detail !== undefined || note !== undefined;
   return (
-    <div ref={bubble} id={id} role="tooltip" className="tooltip" data-rich={rich || undefined} style={style}>
-      {rich ? (
-        <>
-          <strong>{text}</strong>
-          {detail?.map((line) => (
-            <span key={line}>{line}</span>
-          ))}
-          {note !== undefined && <span className="tooltip-note">{note}</span>}
-        </>
-      ) : (
-        <>
-          {icon !== undefined && <Icon name={icon} size={12} />}
-          <span>{text}</span>
-          {keys !== undefined && <kbd className="tooltip-keys">{keys}</kbd>}
-        </>
-      )}
-    </div>
+    <FloatingPortal>
+      <div
+        ref={bubble}
+        id={id}
+        role="tooltip"
+        className="tooltip"
+        data-rich={rich || undefined}
+        style={style}
+      >
+        {rich ? (
+          <>
+            <strong>{text}</strong>
+            {detail?.map((line) => (
+              <span key={line}>{line}</span>
+            ))}
+            {note !== undefined && <span className="tooltip-note">{note}</span>}
+          </>
+        ) : (
+          <>
+            {icon !== undefined && <Icon name={icon} size={12} />}
+            <span>{text}</span>
+            {keys !== undefined && <kbd className="tooltip-keys">{keys}</kbd>}
+          </>
+        )}
+      </div>
+    </FloatingPortal>
   );
 }
 

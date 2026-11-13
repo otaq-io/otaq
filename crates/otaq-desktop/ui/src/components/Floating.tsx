@@ -1,9 +1,62 @@
 // Placing a floating layer (menu, popover, tooltip) next to its anchor: fixed to the window, so a scrolling or
-// clipping parent never cuts it, and drawn inside the anchor's subtree, so the anchor's theme applies to it.
-import { type CSSProperties, type RefObject, useEffect, useLayoutEffect, useRef, useState } from "react";
+// clipping parent never cuts it, and drawn in the overlay host (`FloatingPortal`), above every panel, so no panel's
+// stacking context can put it under another panel (OTAQ-3: the ticket sheet, z-index 8, drew its pickers under the
+// expanded Noyan panel). A layer opened inside another layer (a menu in a popover, a picker in a dialog) stays inside
+// that layer's element instead, so a press in it is inside its owner, Esc closes it first and the dialog's keys skip
+// it. The theme is set on the root element, so a portaled layer keeps it.
+import {
+  createContext,
+  type CSSProperties,
+  type ReactNode,
+  type RefObject,
+  useContext,
+  useEffect,
+  useLayoutEffect,
+  useRef,
+  useState,
+} from "react";
+import { createPortal } from "react-dom";
 
 import { placeFloating, type Rect } from "./logic";
 import { useEnterExit } from "./motion";
+
+/** The element the frame's overlay host draws into (`app/Frame.tsx`), above every panel. Absent outside the frame (a
+ * test, the gallery). */
+export const OVERLAY_HOST_ID = "overlay-host";
+
+function overlayHost(): HTMLElement | null {
+  return typeof document === "undefined" ? null : document.getElementById(OVERLAY_HOST_ID);
+}
+
+/** Whether what renders here is already inside a layer drawn in the overlay host (a popover, a dialog, Settings). */
+const InLayer = createContext(false);
+
+/** Marks `children` as inside a layer: for what the overlay host draws directly (the frame's overlays). */
+export function InsideLayer({ children }: { children: ReactNode }) {
+  return <InLayer.Provider value={true}>{children}</InLayer.Provider>;
+}
+
+/**
+ * `child` in the overlay host (or in `slot`, an element inside it: the full-window view's box), marked as inside a
+ * layer, so the floating layers opened in it stay in it; in place where there is no host (or no page at all: a static
+ * render). Everything drawn into the overlay host goes through this: dialogs, the frame's overlays, the full view.
+ */
+export function inOverlayHost(child: ReactNode, slot?: HTMLElement): ReactNode {
+  const target = slot ?? overlayHost();
+  const marked = <InsideLayer>{child}</InsideLayer>;
+  return target === null ? marked : createPortal(marked, target);
+}
+
+/**
+ * The root of every floating layer: drawn in the overlay host, above every panel, unless it is already inside a layer
+ * (then in place, inside that layer's element: `usePressOutside`'s containment, Esc's order and a dialog's keys rely on
+ * it), or there is no host (a test without the frame, the gallery: in place, as before).
+ */
+export function FloatingPortal({ children }: { children: ReactNode }) {
+  const inLayer = useContext(InLayer);
+  const host = inLayer ? null : overlayHost();
+  return host === null ? children : createPortal(<InsideLayer>{children}</InsideLayer>, host);
+}
 
 /** What a floating layer sits next to: an element, or a point's rectangle (a context menu at the pointer). */
 export type Anchor = RefObject<HTMLElement | null> | Rect;

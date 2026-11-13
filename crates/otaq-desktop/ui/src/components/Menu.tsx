@@ -12,7 +12,7 @@ import type { MenuSearch } from "../generated/MenuSearch";
 import { Icon } from "../theme/Icon";
 import { CodeText } from "./CodeText";
 import { useEscapeLayer } from "./escape";
-import { type Anchor, useFloatingStyle } from "./Floating";
+import { type Anchor, FloatingPortal, useFloatingStyle } from "./Floating";
 import {
   chooseMenu,
   filterMenu,
@@ -266,8 +266,10 @@ export function AnchoredMenu({ anchor, align, ...menu }: AnchoredMenuProps) {
     close.current("outside");
   });
   return (
-    <div ref={floating} className="floating" style={style}>
-      <Menu {...menu} />
-    </div>
+    <FloatingPortal>
+      <div ref={floating} className="floating" style={style}>
+        <Menu {...menu} />
+      </div>
+    </FloatingPortal>
   );
 }

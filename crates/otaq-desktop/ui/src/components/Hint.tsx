@@ -10,7 +10,7 @@ import type { HintId } from "../generated/HintId";
 import type { HintView } from "../generated/HintView";
 import { request } from "../tauri";
 import { Button } from "./Button";
-import { type Anchor, useFloatingStyle } from "./Floating";
+import { type Anchor, FloatingPortal, useFloatingStyle } from "./Floating";
 
 export interface HintPopoverProps {
   /** The element the hint explains. */
@@ -44,20 +44,22 @@ export function HintPopover({
   // No `onDismiss` here: nothing but the button closes it, and it follows its anchor.
   const style = useFloatingStyle(anchor, floating, align);
   return (
-    <div ref={floating} className="hint" role="status" style={style}>
-      {title !== null && title !== undefined && <p className="hint-title">{title}</p>}
-      <p className="hint-text">{text}</p>
-      {dismiss !== null && dismiss !== undefined ? (
-        <div className="hint-buttons">
-          <button type="button" className="hint-quiet" onClick={onDismissOnly}>
-            {dismiss}
-          </button>
+    <FloatingPortal>
+      <div ref={floating} className="hint" role="status" style={style}>
+        {title !== null && title !== undefined && <p className="hint-title">{title}</p>}
+        <p className="hint-text">{text}</p>
+        {dismiss !== null && dismiss !== undefined ? (
+          <div className="hint-buttons">
+            <button type="button" className="hint-quiet" onClick={onDismissOnly}>
+              {dismiss}
+            </button>
+            <Button variant="primary" compact label={button} onClick={onDismiss} />
+          </div>
+        ) : (
           <Button variant="primary" compact label={button} onClick={onDismiss} />
-        </div>
-      ) : (
-        <Button variant="primary" compact label={button} onClick={onDismiss} />
-      )}
-    </div>
+        )}
+      </div>
+    </FloatingPortal>
   );
 }
 
