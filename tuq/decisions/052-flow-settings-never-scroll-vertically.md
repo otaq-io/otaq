@@ -1,7 +1,7 @@
 # 052 · Project settings → Flow never scrolls vertically
 
 - **Date:** 2026-11-13
-- **Status:** Accepted
+- **Status:** Partly superseded by 053
 - **Related:** OTAQ-4
 
 ## Summary
