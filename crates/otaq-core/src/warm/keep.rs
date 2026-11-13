@@ -15,6 +15,9 @@
 //! - The times file ([`TrackedTimes`]): every tracked file's modified time in the worktree (a symlink's own), so a
 //!   worktree seeded from this build gives its unchanged files the times they had here (Q71): a file committed after
 //!   the last build still looks newer than the build's output.
+//! - The build is trimmed as it is handed on ([`usage::hand_on`](super::usage::hand_on), d054): what this ticket
+//!   used is recorded in the project's usage ledger, and only the files the last tickets used go into the stock; the
+//!   rest goes to the trash. Where the disk doesn't record reads, the build goes on whole.
 //! - **Nothing here can make Done fail.** Any failure is logged and the worktree is removed as before. A rename that
 //!   fails moves back what it moved; a half-filled `.incoming` is deleted (dropping the store's
 //!   [`Incoming`](super::store::Incoming) does that).
@@ -170,7 +173,8 @@ pub(crate) async fn collect(
 }
 
 /// Renames the `collected` paths of `worktree` into the project's `.incoming`, with the tracked files' times, and
-/// adds them to the stock ([`Stock::add`]) as `ticket`'s build. A rename that fails moves back what it moved.
+/// adds them to the stock ([`Stock::add`]) as `ticket`'s build, trimmed to what the last tickets used
+/// ([`usage::hand_on`](super::usage::hand_on)). A rename that fails moves back what it moved.
 pub(crate) async fn move_to_stock(
     stock: &Stock,
     warm: &WarmBuilds,
@@ -186,6 +190,8 @@ pub(crate) async fn move_to_stock(
         built_at,
         base,
     } = collected;
+    // When this ticket's worktree started: what its build used is measured from then (read before anything moves).
+    let since = super::usage::since(worktree);
     // On an error from here on, dropping `incoming` deletes what is in it.
     let incoming = warm.incoming(project).await.map_err(failed)?;
     let (from, to) = (worktree.to_owned(), incoming.path().to_owned());
@@ -197,6 +203,8 @@ pub(crate) async fn move_to_stock(
     })
     .await
     .map_err(failed)??;
+    // Only what the last tickets used goes on (d054); never an error, so a Free or a Done never fails because of it.
+    super::usage::hand_on(warm, project, ticket, incoming.path(), since).await;
     let record = WarmRecord {
         built_at,
         base,
