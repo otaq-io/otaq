@@ -5,6 +5,8 @@
 // `search` (the base-branch dropdowns) puts a search field on top that takes focus and filters the rows as you type;
 // ↑/↓ and ↵ still work from the field. With `typed` too, what was typed is a last row of its own (Pick a skill…'s
 // "Use `<typed text>`"), its `…` parts drawn as code. A `last` row comes after everything, whatever was typed.
+// A row's `badge` is a small label after its name saying whose it is, and a header's `mark` draws Otaq's mark before
+// its label (Pick a skill…'s "Otaq" group and its rows, decision 108); the search keeps a header over the rows it shows.
 import { type CSSProperties, type KeyboardEvent, useEffect, useId, useMemo, useRef, useState } from "react";
 
 import type { MenuItem } from "../generated/MenuItem";
@@ -23,6 +25,7 @@ import {
   withLast,
   withTyped,
 } from "./logic";
+import { OtaqMark } from "./OtaqMark";
 import { PLAIN_TEXT } from "./plainText";
 
 export type MenuClose = "key" | "outside";
@@ -187,7 +190,10 @@ export function Menu({
             <div key={`h-${item.label}`} role="presentation">
               {separator}
               {item.hint === null ? (
-                <div className="menu-header">{item.label}</div>
+                <div className="menu-header" data-mark={item.mark || undefined}>
+                  {item.mark && <OtaqMark size={12} />}
+                  {item.label}
+                </div>
               ) : item.label === "" ? (
                 // A line of explanation between the rows (the Approve menu's "Your flow delivers either way…").
                 <div className="menu-note">{item.hint}</div>
@@ -230,6 +236,7 @@ export function Menu({
                 <span className="menu-item-label">
                   {i === typedRow ? <CodeText text={item.label} /> : item.label}
                 </span>
+                {item.badge !== undefined && <span className="menu-item-badge">{item.badge}</span>}
                 {item.checked && <Icon name="check" size={13} label="current" />}
                 {item.shortcut !== null && <span className="menu-item-keys">{item.shortcut}</span>}
               </span>

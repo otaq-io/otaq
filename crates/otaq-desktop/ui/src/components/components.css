@@ -743,6 +743,16 @@
   font: 400 10px var(--font-mono);
 }
 
+/* A group header with Otaq's mark before its label (Pick a skill…'s "Otaq" group, decision 108). */
+.menu-header[data-mark] {
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  padding-top: 8px;
+  color: var(--text-secondary);
+  font: 600 11px var(--font-ui);
+}
+
 /* A header with a hint (a stage's picker: its name and what it is for), apart from the rows under it. */
 .menu-header-described {
   display: flex;
@@ -823,6 +833,24 @@
 
 .menu-item-label {
   flex: 1;
+}
+
+/* With a badge, the label takes its own width and the badge follows the name. */
+.menu-item-label:has(+ .menu-item-badge) {
+  flex: 0 1 auto;
+}
+
+/* A small label after a row's name saying whose it is ("Otaq" on Otaq's own skills, decision 108): outlined, so it
+   stays readable on the highlighted row. */
+.menu-item-badge {
+  flex: none;
+  margin-right: auto;
+  padding: 0 5px;
+  border: 1px solid var(--border);
+  border-radius: var(--r-sm);
+  color: var(--text-secondary);
+  font: 500 10px/14px var(--font-ui);
+  white-space: nowrap;
 }
 
 .menu-item-keys {

@@ -3,9 +3,11 @@ import type { MenuItem } from "./MenuItem";
 import type { MenuSearch } from "./MenuSearch";
 
 /**
- * Pick a skill…: the skills the user already has (personal ones, then the project's), then Otaq's own, searchable;
- * each item's second line says where it lives, which tools have it and what it does ("Personal · Claude Code ·
- * Lists the steps…", "Otaq’s · …": every tool has Otaq's own), its id is the skill's name. Never empty: Otaq's own are always there. `FlowEditorSkillPicker` on the page.
+ * Pick a skill…: the skills the user already has (personal ones, then the project's), unmarked, then Otaq's own
+ * under an "Otaq" header with Otaq's mark, each with an "Otaq" badge (decision 108), searchable. A user's skill's
+ * second line says where it lives, which tools have it and what it does ("Personal · Claude Code · Lists the
+ * steps…"), an Otaq row's what it does (every tool has Otaq's own); an item's id is the skill's name. Never empty:
+ * Otaq's own are always there. `FlowEditorSkillPicker` on the page.
  */
 export type FlowEditorSkillPicker = { title: string, search: MenuSearch, items: Array<MenuItem>, 
 /**
