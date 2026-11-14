@@ -174,6 +174,21 @@ impl Board {
             .flatten()
     }
 
+    /// Each of `tools`' tuq release as the service's own environment finds it, in `tools`' order (`None`: no tuq, or
+    /// one without a release stamp), for Settings → About (decisions 100, 102).
+    pub async fn tuq_versions(&self, tools: Vec<Tool>) -> Vec<(Tool, Option<String>)> {
+        let homes = self.skill_homes(None).await;
+        let tuq = self.tuq().clone();
+        tokio::task::spawn_blocking(move || {
+            tools
+                .into_iter()
+                .map(|tool| (tool, tuq.version(&homes, tool)))
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
+    }
+
     /// The personal folders as the tools launched for the project with id `project_id` find them (`None`: the
     /// service's own environment only).
     async fn skill_homes(&self, project_id: Option<&str>) -> Homes {

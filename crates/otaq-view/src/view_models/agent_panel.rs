@@ -1321,6 +1321,7 @@ pub(crate) fn session_on(name: &str) -> otaq_core::session::SessionInfo {
             name: name.to_owned(),
         }),
         model_ran: None,
+        tuq_version: None,
         effort: None,
         size: None,
     }

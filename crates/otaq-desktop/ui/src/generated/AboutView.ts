@@ -13,9 +13,20 @@ version: string, commit: string, version_description: string,
  */
 built_from_source: string | null, copy_label: string, copied_label: string, 
 /**
- * What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64".
+ * What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64", then the tuq
+ * line when there is one: "· tuq 2026.11.12".
  */
 version_info: string, 
+/**
+ * The tuq the connected agent tools have, under the version (decisions 100, 102; [`tuq_line`]): "tuq
+ * 2026.11.12", or "tuq 2026.11.12; Claude Code: 2026.11.10" when they differ. `None` when no connected tool has
+ * tuq: Otaq installs it when a stage needs it, so there is nothing to say.
+ */
+tuq: string | null, 
+/**
+ * Under the tuq line.
+ */
+tuq_description: string, 
 /**
  * "© 2026 The Otaq Authors · FSL-1.1-MIT".
  */

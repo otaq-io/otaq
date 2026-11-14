@@ -215,6 +215,81 @@ async fn each_state_from_detect_and_hidden_wins() {
     w.stop().await;
 }
 
+/// One stamped tuq skill in `folder`, of release `release`.
+fn tuq_skill(folder: &Path, release: &str) {
+    let dir = folder.join("product-spec");
+    std::fs::create_dir_all(&dir).unwrap();
+    std::fs::write(
+        dir.join("SKILL.md"),
+        format!(
+            "---\nname: product-spec\ndescription: tuq's.\nmetadata:\n  tuq-release: {release}\n---\n"
+        ),
+    )
+    .unwrap();
+}
+
+/// Settings → About's tuq (decisions 100, 102): `tuq.versions` names each connected tool's tuq, from that tool's own
+/// install under the tools' home; a tool that isn't connected isn't listed, and a connected one without tuq has none.
+#[tokio::test(flavor = "multi_thread")]
+async fn tuq_versions_name_each_connected_tools_tuq() {
+    let tools = Tools::new();
+    tools.claude();
+    tools.codex();
+    let home = tools.dir.path().join("home");
+    // Claude Code: tuq's plugin at 2026.11.12.
+    let claude = home.join(".claude/plugins/cache/team/tuq/abc");
+    tuq_skill(&claude.join("skills"), "2026.11.12");
+    std::fs::write(
+        home.join(".claude/plugins/installed_plugins.json"),
+        json!({"version": 2, "plugins": {"tuq@team": [
+            {"scope": "user", "installPath": claude.display().to_string()}
+        ]}})
+        .to_string(),
+    )
+    .unwrap();
+    // OpenCode (not installed, so not connected) has tuq too: not listed.
+    tuq_skill(&home.join(".config/opencode/skills/tuq-x"), "2026.11.14");
+    let with = tools.with();
+    let tool_home = home.clone();
+    let w = TestService::start_with(move |config| ServiceConfig {
+        tool_home: Some(tool_home),
+        ..with(config)
+    })
+    .await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    recheck(&client).await;
+    let versions = async || match client.request(Request::TuqVersions).await.unwrap() {
+        Reply::TuqVersions(v) => v
+            .into_iter()
+            .map(|t| (t.tool, t.version))
+            .collect::<Vec<_>>(),
+        other => panic!("{other:?}"),
+    };
+    assert_eq!(
+        versions().await,
+        [
+            (Tool::Claude, Some("2026.11.12".into())),
+            (Tool::Codex, None)
+        ]
+    );
+    // Codex gets an older tuq of its own: both are named, each with its own.
+    let codex = home.join(".codex/plugins/cache/team/tuq/1");
+    tuq_skill(&codex.join("skills"), "2026.11.10");
+    std::fs::write(
+        home.join(".codex/config.toml"),
+        "[plugins.\"tuq@team\"]\nenabled = true\n",
+    )
+    .unwrap();
+    assert_eq!(
+        versions().await,
+        [
+            (Tool::Claude, Some("2026.11.12".into())),
+            (Tool::Codex, Some("2026.11.10".into()))
+        ]
+    );
+    w.stop().await;
+}
+
 /// A logged-out tool shows as signed out, from its own answer: Claude Code's `auth status` says `loggedIn: false`
 /// (as an expired login does) → Found · not signed in, Sign in… (`claude auth login`), not counted; a status command
 /// that fails or prints something else → Couldn't check, not counted, never signed in; Re-check after signing in →

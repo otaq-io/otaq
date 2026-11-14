@@ -491,6 +491,8 @@ async fn action_for(
         | R::AgentToolsDisconnect(_) => Action::UserOnly("manage agent tools"),
         R::LimitsResumeTool(_) => Action::UserOnly("resume a tool's agents"),
         R::RecentItems(_) => Action::UserOnly("use the command palette"),
+        // Settings → About's tuq line: nothing secret, read by anyone.
+        R::TuqVersions => Action::Read,
         R::ReviewCommentAdd(_)
         | R::ReviewCommentReply(_)
         | R::ReviewCommentEdit(_)

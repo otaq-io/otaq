@@ -9,6 +9,7 @@
 use serde::Serialize;
 use ts_rs::TS;
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::naming::{COMMAND_NAME, PRODUCT_NAME};
 
 use crate::view_models::theme_credits;
@@ -45,8 +46,15 @@ pub struct View {
     pub built_from_source: Option<String>,
     pub copy_label: String,
     pub copied_label: String,
-    /// What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64".
+    /// What Copy version info puts on the clipboard: "Otaq 0.1.0 (bed9c10) · macOS 26.0 · arm64", then the tuq
+    /// line when there is one: "· tuq 2026.11.12".
     pub version_info: String,
+    /// The tuq the connected agent tools have, under the version (decisions 100, 102; [`tuq_line`]): "tuq
+    /// 2026.11.12", or "tuq 2026.11.12; Claude Code: 2026.11.10" when they differ. `None` when no connected tool has
+    /// tuq: Otaq installs it when a stage needs it, so there is nothing to say.
+    pub tuq: Option<String>,
+    /// Under the tuq line.
+    pub tuq_description: String,
     /// "© 2026 The Otaq Authors · FSL-1.1-MIT".
     pub copyright: String,
     pub license_description: String,
@@ -277,9 +285,55 @@ pub fn copyright(license: &str) -> String {
     format!("© {holder} · FSL-1.1-MIT")
 }
 
-/// The About section for this build. `rust_crates` and `npm_packages` are the notices file's counts.
-pub fn view(build: &Build, license: &str, rust_crates: usize, npm_packages: usize) -> View {
+/// A tuq release's parts as numbers, for "the newest": "2026.11.12.2" → [2026, 11, 12, 2].
+fn release_parts(version: &str) -> Vec<u64> {
+    version.split('.').map(|p| p.parse().unwrap_or(0)).collect()
+}
+
+/// About's tuq line (decision 100) for each connected tool's tuq, `None` for a tool without one: the version most
+/// tools have (the newest of a tie), then each tool that differs, "Codex: 2026.11.10" or "Codex: not installed".
+/// One version everywhere is one line, "tuq 2026.11.12". `None` when no tool has tuq.
+pub fn tuq_line(tools: &[(Tool, Option<String>)]) -> Option<String> {
+    let mut counts: Vec<(&str, usize)> = Vec::new();
+    for version in tools.iter().filter_map(|(_, v)| v.as_deref()) {
+        match counts.iter_mut().find(|(v, _)| *v == version) {
+            Some((_, n)) => *n += 1,
+            None => counts.push((version, 1)),
+        }
+    }
+    let main = counts
+        .iter()
+        .max_by(|(a, n), (b, m)| n.cmp(m).then(release_parts(a).cmp(&release_parts(b))))?
+        .0;
+    let mut line = format!("tuq {main}");
+    for (tool, version) in tools {
+        match version.as_deref() {
+            Some(v) if v == main => {}
+            Some(v) => line.push_str(&format!("; {}: {v}", tool.display_name())),
+            None => line.push_str(&format!("; {}: not installed", tool.display_name())),
+        }
+    }
+    Some(line)
+}
+
+/// The About section for this build. `rust_crates` and `npm_packages` are the notices file's counts; `tuq` is each
+/// connected tool's tuq ([`tuq_line`]).
+pub fn view(
+    build: &Build,
+    license: &str,
+    rust_crates: usize,
+    npm_packages: usize,
+    tuq: &[(Tool, Option<String>)],
+) -> View {
     let name = PRODUCT_NAME;
+    let tuq = tuq_line(tuq);
+    let mut version_info = format!(
+        "{name} {} ({}) \u{b7} {} \u{b7} {}",
+        build.version, build.commit, build.os, build.arch
+    );
+    if let Some(tuq) = &tuq {
+        version_info.push_str(&format!(" \u{b7} {tuq}"));
+    }
     View {
         product: name.into(),
         tagline: TAGLINE.into(),
@@ -291,9 +345,10 @@ pub fn view(build: &Build, license: &str, rust_crates: usize, npm_packages: usiz
         built_from_source: (!build.release).then(|| built_from_source(&build.commit)),
         copy_label: "Copy version info".into(),
         copied_label: "Copied".into(),
-        version_info: format!(
-            "{name} {} ({}) · {} · {}",
-            build.version, build.commit, build.os, build.arch
+        version_info,
+        tuq,
+        tuq_description: format!(
+            "{name}’s own workflow skills come with this version. tuq is the one your agent tools have installed; {name} installs it on a tool when a stage needs it."
         ),
         copyright: copyright(license),
         license_description: format!(
@@ -357,7 +412,7 @@ mod tests {
 
     #[test]
     fn the_rows_as_the_frame_words_them() {
-        let v = view(&build(), LICENSE, 364, 9);
+        let v = view(&build(), LICENSE, 364, 9, &[]);
         assert_eq!(v.product, PRODUCT_NAME);
         assert_eq!(v.version, "Version 0.1.0 · build");
         assert_eq!(v.commit, "bed9c10");
@@ -375,13 +430,15 @@ mod tests {
 
     #[test]
     fn a_build_from_source_says_so() {
-        assert_eq!(view(&build(), LICENSE, 1, 1).built_from_source, None);
+        assert_eq!(view(&build(), LICENSE, 1, 1, &[]).built_from_source, None);
         let source = Build {
             release: false,
             ..build()
         };
         assert_eq!(
-            view(&source, LICENSE, 1, 1).built_from_source.as_deref(),
+            view(&source, LICENSE, 1, 1, &[])
+                .built_from_source
+                .as_deref(),
             Some(
                 "Built from source · bed9c10. This build never checks for updates; a release never replaces it. Build it again to update."
             )
@@ -391,11 +448,76 @@ mod tests {
     #[test]
     fn copy_version_info_names_version_commit_os_and_arch() {
         assert_eq!(
-            view(&build(), LICENSE, 1, 1).version_info,
+            view(&build(), LICENSE, 1, 1, &[]).version_info,
             format!("{PRODUCT_NAME} 0.1.0 (bed9c10) · macOS 26.0 · arm64")
         );
         assert_eq!(arch_name("x86_64"), "x64");
         assert_eq!(arch_name("riscv64"), "riscv64");
+    }
+
+    /// Decisions 100, 102: one line when every connected tool has the same tuq, otherwise the most common version and
+    /// each tool that differs; nothing when no tool has tuq. Copy version info carries it.
+    #[test]
+    fn the_tuq_line_names_each_tools_tuq_when_they_differ() {
+        let v = |s: &str| Some(s.to_owned());
+        assert_eq!(
+            tuq_line(&[
+                (Tool::Claude, v("2026.11.12")),
+                (Tool::Codex, v("2026.11.12"))
+            ])
+            .as_deref(),
+            Some("tuq 2026.11.12")
+        );
+        assert_eq!(
+            tuq_line(&[
+                (Tool::Claude, v("2026.11.10")),
+                (Tool::Codex, v("2026.11.12")),
+                (Tool::OpenCode, v("2026.11.12")),
+            ])
+            .as_deref(),
+            Some("tuq 2026.11.12; Claude Code: 2026.11.10")
+        );
+        // Two tools, two versions: the newer leads (by number, not by text).
+        assert_eq!(
+            tuq_line(&[
+                (Tool::Claude, v("2026.11.9")),
+                (Tool::Codex, v("2026.11.12"))
+            ])
+            .as_deref(),
+            Some("tuq 2026.11.12; Claude Code: 2026.11.9")
+        );
+        assert_eq!(
+            tuq_line(&[(Tool::Claude, v("2026.11.12")), (Tool::Codex, None)]).as_deref(),
+            Some("tuq 2026.11.12; Codex: not installed")
+        );
+        assert_eq!(tuq_line(&[(Tool::Claude, None), (Tool::Codex, None)]), None);
+        assert_eq!(tuq_line(&[]), None);
+
+        let both = view(
+            &build(),
+            LICENSE,
+            1,
+            1,
+            &[
+                (Tool::Claude, v("2026.11.10")),
+                (Tool::Codex, v("2026.11.12")),
+            ],
+        );
+        assert_eq!(
+            both.tuq.as_deref(),
+            Some("tuq 2026.11.12; Claude Code: 2026.11.10")
+        );
+        assert_eq!(
+            both.version_info,
+            format!(
+                "{PRODUCT_NAME} 0.1.0 (bed9c10) · macOS 26.0 · arm64 · tuq 2026.11.12; Claude Code: 2026.11.10"
+            )
+        );
+        assert!(
+            both.tuq_description
+                .contains("workflow skills come with this version")
+        );
+        assert_eq!(view(&build(), LICENSE, 1, 1, &[]).tuq, None);
     }
 
     fn inputs(target: PathTarget, state: PathState) -> PathInputs {

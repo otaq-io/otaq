@@ -2,9 +2,9 @@
 // Command tent on its app-icon tile, the name and line, the version with Copy version info, Otaq's own license
 // (View license), the Open-source licenses dialog, Theme credits, and the trademark line. Every text comes from
 // `settings.about`, `settings.license` and `settings.licenses` (`about.rs`, `licenses.rs`). Under the version: the
-// update notice, Check for updates automatically and the Updates row (UPD-04, d0140; page 32 items 1–2;
-// `updates.view`, `updates.rs`), then Use otaq in your own terminal with Add to my shell's PATH (page 32 item 5,
-// `settings.about_path`).
+// tuq the connected agent tools have (decisions 100, 102), the update notice, Check for updates automatically and the
+// Updates row (UPD-04, d0140; page 32 items 1–2; `updates.view`, `updates.rs`), then Use otaq in your own terminal
+// with Add to my shell's PATH (page 32 item 5, `settings.about_path`).
 import { type ReactNode, useEffect, useRef, useState } from "react";
 
 import { useStore } from "../../app/store";
@@ -517,6 +517,20 @@ export function UpdateRows({ view }: { view: UpdatesView }) {
 
 type Open = { kind: "license"; view: OwnLicenseDialog } | { kind: "licenses"; view: LicensesView } | null;
 
+/** Under the version: the tuq the connected agent tools have (decisions 100, 102), "tuq 2026.11.12; Claude Code:
+ * 2026.11.10" when they differ. Nothing when no connected tool has tuq. */
+export function TuqRow({ view }: { view: Pick<AboutView, "tuq" | "tuq_description"> }) {
+  if (view.tuq === null) return null;
+  return (
+    <div className="settings-row about-row" data-row="tuq">
+      <div className="settings-row-text">
+        <span className="settings-row-label">{view.tuq}</span>
+        <span className="settings-row-description">{view.tuq_description}</span>
+      </div>
+    </div>
+  );
+}
+
 /** The About section, registered as the global page's last section. */
 export function AboutSection() {
   const { act } = useSettings();
@@ -567,6 +581,7 @@ export function AboutSection() {
           <CopyButton label={view.copy_label} copied={view.copied_label} text={view.version_info} />
         </div>
       </div>
+      <TuqRow view={view} />
       {updates?.notice && <UpdateNoticeBox notice={updates.notice} />}
       {updates && <UpdateRows view={updates} />}
       <PathRow />

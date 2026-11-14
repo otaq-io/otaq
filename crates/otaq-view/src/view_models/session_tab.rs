@@ -379,6 +379,7 @@ mod tests {
             }),
             effort: None,
             model_ran: None,
+            tuq_version: None,
             size: None,
         }
     }
