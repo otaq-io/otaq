@@ -1,7 +1,7 @@
 {
   "project": "SHOP",
   "proposal": 1,
-  "yaml": "agents:\n  - name: Developer\n    model: default\n  - name: Checker\n    model: default\nflow:\n  - id: validate\n    name: Validate\n    kind: check\n    by: agent\n    agent: Checker\n    skill: validate\n    rounds: 3\n    fail_to: Dev\n    description: \"Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.\"\n  - id: dev\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n    description: \"Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.\"\n  - id: review\n    name: Review\n    kind: check\n    by: you\n    description: \"The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.\"\ndelivery:\n  delivers: either\n  mode: click\n  agent: Developer\n  skill: open-pr\n",
+  "yaml": "agents:\n  - name: Developer\n    model: default\n  - name: Checker\n    model: default\nflow:\n  - id: validate\n    name: Validate\n    kind: check\n    by: agent\n    agent: Checker\n    skill: otaq:validate\n    rounds: 3\n    fail_to: Dev\n    description: \"Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.\"\n  - id: dev\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: otaq:work-ticket\n    description: \"Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.\"\n  - id: review\n    name: Review\n    kind: check\n    by: you\n    description: \"The user reads the change and passes it, or sends it back with what to fix: their say before it is delivered.\"\ndelivery:\n  delivers: either\n  mode: click\n  agent: Developer\n  skill: otaq:open-pr\n",
   "bar": {
     "title": "Editing shop-web’s flow",
     "line": "Drag to reorder · click a stage for details · + to add",
@@ -48,7 +48,7 @@
       "what": "An agent checks it",
       "avatar": null,
       "who": "Checker",
-      "skill": "validate",
+      "skill": "otaq:validate",
       "check_line": "3 rounds · fails go to Dev",
       "delivery": null,
       "description": "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before anyone reviews it.",
@@ -71,7 +71,7 @@
       "what": "An agent does the work",
       "avatar": null,
       "who": "Developer",
-      "skill": "work-ticket",
+      "skill": "otaq:work-ticket",
       "check_line": null,
       "delivery": null,
       "description": "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it.",
@@ -204,7 +204,7 @@
       "label": "Skill",
       "state": {
         "state": "set",
-        "skill": "validate",
+        "skill": "otaq:validate",
         "warning": null,
         "fix": null
       },
@@ -216,160 +216,199 @@
         },
         "items": [
           {
-            "id": "address-review",
-            "label": "address-review",
+            "id": "",
+            "label": "Otaq",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context and the user's comment with `otaq prime`, read the line comments with `otaq review feedback`, fix them, commit everything, then end your stage again with a short comment through `otaq stage next`.",
+            "hint": null,
             "separated": false,
             "checked": false,
-            "header": false
+            "header": true,
+            "mark": true
           },
           {
-            "id": "answer-question",
-            "label": "answer-question",
+            "id": "otaq:address-review",
+            "label": "otaq:address-review",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Answer a linked Otaq ticket's question from this finished ticket's conversation - get the context with `otaq prime`, answer only (change nothing), and reply with `otaq answer <ID> --stdin`.",
+            "hint": "Address the review feedback on the Otaq ticket named by $OTAQ_TICKET after the user sent it back - get the context and the user's comment with `otaq prime`, read the line comments with `otaq review feedback`, fix them, commit everything, then end your stage again with a short comment through `otaq stage next`.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "commit",
-            "label": "commit",
+            "id": "otaq:answer-question",
+            "label": "otaq:answer-question",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Otaq's default Commit workflow skill - commit every change in this worktree (messages as the project's rules and the Agent instructions say, else \"<KEY>: <what changed>\"), before `otaq stage next`.",
+            "hint": "Answer a linked Otaq ticket's question from this finished ticket's conversation - get the context with `otaq prime`, answer only (change nothing), and reply with `otaq answer <ID> --stdin`.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "flow",
-            "label": "flow",
+            "id": "otaq:commit",
+            "label": "otaq:commit",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it settles and when it matters, put the reason for each stage you add or change (with its source) in the proposal's `why:`, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.",
+            "hint": "Otaq's default Commit workflow skill - commit every change in this worktree (messages as the project's rules and the Agent instructions say, else \"<KEY>: <what changed>\"), before `otaq stage next`.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "milestone-plan",
-            "label": "milestone-plan",
+            "id": "otaq:flow",
+            "label": "otaq:flow",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · An agent writes the ticket’s plan: the pieces, their order and what each waits for.",
+            "hint": "Change an Otaq project's board flow as Noyan - read the current flow with `otaq flow show`, write the whole flow file (agents and stages, every field), give each stage a description of what it settles and when it matters, put the reason for each stage you add or change (with its source) in the proposal's `why:`, propose it with `otaq flow propose --stdin`, then end your turn and wait for the user's Apply, Cancel or Ask for more changes as your next message.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "noyan",
-            "label": "noyan",
+            "id": "otaq:noyan",
+            "label": "otaq:noyan",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Work as Noyan, an Otaq project's coordinator - read `otaq prime --project`, name this conversation after the first request, take a light look at the code without editing or committing, write tickets whose notes hand on where the code lives, what you saw and the open questions, file one ticket per scope and several only for several scopes, pass on only the stage choices the user names, and file them in Backlog with the otaq CLI.",
+            "hint": "Work as Noyan, an Otaq project's coordinator - read `otaq prime --project`, name this conversation after the first request, take a light look at the code without editing or committing, write tickets whose notes hand on where the code lives, what you saw and the open questions, file one ticket per scope and several only for several scopes, pass on only the stage choices the user names, and file them in Backlog with the otaq CLI.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "open-pr",
-            "label": "open-pr",
+            "id": "otaq:open-pr",
+            "label": "otaq:open-pr",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · A pull request opens on GitHub; your team reviews it there.",
+            "hint": "A pull request opens on GitHub; your team reviews it there.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "product-spec",
-            "label": "product-spec",
+            "id": "otaq:push",
+            "label": "otaq:push",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · An agent asks you what to build, for whom and why, then writes down what you agreed.",
+            "hint": "Otaq's default Push workflow skill - get the context with `otaq prime`, propose messages for the commits not yet on the PR's branch with `otaq pr propose --stdin`, and only once Otaq says they are confirmed (by the user, or at once in automatic mode) push them to the existing PR, then report it with `otaq pr opened <url>`.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "push",
-            "label": "push",
+            "id": "otaq:restack",
+            "label": "otaq:restack",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Otaq's default Push workflow skill - get the context with `otaq prime`, propose messages for the commits not yet on the PR's branch with `otaq pr propose --stdin`, and only once Otaq says they are confirmed (by the user, or at once in automatic mode) push them to the existing PR, then report it with `otaq pr opened <url>`.",
+            "hint": "Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, merge the target it names into your branch, resolve the conflicts, commit the merge, then end your stage with a short comment through `otaq stage next`.",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "restack",
-            "label": "restack",
+            "id": "otaq:validate",
+            "label": "otaq:validate",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · Bring the Otaq ticket named by $OTAQ_TICKET up to date with the branch it merges into - get the context with `otaq prime`, merge the target it names into your branch, resolve the conflicts, commit the merge, then end your stage with a short comment through `otaq stage next`.",
-            "separated": false,
-            "checked": false,
-            "header": false
-          },
-          {
-            "id": "tech-spec",
-            "label": "tech-spec",
-            "icon": null,
-            "shortcut": null,
-            "danger": false,
-            "disabled": false,
-            "hint": "Otaq’s · An agent works out how to build it, asking you where a choice matters, and writes it down.",
-            "separated": false,
-            "checked": false,
-            "header": false
-          },
-          {
-            "id": "validate",
-            "label": "validate",
-            "icon": null,
-            "shortcut": null,
-            "danger": false,
-            "disabled": false,
-            "hint": "Otaq’s · A checking agent runs the tests and lint. If something fails, the ticket goes back to the stage before.",
+            "hint": "A checking agent runs the tests and lint. If something fails, the ticket goes back to the stage before.",
             "separated": false,
             "checked": true,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
           },
           {
-            "id": "work-ticket",
-            "label": "work-ticket",
+            "id": "otaq:work-ticket",
+            "label": "otaq:work-ticket",
             "icon": null,
             "shortcut": null,
             "danger": false,
             "disabled": false,
-            "hint": "Otaq’s · An agent writes the code in the ticket’s own copy of the repo (a worktree).",
+            "hint": "An agent writes the code in the ticket’s own copy of the repo (a worktree).",
             "separated": false,
             "checked": false,
-            "header": false
+            "header": false,
+            "badge": "Otaq"
+          },
+          {
+            "id": "tuq:milestone-plan",
+            "label": "tuq:milestone-plan",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "An agent writes the ticket’s plan: the pieces, their order and what each waits for.",
+            "separated": false,
+            "checked": false,
+            "header": false,
+            "badge": "Otaq"
+          },
+          {
+            "id": "tuq:product-spec",
+            "label": "tuq:product-spec",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "An agent asks you what to build, for whom and why, then writes down what you agreed.",
+            "separated": false,
+            "checked": false,
+            "header": false,
+            "badge": "Otaq"
+          },
+          {
+            "id": "tuq:step-back",
+            "label": "tuq:step-back",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": null,
+            "separated": false,
+            "checked": false,
+            "header": false,
+            "badge": "Otaq"
+          },
+          {
+            "id": "tuq:tech-spec",
+            "label": "tuq:tech-spec",
+            "icon": null,
+            "shortcut": null,
+            "danger": false,
+            "disabled": false,
+            "hint": "An agent works out how to build it, asking you where a choice matters, and writes it down.",
+            "separated": false,
+            "checked": false,
+            "header": false,
+            "badge": "Otaq"
           }
         ],
         "use_typed": "Use `{name}`",
@@ -418,13 +457,6 @@
         "line": "An agent checks for secrets, injection and risky packages",
         "icon": "shield-check",
         "warning": "You don't have the skill `security-check`"
-      },
-      {
-        "id": "test-in-browser",
-        "title": "Test in the browser",
-        "line": "An agent clicks through the change in the running app",
-        "icon": "shield-check",
-        "warning": "You don't have the skill `test-in-browser`"
       },
       {
         "id": "update-docs",
@@ -558,7 +590,7 @@
         "column": "dev",
         "name": "Dev",
         "state": "Working · Developer",
-        "text": "Developer works on it in Dev with work-ticket."
+        "text": "Developer works on it in Dev with otaq:work-ticket."
       },
       {
         "column": "review",
@@ -590,7 +622,7 @@
         "column": "dev",
         "name": "Dev",
         "state": "Working · Developer",
-        "text": "Developer works on it in Dev with work-ticket."
+        "text": "Developer works on it in Dev with otaq:work-ticket."
       },
       {
         "column": "review",

@@ -8,6 +8,7 @@ import { afterEach, beforeEach, describe, expect, it } from "vitest";
 
 import type { FlowEditorSkillField } from "../../generated/FlowEditorSkillField";
 import type { FlowEditorSkillState } from "../../generated/FlowEditorSkillState";
+import type { MenuItem } from "../../generated/MenuItem";
 import { type EditorActions, SkillField } from "./FlowEditor";
 
 const ignore = () => undefined;
@@ -33,27 +34,36 @@ afterEach(() => {
   box.remove();
 });
 
-function show(state: FlowEditorSkillState, focus = false, on: EditorActions = actions) {
+/** A row of Pick a skill…, as Rust sends it. */
+function row(id: string, more: Partial<MenuItem> = {}): MenuItem {
+  return {
+    id,
+    label: id,
+    icon: null,
+    shortcut: null,
+    danger: false,
+    disabled: false,
+    hint: null,
+    separated: false,
+    checked: false,
+    header: false,
+    ...more,
+  };
+}
+
+function show(
+  state: FlowEditorSkillState,
+  focus = false,
+  on: EditorActions = actions,
+  items: MenuItem[] = [row("validate")],
+) {
   const field: FlowEditorSkillField = {
     label: "Skill",
     state,
     picker: {
       title: "Pick a skill…",
       search: { placeholder: "Search your skills…", empty: "No matching skills" },
-      items: [
-        {
-          id: "validate",
-          label: "validate",
-          icon: null,
-          shortcut: null,
-          danger: false,
-          disabled: false,
-          hint: null,
-          separated: false,
-          checked: false,
-          header: false,
-        },
-      ],
+      items,
       use_typed: "Use `{name}`",
       ask: {
         id: ":ask-the-agent",
@@ -162,6 +172,49 @@ describe("the Skill field", () => {
     });
     expect(asked).toEqual([["plan", PREFILL]]);
     expect(edits).toEqual([]);
+  });
+
+  // Decision 108: the user's own skills first, unmarked; then the "Otaq" group, its header with Otaq's mark, each of
+  // its rows (`otaq:` and `tuq:` skills) with an "Otaq" badge, searching or not.
+  it("groups and badges Otaq's skills below the user's, searching or not", () => {
+    const picker = [
+      row("validate", { hint: "Personal · Claude Code · Checks the build." }),
+      row("", { label: "Otaq", header: true, separated: true, mark: true }),
+      row("otaq:validate", { badge: "Otaq", hint: "A checking agent runs the tests and lint." }),
+      row("tuq:product-spec", { badge: "Otaq", hint: "An agent asks you what to build." }),
+    ];
+    show({ state: "set", skill: "validate", warning: null, fix: null }, false, actions, picker);
+    /** The rows and headers as drawn: a header as `# label` (`#*` with the mark), a row as `label [badge]`. */
+    const drawn = () =>
+      [...document.querySelectorAll(".menu-header, .menu-item")].map((el) => {
+        if (el.classList.contains("menu-header"))
+          return `#${el.querySelector(".otaq-mark") ? "*" : ""} ${el.textContent}`;
+        const badge = el.querySelector(".menu-item-badge")?.textContent;
+        const label = el.querySelector(".menu-item-label")?.textContent ?? "";
+        return badge === undefined ? label : `${label} [${badge}]`;
+      });
+    search("");
+    expect(drawn()).toEqual([
+      "validate",
+      "#* Otaq",
+      "otaq:validate [Otaq]",
+      "tuq:product-spec [Otaq]",
+      "Ask the agent to write it…",
+    ]);
+    // The user's own validate stays unmarked; the badge is only on Otaq's.
+    expect(rows()[0]?.querySelector(".menu-item-badge")).toBeNull();
+    search("validate");
+    expect(drawn()).toEqual(["validate", "#* Otaq", "otaq:validate [Otaq]", "Ask the agent to write it…"]);
+    search("product");
+    expect(drawn()).toEqual([
+      "#* Otaq",
+      "tuq:product-spec [Otaq]",
+      "Use product",
+      "Ask the agent to write it…",
+    ]);
+    // Nothing of Otaq's matches: no header either.
+    search("zzz");
+    expect(drawn()).toEqual(["Use zzz", "Ask the agent to write it…"]);
   });
 
   it("draws the name typed in Pick a skill… as code in its Use row", () => {

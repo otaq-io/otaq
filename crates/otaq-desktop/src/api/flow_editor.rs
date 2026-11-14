@@ -732,7 +732,7 @@ mod tests {
             Some(vm::SkillState::Empty { .. })
         ));
         assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
-        // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
+        // Pick a skill… lists what `skills.list` finds: here only Otaq's own, in their group, so it is never empty.
         let picker = &details.skill.as_ref().unwrap().picker;
         assert!(
             picker
@@ -740,12 +740,11 @@ mod tests {
                 .iter()
                 .any(|i| i.id == otaq_core::board::settings::WorkflowStep::Validate.own_skill())
         );
-        let otaqs = format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME);
+        assert!(picker.items[0].header && picker.items[0].mark);
         assert!(
-            picker
-                .items
+            picker.items[1..]
                 .iter()
-                .all(|i| i.hint.as_deref().is_some_and(|h| h.starts_with(&otaqs)))
+                .all(|i| i.badge.as_deref() == Some(otaq_core::naming::PRODUCT_NAME))
         );
 
         // A name typed by hand: nothing is imported or copied; nobody has it, so it warns, and Save still works.
@@ -773,6 +772,64 @@ mod tests {
         )
         .await
         .unwrap();
+    }
+
+    /// Decision 108, as the page gets it: Pick a skill… lists the user's personal `validate` first, unmarked, then a
+    /// group headed "Otaq" with Otaq's mark, whose rows (`otaq:` and `tuq:` skills by their namespaced names) each
+    /// carry the "Otaq" badge. The marks are left out of the user's rows' JSON.
+    #[tokio::test(flavor = "multi_thread")]
+    async fn pick_a_skill_groups_and_badges_otaqs_own_below_the_users() {
+        let home = tempfile::tempdir().unwrap();
+        let validate = home.path().join(".claude/skills/validate");
+        std::fs::create_dir_all(&validate).unwrap();
+        std::fs::write(
+            validate.join("SKILL.md"),
+            "---\nname: validate\ndescription: Checks the build.\n---\nRun the build.\n",
+        )
+        .unwrap();
+        let tool_home = home.path().to_path_buf();
+        let h = Harness::configured(move |config| config.tool_home = Some(tool_home.clone()));
+        h.wait_for("connected", connected).await;
+        let repos = TempRepos::new();
+        shop_web(&h, &repos).await;
+        request(
+            &h.app,
+            "flow_editor.edit",
+            json!({ "project": "SHOP", "edit": { "edit": "add_template", "after": "dev", "template": "new-stage" } }),
+        )
+        .await
+        .unwrap();
+        let v = load(&h, Some("new-stage")).await;
+        let page = serde_json::to_value(&v).unwrap();
+        let items = page["details"]["skill"]["picker"]["items"]
+            .as_array()
+            .unwrap()
+            .clone();
+
+        let mine = &items[0];
+        assert_eq!(mine["id"], "validate");
+        // Where it lives and the tools that read `~/.claude/skills` (Claude Code's, OpenCode's), then what it does.
+        let hint = mine["hint"].as_str().unwrap();
+        assert!(
+            hint.starts_with("Personal \u{b7} Claude Code") && hint.ends_with(" \u{b7} Checks the build."),
+            "{hint}"
+        );
+        assert!(mine.get("badge").is_none() && mine.get("mark").is_none());
+
+        let header = &items[1];
+        assert_eq!(header["header"], true);
+        assert_eq!(header["mark"], true);
+        assert_eq!(header["separated"], true);
+        assert_eq!(header["label"], otaq_core::naming::PRODUCT_NAME);
+
+        let otaqs = &items[2..];
+        let ids: Vec<&str> = otaqs.iter().map(|i| i["id"].as_str().unwrap()).collect();
+        let tuqs = format!("{}:product-spec", otaq_core::tuq::NAMESPACE);
+        assert!(ids.contains(&otaq_core::skills::own_name("validate").as_str()));
+        assert!(ids.contains(&tuqs.as_str()), "{ids:?}");
+        assert!(otaqs.iter().all(|i| i["badge"] == otaq_core::naming::PRODUCT_NAME
+            && i["label"] == i["id"]
+            && i["header"] == false));
     }
 
     /// Ask the agent to write it on a stage whose skill nobody has: Pick a skill… and the warning offer it; once the
