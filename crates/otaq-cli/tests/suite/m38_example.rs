@@ -659,7 +659,9 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         ["SHOP-33"]
     );
 
-    // SHOP-12 leaves Plan: it waits at the span's edge, before Dev, and doesn't start.
+    // SHOP-12 leaves Plan: it waits at the span's edge, before Dev, and doesn't start. Only starts from here on count:
+    // Plan's own start also begins with Otaq's work-ticket (its task skill is typed after it).
+    let before = world.starts_of("SHOP-12").len();
     world.go("SHOP-12");
     world
         .until("SHOP-12 waits before Dev", async || {
@@ -677,6 +679,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         world
             .starts_of("SHOP-12")
             .iter()
+            .skip(before)
             .filter(|l| l.contains("otaq:work-ticket"))
             .count()
     };
