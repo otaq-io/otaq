@@ -62,6 +62,13 @@ run_step() {
     fi
 }
 
+# Otaq's workflow skills are the otaq-skills submodule at plugin/skills (decision 057), which every group's build
+# reads. Checked out when it isn't yet (a clone without --recursive, a new worktree); one already checked out is left
+# as it is, so a skill being changed there is checked as it is.
+if git submodule status | grep -q '^-'; then
+    run_step submodules git submodule update --init
+fi
+
 # The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
 # command runs there.
 if wants frontend; then

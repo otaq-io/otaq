@@ -12,8 +12,9 @@
 # 2. `otaq --version` names the version (when one is given).
 # 3. The background service starts on a throwaway data folder and home, answers `daemon status`, has made its runtime
 #    copy with the plugin folder in it (so it found the plugin folder, UPD-02), and stops. Otaq's own skills come
-#    from its plugin: every shipped skill (the bundle's plugin/skills/<name>/SKILL.md) is in the copy's claude/skills
-#    and copilot/skills, and in Codex's fixed folder runtime/codex-plugin/skills. On Windows the copy has the
+#    from its plugin: every shipped skill (the bundle's plugin/skills/skills/<name>/SKILL.md: plugin/skills is the
+#    otaq-skills submodule, its skills in its skills/) is in the copy's claude/skills and copilot/skills, and in
+#    Codex's fixed folder runtime/codex-plugin/skills. On Windows the copy has the
 #    ConPTY too and the service's log says its sessions run in it.
 # Nothing outside a scratch folder is used: OTAQ_HOME, HOME and the tools' config folders point into it.
 
@@ -103,8 +104,10 @@ done
 echo "$found"
 
 step "Each tool's plugin carries Otaq's own skills"
+shipped="$plugin/skills/skills"
+[[ -d "$shipped" ]] || fail "no $shipped (plugin/skills is the otaq-skills submodule: is it checked out?)"
 skills=0
-for skill in "$plugin"/skills/*/SKILL.md; do
+for skill in "$shipped"/*/SKILL.md; do
     [[ -f "$skill" ]] || continue
     name="$(basename "$(dirname "$skill")")"
     for into in "$found/claude/skills" "$found/copilot/skills" "$home/runtime/codex-plugin/skills"; do
@@ -112,7 +115,7 @@ for skill in "$plugin"/skills/*/SKILL.md; do
     done
     skills=$((skills + 1))
 done
-[[ "$skills" -gt 0 ]] || fail "no shipped skills in $plugin/skills"
+[[ "$skills" -gt 0 ]] || fail "no shipped skills in $shipped"
 echo "$skills skills in claude/, copilot/ and codex-plugin/"
 if [[ "$kind" == nsis ]]; then
     step "Its sessions run in Microsoft's ConPTY (in the runtime copy, named in the log)"

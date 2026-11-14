@@ -28,7 +28,9 @@ fn json(path: &Path) -> Value {
 
 /// The front matter's `name:` and the body of a SKILL.md.
 fn skill(name: &str) -> (String, String) {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = otaq_core::runtime::shipped_skills(&plugin())
+        .join(name)
+        .join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, body) = rest.split_once("\n---\n").expect("front matter end");
@@ -45,7 +47,9 @@ fn skill(name: &str) -> (String, String) {
 
 /// The front matter of a SKILL.md, as `key: value` lines.
 fn front_matter(name: &str) -> Vec<(String, String)> {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = otaq_core::runtime::shipped_skills(&plugin())
+        .join(name)
+        .join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, _) = rest.split_once("\n---\n").expect("front matter end");
@@ -58,7 +62,7 @@ fn front_matter(name: &str) -> Vec<(String, String)> {
 
 /// Every skill folder in the plugin.
 fn skill_names() -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(plugin().join("skills"))
+    let mut names: Vec<String> = std::fs::read_dir(otaq_core::runtime::shipped_skills(&plugin()))
         .unwrap()
         .map(|e| e.unwrap())
         .filter(|e| e.path().is_dir())
@@ -69,7 +73,8 @@ fn skill_names() -> Vec<String> {
 }
 
 /// Claude Code's plugin folder holds its manifest and hooks in git; the shipped skills live once, beside it in
-/// `plugin/skills/`, and the runtime copy fills the plugin's own `skills/` from there (`crate::runtime`).
+/// `plugin/skills/` (the `otaq-skills` submodule, its skills in its `skills/`), and the runtime copy fills the
+/// plugin's own `skills/` from there (`crate::runtime`).
 #[test]
 fn the_manifest_names_the_plugin_namespace() {
     let claude = plugin().join("claude");
@@ -83,7 +88,11 @@ fn the_manifest_names_the_plugin_namespace() {
         .collect();
     entries.sort();
     assert_eq!(entries, [".claude-plugin", "hooks"]);
-    assert!(plugin().join("skills").join(WORK_TICKET_SKILL).is_dir());
+    assert!(
+        otaq_core::runtime::shipped_skills(&plugin())
+            .join(WORK_TICKET_SKILL)
+            .is_dir()
+    );
 }
 
 #[test]

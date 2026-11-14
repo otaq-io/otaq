@@ -41,6 +41,8 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Otaq's workflow skills: the otaq-skills submodule at plugin/skills
       - uses: ./.github/actions/setup
       - if: runner.os == 'Linux'
         run: scripts/check.sh frontend
@@ -61,6 +63,8 @@ jobs:
       CARGO_TERM_COLOR: always
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Otaq's workflow skills: the otaq-skills submodule at plugin/skills
       - uses: ./.github/actions/setup
       - if: runner.os == 'Linux'
         run: scripts/check.sh lint
@@ -91,6 +95,8 @@ jobs:
       CHECK_TEST_PARTITION: hash:${{ matrix.share }}/${{ matrix.shares }}
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          submodules: true # Otaq's workflow skills: the otaq-skills submodule at plugin/skills
       - uses: ./.github/actions/setup
         with:
           save-rust-cache: ${{ matrix.share == 1 }}

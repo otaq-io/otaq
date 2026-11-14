@@ -89,6 +89,13 @@ function Invoke-Step([string] $Name, [string[]] $Command) {
     }
 }
 
+# Otaq's workflow skills are the otaq-skills submodule at plugin/skills (decision 057), which every group's build
+# reads. Checked out when it isn't yet (a clone without --recursive, a new worktree); one already checked out is left
+# as it is, so a skill being changed there is checked as it is.
+if (git submodule status | Where-Object { $_ -like '-*' }) {
+    Invoke-Step 'submodules' @('git', 'submodule', 'update', '--init')
+}
+
 # The frontend steps of SDD section 5.5 (decision 0075 point 7). The page lives inside the desktop crate; every npm
 # command runs there. npm.cmd rather than npm, so the exit code comes through whichever npm shim is first on PATH.
 if (Test-Wants 'frontend') {

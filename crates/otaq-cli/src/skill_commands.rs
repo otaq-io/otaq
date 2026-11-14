@@ -156,7 +156,9 @@ fn tree() -> clap::Command {
 
 #[test]
 fn every_command_and_flag_a_skill_names_exists() {
-    let skills = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugin/skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugin"),
+    );
     let root = tree();
     let (mut checked, mut problems) = (0, Vec::new());
     for file in markdown_files(&skills) {

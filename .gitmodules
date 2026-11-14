@@ -1,0 +1,3 @@
+[submodule "plugin/skills"]
+	path = plugin/skills
+	url = https://github.com/otaq-io/otaq-skills.git

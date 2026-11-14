@@ -228,7 +228,7 @@ pub(crate) fn refresh_plugin(
         return Ok(None);
     }
     let dest = data.codex_plugin_dir();
-    let skills = plugin_dir.join(crate::runtime::SKILLS_FOLDER);
+    let skills = crate::runtime::shipped_skills(plugin_dir);
     crate::runtime::replace_dir_with_skills(&source, Some(&skills), &dest)?;
     Ok(Some(dest))
 }
@@ -1164,7 +1164,12 @@ mod tests {
             let skill = Path::new("skills").join(name).join("SKILL.md");
             assert_eq!(
                 fs::read(home.codex_folder().join(&skill)).unwrap_or_default(),
-                fs::read(repo_plugin().join(&skill)).unwrap(),
+                fs::read(
+                    crate::runtime::shipped_skills(&repo_plugin())
+                        .join(name)
+                        .join("SKILL.md")
+                )
+                .unwrap(),
                 "{name}"
             );
         }
@@ -1198,7 +1203,9 @@ mod tests {
 
         let next = tempfile::tempdir().unwrap();
         let plugin = next_build_plugin(next.path());
-        let skill = plugin.join("skills").join("commit").join("SKILL.md");
+        let skill = crate::runtime::shipped_skills(&plugin)
+            .join("commit")
+            .join("SKILL.md");
         let changed = format!("{}\nOne more line.\n", fs::read_to_string(&skill).unwrap());
         fs::write(&skill, &changed).unwrap();
         refresh_plugin(&context.tool.data, &plugin).unwrap();

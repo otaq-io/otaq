@@ -959,10 +959,10 @@ mod tests {
     /// plugin/skills/*/SKILL.md parses, and its notes pair with its options.
     #[test]
     fn every_ask_example_in_the_skills_parses() {
-        let skills =
-            otaq_core::agent_tools::claude::find_plugin_dir(std::path::Path::new("/nonexistent"))
-                .expect("the repository's plugin folder")
-                .join("skills");
+        let skills = otaq_core::runtime::shipped_skills(
+            &otaq_core::agent_tools::claude::find_plugin_dir(std::path::Path::new("/nonexistent"))
+                .expect("the repository's plugin folder"),
+        );
         let mut checked = 0;
         for entry in std::fs::read_dir(&skills).unwrap() {
             let folder = entry.unwrap().path();

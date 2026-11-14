@@ -58,7 +58,7 @@ Changes made on the newer version since the copy are lost.
 ## Build and run from source
 
 ```sh
-git clone https://github.com/otaq-io/otaq.git
+git clone --recursive https://github.com/otaq-io/otaq.git   # with Otaq's workflow skills (plugin/skills)
 cd otaq
 cd crates/otaq-desktop && npm ci && cd ../..
 scripts/install-local.sh     # macOS: builds Otaq.app and installs ~/Applications/Otaq.app
