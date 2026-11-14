@@ -51,9 +51,14 @@ fn otaqs_skills_namespaced_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = copilot(bin.path(), None);
     assert_eq!(
-        adapter.skill_reference("commit"),
+        adapter.skill_reference(crate::own_skill!("commit")),
         format!("/{}:commit", crate::naming::PLUGIN_NAMESPACE)
     );
+    assert_eq!(
+        adapter.skill_reference("tuq:tech-spec"),
+        format!("/{}:tech-spec", crate::naming::PLUGIN_NAMESPACE)
+    );
+    assert_eq!(adapter.skill_reference("commit"), "/commit");
     assert_eq!(adapter.skill_reference("team-validate"), "/team-validate");
 }
 

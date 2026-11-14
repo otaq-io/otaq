@@ -32,7 +32,7 @@ use crate::signals::hooks::Signal;
 use crate::store::now_ms;
 
 /// The skill an answer session starts with.
-pub const ANSWER_SKILL: &str = "answer-question";
+pub const ANSWER_SKILL: &str = crate::own_skill!("answer-question");
 
 /// How often waiting questions are looked at again (a limit that reset, a target that came back).
 pub const ROUTE_TICK: Duration = Duration::from_secs(30);

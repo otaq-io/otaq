@@ -77,7 +77,11 @@ fn the_default_flow_is_dev_validate_review_then_delivered() {
     };
     assert_eq!(
         (dev.kind, dev.agent.as_deref(), dev.skill.as_deref()),
-        (StageKind::Agent, Some("Developer"), Some("work-ticket"))
+        (
+            StageKind::Agent,
+            Some("Developer"),
+            Some("otaq:work-ticket")
+        )
     );
     assert_eq!(
         (
@@ -89,7 +93,7 @@ fn the_default_flow_is_dev_validate_review_then_delivered() {
         (
             StageKind::Check { by: CheckBy::Agent },
             Some("Checker"),
-            Some("validate"),
+            Some("otaq:validate"),
             Some(3)
         )
     );
@@ -101,7 +105,7 @@ fn the_default_flow_is_dev_validate_review_then_delivered() {
             mode: DeliveryMode::Click,
             delivers: Delivers::Either,
             agent: Some("Developer".to_owned()),
-            skill: Some("open-pr".to_owned()),
+            skill: Some("otaq:open-pr".to_owned()),
         }
     );
     assert_eq!(flow.approve_stage().map(|s| s.id.as_str()), Some("review"));
@@ -120,8 +124,8 @@ fn the_default_and_the_test_flow_pass_the_checks() {
 
 /// An older file still loads: its Delivery stage becomes the flow's `delivery:` setting and its `column:` is
 /// ignored (every stage is its own column); written again, it is in today's form, and reads back the same.
-/// A stage an agent runs may name no skill: Otaq's own skill for that stage runs (`work-ticket` for an Agent stage,
-/// `validate` for an agent check), so the file passes the checks and is written back as it is.
+/// A stage an agent runs may name no skill: Otaq's own skill for that stage runs (`otaq:work-ticket` for an Agent stage,
+/// `otaq:validate` for an agent check), so the file passes the checks and is written back as it is.
 #[test]
 fn a_stage_with_no_skill_passes_and_runs_otaqs_own() {
     let text = file(&flows().join("no-skill.yaml"));
@@ -130,10 +134,10 @@ fn a_stage_with_no_skill_passes_and_runs_otaqs_own() {
     assert_eq!(check(&read.flow), Ok(()));
     let plan = read.flow.stage("plan").unwrap();
     assert_eq!(plan.skill, None);
-    assert_eq!(plan.own_skill(), Some("work-ticket"));
+    assert_eq!(plan.own_skill(), Some("otaq:work-ticket"));
     let check_stage = flow::default_flow();
     let validate = check_stage.stage("validate").unwrap();
-    assert_eq!(validate.own_skill(), Some("validate"));
+    assert_eq!(validate.own_skill(), Some("otaq:validate"));
     assert_eq!(check_stage.stage("review").unwrap().own_skill(), None);
 }
 
@@ -171,7 +175,10 @@ fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
     let read = yaml::read(old).unwrap();
     let ids: Vec<&str> = read.flow.stages.iter().map(|s| s.id.as_str()).collect();
     assert_eq!(ids, ["dev", "validate", "review"]);
-    assert_eq!(read.flow.delivery, flow::default_flow().delivery);
+    // Its bare `open-pr` is Otaq's once renamed (tuq decision 075).
+    let mut renamed = read.clone();
+    assert!(flow::skill_names::name_own_skills(&mut renamed));
+    assert_eq!(renamed.flow.delivery, flow::default_flow().delivery);
     let upgraded = yaml::upgraded(old).expect("an old form");
     assert!(!upgraded.contains("column") && !upgraded.contains("kind: delivery"));
     assert!(upgraded.contains("delivery:\n  delivers: either\n  mode: click\n"));

@@ -4,7 +4,7 @@ flow:
     kind: check
     by: agent
     agent: Validator
-    skill: validate
+    skill: otaq:validate
     rounds: 3
 delivery:
   delivers: local

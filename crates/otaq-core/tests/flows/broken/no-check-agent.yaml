@@ -3,12 +3,12 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
-    skill: validate
+    skill: otaq:validate
     rounds: 3
 delivery:
   delivers: local

@@ -40,7 +40,7 @@ fn skippable_security(file: &mut FlowFile) {
     }
 }
 
-/// A service whose `claude` keeps running, with shop-web (SHOP) on the test flow (Security on Otaq's `validate`),
+/// A service whose `claude` keeps running, with shop-web (SHOP) on the test flow (Security on Otaq's `otaq:validate`),
 /// edited by `edit`.
 async fn world(edit: impl FnOnce(&mut FlowFile)) -> TestService {
     let w = TestService::start_with(|config| ServiceConfig {
@@ -58,10 +58,10 @@ async fn world(edit: impl FnOnce(&mut FlowFile)) -> TestService {
     .await;
     w.add_project("shop-web").await;
     let mut file = every_kind_file();
-    // Security runs the shipped `validate`: a stage runs only on a tool that has its skill, and nobody here has
+    // Security runs the shipped `otaq:validate`: a stage runs only on a tool that has its skill, and nobody here has
     // `team-security-review`.
     let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
-    security.unwrap().skill = Some("validate".into());
+    security.unwrap().skill = Some("otaq:validate".into());
     edit(&mut file);
     w.board.use_flow_for_tests("SHOP", &file).await;
     w

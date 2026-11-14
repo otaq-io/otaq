@@ -87,7 +87,7 @@ async fn a_project_agent_writes_nothing_into_the_checkout() {
         .unwrap();
     let session = agent.session.as_ref().unwrap().id.clone();
     let out = w.wait_for_output(&session, "CLAUDE").await;
-    let typed = format!("{} Why is checkout slow?", claude_skill("noyan"));
+    let typed = format!("{} Why is checkout slow?", claude_skill("otaq:noyan"));
     assert!(out.contains(&typed), "{out}");
     assert!(out.contains("CLAUDE ."), "no skill in the checkout: {out}");
     assert!(!repo.join(".agents").exists());

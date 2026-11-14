@@ -121,8 +121,9 @@ fn runs_agent(stage: &Stage) -> Result<(), BoardError> {
     ))
 }
 
-/// A skill name as a folder takes it: lowercase letters, digits and single hyphens inside, at most 64 characters,
-/// and not one of Otaq's own skills (a name that matches one always means Otaq's).
+/// A skill name as a folder takes it: lowercase letters, digits and single hyphens inside, at most 64 characters. It
+/// is the user's skill whatever it is called: Otaq's own are named in their namespace (`otaq:validate`, decision 063),
+/// which no folder name can be.
 fn checked_name(name: &str) -> Result<String, BoardError> {
     let name = name.trim();
     let refused = |why: String| Err(BoardError::refused(Refusal::BadSkillFolder, why));
@@ -137,12 +138,6 @@ fn checked_name(name: &str) -> Result<String, BoardError> {
     if !fits {
         return refused(format!(
             "`{name}` can't name a skill: use lowercase letters, digits and hyphens, like plan-ticket"
-        ));
-    }
-    if crate::agent_tools::is_own_skill(name) {
-        return refused(format!(
-            "`{name}` is one of {}'s own skills: pick another name",
-            naming::PRODUCT_NAME
         ));
     }
     Ok(name.to_owned())

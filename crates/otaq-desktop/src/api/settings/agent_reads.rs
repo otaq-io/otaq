@@ -165,7 +165,13 @@ mod tests {
             .map(|p| p["heading"].as_str().unwrap())
             .collect();
         assert_eq!(headings[..2], ["Its instructions", "Notes for billing-api"]);
-        assert_eq!(headings[2], "Skill: work-ticket \u{b7} Dev");
+        assert_eq!(
+            headings[2],
+            format!(
+                "Skill: {} \u{b7} Dev",
+                otaq_core::agent_tools::WORK_TICKET_SKILL
+            )
+        );
 
         let refused = ask(
             "settings.agent_reads_reveal",

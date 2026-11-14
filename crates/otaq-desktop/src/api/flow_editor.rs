@@ -539,7 +539,7 @@ mod tests {
         );
         assert_eq!(
             otaq_core::project_agents::first_skill(&flow_message("Suggest a flow for shop-web.")).0,
-            "flow"
+            otaq_core::project_agents::FLOW_SKILL
         );
     }
 
@@ -734,7 +734,12 @@ mod tests {
         assert!(v.bar.save_enabled, "{:?}", v.bar.reason);
         // Pick a skill… lists what `skills.list` finds: here only Otaq's own, so it is never empty.
         let picker = &details.skill.as_ref().unwrap().picker;
-        assert!(picker.items.iter().any(|i| i.id == "validate"));
+        assert!(
+            picker
+                .items
+                .iter()
+                .any(|i| i.id == otaq_core::board::settings::WorkflowStep::Validate.own_skill())
+        );
         let otaqs = format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME);
         assert!(
             picker

@@ -505,7 +505,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(logged_in),
             cli_found: true,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         }
     }
 
@@ -570,7 +570,7 @@ mod tests {
             ],
             pr_number: pr,
             pr_url: pr.map(|n| format!("https://github.com/acme/shop-web/pull/{n}")),
-            skill: "open-pr".to_owned(),
+            skill: otaq_core::own_skill!("open-pr").to_owned(),
             message: None,
             asks_in: None,
             waits: None,
@@ -610,7 +610,7 @@ mod tests {
 
     #[test]
     fn every_stage_reads_like_its_frame() {
-        let skill = "open-pr".to_owned();
+        let skill = otaq_core::own_skill!("open-pr").to_owned();
         let mut d = PrDialog::opening(&shop18(), &skill, Some(&github(true)));
         let v = dialog_view(&d);
         assert_eq!(v.heading, "Open a pull request for SHOP-18");
@@ -686,7 +686,11 @@ mod tests {
     #[test]
     fn a_writer_waiting_for_permission_offers_answer_in_terminal() {
         use otaq_core::pr::message::{DeliveryMessage, MessageState};
-        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
         let writing = PrFlowView {
             message: Some(DeliveryMessage {
                 state: MessageState::Writing,
@@ -727,7 +731,11 @@ mod tests {
     /// command and Answer in terminal on the skill's session; not over the proposal.
     #[test]
     fn a_skill_waiting_for_permission_shows_while_preparing_or_pushing() {
-        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
         let waits = otaq_core::domain::SessionPrompt {
             session: "s-push".into(),
             prompt: "Run command: git push origin main".into(),
@@ -832,7 +840,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         };
         let why = gitlab.open_pr_blocked().unwrap();
         let message = otaq_core::pr::service::own_open_pr_skill(why);

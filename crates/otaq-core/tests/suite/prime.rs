@@ -457,7 +457,7 @@ async fn on_the_test_flow_dev_reads_product_specs_comment() {
         ),
         "{text}"
     );
-    assert_eq!(context.commit_skill, claude_skill("commit"));
+    assert_eq!(context.commit_skill, claude_skill("otaq:commit"));
     w.stop().await;
 }
 

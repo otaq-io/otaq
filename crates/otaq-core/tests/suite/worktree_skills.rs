@@ -227,7 +227,7 @@ async fn the_product_spec_stage_starts_with_otaqs_product_spec() {
     let t = w.create("SHOP", "Coupon codes").await;
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(&claude_skill("product-spec")), "{args}");
+    assert!(args.ends_with(&claude_skill("tuq:product-spec")), "{args}");
     assert!(out.contains("AGENTS ."), "{out}");
     w.stop().await;
 }
@@ -265,7 +265,7 @@ async fn a_stage_names_the_users_skill_by_its_own_name() {
             Some(skill) => format!("/{skill}"),
             None => format!("/{PLUGIN_NAMESPACE}:validate"),
         };
-        assert_eq!(typed, claude_skill(named.unwrap_or("validate")));
+        assert_eq!(typed, claude_skill(named.unwrap_or("otaq:validate")));
         let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
         assert!(args.ends_with(&typed), "{args}");
         assert!(out.contains("AGENTS ."), "{out}");
@@ -329,9 +329,12 @@ async fn open_pr_and_push_are_typed_by_name_in_a_live_session() {
         .unwrap();
     let outcome = w.prs.open("SHOP-1", true, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&agent.session, &claude_skill("push"))
+    w.wait_for_output(&agent.session, &claude_skill("otaq:push"))
         .await;
-    assert_eq!(w.board.pr_flow_view("SHOP-1").await.unwrap().skill, "push");
+    assert_eq!(
+        w.board.pr_flow_view("SHOP-1").await.unwrap().skill,
+        "otaq:push"
+    );
     nothing_written(&worktree);
     w.stop().await;
 }
@@ -853,5 +856,207 @@ async fn a_codex_skill_with_a_byte_order_mark_says_why_it_is_held() {
         "{outcome:?}"
     );
     assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
+    w.stop().await;
+}
+
+/// The shipped default flow as 0.2 stored it, with the team's own check after Validate: Otaq's skills by their bare
+/// names, the team's `team-validate` beside them.
+fn flow_0_2() -> String {
+    let mut file = yaml::read(otaq_core::naming::DEFAULT_FLOW_YAML).unwrap();
+    for stage in &mut file.flow.stages {
+        if let Some(skill) = stage.skill.as_mut() {
+            *skill = otaq_core::skills::own_folder(skill).unwrap().to_owned();
+        }
+    }
+    let delivery = file.flow.delivery.skill.as_mut().unwrap();
+    *delivery = otaq_core::skills::own_folder(delivery).unwrap().to_owned();
+    let mut team = file.flow.stage("validate").unwrap().clone();
+    team.id = "team-check".into();
+    team.name = "Team check".into();
+    team.skill = Some("team-validate".into());
+    team.description = None;
+    file.flow.stages.insert(2, team);
+    let text = yaml::write(&file);
+    assert!(text.contains("skill: work-ticket\n") && text.contains("skill: validate\n"));
+    text
+}
+
+/// Each stage's skill and the delivery's, in order.
+fn skills_of(file: &FlowFile) -> Vec<Option<String>> {
+    file.flow
+        .stages
+        .iter()
+        .map(|s| s.skill.clone())
+        .chain(std::iter::once(file.flow.delivery.skill.clone()))
+        .collect()
+}
+
+/// Tuq decision 075: a project on a 0.2 flow naming Otaq's skills bare and the team's own `team-validate` gets one new
+/// version from Otaq's rename (`otaq:work-ticket`, `otaq:validate`, `otaq:open-pr`), its custom name kept, and its
+/// tickets start on Otaq's `work-ticket` as before. Back to the 0.2 version and importing the 0.2 file give the same
+/// names (the proposal changes nothing).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_0_2_flow_is_renamed_once_and_back_and_import_give_the_same_names() {
+    use otaq_core::agents::FixedModels;
+    use otaq_core::flow::apply::ProposeFrom;
+    use otaq_core::flow::{AppliedBy, NewFlowVersion};
+
+    let World { w, home, _dir } = world().await;
+    skill_in(&home.join(".claude/skills"), "team-validate");
+    let old = w
+        .board
+        .store_flow(
+            "SHOP",
+            &NewFlowVersion {
+                yaml: flow_0_2(),
+                applied_by: AppliedBy::User,
+                agent_name: None,
+                preset: None,
+            },
+        )
+        .await
+        .unwrap();
+    // The upgrade's first start, after the 0.2 flow was stored.
+    tokio::time::sleep(Duration::from_millis(5)).await;
+    w.board.store().name_own_skills_in_flows().await.unwrap();
+
+    let current = w.board.current_flow("SHOP").await.unwrap();
+    assert_eq!(
+        (current.version, current.applied_by),
+        (old.version + 1, AppliedBy::SkillRename)
+    );
+    let own = |bare: &str| Some(otaq_core::skills::own_name(bare));
+    let renamed = vec![
+        own("work-ticket"),
+        own("validate"),
+        Some("team-validate".to_owned()),
+        None,
+        own("open-pr"),
+    ];
+    assert_eq!(skills_of(&current.file().unwrap()), renamed);
+    // The old version stays as it was stored.
+    let versions = w.board.flow_versions("SHOP").await.unwrap();
+    assert_eq!(versions[old.version as usize - 1].yaml, old.yaml);
+    // Once is once: run again, there's nothing left to rename.
+    w.board.store().name_own_skills_in_flows().await.unwrap();
+    assert_eq!(
+        w.board.current_flow("SHOP").await.unwrap().version,
+        current.version
+    );
+
+    let models = FixedModels::sample();
+    let back = w
+        .board
+        .propose_from(
+            "SHOP",
+            &ProposeFrom::Previous {
+                version: Some(old.version),
+            },
+            &models,
+        )
+        .await
+        .unwrap();
+    assert_eq!(skills_of(&yaml::read(&back.yaml).unwrap()), renamed);
+    assert!(back.diff.same, "{:?}", back.diff);
+    let imported = w
+        .board
+        .propose_from(
+            "SHOP",
+            &ProposeFrom::File {
+                name: "shop-web-flow.yaml".into(),
+                yaml: flow_0_2(),
+            },
+            &models,
+        )
+        .await
+        .unwrap();
+    assert_eq!(skills_of(&yaml::read(&imported.yaml).unwrap()), renamed);
+    assert!(imported.diff.same, "{:?}", imported.diff);
+    // A file written after the rename keeps its bare names: they are the user's.
+    let mine = flow_0_2().replace(
+        "skill: open-pr\n",
+        &format!("skill: {}\n", own("open-pr").unwrap()),
+    );
+    let after = w
+        .board
+        .propose_from(
+            "SHOP",
+            &ProposeFrom::File {
+                name: "mine.yaml".into(),
+                yaml: mine,
+            },
+            &models,
+        )
+        .await
+        .unwrap();
+    let kept = skills_of(&yaml::read(&after.yaml).unwrap());
+    assert_eq!(kept[0].as_deref(), Some("work-ticket"));
+
+    // Its tickets start, on Otaq's work-ticket from the plugin.
+    let t = w.create("SHOP", "Coupon codes").await;
+    let out = started(&w, &t).await;
+    let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+    assert!(
+        args.ends_with(&claude_skill(otaq_core::agent_tools::WORK_TICKET_SKILL)),
+        "{args}"
+    );
+    w.stop().await;
+}
+
+/// Tuq decision 063: a bare name is always the user's skill. A Validate stage naming `validate` while the user has no
+/// such skill doesn't run Otaq's: it is held as missing, "Claude Code doesn't have the skill `/validate`"; once the
+/// user's own `validate` is there, Check again starts it as `/validate`.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_bare_validate_with_no_such_user_skill_is_held_as_missing() {
+    let World { w, home, _dir } = world().await;
+    w.name_stage_skill(WorkflowStep::Validate, Some("validate"))
+        .await;
+    let t = w.create("SHOP", "Cart totals").await;
+    w.give_worktree(&t).await;
+    w.force_status(&t, Status::Working).await;
+    let key = t.key.to_string();
+    w.validation
+        .submit(
+            &key,
+            said(&w.board, &key, "Cart totals add up.").await.as_ref(),
+            &Actor::Agent(t.key.clone()),
+            ValidationTrigger::Agent,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        hold_of(&w, &t, SessionRole::Validator).await,
+        Some((
+            HoldReason::MissingSkill,
+            Tool::Claude,
+            Some("validate".to_owned())
+        ))
+    );
+    let text = "Claude Code doesn\u{2019}t have the skill `/validate`";
+    assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
+    assert!(
+        w.sessions
+            .running_all_of(&t.id, SessionKind::Validator)
+            .is_empty(),
+        "Otaq's validate didn't run in its place"
+    );
+
+    skill_in(&home.join(".claude/skills"), "validate");
+    assert!(w.gate.check_again(&t.id).await.unwrap());
+    let checker = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Validator) {
+                return s;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the check started");
+    let out = w.wait_for_output(&checker.id, "CLAUDE").await;
+    let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+    assert!(args.ends_with(" /validate"), "{args}");
     w.stop().await;
 }

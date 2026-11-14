@@ -438,7 +438,7 @@ mod tests {
         let i = install();
         let mut req = request(LaunchRole::Validator);
         req.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let plan = launch(&i.copilot, &req).unwrap();

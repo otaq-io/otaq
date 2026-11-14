@@ -127,13 +127,13 @@ pub(crate) fn resume_hint(tool_id: &str) -> String {
     format!("{COMMAND_NAME} --session {tool_id}")
 }
 
-/// A skill named for the agent: its own name, `work-ticket` for Otaq's and `team-validate` for the user's (OpenCode
-/// has no namespace). OpenCode lists the skills it found to the model by name (`<available_skills>`) and its skill
+/// A skill named for the agent: its own name, `work-ticket` for Otaq's `otaq:work-ticket` (its folder in Otaq's
+/// plugin, [`crate::skills::own_folder`]) and `team-validate` for the user's (OpenCode has no namespace). OpenCode lists the skills it found to the model by name (`<available_skills>`) and its skill
 /// tool loads one by name ("`skill({ name: "git-release" })`", its skills page); it has no syntax of its own for
 /// running a skill from typed text (the TUI's `@<skill>` is an attachment made by its picker, not parsed from text;
 /// checked on 2.0.17). A typed line names the skill inside an instruction ([`skill_prompt`]).
 pub(super) fn skill_reference(skill: &str) -> String {
-    skill.to_owned()
+    crate::skills::own_folder(skill).unwrap_or(skill).to_owned()
 }
 
 /// A skill as typed into an OpenCode session to run it (S3, changed 2026-11-06): OpenCode has no typed command for a
@@ -340,7 +340,7 @@ mod tests {
                 "--session",
                 id.as_str(),
                 "--prompt",
-                skill_prompt("work-ticket").as_str()
+                skill_prompt(crate::own_skill!("work-ticket")).as_str()
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-50"));
@@ -464,13 +464,16 @@ mod tests {
         assert!(step.args.last().unwrap().contains(" · SHOP\""));
         let mut first = project.clone();
         first.first_prompt = Some(FirstPrompt::Skill {
-            name: "noyan".into(),
+            name: crate::own_skill!("noyan").into(),
             message: Some("Start with the cart".into()),
         });
         let plan = launch(&adapter(), &first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("{} Start with the cart", skill_prompt("noyan"))
+            &format!(
+                "{} Start with the cart",
+                skill_prompt(crate::own_skill!("noyan"))
+            )
         );
     }
 
@@ -535,11 +538,14 @@ mod tests {
     fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator, None);
         req.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let shipped = launch(&adapter(), &req).unwrap();
-        assert_eq!(shipped.args.last().unwrap(), &skill_prompt("validate"));
+        assert_eq!(
+            shipped.args.last().unwrap(),
+            &skill_prompt(crate::own_skill!("validate"))
+        );
         req.first_prompt = Some(FirstPrompt::Skill {
             name: "team-validate".into(),
             message: None,

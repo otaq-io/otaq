@@ -370,7 +370,7 @@ mod tests {
         resume.resume = Some("01a147a1-dd63-7c03-b96e-8f7557586707".into());
         resume.model = Some("gpt-6-sol".into());
         resume.first_prompt = Some(FirstPrompt::Skill {
-            name: "address-review".into(),
+            name: crate::own_skill!("address-review").into(),
             message: None,
         });
         let plan = codex().launch(&resume).unwrap();
@@ -441,7 +441,7 @@ mod tests {
 
         let mut first = project.clone();
         first.first_prompt = Some(FirstPrompt::Skill {
-            name: "noyan".into(),
+            name: crate::own_skill!("noyan").into(),
             message: Some("  Start with the cart  ".into()),
         });
         let plan = codex().launch(&first).unwrap();
@@ -545,7 +545,7 @@ mod tests {
     fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator);
         req.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let shipped = codex().launch(&req).unwrap();

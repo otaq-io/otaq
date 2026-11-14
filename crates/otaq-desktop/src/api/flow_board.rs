@@ -402,8 +402,8 @@ mod tests {
             Some("You don't have the skill `security-check`")
         );
         assert_eq!(
-            warning("test-in-browser").as_deref(),
-            Some("You don't have the skill `test-in-browser`")
+            warning("update-docs").as_deref(),
+            Some("You don't have the skill `update-docs`")
         );
         assert_eq!(warning("product-spec"), None, "a shipped skill");
         assert_eq!(v.bar.changes, None);
@@ -531,7 +531,8 @@ mod tests {
         let panel = load(&h, Some("done")).await.delivery.unwrap();
         let skill = panel.skill.expect("a PR has a PR skill");
         // The default flow names Otaq's own, which never warns.
-        assert_eq!((skill.value.as_str(), skill.placeholder), ("open-pr", "open-pr"));
+        let own = otaq_core::board::settings::WorkflowStep::OpenPr.own_skill();
+        assert_eq!((skill.value.as_str(), skill.placeholder), (own, own));
         assert_eq!(skill.warning, None);
         assert!(panel.agent.items.iter().all(|i| !i.id.is_empty()), "a PR needs an agent");
 
@@ -613,7 +614,10 @@ mod tests {
     fn the_box_asks_with_the_users_words_or_for_a_whole_flow() {
         let words = suggest_request(Some("  Add a security review after Validate "), "shop-web").unwrap();
         assert_eq!(words, "/flow Add a security review after Validate");
-        assert_eq!(otaq_core::project_agents::first_skill(&words).0, "flow");
+        assert_eq!(
+            otaq_core::project_agents::first_skill(&words).0,
+            otaq_core::project_agents::FLOW_SKILL
+        );
         let whole = suggest_request(None, "shop-web").unwrap();
         assert_eq!(
             whole,

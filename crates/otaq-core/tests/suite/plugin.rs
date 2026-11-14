@@ -26,9 +26,14 @@ fn json(path: &Path) -> Value {
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// A shipped skill's folder in the plugin: `work-ticket` for Otaq's `otaq:work-ticket`, a folder's name as it is.
+fn folder(name: &str) -> &str {
+    otaq_core::skills::own_folder(name).unwrap_or(name)
+}
+
 /// The front matter's `name:` and the body of a SKILL.md.
 fn skill(name: &str) -> (String, String) {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = plugin().join("skills").join(folder(name)).join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, body) = rest.split_once("\n---\n").expect("front matter end");
@@ -45,7 +50,7 @@ fn skill(name: &str) -> (String, String) {
 
 /// The front matter of a SKILL.md, as `key: value` lines.
 fn front_matter(name: &str) -> Vec<(String, String)> {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = plugin().join("skills").join(folder(name)).join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, _) = rest.split_once("\n---\n").expect("front matter end");
@@ -83,7 +88,12 @@ fn the_manifest_names_the_plugin_namespace() {
         .collect();
     entries.sort();
     assert_eq!(entries, [".claude-plugin", "hooks"]);
-    assert!(plugin().join("skills").join(WORK_TICKET_SKILL).is_dir());
+    assert!(
+        plugin()
+            .join("skills")
+            .join(folder(WORK_TICKET_SKILL))
+            .is_dir()
+    );
 }
 
 #[test]
@@ -126,7 +136,7 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
 #[test]
 fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
     let (name, body) = skill(WORK_TICKET_SKILL);
-    assert_eq!(name, WORK_TICKET_SKILL);
+    assert_eq!(name, folder(WORK_TICKET_SKILL));
     let cmd = naming::COMMAND_NAME;
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
     let commit = body.find(COMMIT_STEP).expect("the Commit skill");
@@ -710,7 +720,10 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
     assert_eq!(name, "validate");
-    assert_eq!(WorkflowStep::Validate.own_skill(), name);
+    assert_eq!(
+        WorkflowStep::Validate.own_skill(),
+        otaq_core::skills::own_name(&name)
+    );
     assert!(
         front_matter("validate")
             .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))

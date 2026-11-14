@@ -14,7 +14,7 @@ use serde::{Deserialize, Serialize};
 use sqlx::{Sqlite, Transaction};
 
 use super::model::{Flow, FlowFile};
-use super::yaml;
+use super::{skill_names, yaml};
 use crate::board::{Board, BoardError};
 use crate::domain::stored_enum;
 use crate::naming;
@@ -29,6 +29,9 @@ stored_enum! {
         User = "user",
         /// A Project agent's proposal the user applied; its name is [`FlowVersion::agent_name`].
         ProjectAgent = "project_agent",
+        /// Otaq itself, by its one-time rename of its skills to `otaq:` and `tuq:` names (tuq decision 075), not the
+        /// user's change.
+        SkillRename = "skill_rename",
     }
 }
 
@@ -179,6 +182,84 @@ impl Store {
         Ok(())
     }
 
+    /// Migration 0124's rows that SQL can't write (tuq decision 075): every project whose current flow names one of
+    /// Otaq's skills bare (`validate`, `product-spec`) gets a new version applied by Otaq ([`AppliedBy::SkillRename`]) naming
+    /// them `otaq:validate`, `tuq:product-spec` ([`skill_names::name_own_skills`]); its earlier versions stay as they
+    /// were stored. Open proposals and waiting changes are renamed in place ([`skill_names::renamed_text`]). When it
+    /// ran is kept ([`SKILLS_NAMESPACED_AT`]): Back to a version stored before it renames that one too. Runs once, right
+    /// after the migration ([`Store::open`]), in one transaction.
+    #[doc(hidden)]
+    pub async fn name_own_skills_in_flows(&self) -> Result<(), StoreError> {
+        let mut tx = self.begin_write().await?;
+        let current: Vec<(String, String, Option<String>)> =
+            sqlx::query_as("SELECT project_id, yaml, preset FROM project_flows WHERE current")
+                .fetch_all(&mut *tx)
+                .await?;
+        for (project_id, text, preset) in current {
+            let Ok(mut file) = yaml::read(&text) else {
+                tracing::warn!(project = %project_id, "a stored flow doesn't read: its skills aren't renamed");
+                continue;
+            };
+            if !skill_names::name_own_skills(&mut file) {
+                continue;
+            }
+            let new = NewFlowVersion {
+                yaml: yaml::write(&file),
+                applied_by: AppliedBy::SkillRename,
+                agent_name: None,
+                preset,
+            };
+            Self::insert_flow_version_in(&mut tx, &project_id, &new).await?;
+        }
+        let proposals: Vec<(i64, String)> = sqlx::query_as("SELECT id, yaml FROM flow_proposals")
+            .fetch_all(&mut *tx)
+            .await?;
+        for (id, text) in proposals {
+            if let Some(renamed) = skill_names::renamed_text(&text) {
+                sqlx::query("UPDATE flow_proposals SET yaml = ? WHERE id = ?")
+                    .bind(renamed)
+                    .bind(id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        let waiting: Vec<(String, String)> =
+            sqlx::query_as("SELECT project_id, yaml FROM flow_waiting")
+                .fetch_all(&mut *tx)
+                .await?;
+        for (project_id, text) in waiting {
+            if let Some(renamed) = skill_names::renamed_text(&text) {
+                sqlx::query("UPDATE flow_waiting SET yaml = ? WHERE project_id = ?")
+                    .bind(renamed)
+                    .bind(project_id)
+                    .execute(&mut *tx)
+                    .await?;
+            }
+        }
+        sqlx::query(
+            "INSERT INTO settings (key, value_json, updated_at) VALUES (?, ?, ?)
+             ON CONFLICT (key) DO UPDATE SET value_json = excluded.value_json, updated_at = excluded.updated_at",
+        )
+        .bind(SKILLS_NAMESPACED_AT)
+        .bind(now_ms().to_string())
+        .bind(now_ms())
+        .execute(&mut *tx)
+        .await?;
+        tx.commit().await?;
+        Ok(())
+    }
+
+    /// When Otaq's skills were renamed in the stored flows ([`Store::name_own_skills_in_flows`]), in Unix
+    /// milliseconds: a flow version applied before it names them bare. `None` before the rename ran.
+    pub async fn skills_namespaced_at(&self) -> Result<Option<i64>, StoreError> {
+        let stored: Option<String> =
+            sqlx::query_scalar("SELECT value_json FROM settings WHERE key = ?")
+                .bind(SKILLS_NAMESPACED_AT)
+                .fetch_optional(self.pool())
+                .await?;
+        Ok(stored.and_then(|json| serde_json::from_str(&json).ok()))
+    }
+
     /// Stores `new` as the project's next version and makes it the current one; the project's tickets being delivered
     /// move into its last stage. Its number.
     pub(crate) async fn insert_flow_version_in(
@@ -229,6 +310,10 @@ impl Store {
         Ok(u32::try_from(version).unwrap_or(0))
     }
 }
+
+/// The `settings` key holding when Otaq's skills were renamed in the stored flows
+/// ([`Store::name_own_skills_in_flows`]): Unix milliseconds, as JSON.
+const SKILLS_NAMESPACED_AT: &str = "flow_skills_namespaced_at";
 
 /// The `settings` key of the flow versions whose split checks the project's tickets were carried over to
 /// ([`carry_splits_in`]): a JSON list of `[project id, version]`.

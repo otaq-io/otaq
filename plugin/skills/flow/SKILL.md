@@ -53,7 +53,7 @@ editor as the draft, each stage you changed marked, and nothing changes until th
        name: Dev
        kind: agent
        agent: Developer
-       skill: work-ticket
+       skill: otaq:work-ticket
        description: "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
      - id: security
        name: Security
@@ -125,7 +125,7 @@ this project:
    digits and hyphens, e.g. `otaq flow write-skill "Plan" --name plan-ticket`). Two stages can have near names
    ("Update the docs", "Update the docs 2"): never guess an id from the name. It prints the only folder you may write
    in, the skills folder the stage's agent's tool reads; the editor shows the stage's skill as being written. If the
-   name is taken or is one of Otaq's own skills, it refuses: pick another. If it says you were asked for another
+   name is taken, it refuses: pick another. If it says you were asked for another
    stage, run it again for that stage.
 2. **Read first**: `otaq prime --project`, the repo's `AGENTS.md` / `CLAUDE.md`, and the skills the flow's other
    stages run (`otaq flow show` names them), so the new one fits how this project works. Ask the user one question
@@ -178,7 +178,7 @@ flow:
     name: Product spec           # unique; the column's title
     kind: agent                  # agent · check
     agent: Spec writer           # who runs it
-    skill: product-spec          # the skill it runs first
+    skill: tuq:product-spec      # the skill it runs first
     options: [skip]              # optional: a ticket may skip it
     description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does."
 ```
@@ -190,7 +190,7 @@ flow:
 | `kind` | every stage | `agent`: an agent works on the ticket. `check`: an agent or the user passes or fails it. |
 | `by` | check | `agent` (an agent check: read-only, ends with a verdict) or `you` (the user's check: Pass or Fail). |
 | `agent` | agent, agent check | The agent that runs it, by name: one. A check has one agent; two checks are two check stages, one after the other. A check by you has none. |
-| `skill` | agent, agent check | The skill it runs first (`work-ticket`, `validate`, `open-pr`…). Never a tool's built-in command such as `/security-review`, `/review` or `/init` (Otaq refuses it): to use one, write a small skill that runs it and name that skill. |
+| `skill` | agent, agent check | The skill it runs first. Otaq's own are written in their namespace (`otaq:work-ticket`, `otaq:validate`, `tuq:product-spec`…); a bare name (`team-validate`, even `validate`) is always the user's own skill. Never a tool's built-in command such as `/security-review`, `/review` or `/init` (Otaq refuses it): to use one, write a small skill that runs it and name that skill. |
 | `options` | agent, check | `[skip]` when a ticket may skip the stage; nothing else (a stage lists no agents: the user may pick any agent whose tool has the stage's skill for one ticket, and agent names written here are ignored). Default: none. |
 | `rounds` | agent check | How many fails in a row (1–5) before the card stops for the user. |
 | `fail_to` | check | Where a Fail goes back to: an Agent stage before the check, by name (`fail_to: Product spec`). Leave it out for the nearest Agent stage before it (the usual). |
@@ -203,7 +203,7 @@ delivery:
   delivers: either               # local · pr · either
   mode: click                    # click · automatic
   agent: Developer               # writes the delivery's message in Review, and opens the PR
-  skill: open-pr                 # optional: the skill it opens the PR with
+  skill: otaq:open-pr            # optional: the skill it opens the PR with
 ```
 
 | Field | What it says |
@@ -211,7 +211,7 @@ delivery:
 | `delivers` | `local` (a merge into the base branch: **Approve & merge into <base>**), `pr` (its agent opens a PR with its skill), or `either` (the user picks at Approve; click mode only). |
 | `mode` | `click`: waits for the user, whose Approve on the last stage (a check by you) says what it does ("Approve & merge into main", "Approve & open PR"). `automatic`: merges, or pushes and opens the PR, with no click and no dialog, once the ticket passes its last stage. |
 | `agent` | The delivery's agent. When a ticket reaches Review in click mode, it writes the message the delivery uses while the ticket waits: the squash commit message for a merge into the base, and the branch, title and description for a PR, so the user's Approve opens its confirmation at once. It also opens the PR. Required for `pr` and `either`; optional for `local` (left out, the merge confirmation starts from a plain message). Each arrival in Review with new commits costs it one short turn. |
-| `skill` | The skill it opens the PR with; Otaq's `open-pr` when left out. |
+| `skill` | The skill it opens the PR with; Otaq's `otaq:open-pr` when left out. |
 
 A ticket being delivered stays in the last stage's column (To deliver, PR open). Otaq doesn't watch PRs: the user marks
 an open PR merged or closed. A conflict or a failed merge check goes back to the last Agent stage on its own.
@@ -239,19 +239,19 @@ flow:
     name: Product spec
     kind: agent
     agent: Spec writer
-    skill: product-spec
+    skill: tuq:product-spec
     description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does; a bug fix or a purely technical change has nothing to settle here."
   - id: tech-spec
     name: Tech spec
     kind: agent
     agent: Architect
-    skill: tech-spec
+    skill: tuq:tech-spec
     description: "Settles how it's built: needed when the change touches several parts or its approach isn't obvious."
   - id: milestone-plan
     name: Milestone plan
     kind: agent
     agent: Milestone planner
-    skill: milestone-plan
+    skill: tuq:milestone-plan
     description: "Splits the work into pieces, in order, in the ticket's Plan: needed when the change is too big to build and review in one go."
   - id: spec-review
     name: Spec review
@@ -263,14 +263,14 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
     description: "Builds what the specs and the Plan settled, with its tests, and commits it: every ticket that changes the code needs it."
   - id: validate
     name: Validate
     kind: check
     by: agent
     agent: Checker
-    skill: validate
+    skill: otaq:validate
     rounds: 3
     fail_to: Dev
     description: "Checks the work against the ticket and its specs and runs the project's checks, so what Dev missed is caught before anyone reviews it."
@@ -284,7 +284,7 @@ delivery:
   delivers: either
   mode: click
   agent: Developer
-  skill: open-pr
+  skill: otaq:open-pr
 ```
 
 ### The rules of a flow

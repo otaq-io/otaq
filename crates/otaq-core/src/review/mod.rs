@@ -64,10 +64,10 @@ use crate::ticket_env::TicketEnv;
 use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
-pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
+pub const ADDRESS_REVIEW_SKILL: &str = crate::own_skill!("address-review");
 /// The skill a Delivery's conflict runs, with no click: merge the target in and resolve the conflicts (GIT-03,
 /// FLW-17).
-pub const RESTACK_SKILL: &str = "restack";
+pub const RESTACK_SKILL: &str = crate::own_skill!("restack");
 
 /// The answer to a click that returns a ticket to its agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]

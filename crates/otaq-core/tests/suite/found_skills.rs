@@ -273,10 +273,15 @@ fn every_skill_in_the_folders_is_listed_once_with_every_place() {
     assert!(find(&skills, "empty").is_none());
     assert!(find(&skills, "notes.md").is_none());
 
+    // A personal `validate` is the user's own skill, beside Otaq's `otaq:validate` (tuq decision 063).
     let validate = find(&skills, "validate").unwrap();
-    assert!(validate.otaq);
-    assert_ne!(validate.description.as_deref(), Some("Mine."));
+    assert!(!validate.otaq);
+    assert_eq!(validate.description.as_deref(), Some("Mine."));
     assert_eq!(validate.places.len(), 1);
+    let own = find(&skills, "otaq:validate").unwrap();
+    assert!(own.otaq);
+    assert_ne!(own.description.as_deref(), Some("Mine."));
+    assert!(own.places.is_empty());
 
     // Listed once per name, by name.
     let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
@@ -290,7 +295,10 @@ fn every_skill_in_the_folders_is_listed_once_with_every_place() {
 fn otaqs_own_skills_are_listed_and_marked_with_no_folders_at_all() {
     let skills = list(&Homes::default(), None);
     let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
-    let mut shipped = otaq_core::agents::shipped::SKILLS.to_vec();
+    let mut shipped: Vec<String> = otaq_core::agents::shipped::SKILLS
+        .iter()
+        .map(|folder| otaq_core::skills::own_name(folder))
+        .collect();
     shipped.sort_unstable();
     assert_eq!(names, shipped);
     for skill in &skills {
@@ -411,11 +419,11 @@ async fn skills_list_answers_with_the_users_and_otaqs_skills() {
         find(&skills, "team-pr").unwrap().places[0].scope,
         SkillScope::Project
     );
-    assert!(find(&skills, "validate").unwrap().otaq);
+    assert!(find(&skills, "otaq:validate").unwrap().otaq);
 
     // Each skill names the tools that have it: Otaq's own every tool; the personal `mine` in ~/.claude/skills
     // Claude Code (and OpenCode, which reads that folder), not Codex; the uncommitted `team-pr` only Claude Code.
-    assert_eq!(find(&skills, "validate").unwrap().tools, Tool::ALL);
+    assert_eq!(find(&skills, "otaq:validate").unwrap().tools, Tool::ALL);
     assert_eq!(
         find(&skills, "mine").unwrap().tools,
         [Tool::Claude, Tool::OpenCode]
@@ -424,7 +432,7 @@ async fn skills_list_answers_with_the_users_and_otaqs_skills() {
 
     assert!(w.board.has_skill(&project.key, "team-pr").await);
     assert!(w.board.has_skill(&project.key, "mine").await);
-    assert!(w.board.has_skill(&project.key, "validate").await);
+    assert!(w.board.has_skill(&project.key, "otaq:validate").await);
     assert!(!w.board.has_skill(&project.key, "nobody-has-it").await);
     w.stop().await;
 }
@@ -432,8 +440,11 @@ async fn skills_list_answers_with_the_users_and_otaqs_skills() {
 #[tokio::test]
 async fn has_skill_knows_otaqs_own_with_no_folders_at_all() {
     let w = TestService::start().await;
-    assert!(w.board.has_skill("NOPE", "validate").await);
-    assert!(w.board.has_skill("NOPE", "work-ticket").await);
+    assert!(w.board.has_skill("NOPE", "otaq:validate").await);
+    assert!(w.board.has_skill("NOPE", "otaq:work-ticket").await);
+    assert!(w.board.has_skill("NOPE", "tuq:product-spec").await);
+    // A bare name is the user's: nobody here has a `validate` of their own.
+    assert!(!w.board.has_skill("NOPE", "validate").await);
     assert!(!w.board.has_skill("NOPE", "team-validate").await);
     w.stop().await;
 }
@@ -463,7 +474,7 @@ fn a_personal_skill_is_had_only_by_the_tools_that_read_its_folder() {
         tools_with(&homes, &none, "shared"),
         [Tool::Codex, Tool::Copilot, Tool::OpenCode]
     );
-    assert_eq!(tools_with(&homes, &none, "validate"), Tool::ALL);
+    assert_eq!(tools_with(&homes, &none, "otaq:validate"), Tool::ALL);
     assert!(tools_with(&homes, &none, "nobody-has-it").is_empty());
 
     // With CLAUDE_CONFIG_DIR set, Claude Code's folder is only Claude Code's: OpenCode reads ~/.claude/skills.
@@ -625,8 +636,8 @@ fn a_plugins_skill_is_found_for_its_tool() {
     let claude_copy = h.join(".claude/plugins/cache/team/tuq/1.0.0");
     skill(
         &claude_copy.join("skills"),
-        "product-spec",
-        &named("product-spec", "Spec it."),
+        "step-back",
+        &named("step-back", "Step back."),
     );
     std::fs::write(
         h.join(".claude/plugins/installed_plugins.json"),
@@ -658,12 +669,14 @@ fn a_plugins_skill_is_found_for_its_tool() {
     let homes = Homes::in_home(h);
     let none = ProjectFolders::default();
     let skills = list_in(&homes, &none);
-    let spec = find(&skills, "tuq:product-spec").unwrap();
+    let spec = find(&skills, "tuq:step-back").unwrap();
     assert_eq!(spec.tools, [Tool::Claude]);
-    assert_eq!(spec.description.as_deref(), Some("Spec it."));
+    assert_eq!(spec.description.as_deref(), Some("Step back."));
     assert_eq!(spec.places[0].scope, SkillScope::Plugin);
     assert_eq!(tools_with(&homes, &none, "review:deep"), [Tool::Codex]);
-    assert!(find(&skills, "otaq:commit").is_none());
+    // `otaq:commit` is Otaq's own, from its plugin, not the copy found in Codex's plugins.
+    let commit = find(&skills, "otaq:commit").unwrap();
+    assert!(commit.otaq && commit.places.is_empty());
 }
 
 /// The board answers per ticket: from its worktree once it has one, else from what is committed at its base; each

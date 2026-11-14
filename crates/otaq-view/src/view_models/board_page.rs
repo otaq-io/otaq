@@ -2338,7 +2338,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         };
         assert!(no_provider.open_pr_blocked().is_some());
         let menu = approve_menu(

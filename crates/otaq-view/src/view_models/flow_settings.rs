@@ -195,7 +195,8 @@ pub fn export_file(project: &str) -> String {
     }
 }
 
-/// "Changed by Noyan · yesterday", "Changed by you · 11:42", "Otaq’s default flow · 9 Oct" (the flow
+/// "Changed by Noyan · yesterday", "Changed by you · 11:42", "Otaq renamed its skills to otaq: and tuq: · 14 Nov"
+/// (its one-time rename), "Otaq’s default flow · 9 Oct" (the flow
 /// the project got when it was added).
 pub fn changed(current: &FlowVersion, now_ms: i64) -> String {
     let when = ended_when(current.applied_at, now_ms);
@@ -203,6 +204,11 @@ pub fn changed(current: &FlowVersion, now_ms: i64) -> String {
         AppliedBy::Shipped => format!("{PRODUCT_NAME}\u{2019}s default flow"),
         AppliedBy::User => "Changed by you".to_owned(),
         AppliedBy::ProjectAgent => "Changed by Noyan".to_owned(),
+        AppliedBy::SkillRename => format!(
+            "{PRODUCT_NAME} renamed its skills to {}: and {}:",
+            otaq_core::skills::OTAQ_NAMESPACE,
+            otaq_core::skills::TUQ_NAMESPACE
+        ),
     };
     if when.is_empty() {
         who

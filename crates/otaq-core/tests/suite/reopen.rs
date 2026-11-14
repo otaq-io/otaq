@@ -128,7 +128,7 @@ async fn a_reopened_ticket_merges_main_in_and_starts_a_new_session() {
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(out.contains("--session-id"), "{out}");
     assert!(!out.contains("--resume"), "never a resume: {out}");
-    assert!(out.contains(&claude_skill("work-ticket")), "{out}");
+    assert!(out.contains(&claude_skill("otaq:work-ticket")), "{out}");
     assert_ne!(
         session.tool_session_id.as_deref(),
         Some("0199-old-conversation")

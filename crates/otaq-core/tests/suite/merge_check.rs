@@ -129,7 +129,7 @@ async fn a_combination_that_fails_the_check_is_not_merged_and_goes_back_to_the_a
     // with the skill, so the skill is named by its file (d0118).
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let typed = &pending.last().unwrap().text;
-    assert!(typed.contains(&claude_skill("restack")), "{typed}");
+    assert!(typed.contains(&claude_skill("otaq:restack")), "{typed}");
     assert!(
         typed.ends_with(&format!(
             "SHOP-2's merge check failed on the result with `main` merged in; the comment has its output. Run `{} \
@@ -224,7 +224,7 @@ async fn the_restack_request_waits_behind_unsent_text_and_is_typed_once_the_line
     assert_eq!(w.status("SHOP-2").await, Status::MergeConflictFixing);
 
     // It waits: nothing typed over the user's text, which is still there to send or clear.
-    let restack = claude_skill("restack");
+    let restack = claude_skill("otaq:restack");
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1, "{pending:?}");
     assert!(pending[0].text.contains(&restack), "{}", pending[0].text);
@@ -358,7 +358,7 @@ async fn the_restack_request_waits_behind_a_pasted_line_after_one_backspace() {
         merge(&w, "SHOP-2").await,
         LocalMergeOutcome::CheckFailed { .. }
     ));
-    let restack = claude_skill("restack");
+    let restack = claude_skill("otaq:restack");
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     assert_eq!(pending.len(), 1, "{pending:?}");
 

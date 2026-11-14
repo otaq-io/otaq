@@ -13,7 +13,8 @@
 //! description the front matter's `description:`, on one line. Every folder holding a `SKILL.md` is listed: front
 //! matter that is missing or doesn't read gives the folder's name and no description (F4). A name found in several
 //! folders is listed once, with every place. Otaq's own skills (the plugin's, [`crate::agents::shipped::SKILLS`])
-//! are listed too, marked as Otaq's; a name that matches one of them always means Otaq's skill.
+//! are listed too, marked as Otaq's, by their namespaced names (`otaq:validate`, `tuq:product-spec`,
+//! [`crate::skills::own_name`]); a bare name is always the user's skill, even one that matches one of Otaq's.
 //!
 //! Links are followed, as the tools follow them: a skill folder (or its `SKILL.md`) linked from anywhere is read
 //! (F3). A skill reached through several folders (the same real folder) is one place, at the first folder it is
@@ -504,20 +505,20 @@ pub fn has(homes: &Homes, checkout: Option<&Path>, name: &str) -> bool {
     !tools_with(homes, &ProjectFolders::checkout(checkout), name).is_empty()
 }
 
-/// Whether `name` is one of Otaq's own skills.
+/// Whether `name` is one of Otaq's own skills, named in its namespace (`otaq:validate`).
 pub fn is_shipped(name: &str) -> bool {
-    shipped::SKILLS.contains(&name)
+    crate::skills::is_own(name)
 }
 
 /// Otaq's own skills, marked as Otaq's, with their shipped descriptions.
 fn shipped_skills() -> Vec<FoundSkill> {
     shipped::SKILLS
         .iter()
-        .map(|&name| FoundSkill {
-            name: name.to_owned(),
+        .map(|&folder| FoundSkill {
+            name: crate::skills::own_name(folder),
             description: SHIPPED_TEXTS
                 .iter()
-                .find(|(n, _)| *n == name)
+                .find(|(n, _)| *n == folder)
                 .and_then(|(_, text)| front_matter(text).ok())
                 .and_then(|front| front.description),
             otaq: true,
