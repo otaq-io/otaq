@@ -4,12 +4,14 @@
 # README.md next to it.
 
 tool=${OTAQ_STAND_IN_TOOL:-$(basename "$0")}
+# `prefix`: Copilot and OpenCode get the prefixed copy of Otaq's skills (`otaq-validate`, decision 092).
+prefix=
 case "$tool" in
 claude) root=.claude/skills form=slash ;;
-copilot) root=.agents/skills form=slash ;;
+copilot) root=.agents/skills form=slash prefix=otaq- ;;
 codex) root=.agents/skills form=dollar ;;
 opencode)
-    root=.agents/skills form=bare
+    root=.agents/skills form=bare prefix=otaq-
     # OpenCode's conversation is made before the launch (`opencode api --standalone POST /api/session …`).
     case "$1" in api) exit 0 ;; esac
     ;;
@@ -41,9 +43,10 @@ hook() {
     printf '%s' "$payload" | otaq hook --tool claude "$1"
 }
 
-# One prompt: Otaq's skill by its namespaced name (`/otaq:x`, `$otaq:x`; OpenCode's plain `x` in its "Load the skill
-# `x` …" instruction) always runs; the user's skill by its own name (`/x`, `$x`, `x`) runs when it was loaded at start
-# and is an unknown command otherwise (OpenCode's model says it has no skill named `x`); other text is ignored.
+# One prompt: Otaq's skill by its namespaced name (`/otaq:x`, `$otaq:x`; Copilot's `/otaq:otaq-x` and OpenCode's
+# `otaq-x` in its "Load the skill `otaq-x` …" instruction, from the prefixed copy) always runs; the user's skill by its
+# own name (`/x`, `$x`, `x`) runs when it was loaded at start and is an unknown command otherwise (OpenCode's model says
+# it has no skill named `x`); other text is ignored.
 handle() {
     line=$1
     esc=$(printf '\033')
@@ -68,13 +71,18 @@ handle() {
     */* | "") return ;;
     otaq:*)
         [ "$form" = bare ] && return
-        case "$own" in *" ${name#otaq:} "*) known=yes ;; esac
+        skill=${name#otaq:}
+        # Copilot's plugin holds only the prefixed copy: `/otaq:otaq-x`, never `/otaq:x`.
+        if [ -n "$prefix" ]; then
+            case "$skill" in "$prefix"*) skill=${skill#"$prefix"} ;; *) skill= ;; esac
+        fi
+        case "$own" in *" $skill "*) known=yes ;; esac
         ;;
     *)
         case "$loaded" in *" $name "*) known=yes ;; esac
         if [ "$form" = bare ] && [ -z "$known" ]; then
-            # OpenCode names Otaq's skills by their own names.
-            case "$own" in *" $name "*) known=yes ;; esac
+            # OpenCode names Otaq's skills by their prefixed names.
+            case "$name" in "$prefix"*) case "$own" in *" ${name#"$prefix"} "*) known=yes ;; esac ;; esac
         fi
         ;;
     esac

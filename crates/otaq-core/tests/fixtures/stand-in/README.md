@@ -11,9 +11,10 @@ them is there from the start, and **the user's project skills are read only at s
   `ARGS <its arguments>`.
 - Its first prompt is its last argument when that names a skill; then each line typed into its terminal (a bracketed
   paste too). For each:
-  - Otaq's skill in the tool's form (`/otaq:x` for `claude` and `copilot`, `$otaq:x` for `codex`, a line starting
-    "Load the skill `x` …" for `opencode`): `RUNS otaq:x` (`RUNS x` for `opencode`) when `x` is one of Otaq's shipped
-    skills, else `Unknown command: /otaq:x`;
+  - Otaq's skill in the tool's form (`/otaq:x` for `claude`, `$otaq:x` for `codex`, `/otaq:otaq-x` for `copilot`, a
+    line starting "Load the skill `otaq-x` …" for `opencode`; Copilot and OpenCode run the prefixed copy, decision
+    092): `RUNS otaq:x` (`RUNS otaq:otaq-x` for `copilot`, `RUNS otaq-x` for `opencode`) when `x` is one of Otaq's
+    shipped skills, else `Unknown command: /otaq:x` (`copilot`'s `/otaq:x` among them);
   - the user's skill (`/x`, `$x`, or `x` in `opencode`'s "Load the skill `x` …"): `RUNS x` when it was loaded at
     start, else `Unknown command: /x` (`opencode`: `No skill named x.`);
   - any other text: nothing.

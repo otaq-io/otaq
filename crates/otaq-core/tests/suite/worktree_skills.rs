@@ -1,7 +1,8 @@
 //! Sessions start without skill copies (T2): Otaq never writes skills into a worktree. A session's tool loads Otaq's
 //! own skills from Otaq's plugin and the user's where they are; the first prompt and every hand-off type the skill as
-//! the tool names it: Otaq's own by the plugin's namespace (`/otaq:work-ticket`, `$otaq:work-ticket`, OpenCode's
-//! plain `work-ticket` inside its "Load the skill …" instruction), and a skill a stage names that isn't Otaq's by its own name (`/team-validate`). A stage's
+//! the tool names it: Otaq's own by the plugin's namespace (`/otaq:work-ticket`, `$otaq:work-ticket`, Copilot's
+//! `/otaq:otaq-work-ticket` and OpenCode's `otaq-work-ticket` inside its "Load the skill …" instruction, from the
+//! prefixed copy), and a skill a stage names that isn't Otaq's by its own name (`/team-validate`). A stage's
 //! `skill:` is the only place a skill is picked.
 //!
 //! Every tool is a stand-in: `claude` is `sh` and `codex`, `copilot` and `opencode` are `sh` scripts in Otaq's bin
@@ -178,7 +179,8 @@ fn every_kind_file() -> FlowFile {
 
 /// On every tool, a Dev session starts with nothing written into its worktree, and its first prompt runs Otaq's
 /// `work-ticket` from the plugin: Claude Code `/otaq:work-ticket`, Codex `$otaq:work-ticket`, Copilot
-/// `-i /otaq:work-ticket`, OpenCode `--prompt Load the skill `work-ticket` with your skill tool…`.
+/// `-i /otaq:otaq-work-ticket`, OpenCode `--prompt Load the skill `otaq-work-ticket` with your skill tool…` (the
+/// prefixed copy, decision 092).
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
 async fn a_dev_session_on_each_tool_starts_with_nothing_written() {
@@ -187,12 +189,13 @@ async fn a_dev_session_on_each_tool_starts_with_nothing_written() {
     for (n, (tool, prompt)) in [
         (Tool::Claude, format!("/{ns}:work-ticket")),
         (Tool::Codex, format!("${ns}:work-ticket")),
-        (Tool::Copilot, format!("-i /{ns}:work-ticket")),
+        (Tool::Copilot, format!("-i /{ns}:{ns}-work-ticket")),
         (
             Tool::OpenCode,
-            "--prompt Load the skill `work-ticket` with your skill tool and follow it. If you don't have a skill with \
-             that name, say so and stop."
-                .to_owned(),
+            format!(
+                "--prompt Load the skill `{ns}-work-ticket` with your skill tool and follow it. If you don't have a \
+                 skill with that name, say so and stop."
+            ),
         ),
     ]
     .into_iter()

@@ -29,10 +29,13 @@
 //!   submodule, a plugin of its own with the skills in its `skills/<name>/` ([`shipped_skills`], decision 057); the
 //!   copy keeps only those, as its plugin folder's `skills/<name>/`. Each tool's plugin presents them as its own
 //!   `skills/` folder, filled here when the plugin is copied and never kept in git: the copy puts `skills/` into
-//!   `plugin/claude/` and
-//!   `plugin/copilot/` ([`crate::agent_tools::PLUGINS_WITH_SKILLS`], [`fill_skills`]), and Codex's fixed folder gets
-//!   it beside its manifest ([`replace_dir_with_skills`]). OpenCode needs no copy: its launch config names the
-//!   plugin's `skills/` folder. Plain copies, not links: a symbolic link needs admin rights (or Developer Mode) on
+//!   `plugin/claude/` ([`crate::agent_tools::PLUGINS_WITH_SKILLS`], [`fill_skills`]), and Codex's fixed folder gets
+//!   it beside its manifest ([`replace_dir_with_skills`]).
+//! - **Copilot and OpenCode get the prefixed copy** (decisions 072, 079, 092; [`crate::skills::prefixed`]): the copy
+//!   also writes `plugin/prefixed-skills/otaq-<name>/` ([`prefixed_skills`]), names and references rewritten, and
+//!   puts it into `plugin/copilot/` as its `skills/` ([`crate::agent_tools::PLUGINS_WITH_PREFIXED_SKILLS`]);
+//!   OpenCode's launch config names `plugin/prefixed-skills` itself. So a repository's own `validate` can never hide
+//!   Otaq's there. Plain copies, not links: a symbolic link needs admin rights (or Developer Mode) on
 //!   Windows, and git would check one out there as a text file. A dev build gets the same, as its service copies
 //!   the repository's `plugin/` like any other. The stamp covers the skills, so a changed skill gets a new folder.
 
@@ -54,6 +57,16 @@ const PLUGIN_FOLDER: &str = "plugin";
 
 /// The shipped skills inside the plugin folder: `<plugin>/skills/<name>/SKILL.md`, the one place they live.
 pub const SKILLS_FOLDER: &str = "skills";
+
+/// The prefixed copy of the shipped skills inside a runtime copy's plugin folder: `<plugin>/prefixed-skills/otaq-<name>/`
+/// ([`prefixed_skills`]).
+pub const PREFIXED_SKILLS_FOLDER: &str = "prefixed-skills";
+
+/// The prefixed copy of the shipped skills (`otaq-<name>/SKILL.md`) in the plugin folder `plugin`, made by the
+/// runtime copy ([`fill_skills`]): the skills Copilot and OpenCode run (decisions 072, 092).
+pub fn prefixed_skills(plugin: &Path) -> PathBuf {
+    plugin.join(PREFIXED_SKILLS_FOLDER)
+}
 
 /// The folder holding the shipped skills (`<name>/SKILL.md`) in the plugin folder `plugin`. The repository's
 /// `plugin/skills/` is the `otaq-skills` submodule, a plugin of its own with the skills in its `skills/` (decision
@@ -228,21 +241,33 @@ fn copy_plugin(plugin: &Path, dest: &Path) -> io::Result<()> {
     remove_all(&into).and_then(|()| copy_dir(&skills, &into))
 }
 
-/// Copies the shipped skills (`<plugin>/skills`) into each tool's plugin in `plugin`
-/// ([`crate::agent_tools::PLUGINS_WITH_SKILLS`]) as
-/// its own `skills/`, replacing whatever was there. A tool folder that isn't there, or no shipped skills, is
-/// skipped.
+/// Writes the prefixed copy of the shipped skills (`<plugin>/skills`) as `<plugin>/prefixed-skills`
+/// ([`prefixed_skills`]), then copies the shipped skills into each tool's plugin in `plugin` that runs them as they
+/// are ([`crate::agent_tools::PLUGINS_WITH_SKILLS`]) and the prefixed copy into each that runs that
+/// ([`crate::agent_tools::PLUGINS_WITH_PREFIXED_SKILLS`]), as its own `skills/`, replacing whatever was there. A
+/// tool folder that isn't there, or no shipped skills, is skipped.
 pub fn fill_skills(plugin: &Path) -> io::Result<()> {
     let skills = plugin.join(SKILLS_FOLDER);
     if !skills.is_dir() {
         return Ok(());
     }
-    for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
+    let prefixed = prefixed_skills(plugin);
+    remove_all(&prefixed)?;
+    crate::skills::prefixed::write_copy(&skills, &prefixed)?;
+    let tools = crate::agent_tools::PLUGINS_WITH_SKILLS
+        .iter()
+        .map(|tool| (tool, &skills))
+        .chain(
+            crate::agent_tools::PLUGINS_WITH_PREFIXED_SKILLS
+                .iter()
+                .map(|tool| (tool, &prefixed)),
+        );
+    for (tool, from) in tools {
         let dir = plugin.join(tool);
         if dir.is_dir() {
             let dest = dir.join(SKILLS_FOLDER);
             remove_all(&dest)?;
-            copy_dir(&skills, &dest)?;
+            copy_dir(from, &dest)?;
         }
     }
     Ok(())
@@ -825,10 +850,10 @@ mod tests {
     }
 
     /// Otaq's own skills come from its plugin: once the runtime copy of the repository's plugin is made, Claude
-    /// Code's and Copilot's plugins each hold every shipped skill as `skills/<name>/SKILL.md`, the same file as the
-    /// one in `plugin/skills`.
+    /// Code's plugin holds every shipped skill as `skills/<name>/SKILL.md`, the same file as the one in
+    /// `plugin/skills`.
     #[test]
-    fn the_copy_gives_claude_and_copilot_every_shipped_skill() {
+    fn the_copy_gives_claude_every_shipped_skill() {
         let (_tmp, data) = data();
         let installed = Installed::new("v1");
         let repo = crate::agent_tools::claude::find_plugin_dir(Path::new("/nonexistent"))
@@ -854,6 +879,71 @@ mod tests {
         for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
             assert!(!repo.join(tool).join(SKILLS_FOLDER).exists(), "{tool}");
         }
+    }
+
+    /// Copilot and OpenCode run the prefixed copy (decisions 072, 079, 092): the runtime copy of the repository's
+    /// plugin holds `prefixed-skills/otaq-<name>/SKILL.md` for every shipped skill, as real files, named
+    /// `otaq-<name>` and sending the agent only to skills of the same copy; Copilot's plugin holds that copy as its
+    /// `skills/`, and nothing by the plain names.
+    #[test]
+    fn the_copy_gives_copilot_and_opencode_the_prefixed_skills() {
+        let (_tmp, data) = data();
+        let installed = Installed::new("v1");
+        let repo = crate::agent_tools::claude::find_plugin_dir(Path::new("/nonexistent"))
+            .expect("the repository's plugin");
+        let folder = ensure(&data, "abc.1", &installed.bin(), &repo).unwrap();
+        let prefixed = prefixed_skills(&folder.plugin_dir());
+        let mut folders = Vec::new();
+        for name in crate::agents::shipped::SKILLS {
+            let skill = crate::skills::prefixed::name(name);
+            let file = prefixed.join(&skill).join("SKILL.md");
+            assert!(fs::symlink_metadata(&file).unwrap().is_file(), "{skill}");
+            let text = fs::read_to_string(&file).unwrap();
+            assert_eq!(
+                text,
+                crate::skills::prefixed::rewrite(
+                    &fs::read_to_string(shipped_skills(&repo).join(name).join("SKILL.md")).unwrap()
+                )
+            );
+            assert!(
+                text.lines().any(|l| l == format!("name: {skill}")),
+                "{skill}"
+            );
+            for reference in text
+                .split(&crate::skills::prefixed::reference_lead())
+                .skip(1)
+            {
+                let named = reference.split('`').next().unwrap();
+                // A flow file's name (`otaq:open-pr`) stays as flows write it (decision 092).
+                if named.contains(':') {
+                    continue;
+                }
+                assert!(
+                    prefixed.join(named).join("SKILL.md").is_file(),
+                    "{skill} names `{named}`, not in the prefixed copy"
+                );
+            }
+            folders.push(skill);
+        }
+        for tool in crate::agent_tools::PLUGINS_WITH_PREFIXED_SKILLS {
+            let skills = folder.plugin_dir().join(tool).join(SKILLS_FOLDER);
+            let mut found: Vec<String> = fs::read_dir(&skills)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            found.sort();
+            folders.sort();
+            assert_eq!(found, folders, "{tool}");
+            for name in &folders {
+                assert_eq!(
+                    fs::read(skills.join(name).join("SKILL.md")).unwrap(),
+                    fs::read(prefixed.join(name).join("SKILL.md")).unwrap()
+                );
+            }
+            // Filled in the copy only.
+            assert!(!repo.join(tool).join(SKILLS_FOLDER).exists(), "{tool}");
+        }
+        assert!(!repo.join(PREFIXED_SKILLS_FOLDER).exists());
     }
 
     /// The repository's `plugin/skills/` is the `otaq-skills` submodule (a plugin of its own, its skills in

@@ -308,7 +308,7 @@ impl AgentTool for Copilot {
         EFFORT_LEVELS
     }
 
-    /// `/otaq:commit`, `/team-validate` ([`launch::skill_reference`]).
+    /// `/otaq:otaq-commit`, `/team-validate` ([`launch::skill_reference`]).
     fn skill_reference(&self, skill: &str) -> String {
         skill_reference(skill)
     }

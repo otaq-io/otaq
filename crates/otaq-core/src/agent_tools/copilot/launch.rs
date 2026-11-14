@@ -3,7 +3,7 @@
 //! ```text
 //! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq:work-ticket"
+//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq:otaq-work-ticket"
 //! ```
 //!
 //! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
@@ -13,10 +13,12 @@
 //!
 //! **Copilot's plugin folder** (ADP-03): `copilot/` inside Otaq's plugin folder (found where
 //! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest,
-//! a `hooks/hooks.json` whose commands pass `--tool copilot`, and Otaq's shipped skills in its `skills/` folder. They
-//! reach every session from its start and run as `/otaq:<name>` (a plugin's skill, the skill name "preceded by a
-//! forward slash", docs.github.com, "Adding agent skills for GitHub Copilot CLI"); the user's skills are Copilot's to
-//! find, by their own names (`/<name>`). Otaq writes no skill into the working folder (T2).
+//! a `hooks/hooks.json` whose commands pass `--tool copilot`, and the prefixed copy of Otaq's shipped skills in its
+//! `skills/` folder (`otaq-validate/`, [`crate::skills::prefixed`], decision 092): Copilot lists a plugin's skills by
+//! their own names, so a repository's own `.github/skills/validate` would hide a plugin's `validate` ("Unknown
+//! command"). They reach every session from its start and run as `/otaq:otaq-<name>` ([`skill_reference`]); the
+//! user's skills are Copilot's to find, by their own names (`/<name>`). Otaq writes no skill into the working folder
+//! (T2).
 
 use std::path::{Path, PathBuf};
 
@@ -121,14 +123,21 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq:noyan <message>`, or the text.
+/// The first prompt as typed: `/otaq:otaq-noyan <message>`, or the text.
 fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
     prompt.text(adapter)
 }
 
-/// A skill as Copilot runs it: Otaq's own from its plugin as `/otaq:work-ticket`, the user's as `/team-validate`.
+/// A skill as Copilot runs it: Otaq's own from the prefixed copy in its plugin as `/otaq:otaq-work-ticket`, the
+/// user's as `/team-validate`. A typed slash command names a plugin's skill under the plugin's name: in the hands-on
+/// check (Copilot CLI 1.0.109, Windows, interactive, 2026-11-14) `/otaq:otaq-validate`, typed or passed with `-i`,
+/// ran the plugin's skill in a repository with its own `.github/skills/validate`, while `/otaq-validate` answered
+/// "Unknown command: /otaq-validate".
 pub(super) fn skill_reference(skill: &str) -> String {
-    crate::agent_tools::namespaced_reference("/", skill)
+    match crate::skills::prefixed::own_name(skill) {
+        Some(name) => format!("/{}:{name}", crate::naming::PLUGIN_NAMESPACE),
+        None => format!("/{skill}"),
+    }
 }
 
 /// Otaq's variables for the role, as for every tool: the ticket and `PORT` for a ticket's agent (an answer, a
@@ -302,7 +311,7 @@ mod tests {
                 "--allow-tool".into(),
                 allow(),
                 "-i".into(),
-                format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE),
+                format!("/{ns}:{ns}-work-ticket", ns = naming::PLUGIN_NAMESPACE),
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-29"));
@@ -453,7 +462,7 @@ mod tests {
         // Otaq's own skill by its plugin name; no `--add-dir` (d0011).
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("/{}:validate", naming::PLUGIN_NAMESPACE)
+            &format!("/{ns}:{ns}-validate", ns = naming::PLUGIN_NAMESPACE)
         );
         assert!(!plan.args.iter().any(|a| a == "--add-dir"));
 

@@ -127,7 +127,9 @@ impl Tool {
 
 impl Tool {
     /// [`AgentTool::skill_reference`]: a skill as the tool calls it, `/team-validate` (Claude Code, Copilot),
-    /// `$team-validate` (Codex), `team-validate` (OpenCode); the form every message about a stage names its skill in.
+    /// `$team-validate` (Codex), `team-validate` (OpenCode), Otaq's `otaq:validate` as `/otaq:validate`,
+    /// `$otaq:validate`, `/otaq:otaq-validate`, `otaq-validate`; the form every message about a stage names its skill
+    /// in.
     pub fn skill_reference(self, skill: &str) -> String {
         match self {
             Self::Claude => claude::skill_reference(skill),
@@ -252,9 +254,14 @@ pub fn plugin_dir_next_to(bin_dir: &Path) -> Option<PathBuf> {
 }
 
 /// The tools' plugins (folders inside Otaq's plugin folder) that carry Otaq's own skills as their own `skills/`,
-/// filled when the plugin is copied ([`crate::runtime::fill_skills`]): Claude Code's and Copilot's. Codex's fixed
-/// folder gets them in [`refresh_fixed_plugins`]; OpenCode's launch config names `<plugin>/skills` itself.
-pub const PLUGINS_WITH_SKILLS: [&str; 2] = [claude::PLUGIN_FOLDER, copilot::launch::PLUGIN_FOLDER];
+/// filled when the plugin is copied ([`crate::runtime::fill_skills`]): Claude Code's. Codex's fixed folder gets them
+/// in [`refresh_fixed_plugins`].
+pub const PLUGINS_WITH_SKILLS: [&str; 1] = [claude::PLUGIN_FOLDER];
+
+/// The tools' plugins that carry the prefixed copy of Otaq's skills (`otaq-validate`,
+/// [`crate::skills::prefixed`], decision 092) as their own `skills/`, filled when the plugin is copied: Copilot's.
+/// OpenCode's launch config names the prefixed copy ([`crate::runtime::prefixed_skills`]) itself.
+pub const PLUGINS_WITH_PREFIXED_SKILLS: [&str; 1] = [copilot::launch::PLUGIN_FOLDER];
 
 /// Copies the tools' plugins that live in a fixed folder over it, at every service start (UPD-02): Codex's
 /// (gap review R4), whose marketplace is registered machine-wide with a folder path. A failure is logged; Codex's
@@ -450,8 +457,8 @@ pub fn is_own_skill(skill: &str) -> bool {
     crate::skills::is_own(skill)
 }
 
-/// `skill` behind `sigil` (`/`, `$`): one of Otaq's own skills ([`is_own_skill`]) from Otaq's plugin, in its
-/// namespace (`/otaq:commit`); any other name as it is (`/team-validate`, a plugin's `/tuq:step-back`). Until tuq's
+/// `skill` behind `sigil` (`/`, `$`) for Claude Code and Codex: one of Otaq's own skills ([`is_own_skill`]) from
+/// Otaq's plugin, in its namespace (`/otaq:commit`); any other name as it is (`/team-validate`, a plugin's `/tuq:step-back`). Until tuq's
 /// skills run on the user's tuq, a `tuq:` skill Otaq ships runs the copy in Otaq's plugin: `/otaq:product-spec`.
 pub(crate) fn namespaced_reference(sigil: &str, skill: &str) -> String {
     match crate::skills::own_folder(skill) {
@@ -1016,8 +1023,9 @@ pub trait AgentTool: Send + Sync {
     // 7. Skills (ADP-05).
 
     /// A skill as the agent's tool names it in typed text. Otaq's own skill, named `otaq:commit` ([`is_own_skill`]),
-    /// comes from Otaq's plugin, under its namespace: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit` (Codex),
-    /// `commit` (OpenCode, which has no namespace). A bare name is always the user's own skill is one the tool finds itself, by its own name:
+    /// comes from Otaq's plugin, under its namespace: `/otaq:commit` (Claude Code), `$otaq:commit` (Codex); Copilot
+    /// and OpenCode run the prefixed copy ([`crate::skills::prefixed`], decisions 072, 092), `/otaq:otaq-commit` and
+    /// `otaq-commit`. A bare name is always the user's own skill is one the tool finds itself, by its own name:
     /// `/team-validate`, `$team-validate`, `team-validate`. Otaq never copies or renames a skill ([`crate::skills`]).
     fn skill_reference(&self, skill: &str) -> String;
 

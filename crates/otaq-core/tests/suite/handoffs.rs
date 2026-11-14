@@ -34,11 +34,14 @@ use tempfile::TempDir;
 /// What the stand-in found in the worktree at start: no skill, since Otaq writes none there.
 const LOADED: &str = "loaded: \r";
 
-/// What the stand-in prints when it runs Otaq's skill `name` as `tool` names it (OpenCode has no namespace).
+/// What the stand-in prints when it runs Otaq's skill `name` as `tool` names it: Copilot and OpenCode run the
+/// prefixed copy (`otaq:otaq-x`, OpenCode's `otaq-x`, decision 092).
 fn runs_own(tool: Tool, name: &str) -> String {
+    let ns = otaq_core::naming::PLUGIN_NAMESPACE;
     match tool {
-        Tool::OpenCode => format!("RUNS {name}"),
-        _ => format!("RUNS {}:{name}", otaq_core::naming::PLUGIN_NAMESPACE),
+        Tool::OpenCode => format!("RUNS {ns}-{name}"),
+        Tool::Copilot => format!("RUNS {ns}:{ns}-{name}"),
+        _ => format!("RUNS {ns}:{name}"),
     }
 }
 

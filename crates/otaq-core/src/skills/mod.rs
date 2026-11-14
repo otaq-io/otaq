@@ -12,9 +12,10 @@
 //!   ([`own_name`], [`own_folder`]). A bare name (`validate`) is always the user's own skill, even when it matches
 //!   one of Otaq's. Flows stored before the rename are rewritten once ([`namespaced`], decision 075).
 //! - **A session names a skill in its tool's form** ([`crate::agent_tools::AgentTool::skill_reference`]): Otaq's own
-//!   as `/otaq:<name>` (Claude Code, Copilot), `$otaq:<name>` (Codex) or `<name>` (OpenCode); the user's as
-//!   `/<name>`, `$<name>` or `<name>`. Until tuq's skills run on the user's tuq, a `tuq:<name>` runs the copy still in
-//!   Otaq's plugin, so it is typed as Otaq's (`/otaq:product-spec`).
+//!   as `/otaq:<name>` (Claude Code), `$otaq:<name>` (Codex), and on Copilot and OpenCode from the prefixed copy
+//!   ([`prefixed`], decisions 072, 092) as `/otaq:otaq-<name>` and `otaq-<name>`; the user's as `/<name>`, `$<name>`
+//!   or `<name>`. Until tuq's skills run on the user's tuq, a `tuq:<name>` runs the copy still in Otaq's plugin, so
+//!   it is typed as Otaq's (`/otaq:product-spec`, `otaq-product-spec`).
 //! - **A stage's `skill:` is the only place a skill is picked**: a stage that names one runs it by that name; a stage
 //!   that names none runs Otaq's own skill for it.
 //!
@@ -24,6 +25,7 @@
 pub mod copy;
 pub mod folder;
 pub mod found;
+pub mod prefixed;
 pub mod testing;
 
 pub use copy::{marked_copies, remove_copy};
