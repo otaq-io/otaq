@@ -692,6 +692,7 @@ mod tests {
         }
     }
 
+    #[cfg(unix)]
     fn runs(home: &Path) -> usize {
         std::fs::read_to_string(home.join("runs"))
             .unwrap_or_default()

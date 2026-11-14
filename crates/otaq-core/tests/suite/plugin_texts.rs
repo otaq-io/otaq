@@ -76,6 +76,13 @@ fn every_skill_has_front_matter_with_name_and_description() {
             field("description").is_some_and(|d| !d.trim().is_empty()),
             "{name}: no description"
         );
+        // GitHub Copilot CLI refuses to load a skill whose description is longer (1.0.109: "Skill description must
+        // be at most 1024 characters"), and the stage then never starts its skill.
+        let length = field("description").map_or(0, |d| d.chars().count());
+        assert!(
+            length <= 1024,
+            "{name}: its description has {length} characters, more than the 1024 Copilot loads"
+        );
     }
 }
 
