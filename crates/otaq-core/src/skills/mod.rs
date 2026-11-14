@@ -3,7 +3,8 @@
 //! - **The user's skills stay where they are.** The agent tool finds them the way it always does: personal skills,
 //!   project skills committed to the repository (which git puts in every worktree) and, for Claude Code, the main
 //!   checkout's when the worktree has none. Otaq writes no skill folder into a worktree or a checkout.
-//! - **Otaq's own skills come from its plugin.** The skills in `<plugin>/skills/` ([`SHIPPED_FOLDER`]) reach every
+//! - **Otaq's own skills come from its plugin.** The skills in `<plugin>/skills/` ([`crate::runtime::shipped_skills`];
+//!   the repository's is the `otaq-skills` submodule, which holds them in its own `skills/`) reach every
 //!   session through Otaq's per-tool plugin, the same one that carries its hooks, so every one of them is in every
 //!   session from its start and a hand-off can always type a skill by name.
 //! - **A session names a skill in its tool's form** ([`crate::agent_tools::AgentTool::skill_reference`]): Otaq's own
@@ -23,10 +24,6 @@ pub mod testing;
 pub use copy::{marked_copies, remove_copy};
 
 use crate::board::Board;
-
-/// The folder of Otaq's shipped skills inside its plugin folder ([`crate::agent_tools::LaunchContext::plugin_dir`]):
-/// `<plugin>/skills/<name>/`.
-pub const SHIPPED_FOLDER: &str = "skills";
 
 impl Board {
     /// The skill the PR path runs for `step` (Open PR, Push), by its own name: for Open PR the skill the flow's

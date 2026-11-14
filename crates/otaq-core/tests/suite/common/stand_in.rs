@@ -34,7 +34,10 @@ pub fn plugin(root: &Path) -> PathBuf {
         std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
     }
     let repo = find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin");
-    copy_dir(&repo.join("skills"), &plugin.join("skills"));
+    copy_dir(
+        &otaq_core::runtime::shipped_skills(&repo),
+        &plugin.join("skills"),
+    );
     plugin
 }
 

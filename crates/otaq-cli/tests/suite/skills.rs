@@ -53,9 +53,9 @@ fn command_words_are_found() {
 /// `report`. T-0534 (d0133): no skill names the lead's commands any more.
 #[test]
 fn the_work_ticket_commands_are_checked() {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder"),
+    );
     let named = |skill: &str| {
         commands(&std::fs::read_to_string(skills.join(skill).join("SKILL.md")).unwrap())
             .into_iter()

@@ -292,7 +292,10 @@ fn otaq_plugin() -> tempfile::TempDir {
         &source.join("claude/.claude-plugin"),
         &dir.path().join(".claude-plugin"),
     );
-    copy_dir(&source.join("skills"), &dir.path().join("skills"));
+    copy_dir(
+        &otaq_core::runtime::shipped_skills(&source),
+        &dir.path().join("skills"),
+    );
     dir
 }
 

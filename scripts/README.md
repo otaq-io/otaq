@@ -133,8 +133,8 @@ a running Ubuntu VM can't be snapshotted, and the user approved working without 
 
    Run `rsync` again after every change on the Mac. Never commit from the copy. `CARGO_BUILD_JOBS=4` keeps the
    builds within the VM's 16 GB. To check a committed branch instead of the Mac's working tree, clone it from the
-   shared folder: `git clone --branch <branch> /media/VMPal/software-factory ~/cb-src`. Undo: delete `~/cb-src` and
-   `~/cb-target`.
+   shared folder: `git clone --recursive --branch <branch> /media/VMPal/software-factory ~/cb-src`. Undo: delete
+   `~/cb-src` and `~/cb-target`.
 
 ## Windows VM (Windows 11 Pro 24H2, ARM64)
 
@@ -184,7 +184,8 @@ Set up on 2026-10-11, starting from a fresh install with only Git for Windows ad
 
    Run `robocopy` again after every change on the Mac. Never commit from the copy. To check a committed branch
    instead of the Mac's working tree, fetch it into the copy: `git fetch Z:/software-factory <branch>`, then
-   `git checkout -f --detach FETCH_HEAD`. Undo: delete `%USERPROFILE%\cb-src` and `%USERPROFILE%\cb-target`.
+   `git checkout -f --detach FETCH_HEAD` and `git submodule update --init` (the workflow skills it pins). Undo:
+   delete `%USERPROFILE%\cb-src` and `%USERPROFILE%\cb-target`.
 
 PowerShell's default execution policy blocks unsigned scripts, hence `-ExecutionPolicy Bypass` for this one run
 (the machine's policy stays as it is).

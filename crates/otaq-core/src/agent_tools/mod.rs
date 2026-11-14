@@ -283,9 +283,9 @@ pub fn parent_session_vars() -> impl Iterator<Item = &'static str> {
 }
 
 impl LaunchContext {
-    /// The installed app's shipped skills: `<plugin>/skills` (AGM-07).
+    /// The installed app's shipped skills: `<plugin>/skills` (AGM-07; [`crate::runtime::shipped_skills`]).
     pub fn shipped_skills(&self) -> PathBuf {
-        self.plugin_dir.join(crate::skills::SHIPPED_FOLDER)
+        crate::runtime::shipped_skills(&self.plugin_dir)
     }
 
     /// The running binary's folder, the plugin next to it (or the repository's in a dev build), and each

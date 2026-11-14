@@ -24,9 +24,12 @@
 //! - **Codex**: its marketplace is registered machine-wide with a folder path, so it gets one fixed folder,
 //!   `runtime/codex-plugin/`, copied over ([`replace_dir`]) at every service start by its adapter
 //!   ([`crate::agent_tools::refresh_fixed_plugins`]); its config never changes with the build.
-//! - **Otaq's own skills come from its plugin.** They live once, in the plugin folder's `skills/` (the repository's
-//!   `plugin/skills/`, bundled as it is). Each tool's plugin presents them as its own `skills/` folder, filled here
-//!   when the plugin is copied and never kept in git: the copy puts `skills/` into `plugin/claude/` and
+//! - **Otaq's own skills come from its plugin.** They live once, in the plugin folder's `skills/`. In the repository
+//!   (and so in the bundle, which holds the repository's `plugin/` as it is) that folder is the `otaq-skills`
+//!   submodule, a plugin of its own with the skills in its `skills/<name>/` ([`shipped_skills`], decision 057); the
+//!   copy keeps only those, as its plugin folder's `skills/<name>/`. Each tool's plugin presents them as its own
+//!   `skills/` folder, filled here when the plugin is copied and never kept in git: the copy puts `skills/` into
+//!   `plugin/claude/` and
 //!   `plugin/copilot/` ([`crate::agent_tools::PLUGINS_WITH_SKILLS`], [`fill_skills`]), and Codex's fixed folder gets
 //!   it beside its manifest ([`replace_dir_with_skills`]). OpenCode needs no copy: its launch config names the
 //!   plugin's `skills/` folder. Plain copies, not links: a symbolic link needs admin rights (or Developer Mode) on
@@ -51,6 +54,19 @@ const PLUGIN_FOLDER: &str = "plugin";
 
 /// The shipped skills inside the plugin folder: `<plugin>/skills/<name>/SKILL.md`, the one place they live.
 pub const SKILLS_FOLDER: &str = "skills";
+
+/// The folder holding the shipped skills (`<name>/SKILL.md`) in the plugin folder `plugin`. The repository's
+/// `plugin/skills/` is the `otaq-skills` submodule, a plugin of its own with the skills in its `skills/` (decision
+/// 057): `<plugin>/skills/skills`. A runtime copy holds only the skills: `<plugin>/skills` ([`ensure`]).
+pub fn shipped_skills(plugin: &Path) -> PathBuf {
+    let folder = plugin.join(SKILLS_FOLDER);
+    let in_repository = folder.join(SKILLS_FOLDER);
+    if in_repository.is_dir() {
+        in_repository
+    } else {
+        folder
+    }
+}
 
 /// What a temporary folder's name carries before its writer's PID: `.<name>.tmp-<pid>-<n>`.
 const TMP_MARK: &str = ".tmp-";
@@ -168,7 +184,7 @@ pub fn ensure(
     let copied = fs::create_dir(&tmp)
         .and_then(|()| fs::copy(&program, tmp.join(program_name())).map(drop))
         .and_then(|()| copy_conpty(bin_dir, &tmp))
-        .and_then(|()| copy_dir(plugin_dir, &tmp.join(PLUGIN_FOLDER)))
+        .and_then(|()| copy_plugin(plugin_dir, &tmp.join(PLUGIN_FOLDER)))
         .and_then(|()| fill_skills(&tmp.join(PLUGIN_FOLDER)))
         .and_then(|()| fs::rename(&tmp, &folder.dir));
     match copied {
@@ -198,6 +214,18 @@ fn copy_conpty(bin_dir: &Path, dest: &Path) -> io::Result<()> {
         }
     }
     Ok(())
+}
+
+/// Copies the plugin folder `plugin` into `dest` with only the shipped skills ([`shipped_skills`]) as its `skills/`:
+/// the `otaq-skills` repository's own files (its manifest, README, license, `.git`) stay behind.
+fn copy_plugin(plugin: &Path, dest: &Path) -> io::Result<()> {
+    copy_dir(plugin, dest)?;
+    let skills = shipped_skills(plugin);
+    if skills == plugin.join(SKILLS_FOLDER) {
+        return Ok(());
+    }
+    let into = dest.join(SKILLS_FOLDER);
+    remove_all(&into).and_then(|()| copy_dir(&skills, &into))
 }
 
 /// Copies the shipped skills (`<plugin>/skills`) into each tool's plugin in `plugin`
@@ -816,7 +844,7 @@ mod tests {
                     .join("SKILL.md");
                 assert_eq!(
                     fs::read(&copied).unwrap_or_default(),
-                    fs::read(repo.join(SKILLS_FOLDER).join(name).join("SKILL.md")).unwrap(),
+                    fs::read(shipped_skills(&repo).join(name).join("SKILL.md")).unwrap(),
                     "{}",
                     copied.display()
                 );
@@ -826,6 +854,50 @@ mod tests {
         for tool in crate::agent_tools::PLUGINS_WITH_SKILLS {
             assert!(!repo.join(tool).join(SKILLS_FOLDER).exists(), "{tool}");
         }
+    }
+
+    /// The repository's `plugin/skills/` is the `otaq-skills` submodule (a plugin of its own, its skills in
+    /// `skills/<name>/`): the copy's plugin folder and each tool's plugin get the skills alone, as `skills/<name>/`,
+    /// and the repository's manifest, README and `.git` stay behind.
+    #[test]
+    fn the_copy_takes_the_skills_out_of_the_skills_repository() {
+        let (_tmp, data) = data();
+        let installed = Installed::new("v1");
+        let repository = installed.plugin().join(SKILLS_FOLDER);
+        fs::create_dir_all(repository.join(".claude-plugin")).unwrap();
+        fs::write(repository.join(".claude-plugin/plugin.json"), "{}").unwrap();
+        fs::write(repository.join("README.md"), "readme").unwrap();
+        fs::write(repository.join(".git"), "gitdir: elsewhere").unwrap();
+        let skill = repository.join(SKILLS_FOLDER).join("commit");
+        fs::create_dir_all(&skill).unwrap();
+        fs::write(skill.join("SKILL.md"), "commit").unwrap();
+        assert_eq!(
+            shipped_skills(&installed.plugin()),
+            repository.join(SKILLS_FOLDER)
+        );
+
+        let folder = installed.ensure(&data, "abc.1");
+        let entries = |dir: PathBuf| -> Vec<String> {
+            let mut names: Vec<String> = fs::read_dir(dir)
+                .unwrap()
+                .map(|e| e.unwrap().file_name().to_string_lossy().into_owned())
+                .collect();
+            names.sort();
+            names
+        };
+        assert_eq!(entries(folder.plugin_dir().join(SKILLS_FOLDER)), ["commit"]);
+        assert_eq!(
+            shipped_skills(&folder.plugin_dir()),
+            folder.plugin_dir().join(SKILLS_FOLDER)
+        );
+        assert_eq!(
+            entries(folder.plugin_dir().join("claude").join(SKILLS_FOLDER)),
+            ["commit"]
+        );
+        assert_eq!(
+            fs::read_to_string(folder.plugin_dir().join("claude/skills/commit/SKILL.md")).unwrap(),
+            "commit"
+        );
     }
 
     /// A tool plugin's own `skills/` is replaced by the shipped skills, and a changed skill makes a new copy.

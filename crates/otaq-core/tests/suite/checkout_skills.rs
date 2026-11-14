@@ -26,9 +26,8 @@ fn plugin(root: &Path) -> PathBuf {
     let manifest = plugin.join("claude").join(".claude-plugin");
     std::fs::create_dir_all(&manifest).unwrap();
     std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .unwrap()
-        .join("skills");
+    let skills =
+        otaq_core::runtime::shipped_skills(&find_plugin_dir(Path::new("/nonexistent")).unwrap());
     for name in ["noyan", "flow"] {
         let to = plugin.join("skills").join(name);
         std::fs::create_dir_all(&to).unwrap();

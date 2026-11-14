@@ -45,9 +45,6 @@ const CLI_CONFIG_CONTENT: &str = "OPENCODE_CLI_CONFIG_CONTENT";
 /// The folder of Otaq's OpenCode plugin inside Otaq's plugin folder (`package.json` and `index.js`).
 const PLUGIN_FOLDER: &str = "opencode";
 
-/// Otaq's own skills inside its plugin folder (the one place they live).
-const SKILLS_FOLDER: &str = crate::runtime::SKILLS_FOLDER;
-
 pub(super) fn launch(
     adapter: &OpenCode,
     request: &LaunchRequest,
@@ -219,7 +216,7 @@ fn cli_config(theme: ThemeKind) -> Value {
 fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
         "plugins": [launch.plugin_dir.join(PLUGIN_FOLDER).display().to_string()],
-        "skills": [launch.plugin_dir.join(SKILLS_FOLDER).display().to_string()],
+        "skills": [crate::runtime::shipped_skills(&launch.plugin_dir).display().to_string()],
         "permissions": [{
             "action": "shell",
             "resource": format!("{} *", naming::COMMAND_NAME),

@@ -9,9 +9,9 @@ use otaq_core::naming;
 
 /// Every SKILL.md of the plugin, with its folder name.
 fn skill_files() -> Vec<(String, PathBuf)> {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder"),
+    );
     let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(&skills)
         .unwrap()
         .map(|e| e.unwrap())
@@ -212,9 +212,9 @@ fn skills_end_stages_with_the_stage_commands() {
 /// `.agents/skills`).
 #[test]
 fn no_skill_text_names_a_copy() {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder"),
+    );
     let names: Vec<String> = skill_files().into_iter().map(|(name, _)| name).collect();
     let mut needles: Vec<String> = names.iter().map(|name| format!("otaq-{name}")).collect();
     needles.extend([".claude/skills".to_owned(), ".agents/skills".to_owned()]);

@@ -53,60 +53,60 @@ use crate::agents::shipped;
 /// The file every skill folder has.
 pub const SKILL_FILE: &str = "SKILL.md";
 
-/// Otaq's own skills as shipped in its plugin (`plugin/skills/<name>/SKILL.md`), embedded at build time: their
-/// names and descriptions need no installed bundle. The same names as [`shipped::SKILLS`] (tested).
+/// Otaq's own skills as shipped in its plugin (`plugin/skills/skills/<name>/SKILL.md`, the `otaq-skills` submodule),
+/// embedded at build time: their names and descriptions need no installed bundle. The same names as [`shipped::SKILLS`] (tested).
 const SHIPPED_TEXTS: &[(&str, &str)] = &[
     (
         "address-review",
-        include_str!("../../../../plugin/skills/address-review/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/address-review/SKILL.md"),
     ),
     (
         "answer-question",
-        include_str!("../../../../plugin/skills/answer-question/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/answer-question/SKILL.md"),
     ),
     (
         "commit",
-        include_str!("../../../../plugin/skills/commit/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/commit/SKILL.md"),
     ),
     (
         "flow",
-        include_str!("../../../../plugin/skills/flow/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/flow/SKILL.md"),
     ),
     (
         "milestone-plan",
-        include_str!("../../../../plugin/skills/milestone-plan/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/milestone-plan/SKILL.md"),
     ),
     (
         "noyan",
-        include_str!("../../../../plugin/skills/noyan/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/noyan/SKILL.md"),
     ),
     (
         "open-pr",
-        include_str!("../../../../plugin/skills/open-pr/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/open-pr/SKILL.md"),
     ),
     (
         "product-spec",
-        include_str!("../../../../plugin/skills/product-spec/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/product-spec/SKILL.md"),
     ),
     (
         "push",
-        include_str!("../../../../plugin/skills/push/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/push/SKILL.md"),
     ),
     (
         "restack",
-        include_str!("../../../../plugin/skills/restack/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/restack/SKILL.md"),
     ),
     (
         "tech-spec",
-        include_str!("../../../../plugin/skills/tech-spec/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/tech-spec/SKILL.md"),
     ),
     (
         "validate",
-        include_str!("../../../../plugin/skills/validate/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/validate/SKILL.md"),
     ),
     (
         "work-ticket",
-        include_str!("../../../../plugin/skills/work-ticket/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/work-ticket/SKILL.md"),
     ),
 ];
 
