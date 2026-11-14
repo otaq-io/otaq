@@ -65,13 +65,16 @@ otaq run set --command 'pnpm dev --port $PORT'   # add a missing run command (or
 
 Every command takes `--json`. Run `otaq --help` for the full list.
 
-The agent's workflow lives in [`plugin/`](../plugin) as skills: `work-ticket` (the main loop, for the agent in charge
-and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`, `answer-question`, `restack`, `flow`,
-`product-spec`, `tech-spec`, `milestone-plan` (the Spec first preset's planning stages) and `noyan` (files tickets
-from a request, with notes for the next stage). They come with Otaq's plugin for each tool, the same one that carries
-its hooks: `--plugin-dir` for Claude Code and Copilot, the `otaq@otaq-local` plugin for Codex, and a `skills` entry in
-OpenCode's config. So every session has all of them from its start. To run a skill of your own instead, name it on the
-flow (your own Validate skill on the Validate stage, your own Open PR skill as the `skill:` of the flow's `delivery:`); see
+The agent's workflow lives in Otaq's own skills, written `otaq:<name>` in a flow: `work-ticket` (the main loop, for
+the agent in charge and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`,
+`answer-question`, `restack`, `flow` and `noyan` (files tickets from a request, with notes for the next stage). They
+come with the app, from the [otaq-skills](https://github.com/otaq-io/otaq-skills) repository (checked out at
+[`plugin/skills`](../plugin/skills)), in Otaq's plugin for each tool, the same one that carries its hooks:
+`--plugin-dir` for Claude Code and Copilot, the `otaq@otaq-local` plugin for Codex, and a `skills` entry in
+OpenCode's config. So every session has all of them from its start. The Spec first preset's planning stages run
+[tuq](https://github.com/otaq-io/tuq)'s skills (`tuq:product-spec`, `tuq:tech-spec`, `tuq:milestone-plan`), which
+Otaq installs when a stage needs them. To run a skill of your own instead, name it on the flow by its bare name (your
+own Validate skill on the Validate stage, your own Open PR skill as the `skill:` of the flow's `delivery:`); see
 [Skills](how-it-works.md#skills). The hooks only act when `OTAQ_TICKET` is set, so your ordinary sessions are
 unaffected.
 

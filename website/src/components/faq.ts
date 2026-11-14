@@ -13,7 +13,7 @@ export const FAQS: readonly Faq[] = [
   },
   {
     q: "Does my agent change?",
-    a: "No. Otaq starts the real claude, codex, copilot or opencode program in a worktree with a ticket. Your sign-in, permission mode, skills, hooks and settings stay as they are. What Otaq writes into a tool’s config is mainly that the folders you add are trusted; each tool in Settings → Agents lists everything.",
+    a: "No. Otaq starts the real claude, codex, copilot or opencode program in a worktree with a ticket. Your sign-in, permission mode, skills, hooks and settings stay as they are; Otaq’s own skills come with the app, and a stage that needs tuq’s skills installs tuq. What Otaq writes into a tool’s config is mainly that the folders you add are trusted; each tool in Settings → Agents lists everything.",
   },
   {
     q: "Can it merge on its own?",
@@ -33,6 +33,6 @@ export const FAQS: readonly Faq[] = [
   },
   {
     q: "What leaves my machine?",
-    a: "Only what your agent tools, git, gh or az send, with your own sign-ins. Otaq has no account and no server. On its own, it only asks GitHub once a day for the newest version, sending nothing about you. Anonymous usage data is sent only if you opt in.",
+    a: "Only what your agent tools, git, gh or az send, with your own sign-ins. Otaq has no account and no server. On its own, it only asks GitHub once a day for the newest version, sending nothing about you, and fetches tuq from GitHub when a stage needs it. Anonymous usage data is sent only if you opt in.",
   },
 ];
