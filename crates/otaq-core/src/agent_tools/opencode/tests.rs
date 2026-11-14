@@ -49,30 +49,39 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
-/// Otaq's own skill by its plugin's namespace, the user's by its own name (OpenCode loads a skill by its name and has no namespace) (T2).
+/// Otaq's own skill by its name in the prefixed copy (decision 072: OpenCode loads a skill by its name and has no
+/// namespace), the user's by its own name, a bare `commit` included (T2).
 #[test]
-fn otaqs_skills_namespaced_the_users_by_their_own_name() {
+fn otaqs_skills_prefixed_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
-    // OpenCode has no namespace: Otaq's `otaq:commit` is its folder's name.
+    let ns = crate::naming::PLUGIN_NAMESPACE;
     assert_eq!(
         adapter.skill_reference(crate::own_skill!("commit")),
-        "commit"
+        format!("{ns}-commit")
     );
-    assert_eq!(adapter.skill_reference("tuq:product-spec"), "product-spec");
+    // Until tuq's skills run on the user's tuq, the copy Otaq ships is typed as Otaq's.
+    assert_eq!(
+        adapter.skill_reference("tuq:product-spec"),
+        format!("{ns}-product-spec")
+    );
+    assert_eq!(adapter.skill_reference("commit"), "commit");
     assert_eq!(adapter.skill_reference("team-validate"), "team-validate");
 }
 
 /// S3 (2026-11-06): OpenCode has no typed command for a skill, so a typed skill is an instruction to load it with the
-/// skill tool, word for word, Otaq's own by its bare name; a first prompt's message follows it on the same line.
+/// skill tool, word for word, Otaq's own by its prefixed name; a first prompt's message follows it on the same line.
 #[test]
 fn a_typed_skill_is_an_instruction_to_load_it() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
+    let ns = crate::naming::PLUGIN_NAMESPACE;
     assert_eq!(
         adapter.skill_prompt(crate::own_skill!("work-ticket")),
-        "Load the skill `work-ticket` with your skill tool and follow it. If you don't have a skill with that name, \
-         say so and stop."
+        format!(
+            "Load the skill `{ns}-work-ticket` with your skill tool and follow it. If you don't have a skill with that \
+             name, say so and stop."
+        )
     );
     assert_eq!(
         adapter.skill_prompt("team-validate"),
@@ -85,8 +94,10 @@ fn a_typed_skill_is_an_instruction_to_load_it() {
     };
     assert_eq!(
         first.text(&adapter),
-        "Load the skill `address-review` with your skill tool and follow it. If you don't have a skill with that \
-         name, say so and stop. SHOP-18 was sent back."
+        format!(
+            "Load the skill `{ns}-address-review` with your skill tool and follow it. If you don't have a skill with \
+             that name, say so and stop. SHOP-18 was sent back."
+        )
     );
 }
 

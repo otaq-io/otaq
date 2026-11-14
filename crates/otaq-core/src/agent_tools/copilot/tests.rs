@@ -45,18 +45,21 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
-/// Otaq's own skill by its plugin's namespace, the user's by its own name (Copilot runs a skill with `/`) (T2).
+/// Otaq's own skill by its name in the prefixed copy under the plugin's name, `/otaq:otaq-commit` (decision 092, the
+/// form the hands-on check ran), the user's by its own name (Copilot runs a skill with `/`) (T2).
 #[test]
-fn otaqs_skills_namespaced_the_users_by_their_own_name() {
+fn otaqs_skills_prefixed_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = copilot(bin.path(), None);
+    let ns = crate::naming::PLUGIN_NAMESPACE;
     assert_eq!(
         adapter.skill_reference(crate::own_skill!("commit")),
-        format!("/{}:commit", crate::naming::PLUGIN_NAMESPACE)
+        format!("/{ns}:{ns}-commit")
     );
+    // Until tuq's skills run on the user's tuq, the copy Otaq ships is typed as Otaq's.
     assert_eq!(
         adapter.skill_reference("tuq:tech-spec"),
-        format!("/{}:tech-spec", crate::naming::PLUGIN_NAMESPACE)
+        format!("/{ns}:{ns}-tech-spec")
     );
     assert_eq!(adapter.skill_reference("commit"), "/commit");
     assert_eq!(adapter.skill_reference("team-validate"), "/team-validate");
