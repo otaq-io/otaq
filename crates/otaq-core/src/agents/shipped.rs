@@ -20,20 +20,18 @@ use crate::store::{Store, StoreError};
 
 pub use crate::naming::{AGENTS_FILE, AGENTS_YAML};
 
-/// The skills Otaq ships, by their folders in its plugin (`plugin/skills/<name>/`). A flow and Otaq name each in its
-/// namespace ([`crate::skills::own_name`]: `otaq:validate`, `tuq:product-spec`); a bare name is the user's skill.
+/// The skills Otaq ships, by their folders in its plugin (`plugin/skills/<name>/`), its workflow skills. A flow and
+/// Otaq name each in its namespace ([`crate::skills::own_name`]: `otaq:validate`); a bare name is the user's skill,
+/// and tuq's (`tuq:product-spec`) are the user's tuq's ([`crate::tuq`]).
 pub const SKILLS: &[&str] = &[
     "address-review",
     "answer-question",
     "commit",
     "flow",
-    "milestone-plan",
     "noyan",
     "open-pr",
-    "product-spec",
     "push",
     "restack",
-    "tech-spec",
     "validate",
     "work-ticket",
 ];

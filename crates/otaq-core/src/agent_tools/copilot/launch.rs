@@ -1,15 +1,17 @@
 //! Launch and resume (ADP-08, SES-03; T-0352). A new conversation:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE as for every tool]
+//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq:otaq-work-ticket"
+//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' --allow-tool 'shell(tuq:*)'
+//!         --allow-tool 'shell(tuq-plan:*)' -i "/otaq:otaq-work-ticket"
 //! ```
 //!
 //! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
 //! passed again: whether a resume keeps it isn't verified, the models report, row 6). **No permission flag**
-//! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approval is
-//! Otaq's own `otaq` commands. Otaq doesn't touch the user's Copilot settings or status line (d0088).
+//! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approvals are
+//! Otaq's own `otaq` commands and tuq's `tuq` and `tuq-plan` (tuq decision 077). Otaq doesn't touch the user's
+//! Copilot settings or status line (d0088).
 //!
 //! **Copilot's plugin folder** (ADP-03): `copilot/` inside Otaq's plugin folder (found where
 //! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest,
@@ -93,6 +95,10 @@ pub(super) fn launch(
         "--allow-tool".to_owned(),
         format!("shell({}:*)", naming::COMMAND_NAME),
     ]);
+    // tuq's commands, as `otaq` (decision 077).
+    for command in crate::tuq::COMMANDS {
+        args.extend(["--allow-tool".to_owned(), format!("shell({command}:*)")]);
+    }
     if let Some(prompt) = prompt {
         args.extend(["-i".to_owned(), prompt]);
     }
@@ -133,9 +139,19 @@ fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
 /// check (Copilot CLI 1.0.109, Windows, interactive, 2026-11-14) `/otaq:otaq-validate`, typed or passed with `-i`,
 /// ran the plugin's skill in a repository with its own `.github/skills/validate`, while `/otaq-validate` answered
 /// "Unknown command: /otaq-validate".
+///
+/// tuq's skills the same way (decision 105): tuq's Copilot plugin, named `tuq`, names each skill `tuq-<name>`, so
+/// `tuq:product-spec` is `/tuq:tuq-product-spec`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    match crate::skills::prefixed::own_name(skill) {
-        Some(name) => format!("/{}:{name}", crate::naming::PLUGIN_NAMESPACE),
+    if let Some(name) = crate::skills::prefixed::own_name(skill) {
+        return format!("/{}:{name}", crate::naming::PLUGIN_NAMESPACE);
+    }
+    match crate::tuq::skill_of(skill) {
+        Some(name) => format!(
+            "/{}:{}",
+            crate::tuq::NAMESPACE,
+            crate::tuq::installed_name(crate::agent_tools::Tool::Copilot, name)
+        ),
         None => format!("/{skill}"),
     }
 }
@@ -147,7 +163,7 @@ fn environment(
     launch: &LaunchContext,
     request: &LaunchRequest,
 ) -> Result<Vec<(String, String)>, LaunchError> {
-    let path = crate::shell::prepend_path(Some(&launch.bin_dir), &launch.path)
+    let path = crate::tuq::launch_path(&launch.bin_dir, &launch.path)
         .to_string_lossy()
         .into_owned();
     let ticket = || {
@@ -271,11 +287,14 @@ mod tests {
         }
     }
 
+    /// The `otaq` folder, tuq's commands' folder, then the service's PATH.
     fn path() -> String {
-        std::env::join_paths(["/opt/cb/bin", "/usr/bin", "/bin"])
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
+        crate::tuq::launch_path(
+            Path::new("/opt/cb/bin"),
+            &std::env::join_paths(["/usr/bin", "/bin"]).unwrap(),
+        )
+        .to_string_lossy()
+        .into_owned()
     }
 
     fn allow() -> String {
@@ -310,6 +329,10 @@ mod tests {
                 i.plugin(),
                 "--allow-tool".into(),
                 allow(),
+                "--allow-tool".into(),
+                "shell(tuq:*)".into(),
+                "--allow-tool".into(),
+                "shell(tuq-plan:*)".into(),
                 "-i".into(),
                 format!("/{ns}:{ns}-work-ticket", ns = naming::PLUGIN_NAMESPACE),
             ]
@@ -386,6 +409,10 @@ mod tests {
                 i.plugin(),
                 "--allow-tool".into(),
                 allow(),
+                "--allow-tool".into(),
+                "shell(tuq:*)".into(),
+                "--allow-tool".into(),
+                "shell(tuq-plan:*)".into(),
             ]
         );
         req.first_prompt = Some(FirstPrompt::Text("push now".into()));
@@ -436,7 +463,11 @@ mod tests {
                     .filter(|(_, a)| a.starts_with("--allow"))
                     .map(|(n, _)| plan.args[n + 1].clone())
                     .collect();
-                assert_eq!(allowed, [allow()], "only the command is pre-approved");
+                assert_eq!(
+                    allowed,
+                    [allow(), "shell(tuq:*)".into(), "shell(tuq-plan:*)".into()],
+                    "only the command and tuq's are pre-approved"
+                );
             }
         }
     }

@@ -17,7 +17,8 @@
 //! 4. **the stage's skill had?** (a ticket's new session only, [`LaunchGate::skill_blocked`]): a stage runs only on a
 //!    tool that has the skill it names, as Otaq's finder answers for the ticket's worktree — no: `missing_skill`,
 //!    "Codex doesn't have the skill `$team-validate`" ([`crate::board::missing_skill`]). Otaq's own skills always
-//!    pass.
+//!    pass. A `tuq:` skill is asked of the tool's tuq, which tuq's installer installs or updates first when it doesn't
+//!    have it ([`crate::tuq`], decision 103); still missing: "Your tuq doesn't have `tuq:update-docs`".
 //!
 //! A session that can't start is **held** ([`super::AgentHold`]): **its agent waits for its tool**. Otaq never moves
 //! the work to another tool, on its own or in bulk. The card says why it waits and offers Open agent…. A held Developer stays waiting before its Agent stage (Held, its step naming the reason; Ready
@@ -436,6 +437,8 @@ impl LaunchGate {
     /// Whether one started.
     pub async fn check_again(&self, ticket_id: &str) -> Result<bool, BoardError> {
         let _one = self.inner.lifting.lock().await;
+        // A tuq install that failed a moment ago is tried again on the user's click (decision 103).
+        self.inner.board.tuq().forget_failures();
         let holds = self.inner.board.store().ticket_holds(ticket_id).await?;
         let facts = self.facts().await?;
         let mut started = false;

@@ -64,9 +64,10 @@ fn otaqs_skills_namespaced_the_users_by_their_own_name() {
         adapter.skill_reference(crate::own_skill!("commit")),
         format!("${}:commit", crate::naming::PLUGIN_NAMESPACE)
     );
+    // The user's tuq, in its plugin's namespace (decision 105).
     assert_eq!(
         adapter.skill_reference("tuq:milestone-plan"),
-        format!("${}:milestone-plan", crate::naming::PLUGIN_NAMESPACE)
+        "$tuq:milestone-plan"
     );
     assert_eq!(adapter.skill_reference("commit"), "$commit");
     assert_eq!(adapter.skill_reference("team-validate"), "$team-validate");

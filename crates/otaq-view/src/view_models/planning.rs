@@ -65,7 +65,7 @@ pub fn check_line(ticket: &Ticket) -> String {
 /// What an agent running a skill Otaq ships (`tuq:tech-spec`) is doing, in Otaq's words (as its captions, Q-B):
 /// "writing the architecture". `None` for any other skill, a bare name included (the card says "Working").
 pub fn working_on(skill: &str) -> Option<&'static str> {
-    Some(match otaq_core::skills::own_folder(skill)? {
+    Some(match otaq_core::skills::otaqs_or_tuqs(skill)? {
         "product-spec" => "writing the decisions",
         "tech-spec" => "writing the architecture",
         "milestone-plan" => "writing the plan",

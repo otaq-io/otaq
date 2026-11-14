@@ -97,6 +97,9 @@ pub struct Board {
         std::sync::Arc<std::sync::Mutex<std::collections::HashMap<String, crate::flow::FlowFile>>>,
     /// The tools' home folder for the skill finder ([`Self::set_skill_home`]); unset reads no personal folder.
     skill_home: std::sync::Arc<std::sync::OnceLock<Option<std::path::PathBuf>>>,
+    /// The tools' tuq, installed when a stage needs a skill it doesn't have ([`crate::tuq`]); the service sets its
+    /// installer.
+    tuq: std::sync::Arc<crate::tuq::TuqInstalls>,
 }
 
 impl Board {
@@ -118,6 +121,7 @@ impl Board {
             data,
             flows: Default::default(),
             skill_home: Default::default(),
+            tuq: Default::default(),
         }
     }
 
@@ -135,6 +139,11 @@ impl Board {
     /// service start; a second call changes nothing.
     pub fn set_skill_home(&self, home: Option<std::path::PathBuf>) {
         let _ = self.skill_home.set(home);
+    }
+
+    /// The tools' tuq ([`crate::tuq::TuqInstalls`]).
+    pub fn tuq(&self) -> &std::sync::Arc<crate::tuq::TuqInstalls> {
+        &self.tuq
     }
 
     pub fn store(&self) -> &Store {

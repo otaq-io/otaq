@@ -689,9 +689,23 @@ struct Inner {
     ticket_env: OnceLock<env::TicketEnvProvider>,
     /// The theme in use (d0117 point 4), set once at service start; without it sessions are told the default.
     theme: OnceLock<ThemeProvider>,
+    /// The tuq release a tool has for a project ([`crate::tuq`]), set once at service start: stored with each agent
+    /// session it starts (tuq decision 102). Without it none is stored.
+    tuq_version: OnceLock<TuqVersionProvider>,
     /// Set by `otaq uninstall`'s removal (d0134): no session starts any more, until the service restarts.
     closed: std::sync::atomic::AtomicBool,
 }
+
+/// The tuq release `tool` has for the project with this id, read when asked: set once at service start
+/// ([`Sessions::set_tuq_version_provider`]).
+pub type TuqVersionProvider = Arc<
+    dyn Fn(
+            String,
+            Tool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// The theme in use, read when asked: set once at service start ([`Sessions::set_theme_provider`]).
 pub type ThemeProvider = Arc<
@@ -761,6 +775,7 @@ impl Sessions {
                 live: Mutex::new(HashMap::new()),
                 project_env: OnceLock::new(),
                 ticket_env: OnceLock::new(),
+                tuq_version: OnceLock::new(),
                 theme: OnceLock::new(),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -777,6 +792,12 @@ impl Sessions {
     /// ticket (its agent, validator, answering, Run and Shell) asks `provider` for them, then.
     pub fn set_ticket_env_provider(&self, provider: env::TicketEnvProvider) {
         let _ = self.inner.ticket_env.set(provider);
+    }
+
+    /// Gives the sessions the tuq release of their tool (tuq decision 102): every agent session's spawn asks
+    /// `provider` and stores the answer with the session, for its History row.
+    pub fn set_tuq_version_provider(&self, provider: TuqVersionProvider) {
+        let _ = self.inner.tuq_version.set(provider);
     }
 
     /// Gives the sessions the theme in use (d0117 point 4): every spawn asks `provider`, then, and tells the
@@ -960,11 +981,17 @@ impl Sessions {
         // too) and recorded against the row. A terminal of no project (an agent tool's Sign in…, d0086) lives in
         // memory only.
         let stored = !spec.project_id.is_empty();
+        // The tuq the session's tool has now, asked before the row so nothing is awaited between the row and the
+        // program.
+        let tuq_version = match (spec.tool, self.inner.tuq_version.get()) {
+            (Some(tool), Some(provider)) if stored => provider(spec.project_id.clone(), tool).await,
+            _ => None,
+        };
         if stored {
             sqlx::query(
                 "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, model, state, started_at,
-                                       agent_id, agent_name, effort, project_agent_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                       agent_id, agent_name, effort, project_agent_id, tuq_version)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&info.id)
             .bind(&spec.project_id)
@@ -979,6 +1006,7 @@ impl Sessions {
             .bind(info.agent.as_ref().map(|a| &a.name))
             .bind(&info.effort)
             .bind(&project_agent)
+            .bind(&tuq_version)
             .execute(self.inner.store.pool())
             .await
             .map_err(|e| SessionError::Store(e.into()))?;

@@ -103,6 +103,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
     ]
 }
 
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// tuq's Copilot plugin names each skill `tuq-<name>` (`/tuq:tuq-product-spec`), so a repository's own `product-spec` can't hide it.
+pub const TUQ_PREFIXED: bool = true;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = true;
+
 /// Whether Copilot loads a `SKILL.md` that starts with a UTF-8 byte order mark. Not checked
 /// yet, so counted as loaded.
 pub const READS_SKILL_WITH_BOM: bool = true;

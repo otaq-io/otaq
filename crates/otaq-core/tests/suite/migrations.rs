@@ -3187,7 +3187,7 @@ delivery:
 
 /// [`FLOW_0_2`] with Otaq's skills in their namespace.
 fn flow_0_2_renamed() -> String {
-    let own = |bare: &str| format!("skill: {}", otaq_core::skills::own_name(bare));
+    let own = |bare: &str| format!("skill: {}", otaq_core::skills::namespaced(bare).unwrap());
     FLOW_0_2
         .replace("skill: product-spec", &own("product-spec"))
         .replace("skill: work-ticket", &own("work-ticket"))

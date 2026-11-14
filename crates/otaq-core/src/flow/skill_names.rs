@@ -123,7 +123,7 @@ delivery:
 
     /// `skill: <name>` with Otaq's `bare` skill in its namespace: `skill: otaq:validate`.
     fn own_line(bare: &str) -> String {
-        format!("skill: {}", skills::own_name(bare))
+        format!("skill: {}", skills::namespaced(bare).unwrap())
     }
 
     fn skills_of(file: &FlowFile) -> Vec<Option<String>> {

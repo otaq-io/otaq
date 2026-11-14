@@ -277,7 +277,7 @@ pub const PR_CAPTION: &str = "A pull request opens on GitHub; your team reviews 
 /// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent. Only Otaq's
 /// own, named in their namespace (`otaq:work-ticket`, `tuq:product-spec`); a bare name is the user's skill.
 pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
-    Some(match otaq_core::skills::own_folder(skill)? {
+    Some(match otaq_core::skills::otaqs_or_tuqs(skill)? {
         "work-ticket" => {
             "An agent writes the code in the ticket\u{2019}s own copy of the repo (a worktree)."
                 .to_owned()
@@ -2744,7 +2744,11 @@ mod tests {
         let own = |folder: &str| otaq_core::skills::own_name(folder);
         assert_eq!(items[2].0, own("address-review"));
         let otaqs: Vec<&str> = items[2..].iter().map(|(id, _)| *id).collect();
-        assert_eq!(otaqs.len(), shipped::SKILLS.len());
+        // Otaq's workflow skills and tuq's (decision 104), tuq's as tuq is known to have them.
+        assert_eq!(
+            otaqs.len(),
+            shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+        );
         assert!(
             otaqs.contains(&own("validate").as_str())
                 && otaqs.contains(&own("work-ticket").as_str())
@@ -2760,7 +2764,10 @@ mod tests {
         e.skills = otaq_skills();
         let v = render(&e, &d, &file, &shop, Some("plan"));
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
-        assert_eq!(picker.items.len(), shipped::SKILLS.len());
+        assert_eq!(
+            picker.items.len(),
+            shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+        );
         assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
     }
 

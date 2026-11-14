@@ -130,6 +130,10 @@ pub struct ServiceConfig {
     /// (and in tests, unless a test turns it on), so [`Self::launch`] and [`Self::terminals`] are used as they are;
     /// the daemon turns it on.
     pub runtime_copy: bool,
+    /// What installs tuq on a tool when a stage needs a `tuq:` skill its tuq doesn't have ([`crate::tuq`], decision
+    /// 103). `None` (the default, and in tests unless they pass a stand-in) installs nothing; the daemon runs tuq's
+    /// published installer.
+    pub tuq_installer: Option<crate::tuq::Installer>,
 }
 
 impl ServiceConfig {
@@ -159,6 +163,7 @@ impl ServiceConfig {
             tool_home: None,
             check_tool_states: false,
             runtime_copy: false,
+            tuq_installer: None,
         }
     }
 
@@ -186,6 +191,7 @@ impl ServiceConfig {
             tool_home: std::env::home_dir(),
             check_tool_states: true,
             runtime_copy: true,
+            tuq_installer: Some(crate::tuq::Installer::Published),
             ..Self::new(data)
         }
     }
@@ -648,6 +654,9 @@ impl Service {
         // The skills the user already has are read from the same home as the adapters' (T3), each tool's variables
         // from the environment its sessions get.
         board.set_skill_home(tool_context.home.clone());
+        // tuq is installed where the tools are found (decision 103).
+        board.tuq().set_installer(config.tuq_installer.clone());
+        board.tuq().set_path(config.tools.path.clone());
         let adapters = Adapters::new(
             ClaudeCode::new(ClaudeContext {
                 launch: config.launch.clone(),
@@ -689,6 +698,14 @@ impl Service {
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
         let sessions = Sessions::with_focus(store.clone(), events.clone(), board.focus().clone());
+        // Every agent session records the tuq its tool has (tuq decision 102).
+        {
+            let board = board.clone();
+            sessions.set_tuq_version_provider(Arc::new(move |project_id, tool| {
+                let board = board.clone();
+                Box::pin(async move { board.tuq_version(&project_id, tool).await })
+            }));
+        }
         // Every session gets its project's variables, read at each spawn (ENV-02).
         {
             let board = board.clone();

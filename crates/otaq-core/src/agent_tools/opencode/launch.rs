@@ -1,9 +1,10 @@
 //! Launch and resume (ADP-09, SES-03; T-0354). A new conversation is created first by [`super::prepare`], then:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
+//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH
 //! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],"skills":["<otaq plugin>/prefixed-skills"],
-//!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"}],"model":"<m>"}
+//!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"},
+//!                                         <the same for "tuq *" and "tuq-plan *">],"model":"<m>"}
 //! OPENCODE_CLI_CONFIG_CONTENT={"theme":{"mode":"light"|"dark"}}
 //! opencode --standalone --session <ses_…> --prompt "<first prompt>"
 //! ```
@@ -13,7 +14,7 @@
 //! adds to the user's own config: Otaq's plugin folder (its hooks), the prefixed copy of Otaq's own skills
 //! (`<otaq plugin>/prefixed-skills`, `otaq-validate/`, made by the runtime copy, [`crate::runtime::prefixed_skills`],
 //! decisions 072, 079; Otaq's own skills come from its plugin, as for every tool, and the user's own skills are still
-//! found by OpenCode where it always looks), the one rule pre-approving `otaq` commands,
+//! found by OpenCode where it always looks), the rules pre-approving `otaq` commands and tuq's (`tuq`, `tuq-plan`, tuq decision 077),
 //! and the model when one is set. The `skills` form is the one Otaq used before its skills were copied into each
 //! session's folder (T-0408), which worked then. Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
 //! never `--auto` (it approves every prompt; d0011). The user's own data folder is used (no `XDG_*` change), so
@@ -67,7 +68,7 @@ pub(super) fn launch(
             })
         })
         .transpose()?;
-    let path = crate::shell::prepend_path(Some(&launch.bin_dir), &launch.path)
+    let path = crate::tuq::launch_path(&launch.bin_dir, &launch.path)
         .to_string_lossy()
         .into_owned();
     let prompt = request
@@ -132,8 +133,16 @@ pub(crate) fn resume_hint(tool_id: &str) -> String {
 /// tool loads one by name ("`skill({ name: "git-release" })`", its skills page); it has no syntax of its own for
 /// running a skill from typed text (the TUI's `@<skill>` is an attachment made by its picker, not parsed from text;
 /// checked on 2.0.17). A typed line names the skill inside an instruction ([`skill_prompt`]).
+///
+/// tuq's skills the same way (decision 105): tuq's install names each `tuq-<name>`, so `tuq:product-spec` is
+/// `tuq-product-spec`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    crate::skills::prefixed::own_name(skill).unwrap_or_else(|| skill.to_owned())
+    crate::skills::prefixed::own_name(skill)
+        .or_else(|| {
+            crate::tuq::skill_of(skill)
+                .map(|name| crate::tuq::installed_name(crate::agent_tools::Tool::OpenCode, name))
+        })
+        .unwrap_or_else(|| skill.to_owned())
 }
 
 /// A skill as typed into an OpenCode session to run it (S3, changed 2026-11-06): OpenCode has no typed command for a
@@ -220,11 +229,14 @@ fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
         "plugins": [launch.plugin_dir.join(PLUGIN_FOLDER).display().to_string()],
         "skills": [crate::runtime::prefixed_skills(&launch.plugin_dir).display().to_string()],
-        "permissions": [{
-            "action": "shell",
-            "resource": format!("{} *", naming::COMMAND_NAME),
-            "effect": "allow",
-        }],
+        "permissions": std::iter::once(naming::COMMAND_NAME)
+            .chain(crate::tuq::COMMANDS)
+            .map(|command| json!({
+                "action": "shell",
+                "resource": format!("{command} *"),
+                "effect": "allow",
+            }))
+            .collect::<Vec<_>>(),
     });
     if let Some(model) = model {
         config["model"] = json!(model);
@@ -255,11 +267,14 @@ mod tests {
         OpenCode::new(tools)
     }
 
+    /// The `otaq` folder, tuq's commands' folder, then the service's PATH.
     fn path() -> String {
-        std::env::join_paths(["/opt/cb/bin", "/usr/bin", "/bin"])
-            .unwrap()
-            .into_string()
-            .unwrap()
+        crate::tuq::launch_path(
+            Path::new("/opt/cb/bin"),
+            &std::env::join_paths(["/usr/bin", "/bin"]).unwrap(),
+        )
+        .into_string()
+        .unwrap()
     }
 
     fn request(role: LaunchRole, model: Option<&str>) -> LaunchRequest {
@@ -349,11 +364,15 @@ mod tests {
             json!({
                 "plugins": [Path::new("/opt/cb/plugin").join("opencode").display().to_string()],
                 "skills": [Path::new("/opt/cb/plugin").join("prefixed-skills").display().to_string()],
-                "permissions": [{
-                    "action": "shell",
-                    "resource": format!("{} *", naming::COMMAND_NAME),
-                    "effect": "allow"
-                }],
+                "permissions": [
+                    {
+                        "action": "shell",
+                        "resource": format!("{} *", naming::COMMAND_NAME),
+                        "effect": "allow"
+                    },
+                    {"action": "shell", "resource": "tuq *", "effect": "allow"},
+                    {"action": "shell", "resource": "tuq-plan *", "effect": "allow"}
+                ],
                 "model": "opencode/big-pickle"
             })
         );

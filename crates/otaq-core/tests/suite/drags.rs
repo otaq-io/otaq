@@ -521,7 +521,7 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     // The stage's skill, then what came back (CMT-05): the instructions are the user's comment, not typed.
     assert!(
         out.contains(
-            "/otaq:product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
+            "/tuq:product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
         ),
         "{out}"
     );

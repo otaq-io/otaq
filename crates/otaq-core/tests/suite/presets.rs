@@ -89,7 +89,10 @@ fn every_preset_reads_and_passes_the_checks() {
         }
         for stage in &file.flow.stages {
             if let Some(skill) = &stage.skill {
-                assert!(otaq_core::skills::is_own(skill), "{skill}");
+                assert!(
+                    otaq_core::skills::is_own(skill) || otaq_core::tuq::is_tuq(skill),
+                    "{skill}"
+                );
             }
         }
     }

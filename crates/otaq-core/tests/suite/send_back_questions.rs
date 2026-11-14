@@ -266,7 +266,7 @@ async fn send_back_moves_the_ticket_to_the_named_stage_and_clears_its_skip() {
     let running = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     assert_ne!(running.id, shell.session, "the asking session stopped");
     let out = w.wait_for_output(&running.id, "ARGS").await;
-    assert!(out.contains("/otaq:product-spec"), "{out}");
+    assert!(out.contains("/tuq:product-spec"), "{out}");
     let comment = agents_reason(&w, "SHOP-1", "Rust developer", "dev")
         .await
         .body;

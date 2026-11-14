@@ -276,28 +276,6 @@ fn work_ticket_teaches_answer_options() {
     );
 }
 
-/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question, the
-/// question on its first line and where they are in the questions after it.
-#[test]
-fn the_spec_skills_teach_answer_options() {
-    assert_teaches_answer_options(
-        "product-spec",
-        "--option \"Anyone with the link\" --note \"Easy to send in a chat; anyone who gets the link sees the list.\" \
-         --option \"Signed-in friends\" --note \"Private, but each friend needs an account first: fewer people will look.\" \
-         --recommended 1",
-        "Who asked for wishlist sharing, and what do they want to do with it?\nQuestion 2 of about 4.",
-    );
-    assert_teaches_answer_options(
-        "tech-spec",
-        "--option \"Links never expire\" --note \"Simplest; an old link keeps working until the list is deleted.\" \
-         --option \"Expire after 30 days\" --note \"Safer, but friends get a 'link expired' page and ask for a new one.\" \
-         --recommended 1",
-        "How many wishlists does your largest customer have today, roughly?\nQuestion 2 of 2.",
-    );
-    let (_, plan) = skill("milestone-plan");
-    assert_every_ask_human_reads_stdin(&plan);
-}
-
 /// T-0376 (DEC-07, d0084): work-ticket checks the ticket for gaps before any code, asks what changes what gets
 /// built one question at a time with a note on every option, and asks nothing about a clear ticket.
 #[test]
@@ -610,15 +588,7 @@ fn push_proposes_the_new_commits_and_pushes_after_the_confirmation() {
 #[test]
 fn committing_skills_push_only_when_the_user_asks_and_wait_for_the_pre_push_hook() {
     let cmd = naming::COMMAND_NAME;
-    for name in [
-        WORK_TICKET_SKILL,
-        "commit",
-        "address-review",
-        "restack",
-        "product-spec",
-        "tech-spec",
-        "milestone-plan",
-    ] {
+    for name in [WORK_TICKET_SKILL, "commit", "address-review", "restack"] {
         let (_, body) = skill(name);
         let text = flat(&body);
         assert!(
@@ -845,15 +815,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
 fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let cmd = naming::COMMAND_NAME;
     let resource = format!("`${}`", naming::resource_dir_env_var());
-    let ends_stage = [
-        WORK_TICKET_SKILL,
-        "product-spec",
-        "tech-spec",
-        "milestone-plan",
-        "validate",
-        "address-review",
-        "restack",
-    ];
+    let ends_stage = [WORK_TICKET_SKILL, "validate", "address-review", "restack"];
     for name in ends_stage.iter().chain(&["answer-question", "commit"]) {
         let (_, body) = skill(name);
         let text = flat(&body);
@@ -937,38 +899,7 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             "{name}: the \"<command> at <commit>: … log: …\" line in\n{comment}"
         );
     }
-    // The planning skills attach one document they wrote, never output, and say what a document is.
-    for (name, document) in [
-        ("product-spec", "market-comparison.md"),
-        ("tech-spec", "options.md"),
-        ("milestone-plan", "notes.md"),
-    ] {
-        let (_, body) = skill(name);
-        let lines = joined(&body);
-        let attached: Vec<_> = lines
-            .match_indices("--report-file ")
-            .map(|(at, flag)| {
-                lines[at + flag.len()..]
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .trim_end_matches(['`', ':'])
-            })
-            .collect();
-        assert_eq!(
-            attached,
-            [format!("\"$OTAQ_RESOURCE_DIR/{document}\"")],
-            "{name}: one document attached"
-        );
-        let text = flat(&body);
-        for needle in [
-            "a write-up the user or a later stage will read (",
-            "never attach command output, such as a run, a diff or a log",
-            "It goes into the repo only when the project's notes say research lives there.",
-        ] {
-            assert!(text.contains(needle), "{name} must say {needle:?}");
-        }
-    }
+    // The planning skills (tuq's, decision 102) are checked in tuq's own repository.
     // T-0560 (CMT-09, VAL-03; d0136, d0063): the validator starts from the agent's comment, may rely on a passing
     // run at HEAD, lists when to run a check itself, and its verdicts attach nothing and say what was relied on and
     // run. Nothing forces or forbids a repeat.

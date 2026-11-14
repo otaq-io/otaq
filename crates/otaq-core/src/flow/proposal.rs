@@ -981,6 +981,9 @@ pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
 
 /// The warning on a stage whose `skill:` names a skill the user doesn't have: "You don't have the skill `<name>`".
 pub fn unknown_skill_text(skill: &str) -> String {
+    if crate::tuq::is_tuq(skill) {
+        return format!("Your tuq doesn\u{2019}t have `{}`", skill.trim());
+    }
     format!("You don't have the skill `{skill}`")
 }
 
@@ -988,6 +991,10 @@ pub fn unknown_skill_text(skill: &str) -> String {
 /// reads" for such a skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
 /// "Codex doesn’t have the skill `$team-validate`".
 pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
+    // The user's tuq, which Otaq installs or updates for the stage: it has no such skill (decision 083).
+    if crate::tuq::is_tuq(skill) {
+        return format!("Your tuq doesn\u{2019}t have `{}`", skill.trim());
+    }
     format!(
         "{} doesn\u{2019}t have the skill `{}`",
         tool.display_name(),

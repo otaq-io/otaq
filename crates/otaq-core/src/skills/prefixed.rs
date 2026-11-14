@@ -8,8 +8,9 @@
 //! - **Renamed inside too** ([`rewrite`]): the front matter's `name:` and every reference to another of Otaq's skills
 //!   written the skills' way, "Otaq's `commit` skill", become `otaq-<name>`, so a skill sends the agent to the copy
 //!   it is in. Flow files and their examples keep `otaq:validate` (decision 092): only those two forms change.
-//! - **The `tuq:` skills** Otaq still ships (`product-spec`, `tech-spec`, `milestone-plan`) are typed as Otaq's until
-//!   they run on the user's tuq, so they are prefixed the same way, `otaq-product-spec`.
+//! - **Only Otaq's workflow skills** (decision 102): tuq's (`tuq:product-spec`) are the user's tuq's, whose own
+//!   install for Copilot and OpenCode names them `tuq-product-spec` (decision 105, [`crate::tuq`]). A workflow skill's
+//!   `tuq:` names (flow examples) stay as they are.
 //! - **How each tool types it**: Copilot lists a plugin's skills under the plugin's name, `/otaq:otaq-validate`
 //!   (hands-on check, Copilot CLI 1.0.109, Windows, 2026-11-14: a typed `/otaq-validate` answered "Unknown command");
 //!   OpenCode has no namespace and loads `otaq-validate` by name.
@@ -23,8 +24,8 @@ pub fn name(folder: &str) -> String {
     format!("{}-{folder}", super::OTAQ_NAMESPACE)
 }
 
-/// The prefixed name of Otaq's own skill `skill` (`otaq:validate` → `otaq-validate`, `tuq:product-spec` →
-/// `otaq-product-spec`); `None` for any other name, which is the user's (decision 063).
+/// The prefixed name of Otaq's own skill `skill` (`otaq:validate` → `otaq-validate`); `None` for any other name: the
+/// user's (decision 063), or the user's tuq's (`tuq:product-spec`).
 pub fn own_name(skill: &str) -> Option<String> {
     super::own_folder(skill).map(name)
 }
@@ -125,10 +126,8 @@ mod tests {
             own_name(&format!("{NS}:validate")),
             Some(format!("{NS}-validate"))
         );
-        assert_eq!(
-            own_name("tuq:product-spec"),
-            Some(format!("{NS}-product-spec"))
-        );
+        // tuq's skills are the user's tuq's, not in the prefixed copy.
+        assert_eq!(own_name("tuq:product-spec"), None);
         assert_eq!(own_name("validate"), None);
         assert_eq!(own_name("team-validate"), None);
     }

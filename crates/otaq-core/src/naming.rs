@@ -14,6 +14,10 @@ pub const COMMAND_NAME: &str = "otaq";
 /// The releases on GitHub (d0140): each version's page holds its setup files.
 pub const RELEASES_URL: &str = "https://github.com/otaq-io/otaq/releases";
 
+/// Where tuq's installer is published, without its extension (`install.sh`, `install.ps1`; tuq decision 106): the one
+/// place Otaq names it ([`crate::tuq::Installer::Published`]).
+pub const TUQ_INSTALLER_URL: &str = "https://raw.githubusercontent.com/otaq-io/tuq/main/install";
+
 /// A version's release page: `https://github.com/otaq-io/otaq/releases/tag/v0.2.0`.
 pub fn release_page(version: &str) -> String {
     format!("{RELEASES_URL}/tag/v{version}")

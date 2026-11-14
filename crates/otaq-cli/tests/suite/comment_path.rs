@@ -50,7 +50,7 @@ fn me() -> Actor {
 
 /// The stand-in `claude`. Its state is in `state` (Otaq's data folder in `state/data`, so its `otaq` reaches the
 /// test's service); it logs its arguments, then acts by the skill it was started with:
-/// - Product spec (`/otaq:product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
+/// - Product spec (`/tuq:product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
 ///   with comment 1, its turn ends;
 /// - Dev (`/otaq:work-ticket`): waits for `state/go-dev` (the user's comment comes first), `prime`, a commit, `stage
 ///   next` with comment 3, its turn ends; then records each line typed into it, and on a failed check tries `stage
@@ -80,7 +80,7 @@ commit() {{
     git -c user.name=t -c user.email=t@t commit -qm "$OTAQ_TICKET: $1"
 }}
 case "$*" in
-*otaq:product-spec*)
+*tuq:product-spec*)
     otaq prime > "$STATE/product-spec-prime.md"
     otaq update --stdin < "$STATE/agreed.md" > /dev/null
     otaq stage next --stdin < "$STATE/say-product-spec"

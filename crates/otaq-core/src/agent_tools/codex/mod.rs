@@ -125,6 +125,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
     ]
 }
 
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// Codex runs tuq's plugin skills in its namespace, `$tuq:product-spec`.
+pub const TUQ_PREFIXED: bool = false;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = true;
+
 /// Whether Codex loads a `SKILL.md` that starts with a UTF-8 byte order mark: it doesn't (seen with Codex 0.166.0 on
 /// Windows, where PowerShell 5 writes one). Its front matter must start with the `---` line itself.
 pub const READS_SKILL_WITH_BOM: bool = false;

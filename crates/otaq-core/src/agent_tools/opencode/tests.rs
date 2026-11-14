@@ -60,10 +60,10 @@ fn otaqs_skills_prefixed_the_users_by_their_own_name() {
         adapter.skill_reference(crate::own_skill!("commit")),
         format!("{ns}-commit")
     );
-    // Until tuq's skills run on the user's tuq, the copy Otaq ships is typed as Otaq's.
+    // The user's tuq: its install names each skill tuq-<name> (decision 105).
     assert_eq!(
         adapter.skill_reference("tuq:product-spec"),
-        format!("{ns}-product-spec")
+        "tuq-product-spec"
     );
     assert_eq!(adapter.skill_reference("commit"), "commit");
     assert_eq!(adapter.skill_reference("team-validate"), "team-validate");
