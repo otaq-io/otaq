@@ -43,6 +43,7 @@ pub mod store;
 pub mod terminals;
 pub mod ticket_env;
 pub mod tools;
+pub mod tuq;
 pub mod uninstall;
 pub mod updates;
 pub mod usage;

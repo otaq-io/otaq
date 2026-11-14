@@ -95,6 +95,27 @@ impl Tool {
         }
     }
 
+    /// Whether tuq's install for the tool names each skill `tuq-<name>` (tuq decision 105): Copilot and OpenCode.
+    pub fn tuq_prefixed(self) -> bool {
+        match self {
+            Self::Claude => claude::TUQ_PREFIXED,
+            Self::Codex => codex::TUQ_PREFIXED,
+            Self::Copilot => copilot::TUQ_PREFIXED,
+            Self::OpenCode => opencode::TUQ_PREFIXED,
+        }
+    }
+
+    /// Whether tuq is installed in the tool as a plugin named `tuq` (decision 100); OpenCode's is stamped folders in
+    /// its personal skills folder.
+    pub fn tuq_as_plugin(self) -> bool {
+        match self {
+            Self::Claude => claude::TUQ_AS_PLUGIN,
+            Self::Codex => codex::TUQ_AS_PLUGIN,
+            Self::Copilot => copilot::TUQ_AS_PLUGIN,
+            Self::OpenCode => opencode::TUQ_AS_PLUGIN,
+        }
+    }
+
     /// The tool's built-in commands a flow could take for skills (`review`, `init`), without their `/`.
     pub fn built_in_commands(self) -> &'static [&'static str] {
         match self {
@@ -391,6 +412,18 @@ pub struct PersonalSkillFolders {
     pub copilot_home: PathBuf,
 }
 
+impl PersonalSkillFolders {
+    /// `tool`'s own personal skills folder.
+    pub fn of(&self, tool: Tool) -> &Path {
+        match tool {
+            Tool::Claude => &self.claude,
+            Tool::Codex => &self.codex,
+            Tool::Copilot => &self.copilot,
+            Tool::OpenCode => &self.opencode,
+        }
+    }
+}
+
 /// The tools' personal skills folders under the user's `home`, the variables read with `var`.
 pub fn personal_skill_folders(home: &Path, var: EnvVar<'_>) -> PersonalSkillFolders {
     PersonalSkillFolders {
@@ -451,15 +484,16 @@ pub(crate) fn plugin_manifest_name(root: &Path, manifests: &[&[&str]]) -> Option
     })
 }
 
-/// Whether `skill` names one of Otaq's own skills, in its namespace: `otaq:validate`, `tuq:product-spec`
-/// ([`crate::skills::own_folder`]). Any other name, a bare `validate` included, is the user's (decision 063).
+/// Whether `skill` names one of Otaq's own workflow skills, in its namespace: `otaq:validate`
+/// ([`crate::skills::own_folder`]), which every tool has. A `tuq:` skill is the user's tuq's ([`crate::tuq`]); any
+/// other name, a bare `validate` included, is the user's (decision 063).
 pub fn is_own_skill(skill: &str) -> bool {
     crate::skills::is_own(skill)
 }
 
 /// `skill` behind `sigil` (`/`, `$`) for Claude Code and Codex: one of Otaq's own skills ([`is_own_skill`]) from
-/// Otaq's plugin, in its namespace (`/otaq:commit`); any other name as it is (`/team-validate`, a plugin's `/tuq:step-back`). Until tuq's
-/// skills run on the user's tuq, a `tuq:` skill Otaq ships runs the copy in Otaq's plugin: `/otaq:product-spec`.
+/// Otaq's plugin, in its namespace (`/otaq:commit`); any other name as it is (`/team-validate`, the user's tuq's
+/// `/tuq:product-spec`, decision 105).
 pub(crate) fn namespaced_reference(sigil: &str, skill: &str) -> String {
     match crate::skills::own_folder(skill) {
         Some(folder) => format!("{sigil}{}:{folder}", crate::naming::PLUGIN_NAMESPACE),

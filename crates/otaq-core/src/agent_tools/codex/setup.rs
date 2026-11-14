@@ -25,8 +25,8 @@
 //!   `trustStatus`), and Otaq's five (`otaq@otaq-local:plugin.json#hooks[0]:<event>:0:0`) are recorded as trusted
 //!   with `config/batchWrite` (`hooks.state."<key>".trusted_hash`). The hook command lines never change (per-ticket
 //!   data travels in the environment), so the trust holds;
-//! - **`rules/otaq.rules`**: `prefix_rule(pattern=["otaq"], decision="allow")`, so `otaq` commands run without a
-//!   prompt and every other command still asks.
+//! - **`rules/otaq.rules`**: `prefix_rule(pattern=["otaq"], decision="allow")`, and the same for tuq's `tuq` and
+//!   `tuq-plan` (tuq decision 077), so those commands run without a prompt and every other command still asks.
 //!
 //! A `config.toml` that doesn't parse is never written, by Otaq or by the Codex commands it runs: the setup stops
 //! and the page shows why. Codex's own commands write their entries the same careful way (checked: the user's
@@ -88,12 +88,12 @@ fn rules_file(home: &Path) -> PathBuf {
         .join(format!("{}.rules", naming::COMMAND_NAME))
 }
 
-/// The rule that pre-approves only `otaq` commands.
+/// The rules that pre-approve only `otaq` commands and tuq's (`tuq`, `tuq-plan`, decision 077).
 pub(super) fn rules_text() -> String {
-    format!(
-        "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
-        naming::COMMAND_NAME
-    )
+    std::iter::once(naming::COMMAND_NAME)
+        .chain(crate::tuq::COMMANDS)
+        .map(|command| format!("prefix_rule(pattern=[\"{command}\"], decision=\"allow\")\n"))
+        .collect()
 }
 
 fn folder_trust() -> SetupEntry {
@@ -463,10 +463,21 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
 
 /// Whether the next check should run the setup again: Otaq's folders are known and a launch would be refused
 /// for a missing setup ([`launch_refusal`]), or Codex's installed copy of the plugin differs from the fixed folder
-/// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it.
+/// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it, or the rules file an older Otaq
+/// wrote doesn't pre-approve what this one does ([`stale_rules`]: tuq's commands came later).
 pub(super) fn setup_needed(context: &CodexContext) -> bool {
     context.tool.launch.is_some()
-        && (launch_refusal(context).is_some() || stale_cached_plugin(context))
+        && (launch_refusal(context).is_some()
+            || stale_cached_plugin(context)
+            || stale_rules(context))
+}
+
+/// Whether `rules/otaq.rules` is there but says something other than [`rules_text`] (written by an older Otaq).
+fn stale_rules(context: &CodexContext) -> bool {
+    let Some(home) = context.codex_home.as_deref() else {
+        return false;
+    };
+    matches!(config_toml::read_bytes(&rules_file(home)), Ok(Some(bytes)) if bytes != rules_text().as_bytes())
 }
 
 /// Where Codex keeps its installed copies of Otaq's plugin: `<codex home>/plugins/cache/otaq-local/otaq/`, one
@@ -1054,7 +1065,9 @@ mod tests {
         assert_eq!(
             fs::read_to_string(rules_file(&home.home())).unwrap(),
             format!(
-                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
+                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n",
                 naming::COMMAND_NAME
             )
         );

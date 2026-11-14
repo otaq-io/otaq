@@ -221,17 +221,248 @@ async fn a_dev_session_on_each_tool_starts_with_nothing_written() {
     w.stop().await;
 }
 
-/// The test flow's Product spec (Q261): the ticket's first session runs Otaq's `product-spec` from the plugin.
+/// A tuq plugin installed in Claude Code (decision 100) as tuq's installer leaves it under `home`, written into
+/// `into` (the home itself, or a folder a stand-in installer copies over it): `skills` stamped with `release`
+/// (`metadata.tuq-release`, tech spec §5), listed in Claude Code's `installed_plugins.json`.
+fn write_tuq(into: &Path, home: &Path, release: &str, skills: &[&str]) {
+    let plugin = Path::new(".claude/plugins/cache/otaq-claude-skills/tuq").join(release);
+    for skill in skills {
+        let dir = into.join(&plugin).join("skills").join(skill);
+        std::fs::create_dir_all(&dir).unwrap();
+        std::fs::write(
+            dir.join("SKILL.md"),
+            format!(
+                "---\nname: {skill}\ndescription: tuq's {skill}.\nmetadata:\n  tuq-release: {release}\n---\n\nBody.\n"
+            ),
+        )
+        .unwrap();
+    }
+    std::fs::write(
+        into.join(".claude/plugins/installed_plugins.json"),
+        serde_json::json!({
+            "version": 2,
+            "plugins": {"tuq@otaq-claude-skills": [{
+                "scope": "user",
+                "installPath": home.join(&plugin).display().to_string(),
+            }]}
+        })
+        .to_string(),
+    )
+    .unwrap();
+}
+
+/// A stand-in for tuq's installer (tech spec, Testing): it logs its arguments in `$HOME/tuq-installer.log`, then
+/// installs tuq `release` with `skills` into Claude Code's folder under `$HOME`, or, with no skills, fails as an
+/// offline install does.
+#[cfg(unix)]
+fn tuq_installer(
+    dir: &Path,
+    home: &Path,
+    release: &str,
+    skills: &[&str],
+) -> otaq_core::tuq::Installer {
+    let name = format!("tuq-installer-{release}-{}", skills.len());
+    let staged = dir.join(format!("{name}-staged"));
+    let install = if skills.is_empty() {
+        "echo \"tuq install: couldn't download tuq-macos-universal.tar.gz from https://github.com/otaq-io/tuq/releases/latest (offline, or no release yet?)\" >&2; exit 1".to_owned()
+    } else {
+        std::fs::create_dir_all(staged.join(".claude/plugins")).unwrap();
+        write_tuq(&staged, home, release, skills);
+        format!("cp -R '{}' \"$HOME/\"", staged.join(".claude").display())
+    };
+    let program = dir.join(name);
+    std::fs::write(
+        &program,
+        format!("#!/bin/sh\necho \"$*\" >> \"$HOME/tuq-installer.log\"\n{install}\n"),
+    )
+    .unwrap();
+    std::fs::set_permissions(&program, std::fs::Permissions::from_mode(0o755)).unwrap();
+    otaq_core::tuq::Installer::Program {
+        program,
+        args: Vec::new(),
+    }
+}
+
+/// How many times the stand-in installer ran, and with what.
+fn installer_runs(home: &Path) -> Vec<String> {
+    std::fs::read_to_string(home.join("tuq-installer.log"))
+        .unwrap_or_default()
+        .lines()
+        .map(str::to_owned)
+        .collect()
+}
+
+/// The ticket's notes about tuq ([`otaq_core::tuq::Updated::text`]), oldest first.
+async fn tuq_notes(w: &TestService, t: &Ticket) -> Vec<String> {
+    let mut notes: Vec<String> = w
+        .board
+        .history(&t.key.to_string())
+        .await
+        .unwrap()
+        .into_iter()
+        .filter(|e| {
+            e.kind == otaq_core::board::tickets::EventKind::StartNote
+                && e.payload["note"] == "tuq_updated"
+        })
+        .map(|e| e.payload["message"].as_str().unwrap().to_owned())
+        .collect();
+    notes.reverse();
+    notes
+}
+
+/// The tuq release stored with a session (piece 7 names it in History).
+async fn session_tuq(w: &TestService, session: &str) -> Option<String> {
+    sqlx::query_scalar("SELECT tuq_version FROM sessions WHERE id = ?")
+        .bind(session)
+        .fetch_one(w.board.store().pool())
+        .await
+        .unwrap()
+}
+
+/// The test flow's Product spec (Q261) with no tuq on Claude Code (decisions 102, 103): tuq's installer runs for
+/// Claude Code first, then the ticket's first session runs the user's new tuq, `/tuq:product-spec`; History says tuq
+/// was installed, and the session records the release it ran.
 #[cfg(unix)]
 #[tokio::test(flavor = "multi_thread")]
-async fn the_product_spec_stage_starts_with_otaqs_product_spec() {
-    let World { w, _dir, .. } = world().await;
+async fn the_product_spec_stage_installs_tuq_then_runs_tuq_product_spec() {
+    let World { w, home, _dir } = world().await;
+    w.board.tuq().set_installer(Some(tuq_installer(
+        _dir.path(),
+        &home,
+        "2026.11.14",
+        &["product-spec", "tech-spec"],
+    )));
     w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
     let t = w.create("SHOP", "Coupon codes").await;
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
     assert!(args.ends_with(&claude_skill("tuq:product-spec")), "{args}");
+    assert!(args.ends_with("/tuq:product-spec"), "{args}");
     assert!(out.contains("AGENTS ."), "{out}");
+    assert_eq!(installer_runs(&home), ["--tool claude"]);
+    assert_eq!(tuq_notes(&w, &t).await, ["tuq 2026.11.14 installed"]);
+    let agent = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    assert_eq!(
+        session_tuq(&w, &agent.id).await.as_deref(),
+        Some("2026.11.14")
+    );
+    w.stop().await;
+}
+
+/// An older tuq that lacks the stage's skill is updated, then the stage runs (decision 103); History says from which
+/// release to which. A tuq that has the skill runs as it is, with no install.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn an_older_tuq_lacking_the_skill_is_updated_then_runs() {
+    let World { w, home, _dir } = world().await;
+    std::fs::create_dir_all(home.join(".claude/plugins")).unwrap();
+    write_tuq(&home, &home, "2026.11.10", &["step-back"]);
+    w.board.tuq().set_installer(Some(tuq_installer(
+        _dir.path(),
+        &home,
+        "2026.11.14",
+        &["product-spec", "step-back"],
+    )));
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Coupon codes").await;
+    let out = started(&w, &t).await;
+    let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+    assert!(args.ends_with("/tuq:product-spec"), "{args}");
+    assert_eq!(installer_runs(&home), ["--tool claude"]);
+    assert_eq!(
+        tuq_notes(&w, &t).await,
+        ["tuq updated from 2026.11.10 to 2026.11.14"]
+    );
+
+    // A second ticket finds the skill: no install, no note.
+    let second = w.create("SHOP", "Gift cards").await;
+    started(&w, &second).await;
+    assert_eq!(installer_runs(&home).len(), 1);
+    assert_eq!(tuq_notes(&w, &second).await, Vec::<String>::new());
+    w.stop().await;
+}
+
+/// tuq's installer failing (offline): the stage holds in Needs you, "Your tuq doesn't have `tuq:product-spec`"
+/// (decision 083), and nothing starts. The installer isn't run again on its own; Check again runs it again, and once
+/// it installs tuq the stage starts.
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
+    let World { w, home, _dir } = world().await;
+    w.board
+        .tuq()
+        .set_installer(Some(tuq_installer(_dir.path(), &home, "offline", &[])));
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Coupon codes").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    let outcome = w
+        .starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    let text = "Your tuq doesn\u{2019}t have `tuq:product-spec`";
+    assert!(
+        matches!(&outcome, otaq_core::start::StartOutcome::Held { message } if message == text),
+        "{outcome:?}"
+    );
+    let ticket = w.board.ticket(&key).await.unwrap();
+    assert_eq!(ticket.status, Status::Held);
+    assert_eq!(
+        ticket.flags.missing_skill,
+        Some(MissingSkill {
+            tool: Tool::Claude,
+            skill: "tuq:product-spec".into(),
+        })
+    );
+    assert_eq!(
+        hold_of(&w, &t, SessionRole::Developer).await,
+        Some((
+            HoldReason::MissingSkill,
+            Tool::Claude,
+            Some("tuq:product-spec".to_owned())
+        ))
+    );
+    assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
+    assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
+    assert_eq!(installer_runs(&home).len(), 1);
+
+    // Check again runs the installer again; still offline, still held.
+    assert!(!w.gate.check_again(&t.id).await.unwrap());
+    assert_eq!(installer_runs(&home).len(), 2);
+    assert_eq!(w.status(&key).await, Status::Held);
+
+    // Back online: Check again installs tuq and the stage starts with it.
+    w.board.tuq().set_installer(Some(tuq_installer(
+        _dir.path(),
+        &home,
+        "2026.11.14",
+        &["product-spec"],
+    )));
+    w.gate.check_again(&t.id).await.unwrap();
+    assert_eq!(installer_runs(&home).len(), 3);
+    assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
+    assert_eq!(tuq_notes(&w, &t).await, ["tuq 2026.11.14 installed"]);
+    let _ = w
+        .starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await;
+    let agent = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            if let Some(s) = w.sessions.running_of(&t.id, SessionKind::Agent) {
+                return s;
+            }
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the stage started");
+    let out = w.wait_for_output(&agent.id, "CLAUDE").await;
+    let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+    assert!(args.ends_with("/tuq:product-spec"), "{args}");
     w.stop().await;
 }
 

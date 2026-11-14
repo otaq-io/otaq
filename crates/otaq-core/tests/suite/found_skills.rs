@@ -295,16 +295,29 @@ fn every_skill_in_the_folders_is_listed_once_with_every_place() {
 fn otaqs_own_skills_are_listed_and_marked_with_no_folders_at_all() {
     let skills = list(&Homes::default(), None);
     let names: Vec<&str> = skills.iter().map(|s| s.name.as_str()).collect();
+    // Otaq's workflow skills, and tuq's (decision 104) as tuq is known to have them before any tool has it.
     let mut shipped: Vec<String> = otaq_core::agents::shipped::SKILLS
         .iter()
         .map(|folder| otaq_core::skills::own_name(folder))
+        .chain(
+            otaq_core::tuq::KNOWN
+                .iter()
+                .map(|name| format!("tuq:{name}")),
+        )
         .collect();
     shipped.sort_unstable();
     assert_eq!(names, shipped);
     for skill in &skills {
         assert!(skill.otaq, "{}", skill.name);
         assert!(skill.places.is_empty());
-        assert!(skill.description.is_some(), "{}", skill.name);
+        assert_eq!(skill.tools, Tool::ALL, "{}", skill.name);
+        // tuq's descriptions come from an install; there is none here.
+        assert_eq!(
+            skill.description.is_some(),
+            skill.name.starts_with("otaq:"),
+            "{}",
+            skill.name
+        );
     }
 }
 
@@ -669,10 +682,13 @@ fn a_plugins_skill_is_found_for_its_tool() {
     let homes = Homes::in_home(h);
     let none = ProjectFolders::default();
     let skills = list_in(&homes, &none);
+    // tuq's plugin is the user's tuq: its skills are listed as tuq's, Otaq's (decision 104), which Otaq installs on
+    // a tool that hasn't got it, with the install's description.
     let spec = find(&skills, "tuq:step-back").unwrap();
-    assert_eq!(spec.tools, [Tool::Claude]);
+    assert!(spec.otaq);
+    assert_eq!(spec.tools, Tool::ALL);
     assert_eq!(spec.description.as_deref(), Some("Step back."));
-    assert_eq!(spec.places[0].scope, SkillScope::Plugin);
+    assert!(spec.places.is_empty());
     assert_eq!(tools_with(&homes, &none, "review:deep"), [Tool::Codex]);
     // `otaq:commit` is Otaq's own, from its plugin, not the copy found in Codex's plugins.
     let commit = find(&skills, "otaq:commit").unwrap();

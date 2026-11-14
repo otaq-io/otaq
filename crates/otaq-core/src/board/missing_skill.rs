@@ -8,7 +8,10 @@
 //! skill). The same check runs when a skill is typed into a session already running (Open PR into the live Dev
 //! session, a queued return): there nothing is typed.
 //!
-//! Otaq's own skills are had by every tool, so a stage running one of them never waits for its skill.
+//! Otaq's own skills are had by every tool, so a stage running one of them never waits for its skill. A `tuq:` skill
+//! is the user's tuq's on the stage's tool: when that tuq doesn't have it, tuq's installer runs for the tool first
+//! ([`crate::tuq`], decision 103), and the stage waits only when it still doesn't, "Your tuq doesn't have
+//! `tuq:update-docs`" (decision 083).
 
 use std::collections::HashMap;
 
@@ -52,6 +55,10 @@ impl Board {
         let name = skill.map(str::trim).filter(|n| !n.is_empty())?;
         if is_own_skill(name) {
             return None;
+        }
+        // tuq's: the user's tuq on that tool, installed or updated when it doesn't have the skill (decision 103).
+        if crate::tuq::is_tuq(name) {
+            return (!self.ensure_tuq(ticket, tool, name).await).then(|| name.to_owned());
         }
         let key = ticket.key.to_string();
         let has = self

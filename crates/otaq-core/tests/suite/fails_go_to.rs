@@ -181,7 +181,7 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     let product_spec = start(&w, &t, None).await;
     let first = args(&w, &product_spec).await;
     assert!(
-        first.contains("/otaq:product-spec") && !first.contains("--resume"),
+        first.contains("/tuq:product-spec") && !first.contains("--resume"),
         "{first}"
     );
     finished(&w, &t).await;

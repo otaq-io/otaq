@@ -1,17 +1,17 @@
 //! Launch and resume (ADP-07, SES-03, ADP-04; d0086, d0088), the real interactive `codex` in the session's folder:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
+//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH
 //! codex --no-daemon -c check_for_update_on_startup=false [-m <model>] "$otaq:work-ticket"
 //! codex --no-daemon -c check_for_update_on_startup=false resume <id> [-m <model>] ["<prompt>"]
 //! ```
 //!
 //! `--no-daemon` keeps the agent's commands under the session's own process (no shared background server, which
 //! could own them, or be left behind); the `-c` override skips the update screen that would block the start. **No
-//! approval, sandbox or bypass flag** (d0011): the user's own Codex settings apply; the `otaq` pre-approval and the
-//! hooks come from the one-time setup (T-0351). Otaq's own skills come from that same installed plugin and the
-//! user's own are the ones Codex finds itself; Otaq never writes skills into a worktree, so the first prompt only
-//! names one (`$otaq:work-ticket`).
+//! approval, sandbox or bypass flag** (d0011): the user's own Codex settings apply; the pre-approvals of `otaq` and
+//! tuq's commands and the hooks come from the one-time setup (T-0351). Otaq's own skills come from that same
+//! installed plugin and the user's own (their tuq's too) are the ones Codex finds itself; Otaq never writes skills
+//! into a worktree, so the first prompt only names one (`$otaq:work-ticket`).
 //!
 //! Codex can't take a chosen id: a new conversation's id is captured after start (its `SessionStart` hook, T-0350)
 //! and the session's id stays empty until then; a resume names the stored id.
@@ -73,7 +73,7 @@ pub(super) fn launch(codex: &Codex, request: &LaunchRequest) -> Result<LaunchPla
         }
         None => {}
     }
-    let path = crate::shell::prepend_path(Some(&launch.bin_dir), &launch.path)
+    let path = crate::tuq::launch_path(&launch.bin_dir, &launch.path)
         .to_string_lossy()
         .into_owned();
     Ok(LaunchPlan {
@@ -281,10 +281,14 @@ mod tests {
         list.iter().map(|a| (*a).to_owned()).collect()
     }
 
+    /// The `otaq` folder, tuq's commands' folder, then the service's PATH.
     fn path_value() -> String {
-        platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
-            .to_string_lossy()
-            .into_owned()
+        crate::tuq::launch_path(
+            Path::new("/opt/cb/bin"),
+            &platform_path(&["/usr/bin", "/bin"]),
+        )
+        .to_string_lossy()
+        .into_owned()
     }
 
     fn assert_no_forbidden_flag(args: &[String]) {

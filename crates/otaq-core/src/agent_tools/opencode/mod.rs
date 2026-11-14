@@ -109,6 +109,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
     ]
 }
 
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// OpenCode has no plugin namespace: tuq's installer copies `tuq-<name>` folders into OpenCode's personal skills folder.
+pub const TUQ_PREFIXED: bool = true;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = false;
+
 /// Whether OpenCode loads a `SKILL.md` that starts with a UTF-8 byte order mark: it does (seen with OpenCode 2.2.5).
 pub const READS_SKILL_WITH_BOM: bool = true;
 
