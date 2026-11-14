@@ -77,12 +77,17 @@ pub(super) async fn signed_in(context: &CodexContext) -> (Option<bool>, Option<S
     parse_login_status(&text)
 }
 
-/// "Logged in using ChatGPT" → signed in, "signed in with ChatGPT"; "Logged in using an API key - sk-…" → "signed
-/// in with an API key"; "Not logged in" → not signed in; anything else → not known.
+/// "Logged in using ChatGPT" → signed in, "signed in with ChatGPT"; "Logged in using an API key - sk-…" (before
+/// 0.164) or "API key configured - sk-…" (0.164 on) → "signed in with an API key"; "Not logged in" → not signed in;
+/// anything else → not known.
 pub(super) fn parse_login_status(output: &str) -> (Option<bool>, Option<String>) {
     for line in output.lines().map(str::trim) {
         if line.eq_ignore_ascii_case("Not logged in") {
             return (Some(false), None);
+        }
+        // Codex 0.164 on: an API key isn't checked until a request, so it says it is configured.
+        if line.starts_with("API key configured") {
+            return (Some(true), Some("signed in with an API key".to_owned()));
         }
         if let Some(how) = line.strip_prefix("Logged in using ") {
             let how = how.split(" - ").next().unwrap_or(how).trim();
@@ -112,6 +117,13 @@ mod tests {
         );
         assert_eq!(
             parse_login_status("\nLogged in using an API key - sk-proj-***ABCD\n"),
+            (Some(true), Some("signed in with an API key".into()))
+        );
+        // codex-cli 0.169.0 after `codex login --with-api-key`, on stderr, exit 0.
+        assert_eq!(
+            parse_login_status(
+                "\nAPI key configured - sk-test-***0ABCD\nAuthentication is checked when you send a request.\n"
+            ),
             (Some(true), Some("signed in with an API key".into()))
         );
         assert_eq!(
