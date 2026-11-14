@@ -413,7 +413,8 @@ fn ends_the_service(request: &Request) -> bool {
         | Request::AgentToolsInstall(_)
         | Request::AgentToolsDisconnect(_)
         | Request::LimitsResumeTool(_)
-        | Request::RecentItems(_) => false,
+        | Request::RecentItems(_)
+        | Request::TuqVersions => false,
     }
 }
 

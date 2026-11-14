@@ -5,6 +5,8 @@
 use std::process::Command;
 use std::sync::OnceLock;
 
+use otaq_core::agent_tools::Tool;
+use otaq_core::protocol::{Reply, Request};
 use otaq_view::view_models::about::{self, Build};
 use otaq_view::view_models::licenses::{self, Parsed};
 
@@ -34,10 +36,26 @@ pub fn build() -> &'static Build {
     })
 }
 
-/// The section's view.
-pub fn view() -> about::View {
+/// The section's view, with the tuq each connected agent tool has (decisions 100, 102). The tuq line is left out
+/// when the service can't say (an older service, or none running).
+pub async fn view(app: &crate::App) -> about::View {
+    let tuq = match app.service.send(Request::TuqVersions).await {
+        Ok(Reply::TuqVersions(tools)) => tools.into_iter().map(|t| (t.tool, t.version)).collect(),
+        _ => Vec::new(),
+    };
+    view_with(&tuq)
+}
+
+/// The section's view for `tuq`, each connected tool's tuq.
+pub fn view_with(tuq: &[(Tool, Option<String>)]) -> about::View {
     let parsed = notices();
-    about::view(build(), LICENSE, parsed.rust_count(), parsed.npm_count())
+    about::view(
+        build(),
+        LICENSE,
+        parsed.rust_count(),
+        parsed.npm_count(),
+        tuq,
+    )
 }
 
 /// The OS with its version, as a bug report wants it: "macOS 26.0", "Windows 10.0.26100", "Ubuntu 26.04". Falls
@@ -100,7 +118,7 @@ mod tests {
                 assert!(NOTICES.contains(url), "{url}");
             }
         }
-        assert!(view().copyright.starts_with("© 2026 "));
+        assert!(view_with(&[]).copyright.starts_with("© 2026 "));
     }
 
     #[test]

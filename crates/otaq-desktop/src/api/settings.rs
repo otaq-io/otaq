@@ -113,7 +113,7 @@ pub async fn request(app: &App, method: &str, params: Value) -> Result<Value, Re
         m if m.starts_with("settings.flow") => flow::request(app, m, params).await,
         "settings.credits" => reply(&page::credits()),
         // Settings → About (d0071): the section, Otaq's own license, the third-party notices.
-        "settings.about" => reply(&crate::about::view()),
+        "settings.about" => reply(&crate::about::view(app).await),
         // Use otaq in your own terminal (UPD-07, page 32 item 5): the row, and Add to my shell's PATH.
         "settings.about_path" | "settings.about_path_add" => {
             let data = app
@@ -663,6 +663,9 @@ mod tests {
         let about = request(&h.app, "settings.about", Value::Null).await.unwrap();
         assert_eq!(about["product"], otaq_core::naming::PRODUCT_NAME);
         assert!(about["version_info"].as_str().unwrap().contains(env!("CARGO_PKG_VERSION")));
+        // No connected tool has tuq here: About says nothing about it (decisions 100, 102).
+        assert_eq!(about["tuq"], Value::Null);
+        assert!(!about["version_info"].as_str().unwrap().contains("tuq"));
         let license = request(&h.app, "settings.license", Value::Null).await.unwrap();
         assert_eq!(license["title"], "Functional Source License");
         let notices = request(&h.app, "settings.licenses", Value::Null).await.unwrap();

@@ -692,6 +692,7 @@ mod tests {
             agent: None,
             effort: None,
             model_ran: None,
+            tuq_version: None,
             size: None,
         };
         // Newest first: Performance's verdict came last.

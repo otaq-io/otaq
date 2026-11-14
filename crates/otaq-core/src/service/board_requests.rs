@@ -232,6 +232,24 @@ pub(super) async fn handle(
         Request::AgentToolsList => {
             boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
         }
+        // Settings → About: the tuq each connected tool has (decisions 100, 102).
+        Request::TuqVersions => boxed(move || async move {
+            let connected = shared
+                .connected
+                .list()
+                .tools
+                .into_iter()
+                .filter(|t| t.state.is_connected())
+                .map(|t| t.tool)
+                .collect();
+            let versions = shared.board.tuq_versions(connected).await;
+            Ok(Reply::TuqVersions(
+                versions
+                    .into_iter()
+                    .map(|(tool, version)| crate::protocol::ToolTuq { tool, version })
+                    .collect(),
+            ))
+        }),
         Request::AgentToolsSetHidden(p) => boxed(move || async move {
             shared
                 .connected

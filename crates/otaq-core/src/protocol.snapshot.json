@@ -8285,6 +8285,9 @@
         "tools_check": {
           "newtype": "ToolsReport"
         },
+        "tuq_versions": {
+          "newtype": "Vec<ToolTuq>"
+        },
         "uninstall_outcome": {
           "newtype": "UninstallOutcome"
         },
@@ -9021,6 +9024,7 @@
         "tools.terminal": {
           "newtype": "ToolTerminalParams"
         },
+        "tuq.versions": {},
         "uninstall.remove": {
           "newtype": "UninstallRemoveParams"
         },
@@ -9856,6 +9860,10 @@
           "omittable": true
         },
         "tool_session_id": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "tuq_version": {
           "ty": "Option<String>",
           "omittable": true
         }
@@ -11606,6 +11614,19 @@
         "tool": {
           "ty": "crate::tools::Tool",
           "required": true
+        }
+      }
+    },
+    "ToolTuq": {
+      "kind": "struct",
+      "fields": {
+        "tool": {
+          "ty": "crate::agent_tools::Tool",
+          "required": true
+        },
+        "version": {
+          "ty": "Option<String>",
+          "omittable": true
         }
       }
     },

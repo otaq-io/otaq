@@ -576,6 +576,7 @@ mod tests {
             kind: history::Kind::Session,
             quiet: None,
             ended: Some(41 * 60_000),
+            tuq: None,
         };
         let view = HistoryRowView::from(row.clone());
         assert!(view.quiet);

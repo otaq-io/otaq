@@ -1136,6 +1136,10 @@ pub enum Request {
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
+    /// The tuq release each connected agent tool has, for Settings → About (decisions 100, 102). Answered with
+    /// [`Reply::TuqVersions`].
+    #[serde(rename = "tuq.versions")]
+    TuqVersions,
 }
 
 /// `tools.git_identity`: what the user typed.
@@ -2358,6 +2362,7 @@ impl Request {
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
             Self::RecentItems(_) => "recent.items",
+            Self::TuqVersions => "tuq.versions",
         }
     }
 }
@@ -2512,6 +2517,16 @@ pub enum Reply {
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
     /// The command palette's recent items, newest first (`recent.items`).
     RecentItems(Vec<crate::store::recents::RecentItem>),
+    /// Each connected agent tool's tuq, in [`crate::agent_tools::Tool::ALL`] order (`tuq.versions`).
+    TuqVersions(Vec<ToolTuq>),
+}
+
+/// A connected agent tool and the tuq release it has (`None`: no tuq, or one without a release stamp).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolTuq {
+    pub tool: crate::agent_tools::Tool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// The global settings with any values flagged as invalid.

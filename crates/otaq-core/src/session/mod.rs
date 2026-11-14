@@ -201,6 +201,10 @@ pub struct SessionInfo {
     /// does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_ran: Option<String>,
+    /// The tuq release the session's tool had when it started (decisions 069, 102), as the `sessions` row recorded
+    /// it; `None` when the tool had no tuq, or for a session without an agent tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tuq_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<TerminalSize>,
 }
@@ -959,7 +963,7 @@ impl Sessions {
             argv[0] = launch.program.into_os_string();
             argv.splice(1..1, launch.leading);
         }
-        let info = SessionInfo {
+        let mut info = SessionInfo {
             id: id.unwrap_or_else(new_id),
             kind: spec.kind,
             project: spec.project_key.clone(),
@@ -974,6 +978,7 @@ impl Sessions {
             agent: spec.agent.clone(),
             effort: spec.effort.clone(),
             model_ran: None,
+            tuq_version: None,
             size: Some(spec.size),
         };
         // The row, then the program, then the session in the map with nothing awaited in between: the program may
@@ -983,7 +988,7 @@ impl Sessions {
         let stored = !spec.project_id.is_empty();
         // The tuq the session's tool has now, asked before the row so nothing is awaited between the row and the
         // program.
-        let tuq_version = match (spec.tool, self.inner.tuq_version.get()) {
+        info.tuq_version = match (spec.tool, self.inner.tuq_version.get()) {
             (Some(tool), Some(provider)) if stored => provider(spec.project_id.clone(), tool).await,
             _ => None,
         };
@@ -1006,7 +1011,7 @@ impl Sessions {
             .bind(info.agent.as_ref().map(|a| &a.name))
             .bind(&info.effort)
             .bind(&project_agent)
-            .bind(&tuq_version)
+            .bind(&info.tuq_version)
             .execute(self.inner.store.pool())
             .await
             .map_err(|e| SessionError::Store(e.into()))?;
@@ -1523,7 +1528,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -1623,7 +1628,7 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version,
                     t.number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
@@ -2005,6 +2010,7 @@ struct SessionRow {
     agent_name: Option<String>,
     model_ran: Option<String>,
     effort: Option<String>,
+    tuq_version: Option<String>,
 }
 
 impl SessionRow {
@@ -2024,6 +2030,7 @@ impl SessionRow {
             agent: SessionAgent::of_columns(self.agent_id, self.agent_name),
             effort: self.effort,
             model_ran: self.model_ran,
+            tuq_version: self.tuq_version,
             size: None,
         })
     }

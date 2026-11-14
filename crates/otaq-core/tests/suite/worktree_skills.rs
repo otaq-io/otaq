@@ -346,6 +346,10 @@ async fn the_product_spec_stage_installs_tuq_then_runs_tuq_product_spec() {
         session_tuq(&w, &agent.id).await.as_deref(),
         Some("2026.11.14")
     );
+    // What History reads: the running session and its stored record both name it.
+    assert_eq!(agent.tuq_version.as_deref(), Some("2026.11.14"));
+    let stored = w.sessions.stored(&agent.id).await.unwrap();
+    assert_eq!(stored.tuq_version.as_deref(), Some("2026.11.14"));
     w.stop().await;
 }
 

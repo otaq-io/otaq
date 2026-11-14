@@ -538,6 +538,7 @@ mod tests {
                                 agent: None,
                                 effort: None,
                                 model_ran: None,
+                                tuq_version: None,
                                 size: None,
                             },
                             scrollback: encode_bytes(&state.printed),
