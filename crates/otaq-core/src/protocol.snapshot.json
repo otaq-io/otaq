@@ -625,6 +625,7 @@
       "values": [
         "project_agent",
         "shipped",
+        "skill_rename",
         "user"
       ]
     },

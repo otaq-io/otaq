@@ -9,14 +9,14 @@ flow:
     kind: agent
     column: own
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
     column: own
     agent: Reviewer
-    skill: validate
+    skill: otaq:validate
     rounds: 3
   - id: review
     name: Review
@@ -28,6 +28,6 @@ flow:
     kind: delivery
     column: with-previous
     agent: Developer
-    skill: open-pr
+    skill: otaq:open-pr
     mode: click
     delivers: either

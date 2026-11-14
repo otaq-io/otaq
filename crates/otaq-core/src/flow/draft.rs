@@ -786,16 +786,18 @@ mod tests {
         let before = file(default_flow());
         let text = "\
 flow:
-  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: work-ticket, description: Builds it.}
+  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: OWN:work-ticket, description: Builds it.}
   - {id: security, name: Security, kind: check, by: agent, agent: Checker, rounds: 2, description: Settles whether it is safe.}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Checker, skill: validate, rounds: 2}
+  - {id: validate, name: Validate, kind: check, by: agent, agent: Checker, skill: OWN:validate, rounds: 2}
   - {id: review, name: Review, kind: check, by: you}
 delivery: {delivers: local, mode: click}
 why:
   Security: From 41 /security-review runs in shop-web (Claude Code).
   validate: \"  \"
 ";
-        let (now, _, whys) = yaml::read_proposal(text).unwrap();
+        // Otaq's skills in their namespace, as the default flow names them.
+        let text = text.replace("OWN:", &format!("{}:", crate::naming::PLUGIN_NAMESPACE));
+        let (now, _, whys) = yaml::read_proposal(&text).unwrap();
         assert_eq!(whys.len(), 1, "an empty reason is dropped: {whys:?}");
         assert!(!yaml::write(&now).contains("why"));
         let marks = marks_between(&before, &now, "Checkout slowness", &[], None, &whys);

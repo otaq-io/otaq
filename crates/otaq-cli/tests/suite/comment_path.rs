@@ -305,7 +305,7 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         format!("{DESCRIPTION}{AGREED}").trim_end()
     );
     let dev = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
-    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
+    w.wait_for_output(&dev.id, &claude_skill("otaq:work-ticket"))
         .await;
 
     // The user's comment while Dev runs: posted, never typed into Dev's session.

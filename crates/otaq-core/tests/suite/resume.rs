@@ -262,7 +262,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     w.record_ended_agent(&t, "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b")
         .await;
     let conversation = "0199a1b2-c3d4-7e5f-8a9b-0c1d2e3f4a5b";
-    let skill = claude_skill("address-review");
+    let skill = claude_skill("otaq:address-review");
 
     // Send back (a code review: a line comment, d0131 Q514) resumes the ended conversation with the skill; the
     // conversation is gone.
@@ -275,7 +275,7 @@ async fn a_send_back_whose_resume_failed_gets_its_skill_on_retry() {
     let row = w.board.store().ticket(&t.id).await.unwrap().unwrap();
     assert_eq!(
         row.resume_skill.as_deref(),
-        Some("address-review"),
+        Some("otaq:address-review"),
         "never ran"
     );
 

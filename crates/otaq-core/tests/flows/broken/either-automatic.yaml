@@ -3,7 +3,7 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
 delivery:
   delivers: either
   mode: automatic

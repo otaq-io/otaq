@@ -23,7 +23,7 @@ fn me() -> Actor {
 }
 
 fn skill() -> String {
-    claude_skill("address-review")
+    claude_skill("otaq:address-review")
 }
 
 async fn in_review_with_comments(world: &TestService, comments: usize) -> Ticket {
@@ -185,7 +185,7 @@ async fn a_full_agent_limit_queues_the_ticket_with_the_skill_to_run() {
     assert!(after.status.is_queued(), "{}", after.status);
     assert!(after.queued_at.is_some());
     let row = world.board.store().ticket(&t.id).await.unwrap().unwrap();
-    assert_eq!(row.resume_skill.as_deref(), Some("address-review"));
+    assert_eq!(row.resume_skill.as_deref(), Some("otaq:address-review"));
     assert_eq!(
         after.flags.sent_back,
         Some(SentBack {
@@ -251,7 +251,7 @@ async fn a_gone_session_is_resumed_with_the_skill_in_the_same_click() {
     assert!(worktree.is_dir());
     // Kept until the agent shows the resumed conversation got it (a failed resume must send it again).
     let row = world.board.store().ticket(&t.id).await.unwrap().unwrap();
-    assert_eq!(row.resume_skill.as_deref(), Some("address-review"));
+    assert_eq!(row.resume_skill.as_deref(), Some("otaq:address-review"));
     let agent = otaq_core::caller::Caller::Agent {
         ticket: t.key.clone(),
         ticket_id: t.id.clone(),
@@ -328,7 +328,7 @@ async fn a_merge_conflict_goes_to_the_agent_with_the_restack_skill() {
         "until it is back in Review"
     );
     let pending = world.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
+    assert_eq!(pending.last().unwrap().text, claude_skill("otaq:restack"));
     let prime = otaq_core::prime::render(
         &world
             .board
@@ -536,7 +536,7 @@ async fn a_merge_conflict_brings_the_build_back() {
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
+    assert_eq!(pending.last().unwrap().text, claude_skill("otaq:restack"));
     w.stop().await;
 }
 

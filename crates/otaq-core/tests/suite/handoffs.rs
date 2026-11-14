@@ -318,7 +318,7 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
     assert!(args.contains("--resume"), "{args}");
     assert!(
-        args.contains(&format!("{} ", claude_skill("address-review"))),
+        args.contains(&format!("{} ", claude_skill("otaq:address-review"))),
         "{args}"
     );
     assert!(out.contains(LOADED), "{out}");

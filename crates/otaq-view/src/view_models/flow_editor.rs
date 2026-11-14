@@ -258,8 +258,8 @@ pub const WORKS_AGENT: &str = "Developer";
 pub const CHECKS_AGENT: &str = "Checker";
 /// The skill a stage switched to each kind takes with the kind's agent (its own); a new stage starts with none
 /// (FED-05).
-pub const WORKS_SKILL: &str = "work-ticket";
-pub const CHECKS_SKILL: &str = "validate";
+pub const WORKS_SKILL: &str = otaq_core::agent_tools::WORK_TICKET_SKILL;
+pub const CHECKS_SKILL: &str = otaq_core::own_skill!("validate");
 /// An agent check's fails in a row before the card stops (the presets' 3).
 pub const CHECK_ROUNDS: u32 = 3;
 pub const NEW_STAGE: &str = "New stage";
@@ -274,9 +274,10 @@ pub const READY_CAPTION: &str =
     "Every flow starts here. Start a ticket and it goes into the first stage.";
 pub const PR_CAPTION: &str = "A pull request opens on GitHub; your team reviews it there.";
 
-/// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent.
+/// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent. Only Otaq's
+/// own, named in their namespace (`otaq:work-ticket`, `tuq:product-spec`); a bare name is the user's skill.
 pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
-    Some(match skill {
+    Some(match otaq_core::skills::own_folder(skill)? {
         "work-ticket" => {
             "An agent writes the code in the ticket\u{2019}s own copy of the repo (a worktree)."
                 .to_owned()
@@ -1828,8 +1829,12 @@ flow:
     delivers: pr
 ";
 
+    /// shop-web's flow as stored before Otaq's skills were renamed, renamed as the upgrade renames it
+    /// (`otaq:work-ticket`, `tuq:product-spec`).
     pub fn shop_web() -> FlowFile {
-        otaq_core::flow::yaml::read(SHOP_WEB).expect("shop-web's flow reads")
+        let mut file = otaq_core::flow::yaml::read(SHOP_WEB).expect("shop-web's flow reads");
+        otaq_core::flow::skill_names::name_own_skills(&mut file);
+        file
     }
 
     pub fn otaq_default() -> FlowFile {
@@ -2092,10 +2097,11 @@ mod tests {
     /// d0115, d0129: Spec first's planning skills show Otaq's own captions, not their agent-facing descriptions.
     #[test]
     fn the_planning_skills_show_otaqs_own_captions() {
-        let captions: Vec<Option<String>> = ["product-spec", "tech-spec", "milestone-plan"]
-            .into_iter()
-            .map(|skill| shipped_caption(skill, None))
-            .collect();
+        let captions: Vec<Option<String>> =
+            ["tuq:product-spec", "tuq:tech-spec", "tuq:milestone-plan"]
+                .into_iter()
+                .map(|skill| shipped_caption(skill, None))
+                .collect();
         assert_eq!(
             captions,
             [
@@ -2137,7 +2143,7 @@ mod tests {
         assert_eq!(
             details.skill.map(|s| s.state),
             Some(SkillState::Set {
-                skill: "work-ticket".into(),
+                skill: otaq_core::agent_tools::WORK_TICKET_SKILL.into(),
                 warning: None,
                 fix: None,
             })
@@ -2570,7 +2576,11 @@ mod tests {
         let s = back.flow.stage("validate").unwrap();
         assert_eq!(
             (s.agent.as_deref(), s.skill.as_deref(), s.rounds),
-            (Some("Checker"), Some("validate"), Some(3))
+            (
+                Some("Checker"),
+                Some(otaq_core::own_skill!("validate")),
+                Some(3)
+            )
         );
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&back)).is_ok());
         // Rename, agent, an option.
@@ -2671,8 +2681,9 @@ mod tests {
             skill.state,
             SkillState::Empty {
                 text: format!(
-                    "No skill of yours: Plan runs {}\u{2019}s `work-ticket`.",
-                    otaq_core::naming::PRODUCT_NAME
+                    "No skill of yours: Plan runs {}\u{2019}s `{}`.",
+                    otaq_core::naming::PRODUCT_NAME,
+                    otaq_core::agent_tools::WORK_TICKET_SKILL
                 ),
                 pick: "Pick a skill\u{2026}",
                 ask: "Ask the agent to write it",
@@ -2730,10 +2741,14 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(items[2].0, "address-review");
+        let own = |folder: &str| otaq_core::skills::own_name(folder);
+        assert_eq!(items[2].0, own("address-review"));
         let otaqs: Vec<&str> = items[2..].iter().map(|(id, _)| *id).collect();
         assert_eq!(otaqs.len(), shipped::SKILLS.len());
-        assert!(otaqs.contains(&"validate") && otaqs.contains(&"work-ticket"));
+        assert!(
+            otaqs.contains(&own("validate").as_str())
+                && otaqs.contains(&own("work-ticket").as_str())
+        );
         assert!(items[2..].iter().all(|(_, hint)| hint.is_some_and(|h| {
             h.starts_with(&format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME))
         })));
@@ -2842,7 +2857,7 @@ mod tests {
                 .all(|(_, w)| w.is_none())
         );
 
-        // `validate` is Otaq's own: no warning, even one the draft says.
+        // `otaq:validate` is Otaq's own: no warning, even one the draft says.
         let mut d = draft(&shop, false);
         d.proposal.diff.warnings = vec![Warning {
             level: Level::Amber,
@@ -2853,7 +2868,7 @@ mod tests {
         assert_eq!(
             v.details.as_ref().unwrap().skill.as_ref().unwrap().state,
             SkillState::Set {
-                skill: "validate".into(),
+                skill: otaq_core::own_skill!("validate").into(),
                 warning: None,
                 fix: None,
             }
@@ -3047,7 +3062,7 @@ mod tests {
         let s = tech.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!(
             (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()),
-            ("Tech spec", Some("Architect"), Some("tech-spec"))
+            ("Tech spec", Some("Architect"), Some("tuq:tech-spec"))
         );
         assert!(s.description.is_some());
         assert!(tech.agents.iter().any(|a| a.name == "Architect"));

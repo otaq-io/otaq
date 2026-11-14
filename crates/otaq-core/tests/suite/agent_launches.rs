@@ -238,7 +238,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus --effort high {}",
-            claude_skill("work-ticket")
+            claude_skill("otaq:work-ticket")
         )
     );
     assert_eq!(
@@ -261,7 +261,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
     let id = session.tool_session_id.clone().unwrap();
     assert_eq!(
         launched(w, &session.id).await,
-        format!("--session-id {id} {}", claude_skill("work-ticket")),
+        format!("--session-id {id} {}", claude_skill("otaq:work-ticket")),
         "no default model yet: the tool's own default, no model passed"
     );
     assert_eq!(
@@ -284,7 +284,7 @@ async fn a_dev_session_runs_developer_on_its_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {}",
-            claude_skill("work-ticket")
+            claude_skill("otaq:work-ticket")
         ),
         "default resolved at the start"
     );
@@ -348,7 +348,7 @@ async fn retry_start_after_the_model_changed_runs_the_new_model() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model haiku {}",
-            claude_skill("work-ticket")
+            claude_skill("otaq:work-ticket")
         )
     );
     world.w.stop().await;
@@ -372,7 +372,10 @@ async fn a_check_round_runs_its_own_agent() {
         .session()
         .unwrap();
     let id = validator.tool_session_id.clone().unwrap();
-    let prompt = w.adapters.get(Tool::Claude).skill_reference("validate");
+    let prompt = w
+        .adapters
+        .get(Tool::Claude)
+        .skill_reference("otaq:validate");
     assert_eq!(
         launched(w, &validator.id).await,
         format!("--session-id {id} --model haiku {prompt}")
@@ -390,7 +393,7 @@ async fn a_check_round_runs_its_own_agent() {
         launched(w, &developer.id).await,
         format!(
             "--session-id {dev_id} --model opus {}",
-            claude_skill("work-ticket")
+            claude_skill("otaq:work-ticket")
         )
     );
 
@@ -447,7 +450,7 @@ async fn a_project_agent_opens_on_the_agent_asked_for() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {} Why is checkout slow?",
-            claude_skill("noyan")
+            claude_skill("otaq:noyan")
         )
     );
     assert_eq!(stored_on(w, &session.id).await.2, named(&strong));
@@ -551,7 +554,7 @@ async fn resume(
                 format!(
                     "--resume {CONVERSATION}{flag} {} SHOP-1 was sent back to Dev with 1 line comment. Run `otaq \
                      prime`, then `otaq review feedback`.",
-                    claude_skill("address-review")
+                    claude_skill("otaq:address-review")
                 ),
             )
         }
@@ -675,7 +678,7 @@ async fn resume(
                 s,
                 format!(
                     "--resume {CONVERSATION}{flag} {}",
-                    claude_skill("answer-question")
+                    claude_skill("otaq:answer-question")
                 ),
             )
         }
@@ -771,7 +774,7 @@ async fn an_edited_agent_changes_only_new_sessions() {
         launched(w, &session.id).await,
         format!(
             "--session-id {id} --model opus {}",
-            claude_skill("work-ticket")
+            claude_skill("otaq:work-ticket")
         )
     );
     world.w.stop().await;

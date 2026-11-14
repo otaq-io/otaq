@@ -597,7 +597,11 @@ mod tests {
         let dir = find_plugin_dir(Path::new("/nonexistent/bin")).expect("repo plugin");
         assert!(dir.ends_with("plugin"));
         assert!(dir.join("claude/.claude-plugin/plugin.json").is_file());
-        assert!(dir.join("skills/work-ticket/SKILL.md").is_file());
+        assert!(
+            crate::runtime::shipped_skills(&dir)
+                .join("work-ticket/SKILL.md")
+                .is_file()
+        );
     }
 
     /// Every role through the adapter (0088 launch tests): the exact program, arguments, folder and environment.
@@ -836,7 +840,10 @@ mod tests {
         #[test]
         fn an_answer_resumes_with_the_answer_skill_and_no_port() {
             let f = fixture();
-            let mut request = ticket_request(LaunchRole::Answer, skill("answer-question", None));
+            let mut request = ticket_request(
+                LaunchRole::Answer,
+                skill(crate::own_skill!("answer-question"), None),
+            );
             request.port = 0;
             request.resume = Some(RESUMED.into());
             let plan = f.adapter.launch(&request).unwrap();
@@ -913,7 +920,7 @@ mod tests {
             assert_eq!(plan.cwd, Path::new(WORKTREE));
             assert_eq!(plan.env, env);
 
-            request.first_prompt = skill("address-review", None);
+            request.first_prompt = skill(crate::own_skill!("address-review"), None);
             let plan = f.adapter.launch(&request).unwrap();
             assert_eq!(
                 plan.args,
@@ -942,7 +949,10 @@ mod tests {
             let mut requests = vec![
                 ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None)),
                 ticket_request(LaunchRole::Validator, Some(FirstPrompt::Text("/v".into()))),
-                ticket_request(LaunchRole::Answer, skill("answer-question", None)),
+                ticket_request(
+                    LaunchRole::Answer,
+                    skill(crate::own_skill!("answer-question"), None),
+                ),
                 ticket_request(LaunchRole::Delivery, Some(FirstPrompt::Text("/p".into()))),
                 project_request(LaunchRole::ProjectAgent, skill(PROJECT_AGENT_SKILL, None)),
             ];

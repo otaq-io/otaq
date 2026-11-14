@@ -8,21 +8,21 @@
 //!     name: Dev
 //!     kind: agent
 //!     agent: Developer
-//!     skill: work-ticket
+//!     skill: otaq:work-ticket
 //!     options: [skip]
 //!   - id: validate
 //!     name: Validate
 //!     kind: check
 //!     by: agent
 //!     agent: Validator
-//!     skill: validate
+//!     skill: otaq:validate
 //!     rounds: 3
 //!     fail_to: Dev
 //! delivery:
 //!   delivers: either
 //!   mode: click
 //!   agent: Developer
-//!   skill: open-pr
+//!   skill: otaq:open-pr
 //! ```
 //!
 //! Fields come in a fixed order (stages: `id name kind by agent skill options rounds fail_to description`; the delivery:
@@ -816,9 +816,12 @@ impl<'a> Item<'a> {
 fn scalar(value: &str) -> String {
     let plain = value.chars().next().is_some_and(char::is_alphabetic)
         && !value.ends_with(' ')
+        // A colon inside a word is plain (`otaq:validate`); one before a space or at the end would start a mapping.
+        && !value.contains(": ")
+        && !value.ends_with(':')
         && value
             .chars()
-            .all(|c| c.is_alphanumeric() || " -_./()·".contains(c))
+            .all(|c| c.is_alphanumeric() || " -_./()·:".contains(c))
         && !matches!(
             value.to_lowercase().as_str(),
             "true" | "false" | "null" | "yes" | "no" | "on" | "off" | "y" | "n" | "inf" | "nan"
@@ -851,6 +854,10 @@ mod tests {
             "Dev",
             "Quick developer",
             "work-ticket",
+            crate::own_skill!("work-ticket"),
+            "claude:opus",
+            "a:",
+            "a:: b",
             "yes",
             "3",
             "a: b",

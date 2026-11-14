@@ -54,7 +54,6 @@ mod tests {
             titles,
             [
                 "Security review",
-                "Test in the browser",
                 "Update the docs",
                 "Design review",
                 "Product spec",

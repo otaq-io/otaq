@@ -129,7 +129,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
             .unwrap_or_default(),
         prime.commit_skill
     );
-    assert_eq!(prime.commit_skill, claude_skill("commit"));
+    assert_eq!(prime.commit_skill, claude_skill("otaq:commit"));
     // The shipped SKILL.md in full, from the bundle; Developer also opens PRs in the default flow's Done.
     let shipped = w.adapters.shipped_skills().unwrap().join("work-ticket");
     assert_eq!(dev.folder.as_deref(), Some(shipped.as_path()));
@@ -149,8 +149,8 @@ async fn a_stage_agent_reads_what_prime_gives() {
     assert_eq!(
         parts,
         [
-            (&RunsAs::Stage("Dev".into()), "work-ticket"),
-            (&RunsAs::Stage("Delivery".into()), "open-pr")
+            (&RunsAs::Stage("Dev".into()), "otaq:work-ticket"),
+            (&RunsAs::Stage("Delivery".into()), "otaq:open-pr")
         ]
     );
     let others: Vec<(&str, Option<SkillMark>)> = r
@@ -158,7 +158,7 @@ async fn a_stage_agent_reads_what_prime_gives() {
         .iter()
         .map(|o| (o.skill.as_str(), o.mark))
         .collect();
-    assert_eq!(others, [("commit", Some(SkillMark::Commits))]);
+    assert_eq!(others, [("otaq:commit", Some(SkillMark::Commits))]);
 
     // The test flow: Rust developer runs Otaq's `work-ticket` in Dev.
     w.board.use_flow_for_tests("SHOP", &every_kind()).await;
@@ -182,11 +182,11 @@ async fn a_stage_agent_reads_what_prime_gives() {
         prime.stage.unwrap().skill
     );
     assert_eq!(dev.folder.as_deref(), Some(shipped.as_path()));
-    assert_eq!(prime.commit_skill, claude_skill("commit"));
+    assert_eq!(prime.commit_skill, claude_skill("otaq:commit"));
     assert_eq!(r.skills.len(), 1, "{r:#?}");
     // An agent has no skill list of its own (T6): only the commit skill prime names.
     let others: Vec<&str> = r.others.iter().map(|o| o.skill.as_str()).collect();
-    assert_eq!(others, ["commit"]);
+    assert_eq!(others, ["otaq:commit"]);
     w.stop().await;
 }
 
@@ -269,7 +269,7 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     assert!(quick.skills.is_empty(), "{quick:#?}");
     let rust = reads(&w, &agent(&w, "Rust developer").await, "SHOP").await;
     assert_eq!(rust.skills.len(), 1);
-    assert_eq!(stage_part(&rust, "Dev").skill, "work-ticket");
+    assert_eq!(stage_part(&rust, "Dev").skill, "otaq:work-ticket");
     // Validator runs Validate; Security has its own agent.
     let validator = reads(&w, &agent(&w, "Validator").await, "SHOP").await;
     let parts: Vec<(&RunsAs, &str)> = validator
@@ -277,7 +277,10 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
         .iter()
         .map(|p| (&p.runs, p.skill.as_str()))
         .collect();
-    assert_eq!(parts, [(&RunsAs::Stage("Validate".into()), "validate")]);
+    assert_eq!(
+        parts,
+        [(&RunsAs::Stage("Validate".into()), "otaq:validate")]
+    );
 
     // Noyan, the Project agent, also runs Product spec.
     w.board
@@ -302,8 +305,8 @@ async fn parts_follow_the_flow_not_a_tickets_choice() {
     assert_eq!(
         parts,
         [
-            (&RunsAs::Stage("Product spec".into()), "product-spec"),
-            (&RunsAs::Noyan, "noyan")
+            (&RunsAs::Stage("Product spec".into()), "tuq:product-spec"),
+            (&RunsAs::Noyan, "otaq:noyan")
         ]
     );
     w.stop().await;

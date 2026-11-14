@@ -3,12 +3,12 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
   - id: dev
     name: Dev
     kind: agent
     agent: Quick developer
-    skill: work-ticket
+    skill: otaq:work-ticket
 delivery:
   delivers: local
   mode: click

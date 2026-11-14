@@ -84,7 +84,7 @@ async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
     let doc = |name: &str, model: &str| {
         format!(
             "agents:\n  - name: {name}\n    model: {model}\nflow:\n  - name: Dev\n    kind: agent\n    agent: \
-             Developer\n    skill: work-ticket\n  - name: Validate\n    kind: check\n    by: agent\n    agent: \
+             Developer\n    skill: otaq:work-ticket\n  - name: Validate\n    kind: check\n    by: agent\n    agent: \
              {name}\n    skill: team-validate\n    rounds: 1\n  - name: Review\n    kind: check\n    by: you\n  \
              - name: Done\n    kind: delivery\n    column: with-previous\n    agent: Developer\n    mode: click\n    \
              delivers: either\n"

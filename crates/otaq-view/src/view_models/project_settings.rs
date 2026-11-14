@@ -569,7 +569,7 @@ mod tests {
             delivers: Delivers::Pr,
             mode: DeliveryMode::Automatic,
             agent: Some("Shipper".into()),
-            skill: Some("open-pr".into()),
+            skill: Some(otaq_core::own_skill!("open-pr").into()),
         };
         let row = delivery_row(Some(&pr), "develop");
         let Control::Delivery {
@@ -630,7 +630,7 @@ mod tests {
             delivers: Delivers::Pr,
             mode: DeliveryMode::Automatic,
             agent: Some("Shipper".into()),
-            skill: Some("open-pr".into()),
+            skill: Some(otaq_core::own_skill!("open-pr").into()),
         };
         // A local merge opens no PR: no skill, but its agent stays to write the squash message.
         let local = deliver_as(&pr, DELIVERS_FIELD, "local").unwrap();
@@ -675,7 +675,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(true),
             cli_found: true,
-            open_pr_skill: "open-pr".into(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").into(),
         };
         let v = provider(Some(&p));
         assert_eq!(v.line, "GitHub \u{b7} acme/shop-web");

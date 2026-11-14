@@ -778,7 +778,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         };
         let open = &options(
             &shop18,

@@ -507,7 +507,12 @@ impl Board {
                         None => format!("{key} has no previous flow"),
                     }));
                 };
-                let (file, written) = read(&earlier.yaml)?;
+                let (mut file, written) = read(&earlier.yaml)?;
+                // A version stored before Otaq's skills were renamed names them bare: it gets the rename (075).
+                let renamed_at = self.store().skills_namespaced_at().await?;
+                if renamed_at.is_some_and(|at| earlier.applied_at < at) {
+                    super::skill_names::name_own_skills(&mut file);
+                }
                 let source = Source::Previous {
                     version: earlier.version,
                 };
@@ -540,7 +545,11 @@ impl Board {
                     .await
             }
             ProposeFrom::File { name, yaml: text } => {
-                let (file, written) = read(text)?;
+                let (mut file, written) = read(text)?;
+                // A file written before Otaq's skills were renamed names them bare: it gets the rename (075).
+                if super::skill_names::written_before_rename(&file) {
+                    super::skill_names::name_own_skills(&mut file);
+                }
                 let source = Source::Document {
                     file: Some(name.clone()),
                 };

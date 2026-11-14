@@ -65,14 +65,17 @@ const NAME_MAX_CHARS: usize = 40;
 /// or before a request ("/flow add a Security check"). Settings → Flow's **Change with Noyan** sends it.
 pub const FLOW_COMMAND: &str = "/flow";
 
-/// The skill a first message runs and the request it carries: `/flow …` runs `flow`, anything else the noyan
+/// The skill [`FLOW_COMMAND`] starts.
+pub const FLOW_SKILL: &str = crate::own_skill!("flow");
+
+/// The skill a first message runs and the request it carries: `/flow …` runs `otaq:flow`, anything else the noyan
 /// skill with the whole message.
 pub fn first_skill(message: &str) -> (&'static str, Option<String>) {
     let message = message.trim();
     match message.strip_prefix(FLOW_COMMAND) {
         Some(rest) if rest.is_empty() || rest.starts_with(char::is_whitespace) => {
             let rest = rest.trim();
-            ("flow", (!rest.is_empty()).then(|| rest.to_owned()))
+            (FLOW_SKILL, (!rest.is_empty()).then(|| rest.to_owned()))
         }
         _ => (PROJECT_AGENT_SKILL, Some(message.to_owned())),
     }
@@ -1750,10 +1753,10 @@ mod tests {
 
     #[test]
     fn slash_flow_runs_the_flow_skill() {
-        assert_eq!(first_skill("/flow"), ("flow", None));
+        assert_eq!(first_skill("/flow"), (FLOW_SKILL, None));
         assert_eq!(
             first_skill(" /flow  add a Security check "),
-            ("flow", Some("add a Security check".to_owned()))
+            (FLOW_SKILL, Some("add a Security check".to_owned()))
         );
         assert_eq!(
             first_skill("/flowers are nice"),

@@ -70,7 +70,7 @@ pub struct DevSections {
 }
 
 /// Who runs a column's stage, on hovering its title (FLW-12; *Row · Stage kinds on the column header*): "Product spec
-/// · Spec writer · product-spec" over "Claude Code · sonnet" and "Options: skip".
+/// · Spec writer · tuq:product-spec" over "Claude Code · sonnet" and "Options: skip".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderTooltip {
     pub title: String,
@@ -1349,7 +1349,7 @@ mod tests {
         assert_eq!(
             tip(1),
             Some(HeaderTooltip {
-                title: "Dev · Developer · work-ticket".into(),
+                title: format!("Dev · Developer · {}", otaq_core::agent_tools::WORK_TICKET_SKILL),
                 detail: vec![
                     "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the \
                      code needs it."
@@ -1361,7 +1361,7 @@ mod tests {
         assert_eq!(
             tip(2),
             Some(HeaderTooltip {
-                title: "Validate · Checker · validate".into(),
+                title: format!("Validate · Checker · {}", otaq_core::own_skill!("validate")),
                 detail: vec![
                     "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught \
                      before anyone reviews it."
@@ -1439,13 +1439,19 @@ mod tests {
         assert_eq!(
             dev.tooltip,
             Some(HeaderTooltip {
-                title: "Dev · Rust developer · work-ticket".into(),
+                title: format!(
+                    "Dev · Rust developer · {}",
+                    otaq_core::agent_tools::WORK_TICKET_SKILL
+                ),
                 detail: vec!["Claude Code · sonnet".into()],
             })
         );
         assert_eq!(columns[3].count, "1", "Validate's own column");
         let tip = |i: usize| columns[i].tooltip.clone().unwrap();
-        assert_eq!(tip(1).title, "Product spec · Spec writer · product-spec");
+        assert_eq!(
+            tip(1).title,
+            "Product spec · Spec writer · tuq:product-spec"
+        );
         assert_eq!(tip(1).detail, ["Claude Code · sonnet", "Options: skip"]);
         assert_eq!(
             tip(4).title,

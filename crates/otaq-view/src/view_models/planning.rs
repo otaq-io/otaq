@@ -62,10 +62,10 @@ pub fn check_line(ticket: &Ticket) -> String {
     }
 }
 
-/// What an agent running a skill Otaq ships is doing, in Otaq's words (as its captions, Q-B): "writing the
-/// architecture". `None` for any other skill (the card says "Working").
+/// What an agent running a skill Otaq ships (`tuq:tech-spec`) is doing, in Otaq's words (as its captions, Q-B):
+/// "writing the architecture". `None` for any other skill, a bare name included (the card says "Working").
 pub fn working_on(skill: &str) -> Option<&'static str> {
-    Some(match skill {
+    Some(match otaq_core::skills::own_folder(skill)? {
         "product-spec" => "writing the decisions",
         "tech-spec" => "writing the architecture",
         "milestone-plan" => "writing the plan",
@@ -491,10 +491,18 @@ mod tests {
         assert_eq!(check_line(&t), "the decisions");
         t.plan = WISHLIST.to_owned();
         assert_eq!(check_line(&t), "the decisions and the plan");
-        assert_eq!(working_on("tech-spec"), Some("writing the architecture"));
-        assert_eq!(working_on("milestone-plan"), Some("writing the plan"));
-        assert_eq!(working_on("product-spec"), Some("writing the decisions"));
-        assert_eq!(working_on("work-ticket"), None);
+        assert_eq!(
+            working_on("tuq:tech-spec"),
+            Some("writing the architecture")
+        );
+        assert_eq!(working_on("tuq:milestone-plan"), Some("writing the plan"));
+        assert_eq!(
+            working_on("tuq:product-spec"),
+            Some("writing the decisions")
+        );
+        assert_eq!(working_on(otaq_core::agent_tools::WORK_TICKET_SKILL), None);
+        // A bare name is the user's skill: Otaq doesn't say what it does.
+        assert_eq!(working_on("tech-spec"), None);
     }
 
     /// A ticket waiting in Ready that starts at Dev skips planning (`s30-01`'s SHOP-35); one that starts at the first

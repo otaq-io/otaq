@@ -22,6 +22,15 @@ pub fn release_page(version: &str) -> String {
 /// The plugin namespace: the name of Otaq's hooks plugin for each tool (`otaq@otaq-local` in Codex).
 pub const PLUGIN_NAMESPACE: &str = "otaq";
 
+/// One of Otaq's workflow skills named in its namespace ([`PLUGIN_NAMESPACE`]), as a constant:
+/// `own_skill!("validate")` is `otaq:validate` (tuq decision 063).
+#[macro_export]
+macro_rules! own_skill {
+    ($name:literal) => {
+        concat!("otaq", ":", $name)
+    };
+}
+
 /// The palette key of the bundled Otaq themes, Otaq Dark and Otaq Light, as the design has it and as
 /// d0069's settings stored both (d0070 stores `otaq-dark` and `otaq-light`).
 pub const THEME_KEY: &str = "otaq";
@@ -156,6 +165,10 @@ mod tests {
         assert_eq!(COMMAND_NAME, "otaq");
         assert_eq!(PLUGIN_NAMESPACE, "otaq");
         assert_eq!(ENV_PREFIX, "OTAQ_");
+        assert_eq!(
+            own_skill!("validate"),
+            format!("{PLUGIN_NAMESPACE}:validate")
+        );
     }
 
     #[test]

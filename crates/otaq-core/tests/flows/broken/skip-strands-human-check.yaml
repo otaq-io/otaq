@@ -3,7 +3,7 @@ flow:
     name: Product spec
     kind: agent
     agent: Spec writer
-    skill: product-spec
+    skill: tuq:product-spec
     options: [skip]
   - id: review
     name: Review
@@ -13,7 +13,7 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
 delivery:
   delivers: local
   mode: click

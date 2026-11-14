@@ -31,6 +31,10 @@ pub(crate) static MIGRATOR: Migrator = sqlx::migrate!("./migrations");
 /// rewritten right after it ([`Store::move_deliveries_into_flows`]).
 const DELIVERY_SETTING: i64 = 85;
 
+/// The migration that lets Otaq apply a flow version (`0124_skill_namespaces.sql`); its stored flows name Otaq's
+/// skills `otaq:` and `tuq:` right after it ([`Store::name_own_skills_in_flows`]).
+const SKILL_NAMESPACES: i64 = 124;
+
 /// An open database with every migration applied.
 #[derive(Debug, Clone)]
 pub struct Store {
@@ -51,11 +55,16 @@ impl Store {
     pub async fn open(path: &Path) -> Result<Self, StoreError> {
         let pool = Self::connect(path, true).await?;
         let deliveries_pending = !versions::applied(&pool, DELIVERY_SETTING).await;
+        let skill_names_pending = !versions::applied(&pool, SKILL_NAMESPACES).await;
         migrate(&pool, path, &MIGRATOR, versions::RUNNING_VERSION).await?;
         let store = Self { pool };
         // The rest of migration 0085, which SQL can't write: the flows' Delivery stages become their setting.
         if deliveries_pending {
             store.move_deliveries_into_flows().await?;
+        }
+        // The rest of migration 0124: Otaq's skills are named `otaq:` and `tuq:` in every project's flow, once.
+        if skill_names_pending {
+            store.name_own_skills_in_flows().await?;
         }
         // The first start: the shipped agents applied, once (AGM-02).
         crate::agents::shipped::apply_on_first_start(&store).await?;

@@ -222,10 +222,10 @@ pub struct Detection {
 }
 
 /// The skill an Agent stage without a skill of its own starts with.
-pub const WORK_TICKET_SKILL: &str = "work-ticket";
+pub const WORK_TICKET_SKILL: &str = crate::own_skill!("work-ticket");
 
 /// The skill every Project agent starts with (d0068).
-pub const PROJECT_AGENT_SKILL: &str = "noyan";
+pub const PROJECT_AGENT_SKILL: &str = crate::own_skill!("noyan");
 
 /// Where things are on this machine, for every launch: what all adapters share, and each adapter's own part.
 /// [`LaunchContext::from_process`] finds them for the running service; tests replace each tool's program with an
@@ -444,19 +444,19 @@ pub(crate) fn plugin_manifest_name(root: &Path, manifests: &[&[&str]]) -> Option
     })
 }
 
-/// Whether `skill` names one of Otaq's own skills ([`crate::agents::shipped::SKILLS`]). A name that matches one always
-/// means Otaq's skill, from its plugin; any other name is the user's.
+/// Whether `skill` names one of Otaq's own skills, in its namespace: `otaq:validate`, `tuq:product-spec`
+/// ([`crate::skills::own_folder`]). Any other name, a bare `validate` included, is the user's (decision 063).
 pub fn is_own_skill(skill: &str) -> bool {
-    crate::agents::shipped::SKILLS.contains(&skill)
+    crate::skills::is_own(skill)
 }
 
-/// `skill` behind `sigil` (`/`, `$`), in Otaq's plugin namespace when it is one of Otaq's own skills
-/// ([`is_own_skill`]): `/otaq:commit`, `/team-validate`.
+/// `skill` behind `sigil` (`/`, `$`): one of Otaq's own skills ([`is_own_skill`]) from Otaq's plugin, in its
+/// namespace (`/otaq:commit`); any other name as it is (`/team-validate`, a plugin's `/tuq:step-back`). Until tuq's
+/// skills run on the user's tuq, a `tuq:` skill Otaq ships runs the copy in Otaq's plugin: `/otaq:product-spec`.
 pub(crate) fn namespaced_reference(sigil: &str, skill: &str) -> String {
-    if is_own_skill(skill) {
-        format!("{sigil}{}:{skill}", crate::naming::PLUGIN_NAMESPACE)
-    } else {
-        format!("{sigil}{skill}")
+    match crate::skills::own_folder(skill) {
+        Some(folder) => format!("{sigil}{}:{folder}", crate::naming::PLUGIN_NAMESPACE),
+        None => format!("{sigil}{skill}"),
     }
 }
 
@@ -1015,9 +1015,9 @@ pub trait AgentTool: Send + Sync {
 
     // 7. Skills (ADP-05).
 
-    /// A skill as the agent's tool names it in typed text. Otaq's own skill ([`is_own_skill`]) comes from Otaq's
-    /// plugin, under its namespace: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit` (Codex), `commit`
-    /// (OpenCode, which has no namespace). The user's own skill is one the tool finds itself, by its own name:
+    /// A skill as the agent's tool names it in typed text. Otaq's own skill, named `otaq:commit` ([`is_own_skill`]),
+    /// comes from Otaq's plugin, under its namespace: `/otaq:commit` (Claude Code, Copilot), `$otaq:commit` (Codex),
+    /// `commit` (OpenCode, which has no namespace). A bare name is always the user's own skill is one the tool finds itself, by its own name:
     /// `/team-validate`, `$team-validate`, `team-validate`. Otaq never copies or renames a skill ([`crate::skills`]).
     fn skill_reference(&self, skill: &str) -> String;
 

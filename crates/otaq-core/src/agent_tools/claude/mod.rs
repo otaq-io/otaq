@@ -641,18 +641,24 @@ mod tests {
         assert!(quirks.multi_line_clearable);
     }
 
-    /// Otaq's own skill by its plugin's namespace, the user's by its own name; nothing to add to the launch (T2).
+    /// Otaq's own skill by its plugin's namespace, the user's by its own name, a bare one included (decision 063);
+    /// nothing to add to the launch (T2). A `tuq:` skill still runs the copy in Otaq's plugin.
     #[test]
     fn otaqs_skills_namespaced_the_users_by_their_own_name() {
         let f = fixture();
         assert_eq!(
-            f.adapter.skill_reference("commit"),
+            f.adapter.skill_reference(crate::own_skill!("commit")),
             format!("/{}:commit", naming::PLUGIN_NAMESPACE)
         );
+        assert_eq!(
+            f.adapter.skill_reference("tuq:product-spec"),
+            format!("/{}:product-spec", naming::PLUGIN_NAMESPACE)
+        );
+        assert_eq!(f.adapter.skill_reference("commit"), "/commit");
         assert_eq!(f.adapter.skill_reference("team-validate"), "/team-validate");
         let mut request = request(LaunchRole::Validator);
         request.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let plan = f.adapter.launch(&request).unwrap();

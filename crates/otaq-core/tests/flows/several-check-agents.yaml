@@ -30,14 +30,14 @@ flow:
     kind: agent
     column: own
     agent: Spec writer
-    skill: product-spec
+    skill: tuq:product-spec
     options: [skip]
   - id: dev
     name: Dev
     kind: agent
     column: own
     agent: Rust developer
-    skill: work-ticket
+    skill: otaq:work-ticket
     options: [Quick developer]
   - id: validate
     name: Validate
@@ -45,7 +45,7 @@ flow:
     by: agent
     column: with-previous
     agents: [Validator]
-    skill: validate
+    skill: otaq:validate
     rounds: 3
   - id: security
     name: Security
@@ -67,6 +67,6 @@ flow:
     kind: delivery
     column: own
     agent: Shipper
-    skill: open-pr
+    skill: otaq:open-pr
     mode: automatic
     delivers: pr

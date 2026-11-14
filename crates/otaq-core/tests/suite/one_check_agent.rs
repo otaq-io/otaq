@@ -44,7 +44,7 @@ async fn world() -> World {
     let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
     let mut file: FlowFile = yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
     let security = file.flow.stages.iter_mut().find(|s| s.id == "security");
-    security.unwrap().skill = Some("validate".into());
+    security.unwrap().skill = Some("otaq:validate".into());
     w.board.use_flow_for_tests("SHOP", &file).await;
     World { w, _dir: dir }
 }

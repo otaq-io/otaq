@@ -115,7 +115,7 @@ async fn submit_starts_a_validator_in_the_worktree() {
         .expect("a validator runs");
     // The stand-in prints its arguments, its environment and then its folder: wait for the last line.
     let out = w.wait_for_output(&validator.id, "CWD=").await;
-    assert!(out.contains(&claude_skill("validate")), "{out}");
+    assert!(out.contains(&claude_skill("otaq:validate")), "{out}");
     assert!(
         out.contains(&format!(
             "ROLE={} TICKET={} PORT=none",
@@ -211,7 +211,7 @@ async fn the_validate_stages_skill_is_the_prompt() {
     let named = claude_skill("my-validate");
     let out = w.wait_for_output(&validator.id, &named).await;
     assert!(
-        !out.contains(&format!("{} ", claude_skill("validate"))),
+        !out.contains(&format!("{} ", claude_skill("otaq:validate"))),
         "{out}"
     );
     w.stop().await;
@@ -256,7 +256,7 @@ async fn under_the_usage_limit_the_validator_waits_for_resume_all() {
         .sessions
         .running_of(&t.id, SessionKind::Validator)
         .expect("started on Resume");
-    w.wait_for_output(&validator.id, &claude_skill("validate"))
+    w.wait_for_output(&validator.id, &claude_skill("otaq:validate"))
         .await;
     assert_eq!(
         rounds(&w, &t).await[0].2.as_deref(),

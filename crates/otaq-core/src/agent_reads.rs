@@ -197,8 +197,8 @@ pub fn user_part(
 /// `shipped`).
 fn part(shipped: Option<&Path>, skill: String, runs: RunsAs) -> SkillPart {
     let folder = shipped
-        .filter(|_| crate::agent_tools::is_own_skill(&skill))
-        .map(|dir| dir.join(&skill));
+        .zip(crate::skills::own_folder(&skill))
+        .map(|(dir, own)| dir.join(own));
     SkillPart {
         text: folder
             .as_ref()
@@ -230,8 +230,8 @@ fn others(shipped: Option<&Path>, noyan: bool, parts: &[SkillPart]) -> Vec<Other
             continue;
         }
         let folder = shipped
-            .filter(|_| crate::agent_tools::is_own_skill(&name))
-            .map(|dir| dir.join(&name));
+            .zip(crate::skills::own_folder(&name))
+            .map(|(dir, own)| dir.join(own));
         out.push(OtherSkill {
             skill: name,
             folder,

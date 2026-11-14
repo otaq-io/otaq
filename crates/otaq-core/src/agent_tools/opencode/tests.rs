@@ -54,7 +54,12 @@ fn input_quirks() {
 fn otaqs_skills_namespaced_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
-    assert_eq!(adapter.skill_reference("commit"), "commit");
+    // OpenCode has no namespace: Otaq's `otaq:commit` is its folder's name.
+    assert_eq!(
+        adapter.skill_reference(crate::own_skill!("commit")),
+        "commit"
+    );
+    assert_eq!(adapter.skill_reference("tuq:product-spec"), "product-spec");
     assert_eq!(adapter.skill_reference("team-validate"), "team-validate");
 }
 
@@ -65,7 +70,7 @@ fn a_typed_skill_is_an_instruction_to_load_it() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = opencode(bin.path(), None);
     assert_eq!(
-        adapter.skill_prompt("work-ticket"),
+        adapter.skill_prompt(crate::own_skill!("work-ticket")),
         "Load the skill `work-ticket` with your skill tool and follow it. If you don't have a skill with that name, \
          say so and stop."
     );
@@ -75,7 +80,7 @@ fn a_typed_skill_is_an_instruction_to_load_it() {
          name, say so and stop."
     );
     let first = crate::agent_tools::FirstPrompt::Skill {
-        name: "address-review".into(),
+        name: crate::own_skill!("address-review").into(),
         message: Some("SHOP-18 was sent back.".into()),
     };
     assert_eq!(

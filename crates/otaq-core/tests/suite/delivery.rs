@@ -428,7 +428,7 @@ async fn conflicts_go_back_to_the_agent_until_the_third() {
     assert_eq!(after.place, Place::stage_of(DEV));
     assert_eq!(after.auto_merge_conflicts, 1);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
+    assert_eq!(pending.last().unwrap().text, claude_skill("otaq:restack"));
     assert_eq!(
         after.validation_round, 0,
         "the next submit validates from 0"
@@ -671,7 +671,7 @@ async fn a_conflict_handed_to_the_agent_gets_the_build_back() {
     assert_eq!(freed::state(&w, &key).await, BuildState::Present);
     assert_eq!(freed::entries(&w, &project), Vec::<u64>::new());
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
+    assert_eq!(pending.last().unwrap().text, claude_skill("otaq:restack"));
     w.stop().await;
 }
 
@@ -830,7 +830,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
             &format!(
                 "{} SHOP-1 was sent back to Dev with PR comments and a comment. Run `otaq prime`, then `otaq \
                  review feedback`.",
-                claude_skill("address-review")
+                claude_skill("otaq:address-review")
             ),
         )
         .await;
@@ -859,7 +859,7 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
     let skill = &pending.last().unwrap().text;
     assert!(
-        skill.starts_with(&format!("{} automatic:", claude_skill("push"))),
+        skill.starts_with(&format!("{} automatic:", claude_skill("otaq:push"))),
         "{skill}"
     );
     let new = commits(&repo, "origin/feature/SHOP-1-login..feature/SHOP-1-login");

@@ -105,19 +105,13 @@ async fn a_written_skill_is_saved_in_the_project_for_a_claude_code_agent() {
         .unwrap();
     assert_eq!(draft.writing.len(), 1);
 
-    // The skill needs a name first, and one of Otaq's own names is refused.
+    // The skill needs a name first.
     let unnamed = w
         .board
         .skill_folder(&key, "Plan", None, None)
         .await
         .unwrap_err();
     assert!(unnamed.to_string().contains("--name"), "{unnamed}");
-    let own = w
-        .board
-        .skill_folder(&key, "Plan", Some("validate"), None)
-        .await
-        .unwrap_err();
-    assert!(own.to_string().contains("own skills"), "{own}");
     let odd = w
         .board
         .skill_folder(&key, "Plan", Some("../x"), None)

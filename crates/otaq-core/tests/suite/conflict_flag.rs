@@ -156,7 +156,7 @@ async fn merging_one_ticket_hands_back_the_one_that_would_conflict() {
     assert_eq!(conflict.files, ["lib/pricing.ts"]);
     assert_eq!(conflict.reason, ConflictReason::TestMerge);
     let pending = w.deliveries.pending(&agent.session).await.unwrap();
-    assert_eq!(pending.last().unwrap().text, claude_skill("restack"));
+    assert_eq!(pending.last().unwrap().text, claude_skill("otaq:restack"));
     let comments = w
         .board
         .comments(&shop2.key.to_string(), None)
