@@ -110,13 +110,18 @@ skills=0
 for skill in "$shipped"/*/SKILL.md; do
     [[ -f "$skill" ]] || continue
     name="$(basename "$(dirname "$skill")")"
-    for into in "$found/claude/skills" "$found/copilot/skills" "$home/runtime/codex-plugin/skills"; do
+    for into in "$found/claude/skills" "$home/runtime/codex-plugin/skills"; do
         cmp -s "$skill" "$into/$name/SKILL.md" || fail "the skill $name isn't in $into (or differs from the bundle's)"
     done
+    # Copilot (and OpenCode, through prefixed-skills/) get the prefixed copy: otaq-<name>, its name: and references
+    # rewritten (tuq decision 092).
+    prefixed="$found/prefixed-skills/otaq-$name/SKILL.md"
+    grep -qx "name: otaq-$name" "$prefixed" 2>/dev/null || fail "the skill otaq-$name isn't in $found/prefixed-skills (or isn't named otaq-$name)"
+    cmp -s "$prefixed" "$found/copilot/skills/otaq-$name/SKILL.md" || fail "the skill otaq-$name isn't in $found/copilot/skills (or differs from prefixed-skills/)"
     skills=$((skills + 1))
 done
 [[ "$skills" -gt 0 ]] || fail "no shipped skills in $shipped"
-echo "$skills skills in claude/, copilot/ and codex-plugin/"
+echo "$skills skills in claude/ and codex-plugin/, prefixed in copilot/ and prefixed-skills/"
 if [[ "$kind" == nsis ]]; then
     step "Its sessions run in Microsoft's ConPTY (in the runtime copy, named in the log)"
     copy="$(dirname "$found")"
