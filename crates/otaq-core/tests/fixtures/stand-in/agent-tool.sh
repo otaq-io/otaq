@@ -78,6 +78,8 @@ handle() {
         fi
         case "$own" in *" $skill "*) known=yes ;; esac
         ;;
+    # The user's tuq (`/tuq:x`, `$tuq:x`): Otaq checks the tool has it, installing tuq first, before it types one.
+    tuq:*) known=yes ;;
     *)
         case "$loaded" in *" $name "*) known=yes ;; esac
         if [ "$form" = bare ] && [ -z "$known" ]; then

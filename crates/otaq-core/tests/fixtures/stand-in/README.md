@@ -15,6 +15,8 @@ them is there from the start, and **the user's project skills are read only at s
     line starting "Load the skill `otaq-x` …" for `opencode`; Copilot and OpenCode run the prefixed copy, decision
     092): `RUNS otaq:x` (`RUNS otaq:otaq-x` for `copilot`, `RUNS otaq-x` for `opencode`) when `x` is one of Otaq's
     shipped skills, else `Unknown command: /otaq:x` (`copilot`'s `/otaq:x` among them);
+  - tuq's skill (`/tuq:x`, `$tuq:x`): `RUNS tuq:x`, as Otaq types one only once the tool has it (it installs tuq
+    first);
   - the user's skill (`/x`, `$x`, or `x` in `opencode`'s "Load the skill `x` …"): `RUNS x` when it was loaded at
     start, else `Unknown command: /x` (`opencode`: `No skill named x.`);
   - any other text: nothing.

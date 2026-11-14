@@ -8,6 +8,12 @@
 //! 7. launch the agent through its tool's adapter, store the tool and tool id, and set the ticket to Agent
 //!    Working.
 //!
+//! **A new conversation's first prompt** is the stage's skill when it is one of Otaq's own (`otaq:work-ticket` for
+//! Dev). A stage naming any other skill, tuq's (`tuq:product-spec`) or the user's (`team-dev`), runs two (decisions
+//! 081, 098): Otaq's `work-ticket` first, which gets the context and says how the work meets Otaq, then the stage's
+//! **task skill**, typed into the session once that first turn ends ([`crate::skills::task_skill`]), after the same
+//! check as any skill typed into a session ([`Board::skill_missing_on`]: a missing `tuq:` skill installs tuq first).
+//!
 //! Every step reuses what exists, so the whole sequence can run again (SES-02). A step that fails leaves the
 //! ticket in Queued · **Start interrupted** with the step and its message. The worktree is **ready** once steps 3 to 5
 //! are done (the worktree, its seeding, env files, resources and setup: where the start's hooks run and the worktree
@@ -1056,6 +1062,8 @@ impl Starter {
         // A new conversation runs on the agent resolved at the check (AGM-05: the start, Retry start, Start from
         // scratch); a resumed one on the tool, model and agent it ran on (ADP-04, d0088).
         let mut agent_new: Option<Agent> = None;
+        // A new conversation of a stage whose skill isn't Otaq's: typed once Otaq's workflow skill's turn ended.
+        let mut task_skill: Option<String> = None;
         let (runs_on, resume, first_prompt) = match (conversation, rewalk) {
             (Some((c, prompt)), _) => (RunsOn::resumed(&c), Some(c.id), prompt),
             // Walked again: its own conversation, on the tool and model it ran on, told why it is back (d0122's
@@ -1071,10 +1079,15 @@ impl Starter {
                 )
             }
             (None, None) => {
-                // The stage's own skill (Q261): `product-spec` for a Product spec stage, `work-ticket` for Dev.
-                let skill = agent_stage
-                    .and_then(|stage| stage.skill.clone())
-                    .unwrap_or_else(|| WORK_TICKET_SKILL.to_owned());
+                // The stage's own skill (Q261) when it is Otaq's (`otaq:work-ticket` for Dev); any other
+                // (`tuq:product-spec`, the user's `team-dev`) is the stage's task skill, typed after Otaq's
+                // `work-ticket` (decision 081).
+                let named = agent_stage.and_then(|stage| stage.skill.as_deref());
+                task_skill = crate::skills::task_skill(named).map(str::to_owned);
+                let skill = match named.map(str::trim).filter(|n| !n.is_empty()) {
+                    Some(own) if task_skill.is_none() => own.to_owned(),
+                    _ => WORK_TICKET_SKILL.to_owned(),
+                };
                 let runs_on = match checked {
                     Some((runs_on, agent)) => {
                         agent_new = Some(agent);
@@ -1102,6 +1115,18 @@ impl Starter {
                 )
             }
         };
+        // The task skill runs only on a tool that has it (a `tuq:` one installs tuq first, decision 103): the check
+        // before the launch held the stage already when it didn't; this is the same check, so nothing launches
+        // that can't run its task skill.
+        if let Some(task) = &task_skill {
+            let tool = inner.adapters.of_session(runs_on.tool).tool();
+            if let Some(missing) = board.skill_missing_on(ticket, tool, Some(task)).await {
+                return Err((
+                    StartStep::Launch,
+                    StartError::Other(crate::flow::proposal::missing_skill_text(tool, &missing)),
+                ));
+            }
+        }
         match self
             .launch(
                 ticket,
@@ -1115,7 +1140,13 @@ impl Starter {
             )
             .await
         {
-            Ok(session) => Ok(Done::Started(Box::new(session))),
+            Ok(session) => {
+                if let (Some(task), Some(stage)) = (&task_skill, agent_stage) {
+                    self.queue_task_skill(ticket, &session, task, &stage.id)
+                        .await;
+                }
+                Ok(Done::Started(Box::new(session)))
+            }
             // The backstop refused it: the project was paused meanwhile.
             Err(_)
                 if self
@@ -1137,6 +1168,39 @@ impl Starter {
                 }
                 Err((StartStep::Launch, e))
             }
+        }
+    }
+
+    /// The stage's task skill (decision 081), queued for the new `session` as an automatic delivery: Otaq's
+    /// `work-ticket` runs first, and the task skill is typed once that turn ends and the input line is empty (d0048),
+    /// as the session's tool types a skill (`/tuq:product-spec`, `$tuq:product-spec`). It is typed only while the
+    /// ticket's open stage run is still `stage`'s (the run begins once the launch is recorded): a stage that
+    /// `work-ticket` ended at once (nothing to add) never gets it.
+    async fn queue_task_skill(
+        &self,
+        ticket: &Ticket,
+        session: &SessionInfo,
+        task: &str,
+        stage: &str,
+    ) {
+        let Some(deliveries) = self.inner.deliveries.get() else {
+            tracing::warn!(ticket = %ticket.key, task, "no deliveries: the stage's task skill can't be typed");
+            return;
+        };
+        let text = deliveries.skill_text(&session.id, task, None);
+        let pool = self.inner.board.store().pool().clone();
+        let (ticket_id, stage) = (ticket.id.clone(), stage.to_owned());
+        let still_wanted: crate::session::deliveries::StillWanted = Arc::new(move || {
+            let (pool, ticket, stage) = (pool.clone(), ticket_id.clone(), stage.clone());
+            Box::pin(
+                async move { open_stage(&pool, &ticket).await.as_deref() == Some(stage.as_str()) },
+            )
+        });
+        if let Err(e) = deliveries
+            .queue_while(&session.id, DeliveryKind::Skill, &text, still_wanted)
+            .await
+        {
+            tracing::warn!(ticket = %ticket.key, task, error = %e, "can't queue the stage's task skill");
         }
     }
 
@@ -1579,6 +1643,20 @@ pub async fn own_agent_session(
         }
         _ => Ok(Some(live)),
     }
+}
+
+/// The stage of the ticket's open stage run, if it has one (a read that fails counts as none).
+async fn open_stage(pool: &sqlx::SqlitePool, ticket_id: &str) -> Option<String> {
+    sqlx::query_scalar(
+        "SELECT stage_id FROM stage_runs WHERE ticket_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
+    )
+    .bind(ticket_id)
+    .fetch_optional(pool)
+    .await
+    .unwrap_or_else(|e| {
+        tracing::warn!(ticket = ticket_id, error = %e, "can't read the open stage run");
+        None
+    })
 }
 
 /// What a re-walked Agent stage's conversation is told first (d0131 row 8, d0122): why the card is back, from its

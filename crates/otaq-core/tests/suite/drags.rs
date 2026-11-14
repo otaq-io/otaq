@@ -518,12 +518,17 @@ async fn back_into_a_skipped_stage_runs_it_once() {
     let session = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
     let out = w.wait_for_output(&session.id, "ARGS").await;
     assert!(!out.contains("--resume"), "a fresh session: {out}");
-    // The stage's skill, then what came back (CMT-05): the instructions are the user's comment, not typed.
+    // Otaq's `work-ticket`, then what came back (CMT-05): the instructions are the user's comment, not typed. The
+    // stage's task skill waits for that first turn to end (decision 081).
     assert!(
         out.contains(
-            "/tuq:product-spec SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
+            "/otaq:work-ticket SHOP-1 was sent back to Product spec by you with a comment. Run `otaq prime`."
         ),
         "{out}"
+    );
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &session.id).await,
+        ["/tuq:product-spec"]
     );
     assert!(!out.contains(note), "{out}");
     assert_eq!(

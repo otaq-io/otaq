@@ -146,6 +146,7 @@ const RULES: &str = "## Otaq's rules
 7. Long text (summaries, questions, ticket bodies) always goes through stdin (`--stdin`), never quoted arguments.
 8. Long output goes to a file in `$OTAQ_RESOURCE_DIR`; name the file in your comment. Attach only a document you wrote, with `--report-file`.
 9. `otaq show <KEY>` reads any ticket; `otaq create \"Title\" --stdin` files a follow-up in Backlog.
+10. Never start a skill on your own initiative: a skill runs only when Otaq types it for your stage or the user asks for it (types it, or names it in their instructions), even when what you read matches a skill's description (\"I want users to…\"). A skill that was started may call the skills it names.
 ";
 
 /// The default flow's Dev, as the ticket prime names it.
@@ -529,7 +530,7 @@ async fn validate_prime_plain() {
          in `$OTAQ_RESOURCE_DIR` (never in the worktree) and name it in the verdict. What you couldn't \
          check yourself (a real browser, a device, a service you can't reach), list for the user: `--manual-check \
          \"<what to check>\"` on `otaq check pass|fail`, one line per check. The user tries them at review. Never \
-         leave a check to \"the PR\": there may be no PR.\n",
+         leave a check to \"the PR\": there may be no PR. Never start a skill on your own initiative: a skill runs only when Otaq types it for your stage or the user asks for it (types it, or names it in their instructions), even when what you read matches a skill's description (\"I want users to…\"). A skill that was started may call the skills it names.\n",
     ] {
         assert!(text.contains(part), "missing {part:?} in\n{text}");
     }

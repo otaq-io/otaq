@@ -303,6 +303,83 @@ fn flat(text: &str) -> String {
 
 // product-spec, tech-spec and milestone-plan are tuq's (decision 102): their texts are checked in tuq's repository.
 
+/// Decisions 081, 098: in a stage whose skill isn't Otaq's, `work-ticket` gets the context in its first turn and ends
+/// it without starting the task skill (Otaq types it), then says how the task skill's steps meet Otaq: asking through
+/// the ticket, committing at the end, pushing only when the user asks, ending with `stage next`. Decision 089: it and
+/// `noyan` never start a skill on their own initiative.
+#[test]
+fn work_ticket_runs_a_task_skill_the_otaq_way() {
+    let cmd = naming::COMMAND_NAME;
+    let work = flat(&read_skill("work-ticket"));
+    for text in [
+        "## With a task skill".to_owned(),
+        "Follow \"With a task skill\" below in place of steps 3 and 4".to_owned(),
+        "**never start the task skill yourself**".to_owned(),
+        "Otaq types the task skill into this session next".to_owned(),
+        format!("every question goes to the user through `{cmd} ask human --stdin`"),
+        "never with the tool's own question tool (AskUserQuestion)".to_owned(),
+        "commit everything at the end of the stage with Otaq's `commit` skill".to_owned(),
+        "its \"push\" or \"open a PR\" is not a request from the user".to_owned(),
+        format!("end your stage instead (step 6): `{cmd} stage next --stdin`"),
+        "a skill that was started may call the skills it names".to_owned(),
+        "about how, this skill wins; about what, the task skill wins".to_owned(),
+        "**Never start a skill on your own initiative.**".to_owned(),
+    ] {
+        assert!(work.contains(&text), "work-ticket must say {text:?}");
+    }
+    let noyan = flat(&read_skill("noyan"));
+    for text in [
+        "**Never start a skill on your own initiative.**",
+        "never for `tuq:product-spec` or any other skill",
+    ] {
+        assert!(noyan.contains(text), "noyan must say {text:?}");
+    }
+}
+
+/// Decision 093: `work-ticket` copies the text between a tuq plan file's markers onto the ticket as its Plan, with the
+/// command it gives, and the text it copies reads as the Plan's pieces.
+#[cfg(unix)]
+#[test]
+fn work_ticket_copies_the_plan_files_plan_onto_the_ticket() {
+    let cmd = naming::COMMAND_NAME;
+    let work = read_skill("work-ticket");
+    let lines: Vec<&str> = work.lines().map(str::trim).collect();
+    let at = lines
+        .iter()
+        .position(|l| l.starts_with("awk '"))
+        .expect("the awk line");
+    let awk = lines[at];
+    assert!(awk.ends_with(" > \"$plan\""), "{awk}");
+    assert_eq!(lines[at - 1], "plan=\"$(mktemp)\"");
+    assert_eq!(lines[at + 1], format!("{cmd} update --plan-file \"$plan\""));
+    let plan = "1. Share token — waits for nothing\n   A token per list.\n   Check: tokens pass.\n\
+                2. Share link — waits for 1\n   Check: the link opens.";
+    let file = format!(
+        "# Plan · wishlist\n\n- **Ticket:** SHOP-40\n\n<!-- tuq:plan:start -->\n\nWhy it is split.\n\n## Pieces\n\n\
+         {plan}\n\n<!-- tuq:plan:end -->\n"
+    );
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("tuq/plans")).unwrap();
+    std::fs::write(dir.path().join("tuq/plans/wishlist.md"), file).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("F=wishlist\nplan=copied.md\n{awk}"))
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let copied = std::fs::read_to_string(dir.path().join("copied.md")).unwrap();
+    assert_eq!(
+        copied,
+        format!("\nWhy it is split.\n\n## Pieces\n\n{plan}\n\n")
+    );
+    let pieces = otaq_core::domain::plan::pieces(&copied);
+    assert_eq!(
+        otaq_core::domain::plan::order_line(&pieces).as_deref(),
+        Some("Pieces: 2 (1 \u{2192} 2)")
+    );
+}
+
 /// T-0415 (FLW-11, FLW-21; d0108 "The CLI proposes a whole document", "Every why line names its source"): `flow`
 /// reads with `flow show`, proposes with `flow propose --stdin`, waits for the answer as its next message, and
 /// documents every field of the format.

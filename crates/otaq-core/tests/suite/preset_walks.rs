@@ -278,8 +278,13 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
     let key = t.key.to_string();
     let t = working_in(&w, &key, "product-spec").await;
     let spec_writer = session(&w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&spec_writer.id, &claude_skill("tuq:product-spec"))
+    // Otaq's `work-ticket` first; the stage's task skill waits for that turn to end (decision 081).
+    w.wait_for_output(&spec_writer.id, &claude_skill("otaq:work-ticket"))
         .await;
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &spec_writer.id).await,
+        [claude_skill("tuq:product-spec")]
+    );
 
     // `otaq ask human`: the question waits for the user; the answer is typed into Spec writer's session.
     let question = "Which columns go in the CSV?";
@@ -331,8 +336,13 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
         let planning = session(&w, &at, SessionKind::Agent).await;
         assert_ne!(planning.id, before);
         assert!(!w.sessions.info(&before).unwrap().is_running());
-        w.wait_for_output(&planning.id, &claude_skill(&format!("tuq:{stage}")))
+        w.wait_for_output(&planning.id, &claude_skill("otaq:work-ticket"))
             .await;
+        assert_eq!(
+            crate::common::waiting_texts(&w.deliveries, &planning.id).await,
+            [claude_skill(&format!("tuq:{stage}"))],
+            "{stage}"
+        );
         let after = stage_next(&w, &at, "Written.").await;
         assert_eq!(after.place, next, "{stage}");
         before = planning.id;

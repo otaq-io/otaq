@@ -330,3 +330,93 @@ async fn a_gone_session_gets_the_handoff_as_its_first_prompt() {
     assert_eq!(w.board.ticket(&key).await.unwrap().flags.hand_off, None);
     w.stop().await;
 }
+
+/// The team's own `team-spec`, committed to shop-web for Claude Code (`.claude/skills`) and the other tools
+/// (`.agents/skills`), named by the Dev stage: a task skill, which runs after Otaq's `work-ticket` (decision 081).
+async fn dev_runs_team_spec(w: &TestService, repo: &Path) {
+    for dir in [".claude/skills/team-spec", ".agents/skills/team-spec"] {
+        std::fs::create_dir_all(repo.join(dir)).unwrap();
+        commit(
+            repo,
+            &format!("{dir}/SKILL.md"),
+            "---\nname: team-spec\ndescription: Writes the team's spec.\n---\nWrite the spec.\n",
+        );
+    }
+    git(repo, &["push", "-q", "origin", "main"]);
+    w.board
+        .edit_flow_for_tests("SHOP", |file| {
+            for stage in &mut file.flow.stages {
+                if stage.id == otaq_core::flow::default::DEV {
+                    stage.skill = Some("team-spec".into());
+                }
+            }
+        })
+        .await;
+}
+
+/// Decisions 081, 089: a stage whose skill isn't Otaq's starts with Otaq's `work-ticket` alone; once that first turn
+/// ends, Otaq types the stage's task skill as the tool types a skill (`/team-spec`, `$team-spec`) and it runs. The turn
+/// end in between isn't Idle: the card stays Working. On Claude Code and Codex.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stage_runs_work_ticket_then_its_task_skill() {
+    let World { w, repo, _dir } = world().await;
+    dev_runs_team_spec(&w, &repo).await;
+    for (n, tool) in [Tool::Claude, Tool::Codex].into_iter().enumerate() {
+        let (t, session) = started(&w, tool, &format!("Coupon codes {n}")).await;
+        let out = w
+            .wait_for_output(&session.id, &runs_own(tool, "work-ticket"))
+            .await;
+        assert!(out.contains("loaded: team-spec "), "{tool:?}: {out}");
+        let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
+        assert!(!args.contains("team-spec"), "{tool:?}: {args}");
+        // Waiting for the first turn to end: not typed yet.
+        let typed = w.adapters.get(tool).skill_prompt("team-spec");
+        let waiting: Vec<String> = w
+            .deliveries
+            .pending(&session.id)
+            .await
+            .unwrap()
+            .into_iter()
+            .map(|d| d.text)
+            .collect();
+        assert_eq!(waiting, [typed], "{tool:?}");
+        assert!(!output(&w, &session.id).contains("RUNS team-spec"));
+
+        // The service types what waits once a hook ends the turn.
+        turn_ended(&w, &t, &session.id).await;
+        w.deliveries.deliver_if_ready(&session.id).await.unwrap();
+        let out = w.wait_for_output(&session.id, "RUNS team-spec").await;
+        assert!(!out.contains("Unknown command"), "{tool:?}: {out}");
+        assert!(w.deliveries.pending(&session.id).await.unwrap().is_empty());
+        assert_eq!(
+            w.status(&t.key.to_string()).await,
+            Status::Working,
+            "{tool:?}"
+        );
+    }
+    w.stop().await;
+}
+
+/// A stage `work-ticket` ended in its first turn (nothing to add) never gets its task skill: once the stage is over,
+/// the waiting skill is dropped, not typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_stage_ended_in_its_first_turn_never_gets_its_task_skill() {
+    let World { w, repo, _dir } = world().await;
+    dev_runs_team_spec(&w, &repo).await;
+    let (t, session) = started(&w, Tool::Claude, "Coupon codes").await;
+    w.wait_for_output(&session.id, &runs_own(Tool::Claude, "work-ticket"))
+        .await;
+    in_review(&w, &t, "coupons.ts").await;
+    turn_ended(&w, &t, &session.id).await;
+    w.deliveries.deliver_if_ready(&session.id).await.unwrap();
+    tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.deliveries.pending(&session.id).await.unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await
+    .expect("the task skill was dropped");
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!output(&w, &session.id).contains("RUNS team-spec"));
+    w.stop().await;
+}

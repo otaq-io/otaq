@@ -174,6 +174,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
             "Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` \
              (with `--option` when there are clear alternatives), then end your turn."
         ),
+        crate::prime::no_self_start_rule(),
     ];
     for (n, rule) in rules.iter().enumerate() {
         out.push_str(&format!("{}. {rule}\n", n + 1));
@@ -241,6 +242,7 @@ mod tests {
         };
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;
+        let skills = crate::prime::no_self_start_rule();
         let expected = format!(
             "# Noyan · shop-web (SHOP)
 
@@ -275,6 +277,7 @@ code changes go through tickets.
 only change Backlog tickets\"). If the CLI refuses, tell the user what you would need.
 6. Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` (with \
 `--option` when there are clear alternatives), then end your turn.
+7. {skills}
 
 ## Noyan’s instructions (Noyan)
 

@@ -108,6 +108,21 @@ pub fn me() -> Actor {
     Actor::User("me".into())
 }
 
+/// What waits to be typed into `session`, oldest first: a stage's task skill waits there for `work-ticket`'s first
+/// turn to end (decision 081).
+pub async fn waiting_texts(
+    deliveries: &otaq_core::session::deliveries::Deliveries,
+    session: &str,
+) -> Vec<String> {
+    deliveries
+        .pending(session)
+        .await
+        .unwrap()
+        .into_iter()
+        .map(|d| d.text)
+        .collect()
+}
+
 pub fn agent(key: &str) -> Actor {
     Actor::Agent(key.parse().unwrap())
 }

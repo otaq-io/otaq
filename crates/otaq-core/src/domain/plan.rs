@@ -345,6 +345,48 @@ mod tests {
         );
     }
 
+    /// Decision 093: Otaq's `work-ticket` copies the text between a tuq plan file's markers onto the ticket as its Plan.
+    /// tuq's `milestone-plan` writes it in this shape (its own example, tuq 2026.11.14): the why, then `## Pieces` last,
+    /// each piece's details indented and ending with a `Check:` line. It reads as the same pieces.
+    #[test]
+    fn tuqs_milestone_plan_reads_as_the_ticket_plan() {
+        let plan = "The wishlist is built in four pieces, one behaviour each: the share token first (groundwork the \
+            others\nneed), then saving and the page side by side, then the share link, which needs both. The agent in \
+            charge follows\ntuq/prompts/wishlist-orchestrator.md.\n\n## Pieces\n\n\
+            1. Share token on wishlists — waits for nothing\n   \
+            A random token per wishlist, created on first share: lib/wishlist.ts (decision 0141).\n   \
+            Check: the token unit tests pass; an unknown token is rejected.\n\
+            2. A customer saves an item — waits for 1\n   \
+            The heart on each product card (components/ProductCard.tsx) and POST/DELETE /api/wishlist: one \
+            behaviour across\n   the API and the card, on purpose.\n   \
+            Check: tapping the heart saves the item; it is still saved after a reload.\n\
+            3. A customer sees their wishlist — waits for 1\n   \
+            /wishlist lists the saved items, with an empty state; GET /api/wishlist.\n   \
+            Check: the page shows what was saved, and the empty state with nothing saved.\n\
+            4. A customer shares their wishlist — waits for 2, 3\n   \
+            The Share button on /wishlist and the read-only shared view, without the owner's email \
+            (decisions/0140).\n   \
+            Check: the copied link opens the list signed out, with no email on the page.\n";
+        let p = pieces(plan);
+        assert_eq!(numbers(&p), [1, 2, 3, 4]);
+        assert_eq!(p[0].title, "Share token on wishlists");
+        assert!(p[0].waits_for.is_empty());
+        assert_eq!(p[1].waits_for, [1]);
+        assert_eq!(p[2].waits_for, [1]);
+        assert_eq!(p[3].waits_for, [2, 3]);
+        assert!(
+            p[1].text.ends_with(
+                "Check: tapping the heart saves the item; it is still saved after a reload."
+            ),
+            "{}",
+            p[1].text
+        );
+        assert_eq!(
+            order_line(&p).as_deref(),
+            Some("Pieces: 4 (1 \u{2192} 2, 3 \u{2192} 4)")
+        );
+    }
+
     #[test]
     fn a_bulleted_shape_with_a_bold_label_and_plain_dashes() {
         let plan = "**Pieces:**\n\n- Wishlist API\n- Wishlist button - waits for 1\n  * a sub-point stays text\n\

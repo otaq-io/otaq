@@ -953,10 +953,11 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
          failure. Finish with `{cmd} check pass --stdin` or \
          `{cmd} check fail --stdin` and the verdict on stdin. The agent's comment says what it ran; decide yourself \
          whether to run it again. Save any run to a file in `${dir}` (never in the worktree) and name it in the \
-         verdict. {manual}\n",
+         verdict. {manual} {skills}\n",
         ctx.diff.trim_end(),
         dir = naming::resource_dir_env_var(),
         manual = MANUAL_CHECK_RULE.replace("{cmd}", cmd).replace("{command}", "check pass|fail"),
+        skills = no_self_start_rule(),
     ));
     out
 }
@@ -1163,6 +1164,18 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
         }
     }
     out
+}
+
+/// What every session is told about starting skills (decision 089): Otaq starts a stage's skills, or the user types
+/// one; a skill that was started may call the skills it names (`product-spec` → `step-back`). Tickets', checks' and
+/// Noyan's `prime` carry it, and so do Otaq's `work-ticket` and `noyan` skills.
+pub fn no_self_start_rule() -> String {
+    format!(
+        "Never start a skill on your own initiative: a skill runs only when {} types it for your stage or the user \
+         asks for it (types it, or names it in their instructions), even when what you read matches a skill's \
+         description (\"I want users to…\"). A skill that was started may call the skills it names.",
+        naming::PRODUCT_NAME
+    )
 }
 
 /// The heading of `prime`'s list of manual checks (d0125).
@@ -1395,6 +1408,7 @@ pub fn render(ctx: &PrimeContext) -> String {
         format!(
             "`{cmd} show <KEY>` reads any ticket; `{cmd} create \"Title\" --stdin` files a follow-up in Backlog."
         ),
+        no_self_start_rule(),
     ];
     for (n, rule) in rules.iter().enumerate() {
         out.push_str(&format!("{}. {rule}\n", n + 1));
