@@ -196,9 +196,9 @@ async fn skill_typed_next(deliveries: &Deliveries, session: &str) -> bool {
         return false;
     }
     match deliveries.pending(session).await {
-        Ok(waiting) => waiting
-            .iter()
-            .any(|d| d.kind == DeliveryKind::Skill.as_str()),
+        Ok(waiting) => waiting.iter().any(|d| {
+            d.kind == DeliveryKind::Skill.as_str() || d.kind == DeliveryKind::TaskSkill.as_str()
+        }),
         Err(e) => {
             tracing::warn!(session, error = %e, "can't read the waiting messages");
             false

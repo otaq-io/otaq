@@ -22,7 +22,7 @@ opencode)
 esac
 
 # Otaq's own skills, which Otaq's plugin gives every session from its start (`plugin/skills/`).
-own=" address-review answer-question commit flow milestone-plan noyan open-pr product-spec push restack tech-spec \
+own=" address-review answer-question commit flow noyan open-pr push restack \
 validate work-ticket "
 
 # The user's skills it can run by name: the project skills in its folder now, and only now.

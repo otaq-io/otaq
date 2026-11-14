@@ -1141,9 +1141,8 @@ impl Starter {
             .await
         {
             Ok(session) => {
-                if let (Some(task), Some(stage)) = (&task_skill, agent_stage) {
-                    self.queue_task_skill(ticket, &session, task, &stage.id)
-                        .await;
+                if let Some(task) = &task_skill {
+                    self.queue_task_skill(ticket, &session, task).await;
                 }
                 Ok(Done::Started(Box::new(session)))
             }
@@ -1171,35 +1170,17 @@ impl Starter {
         }
     }
 
-    /// The stage's task skill (decision 081), queued for the new `session` as an automatic delivery: Otaq's
-    /// `work-ticket` runs first, and the task skill is typed once that turn ends and the input line is empty (d0048),
-    /// as the session's tool types a skill (`/tuq:product-spec`, `$tuq:product-spec`). It is typed only while the
-    /// ticket's open stage run is still `stage`'s (the run begins once the launch is recorded): a stage that
-    /// `work-ticket` ended at once (nothing to add) never gets it.
-    async fn queue_task_skill(
-        &self,
-        ticket: &Ticket,
-        session: &SessionInfo,
-        task: &str,
-        stage: &str,
-    ) {
+    /// The stage's task skill (decision 081), queued for the new `session`: Otaq's `work-ticket` runs first, and the
+    /// task skill is typed once that turn ends and the input line is empty (d0048), as the session's tool types a skill
+    /// (`/tuq:product-spec`, `$tuq:product-spec`). The end of the stage's run removes it ([`Deliveries::queue_task_skill`]):
+    /// a stage that `work-ticket` ended at once (nothing to add) never gets it.
+    async fn queue_task_skill(&self, ticket: &Ticket, session: &SessionInfo, task: &str) {
         let Some(deliveries) = self.inner.deliveries.get() else {
             tracing::warn!(ticket = %ticket.key, task, "no deliveries: the stage's task skill can't be typed");
             return;
         };
         let text = deliveries.skill_text(&session.id, task, None);
-        let pool = self.inner.board.store().pool().clone();
-        let (ticket_id, stage) = (ticket.id.clone(), stage.to_owned());
-        let still_wanted: crate::session::deliveries::StillWanted = Arc::new(move || {
-            let (pool, ticket, stage) = (pool.clone(), ticket_id.clone(), stage.clone());
-            Box::pin(
-                async move { open_stage(&pool, &ticket).await.as_deref() == Some(stage.as_str()) },
-            )
-        });
-        if let Err(e) = deliveries
-            .queue_while(&session.id, DeliveryKind::Skill, &text, still_wanted)
-            .await
-        {
+        if let Err(e) = deliveries.queue_task_skill(&session.id, &text).await {
             tracing::warn!(ticket = %ticket.key, task, error = %e, "can't queue the stage's task skill");
         }
     }
@@ -1643,20 +1624,6 @@ pub async fn own_agent_session(
         }
         _ => Ok(Some(live)),
     }
-}
-
-/// The stage of the ticket's open stage run, if it has one (a read that fails counts as none).
-async fn open_stage(pool: &sqlx::SqlitePool, ticket_id: &str) -> Option<String> {
-    sqlx::query_scalar(
-        "SELECT stage_id FROM stage_runs WHERE ticket_id = ? AND ended_at IS NULL ORDER BY started_at DESC LIMIT 1",
-    )
-    .bind(ticket_id)
-    .fetch_optional(pool)
-    .await
-    .unwrap_or_else(|e| {
-        tracing::warn!(ticket = ticket_id, error = %e, "can't read the open stage run");
-        None
-    })
 }
 
 /// What a re-walked Agent stage's conversation is told first (d0131 row 8, d0122): why the card is back, from its

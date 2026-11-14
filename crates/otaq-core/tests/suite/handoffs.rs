@@ -397,25 +397,105 @@ async fn a_stage_runs_work_ticket_then_its_task_skill() {
     w.stop().await;
 }
 
-/// A stage `work-ticket` ended in its first turn (nothing to add) never gets its task skill: once the stage is over,
-/// the waiting skill is dropped, not typed.
+/// A stage `work-ticket` ended in its first turn (nothing to add) never gets its task skill: the end of the stage's run
+/// removes it at once, whatever ends it (here `stage next` from Product spec, and Dev's hand-over to Review). Nothing
+/// waits, nothing is carried into the next stage's session, and that session's first turn end shows Idle.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_ended_in_its_first_turn_never_gets_its_task_skill() {
+    let World { w, repo, _dir } = world().await;
+    // Idle at a turn end, not the reminder first: the turn end shows what it is.
+    w.signals.set_stage_reminders(false);
+    dev_runs_team_spec(&w, &repo).await;
+    // Product spec (the team's `team-spec`, a task skill) → Dev (Otaq's `work-ticket` alone).
+    let path = Path::new(env!("CARGO_MANIFEST_DIR")).join("tests/flows/every-kind.yaml");
+    let mut file = otaq_core::flow::yaml::read(&std::fs::read_to_string(path).unwrap()).unwrap();
+    for stage in &mut file.flow.stages {
+        if stage.id == "product-spec" {
+            stage.skill = Some("team-spec".into());
+        }
+    }
+    w.board.use_flow_for_tests("SHOP", &file).await;
+    let t = w.create("SHOP", "Coupon codes").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    w.starter.start(&key, &me(), Start::Auto).await.unwrap();
+    let spec = running(&w, &t).await;
+    w.wait_for_output(&spec.id, &runs_own(Tool::Claude, "work-ticket"))
+        .await;
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &spec.id).await,
+        ["/team-spec"]
+    );
+
+    // `work-ticket` finds nothing to add and ends the stage in its first turn.
+    let t = w.board.ticket(&key).await.unwrap();
+    w.validation
+        .submit(
+            &key,
+            said(&w.board, &key, "Nothing to settle: a refactor.")
+                .await
+                .as_ref(),
+            &Actor::Agent(t.key.clone()),
+            otaq_core::domain::ValidationTrigger::Agent,
+        )
+        .await
+        .unwrap();
+    assert!(w.deliveries.pending(&spec.id).await.unwrap().is_empty());
+    assert_eq!(
+        w.board.ticket(&key).await.unwrap().flags.messages_waiting,
+        0
+    );
+    turn_ended(&w, &t, &spec.id).await;
+    w.deliveries.deliver_if_ready(&spec.id).await.unwrap();
+
+    // Dev starts in a new session: nothing waits there, and its first turn end is Idle.
+    w.starter.start(&key, &me(), Start::Auto).await.unwrap();
+    let dev = tokio::time::timeout(Duration::from_secs(20), async {
+        loop {
+            match w.sessions.running_of(&t.id, SessionKind::Agent) {
+                Some(s) if s.id != spec.id => return s,
+                _ => tokio::time::sleep(Duration::from_millis(20)).await,
+            }
+        }
+    })
+    .await
+    .expect("Dev started");
+    w.wait_for_output(&dev.id, &runs_own(Tool::Claude, "work-ticket"))
+        .await;
+    assert!(w.deliveries.pending(&dev.id).await.unwrap().is_empty());
+    turn_ended(&w, &t, &dev.id).await;
+    assert_eq!(w.status(&key).await, Status::Idle);
+    assert!(!output(&w, &spec.id).contains("RUNS team-spec"));
+    assert!(!output(&w, &dev.id).contains("RUNS team-spec"));
+
+    w.stop().await;
+}
+
+/// The same when the stage ends another way: Dev (naming `team-spec`) handed over to Review before its first turn
+/// ended. The task skill goes with the stage's run, at once, and is never typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_task_skill_goes_with_its_stage_whatever_ends_it() {
     let World { w, repo, _dir } = world().await;
     dev_runs_team_spec(&w, &repo).await;
     let (t, session) = started(&w, Tool::Claude, "Coupon codes").await;
     w.wait_for_output(&session.id, &runs_own(Tool::Claude, "work-ticket"))
         .await;
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &session.id).await,
+        ["/team-spec"]
+    );
     in_review(&w, &t, "coupons.ts").await;
+    assert!(w.deliveries.pending(&session.id).await.unwrap().is_empty());
+    let key = t.key.to_string();
+    assert_eq!(
+        w.board.ticket(&key).await.unwrap().flags.messages_waiting,
+        0
+    );
     turn_ended(&w, &t, &session.id).await;
     w.deliveries.deliver_if_ready(&session.id).await.unwrap();
-    tokio::time::timeout(Duration::from_secs(10), async {
-        while !w.deliveries.pending(&session.id).await.unwrap().is_empty() {
-            tokio::time::sleep(Duration::from_millis(20)).await;
-        }
-    })
-    .await
-    .expect("the task skill was dropped");
     tokio::time::sleep(Duration::from_millis(200)).await;
     assert!(!output(&w, &session.id).contains("RUNS team-spec"));
     w.stop().await;
