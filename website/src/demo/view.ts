@@ -722,7 +722,7 @@ export function ticketView(s: DemoState): TicketView | null {
             ]
           : [
               L("d", "Checker · Codex · round 1"),
-              L("tool", "/validate"),
+              L("tool", "$otaq:validate"),
               L("ok", "✓ tests pass · lint clean · change matches the ticket"),
             ],
     adds: ot.adds ?? 0,

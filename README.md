@@ -30,7 +30,8 @@ already checked.
 - **Named agents.** Each one is a tool, a model and instructions: a Rust developer on Opus, a security reviewer
   that only reads code, a docs updater on a small model. Each stage of your flow names one, and a ticket can pick another.
 - **Your skills, where they are.** Your agent tools find your skills the way they always do; Otaq copies nothing.
-  Each stage of your flow names the skill it runs, and Otaq's own skills come with its plugin.
+  Each stage of your flow names the skill it runs: yours by name, Otaq's workflow skills (`otaq:validate`) come with
+  the app, and Otaq installs [tuq](https://github.com/otaq-io/tuq) when a stage needs its skills (`tuq:product-spec`).
 - **Checked by other agents.** Checkers test the work against the ticket and run your app. Work that fails goes
   back to the stage that needs to fix it, so you only see work that passed.
 - **Noyan, your planning agent.** Type "why is checkout slow? make tickets." in the box at the bottom of the board

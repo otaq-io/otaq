@@ -321,7 +321,7 @@ describe("Edit flow, on the board", () => {
     expect(cols.find((c) => c.id === "security")?.head).toMatchObject({
       what: "An agent checks it",
       who: "Security reviewer",
-      skill: "/security-check",
+      skill: "security-check",
       line: "3 rounds · fails go to Dev",
     });
     expect(cols.at(-1)?.head).toMatchObject({
@@ -336,7 +336,7 @@ describe("Edit flow, on the board", () => {
     expect(editFlowView(store.getState()).details?.rows).toEqual([
       ["What happens", "An agent checks it"],
       ["Agent", "Checker"],
-      ["Skill", "/validate"],
+      ["Skill", "otaq:validate"],
       ["Fails go to", "Dev"],
     ]);
   });

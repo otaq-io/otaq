@@ -96,7 +96,7 @@ a new model needs no Otaq update.
   skill and rounds. A ticket's helpers run on the same agent as the one in charge. Agents have no roles: Noyan uses
   the one agent set in Settings → Agents ("Noyan uses"), and a new conversation can pick another before you send.
 - **Stage choices are yours.** For any stage of a ticket that hasn't started you can pick any agent whose tool has
-  the stage's skill (a stage running one of Otaq's own skills takes every agent): `SHOP-18` can be written by Opus in
+  the stage's skill (a stage running an `otaq:` or `tuq:` skill takes every agent): `SHOP-18` can be written by Opus in
   Claude Code and checked by a GPT model in Codex, while `SHOP-19` goes to Light. You can also skip the stages the
   flow marks skippable; a skippable check of yours offers "required" (it happens) and "skip". Noyan passes on only
   the choices you name ("2: Dev: Light"); otherwise every ticket runs every stage of its flow with that stage's own
@@ -133,28 +133,46 @@ worktree. Otaq doesn't copy, import or rename them, and writes no skill folder i
 project skill you haven't committed reaches a worktree only in Claude Code, which falls back to your checkout's
 `.claude/skills`.
 
-**Otaq's own skills come with its plugin**, the same plugin that carries its hooks, so every session has all of them
-from its start (they're listed under [the `otaq` command](otaq-command.md)). A session names a skill in its tool's
-form:
+**Otaq's workflow skills come with the app**, in the same plugin that carries its hooks, so every session has all of
+them from its start (they're listed under [the `otaq` command](otaq-command.md)) and they change only when Otaq
+updates. A flow names them `otaq:<name>` (`otaq:validate`). The planning skills of the Spec first preset are
+[tuq](https://github.com/otaq-io/tuq)'s, named `tuq:<name>` (`tuq:product-spec`). A bare name is always your own
+skill: a `validate` of yours is never Otaq's `otaq:validate`, and an Otaq update can't take over a stage of yours. A
+session names a skill in its tool's form:
 
-| Tool | Otaq's own skill | Your own skill |
-|---|---|---|
-| Claude Code | `/otaq:<name>` | `/<name>` |
-| Copilot | `/otaq:<name>` | `/<name>` |
-| Codex | `$otaq:<name>` | `$<name>` |
-| OpenCode | `<name>` | `<name>` |
+| Tool | Otaq's skill | tuq's skill | Your own skill |
+|---|---|---|---|
+| Claude Code | `/otaq:<name>` | `/tuq:<name>` | `/<name>` |
+| Codex | `$otaq:<name>` | `$tuq:<name>` | `$<name>` |
+| Copilot | `/otaq:otaq-<name>` | `tuq-<name>`, typed as [tuq's README](https://github.com/otaq-io/tuq#readme) says | `/<name>` |
+| OpenCode | `otaq-<name>` | `tuq-<name>` | `<name>` |
 
 OpenCode has no typed command for a skill: its model loads a skill with its skill tool when it decides to. So a
 message Otaq types into an OpenCode session names the skill as an instruction, "Load the skill `<name>` with your
 skill tool and follow it. If you don't have a skill with that name, say so and stop.", followed by the usual text.
 
+**tuq is yours, and Otaq installs it when a stage needs it.** A stage that names a `tuq:` skill runs the tuq installed
+in the stage's tool, your own changes included. When that tool has no tuq, or an older one without the skill, Otaq
+runs [tuq's installer](https://github.com/otaq-io/tuq#readme) for that tool before the stage starts (it installs or
+updates tuq, with its `tuq` and `tuq-plan` commands in `~/.tuq/bin`) and notes it in the ticket's History. If that
+fails, for example offline, the card waits in Needs you with "Your tuq doesn't have `tuq:<name>`"; **Check again**
+tries once more. Settings → About shows tuq's version (per tool when they differ), and History names the tuq each
+session ran. Disconnecting Codex removes Otaq's plugin and leaves tuq.
+
+**A stage with a skill of its own starts with Otaq's.** An Agent stage whose skill is tuq's or yours first runs
+`otaq:work-ticket`, which reads the ticket, then Otaq types the stage's skill into the same session. The stage's
+skill says what to do; `otaq:work-ticket` keeps the ticket's way of doing it: questions come to the card, the work is
+committed at the stage's end, and the stage ends by moving the ticket on.
+
 **A flow stage names the skill it runs.** Agents have no skill list; the stage's Skill field is the one place a skill
-is picked. **Pick a skill…** lists the skills Otaq finds in your tools' folders and in the project, plus Otaq's own,
-and you can also type a name. A stage that names no skill runs Otaq's own skill for it (`validate` on Validate,
-`open-pr` for the flow's delivery, which names its own with `skill:` under `delivery:`). A stage that names a skill you don't have still applies, with the warning
+is picked. **Pick a skill…** lists your skills first, the ones Otaq finds in your tools' folders and in the project,
+then a group headed "Otaq" with its `otaq:` and `tuq:` skills, each badged "Otaq"; you can also type a name. A stage
+that names no skill runs Otaq's own skill for it (`otaq:work-ticket` on an Agent stage, `otaq:validate` on Validate,
+`otaq:open-pr` for the flow's delivery, which names its own with `skill:` under `delivery:`). A stage that names a skill you don't have still applies, with the warning
 "You don't have the skill `<name>`". A stage can't name a tool's built-in command, such as Claude Code's
 `/security-review`, as its skill unless you have a skill of that name: the flow is refused, so write a small skill
-that runs the command and name that skill instead.
+that runs the command and name that skill instead. Flows made before Otaq named its skills this way are renamed once
+when you update, and the flow's History says "Otaq renamed its skills to otaq: and tuq:".
 
 **A stage runs only on a tool that has its skill.** A stage due to start on a tool that doesn't have the skill it
 names doesn't start: its card waits in Needs you with "Codex doesn't have the skill `$team-validate`", **Check
@@ -190,6 +208,9 @@ you, with one **Pieces** list:
 1. Wishlist API
 2. Wishlist button — waits for 1
 ```
+
+A `tuq:milestone-plan` stage writes the plan into `tuq/plans/<feature>.md` in your repository and copies its Plan onto
+the ticket; when the ticket comes back to that stage, the ticket's Plan, with your edits, goes back into the file.
 
 In the build stage, the agent in charge may start **helpers**: other agents, one per piece, each in its own worktree.
 It reviews each helper's work, sends it back with a note or merges it into the ticket's branch, so the feature
