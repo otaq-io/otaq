@@ -324,9 +324,19 @@ fn work_ticket_runs_a_task_skill_the_otaq_way() {
         "a skill that was started may call the skills it names".to_owned(),
         "about how, this skill wins; about what, the task skill wins".to_owned(),
         "**Never start a skill on your own initiative.**".to_owned(),
+        // Decision 098: whether the stage has anything to do is the task skill's call (what), never the first turn's.
+        "Don't judge yet whether your stage has anything to add: that is the task skill's call"
+            .to_owned(),
+        "When the task skill finds nothing to do, end the stage then".to_owned(),
     ] {
         assert!(work.contains(&text), "work-ticket must say {text:?}");
     }
+    assert!(
+        !work.contains(
+            "When your stage has nothing to add, end it at once with a short note, as step 1 says"
+        ),
+        "work-ticket's first turn must not end a task-skill stage before its task skill runs"
+    );
     let noyan = flat(&read_skill("noyan"));
     for text in [
         "**Never start a skill on your own initiative.**",
