@@ -8,6 +8,9 @@
 //! No reminder for a turn the user's own message typed in the agent's terminal started (an answer to an open question
 //! typed there still gets one), while a helper isn't merged, while the ticket has an open question or another message
 //! waits for the session, or when the ticket isn't Working in an Agent stage (validating, delivering, paused).
+//!
+//! A turn end with a skill waiting to be typed at once (the stage's task skill after Otaq's `work-ticket`, decision 081)
+//! isn't Idle either: the next turn starts right away.
 
 use std::collections::HashSet;
 use std::sync::atomic::{AtomicBool, Ordering};
@@ -75,9 +78,10 @@ impl Signals {
             .insert(ticket_id.to_owned());
     }
 
-    /// The agent of `ticket_id` (in `session`) ended its turn as Idle: when the reminder is due, it is queued and the
-    /// turn end changes nothing ([`super::Signal::TurnEnded`]); otherwise the ticket shows Idle. Either way the turn's
-    /// chat and reminder marks are used up.
+    /// The agent of `ticket_id` (in `session`) ended its turn as Idle: when a skill waits to be typed at once (the
+    /// stage's task skill), or the reminder is due and is queued, the turn end changes nothing
+    /// ([`super::Signal::TurnEnded`]); otherwise the ticket shows Idle. Either way the turn's chat and reminder marks are
+    /// used up.
     pub(super) async fn remind_instead_of_idle(
         &self,
         ticket_id: &str,
@@ -94,14 +98,19 @@ impl Signals {
             .lock()
             .expect("reminded")
             .remove(ticket_id);
-        let Some(deliveries) = reminders
-            .deliveries
-            .get()
-            .filter(|_| reminders.on.load(Ordering::Relaxed))
-        else {
+        let Some(deliveries) = reminders.deliveries.get() else {
             return Ok(false);
         };
-        if chatting || reminded || !self.reminder_due(ticket_id, session, deliveries).await? {
+        // A skill waits to be typed now (the stage's task skill after Otaq's `work-ticket`, decision 081): the next
+        // turn starts at once, so this turn end isn't Idle and needs no reminder.
+        if skill_typed_next(deliveries, session).await {
+            return Ok(true);
+        }
+        if !reminders.on.load(Ordering::Relaxed)
+            || chatting
+            || reminded
+            || !self.reminder_due(ticket_id, session, deliveries).await?
+        {
             return Ok(false);
         }
         reminders
@@ -176,6 +185,23 @@ impl Signals {
                 tracing::warn!(session, error = %e, "can't read the waiting messages");
                 Ok(false)
             }
+        }
+    }
+}
+
+/// Whether a skill waits for `session` and is typed as soon as this turn end is applied: the session is idle with an
+/// empty input line ([`Deliveries::is_ready`]). Behind the user's unsent text it waits, and the turn end is Idle.
+async fn skill_typed_next(deliveries: &Deliveries, session: &str) -> bool {
+    if !deliveries.is_ready(session).unwrap_or(false) {
+        return false;
+    }
+    match deliveries.pending(session).await {
+        Ok(waiting) => waiting.iter().any(|d| {
+            d.kind == DeliveryKind::Skill.as_str() || d.kind == DeliveryKind::TaskSkill.as_str()
+        }),
+        Err(e) => {
+            tracing::warn!(session, error = %e, "can't read the waiting messages");
+            false
         }
     }
 }

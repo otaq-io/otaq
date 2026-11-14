@@ -336,12 +336,17 @@ async fn the_product_spec_stage_installs_tuq_then_runs_tuq_product_spec() {
     let t = w.create("SHOP", "Coupon codes").await;
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(&claude_skill("tuq:product-spec")), "{args}");
-    assert!(args.ends_with("/tuq:product-spec"), "{args}");
+    assert!(args.ends_with(&claude_skill("otaq:work-ticket")), "{args}");
     assert!(out.contains("AGENTS ."), "{out}");
     assert_eq!(installer_runs(&home), ["--tool claude"]);
     assert_eq!(tuq_notes(&w, &t).await, ["tuq 2026.11.14 installed"]);
     let agent = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    // The stage's task skill, typed once `work-ticket`'s first turn ends (decision 081).
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &agent.id).await,
+        [claude_skill("tuq:product-spec")]
+    );
+    assert_eq!(claude_skill("tuq:product-spec"), "/tuq:product-spec");
     assert_eq!(
         session_tuq(&w, &agent.id).await.as_deref(),
         Some("2026.11.14")
@@ -371,7 +376,12 @@ async fn an_older_tuq_lacking_the_skill_is_updated_then_runs() {
     let t = w.create("SHOP", "Coupon codes").await;
     let out = started(&w, &t).await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with("/tuq:product-spec"), "{args}");
+    assert!(args.ends_with(&claude_skill("otaq:work-ticket")), "{args}");
+    let agent = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &agent.id).await,
+        ["/tuq:product-spec"]
+    );
     assert_eq!(installer_runs(&home), ["--tool claude"]);
     assert_eq!(
         tuq_notes(&w, &t).await,
@@ -466,7 +476,11 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     .expect("the stage started");
     let out = w.wait_for_output(&agent.id, "CLAUDE").await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with("/tuq:product-spec"), "{args}");
+    assert!(args.ends_with(&claude_skill("otaq:work-ticket")), "{args}");
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &agent.id).await,
+        ["/tuq:product-spec"]
+    );
     w.stop().await;
 }
 
@@ -981,7 +995,11 @@ async fn an_agent_stage_whose_tool_lacks_its_skill_is_held_until_check_again() {
     .expect("started");
     let out = w.wait_for_output(&agent.id, "CLAUDE").await;
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.ends_with(&claude_skill("team-dev")), "{args}");
+    assert!(args.ends_with(&claude_skill("otaq:work-ticket")), "{args}");
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &agent.id).await,
+        [claude_skill("team-dev")]
+    );
     assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
     w.stop().await;
 }
@@ -1049,7 +1067,16 @@ async fn a_personal_codex_skill_is_codexs_and_its_stage_starts() {
     let out = started(&w, &t).await;
     let typed = w.adapters.get(Tool::Codex).skill_reference("reltest-docs");
     let args = out.lines().find(|l| l.starts_with("ARGS")).unwrap();
-    assert!(args.contains(&typed), "{args}");
+    let work_ticket = w
+        .adapters
+        .get(Tool::Codex)
+        .skill_reference("otaq:work-ticket");
+    assert!(args.ends_with(&work_ticket), "{args}");
+    let agent = w.sessions.running_of(&t.id, SessionKind::Agent).unwrap();
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &agent.id).await,
+        [typed]
+    );
     assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
     w.stop().await;
 }

@@ -50,8 +50,9 @@ fn me() -> Actor {
 
 /// The stand-in `claude`. Its state is in `state` (Otaq's data folder in `state/data`, so its `otaq` reaches the
 /// test's service); it logs its arguments, then acts by the skill it was started with:
-/// - Product spec (`/tuq:product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next`
-///   with comment 1, its turn ends;
+/// - Product spec (`/otaq:work-ticket` first, decision 081): its first turn ends, and once Otaq types the stage's task
+///   skill (`/tuq:product-spec`): `prime`, the description with Agreed (`otaq update --stdin`), `stage next` with
+///   comment 1, its turn ends;
 /// - Dev (`/otaq:work-ticket`): waits for `state/go-dev` (the user's comment comes first), `prime`, a commit, `stage
 ///   next` with comment 3, its turn ends; then records each line typed into it, and on a failed check tries `stage
 ///   next` first (refused), runs `prime`, greps the report through `otaq report --path`, commits and ends again;
@@ -79,14 +80,27 @@ commit() {{
     git add -A
     git -c user.name=t -c user.email=t@t commit -qm "$OTAQ_TICKET: $1"
 }}
-case "$*" in
-*tuq:product-spec*)
+product_spec() {{
     otaq prime > "$STATE/product-spec-prime.md"
     otaq update --stdin < "$STATE/agreed.md" > /dev/null
+    touch "$STATE/product-spec-done"
     otaq stage next --stdin < "$STATE/say-product-spec"
     stop
     exec sleep 300
+}}
+case "$*" in
+*otaq:work-ticket*)
+    # Product spec's first turn: Otaq's `work-ticket` alone; its end brings the task skill.
+    if [ ! -e "$STATE/product-spec-done" ]; then
+        stop
+        while IFS= read -r line; do
+            printf '%s\n' "$line" >> "$STATE/product-spec-told.txt"
+            case "$line" in *tuq:product-spec*) product_spec ;; esac
+        done
+    fi
     ;;
+esac
+case "$*" in
 *otaq:validate*)
     if [ -e "$STATE/failed" ]; then round=2; else round=1; fi
     otaq prime --validate > "$STATE/check-prime-$round.md"
@@ -295,6 +309,10 @@ async fn the_example_hands_over_through_comments_and_a_report() {
             && w.sessions.running_of(&t.id, SessionKind::Agent).is_some()
     })
     .await;
+    // Decision 081: Product spec started with Otaq's `work-ticket`; its first turn's end brought the task skill, typed
+    // as Claude Code names it.
+    let told = read(state, "product-spec-told.txt");
+    assert!(told.contains(&claude_skill("tuq:product-spec")), "{told:?}");
     let product_spec_prime = read(state, "product-spec-prime.md");
     assert!(
         product_spec_prime.contains("\n## Your stage\n\nProduct spec, as Spec writer"),

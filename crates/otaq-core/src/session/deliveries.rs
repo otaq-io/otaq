@@ -60,6 +60,9 @@ stored_enum! {
         Validation = "validation",
         /// "You ended your turn but your stage is still open…": once, before Idle (d0042 2026-10-28).
         StageReminder = "stage_reminder",
+        /// A stage's task skill (tuq decision 081), typed once Otaq's `work-ticket` ended its first turn. The end of
+        /// its stage's run removes it ([`crate::board::stage_runs::end_open`]), whatever ends the stage.
+        TaskSkill = "task_skill",
     }
 }
 
@@ -138,6 +141,9 @@ pub struct Deliveries {
     /// By session: whether its input line held unsent text when a person's key last settled
     /// ([`Self::line_settled`]).
     lines: Arc<Mutex<HashMap<String, bool>>>,
+    /// The task skills queued ([`Self::queue_task_skill`]), by `pending_deliveries.id`, with their session: once the
+    /// end of their stage's run removed the row, the session's waiting count is told again.
+    task_skills: Arc<Mutex<HashMap<String, String>>>,
 }
 
 impl Deliveries {
@@ -158,6 +164,7 @@ impl Deliveries {
             senders: Arc::default(),
             conditions: Arc::default(),
             lines: Arc::default(),
+            task_skills: Arc::default(),
         }
     }
 
@@ -237,6 +244,45 @@ impl Deliveries {
         .map_err(store_error)?;
         self.publish_waiting(session).await?;
         Ok(id)
+    }
+
+    /// A stage's task skill (tuq decision 081) for its new `session`: typed, as any automatic delivery, once Otaq's
+    /// `work-ticket` ended its first turn and the input line is empty. It waits only as long as its stage's run: the
+    /// run's end removes it ([`crate::board::stage_runs::end_open`]: `work-ticket` ending the stage at once, a drag,
+    /// Stop, a fail, a send-back), and it is never carried to another session ([`Self::session_ended`]).
+    pub async fn queue_task_skill(&self, session: &str, text: &str) -> Result<(), SessionError> {
+        let id = self.hold(session, DeliveryKind::TaskSkill, text).await?;
+        self.task_skills
+            .lock()
+            .expect("task skills")
+            .insert(id, session.to_owned());
+        self.not_for_an_ended(session).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// A ticket changed (a stage's run may have ended, removing its task skill): each session whose queued task skill
+    /// is gone is told its waiting count again, so no "1 message waiting" stays behind.
+    async fn task_skills_removed(&self) -> Result<(), SessionError> {
+        let queued: Vec<(String, String)> = self
+            .task_skills
+            .lock()
+            .expect("task skills")
+            .iter()
+            .map(|(id, session)| (id.clone(), session.clone()))
+            .collect();
+        for (id, session) in queued {
+            let there: Option<String> =
+                sqlx::query_scalar("SELECT id FROM pending_deliveries WHERE id = ?")
+                    .bind(&id)
+                    .fetch_optional(self.store.pool())
+                    .await
+                    .map_err(store_error)?;
+            if there.is_none() {
+                self.task_skills.lock().expect("task skills").remove(&id);
+                self.publish_waiting(&session).await?;
+            }
+        }
+        Ok(())
     }
 
     /// An automatic hand-off (a merge conflict's `restack`, an automatic Delivery's PR step): queued as a
@@ -370,6 +416,13 @@ impl Deliveries {
                         tracing::warn!(session = session.id, error = %e, "can't move an ended session's messages");
                     }
                 }
+                Ok(Event::TicketChanged { .. })
+                    if !self.task_skills.lock().expect("task skills").is_empty() =>
+                {
+                    if let Err(e) = self.task_skills_removed().await {
+                        tracing::warn!(error = %e, "can't tell the waiting count after a task skill went");
+                    }
+                }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     tracing::warn!(missed, "deliveries fell behind on session events");
@@ -393,6 +446,17 @@ impl Deliveries {
     /// reading its ticket, so nothing it needs is lost.
     pub async fn session_ended(&self, ended: &SessionInfo) -> Result<(), SessionError> {
         self.lines.lock().expect("input lines").remove(&ended.id);
+        // A task skill is its session's stage's alone: never carried to another session.
+        sqlx::query("DELETE FROM pending_deliveries WHERE session_id = ? AND kind = ?")
+            .bind(&ended.id)
+            .bind(DeliveryKind::TaskSkill.as_str())
+            .execute(self.store.pool())
+            .await
+            .map_err(store_error)?;
+        self.task_skills
+            .lock()
+            .expect("task skills")
+            .retain(|_, session| session != &ended.id);
         let pending = self.pending(&ended.id).await?;
         if pending.is_empty() {
             return Ok(());
