@@ -10,7 +10,7 @@ import type { BoardColumn } from "../../generated/BoardColumn";
 import type { DragAnswer } from "../../generated/DragAnswer";
 import type { DropOutcome } from "../../generated/DropOutcome";
 import { afterDrop, coveredWidth, dropCard } from "./Board";
-import { EMPTY_BOX, fileAttachment, pastedAttachment, withAdded } from "../editor/commentRules";
+import { EMPTY_BOX, fileAttachment, withAdded } from "../editor/commentRules";
 import { boxOnScreen, openRequests } from "../new_work/logic";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
@@ -325,7 +325,6 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     attach_title: "Attach files to the comment",
     optional: true,
     limits: {
-      chars: null,
       report_bytes: 20 * 1024 * 1024,
       report_label: "20 MB",
       message_bytes: 16 * 1024 * 1024 - 64 * 1024,
@@ -441,7 +440,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
       return Promise.resolve({ outcome: "done" });
     };
     const comment = withAdded({ ...EMPTY_BOX, text: "Keep the old price column" }, [
-      pastedAttachment("migration log"),
+      fileAttachment({ path: "/tmp/migration.log", name: "migration.log", size: "1 KB", image: false }),
       fileAttachment({ path: "/tmp/shot.png", name: "shot.png", size: "2 KB", image: true }),
     ]);
     await sendDragBack(sendBack, comment, false, ask);
@@ -454,7 +453,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
           note: "Keep the old price column",
           clear: false,
           attachments: [
-            { kind: "pasted", text: "migration log" },
+            { kind: "file", path: "/tmp/migration.log" },
             { kind: "file", path: "/tmp/shot.png" },
           ],
         },
@@ -465,7 +464,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     expect(confirm.params.confirmLabel).toBe("Clear it and send");
     confirm.params.onConfirm();
     await flush();
-    // "Clear it and send" sends the comment and its pasted report again.
+    // "Clear it and send" sends the comment and its attachments again.
     expect(asked[1]).toEqual([
       "board.drag_back",
       {
@@ -474,7 +473,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
         note: "Keep the old price column",
         clear: true,
         attachments: [
-          { kind: "pasted", text: "migration log" },
+          { kind: "file", path: "/tmp/migration.log" },
           { kind: "file", path: "/tmp/shot.png" },
         ],
       },

@@ -267,8 +267,9 @@ mod tests {
         assert_eq!(b.submit, None);
         assert_eq!(b.footer_icon, crate::icons::IconName::MessageSquare);
         assert_eq!(
-            b.limits.chars, None,
-            "the user's comments have no limit (tuq 112)"
+            b.limits,
+            crate::view_models::comment_limits::CommentLimits::current(),
+            "the user's comments have no character limit (tuq 112)"
         );
     }
 

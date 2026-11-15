@@ -574,13 +574,6 @@
   background: var(--bg-card);
 }
 
-/* Past the limit: the red box (st-error on bg-card, 5.2:1 light, 5.9:1 dark; the counter on bg-panel 5.2:1 / 6.4:1). */
-.comment-box[data-over] .comment-box-text,
-.comment-edit[data-over] .comment-box-text {
-  border-color: var(--st-error);
-  box-shadow: inset 0 0 0 0.5px var(--st-error);
-}
-
 .comment-box-chips {
   display: flex;
   flex-wrap: wrap;
@@ -601,11 +594,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.comment-box-counter {
-  color: var(--st-error);
-  font: 500 12px var(--font-mono);
 }
 
 .comment-box-error {

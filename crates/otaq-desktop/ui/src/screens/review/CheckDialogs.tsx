@@ -54,8 +54,8 @@ export function passTicket(ticket: string, menu: boolean): Promise<void> {
   );
 }
 
-/** Sends with the dialog's busy state and the service's refusal under the box; `ready` is the box's own rule (over
- * the limit, or only a pasted report: not yet). */
+/** Sends with the dialog's busy state and the service's refusal under the box; `ready` is the box's own rule (text
+ * too long for one message to the service: not yet; length alone never blocks it, tuq 112). */
 function useSend(send: (clear: boolean) => Promise<unknown>, close: () => void, ready: boolean) {
   const [busy, setBusy] = useState(false);
   const [refusal, setRefusal] = useState<string | null>(null);
