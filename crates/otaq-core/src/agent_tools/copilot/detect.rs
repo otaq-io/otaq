@@ -1,6 +1,12 @@
 //! Detect (ADP-10): `copilot` found on PATH, its version, and "update needed" before [`OLDEST`] (Q-G; T-0347);
 //! signed in from Copilot's own answer, and Sign in… (T-0353).
 //!
+//! The version is the one Otaq launches: `copilot --no-auto-update --version`, as every launch passes the flag
+//! ([`NO_AUTO_UPDATE`]). A plain `copilot --version` names the newest package in Copilot's `pkg` cache, which
+//! `--no-auto-update` doesn't run: it runs the version bundled in the executable (in the Windows VM, 1.0.112 with a
+//! newer package in a scratch cache: plain named the cached one, with the flag 1.0.112). Copilot's launcher answers
+//! exactly these two arguments itself since 1.0.98 at least, without loading a package.
+//!
 //! Signed in, without a model call: the `session/new` of `copilot --acp` ([`models::session_answer`], the request the
 //! model list makes) answers with the account's models signed in, and `Authentication required` signed out, also
 //! when `config.json` still names an account whose keychain entry is gone. Its config file is never taken as the
@@ -9,13 +15,13 @@
 //! which 1.0.98 still reads) or the token variable Copilot takes first (`copilot help environment`, 1.0.98:
 //! `COPILOT_GITHUB_TOKEN`, `GH_TOKEN`, `GITHUB_TOKEN`, in that order).
 
-use std::ffi::OsString;
+use std::ffi::{OsStr, OsString};
 use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{COMMAND_NAME, CopilotContext, models, trust};
-use crate::agent_tools::{Detection, version_output};
+use super::{COMMAND_NAME, CopilotContext, NO_AUTO_UPDATE, models, trust};
+use crate::agent_tools::{Detection, VERSION_TIMEOUT, version_output};
 
 /// The variables Copilot takes a token from, in its order.
 const TOKEN_VARIABLES: [&str; 3] = ["COPILOT_GITHUB_TOKEN", "GH_TOKEN", "GITHUB_TOKEN"];
@@ -27,16 +33,26 @@ const USERS: [&str; 2] = ["loggedInUsers", "logged_in_users"];
 /// The oldest Copilot Otaq runs: older ones lack the flags and hooks the adapter uses (the Homebrew 0.0.404).
 pub(super) const OLDEST: [u32; 3] = [1, 0, 98];
 
-/// Installed when `copilot --version` names a version; older than [`OLDEST`] → update needed (never launched, and
-/// not asked whether it is signed in).
+/// Installed when `copilot --no-auto-update --version` names a version; older than [`OLDEST`] → update needed (never
+/// launched, and not asked whether it is signed in). A Copilot that refuses the flag (older than Otaq runs: it answers
+/// an unknown flag with an error) is read with a plain `copilot --version`, and needs an update whatever that names:
+/// every launch would fail.
 pub(super) async fn detect(context: &CopilotContext) -> Detection {
-    let Some(output) = version_output(COMMAND_NAME, &context.tool.path).await else {
+    let path = &context.tool.path;
+    let Some(output) = launched_version_output(path).await else {
         return Detection::default();
     };
-    let Some(version) = output.as_deref().and_then(parse_version) else {
-        return Detection::default();
+    let (version, refuses_flag) = match output.as_deref().and_then(parse_version) {
+        Some(version) => (version, false),
+        None => {
+            let plain = version_output(COMMAND_NAME, path).await.flatten();
+            let Some(version) = plain.as_deref().and_then(parse_version) else {
+                return Detection::default();
+            };
+            (version, true)
+        }
     };
-    if update_needed(&version) {
+    if refuses_flag || update_needed(&version) {
         return Detection {
             installed: true,
             version: Some(version),
@@ -53,6 +69,26 @@ pub(super) async fn detect(context: &CopilotContext) -> Detection {
         account,
         sign_in_offered: false,
     }
+}
+
+/// What `copilot --no-auto-update --version` printed on stdout, as [`version_output`] answers for a plain
+/// `--version`: `None` when `copilot` isn't on `path`, `Some(None)` when it failed or took too long.
+async fn launched_version_output(path: &OsStr) -> Option<Option<String>> {
+    let program = crate::tools::find_on_path(COMMAND_NAME, path)?;
+    let mut run = tokio::process::Command::new(&program);
+    run.args([NO_AUTO_UPDATE, "--version"])
+        .env("PATH", path)
+        .stdin(std::process::Stdio::null())
+        .stdout(std::process::Stdio::piped())
+        .stderr(std::process::Stdio::null())
+        .kill_on_drop(true);
+    let output = tokio::time::timeout(VERSION_TIMEOUT, run.output()).await;
+    Some(match output {
+        Ok(Ok(output)) if output.status.success() => {
+            Some(String::from_utf8_lossy(&output.stdout).into_owned())
+        }
+        _ => None,
+    })
 }
 
 /// `GitHub Copilot CLI 0.0.404.` (then a second line) → `0.0.404`.
@@ -142,10 +178,15 @@ fn signed_in_login(config: &Map<String, Value>) -> Option<String> {
     })
 }
 
-/// **Sign in…**: `copilot login` ("Authenticate with Copilot" in `copilot --help`, 1.0.98; its `--acp`
-/// `initialize` names the same command as its terminal sign-in).
+/// **Sign in…**: `copilot --no-auto-update login` ("Authenticate with Copilot" in `copilot --help`, 1.0.98; its
+/// `--acp` `initialize` names the same command as its terminal sign-in). The flag before the subcommand
+/// ([`NO_AUTO_UPDATE`]).
 pub(super) fn login_command(_context: &CopilotContext) -> Option<Vec<String>> {
-    Some(vec![COMMAND_NAME.to_owned(), "login".to_owned()])
+    Some(vec![
+        COMMAND_NAME.to_owned(),
+        NO_AUTO_UPDATE.to_owned(),
+        "login".to_owned(),
+    ])
 }
 
 #[cfg(test)]
@@ -249,9 +290,9 @@ mod tests {
         );
     }
 
-    /// A stand-in `copilot` in `bin`: `--version` prints 1.0.98; `--acp` answers `initialize`, then `session/new`
-    /// with `session` (a saved answer), or ends without answering when `session` is `None`. Shell builtins only: the
-    /// test PATH is `bin`.
+    /// A stand-in `copilot` in `bin`: `--no-auto-update --version` prints 1.0.98; `--no-auto-update --acp` answers `initialize`, then
+    /// `session/new` with `session` (a saved answer), or ends without answering when `session` is `None`. Shell
+    /// builtins only: the test PATH is `bin`.
     #[cfg(unix)]
     fn acp_stand_in(bin: &std::path::Path, session: Option<&str>) {
         use std::os::unix::fs::PermissionsExt;
@@ -265,7 +306,7 @@ mod tests {
             None => "exit 1".to_owned(),
         };
         let script = format!(
-            "#!/bin/sh\ncase \"$1\" in\n--version) echo 'GitHub Copilot CLI 1.0.98.' ;;\n--acp) read a; {}; {answer} ;;\nesac\n",
+            "#!/bin/sh\ncase \"$*\" in\n'--no-auto-update --version') echo 'GitHub Copilot CLI 1.0.98.' ;;\n'--no-auto-update --acp') read a; {}; {answer} ;;\nesac\n",
             line("initialize.json")
         );
         let file = bin.join("copilot");
@@ -274,7 +315,7 @@ mod tests {
     }
 
     /// Detect asks Copilot itself: signed in names the account from the home folder's file; signed out is signed
-    /// out even with an account in the file; no answer is "couldn't check" (`None`). Sign in… is `copilot login`.
+    /// out even with an account in the file; no answer is "couldn't check" (`None`). Sign in… is `copilot --no-auto-update login`.
     // Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
     #[cfg(unix)]
     #[tokio::test]
@@ -316,7 +357,11 @@ mod tests {
 
         assert_eq!(
             adapter.login_command(),
-            Some(vec!["copilot".to_owned(), "login".to_owned()])
+            Some(vec![
+                "copilot".to_owned(),
+                "--no-auto-update".to_owned(),
+                "login".to_owned()
+            ])
         );
     }
 }

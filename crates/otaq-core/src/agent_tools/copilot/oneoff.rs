@@ -2,15 +2,15 @@
 //!
 //! ```text
 //! copilot -p "<prompt>" [--model <model> | --model auto --auto-tier <tier>] --available-tools view glob grep rg
-//!         --deny-tool shell --deny-tool write --no-ask-user --output-format json
+//!         --deny-tool shell --deny-tool write --no-ask-user --output-format json --no-auto-update
 //! ```
 //!
 //! in the project's folder. `-p` answers once and exits. `--available-tools` leaves the model only Copilot's reading
 //! tools (`view`, `glob`, `grep`, `rg`: its own "read" and "search" kinds), which ask no permission inside the
 //! folder; `--deny-tool shell` and `--deny-tool write` refuse commands and edits even so (a denial wins over every
 //! allow); `--no-ask-user` leaves out its question tool, since nobody answers. `--output-format json` prints its
-//! session events as JSON lines. Never an approval or bypass flag (d0011): no `--allow-all-tools`, `--allow-all`,
-//! `--yolo` or `COPILOT_ALLOW_ALL`. Checked with Copilot 1.0.98 on 2026-10-18 against a local stand-in model
+//! session events as JSON lines. `--no-auto-update`: Copilot doesn't update itself ([`super::NO_AUTO_UPDATE`]).
+//! Never an approval or bypass flag (d0011): no `--allow-all-tools`, `--allow-all`, `--yolo` or `COPILOT_ALLOW_ALL`. Checked with Copilot 1.0.98 on 2026-10-18 against a local stand-in model
 //! (`COPILOT_PROVIDER_BASE_URL`, scratch `COPILOT_HOME`): the model was offered `view`, `grep` and `glob` only.
 //!
 //! Copilot keeps the question's session in its `session-state` (there is no option to keep none); nothing resumes
@@ -18,7 +18,7 @@
 
 use serde_json::Value;
 
-use super::{COMMAND_NAME, CopilotContext, launch};
+use super::{COMMAND_NAME, CopilotContext, NO_AUTO_UPDATE, launch};
 use crate::agent_tools::{LaunchError, OneOffCommand, OneOffLine, OneOffRequest, OneOffTool};
 
 /// Copilot's reading tools, the only ones the question sees.
@@ -38,7 +38,7 @@ pub(super) fn command(
     for denied in DENIED {
         args.extend(["--deny-tool".to_owned(), denied.to_owned()]);
     }
-    args.extend(["--no-ask-user", "--output-format", "json"].map(str::to_owned));
+    args.extend(["--no-ask-user", "--output-format", "json", NO_AUTO_UPDATE].map(str::to_owned));
     Ok(OneOffCommand {
         program: COMMAND_NAME.to_owned(),
         args,
@@ -133,6 +133,7 @@ mod tests {
             "--no-ask-user",
             "--output-format",
             "json",
+            "--no-auto-update",
         ];
         let plain = adapter().one_off(&request(None)).unwrap();
         assert_eq!(plain.program, "copilot");

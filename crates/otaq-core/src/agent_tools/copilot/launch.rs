@@ -3,11 +3,12 @@
 //! ```text
 //! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' --allow-tool 'shell(tuq:*)'
-//!         --allow-tool 'shell(tuq-plan:*)' -i "/otaq:otaq-work-ticket"
+//!         --no-auto-update --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)'
+//!         --allow-tool 'shell(tuq:*)' --allow-tool 'shell(tuq-plan:*)' -i "/otaq:otaq-work-ticket"
 //! ```
 //!
-//! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
+//! and a resume `copilot --resume <id> [--model …] --no-auto-update --plugin-dir … --allow-tool … [-i "<prompt>"]`
+//! (`--no-auto-update`: Copilot never updates itself during a session, [`super::NO_AUTO_UPDATE`]; the model is
 //! passed again: whether a resume keeps it isn't verified, the models report, row 6). **No permission flag**
 //! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approvals are
 //! Otaq's own `otaq` commands and tuq's `tuq` and `tuq-plan` (tuq decision 077). Otaq doesn't touch the user's
@@ -24,7 +25,7 @@
 
 use std::path::{Path, PathBuf};
 
-use super::{COMMAND_NAME, Copilot, CopilotContext};
+use super::{COMMAND_NAME, Copilot, CopilotContext, NO_AUTO_UPDATE};
 use crate::agent_tools::follow::FollowChoice;
 use crate::agent_tools::{
     FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
@@ -90,6 +91,7 @@ pub(super) fn launch(
         args.extend(["--reasoning-effort".to_owned(), effort.clone()]);
     }
     args.extend([
+        NO_AUTO_UPDATE.to_owned(),
         "--plugin-dir".to_owned(),
         plugin.display().to_string(),
         "--allow-tool".to_owned(),
@@ -325,6 +327,7 @@ mod tests {
                 id,
                 "--model".into(),
                 "gpt-5.5".into(),
+                "--no-auto-update".into(),
                 "--plugin-dir".into(),
                 i.plugin(),
                 "--allow-tool".into(),
@@ -364,7 +367,7 @@ mod tests {
             req.model = model.map(str::to_owned);
             let args = launch(&i.copilot, &req).unwrap().args;
             assert!(!args.iter().any(|a| a == "--model"), "{args:?}");
-            assert_eq!(args[2], "--plugin-dir");
+            assert_eq!(args[2..4], ["--no-auto-update", "--plugin-dir"]);
         }
         req.model = Some("auto".into());
         assert_eq!(
@@ -405,6 +408,7 @@ mod tests {
                 "5f1c0a2e-0000-7000-8000-000000000000".into(),
                 "--model".into(),
                 "gpt-5.5".into(),
+                "--no-auto-update".into(),
                 "--plugin-dir".into(),
                 i.plugin(),
                 "--allow-tool".into(),
