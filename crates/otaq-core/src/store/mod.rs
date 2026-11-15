@@ -300,9 +300,10 @@ mod tests {
     #[tokio::test]
     async fn the_skill_rename_runs_on_the_next_start_when_the_first_was_cut_short() {
         let tmp = tempfile::tempdir().unwrap();
-        let db = tmp.path().join("otaq.db");
+        let db = tmp.path().join("board.db");
+        let ours = format!("skill: {}:", crate::naming::PLUGIN_NAMESPACE);
         let bare = crate::naming::DEFAULT_FLOW_YAML
-            .replace("skill: otaq:", "skill: ")
+            .replace(&ours, "skill: ")
             .replace("skill: tuq:", "skill: ");
         assert!(bare.contains("skill: work-ticket\n"));
         older_database(&db, SKILL_NAMESPACES - 1, &bare).await;
@@ -310,7 +311,7 @@ mod tests {
 
         let store = Store::open(&db).await.unwrap();
         let yaml = current_yaml(&store).await;
-        assert!(yaml.contains("skill: otaq:work-ticket\n"), "{yaml}");
+        assert!(yaml.contains(&format!("{ours}work-ticket\n")), "{yaml}");
         assert!(store.skills_namespaced_at().await.unwrap().is_some());
         // Once is once: the next start renames nothing more.
         store.close().await;
@@ -326,7 +327,7 @@ mod tests {
     #[tokio::test]
     async fn the_delivery_move_runs_on_the_next_start_when_the_first_was_cut_short() {
         let tmp = tempfile::tempdir().unwrap();
-        let db = tmp.path().join("otaq.db");
+        let db = tmp.path().join("board.db");
         let old = "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  \
                    - name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n";
         assert!(crate::flow::yaml::upgraded(old).is_some());

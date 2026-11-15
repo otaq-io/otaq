@@ -201,13 +201,20 @@ fn copy(from: &Path, to: &Path) -> std::io::Result<()> {
         if let Some(parent) = to.parent() {
             std::fs::create_dir_all(parent)?;
         }
+        let before = std::fs::metadata(from)?;
+        let (accessed, modified) = (before.accessed()?, before.modified()?);
         std::fs::copy(from, to)?;
         // A clone keeps the modified time; so does this stand-in, as the timestamp trick's tests compare times.
-        let modified = std::fs::metadata(from)?.modified()?;
         std::fs::File::options()
             .write(true)
             .open(to)?
-            .set_modified(modified)
+            .set_modified(modified)?;
+        // A clone doesn't read the source either, so its access time stays as it was (the copy just read it).
+        std::fs::File::options().write(true).open(from)?.set_times(
+            std::fs::FileTimes::new()
+                .set_accessed(accessed)
+                .set_modified(modified),
+        )
     }
 }
 
