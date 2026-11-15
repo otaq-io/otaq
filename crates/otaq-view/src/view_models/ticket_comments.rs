@@ -986,7 +986,10 @@ mod tests {
         );
         assert_eq!(b.footer, None, "nor its line");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
-        assert_eq!(b.limits.chars, 2000);
+        assert_eq!(
+            b.limits.chars, None,
+            "the user's comments have no limit (tuq 112)"
+        );
         assert_eq!(b.open, "Open");
         assert_eq!(
             b.attach, "Attach",

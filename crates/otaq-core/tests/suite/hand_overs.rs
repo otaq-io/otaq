@@ -428,26 +428,13 @@ async fn in_review_with_line_comments(w: &TestService, title: &str, n: u32) -> T
 }
 
 /// Send back (a human check's Fail): the note is the user's comment, with a pasted report, posted before the live
-/// session is typed `/otaq:address-review` and what came back, never the note. An empty note posts nothing; a note
-/// over the limit refuses the whole Send back.
+/// session is typed `/otaq:address-review` and what came back, never the note. An empty note posts nothing; the
+/// user's note has no length limit (tuq 112: `the_users_hand_over_has_no_limit`).
 #[tokio::test(flavor = "multi_thread")]
 async fn send_back_posts_the_note_before_the_agent_is_told() {
     let w = world().await;
     let t = in_review_with_line_comments(&w, "Export orders as CSV", 2).await;
     let dev = w.agent_shell(&t).await;
-
-    let refused = w
-        .review
-        .fail("SHOP-1", &"z".repeat(2_001), Vec::new(), false, &me())
-        .await
-        .unwrap_err();
-    assert_eq!(refused.refusal(), Some(Refusal::TooLong));
-    assert_eq!(
-        w.status("SHOP-1").await,
-        Status::WaitingForYou,
-        "nothing moved"
-    );
-    assert_eq!(w.board.comments("SHOP-1", None).await.unwrap().pending, 2);
 
     let note = "Keep the column order the same as the table on screen.";
     let log = "thread main panicked at export.rs:40\n".repeat(100);
@@ -506,6 +493,47 @@ async fn send_back_posts_the_note_before_the_agent_is_told() {
     // `otaq review feedback` reads the line comments only.
     let feedback = w.board.review_feedback("SHOP-1").await.unwrap();
     assert_eq!(feedback.comments.len(), 2);
+    w.stop().await;
+}
+
+/// Tuq 112: the user's hand-over note has no length limit. A Send back with 48,210 characters moves the ticket and
+/// posts the note whole; the agent is told of it, never typed it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_users_hand_over_has_no_limit() {
+    let w = world().await;
+    let t = in_review_with_line_comments(&w, "Export orders as CSV", 1).await;
+    let dev = w.agent_shell(&t).await;
+    let note = "z".repeat(48_210);
+    // A manual check keeps its 2,000 characters, even with the user's long note.
+    let refused = w
+        .board
+        .stage_end_hand_over(&t, you(), &note, Vec::new(), &["x".repeat(2_001)])
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (refused.refusal(), refused.to_string()),
+        (
+            Some(Refusal::TooLong),
+            "A manual check is 2,001 characters; the limit is 2,000. Say in one line what the user should try."
+                .to_owned()
+        )
+    );
+    let outcome = w
+        .review
+        .fail("SHOP-1", &note, Vec::new(), false, &me())
+        .await
+        .unwrap();
+    assert!(matches!(outcome, ReturnOutcome::Done { .. }));
+    let posted = comments(&w, "SHOP-1").await;
+    assert_eq!(
+        (&posted[0].author, posted[0].body.as_str()),
+        (&you(), note.as_str())
+    );
+    let out = w
+        .wait_for_output(&dev.session, "otaq review feedback")
+        .await;
+    assert!(!out.contains(&note[..100]), "the note's text isn't typed");
+    assert_ne!(w.status("SHOP-1").await, Status::WaitingForYou, "it moved");
     w.stop().await;
 }
 

@@ -362,6 +362,11 @@ export function CommentBox({
           </>
         )}
       </div>
+      {state.tooLong !== null && (
+        <p className="comment-box-error" role="alert">
+          {state.tooLong}
+        </p>
+      )}
       {error != null && (
         <p className="comment-box-error" role="alert">
           {error}

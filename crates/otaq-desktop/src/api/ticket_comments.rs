@@ -287,7 +287,7 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(empty["heading"], "Comments");
-        assert_eq!(empty["box"]["limits"]["chars"], 2000);
+        assert_eq!(empty["box"]["limits"]["chars"], Value::Null);
         assert_eq!(empty["box"]["footer"], Value::Null, "no agent works");
 
         let pasted = "test export::limit_rows ... FAILED\n".repeat(1500);
@@ -310,16 +310,19 @@ mod tests {
         )
         .await
         .unwrap();
-        // Typed text over the limit is refused by the service too, never turned into a report.
+        // The user's comments have no character limit (tuq 112); text too long for one message to the service is
+        // refused in words before it is sent, and the connection stays.
         let refused = table(
             &h.app,
             "ticket_comments.post",
-            json!({ "key": key, "body": "x".repeat(2140) }),
+            json!({ "key": key, "body": "x".repeat(17 * 1024 * 1024) }),
         )
         .await
         .unwrap_err();
-        assert_eq!(refused.refusal.as_deref(), Some("too_long"));
-        assert!(refused.message.starts_with("Comment is 2,140 characters; the limit is 2,000."));
+        assert_eq!(
+            refused.message,
+            "too long to send: one message to the background service carries at most 16 MB"
+        );
 
         let view = table(&h.app, "ticket_comments.thread", json!({ "key": key }))
             .await

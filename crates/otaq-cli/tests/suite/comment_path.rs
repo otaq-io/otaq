@@ -5,8 +5,7 @@
 //! Validate saves its run in `$OTAQ_RESOURCE_DIR` and fails with it as a report (comment 4); Dev is told only "Validate
 //! failed round 1. Run `otaq prime`.", its `stage next` is refused until it runs `prime` (which names the report and
 //! never prints it), it greps the report through `otaq report --path`, ends again; Validate passes; the ticket reaches
-//! Code review. Every comment's author, stage and round, and History's lines, are checked; a 2,001-character comment
-//! and a 21 MB report are refused.
+//! Code review. Every comment's author, stage and round, and History's lines, are checked; a 21 MB report is refused.
 //!
 //! No agent tool runs; every folder is temporary (the stand-in's `HOME` too), and the stand-in's PATH has no other
 //! `otaq` (`path_without_build_folders`): it only ever runs this build's, by its full path.
@@ -519,14 +518,8 @@ async fn the_example_hands_over_through_comments_and_a_report() {
         .collect();
     assert_eq!(posted, [1, 2, 3, 4, 5, 6]);
 
-    // Over the limits: refused with their texts, nothing posted.
-    let long = "x".repeat(2_001);
-    let out = cb(&w, &["comment", &key, "--stdin"], &long);
-    assert_eq!(
-        refusal(&out),
-        "Comment is 2,001 characters; the limit is 2,000. Put the full text in a report with `--report-file` and \
-         keep the comment to what the next agent needs."
-    );
+    // A report over the limit: refused with its text, nothing posted. (The user's comment text has no limit, tuq
+    // 112; an agent's 2,001 characters are refused in `comments.rs`.)
     let big = state.join("big-run.txt");
     std::fs::File::create(&big)
         .unwrap()

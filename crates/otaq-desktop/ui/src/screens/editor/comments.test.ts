@@ -25,6 +25,8 @@ import {
   EMPTY_BOX,
   pasteAction,
   sentAttachments,
+  sentBytes,
+  tooLongToSend,
   uniqueName,
   withAdded,
   withoutAttachment,
@@ -97,8 +99,21 @@ afterEach(() => {
   document.body.innerHTML = "";
 });
 
-/** As the service sends them (`CommentLimits::current`). */
-const LIMITS: CommentLimits = { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" };
+/** The words of `CommentLimits::current`. */
+const TOO_LONG_TO_SEND =
+  "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.";
+
+/** With the old 2,000-character limit, which the rules still take (the service sends `chars: null` since tuq 112). */
+const LIMITS: CommentLimits = {
+  chars: 2000,
+  report_bytes: 20 * 1024 * 1024,
+  report_label: "20 MB",
+  message_bytes: 16 * 1024 * 1024 - 64 * 1024,
+  too_long_to_send: TOO_LONG_TO_SEND,
+};
+
+/** As the service sends them (`CommentLimits::current`): no character limit (tuq 112). */
+const NO_LIMIT: CommentLimits = { ...LIMITS, chars: null };
 
 const BOX: CommentBoxView = {
   label: null,
@@ -171,6 +186,7 @@ describe("the box's state", () => {
       count: 2140,
       over: true,
       counter: "2,140 / 2,000",
+      tooLong: null,
       canSubmit: false,
     });
     expect(boxState({ text: "x".repeat(2000), attachments: [] }, LIMITS).canSubmit).toBe(true);
@@ -190,6 +206,36 @@ describe("the box's state", () => {
     expect(boxState({ text: " \n ", attachments: [] }, LIMITS).canSubmit).toBe(false);
     expect(boxState(EMPTY_BOX, LIMITS, true).canSubmit).toBe(true);
     expect(boxState(withPasted(EMPTY_BOX, "z".repeat(2001)), LIMITS, true).canSubmit).toBe(true);
+  });
+});
+
+describe("the user's comments (tuq 112)", () => {
+  it("have no character limit: 48,210 characters typed or pasted stay text and can be sent", () => {
+    const long = "x".repeat(48_210);
+    expect(pasteAction(long, NO_LIMIT)).toBe("text");
+    expect(boxState({ text: long, attachments: [] }, NO_LIMIT)).toEqual({
+      count: 48_210,
+      over: false,
+      counter: null,
+      tooLong: null,
+      canSubmit: true,
+    });
+  });
+
+  it("say in words, instead of sending, text that would not fit in one message", () => {
+    const fits = "x".repeat(NO_LIMIT.message_bytes - 2);
+    expect(sentBytes(fits)).toBe(NO_LIMIT.message_bytes);
+    expect(tooLongToSend({ text: fits, attachments: [] }, NO_LIMIT)).toBe(false);
+    expect(boxState({ text: fits, attachments: [] }, NO_LIMIT).canSubmit).toBe(true);
+    const over = { text: `${fits}x`, attachments: [] };
+    expect(boxState(over, NO_LIMIT)).toMatchObject({ tooLong: TOO_LONG_TO_SEND, canSubmit: false });
+    // Escapes and UTF-8 count as sent: a line break is two bytes, "é" two.
+    expect(sentBytes('a\n"é')).toBe(9);
+    const lines = "\n".repeat(NO_LIMIT.message_bytes / 2);
+    expect(tooLongToSend({ text: lines, attachments: [] }, NO_LIMIT)).toBe(true);
+    // Pasted text goes in the same message.
+    const half = "y".repeat(NO_LIMIT.message_bytes / 2);
+    expect(tooLongToSend(withPasted({ text: half, attachments: [] }, half), NO_LIMIT)).toBe(true);
   });
 });
 
@@ -428,6 +474,27 @@ describe("CommentBox", () => {
     expect(host.querySelector("textarea")?.getAttribute("aria-invalid")).toBe("true");
     expect(button(host).disabled).toBe(true);
     expect(host.querySelector(".comment-chip")).toBeNull();
+  });
+
+  it("says in words, and doesn't send, text that would not fit in one message (tuq 112)", async () => {
+    const sent: BoxValue[] = [];
+    const host = await mount((v) => sent.push(v));
+    await type(host, "x".repeat(LIMITS.message_bytes));
+    const alert = host.querySelector(".comment-box-error[role=alert]");
+    expect(alert?.textContent).toBe(TOO_LONG_TO_SEND);
+    expect(button(host).disabled).toBe(true);
+    await act(async () => {
+      host
+        .querySelector("textarea")
+        ?.dispatchEvent(
+          new KeyboardEvent("keydown", { key: "Enter", metaKey: true, ctrlKey: true, bubbles: true }),
+        );
+      await Promise.resolve();
+    });
+    expect(sent).toEqual([]);
+    await type(host, "Short again.");
+    expect(host.querySelector(".comment-box-error")).toBeNull();
+    expect(button(host).disabled).toBe(false);
   });
 
   it("shows the quiet line from the view", async () => {

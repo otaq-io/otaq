@@ -272,6 +272,21 @@ async fn back_queues_the_note_and_sets_the_status() {
     let w = &world.w;
     let (t, _, _agent, caller) = at_work(w, "Wishlist").await;
     let helper = start(w, &t, &caller, 1, "Wishlist API").await;
+    // A helper's note is an agent's text: CMT-02's 2,000 characters stay (tuq 112 frees the user's comments only).
+    let long = w
+        .helpers
+        .back(&caller, "SHOP-1", 1, &"x".repeat(2_001))
+        .await
+        .unwrap_err();
+    assert_eq!(
+        (long.refusal(), long.to_string()),
+        (
+            Some(otaq_core::board::Refusal::TooLong),
+            "Comment is 2,001 characters; the limit is 2,000. Put the full text in a report with `--report-file` \
+             and keep the comment to what the next agent needs."
+                .to_owned()
+        )
+    );
     let reply = w
         .helpers
         .back(
