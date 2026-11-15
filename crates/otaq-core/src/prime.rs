@@ -927,7 +927,12 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
             review.round
         ));
         for c in &review.comments {
-            out.push_str(&format!("- {}:{}: {}\n", c.file, c.line, c.body.trim()));
+            out.push_str(&format!(
+                "- {}:{}: {}\n",
+                c.file,
+                c.line,
+                nest_headings(c.body.trim())
+            ));
         }
     }
     if !ctx.parents.is_empty() || !ctx.children.is_empty() {
@@ -1103,6 +1108,94 @@ fn short(sha: &str) -> &str {
 
 fn subject(message: &str) -> &str {
     message.lines().next().unwrap_or_default()
+}
+
+/// How many levels a heading inside a comment's body is pushed down (tuq 110): a comment sits under `### <heading>`,
+/// so its `#` reads as `####`.
+const NESTED_BY: usize = 3;
+
+/// A comment's body with each Markdown heading pushed down below the comment's own `###` heading (tuq 110), so no
+/// heading in it reads as one of `prime`'s sections: `# Done` becomes `#### Done`, capped at `######`. Only ATX
+/// headings count (up to 3 spaces, 1 to 6 `#`, then a space, a tab or the line's end: never `#123` or `#tag`); lines
+/// inside a fenced code block (backticks or tildes) are left alone, and nothing else changes. A body with no heading
+/// comes back as it is.
+pub fn nest_headings(body: &str) -> std::borrow::Cow<'_, str> {
+    let mut out = String::with_capacity(body.len() + 16);
+    let mut changed = false;
+    // The open fence's character and length, while inside one.
+    let mut fence: Option<(char, usize)> = None;
+    for line in body.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let ending = &line[text.len()..];
+        match fence {
+            Some(open) => {
+                if closes_fence(text, open) {
+                    fence = None;
+                }
+                out.push_str(line);
+            }
+            None => {
+                if let Some(open) = opens_fence(text) {
+                    fence = Some(open);
+                    out.push_str(line);
+                } else if let Some((indent, level)) = atx_heading(text) {
+                    out.push_str(&text[..indent]);
+                    out.push_str(&"#".repeat((level + NESTED_BY).min(6)));
+                    out.push_str(&text[indent + level..]);
+                    out.push_str(ending);
+                    changed = true;
+                } else {
+                    out.push_str(line);
+                }
+            }
+        }
+    }
+    match changed {
+        true => std::borrow::Cow::Owned(out),
+        false => std::borrow::Cow::Borrowed(body),
+    }
+}
+
+/// Up to 3 leading spaces: their count, or nothing for a line indented further (an indented code block's).
+fn indent_of(line: &str) -> Option<usize> {
+    let n = line.len() - line.trim_start_matches(' ').len();
+    (n <= 3).then_some(n)
+}
+
+/// An ATX heading line: its indent and level (`## x` is `(0, 2)`).
+fn atx_heading(line: &str) -> Option<(usize, usize)> {
+    let indent = indent_of(line)?;
+    let rest = &line[indent..];
+    let level = rest.len() - rest.trim_start_matches('#').len();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    match rest[level..].chars().next() {
+        None | Some(' ') | Some('\t') => Some((indent, level)),
+        Some(_) => None,
+    }
+}
+
+/// A line opening a fenced code block: its character and length (3 or more backticks or tildes; a backtick fence's
+/// info string holds no backtick).
+fn opens_fence(line: &str) -> Option<(char, usize)> {
+    let rest = &line[indent_of(line)?..];
+    let ch = rest.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let len = rest.len() - rest.trim_start_matches(ch).len();
+    if len < 3 || (ch == '`' && rest[len..].contains('`')) {
+        return None;
+    }
+    Some((ch, len))
+}
+
+/// Whether `line` closes the fence `open`: the same character, at least as many, and nothing after but spaces.
+fn closes_fence(line: &str, (ch, len): (char, usize)) -> bool {
+    let Some(indent) = indent_of(line) else {
+        return false;
+    };
+    let rest = &line[indent..];
+    let run = rest.len() - rest.trim_start_matches(ch).len();
+    run >= len && rest[run..].trim().is_empty()
 }
 
 /// `> ` before each line of a quoted comment, indented by `indent`.
@@ -1286,7 +1379,7 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
         // A comment of only attachments (tuq 007): its heading, then its attachments' lines.
         let body = c.body.trim();
         if !body.is_empty() {
-            out.push_str(&format!("\n{body}\n"));
+            out.push_str(&format!("\n{}\n", nest_headings(body)));
         }
         let lines = c.attachment_lines(key);
         if !lines.is_empty() {
@@ -1323,7 +1416,7 @@ pub fn render_user_answers(answers: &[HumanAnswer]) -> String {
 /// report's line.
 fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketComment) {
     out.push_str(&format!("  Last comment, {}:\n", comment.heading()));
-    quote(out, "  ", &comment.body);
+    quote(out, "  ", &nest_headings(&comment.body));
     for line in comment.attachment_lines(key) {
         out.push_str(&format!("  {line}\n"));
     }
