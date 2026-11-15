@@ -1086,3 +1086,127 @@ async fn a_parents_last_comment_from_an_agent_stage() {
     assert!(text.contains(&expected), "missing {expected:?} in\n{text}");
     w.stop().await;
 }
+
+/// tuq 110: a heading inside a comment is pushed down below the comment's own `###` heading (`#` → `####`, capped at
+/// six); only ATX headings count, and lines in a fenced code block (backticks or tildes) are left alone.
+#[test]
+fn a_comments_headings_nest_under_its_own() {
+    use otaq_core::prime::nest_headings;
+    assert_eq!(
+        nest_headings("# Summary\nDone.\n## Tests\n### a\n#### b\n##### c\n###### d"),
+        "#### Summary\nDone.\n##### Tests\n###### a\n###### b\n###### c\n###### d"
+    );
+    // Up to 3 spaces, a tab after the marks, an empty heading and a closing sequence are headings too; line endings
+    // stay as they were.
+    assert_eq!(
+        nest_headings("   # in\n#\ttab\n#\n## end ##\r\nx"),
+        "   #### in\n####\ttab\n####\n##### end ##\r\nx"
+    );
+    // Not headings: no space after the marks, seven marks, four spaces, a quoted line, mid-line.
+    for plain in [
+        "#123 fixed",
+        "#tag",
+        "####### seven",
+        "    # indented code",
+        "> # quoted",
+        "see # here",
+        "",
+    ] {
+        assert_eq!(nest_headings(plain), plain);
+    }
+    // Fenced code is left alone, with backticks and tildes; a fence closes only with its own mark, as long or longer.
+    assert_eq!(
+        nest_headings(
+            "```sh\n# a shell comment\n~~~\n# still code\n```\n# Out\n~~~~\n# code\n```\n~~~\n# Code\n~~~~~\n# After"
+        ),
+        "```sh\n# a shell comment\n~~~\n# still code\n```\n#### Out\n~~~~\n# code\n```\n~~~\n# Code\n~~~~~\n#### After"
+    );
+    // A backtick run with a backtick after it opens no fence; an unclosed fence runs to the end.
+    assert_eq!(nest_headings("``` a ` b\n# H"), "``` a ` b\n#### H");
+    assert_eq!(nest_headings("```\n# code"), "```\n# code");
+    // A body with no heading comes back as it is, borrowed.
+    let plain = "Done.\n\n- one\n- two\n\n```\n# x\n```\n";
+    assert!(matches!(
+        nest_headings(plain),
+        std::borrow::Cow::Borrowed(b) if b == plain
+    ));
+}
+
+/// tuq 110 (plan piece 3): `prime` prints a comment's `#` and `##` lines below its `###` heading, leaves a `#` line in
+/// a code fence alone, and prints a comment with no heading exactly as before; `prime --validate` too. A parent's last
+/// comment from an Agent stage, quoted under "Depends on", is nested the same way.
+#[tokio::test(flavor = "multi_thread")]
+async fn prime_nests_a_comments_headings_under_the_comment() {
+    let w = with_agents().await;
+    let parent = w.create("SHOP", "Export orders as CSV").await;
+    let pkey = parent.key.to_string();
+    comment_at(
+        &w,
+        &pkey,
+        agent("Rust developer", "dev", None),
+        "# Summary\n\nAdded the export.\n\n## Tests\n\n- `export_tests` pass\n- #123 is fixed",
+        (14, 50),
+    )
+    .await;
+    comment_at(
+        &w,
+        &pkey,
+        you(),
+        "Run it like this:\n\n```sh\n# from the repo root\ncargo run -- export\n```",
+        (15, 0),
+    )
+    .await;
+    comment_at(
+        &w,
+        &pkey,
+        agent("Rust developer", "dev", None),
+        "Done. Kept #tag as it was.\nSee `export.rs`.",
+        (15, 10),
+    )
+    .await;
+    w.force_status(&parent, Status::Working).await;
+    let text = render(
+        &w.board
+            .prime_context(&pkey, w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
+    let expected = "\n## Comments\n\n\
+         ### Rust developer · Dev · 2:50 pm\n\n\
+         #### Summary\n\nAdded the export.\n\n##### Tests\n\n- `export_tests` pass\n- #123 is fixed\n\n\
+         ### You · 3:00 pm\n\n\
+         Run it like this:\n\n```sh\n# from the repo root\ncargo run -- export\n```\n\n\
+         ### Rust developer · Dev · 3:10 pm\n\n\
+         Done. Kept #tag as it was.\nSee `export.rs`.\n";
+    assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    let validate = otaq_core::prime::render_validate(&w.board.validate_prime(&pkey).await.unwrap());
+    assert!(
+        validate.contains(expected),
+        "missing {expected:?} in\n{validate}"
+    );
+
+    // The parent's last comment from an Agent stage, quoted under "Depends on", nests the same way.
+    comment_at(
+        &w,
+        &pkey,
+        agent("Rust developer", "dev", None),
+        "# Handover\n```\n# kept\n```\nNo heading here.",
+        (16, 0),
+    )
+    .await;
+    let child = w.create("SHOP", "Export invoices as CSV").await;
+    w.board
+        .add_dependency(&child.key.to_string(), &pkey, &Actor::User("me".into()))
+        .await
+        .unwrap();
+    let text = render(
+        &w.board
+            .prime_context(&child.key.to_string(), w.adapters.for_new_session())
+            .await
+            .unwrap(),
+    );
+    let expected = "  Last comment, Rust developer · Dev · 4:00 pm:\n  > #### Handover\n  > ```\n  > # kept\n  > \
+         ```\n  > No heading here.\n";
+    assert!(text.contains(expected), "missing {expected:?} in\n{text}");
+    w.stop().await;
+}

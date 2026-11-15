@@ -100,7 +100,11 @@ pub fn render(p: &HelperPrime) -> String {
     if !p.notes.is_empty() {
         out.push_str("\n## Notes between you and the agent in charge\n");
         for c in &p.notes {
-            out.push_str(&format!("\n### {}\n\n{}\n", c.heading(), c.body.trim()));
+            out.push_str(&format!(
+                "\n### {}\n\n{}\n",
+                c.heading(),
+                crate::prime::nest_headings(c.body.trim())
+            ));
         }
     }
     out.push_str(&format!(
