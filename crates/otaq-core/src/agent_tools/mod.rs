@@ -1036,6 +1036,13 @@ pub trait AgentTool: Send + Sync {
 
     // Turn ends and models (ADP-12, AGT-05).
 
+    /// Whether the tool's sessions pass long text to `otaq` through a file (`--stdin-file`) instead of stdin: Codex
+    /// sandboxes a command its `otaq` prefix rule doesn't match (a heredoc, a pipe, a redirect), and a sandboxed
+    /// command can't reach the service (fixes-before-0-3, piece 1). Its prime then names the file. Only Codex.
+    fn long_text_through_file(&self) -> bool {
+        false
+    }
+
     /// Whether the tool's turn end says what the turn left running (Claude Code's `background_tasks`). When not
     /// (Codex, Copilot, OpenCode), Otaq checks the agent's process tree (ADP-12).
     fn turn_end_reports_background(&self) -> bool {

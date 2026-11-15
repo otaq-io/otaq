@@ -387,6 +387,10 @@ impl AgentTool for Codex {
         false
     }
 
+    fn long_text_through_file(&self) -> bool {
+        true
+    }
+
     /// Codex starts its code-mode host during the first turn and keeps it until it quits (seen on Windows with Codex
     /// 0.166: after the turn's `UserPromptSubmit`, before its `Stop`).
     fn own_helper_programs(&self) -> &'static [&'static str] {

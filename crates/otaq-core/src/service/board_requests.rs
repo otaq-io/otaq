@@ -2287,10 +2287,12 @@ fn caller_session(caller: &Caller) -> Option<&str> {
     }
 }
 
-/// The file a Codex session's `prime` tells it to pass long text through (fixes-before-0-3, piece 1;
+/// The file a session's `prime` tells it to pass long text through, when its tool's adapter asks for one
+/// ([`crate::agent_tools::AgentTool::long_text_through_file`]: Codex; fixes-before-0-3, piece 1;
 /// [`crate::prime::long_text_file`]); `None` for every other tool's session and the user, whose prime stays as it was.
 pub(super) fn codex_long_text_file(shared: &Shared, caller: &Caller) -> Option<std::path::PathBuf> {
-    if caller_tool(shared, caller) != Some(crate::agent_tools::Tool::Codex) {
+    let tool = caller_tool(shared, caller)?;
+    if !shared.adapters.get(tool).long_text_through_file() {
         return None;
     }
     caller_session(caller).map(crate::prime::long_text_file)
