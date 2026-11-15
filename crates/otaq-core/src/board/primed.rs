@@ -64,7 +64,7 @@ impl Board {
     /// The task skill gate: while `session`'s stage task skill (a [`DeliveryKind::TaskSkill`] delivery) still waits to
     /// be typed, `Some` with the stage's skill as the flow names it (`tuq:product-spec`; `None` inside when the flow no
     /// longer names one); `None` when nothing waits. A task skill waits only as long as its open run (the run's end
-    /// removes it, [`super::stage_runs::end_open`]) and its running session
+    /// removes it, `stage_runs::end_open`) and its running session
     /// ([`crate::session::deliveries::Deliveries::session_ended`]); a stage held because its tool lacks the skill
     /// never launched, so never queued one.
     ///
