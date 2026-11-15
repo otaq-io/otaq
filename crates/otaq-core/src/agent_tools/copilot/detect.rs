@@ -14,7 +14,7 @@ use std::path::Path;
 
 use serde_json::{Map, Value};
 
-use super::{COMMAND_NAME, CopilotContext, models, trust};
+use super::{COMMAND_NAME, CopilotContext, NO_AUTO_UPDATE, models, trust};
 use crate::agent_tools::{Detection, version_output};
 
 /// The variables Copilot takes a token from, in its order.
@@ -142,10 +142,15 @@ fn signed_in_login(config: &Map<String, Value>) -> Option<String> {
     })
 }
 
-/// **Sign in…**: `copilot login` ("Authenticate with Copilot" in `copilot --help`, 1.0.98; its `--acp`
-/// `initialize` names the same command as its terminal sign-in).
+/// **Sign in…**: `copilot --no-auto-update login` ("Authenticate with Copilot" in `copilot --help`, 1.0.98; its
+/// `--acp` `initialize` names the same command as its terminal sign-in). The flag before the subcommand
+/// ([`NO_AUTO_UPDATE`]).
 pub(super) fn login_command(_context: &CopilotContext) -> Option<Vec<String>> {
-    Some(vec![COMMAND_NAME.to_owned(), "login".to_owned()])
+    Some(vec![
+        COMMAND_NAME.to_owned(),
+        NO_AUTO_UPDATE.to_owned(),
+        "login".to_owned(),
+    ])
 }
 
 #[cfg(test)]
@@ -249,9 +254,9 @@ mod tests {
         );
     }
 
-    /// A stand-in `copilot` in `bin`: `--version` prints 1.0.98; `--acp` answers `initialize`, then `session/new`
-    /// with `session` (a saved answer), or ends without answering when `session` is `None`. Shell builtins only: the
-    /// test PATH is `bin`.
+    /// A stand-in `copilot` in `bin`: `--version` prints 1.0.98; `--no-auto-update --acp` answers `initialize`, then
+    /// `session/new` with `session` (a saved answer), or ends without answering when `session` is `None`. Shell
+    /// builtins only: the test PATH is `bin`.
     #[cfg(unix)]
     fn acp_stand_in(bin: &std::path::Path, session: Option<&str>) {
         use std::os::unix::fs::PermissionsExt;
@@ -265,7 +270,7 @@ mod tests {
             None => "exit 1".to_owned(),
         };
         let script = format!(
-            "#!/bin/sh\ncase \"$1\" in\n--version) echo 'GitHub Copilot CLI 1.0.98.' ;;\n--acp) read a; {}; {answer} ;;\nesac\n",
+            "#!/bin/sh\ncase \"$*\" in\n--version) echo 'GitHub Copilot CLI 1.0.98.' ;;\n'--no-auto-update --acp') read a; {}; {answer} ;;\nesac\n",
             line("initialize.json")
         );
         let file = bin.join("copilot");
@@ -274,7 +279,7 @@ mod tests {
     }
 
     /// Detect asks Copilot itself: signed in names the account from the home folder's file; signed out is signed
-    /// out even with an account in the file; no answer is "couldn't check" (`None`). Sign in… is `copilot login`.
+    /// out even with an account in the file; no answer is "couldn't check" (`None`). Sign in… is `copilot --no-auto-update login`.
     // Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
     #[cfg(unix)]
     #[tokio::test]
@@ -316,7 +321,11 @@ mod tests {
 
         assert_eq!(
             adapter.login_command(),
-            Some(vec!["copilot".to_owned(), "login".to_owned()])
+            Some(vec![
+                "copilot".to_owned(),
+                "--no-auto-update".to_owned(),
+                "login".to_owned()
+            ])
         );
     }
 }

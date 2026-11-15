@@ -1,7 +1,7 @@
 //! Copilot's model list and Auto tiers (AGT-02, ADP-08; d0086, d0088; T-0353).
 //!
-//! `copilot --acp` speaks the Agent Client Protocol on stdin and stdout, one JSON-RPC message per line. Otaq sends
-//! `initialize`, then `session/new` in a temporary folder; the answer's `models.availableModels` lists what this
+//! `copilot --no-auto-update --acp` ([`super::NO_AUTO_UPDATE`]) speaks the Agent Client Protocol on stdin and
+//! stdout, one JSON-RPC message per line. Otaq sends `initialize`, then `session/new` in a temporary folder; the answer's `models.availableModels` lists what this
 //! account can run (`modelId`, `name`, sometimes `description` and `_meta.copilotUsage`), with no model call. Then
 //! the process is ended. Copilot Free lists only `auto`, twice (once plain, once with its `_meta`), so the list is
 //! de-duplicated by `modelId` (the models report, row 2; the Copilot real-account check, §2).
@@ -27,7 +27,7 @@ use std::time::Duration;
 use serde_json::{Value, json};
 use tokio::io::{AsyncBufReadExt, AsyncWriteExt, BufReader};
 
-use super::{COMMAND_NAME, CopilotContext, events_file::AUTO};
+use super::{COMMAND_NAME, CopilotContext, NO_AUTO_UPDATE, events_file::AUTO};
 use crate::agent_tools::follow::{CopilotTier, FollowChoice};
 use crate::agent_tools::models::ModelEntry;
 use crate::agent_tools::{ModelKind, ModelList, ModelListError, Tool};
@@ -82,7 +82,7 @@ pub fn list_command(cwd: &Path) -> ListCommand {
     });
     ListCommand {
         program: COMMAND_NAME.to_owned(),
-        args: vec![ACP_FLAG.to_owned()],
+        args: vec![NO_AUTO_UPDATE.to_owned(), ACP_FLAG.to_owned()],
         stdin: [initialize, session]
             .iter()
             .map(|line| format!("{line}\n"))
@@ -386,12 +386,12 @@ mod tests {
         );
     }
 
-    /// The exact request: `copilot --acp`, `initialize`, then `session/new` in the given folder; never a model.
+    /// The exact request: `copilot --no-auto-update --acp`, `initialize`, then `session/new` in the given folder; never a model.
     #[test]
     fn the_request_bytes() {
         let command = list_command(Path::new("/var/folders/x/T/.tmpA1b2"));
         assert_eq!(command.program, "copilot");
-        assert_eq!(command.args, ["--acp"]);
+        assert_eq!(command.args, ["--no-auto-update", "--acp"]);
         assert_eq!(
             command.stdin,
             [
