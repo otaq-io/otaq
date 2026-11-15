@@ -287,7 +287,8 @@ mod tests {
             .await
             .unwrap();
         assert_eq!(empty["heading"], "Comments");
-        assert_eq!(empty["box"]["limits"]["chars"], Value::Null);
+        assert!(empty["box"]["limits"].is_object(), "the box gets its limits");
+        assert!(empty["box"]["limits"].get("chars").is_none(), "no character limit for the user (tuq 112)");
         assert_eq!(empty["box"]["footer"], Value::Null, "no agent works");
 
         let pasted = "test export::limit_rows ... FAILED\n".repeat(1500);
