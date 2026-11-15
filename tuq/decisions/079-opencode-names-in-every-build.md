@@ -1,7 +1,7 @@
 # 079 · Every set of Otaq's skills has its OpenCode version
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 102
 - **Related:** 072, 076, 073
 
 ## Summary

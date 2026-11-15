@@ -1,7 +1,7 @@
 # 068 · Otaq checks for new skills at service start, then every 15 minutes
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 066
 
 ## Summary

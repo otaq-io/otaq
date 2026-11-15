@@ -1,7 +1,7 @@
 # 066 · A skill bundle that can't be used is skipped quietly
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 059, 060, 076
 
 ## Summary

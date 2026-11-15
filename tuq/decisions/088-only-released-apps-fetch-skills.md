@@ -1,7 +1,7 @@
 # 088 · Only released apps fetch new skills
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 068, 076
 
 ## Summary

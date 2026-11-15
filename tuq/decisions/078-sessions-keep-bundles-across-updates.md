@@ -1,7 +1,7 @@
 # 078 · Sessions keep their skills across app updates; Codex switches when idle
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 101
 - **Related:** 061, 076
 
 ## Summary

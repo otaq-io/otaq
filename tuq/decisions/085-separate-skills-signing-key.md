@@ -1,7 +1,7 @@
 # 085 · Skills have their own signing key, replaced by an app update if it leaks
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 059, 076, 084
 
 ## Summary

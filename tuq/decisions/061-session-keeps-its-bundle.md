@@ -1,7 +1,7 @@
 # 061 · A session keeps the skill bundle it started with
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 101
 - **Related:** 060, 062
 
 ## Summary

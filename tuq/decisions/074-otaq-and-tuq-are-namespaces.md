@@ -1,7 +1,7 @@
 # 074 · otaq: and tuq: are namespaces, written the way each tool calls them
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 092
 - **Related:** 015, 063, 072
 
 ## Summary

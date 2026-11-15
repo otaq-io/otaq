@@ -1,7 +1,7 @@
 # 072 · OpenCode gets skills named otaq-<name> and tuq-<name>
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 102, 105
 - **Related:** 063, 064
 
 ## Summary

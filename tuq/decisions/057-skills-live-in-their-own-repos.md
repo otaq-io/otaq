@@ -1,7 +1,7 @@
 # 057 · Skills live in their own repositories: tuq and Otaq workflow skills
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 102
 - **Related:** 058, 073, 080, 081, 082, 084
 
 ## Summary

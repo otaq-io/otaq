@@ -1,7 +1,7 @@
 # 060 · Each app takes the newest skill bundle it can run
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 066
 
 ## Summary

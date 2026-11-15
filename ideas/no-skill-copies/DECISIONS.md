@@ -254,3 +254,6 @@ here says which S-number it was. The gap review of them is `GAP-REVIEW.md` in th
 
 **Agreed follow-up (G22, 2026-11-14):** the docs, the README and the website, which still show `/otaq:` and bare skill
 names, are updated at the end of this work, once the new names (decisions 063, 074) are built.
+
+**For the Tech spec (2026-11-14):** `TOOL-CHECKS.md` in this folder has the hands-on checks of the four tools (plugin
+files, a copy per session, person-only marks and skill chains, disconnect) and what each means for the design.

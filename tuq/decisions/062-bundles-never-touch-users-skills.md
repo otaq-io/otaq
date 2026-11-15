@@ -1,7 +1,7 @@
 # 062 · A skill bundle carries only Otaq's own skills
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 104
 - **Related:** 061, 063
 
 ## Summary

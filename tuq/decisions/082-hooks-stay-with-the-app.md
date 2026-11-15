@@ -1,7 +1,7 @@
 # 082 · Otaq's hooks stay with the app, in the otaq-hooks plugin
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 102, 109
 - **Related:** 059, 062, 063, 077
 
 ## Summary

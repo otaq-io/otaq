@@ -1,7 +1,7 @@
 # 080 · Otaq respects the tuq the user installed
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 100, 102
 - **Related:** 060, 063, 065, 073, 076
 
 ## Summary

@@ -1,7 +1,7 @@
 # 059 · A skill bundle is published by the maintainer's signature
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 066
 
 ## Summary

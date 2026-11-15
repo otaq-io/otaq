@@ -1,7 +1,7 @@
 # 069 · A skills update is shown quietly, with a note for users
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 100, 101, 102
 - **Related:** 061, 068, 080, 084
 
 ## Summary

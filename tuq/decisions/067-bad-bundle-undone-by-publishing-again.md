@@ -1,7 +1,7 @@
 # 067 · A bad skill bundle is undone by publishing again
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 061, 066
 
 ## Summary

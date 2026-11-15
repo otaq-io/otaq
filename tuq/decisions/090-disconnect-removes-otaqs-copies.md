@@ -1,7 +1,7 @@
 # 090 · Disconnecting a tool removes only Otaq's own copies
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 104
 - **Related:** 078, 080, 082
 
 ## Summary

@@ -1,7 +1,7 @@
 # 083 · A tuq skill the session doesn't have holds the stage
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Partly superseded by 103
 - **Related:** 060, 061, 076, 080
 
 ## Summary

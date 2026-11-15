@@ -1,7 +1,7 @@
 # 084 · Skills are released as signed git tags, not bundles
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 059, 060, 061, 066, 068, 069, 076, 078
 
 ## Summary

@@ -1,7 +1,7 @@
 # 076 · The app's built-in skills count as a bundle
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 058, 060, 066, 067
 
 ## Summary

@@ -1,7 +1,7 @@
 # 058 · Skills reach customers when they change, without an Otaq release
 
 - **Date:** 2026-11-14
-- **Status:** Accepted
+- **Status:** Superseded by 102
 - **Related:** 057, 059, 066
 
 ## Summary
