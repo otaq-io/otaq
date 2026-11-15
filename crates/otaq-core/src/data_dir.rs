@@ -363,13 +363,14 @@ mod tests {
         assert!(unset.is_default(home));
         let empty = DataDir::resolve(Some(OsString::new()), Some(home.to_path_buf())).unwrap();
         assert!(empty.is_default(home));
-        assert!(DataDir::new(home.join(".otaq/")).is_default(home));
-        std::fs::create_dir_all(home.join(".otaq")).unwrap();
+        let name = crate::naming::data_dir_name();
+        assert!(DataDir::new(home.join(format!("{name}/"))).is_default(home));
+        std::fs::create_dir_all(home.join(&name)).unwrap();
         std::fs::create_dir_all(home.join("x")).unwrap();
-        assert!(DataDir::new(home.join("x").join("..").join(".otaq")).is_default(home));
-        let dev = DataDir::resolve(Some(home.join("dev-otaq").into()), Some(home.to_path_buf()));
+        assert!(DataDir::new(home.join("x").join("..").join(&name)).is_default(home));
+        let dev = DataDir::resolve(Some(home.join("dev-data").into()), Some(home.to_path_buf()));
         assert!(!dev.unwrap().is_default(home));
-        assert!(!DataDir::new(home.join("other").join(".otaq")).is_default(home));
+        assert!(!DataDir::new(home.join("other").join(&name)).is_default(home));
     }
 
     #[test]

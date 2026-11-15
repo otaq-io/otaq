@@ -1483,29 +1483,31 @@ mod tests {
     #[test]
     fn the_long_text_file_is_the_sessions_own_in_the_temporary_folder() {
         let file = long_text_file("01a1dfae-1cb4");
-        assert_eq!(file, std::env::temp_dir().join("otaq-01a1dfae-1cb4.md"));
-        assert_eq!(
-            long_text_file("a/b c$d"),
-            std::env::temp_dir().join("otaq-a-b-c-d.md")
-        );
+        let named =
+            |rest: &str| std::env::temp_dir().join(format!("{}-{rest}", naming::COMMAND_NAME));
+        assert_eq!(file, named("01a1dfae-1cb4.md"));
+        assert_eq!(long_text_file("a/b c$d"), named("a-b-c-d.md"));
     }
 
     /// Only a Codex session's prime has the section (the others pass `None`), with the file written out in full.
     #[test]
     fn the_long_text_section_names_the_file_in_full() {
         assert_eq!(render_long_text_file(None), "");
-        let file = std::path::Path::new("/var/folders/x/T/otaq-s1.md");
+        let file = std::path::Path::new("/var/folders/x/T/long-s1.md");
         let section = render_long_text_file(Some(file));
         assert!(
             section.starts_with("\n## Long text in Codex\n\n"),
             "{section}"
         );
         assert!(
-            section.contains("cat > \"/var/folders/x/T/otaq-s1.md\" <<'EOF'\n"),
+            section.contains("cat > \"/var/folders/x/T/long-s1.md\" <<'EOF'\n"),
             "{section}"
         );
         assert!(
-            section.contains("\notaq stage next --stdin-file \"/var/folders/x/T/otaq-s1.md\"\n"),
+            section.contains(&format!(
+                "\n{} stage next --stdin-file \"/var/folders/x/T/long-s1.md\"\n",
+                naming::COMMAND_NAME
+            )),
             "{section}"
         );
         assert!(

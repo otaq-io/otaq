@@ -953,15 +953,19 @@ mod tests {
         fs::create_dir_all(shared.join("rules")).unwrap();
         fs::create_dir_all(cached_plugins(&shared).join("0.1.0").join(".codex-plugin")).unwrap();
         let config = format!(
-            "{USER_CONFIG}\n[marketplaces.{m}]\nsource_type = \"local\"\nsource = \"/Users/me/.otaq/runtime/codex-plugin\"\n\n[plugins.\"{id}\"]\nenabled = true\n\n[hooks.state.\"{key}\"]\ntrusted_hash = \"sha256:old\"\n",
+            "{USER_CONFIG}\n[marketplaces.{m}]\nsource_type = \"local\"\nsource = \"/Users/me/{data}/runtime/codex-plugin\"\n\n[plugins.\"{id}\"]\nenabled = true\n\n[hooks.state.\"{key}\"]\ntrusted_hash = \"sha256:old\"\n",
             m = marketplace(),
             id = plugin_id(),
             key = hook_key("stop"),
+            data = naming::data_dir_name(),
         );
         fs::write(config_toml::path(&shared), config).unwrap();
         fs::write(
             rules_file(&shared),
-            "prefix_rule(pattern=[\"otaq\"], decision=\"allow\")\n",
+            format!(
+                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
+                naming::COMMAND_NAME
+            ),
         )
         .unwrap();
         fs::write(
@@ -969,7 +973,10 @@ mod tests {
                 .join("0.1.0")
                 .join(".codex-plugin")
                 .join("plugin.json"),
-            "{\"name\":\"otaq\",\"version\":\"0.1.0\"}",
+            format!(
+                "{{\"name\":\"{}\",\"version\":\"0.1.0\"}}",
+                naming::PLUGIN_NAMESPACE
+            ),
         )
         .unwrap();
         shared
@@ -1346,18 +1353,18 @@ mod tests {
     /// setup leaves the file as it is. Disconnect still removes the whole file.
     #[tokio::test]
     async fn an_older_rules_file_is_rewritten_once() {
-        let otaq_rule = format!(
+        let own_rule = format!(
             "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
             naming::COMMAND_NAME
         );
         let with_tuq = format!(
-            "{otaq_rule}prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
+            "{own_rule}prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
              prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n"
         );
         let older = [
             format!("{with_tuq}prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n"),
             with_tuq,
-            otaq_rule,
+            own_rule,
         ];
         for old in older {
             let home = Home::new();

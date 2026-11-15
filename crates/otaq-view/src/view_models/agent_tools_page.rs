@@ -1025,7 +1025,9 @@ mod tests {
         );
         assert_eq!(
             r.detail,
-            "this Otaq has its own data folder: set CODEX_HOME to use Codex with this Otaq"
+            format!(
+                "this {PRODUCT_NAME} has its own data folder: set CODEX_HOME to use Codex with this {PRODUCT_NAME}"
+            )
         );
         assert_eq!(r.mark, Mark::Attention);
         assert!(r.sign_in.is_none() && r.can_see.is_none() && r.added.is_none());
