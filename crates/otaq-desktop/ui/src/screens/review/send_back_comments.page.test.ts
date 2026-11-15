@@ -50,7 +50,6 @@ const VIEW: SendBackView = {
     attach_title: "Attach files to the comment",
     optional: true,
     limits: {
-      chars: null,
       report_bytes: 20 * 1024 * 1024,
       report_label: "20 MB",
       message_bytes: 16 * 1024 * 1024 - 64 * 1024,
