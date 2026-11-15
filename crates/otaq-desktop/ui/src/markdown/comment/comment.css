@@ -1,0 +1,18 @@
+/* A comment drawn as Markdown (tuq 110). markdown.css and code.css draw its nodes as they draw a description's; only
+   what comments differ in is here. */
+
+/* Headings are small, about the size of bold text: a comment sits in a thread and isn't a document. */
+.md-editor.md-comment .ProseMirror :is(h1, h2, h3, h4, h5, h6) {
+  font-size: 13px;
+  line-height: 1.45;
+}
+
+/* A code block has no language label or Copy here, so the code needs no room for them at the right. */
+.md-editor.md-comment .ProseMirror .md-code > pre {
+  padding-right: 12px;
+}
+
+/* A comment that couldn't be read as Markdown keeps its text and lines as written. */
+.md-editor.md-comment .ProseMirror .md-comment-plain {
+  white-space: pre-wrap;
+}
