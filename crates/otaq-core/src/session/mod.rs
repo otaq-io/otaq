@@ -671,6 +671,8 @@ const DRAIN_WAIT: Duration = Duration::from_millis(500);
 /// How long after a person's key the program's screen isn't read for the input line ([`input_line`]): it may not
 /// have drawn the key yet.
 pub const KEY_SETTLE: Duration = Duration::from_millis(500);
+/// The prompt a dialog of the tool's own is told by when it draws no question ([`Sessions::dialog_prompt`]).
+pub const DIALOG_WITHOUT_QUESTION: &str = "Choose one of the options in its terminal";
 
 /// Owns every live session. Cheap to clone.
 #[derive(Clone)]
@@ -1247,19 +1249,31 @@ impl Sessions {
         })
     }
 
-    /// Whether the session's screen shows one of its tool's own dialogs, a permission or selection prompt, and no
-    /// input line ([`input_line::Reading::dialog`]): a line typed now would answer the prompt (its Enter picks an
-    /// option), so no automatic message is typed. A session that isn't running shows none.
+    /// Whether the session's screen shows one of its tool's own dialogs, a permission or selection prompt
+    /// ([`input_line::Reading::dialog`]): a line typed now would answer the prompt (its Enter picks an option), so
+    /// nothing is typed. A session that isn't running shows none.
     pub fn shows_dialog(&self, id: &str) -> bool {
         self.live(id).is_ok_and(|live| live.screen_reading().dialog)
     }
 
-    /// Whether the session's screen shows its tool's input line (empty, a placeholder, or text in it) and no dialog
-    /// of the tool's own: the tool waits for a message, not at a prompt and not drawing a turn without one.
+    /// The dialog of the tool's own on the session's screen, as a prompt the user is told of: its question as drawn
+    /// ("Do you want to run this command?"), or [`DIALOG_WITHOUT_QUESTION`]. `None` when it shows none.
+    pub fn dialog_prompt(&self, id: &str) -> Option<String> {
+        let reading = self.live(id).ok()?.screen_reading();
+        reading.dialog.then(|| {
+            reading
+                .question
+                .unwrap_or_else(|| DIALOG_WITHOUT_QUESTION.to_owned())
+        })
+    }
+
+    /// Whether the session's screen shows its tool's input line (empty, a placeholder, or text in it), no dialog of
+    /// the tool's own, and nothing that says the tool is at work (Copilot's `○ Working · …` footer): the tool waits
+    /// for a message.
     pub fn shows_input_line(&self, id: &str) -> bool {
         self.live(id).is_ok_and(|live| {
             let reading = live.screen_reading();
-            reading.line != input_line::InputLine::Unknown && !reading.dialog
+            reading.line != input_line::InputLine::Unknown && !reading.dialog && !reading.busy
         })
     }
 
@@ -1870,16 +1884,16 @@ impl Live {
             let output = self.output.lock().expect("session output");
             let (end, size) = (output.scrollback.end(), output.size);
             if let Some((at, at_size, reading)) =
-                *self.input_line.lock().expect("session input line")
-                && at == end
-                && at_size == size
+                &*self.input_line.lock().expect("session input line")
+                && *at == end
+                && *at_size == size
             {
-                return reading;
+                return reading.clone();
             }
             (output.scrollback.contents().0, end, size)
         };
         let reading = input_line::read_all(&bytes, size, self.colors);
-        *self.input_line.lock().expect("session input line") = Some((end, size, reading));
+        *self.input_line.lock().expect("session input line") = Some((end, size, reading.clone()));
         reading
     }
 

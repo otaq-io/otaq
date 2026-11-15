@@ -12,11 +12,12 @@
 //!   ([`crate::agent_tools::AgentTool::typed_key_answers_prompt`]). A key the user types into such a terminal while
 //!   it shows Needs you counts as answering (a ticket's agent, a validator or a Project agent): it shows
 //!   Working, and the turn counts as ended once the tool has sent nothing, drawn nothing for
-//!   [`QuietTiming::answer_wait`], nothing runs under it, and its screen shows its input line
-//!   ([`crate::session::Sessions::shows_input_line`]). An answer that lets the turn go on sends nothing either
+//!   [`QuietTiming::answer_wait`], nothing runs under it, and its screen shows its input line and no `Working ·`
+//!   footer ([`crate::session::Sessions::shows_input_line`]). An answer that lets the turn go on sends nothing either
 //!   (Copilot's "No, and tell Copilot what to do differently" with feedback): the tool then draws its work, or its
-//!   next permission prompt before its hook says so, and neither is a turn end. Only the user's own keys count (the
-//!   terminal's input), never Otaq's deliveries.
+//!   next permission prompt before its hook says so, and neither is a turn end. Quiet at such a prompt, the card
+//!   shows Needs you with the prompt's question. Only the user's own keys count (the terminal's input), never Otaq's
+//!   deliveries.
 //!
 //! Claude Code reports both itself: none of this runs for it.
 
@@ -235,9 +236,11 @@ impl Signals {
     /// The user typed into `session`'s terminal (only the terminal's own input, never Otaq's deliveries). On a tool
     /// whose prompt a key answers without a signal (Copilot's Esc), a key while the card shows Needs you makes it
     /// Working; the turn counts as ended once the tool sends nothing and its terminal shows nothing new for
-    /// [`QuietTiming::answer_wait`], nothing runs under it, and its screen shows its input line rather than a prompt
-    /// of its own. Every key during the wait starts it again. A tool still at work draws (its progress, its output),
-    /// and one at its next prompt shows no input line: the wait goes on until the tool's own hook ends it.
+    /// [`QuietTiming::answer_wait`], nothing runs under it, and its screen shows its input line and nothing saying it
+    /// is at work. Every key during the wait starts it again. A tool still at work draws (its progress, its output)
+    /// and says so (Copilot's `○ Working ·` footer): the wait goes on. One quiet at another prompt of its own (a
+    /// dialog on screen, [`crate::session::Sessions::dialog_prompt`]) needs the user: Needs you with its question,
+    /// whether or not the tool ever sends its hook for it.
     pub async fn typed(&self, session: &str) -> Result<(), crate::board::BoardError> {
         let Ok(info) = self.inner.sessions.info(session) else {
             return Ok(());
@@ -299,7 +302,7 @@ impl Signals {
             let look = (timing.answer_wait / 10).max(Duration::from_millis(10));
             let mut drawn = sessions.output_written(&session);
             let mut quiet_since = tokio::time::Instant::now();
-            loop {
+            let event = loop {
                 tokio::time::sleep(look).await;
                 if signals.answer_moved(&session, answer)
                     || !sessions.info(&session).is_ok_and(|i| i.is_running())
@@ -312,28 +315,40 @@ impl Signals {
                     quiet_since = tokio::time::Instant::now();
                     continue;
                 }
-                if quiet_since.elapsed() < timing.answer_wait
-                    || !sessions.shows_input_line(&session)
-                {
+                if quiet_since.elapsed() < timing.answer_wait {
+                    continue;
+                }
+                // Quiet at a prompt of its own it hasn't told of (or never tells of): it waits for the user.
+                if let Some(prompt) = sessions.dialog_prompt(&session) {
+                    tracing::info!(
+                        session,
+                        prompt,
+                        "no signal after the user's key at the tool's prompt, and the tool is quiet at another prompt of its own: it needs the user"
+                    );
+                    break ToolEvent::NeedsYou {
+                        prompt,
+                        helper_agent: false,
+                    };
+                }
+                if !sessions.shows_input_line(&session) {
                     continue;
                 }
                 if signals.background_of(&session).is_empty() {
-                    break;
+                    tracing::info!(
+                        session,
+                        "no signal after the user's key at the tool's prompt, and the tool is quiet at its input line; its turn counts as ended"
+                    );
+                    break ToolEvent::TurnEnded {
+                        background: BackgroundWork::default(),
+                        last_message: None,
+                    };
                 }
                 tokio::time::sleep(timing.recheck).await;
-            }
+            };
             if let Some(quiet) = signals.inner.quiet.lock().expect("quiet").get_mut(&session) {
                 quiet.answering = false;
             }
-            tracing::info!(
-                session,
-                "no signal after the user's key at the tool's prompt, and the tool is quiet at its input line; its turn counts as ended"
-            );
-            let ended = ToolEvent::TurnEnded {
-                background: BackgroundWork::default(),
-                last_message: None,
-            };
-            signals.apply_later(caller, tool, ended).await;
+            signals.apply_later(caller, tool, event).await;
         });
         Ok(())
     }

@@ -90,12 +90,19 @@ pub enum ReturnOutcome {
     },
 }
 
-/// The ticket's live `session` waits at a permission prompt: the question a click that would type into it asks
+/// The ticket's live `session` waits at a permission prompt (one its tool told of, or a dialog of the tool's own its
+/// screen shows, [`crate::session::Sessions::dialog_prompt`]): the question a click that would type into it asks
 /// instead of the unsent-text one, since typing there would answer the prompt.
-pub(crate) fn prompt_first(board: &Board, ticket: &Ticket, session: &str) -> Option<ReturnOutcome> {
+pub(crate) fn prompt_first(
+    board: &Board,
+    sessions: &crate::session::Sessions,
+    ticket: &Ticket,
+    session: &str,
+) -> Option<ReturnOutcome> {
     board
         .session_prompts()
         .on_screen(session)
+        .or_else(|| sessions.dialog_prompt(session))
         .map(|prompt| ReturnOutcome::NeedsConfirmation {
             ticket: ticket.key.clone(),
             unclearable_by: None,
@@ -757,7 +764,7 @@ impl Review {
         if !full
             && !clear_first
             && let Some(session) = &live
-            && let Some(asks) = prompt_first(&inner.board, ticket, &session.id)
+            && let Some(asks) = prompt_first(&inner.board, &inner.sessions, ticket, &session.id)
         {
             return Ok(asks);
         }

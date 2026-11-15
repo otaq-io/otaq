@@ -308,7 +308,7 @@ impl Review {
         // A permission prompt on its screen is said as such: its line isn't the user's text.
         if let Some(id) = &keep
             && !answers.clear_first
-            && let Some(asks) = super::prompt_first(board, ticket, id)
+            && let Some(asks) = super::prompt_first(board, &inner.sessions, ticket, id)
         {
             return Ok(asks);
         }

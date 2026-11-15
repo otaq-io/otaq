@@ -91,7 +91,8 @@ impl IdleSignal for NeverIdle {
 pub enum Delivery {
     /// Typed and submitted; `count` messages.
     Sent { count: usize },
-    /// The input line has unsent text: ask "Keep it and cancel / Clear it and send".
+    /// The input line has unsent text: ask "Keep it and cancel / Clear it and send". Or the tool shows a prompt of
+    /// its own (`prompt`): nothing can be sent until it is answered in the terminal.
     NeedsConfirmation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticket: Option<TicketKey>,
@@ -99,6 +100,10 @@ pub enum Delivery {
         /// and cancel is offered.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         unclearable_by: Option<String>,
+        /// It isn't text: the session's screen shows a dialog of the tool's own, this question
+        /// ([`Sessions::dialog_prompt`]), which typing would answer. Only Keep it and cancel is offered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
 }
 
@@ -530,6 +535,15 @@ impl Deliveries {
         self.send_pending(session, true).await
     }
 
+    /// Whether the session's waiting messages wait for a dialog of its tool's own to leave the screen, looked at again
+    /// until then ([`Self::after_dialog`]).
+    pub fn waits_behind_dialog(&self, session: &str) -> bool {
+        self.behind_dialog
+            .lock()
+            .expect("behind dialog")
+            .contains(session)
+    }
+
     /// The session would be ready but for a dialog of its tool's own on screen (a permission prompt the tool drew
     /// before saying so, or never says): its waiting messages go once the dialog has left the screen, looked at
     /// every [`DIALOG_RECHECK`] while the agent stays idle and something waits. One look at a time per session.
@@ -603,9 +617,9 @@ impl Deliveries {
     }
 
     /// **Deliver now** (the user's click): sends the waiting messages even if the agent is busy; asks first if
-    /// the input line has unsent text.
+    /// the input line has unsent text, and types nothing over a dialog of the tool's own (its question comes back).
     pub async fn deliver_now(&self, session: &str) -> Result<Delivery, SessionError> {
-        if self.sessions.has_unsent_input(session)? {
+        if self.held_for_click(session)? {
             return Ok(self.needs_confirmation(session));
         }
         let count = self.send_pending(session, false).await?;
@@ -613,13 +627,13 @@ impl Deliveries {
     }
 
     /// Text from a user's click (Send back, a needs-you answer): never held; asks first if the input line has
-    /// unsent text.
+    /// unsent text, and types nothing over a dialog of the tool's own (its question comes back).
     pub async fn deliver_from_click(
         &self,
         session: &str,
         text: &str,
     ) -> Result<Delivery, SessionError> {
-        if self.sessions.has_unsent_input(session)? {
+        if self.held_for_click(session)? {
             return Ok(self.needs_confirmation(session));
         }
         self.type_and_submit(session, text).await?;
@@ -636,8 +650,9 @@ impl Deliveries {
     ) -> Result<Delivery, SessionError> {
         let input = self.input(session);
         // A tool whose clear-line keys leave the rest of a multi-line draft can't clear it: the user clears it in
-        // the terminal (SES-07, ADP-06). Never Ctrl+C.
-        if self.unclearable_by(session)?.is_some() {
+        // the terminal (SES-07, ADP-06). Never Ctrl+C. Nor over a dialog of the tool's own, which the keys would
+        // answer.
+        if self.sessions.shows_dialog(session) || self.unclearable_by(session)?.is_some() {
             return Ok(self.needs_confirmation(session));
         }
         self.sessions.clear_line(session, input.clear_line)?;
@@ -682,6 +697,7 @@ impl Deliveries {
             .clone();
         let _sending = sender.lock().await;
         if when_ready && !self.is_ready(session)? {
+            self.after_dialog(session);
             return Ok(0);
         }
         let pending = self.pending(session).await?;
@@ -704,6 +720,13 @@ impl Deliveries {
                     .map_err(store_error)?;
                 self.forget_condition(&delivery.id);
                 continue;
+            }
+            // A dialog the tool drew meanwhile (the condition above awaited): the rest waits for it to go.
+            if self.sessions.shows_dialog(session) {
+                if when_ready {
+                    self.after_dialog(session);
+                }
+                break;
             }
             // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).
             if let Some(hand_off) = self.hand_offs.take_queued(&delivery.id) {
@@ -821,10 +844,21 @@ impl Deliveries {
     }
 
     fn needs_confirmation(&self, session: &str) -> Delivery {
+        let prompt = self.sessions.dialog_prompt(session);
         Delivery::NeedsConfirmation {
             ticket: self.sessions.info(session).ok().and_then(|i| i.ticket),
-            unclearable_by: self.unclearable_by(session).ok().flatten(),
+            unclearable_by: match prompt {
+                Some(_) => None,
+                None => self.unclearable_by(session).ok().flatten(),
+            },
+            prompt,
         }
+    }
+
+    /// Whether a click can't type into the session now: its input line has unsent text, or its screen shows a dialog
+    /// of the tool's own (typed there, the click's text would answer it).
+    fn held_for_click(&self, session: &str) -> Result<bool, SessionError> {
+        Ok(self.sessions.shows_dialog(session) || self.sessions.has_unsent_input(session)?)
     }
 
     async fn publish_waiting(&self, session: &str) -> Result<(), SessionError> {

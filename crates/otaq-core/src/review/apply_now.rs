@@ -79,13 +79,15 @@ impl Review {
             return refreshed(plan, Refreshed::BoardChanged);
         }
         // A pick back to the Agent stage whose session is live types Send back's skill into it, unless the user has
-        // text waiting there (d0048): then it stops and resumes.
+        // text waiting there (d0048), or its tool's own dialog is on screen (typing would answer it): then it stops
+        // and resumes.
         let mut kept: HashMap<String, String> = HashMap::new();
         for planned in &plan.moves {
             let ticket = board.ticket(&planned.ticket.to_string()).await?;
             if let Some(session) = inner.sessions.running_of(&ticket.id, SessionKind::Agent)
                 && let Some(stage) = self.session_stage(&session.id).await?
                 && !inner.sessions.has_unsent_input(&session.id).unwrap_or(true)
+                && !inner.sessions.shows_dialog(&session.id)
             {
                 kept.insert(ticket.id, stage);
             }

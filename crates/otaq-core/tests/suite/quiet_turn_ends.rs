@@ -864,6 +864,7 @@ async fn a_multi_line_draft_is_the_users_to_clear() {
     let unclearable = Delivery::NeedsConfirmation {
         ticket: Some(ticket.key.clone()),
         unclearable_by: Some("Codex".into()),
+        prompt: None,
     };
     assert_eq!(
         w.deliveries
@@ -896,6 +897,7 @@ async fn a_multi_line_draft_is_the_users_to_clear() {
         Delivery::NeedsConfirmation {
             ticket: Some(ticket.key.clone()),
             unclearable_by: None,
+            prompt: None,
         }
     );
     assert_eq!(
@@ -927,10 +929,21 @@ async fn a_multi_line_draft_is_the_users_to_clear() {
     w.stop().await;
 }
 
+/// Waits that leave a slow draw room: the turn ends only after a second of quiet; the stand-ins below draw every fifth
+/// of it.
+const SCREEN_TIMING: QuietTiming = QuietTiming {
+    recheck: Duration::from_millis(100),
+    answer_wait: Duration::from_secs(1),
+};
+
+/// How often the stand-in draws while at work.
+const STEP: Duration = Duration::from_millis(200);
+
 /// A stand-in for Copilot's terminal that draws what the test writes into it (`cat`, without echo or line editing):
 /// the test draws the tool's input line, its work and its prompts, and whatever Otaq types lands on screen too.
 /// Nothing runs under it, as under Copilot while its model thinks.
 async fn copilot_screen(w: &TestService, ticket: &Ticket, kind: SessionKind) -> String {
+    w.signals.set_quiet_timing(SCREEN_TIMING);
     let project = w.board.project("SHOP").await.unwrap();
     let session = w
         .sessions
@@ -965,22 +978,38 @@ async fn copilot_screen(w: &TestService, ticket: &Ticket, kind: SessionKind) -> 
         .unwrap()
         .id;
     w.wait_for_output(&session, "READY").await;
-    draw(w, &session, &input_line("Ready")).await;
+    draw(w, &session, &idle("Ready")).await;
     session
 }
 
-/// Copilot's screen with `above` over its empty input line (the `┃` marker, the cursor after it), as it shows both
-/// while idle and while at work.
-fn input_line(above: &str) -> String {
-    format!("\x1b[?25h\x1b[2J\x1b[1;1H{above}\x1b[20;1H\u{2503} ")
+/// Copilot's screen as captured on 1.0.112 (`tests/fixtures/input-line/copilot-*.bin`): `above` over its empty input
+/// line (the `┃` marker, the cursor after it) and its footer, `footer`.
+fn copilot(above: &str, footer: &str) -> String {
+    format!("\x1b[?25h\x1b[2J\x1b[1;1H{above}\x1b[22;1H{footer}\x1b[20;1H\u{2503} ")
+}
+
+/// Copilot idle at its input line.
+fn idle(above: &str) -> String {
+    copilot(
+        above,
+        " \u{2190} open sidebar \u{b7} Interactive \u{b7} Manual Approval \u{b7} / commands",
+    )
+}
+
+/// Copilot at work: its input line in sight as when idle, and its footer with a spinner.
+fn working(above: &str) -> String {
+    copilot(above, " \u{25c9} Working \u{b7} 123 B ctrl+c interrupt")
 }
 
 /// Copilot's permission prompt, drawn where its input line was: no input line, the cursor hidden.
 const PROMPT: &str = "\x1b[?25l\x1b[2J\x1b[12;1H\u{2502} Run command: git checkout -- calc.js test.js\
     \x1b[14;1H\u{2502} Do you want to run this command?\
     \x1b[15;1H\u{2502} \u{276f} 1. Yes\
-    \x1b[16;1H\u{2502}   2. Yes, and approve `git checkout` for the rest of the running session\
-    \x1b[17;1H\u{2502}   3. No, and tell Copilot what to do differently (Esc to stop)";
+    \x1b[16;1H\u{2502}   2. No, and tell Copilot what to do differently (Esc to stop)\
+    \x1b[18;1H\u{2502} \u{2191}/\u{2193} to navigate \u{b7} enter to select \u{b7} esc to cancel";
+
+/// Its question, as Otaq tells it.
+const QUESTION: &str = "Do you want to run this command?";
 
 /// Draws `screen` in the stand-in's terminal and waits until it is drawn (a mark on its last row, the cursor put
 /// back where `screen` left it).
@@ -993,6 +1022,14 @@ async fn draw(w: &TestService, session: &str, screen: &str) {
         )
         .unwrap();
     w.wait_for_output(session, &mark).await;
+}
+
+/// Copilot at work for a while (about twice the answer wait), drawing as it goes.
+async fn works_on(w: &TestService, session: &str) {
+    for step in 0..10 {
+        draw(w, session, &working(&format!("Thinking {step}"))).await;
+        tokio::time::sleep(STEP).await;
+    }
 }
 
 /// Waits until no message waits for `session` (a typed one is taken off the queue after its Enter).
@@ -1011,65 +1048,97 @@ fn shown(w: &TestService, session: &str) -> String {
     String::from_utf8_lossy(&w.sessions.attach(session).unwrap().scrollback).into_owned()
 }
 
+fn agent_of(ticket: &Ticket, session: &str) -> Caller {
+    Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.to_owned(),
+    }
+}
+
 /// The release run's tech spec stage (Copilot 1.0.112): the user refused a command with "No, and tell Copilot what
 /// to do differently" and feedback. Copilot goes on with the turn and sends nothing: it draws its work, then its next
-/// permission prompt before any hook says so. No turn end is made up meanwhile, so the stage's task skill waiting
-/// for the turn's end is never typed into that prompt (its Enter approved the command); it is typed once the turn
-/// really ends at the input line.
+/// permission prompt before any hook says so. No turn end is made up meanwhile; quiet at that prompt, the card shows
+/// Needs you with its question; the stage's task skill waiting for the turn's end is never typed into it (its Enter
+/// approved the command), and it is typed once the turn really ends at the input line.
 #[tokio::test(flavor = "multi_thread")]
 async fn an_answer_the_turn_goes_on_from_never_ends_it() {
     let (w, ticket) = world().await;
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
-    let agent = Caller::Agent {
-        ticket: ticket.key.clone(),
-        ticket_id: ticket.id.clone(),
-        session: session.clone(),
-    };
+    let agent = agent_of(&ticket, &session);
     needs_you(&w, &agent, Tool::Copilot).await;
     w.deliveries
         .queue_task_skill(&session, "/tuq:tuq-tech-spec")
         .await
         .unwrap();
     draw(&w, &session, PROMPT).await;
-    key(&client, &agent, b"3").await;
+    key(&client, &agent, b"2").await;
     key(&client, &agent, b"use git stash instead\r").await;
     assert_eq!(card(&w).await.0, Status::Working);
 
-    // Copilot works on for several of the waits, drawing as it goes, its input line in sight.
-    for step in 0..12 {
-        draw(&w, &session, &input_line(&format!("Thinking {step}"))).await;
-        tokio::time::sleep(TIMING.answer_wait / 3).await;
-    }
+    works_on(&w, &session).await;
     assert_eq!(card(&w).await.0, Status::Working, "at work");
-    // Then its next prompt, and nothing for a while.
+    // Then its next prompt, and nothing more: no hook ever comes.
     draw(&w, &session, PROMPT).await;
-    tokio::time::sleep(TIMING.answer_wait * 4).await;
-    assert_eq!(card(&w).await.0, Status::Working, "at its next prompt");
+    until(&w, "Needs you at its next prompt", (Status::NeedsYou, None)).await;
     assert!(
         !shown(&w, &session).contains("tuq-tech-spec"),
         "typed into the prompt"
     );
     assert_eq!(w.deliveries.pending(&session).await.unwrap().len(), 1);
 
-    // Its hook says so at last; the user approves; the turn ends at the input line: the skill is typed, once.
-    event(
-        &w,
-        &agent,
-        Tool::Copilot,
-        ToolEvent::NeedsYou {
-            prompt: "Run command: git checkout -- calc.js test.js".into(),
-            helper_agent: false,
-        },
-    )
-    .await;
+    // The user approves; the turn ends at the input line: the skill is typed, once.
     key(&client, &agent, b"1").await;
-    draw(&w, &session, &input_line("Done")).await;
+    assert_eq!(card(&w).await.0, Status::Working);
+    works_on(&w, &session).await;
+    draw(&w, &session, &idle("Done")).await;
     event(&w, &agent, Tool::Copilot, quiet_end()).await;
     // What follows a hook's turn end in the service.
     w.deliveries.deliver_if_ready(&session).await.unwrap();
     w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
     assert_eq!(shown(&w, &session).matches("tuq-tech-spec").count(), 1);
+    nothing_waits(&w, &session).await;
+    w.stop().await;
+}
+
+/// The card says which question Otaq raised Needs you for: the prompt's own, read off the screen.
+#[tokio::test(flavor = "multi_thread")]
+async fn needs_you_at_an_unreported_prompt_names_its_question() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    draw(&w, &session, PROMPT).await;
+    key(&client, &agent, b"2").await;
+    draw(&w, &session, PROMPT).await;
+    until(&w, "Needs you", (Status::NeedsYou, None)).await;
+    assert_eq!(w.signals.open_prompt(&session).as_deref(), Some(QUESTION));
+    w.stop().await;
+}
+
+/// Esc at Copilot's prompt with the user's numbered message echoed above the input line (`❯ 1. … / 2. …`): an idle
+/// screen, so the turn ends after the wait and the waiting skill is typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_numbered_message_over_the_input_line_holds_nothing() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    draw(&w, &session, PROMPT).await;
+    key(&client, &agent, b"\x1b").await;
+    let echo = "  \u{276f} 1. Fix the coupon field\r\n     2. Fix the gift card total\r\n\r\n \u{25cf} On it.";
+    draw(&w, &session, &idle(echo)).await;
+    assert!(!w.sessions.shows_dialog(&session));
+    assert!(w.sessions.shows_input_line(&session));
+    // The made-up turn end goes through the service as a hook's: the skill is typed after it.
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
     nothing_waits(&w, &session).await;
     w.stop().await;
 }
@@ -1080,11 +1149,7 @@ async fn an_answer_the_turn_goes_on_from_never_ends_it() {
 async fn a_delivery_waits_for_the_tools_prompt_to_go() {
     let (w, ticket) = world().await;
     let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
-    let agent = Caller::Agent {
-        ticket: ticket.key.clone(),
-        ticket_id: ticket.id.clone(),
-        session: session.clone(),
-    };
+    let agent = agent_of(&ticket, &session);
     event(&w, &agent, Tool::Copilot, new_turn()).await;
     draw(&w, &session, PROMPT).await;
     event(&w, &agent, Tool::Copilot, quiet_end()).await;
@@ -1092,6 +1157,7 @@ async fn a_delivery_waits_for_the_tools_prompt_to_go() {
         .queue_task_skill(&session, "/tuq:tuq-tech-spec")
         .await
         .unwrap();
+    assert!(w.deliveries.waits_behind_dialog(&session));
     tokio::time::sleep(Duration::from_secs(1)).await;
     assert!(
         !shown(&w, &session).contains("tuq-tech-spec"),
@@ -1099,15 +1165,141 @@ async fn a_delivery_waits_for_the_tools_prompt_to_go() {
     );
     assert_eq!(w.deliveries.pending(&session).await.unwrap().len(), 1);
 
-    draw(&w, &session, &input_line("Done")).await;
+    draw(&w, &session, &idle("Done")).await;
     w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    nothing_waits(&w, &session).await;
+    assert!(!w.deliveries.waits_behind_dialog(&session));
+    w.stop().await;
+}
+
+/// The session ends while its message waits behind the tool's prompt: the look at its screen stops, and nothing is
+/// typed anywhere.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_session_that_ends_behind_a_prompt_stops_the_wait() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    draw(&w, &session, PROMPT).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    assert!(w.deliveries.waits_behind_dialog(&session));
+    w.sessions.stop(&session).await.unwrap();
+    let stopped = tokio::time::timeout(Duration::from_secs(5), async {
+        while w.deliveries.waits_behind_dialog(&session) {
+            tokio::time::sleep(Duration::from_millis(50)).await;
+        }
+    })
+    .await;
+    assert!(stopped.is_ok(), "still looking at an ended session");
+    assert!(!shown(&w, &session).contains("tuq-tech-spec"));
+    w.stop().await;
+}
+
+/// The tool draws its prompt while a waiting message's condition is asked (it awaits): the message isn't typed into
+/// it, and goes once the prompt has gone.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_prompt_drawn_while_a_delivery_is_on_its_way_holds_it() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    let asked = std::sync::Arc::new(std::sync::atomic::AtomicBool::new(false));
+    let (sessions, id) = (w.sessions.clone(), session.clone());
+    let still_wanted: otaq_core::session::deliveries::StillWanted =
+        std::sync::Arc::new(move || {
+            let (sessions, id, asked) = (sessions.clone(), id.clone(), asked.clone());
+            Box::pin(async move {
+                if !asked.swap(true, std::sync::atomic::Ordering::SeqCst) {
+                    sessions.write(&id, PROMPT.as_bytes()).unwrap();
+                    while !sessions.shows_dialog(&id) {
+                        tokio::time::sleep(Duration::from_millis(10)).await;
+                    }
+                }
+                true
+            })
+        });
+    w.deliveries
+        .queue_while(
+            &session,
+            otaq_core::session::deliveries::DeliveryKind::Skill,
+            "/otaq:otaq-restack",
+            still_wanted,
+        )
+        .await
+        .unwrap();
+    assert!(
+        !shown(&w, &session).contains("otaq-restack"),
+        "typed into the prompt"
+    );
+    assert!(w.deliveries.waits_behind_dialog(&session));
+    draw(&w, &session, &idle("Done")).await;
+    w.wait_for_output(&session, "/otaq:otaq-restack").await;
     nothing_waits(&w, &session).await;
     w.stop().await;
 }
 
+/// The user's clicks don't type over the tool's prompt either: Deliver now, an answer and "Clear it and send" come
+/// back with its question, and nothing is typed or cleared.
+#[tokio::test(flavor = "multi_thread")]
+async fn clicks_dont_type_into_the_tools_prompt() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    draw(&w, &session, PROMPT).await;
+    let over_prompt = Delivery::NeedsConfirmation {
+        ticket: Some(ticket.key.clone()),
+        unclearable_by: None,
+        prompt: Some(QUESTION.to_owned()),
+    };
+    assert_eq!(
+        w.deliveries.deliver_now(&session).await.unwrap(),
+        over_prompt
+    );
+    assert_eq!(
+        w.deliveries
+            .deliver_from_click(&session, "address the review")
+            .await
+            .unwrap(),
+        over_prompt
+    );
+    assert_eq!(
+        w.deliveries
+            .clear_and_send(&session, Some("address the review"))
+            .await
+            .unwrap(),
+        over_prompt
+    );
+    tokio::time::sleep(Duration::from_millis(300)).await;
+    let output = shown(&w, &session);
+    assert!(!output.contains("address the review"), "{output}");
+    assert!(!output.contains("tuq-tech-spec"), "{output}");
+    assert!(!output.contains('\u{5}'), "never cleared: {output:?}");
+
+    // Once it has gone, a click types at once.
+    draw(&w, &session, &idle("Done")).await;
+    assert_eq!(
+        w.deliveries
+            .deliver_from_click(&session, "address the review")
+            .await
+            .unwrap(),
+        Delivery::Sent { count: 1 }
+    );
+    w.stop().await;
+}
+
 /// The release run's validate stage: the user refused the checker's command, and Copilot started its next turn at
-/// once without a hook. While it works, and then at its next prompt, the check isn't taken as having ended: the
-/// ticket stays Validating.
+/// once without a hook. While it works the check isn't taken as having ended; quiet at its next prompt, the checker
+/// needs the user: never "Check gave no result".
 #[tokio::test(flavor = "multi_thread")]
 async fn a_checker_working_on_after_its_answer_isnt_stopped() {
     let (w, _) = world().await;
@@ -1139,16 +1331,24 @@ async fn a_checker_working_on_after_its_answer_isnt_stopped() {
         .unwrap();
     assert_eq!(w.status(&key).await, Status::CheckerNeedsYou);
     draw(&w, &validator, PROMPT).await;
-    key_in(&client, &validator, b"3").await;
+    key_in(&client, &validator, b"2").await;
     key_in(&client, &validator, b"run the tests with node instead\r").await;
     assert_eq!(w.status(&key).await, Status::Checking, "answered");
-    for step in 0..12 {
-        draw(&w, &validator, &input_line(&format!("Thinking {step}"))).await;
-        tokio::time::sleep(TIMING.answer_wait / 3).await;
-    }
+    works_on(&w, &validator).await;
     assert_eq!(w.status(&key).await, Status::Checking, "at work");
     draw(&w, &validator, PROMPT).await;
-    tokio::time::sleep(TIMING.answer_wait * 4).await;
-    assert_eq!(w.status(&key).await, Status::Checking, "at its next prompt");
+    let raised = tokio::time::timeout(Duration::from_secs(10), async {
+        while w.status(&key).await == Status::Checking {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(raised.is_ok(), "never left Validating");
+    assert_eq!(
+        w.status(&key).await,
+        Status::CheckerNeedsYou,
+        "at its next prompt"
+    );
+    assert!(w.sessions.info(&validator).unwrap().is_running());
     w.stop().await;
 }

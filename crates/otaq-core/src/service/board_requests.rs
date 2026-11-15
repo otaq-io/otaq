@@ -2040,12 +2040,13 @@ async fn send_back_on_request(
         Ok(ReturnOutcome::NeedsConfirmation {
             ticket: asked_ticket,
             unclearable_by,
-            ..
+            prompt,
         }) => {
             undo().await;
             Ok(Delivery::NeedsConfirmation {
                 ticket: Some(asked_ticket),
                 unclearable_by,
+                prompt,
             })
         }
         Err(e) => {
