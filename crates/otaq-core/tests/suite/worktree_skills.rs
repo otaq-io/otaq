@@ -441,6 +441,13 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
         ))
     );
     assert!(w.sessions.running_of(&t.id, SessionKind::Agent).is_none());
+    // Nothing launched, so no task skill was queued: the stage-end gate that waits for one has nothing to hold on to.
+    let task_skills: i64 =
+        sqlx::query_scalar("SELECT COUNT(*) FROM pending_deliveries WHERE kind = 'task_skill'")
+            .fetch_one(w.board.store().pool())
+            .await
+            .unwrap();
+    assert_eq!(task_skills, 0);
     assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
     assert_eq!(installer_runs(&home).len(), 1);
 
@@ -480,6 +487,11 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     assert_eq!(
         crate::common::waiting_texts(&w.deliveries, &agent.id).await,
         ["/tuq:product-spec"]
+    );
+    // Now the stage runs, its agent's stage end waits for that task skill (typed at its first turn's end).
+    assert_eq!(
+        w.board.task_skill_waiting(&key, &agent.id).await.unwrap(),
+        Some(Some("tuq:product-spec".to_owned()))
     );
     w.stop().await;
 }

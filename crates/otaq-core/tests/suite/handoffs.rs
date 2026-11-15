@@ -381,6 +381,13 @@ async fn a_stage_runs_work_ticket_then_its_task_skill() {
             .collect();
         assert_eq!(waiting, [typed], "{tool:?}");
         assert!(!output(&w, &session.id).contains("RUNS team-spec"));
+        // Until it is typed, the agent's own stage end is refused (`task_skill_gate.rs`).
+        let key = t.key.to_string();
+        assert_eq!(
+            w.board.task_skill_waiting(&key, &session.id).await.unwrap(),
+            Some(Some("team-spec".to_owned())),
+            "{tool:?}"
+        );
 
         // The service types what waits once a hook ends the turn.
         turn_ended(&w, &t, &session.id).await;
@@ -389,10 +396,11 @@ async fn a_stage_runs_work_ticket_then_its_task_skill() {
         assert!(!out.contains("Unknown command"), "{tool:?}: {out}");
         assert!(w.deliveries.pending(&session.id).await.unwrap().is_empty());
         assert_eq!(
-            w.status(&t.key.to_string()).await,
-            Status::Working,
+            w.board.task_skill_waiting(&key, &session.id).await.unwrap(),
+            None,
             "{tool:?}"
         );
+        assert_eq!(w.status(&key).await, Status::Working, "{tool:?}");
     }
     w.stop().await;
 }
