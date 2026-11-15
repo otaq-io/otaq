@@ -41,6 +41,7 @@ use tokio::sync::{broadcast, watch};
 use super::hand_offs::{HandOff, HandOffs};
 use super::{SessionError, SessionInfo, SessionKind, SessionState, Sessions};
 use crate::agent_tools::{Adapters, InputQuirks};
+use crate::board::session_prompts::SessionPrompts;
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -158,6 +159,9 @@ pub struct Deliveries {
     /// The sessions whose waiting messages wait only for a dialog of the tool's own to leave the screen, each looked
     /// at again every [`DIALOG_RECHECK`] ([`Self::after_dialog`]).
     behind_dialog: Arc<Mutex<HashSet<String>>>,
+    /// The permission prompts on tickets' sessions' screens their tools told of (the board's,
+    /// [`Self::with_session_prompts`]).
+    session_prompts: SessionPrompts,
 }
 
 impl Deliveries {
@@ -180,12 +184,19 @@ impl Deliveries {
             lines: Arc::default(),
             task_skills: Arc::default(),
             behind_dialog: Arc::default(),
+            session_prompts: SessionPrompts::default(),
         }
     }
 
     /// Marks hand-offs in `hand_offs` (the board's, so cards show them).
     pub fn with_hand_offs(mut self, hand_offs: HandOffs) -> Self {
         self.hand_offs = hand_offs;
+        self
+    }
+
+    /// Reads the permission prompts its tools told of in `prompts` (the board's), so a click never types over one.
+    pub fn with_session_prompts(mut self, prompts: SessionPrompts) -> Self {
+        self.session_prompts = prompts;
         self
     }
 
@@ -623,6 +634,10 @@ impl Deliveries {
             return Ok(self.needs_confirmation(session));
         }
         let count = self.send_pending(session, false).await?;
+        // A dialog drawn meanwhile stopped it before anything was typed: say so, not "sent".
+        if count == 0 && self.prompt_on_screen(session).is_some() {
+            return Ok(self.needs_confirmation(session));
+        }
         Ok(Delivery::Sent { count })
     }
 
@@ -652,7 +667,7 @@ impl Deliveries {
         // A tool whose clear-line keys leave the rest of a multi-line draft can't clear it: the user clears it in
         // the terminal (SES-07, ADP-06). Never Ctrl+C. Nor over a dialog of the tool's own, which the keys would
         // answer.
-        if self.sessions.shows_dialog(session) || self.unclearable_by(session)?.is_some() {
+        if self.prompt_on_screen(session).is_some() || self.unclearable_by(session)?.is_some() {
             return Ok(self.needs_confirmation(session));
         }
         self.sessions.clear_line(session, input.clear_line)?;
@@ -844,7 +859,7 @@ impl Deliveries {
     }
 
     fn needs_confirmation(&self, session: &str) -> Delivery {
-        let prompt = self.sessions.dialog_prompt(session);
+        let prompt = self.prompt_on_screen(session);
         Delivery::NeedsConfirmation {
             ticket: self.sessions.info(session).ok().and_then(|i| i.ticket),
             unclearable_by: match prompt {
@@ -858,7 +873,15 @@ impl Deliveries {
     /// Whether a click can't type into the session now: its input line has unsent text, or its screen shows a dialog
     /// of the tool's own (typed there, the click's text would answer it).
     fn held_for_click(&self, session: &str) -> Result<bool, SessionError> {
-        Ok(self.sessions.shows_dialog(session) || self.sessions.has_unsent_input(session)?)
+        Ok(self.prompt_on_screen(session).is_some() || self.sessions.has_unsent_input(session)?)
+    }
+
+    /// The prompt on the session's screen that a typed line would answer: one its tool told of (a hook's, whatever the
+    /// cursor shows), else a dialog of the tool's own the screen shows ([`Sessions::dialog_prompt`]).
+    fn prompt_on_screen(&self, session: &str) -> Option<String> {
+        self.session_prompts
+            .on_screen(session)
+            .or_else(|| self.sessions.dialog_prompt(session))
     }
 
     async fn publish_waiting(&self, session: &str) -> Result<(), SessionError> {

@@ -833,12 +833,10 @@ async fn deliveries_and_other_tools_dont_count() {
     let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
     let agent = sh_on(&w, &ticket, Tool::Copilot).await;
     needs_you(&w, &agent, Tool::Copilot).await;
-    let sent = w
-        .deliveries
-        .deliver_from_click(session_of(&agent), "echo typed by Otaq")
-        .await
+    // Otaq's own bytes, as a delivery types them (a click is held at a prompt the tool told of).
+    w.sessions
+        .write(session_of(&agent), b"echo typed by Otaq\r")
         .unwrap();
-    assert_eq!(sent, Delivery::Sent { count: 1 });
     tokio::time::sleep(TIMING.answer_wait * 2).await;
     assert_eq!(card(&w).await.0, Status::NeedsYou);
     w.sessions.stop(session_of(&agent)).await.unwrap();
@@ -1250,7 +1248,8 @@ async fn clicks_dont_type_into_the_tools_prompt() {
     let (w, ticket) = world().await;
     let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
     let agent = agent_of(&ticket, &session);
-    needs_you(&w, &agent, Tool::Copilot).await;
+    // No hook told of this prompt: only the screen does.
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
     w.deliveries
         .queue_task_skill(&session, "/tuq:tuq-tech-spec")
         .await
@@ -1350,5 +1349,100 @@ async fn a_checker_working_on_after_its_answer_isnt_stopped() {
         "at its next prompt"
     );
     assert!(w.sessions.info(&validator).unwrap().is_running());
+    w.stop().await;
+}
+
+/// Copilot's prompt with the pointer on "No, and tell Copilot…", now a text field: the cursor visible in it.
+const FIELD: &str = "\x1b[?25l\x1b[2J\x1b[12;1H\u{2502} Run command: git checkout -- calc.js test.js\
+    \x1b[14;1H\u{2502} Do you want to run this command?\
+    \x1b[15;1H\u{2502}   1. Yes\
+    \x1b[16;1H\u{2502} \u{276f} 2. use git stash\
+    \x1b[18;1H\u{2502} \u{2191}/\u{2193} to navigate \u{b7} enter to select \u{b7} esc to cancel\
+    \x1b[16;18H\x1b[?25h";
+
+/// A prompt the tool told of (its hook: Needs you) holds a click even where the screen says nothing of it: the click
+/// comes back with that prompt, nothing typed.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_click_waits_for_a_prompt_the_tool_told_of() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    assert!(!w.sessions.shows_dialog(&session));
+    assert_eq!(
+        w.deliveries
+            .deliver_from_click(&session, "address the review")
+            .await
+            .unwrap(),
+        Delivery::NeedsConfirmation {
+            ticket: Some(ticket.key.clone()),
+            unclearable_by: None,
+            prompt: Some("Run command: curl https://example.com".to_owned()),
+        }
+    );
+    tokio::time::sleep(Duration::from_millis(200)).await;
+    assert!(!shown(&w, &session).contains("address the review"));
+    w.stop().await;
+}
+
+/// Deliver now finds the tool's dialog drawn only once it is on its way (a waiting message's condition awaited
+/// meanwhile): nothing is typed, and the click hears so instead of "sent".
+#[tokio::test(flavor = "multi_thread")]
+async fn deliver_now_stopped_by_a_dialog_says_so() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    let (sessions, id) = (w.sessions.clone(), session.clone());
+    let still_wanted: otaq_core::session::deliveries::StillWanted =
+        std::sync::Arc::new(move || {
+            let (sessions, id) = (sessions.clone(), id.clone());
+            Box::pin(async move {
+                sessions.write(&id, PROMPT.as_bytes()).unwrap();
+                while !sessions.shows_dialog(&id) {
+                    tokio::time::sleep(Duration::from_millis(10)).await;
+                }
+                true
+            })
+        });
+    w.deliveries
+        .queue_while(
+            &session,
+            otaq_core::session::deliveries::DeliveryKind::Skill,
+            "/otaq:otaq-restack",
+            still_wanted,
+        )
+        .await
+        .unwrap();
+    assert_eq!(
+        w.deliveries.deliver_now(&session).await.unwrap(),
+        Delivery::NeedsConfirmation {
+            ticket: Some(ticket.key.clone()),
+            unclearable_by: None,
+            prompt: Some(QUESTION.to_owned()),
+        }
+    );
+    assert!(!shown(&w, &session).contains("otaq-restack"));
+    assert_eq!(w.deliveries.pending(&session).await.unwrap().len(), 1);
+    w.stop().await;
+}
+
+/// The user pauses while typing feedback into the prompt's field: they are answering, so the card stays Working
+/// rather than flipping to Needs you; once the prompt shows without the field (the cursor hidden), it does.
+#[tokio::test(flavor = "multi_thread")]
+async fn feedback_being_typed_is_no_needs_you() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = agent_of(&ticket, &session);
+    needs_you(&w, &agent, Tool::Copilot).await;
+    draw(&w, &session, PROMPT).await;
+    key(&client, &agent, b"\x1b[B").await;
+    draw(&w, &session, FIELD).await;
+    assert!(w.sessions.in_dialog_field(&session));
+    tokio::time::sleep(SCREEN_TIMING.answer_wait * 3).await;
+    assert_eq!(card(&w).await.0, Status::Working, "typing feedback");
+    draw(&w, &session, PROMPT).await;
+    until(&w, "Needs you", (Status::NeedsYou, None)).await;
     w.stop().await;
 }

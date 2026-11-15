@@ -1267,6 +1267,12 @@ impl Sessions {
         })
     }
 
+    /// Whether the cursor is visible in the text field of a dialog of the tool's own (Copilot's "No, and tell
+    /// Copilot…" option, [`input_line::Reading::field`]): the user is answering it.
+    pub fn in_dialog_field(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| live.screen_reading().field)
+    }
+
     /// Whether the session's screen shows its tool's input line (empty, a placeholder, or text in it), no dialog of
     /// the tool's own, and nothing that says the tool is at work (Copilot's `○ Working · …` footer): the tool waits
     /// for a message.

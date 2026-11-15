@@ -72,6 +72,9 @@ pub struct Reading {
     pub line: InputLine,
     /// A permission or selection prompt of the tool's own: a typed line would answer it.
     pub dialog: bool,
+    /// The cursor is visible in the dialog's own text field (Copilot's "No, and tell Copilot…" option, its feedback
+    /// wrapped or not): the user is answering it.
+    pub field: bool,
     /// The dialog's question as drawn ("Do you want to run this command?"), when it has one.
     pub question: Option<String>,
     /// A row below the cursor says the tool is at work (Copilot's `◉ Working · …` footer).
@@ -113,7 +116,9 @@ pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Rea
     };
     // The pointed option that tells the dialog, if any. The cursor on the tool's own input line (a marker, then
     // nothing, a placeholder or the user's text) is no dialog, whatever menu-like echo is drawn above it.
-    let pointed = if screen.hide_cursor() {
+    // The cursor in a dialog's text field: on its pointed option, or on a row of the box under it (the option's
+    // feedback wrapped onto more rows).
+    let in_field = if screen.hide_cursor() {
         None
     } else if options
         .get(cursor_row)
@@ -123,12 +128,16 @@ pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Rea
         && menu_next_to(cursor_row)
     {
         Some(cursor_row)
-    } else if line == InputLine::Unknown {
-        boxed_menu(&texts, &options, menu_next_to)
     } else {
-        None
+        in_boxed_menu(&texts, &options, cursor_row)
     };
+    let pointed = in_field.or_else(|| {
+        (!screen.hide_cursor() && line == InputLine::Unknown)
+            .then(|| boxed_menu(&texts, &options, menu_next_to))
+            .flatten()
+    });
     let dialog = screen.hide_cursor() || pointed.is_some();
+    let field = in_field.is_some();
     let question = dialog
         .then(|| {
             pointed.or_else(|| {
@@ -143,9 +152,34 @@ pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Rea
     Reading {
         line,
         dialog,
+        field,
         question,
         busy,
     }
+}
+
+/// How many rows a boxed menu's pointed option may run over (its text field wrapping the user's feedback).
+const FIELD_ROWS: usize = 8;
+
+/// The row of the boxed pointed option whose box the cursor row is in, below it (`│ ❯ 2. No, and tell…` and the
+/// rows its feedback wraps onto, every one behind the box's `│`).
+fn in_boxed_menu(
+    texts: &[String],
+    options: &[Option<MenuOption>],
+    cursor_row: usize,
+) -> Option<usize> {
+    let boxed = |i: usize| {
+        texts
+            .get(i)
+            .is_some_and(|t| t.trim_start().starts_with('\u{2502}'))
+    };
+    if !boxed(cursor_row) {
+        return None;
+    }
+    (cursor_row.saturating_sub(FIELD_ROWS)..cursor_row)
+        .rev()
+        .take_while(|&i| boxed(i))
+        .find(|&i| options[i].is_some_and(|o| o.pointed && o.boxed))
 }
 
 /// A menu option's row: `1. Yes`, `  2) No` (`❯`, `›`, `>`, `▶` as the pointer), behind a box's border or not.
@@ -253,14 +287,15 @@ fn line_of(screen: &vt100::Screen, cols: u16, colors: TerminalColors) -> InputLi
     }
 }
 
-/// A tool's prompt marker: one character that isn't a letter or digit, and either not ASCII (`›`, `❯`, `┃`, `│`) or
-/// `>`. ASCII punctuation the user may have typed (`/`, `!`, `@`) isn't one.
+/// A tool's prompt marker: one character that isn't a letter or digit, and either not ASCII (`›`, `❯`, `┃`) or `>`.
+/// ASCII punctuation the user may have typed (`/`, `!`, `@`) isn't one, nor a dialog box's thin border `│` (Copilot's
+/// input line is the heavy `┃`; its permission prompt's box is drawn with `│`).
 fn is_prompt_marker(text: &str) -> bool {
     let mut chars = text.chars();
     let (Some(c), None) = (chars.next(), chars.next()) else {
         return false;
     };
-    !c.is_alphanumeric() && (!c.is_ascii() || c == '>')
+    !c.is_alphanumeric() && c != '\u{2502}' && (!c.is_ascii() || c == '>')
 }
 
 /// Whether the cell's text is drawn faded: dim, or in a colour much closer to its background than the terminal's
@@ -447,7 +482,7 @@ mod tests {
             InputLine::Placeholder
         );
         assert_eq!(
-            line("\x1b[3;1H\u{2502} \x1b[38;2;90;90;90mAsk\x1b[39m\x1b[3;3H"),
+            line("\x1b[3;1H\u{2503} \x1b[38;2;90;90;90mAsk\x1b[39m\x1b[3;3H"),
             InputLine::Placeholder
         );
         // On a background of the tool's own, light and dark.
@@ -560,14 +595,16 @@ mod tests {
             r.question.as_deref(),
             Some("Do you want to run this command?")
         );
-        assert_eq!(
-            reading_of("copilot-approval-no"),
-            (InputLine::Typed, true, false)
-        );
-        assert_eq!(
-            reading_of("copilot-approval-feedback"),
-            (InputLine::Typed, true, false)
-        );
+        // The box's `│` is no input line's marker: no input line under the cursor, and the user is in the field.
+        assert!(!r.field);
+        for name in ["copilot-approval-no", "copilot-approval-feedback"] {
+            assert_eq!(
+                reading_of(name),
+                (InputLine::Unknown, true, false),
+                "{name}"
+            );
+            assert!(read_all(&capture(name), SIZE, DARK).field, "{name}");
+        }
         assert_eq!(
             reading_of("copilot-working"),
             (InputLine::Blank, false, true)
@@ -579,6 +616,24 @@ mod tests {
         assert_eq!(
             reading_of("copilot-empty"),
             (InputLine::Blank, false, false)
+        );
+    }
+
+    /// Long feedback wraps inside Copilot's box: the cursor on the box's next row (`│   …more feedback…`), under the
+    /// pointed option, is still in the dialog's text field.
+    #[test]
+    fn feedback_wrapped_inside_copilots_box_is_the_dialog() {
+        let mut bytes = capture("copilot-approval-feedback");
+        bytes.extend_from_slice(
+            "\x1b[28;1H\u{2502}     and then run git status to check the result\x1b[28;52H\x1b[?25h".as_bytes(),
+        );
+        let r = read_all(&bytes, SIZE, DARK);
+        assert!(r.dialog && r.field, "{r:?}");
+        assert_eq!(r.line, InputLine::Unknown);
+        assert!(!r.busy);
+        assert_eq!(
+            r.question.as_deref(),
+            Some("Do you want to run this command?")
         );
     }
 

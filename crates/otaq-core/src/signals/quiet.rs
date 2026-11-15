@@ -318,6 +318,11 @@ impl Signals {
                 if quiet_since.elapsed() < timing.answer_wait {
                     continue;
                 }
+                // The user is typing their answer into the prompt's own field (feedback after "No, and tell
+                // Copilot…"), maybe pausing: they are at it, nothing to tell them.
+                if sessions.in_dialog_field(&session) {
+                    continue;
+                }
                 // Quiet at a prompt of its own it hasn't told of (or never tells of): it waits for the user.
                 if let Some(prompt) = sessions.dialog_prompt(&session) {
                     tracing::info!(

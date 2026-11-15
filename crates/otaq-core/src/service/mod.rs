@@ -824,7 +824,8 @@ impl Service {
             Arc::new(signals.clone()),
             adapters.clone(),
         )
-        .with_hand_offs(board.hand_offs().clone());
+        .with_hand_offs(board.hand_offs().clone())
+        .with_session_prompts(board.session_prompts().clone());
         starter.set_deliveries(deliveries.clone());
         // The stage reminder before Idle is typed as an automatic delivery (d0042 2026-10-28).
         signals.set_deliveries(deliveries.clone());
