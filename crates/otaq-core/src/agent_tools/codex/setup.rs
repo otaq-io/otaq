@@ -720,7 +720,7 @@ mod tests {
     use super::super::app_server::tests::{saved, stand_in};
     use super::super::config_toml::tests::{USER_CONFIG, with_shop_web};
     use super::*;
-    use crate::agent_tools::{LaunchContext, claude};
+    use crate::agent_tools::{AgentTool, LaunchContext, claude};
 
     /// Otaq's real plugin folder (the repository's).
     fn repo_plugin() -> PathBuf {
@@ -792,6 +792,7 @@ mod tests {
             CodexContext {
                 tool,
                 codex_home: Some(self.home()),
+                held_back: false,
             }
         }
 
@@ -904,6 +905,201 @@ mod tests {
                 .collect::<Vec<_>>(),
             [false, true, true, true]
         );
+    }
+
+    /// Every folder and file under `dir`, with the files' bytes.
+    fn tree(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(at) = stack.pop() {
+            for entry in fs::read_dir(&at).unwrap().flatten() {
+                let path = entry.path();
+                let rel = path.strip_prefix(dir).unwrap().to_path_buf();
+                if path.is_dir() {
+                    out.push((rel, None));
+                    stack.push(path);
+                } else {
+                    out.push((rel, Some(fs::read(&path).unwrap())));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A second Otaq's adapter (its data folder isn't the default one), with `user` as the home folder and
+    /// `CODEX_HOME` as `codex_home_var` says.
+    fn second_otaq(
+        home: &Home,
+        user: &Path,
+        codex_home_var: Option<PathBuf>,
+    ) -> super::super::Codex {
+        let mut context = home.context(&repo_plugin());
+        context.tool.home = Some(user.to_path_buf());
+        context.tool.own_data = true;
+        let var = move |name: &str| {
+            (name == "CODEX_HOME")
+                .then(|| codex_home_var.clone())
+                .flatten()
+                .map(OsString::from)
+        };
+        super::super::Codex::with_context(CodexContext::with_vars(context.tool, &var))
+    }
+
+    /// A stand-in `~/.codex` an older (or the default) Otaq set up: the user's config with a marketplace of the same
+    /// name added from another folder, its plugin and hook trust, the rules file and an installed copy.
+    fn shared_codex_home(user: &Path) -> PathBuf {
+        let shared = user.join(".codex");
+        fs::create_dir_all(shared.join("rules")).unwrap();
+        fs::create_dir_all(cached_plugins(&shared).join("0.1.0").join(".codex-plugin")).unwrap();
+        let config = format!(
+            "{USER_CONFIG}\n[marketplaces.{m}]\nsource_type = \"local\"\nsource = \"/Users/me/.otaq/runtime/codex-plugin\"\n\n[plugins.\"{id}\"]\nenabled = true\n\n[hooks.state.\"{key}\"]\ntrusted_hash = \"sha256:old\"\n",
+            m = marketplace(),
+            id = plugin_id(),
+            key = hook_key("stop"),
+        );
+        fs::write(config_toml::path(&shared), config).unwrap();
+        fs::write(
+            rules_file(&shared),
+            "prefix_rule(pattern=[\"otaq\"], decision=\"allow\")\n",
+        )
+        .unwrap();
+        fs::write(
+            cached_plugins(&shared)
+                .join("0.1.0")
+                .join(".codex-plugin")
+                .join("plugin.json"),
+            "{\"name\":\"otaq\",\"version\":\"0.1.0\"}",
+        )
+        .unwrap();
+        shared
+    }
+
+    /// Piece 3 of fixes-before-0-3: an Otaq whose data folder isn't the default one, without `CODEX_HOME`, leaves the
+    /// shared `~/.codex` byte for byte as it was and runs no Codex command: detect only finds the program and says
+    /// why Codex isn't usable; setup, the setup check, folder trust, disconnect, launches, one-off questions and the
+    /// model list do nothing.
+    #[tokio::test]
+    async fn a_second_otaq_without_codex_home_leaves_the_shared_home_alone() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let user = home.dir.path().join("user");
+        let shared = shared_codex_home(&user);
+        let before = tree(&shared);
+        let codex = second_otaq(&home, &user, None);
+        assert!(codex.context().held_back);
+        assert_eq!(
+            codex.context().codex_home.as_deref(),
+            Some(shared.as_path())
+        );
+
+        let found = codex.detect().await;
+        assert!(found.installed);
+        assert_eq!(found.not_usable, Some(super::super::held_back_reason()));
+        assert_eq!((found.version, found.signed_in), (None, None));
+        assert!(found.not_usable.unwrap().contains("set CODEX_HOME"));
+        assert!(!codex.setup_needed());
+        assert_eq!(codex.set_up_tool().await, SetupReport::default());
+        assert_eq!(codex.record_project(Path::new("/tmp/m23/shop-web")), None);
+        assert_eq!(codex.remove_setup(), SetupReport::default());
+        let refused = Some(LaunchError(super::super::held_back_reason()));
+        assert_eq!(codex.unavailable(), refused);
+        let request = crate::agent_tools::LaunchRequest {
+            role: crate::agent_tools::LaunchRole::TicketAgent,
+            cwd: "/wt/shop-web/SHOP-18".into(),
+            project: "SHOP".into(),
+            ticket: Some("SHOP-18".parse().unwrap()),
+            port: 4012,
+            first_prompt: None,
+            resume: None,
+            model: None,
+            title: None,
+            effort: None,
+            theme: crate::board::settings::Theme::OtaqDark,
+        };
+        assert_eq!(codex.launch(&request).err(), refused);
+        let question = crate::agent_tools::OneOffRequest {
+            cwd: "/tmp".into(),
+            prompt: "what?".into(),
+            model: None,
+        };
+        assert_eq!(codex.one_off(&question).err(), refused);
+        assert!(codex.list_models().await.is_err());
+        assert_eq!(codex.permission_warning(), None);
+
+        assert_eq!(tree(&shared), before, "~/.codex is byte for byte as it was");
+        assert!(!home.log().exists(), "no Codex command ran");
+        // Without Codex on PATH it is simply not installed.
+        let mut bare = home.context(&repo_plugin());
+        (bare.tool.home, bare.tool.own_data, bare.tool.path) =
+            (Some(user.clone()), true, OsString::new());
+        let bare = super::super::Codex::with_context(CodexContext::with_vars(bare.tool, &|_| None));
+        assert_eq!(
+            bare.detect().await,
+            crate::agent_tools::Detection::default()
+        );
+    }
+
+    /// The same second Otaq with `CODEX_HOME` set sets Codex up there as before, and still leaves `~/.codex` alone;
+    /// an empty `CODEX_HOME` counts as unset.
+    #[tokio::test]
+    async fn a_second_otaq_with_codex_home_sets_up_there_as_before() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let user = home.dir.path().join("user");
+        let shared = shared_codex_home(&user);
+        let before = tree(&shared);
+        let empty = second_otaq(&home, &user, Some(PathBuf::new()));
+        assert!(empty.context().held_back, "an empty CODEX_HOME is unset");
+
+        let codex = second_otaq(&home, &user, Some(home.home()));
+        assert!(!codex.context().held_back);
+        assert_eq!(codex.context().codex_home, Some(home.home()));
+        assert!(codex.setup_needed());
+        let report = codex.set_up_tool().await;
+        assert_eq!(report.failed, []);
+        assert_eq!(
+            texts(&report.done),
+            ["its hooks", &pre_approved(), "its plugin"]
+        );
+        assert_eq!(
+            fs::read_to_string(rules_file(&home.home())).unwrap(),
+            rules_text()
+        );
+        assert!(
+            home.config()
+                .contains(&format!("[plugins.\"{}\"]", plugin_id()))
+        );
+        assert_eq!(
+            codex.record_project(Path::new("/tmp/m23/shop-web")),
+            Some(SetupOutcome::Recorded)
+        );
+        assert_eq!(tree(&shared), before, "~/.codex is byte for byte as it was");
+    }
+
+    /// The default data folder is unchanged: with or without `CODEX_HOME`, nothing is held back, and Codex's home is
+    /// `~/.codex` or `CODEX_HOME` as before.
+    #[test]
+    fn the_default_data_folder_holds_nothing_back() {
+        let home = Home::new();
+        let user = home.dir.path().join("user");
+        let mut context = home.context(&repo_plugin());
+        context.tool.home = Some(user.clone());
+        assert!(!context.tool.own_data);
+        let unset = CodexContext::with_vars(context.tool.clone(), &|_| None);
+        assert!(!unset.held_back);
+        assert_eq!(unset.codex_home, Some(user.join(".codex")));
+        let set = home.home();
+        let var = |name: &str| (name == "CODEX_HOME").then(|| set.clone().into());
+        let with_var = CodexContext::with_vars(context.tool.clone(), &var);
+        assert!(!with_var.held_back);
+        assert_eq!(with_var.codex_home, Some(home.home()));
+        // No home folder (tests, parts of the service built on their own): nothing to hold back either.
+        context.tool.home = None;
+        context.tool.own_data = true;
+        let no_home = CodexContext::with_vars(context.tool, &|_| None);
+        assert!(!no_home.held_back);
+        assert_eq!(no_home.codex_home, None);
     }
 
     /// The manifest beside Claude Code's: no `skills` entry and no `skills/` folder in the repository's copy (Codex

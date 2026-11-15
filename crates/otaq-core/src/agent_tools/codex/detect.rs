@@ -14,7 +14,17 @@ use crate::agent_tools::{Detection, version_output};
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Installed when `codex --version` names a version; signed in as [`signed_in`] says.
+/// An Otaq that leaves Codex's home alone ([`CodexContext::held_back`]) runs no Codex command, not even these: it
+/// only looks for the program on PATH, and a Codex found there is not usable, saying why.
 pub(super) async fn detect(context: &CodexContext) -> Detection {
+    if context.held_back {
+        let found = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path).is_some();
+        return Detection {
+            installed: found,
+            not_usable: found.then(super::held_back_reason),
+            ..Detection::default()
+        };
+    }
     let Some(output) = version_output(COMMAND_NAME, &context.tool.path).await else {
         return Detection::default();
     };
@@ -29,6 +39,7 @@ pub(super) async fn detect(context: &CodexContext) -> Detection {
         update_needed: false,
         account,
         sign_in_offered: false,
+        not_usable: None,
     }
 }
 
@@ -142,6 +153,7 @@ mod tests {
         let context = CodexContext {
             tool: crate::agent_tools::test_support::context(bin.path(), None),
             codex_home: Some(bin.path().join("codex-home")),
+            held_back: false,
         };
         let stub = |status: &str| {
             crate::process::testing::stub_command(

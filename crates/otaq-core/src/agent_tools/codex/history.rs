@@ -246,6 +246,7 @@ not json
         let adapter = Codex::with_context(CodexContext {
             tool,
             codex_home: Some(home.path().to_path_buf()),
+            held_back: false,
         });
         let cwd = Path::new("/wt/shop-web/SHOP-18");
         assert_eq!(adapter.last_entries(ID, cwd, 40), None);

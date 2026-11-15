@@ -242,6 +242,7 @@ mod tests {
         let context = CodexContext {
             tool: crate::agent_tools::test_support::context(dir.path(), None),
             codex_home: Some(dir.path().to_path_buf()),
+            held_back: false,
         };
         let list = read_list(&context).await.unwrap();
         assert_eq!(list.entries.len(), 8);
@@ -256,6 +257,7 @@ mod tests {
         let context = CodexContext {
             tool: crate::agent_tools::test_support::context(dir.path(), None),
             codex_home: None,
+            held_back: false,
         };
         let err = read_list(&context).await.unwrap_err();
         assert_eq!(err.message, "Codex didn't list its models");

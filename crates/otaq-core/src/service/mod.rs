@@ -120,6 +120,11 @@ pub struct ServiceConfig {
     /// [`crate::agent_tools::ToolContext`]). `None` (the default, and in tests) reads and writes none of those
     /// tools' files; the daemon sets it.
     pub tool_home: Option<std::path::PathBuf>,
+    /// Whether the data folder isn't the default one in [`Self::tool_home`] ([`DataDir::is_default`]): a second
+    /// Otaq, such as a dev build with its own `OTAQ_HOME`, which leaves a tool home shared machine-wide alone unless
+    /// told ([`crate::agent_tools::ToolContext::own_data`]: Codex's `~/.codex` without `CODEX_HOME`). Off by default
+    /// (and in tests, whose tool homes are temporary, unless a test turns it on); the daemon works it out.
+    pub own_data_folder: bool,
     /// Whether the check before every launch asks the agent tools' detected states (SCH-04 `[M23]`, d0086). Off by
     /// default (and in tests, whose empty tools PATH finds no tool): every tool counts as available, as the tests'
     /// stand-in agents run as them, and a failed launch rechecks nothing; the daemon turns it on. Limits and model
@@ -161,6 +166,7 @@ impl ServiceConfig {
             claude: None,
             read_model_lists: false,
             tool_home: None,
+            own_data_folder: false,
             check_tool_states: false,
             runtime_copy: false,
             tuq_installer: None,
@@ -178,6 +184,10 @@ impl ServiceConfig {
         }
         // Located once, here: the only place the service reads Claude Code's config location (PRJ-06).
         let claude = ClaudeConfig::for_service();
+        let tool_home = std::env::home_dir();
+        let own_data_folder = tool_home
+            .as_deref()
+            .is_some_and(|home| !data.is_default(home));
         Self {
             launch,
             notifier: crate::attention::notify::platform_notifier(),
@@ -188,7 +198,8 @@ impl ServiceConfig {
             claude,
             tools: CheckEnv::from_process(),
             read_model_lists: true,
-            tool_home: std::env::home_dir(),
+            tool_home,
+            own_data_folder,
             check_tool_states: true,
             runtime_copy: true,
             tuq_installer: Some(crate::tuq::Installer::Published),
@@ -650,6 +661,7 @@ impl Service {
             path: config.tools.path.clone(),
             home: config.tool_home.clone(),
             data: config.data.clone(),
+            own_data: config.own_data_folder,
         };
         // The skills the user already has are read from the same home as the adapters' (T3), each tool's variables
         // from the environment its sessions get.
