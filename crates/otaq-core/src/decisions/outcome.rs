@@ -31,6 +31,9 @@ pub enum ChangeOutcome {
         ticket: TicketKey,
         #[serde(default)]
         unclearable_by: Option<String>,
+        /// It isn't text: the session waits at this permission prompt, as in [`ReturnOutcome::NeedsConfirmation`].
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
 }
 
@@ -178,11 +181,12 @@ pub async fn change_and_send_back(
         ReturnOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
-            ..
+            prompt,
         } => {
             return Ok(ChangeOutcome::NeedsConfirmation {
                 ticket,
                 unclearable_by,
+                prompt,
             });
         }
         ReturnOutcome::Done { ticket } => ticket,

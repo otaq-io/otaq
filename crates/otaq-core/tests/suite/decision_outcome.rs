@@ -303,6 +303,7 @@ async fn change_asks_first_over_unsent_text() {
         ChangeOutcome::NeedsConfirmation {
             ticket: t.key.clone(),
             unclearable_by: None,
+            prompt: None,
         }
     );
     assert_eq!(w.status("SHOP-1").await, Status::WaitingForYou);

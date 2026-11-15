@@ -823,6 +823,7 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
         Ok(Reply::DecisionChanged(ChangeOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
+            prompt,
         })) => Ok(Sent::Ask(Unsent::of(
             &UnsentPrompt::for_click(
                 ticket,
@@ -832,7 +833,8 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
                     note: params.text.unwrap_or_default(),
                 },
             )
-            .unclearable_by(unclearable_by),
+            .unclearable_by(unclearable_by)
+            .over_prompt(prompt),
         ))),
         Ok(Reply::DecisionChanged(_)) => Ok(Sent::Done),
         Ok(other) => Err(unexpected("decision.change", &other)),

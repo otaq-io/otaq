@@ -872,7 +872,12 @@ impl Prs {
         }
         // A permission prompt on its screen is said as such: its line isn't the user's text.
         if let Some(session) = live
-            && let Some(prompt) = self.inner.board.session_prompts().on_screen(&session.id)
+            && let Some(prompt) = self
+                .inner
+                .board
+                .session_prompts()
+                .on_screen(&session.id)
+                .or_else(|| self.inner.sessions.dialog_prompt(&session.id))
         {
             return Ok(Some(PrOutcome::NeedsConfirmation {
                 ticket: ticket.key.clone(),

@@ -1515,6 +1515,10 @@
       "variants": {
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -2142,6 +2146,10 @@
       "variants": {
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "Option<TicketKey>",
               "omittable": true
