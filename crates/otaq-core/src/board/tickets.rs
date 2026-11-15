@@ -679,6 +679,13 @@ pub(crate) struct TicketRecord {
     pub project_key: String,
 }
 
+/// Who writes a new ticket's first comment (RPT-03): always the user, by `actor`'s name.
+fn first_comment_author(actor: &Actor) -> super::ticket_comments::CommentAuthor {
+    super::ticket_comments::CommentAuthor::User {
+        name: actor.to_string(),
+    }
+}
+
 pub(crate) const SELECT_TICKETS: &str =
     "SELECT t.*, p.key AS project_key FROM tickets t JOIN projects p ON p.id = t.project_id";
 
@@ -701,12 +708,16 @@ impl Board {
             Some(self.plan_writer(actor, None).await)
         };
         // The first comment is checked before anything is created (text, or at least one attachment); its attachments
-        // are copied once the key is known.
+        // are copied once the key is known. It is the user's, so it has no character limit (tuq 112).
         let first_comment = match &input.first_comment {
             Some(c) => {
                 let sources = c.attachments.clone();
                 Some((
-                    super::ticket_comments::check_comment(&c.body, sources.len())?,
+                    super::ticket_comments::check_comment(
+                        &c.body,
+                        &first_comment_author(actor),
+                        sources.len(),
+                    )?,
                     sources,
                 ))
             }
@@ -789,9 +800,7 @@ impl Board {
     ) -> Result<Option<super::reports::StoredAttachments>, BoardError> {
         let repo = crate::warm::store::repo_name(project);
         let stored = self.prepare_attachments_in(&repo, key, sources).await?;
-        let author = super::ticket_comments::CommentAuthor::User {
-            name: actor.to_string(),
-        };
+        let author = first_comment_author(actor);
         let posted = super::ticket_comments::post_comment_in(
             tx,
             ticket_id,

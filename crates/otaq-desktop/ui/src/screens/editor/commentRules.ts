@@ -2,7 +2,9 @@
 // limit becomes a "Pasted text" chip, never text; typing past it shows "2,140 / 2,000" and turns the button off. A
 // comment needs text, or at least one attachment, or both (tuq 007): a pasted screenshot is sent on its own. The limit
 // comes with the view (`CommentLimits`, from core's constant); the service checks it again. Typed text is never turned
-// into a report.
+// into a report. The user's comments have no character limit (tuq 112: `CommentLimits.chars` is `null`); the one
+// ceiling left is what one message to the service carries, and text that would not fit says so in words
+// (`tooLongToSend`, `CommentLimits.too_long_to_send`) instead of being sent.
 //
 // The box holds a list of attachments (tuq 001, 003), each its own chip with ✕, sent together in the box's order
 // (`sentAttachments`): pasted text, and files picked with Attach, dropped, or pasted (a screenshot, files copied in
@@ -245,9 +247,27 @@ export function chars(text: string): number {
   return Array.from(text).length;
 }
 
-/** What a paste does: over the limit it becomes the report chip; otherwise it goes into the text as usual. */
+/** What a paste does: over the limit it becomes the report chip; otherwise (and always with no limit, the user's
+ * comments' since tuq 112) it goes into the text as usual. */
 export function pasteAction(pasted: string, limits: CommentLimits): "chip" | "text" {
-  return chars(pasted) > limits.chars ? "chip" : "text";
+  return limits.chars !== null && chars(pasted) > limits.chars ? "chip" : "text";
+}
+
+/** The bytes `text` takes as sent: its JSON string in UTF-8, quotes and escapes included. */
+export function sentBytes(text: string): number {
+  return new TextEncoder().encode(JSON.stringify(text)).length;
+}
+
+/**
+ * The box's text and pasted text would not fit in one message to the service (`limits.message_bytes`, 16 MB less
+ * room for the rest): the one ceiling left on the user's comments (tuq 112).
+ */
+export function tooLongToSend(value: BoxValue, limits: CommentLimits): boolean {
+  const texts = [value.text, ...value.attachments.flatMap((a) => (a.kind === "pasted" ? [a.text] : []))];
+  // At most 6 bytes per UTF-16 unit (a control character's `\u0000`) and the quotes: most text needs no count.
+  const most = texts.reduce((n, t) => n + t.length * 6 + 2, 0);
+  if (most <= limits.message_bytes) return false;
+  return texts.reduce((n, t) => n + sentBytes(t), 0) > limits.message_bytes;
 }
 
 /** "2,140". */
@@ -262,6 +282,8 @@ export interface BoxState {
   over: boolean;
   /** "2,140 / 2,000" while over the limit. */
   counter: string | null;
+  /** Why it can't be sent, in words, when it would not fit in one message (`tooLongToSend`); else `null`. */
+  tooLong: string | null;
   /** The button may send it. */
   canSubmit: boolean;
 }
@@ -270,13 +292,16 @@ export interface BoxState {
  * both may be sent (tuq 007). */
 export function boxState(value: BoxValue, limits: CommentLimits, optional = false): BoxState {
   const count = chars(value.text.trim());
-  const over = count > limits.chars;
+  const limit = limits.chars;
+  const over = limit !== null && count > limit;
+  const tooLong = tooLongToSend(value, limits) ? limits.too_long_to_send : null;
   const empty = count === 0;
   const attached = value.attachments.length > 0;
   return {
     count,
     over,
-    counter: over ? `${grouped(count)} / ${grouped(limits.chars)}` : null,
-    canSubmit: !over && (!empty || attached || optional),
+    counter: over ? `${grouped(count)} / ${grouped(limit)}` : null,
+    tooLong,
+    canSubmit: !over && tooLong === null && (!empty || attached || optional),
   };
 }

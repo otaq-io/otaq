@@ -2,8 +2,8 @@
 //! the user and any stage's agent; every later agent reads them all in `prime`. Not the line comments
 //! on a diff ([`super::comments`]), which stay as they are.
 //!
-//! - A comment's text is at most [`COMMENT_LIMIT_CHARS`] Unicode characters; longer text goes in an **attachment**
-//!   ([`super::reports`]); a comment may carry any number, of any type (tuq 001, 002). It needs text, or at least one
+//! - An agent's comment is at most [`COMMENT_LIMIT_CHARS`] Unicode characters; longer text goes in an **attachment**
+//!   ([`super::reports`]). The user's comments have no character limit (tuq 112). A comment may carry any number, of any type (tuq 001, 002). It needs text, or at least one
 //!   attachment, or both: a pasted screenshot is sent on its own; an empty comment is refused ([`check_comment`], tuq
 //!   007).
 //! - `n` numbers a ticket's comments 1, 2, 3…, never reused: a deleted comment keeps its row (History shows what it
@@ -36,8 +36,8 @@ use crate::caller::Caller;
 use crate::domain::{Actor, TicketKey};
 use crate::store::{new_id, now_ms};
 
-/// The longest comment, in Unicode characters (CMT-02). The CLI, the app and every hand-over go through
-/// [`check_body`].
+/// The longest comment an agent writes, in Unicode characters (CMT-02; the user's have none, tuq 112). Every comment
+/// and hand-over goes through [`check_comment`], every helper's note through [`check_body`].
 pub const COMMENT_LIMIT_CHARS: usize = 2_000;
 
 /// The refusal of an empty comment where a file could be attached: no text (or only spaces) and no attachment (tuq
@@ -87,34 +87,56 @@ pub struct FirstComment {
 /// How many characters of a comment History's "commented" line keeps.
 const EXCERPT_CHARS: usize = 120;
 
-/// A text that takes no attachments (a helper's note, the New ticket form's line): never empty ([`EMPTY_TEXT`]), and
-/// CMT-02's limit as [`check_comment`].
+/// A text that takes no attachments (a helper's note, a drop reason, a summary: always an agent's): never empty
+/// ([`EMPTY_TEXT`]), and CMT-02's limit as an agent's comment has it ([`check_comment`]).
 pub fn check_body(body: &str) -> Result<String, BoardError> {
     if body.trim().is_empty() {
         return Err(BoardError::refused(Refusal::EmptyField, EMPTY_TEXT));
     }
-    check_comment(body, 0)
+    check_text(body, 0, Some(COMMENT_LIMIT_CHARS))
 }
 
 /// The comment's text as stored (trimmed, maybe empty), or the refusal: no text and none of its `attachments` (tuq
-/// 007, [`EMPTY_COMMENT`]), or over the limit with CMT-02's text: "Comment is 48,210 characters; the limit is 2,000. Put the full text
-/// in a report with `--report-file` and keep the comment to what the next agent needs."
-pub fn check_comment(body: &str, attachments: usize) -> Result<String, BoardError> {
+/// 007, [`EMPTY_COMMENT`]), or an agent's over the limit with CMT-02's text: "Comment is 48,210 characters; the limit
+/// is 2,000. Put the full text in a report with `--report-file` and keep the comment to what the next agent needs."
+/// The user's comments have no character limit (tuq 112): the one ceiling left is what one service message carries
+/// ([`crate::protocol::MAX_FRAME_BYTES`]), which the app's box and the client check before sending.
+pub fn check_comment(
+    body: &str,
+    author: &CommentAuthor,
+    attachments: usize,
+) -> Result<String, BoardError> {
+    check_text(body, attachments, comment_limit(author))
+}
+
+/// The longest comment `author` may write, in Unicode characters: an agent's [`COMMENT_LIMIT_CHARS`], the user's
+/// none (tuq 112).
+pub fn comment_limit(author: &CommentAuthor) -> Option<usize> {
+    match author {
+        CommentAuthor::User { .. } => None,
+        CommentAuthor::Agent { .. } => Some(COMMENT_LIMIT_CHARS),
+    }
+}
+
+/// [`check_comment`] with the limit given: `None` for none.
+fn check_text(body: &str, attachments: usize, limit: Option<usize>) -> Result<String, BoardError> {
     let body = body.trim();
     if body.is_empty() && attachments == 0 {
         return Err(BoardError::refused(Refusal::EmptyField, EMPTY_COMMENT));
     }
-    let chars = body.chars().count();
-    if chars > COMMENT_LIMIT_CHARS {
-        return Err(BoardError::refused(
-            Refusal::TooLong,
-            format!(
-                "Comment is {} characters; the limit is {}. Put the full text in a report with `--report-file` and \
-                 keep the comment to what the next agent needs.",
-                count_label(chars as u64),
-                count_label(COMMENT_LIMIT_CHARS as u64)
-            ),
-        ));
+    if let Some(limit) = limit {
+        let chars = body.chars().count();
+        if chars > limit {
+            return Err(BoardError::refused(
+                Refusal::TooLong,
+                format!(
+                    "Comment is {} characters; the limit is {}. Put the full text in a report with `--report-file` \
+                     and keep the comment to what the next agent needs.",
+                    count_label(chars as u64),
+                    count_label(limit as u64)
+                ),
+            ));
+        }
     }
     Ok(body.to_owned())
 }
@@ -627,7 +649,7 @@ impl Board {
         attachments: Vec<ReportSource>,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
-        let body = check_comment(body, attachments.len())?;
+        let body = check_comment(body, author, attachments.len())?;
         let ticket = self.ticket(key).await?;
         let stored = self.prepare_attachments(&ticket.key, attachments).await?;
         let posted = async {
@@ -650,7 +672,7 @@ impl Board {
         self.ticket_comment(&ticket.key.to_string(), posted.n).await
     }
 
-    /// Changes comment `n`'s text (the limit applies again), logging the before and after. The text may go only while
+    /// Changes comment `n`'s text (its author's limit applies again), logging the before and after. The text may go only while
     /// the comment keeps an attachment (tuq 007). [`Self::edit_ticket_comment_with`] also changes its attachments.
     pub async fn edit_ticket_comment(
         &self,
@@ -663,7 +685,7 @@ impl Board {
             .await
     }
 
-    /// Edits comment `n` (tuq 008): its text (the limit applies again), the attachments `edit.remove` names (each one
+    /// Edits comment `n` (tuq 008): its text (its author's limit applies again: none for the user's, tuq 112), the attachments `edit.remove` names (each one
     /// the comment carries now, refused by number otherwise) and the new ones `edit.add` copies (checked and refused by
     /// name before anything changes), all in one change logged as `comment_edited` with the text before and after and
     /// the attachments removed and added. The comment must keep text or an attachment (tuq 007). A removed attachment
@@ -676,13 +698,13 @@ impl Board {
         edit: &CommentEdit,
         actor: &Actor,
     ) -> Result<TicketComment, BoardError> {
-        // The limit and the new files first, before anything is read or copied.
-        if let Some(body) = &edit.body {
-            check_comment(body, usize::MAX)?;
-        }
+        // The new files first, before anything is copied; then the text's limit, its author's (tuq 112).
         check_sources(&edit.add)?;
         let ticket = self.ticket(key).await?;
         let current = self.ticket_comment(&ticket.key.to_string(), n).await?;
+        if let Some(body) = &edit.body {
+            check_comment(body, &current.author, usize::MAX)?;
+        }
         let mut remove: Vec<u32> = Vec::new();
         for a in &edit.remove {
             if !current.attachments.iter().any(|x| x.n == *a) {
@@ -699,7 +721,11 @@ impl Board {
             return Ok(current);
         }
         let keeps = current.attachments.len() - remove.len() + edit.add.len();
-        let body = check_comment(edit.body.as_deref().unwrap_or(&current.body), keeps)?;
+        let body = check_comment(
+            edit.body.as_deref().unwrap_or(&current.body),
+            &current.author,
+            keeps,
+        )?;
         let row = row(self.store.pool(), &ticket.id, n)
             .await?
             .ok_or_else(|| no_comment(&ticket.key, n))?;
@@ -1125,19 +1151,53 @@ mod tests {
         );
     }
 
+    fn user() -> CommentAuthor {
+        CommentAuthor::User { name: "ada".into() }
+    }
+
+    fn agent() -> CommentAuthor {
+        CommentAuthor::Agent {
+            id: None,
+            name: Some("Rust developer".into()),
+            tool: None,
+            stage: Some("dev".into()),
+            round: None,
+        }
+    }
+
+    /// Tuq 112: the author decides the limit. The user's comments have none; an agent's keeps CMT-02's, word for word.
+    #[test]
+    fn only_agents_comments_have_a_limit() {
+        let long = "x".repeat(48_210);
+        assert_eq!(check_comment(&long, &user(), 0).unwrap(), long);
+        assert_eq!(comment_limit(&user()), None);
+        assert_eq!(comment_limit(&agent()), Some(COMMENT_LIMIT_CHARS));
+        let at_limit = "ş".repeat(COMMENT_LIMIT_CHARS);
+        assert_eq!(check_comment(&at_limit, &agent(), 0).unwrap(), at_limit);
+        let refused = check_comment(&long, &agent(), 1).unwrap_err();
+        assert_eq!(refused.refusal(), Some(Refusal::TooLong));
+        assert_eq!(
+            refused.to_string(),
+            "Comment is 48,210 characters; the limit is 2,000. Put the full text in a report with `--report-file` \
+             and keep the comment to what the next agent needs."
+        );
+    }
+
     #[test]
     fn empty_and_blank_comments_are_refused() {
         for body in ["", "   ", "\n\t \n"] {
             let refused = check_body(body).unwrap_err();
             assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
             assert_eq!(refused.to_string(), "Write the comment first");
-            let refused = check_comment(body, 0).unwrap_err();
-            assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
-            assert_eq!(
-                refused.to_string(),
-                "Write the comment or attach a file first"
-            );
-            assert_eq!(check_comment(body, 1).unwrap(), "");
+            for author in [user(), agent()] {
+                let refused = check_comment(body, &author, 0).unwrap_err();
+                assert_eq!(refused.refusal(), Some(Refusal::EmptyField));
+                assert_eq!(
+                    refused.to_string(),
+                    "Write the comment or attach a file first"
+                );
+                assert_eq!(check_comment(body, &author, 1).unwrap(), "");
+            }
         }
         // Stored trimmed: the newline stdin ends with isn't part of it.
         assert_eq!(check_body("  Looks good.\n").unwrap(), "Looks good.");

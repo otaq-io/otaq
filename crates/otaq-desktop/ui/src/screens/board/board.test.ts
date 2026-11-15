@@ -324,7 +324,14 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
     attach: "Attach",
     attach_title: "Attach files to the comment",
     optional: true,
-    limits: { chars: 2000, report_bytes: 20 * 1024 * 1024, report_label: "20 MB" },
+    limits: {
+      chars: null,
+      report_bytes: 20 * 1024 * 1024,
+      report_label: "20 MB",
+      message_bytes: 16 * 1024 * 1024 - 64 * 1024,
+      too_long_to_send:
+        "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.",
+    },
     tell_agent: null,
   });
   const sendBack: DragBackDialog = {

@@ -266,7 +266,10 @@ mod tests {
         assert!(b.optional);
         assert_eq!(b.submit, None);
         assert_eq!(b.footer_icon, crate::icons::IconName::MessageSquare);
-        assert_eq!(b.limits.chars, 2_000);
+        assert_eq!(
+            b.limits.chars, None,
+            "the user's comments have no limit (tuq 112)"
+        );
     }
 
     fn waiting_in(stage: &str) -> Ticket {

@@ -11,7 +11,7 @@ use super::ClientError;
 use crate::ipc::{self, ClientStream};
 use crate::protocol::{
     Body, DecodeError, ErrorBody, Event, FrameReader, Message, Reply, Request, decode,
-    write_message,
+    encode_within_limit, write_frame,
 };
 
 type Answer = Result<Reply, ErrorBody>;
@@ -65,15 +65,17 @@ impl Connection {
             return Err(ClientError::Disconnected);
         }
         let id = self.next_id.fetch_add(1, Ordering::Relaxed);
+        let message = Message {
+            caller: self.actor.clone(),
+            ..Message::request(id, request)
+        };
+        // Too long for one frame: refused here in words, never sent (the service would only drop the connection).
+        let frame = encode_within_limit(&message).map_err(ClientError::TooLarge)?;
         let (tx, rx) = oneshot::channel();
         self.pending.lock().expect("pending map").insert(id, tx);
         let sent = {
             let mut writer = self.writer.lock().await;
-            let message = Message {
-                caller: self.actor.clone(),
-                ..Message::request(id, request)
-            };
-            write_message(&mut *writer, &message).await
+            write_frame(&mut *writer, &frame).await
         };
         if sent.is_err() {
             self.pending.lock().expect("pending map").remove(&id);

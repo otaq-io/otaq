@@ -91,12 +91,19 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
     w.add_project("shop-web").await;
     w.create("SHOP", "Export orders as CSV").await;
 
-    // 2,000 characters of two-byte text are accepted; 2,001 refused with CMT-02's text and the real count.
+    // An agent's 2,000 characters of two-byte text are accepted; 2,001 refused with CMT-02's text and the real count
+    // (the user's comments have no limit, tuq 112: `the_users_comments_have_no_limit`).
     let at_limit = "ş".repeat(COMMENT_LIMIT_CHARS);
     assert_eq!(post(&w, "SHOP-1", &at_limit).await.n, 1);
     let refused = w
         .board
-        .post_ticket_comment("SHOP-1", &you(), &"🦀".repeat(2_001), Vec::new(), &me())
+        .post_ticket_comment(
+            "SHOP-1",
+            &rust_developer(),
+            &"🦀".repeat(2_001),
+            Vec::new(),
+            &Actor::Agent("SHOP-1".parse().unwrap()),
+        )
         .await
         .unwrap_err();
     assert_eq!(refused.refusal(), Some(Refusal::TooLong));
@@ -150,17 +157,7 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
             .is_err()
     );
 
-    // Editing keeps the limit and marks the comment edited.
-    let refused = w
-        .board
-        .edit_ticket_comment("SHOP-1", 3, &"x".repeat(48_210), &me())
-        .await
-        .unwrap_err();
-    assert_eq!(
-        refused.to_string(),
-        "Comment is 48,210 characters; the limit is 2,000. Put the full text in a report with `--report-file` and \
-         keep the comment to what the next agent needs."
-    );
+    // Editing marks the comment edited.
     let edited = w
         .board
         .edit_ticket_comment("SHOP-1", 3, "Keep the column order of the table.", &me())
@@ -213,6 +210,106 @@ async fn the_limit_counts_characters_and_numbers_are_never_reused() {
             &json!("Keep the column order of the table.")
         )
     );
+    w.stop().await;
+}
+
+/// Tuq 112: the author decides the limit. The user's 48,210-character comment is posted (on its own, through the
+/// service, and as a new ticket's first comment) and edited whole; an agent's is refused with CMT-02's text, and an
+/// edit follows the author of the comment it edits, whoever edits it.
+#[tokio::test(flavor = "multi_thread")]
+async fn the_users_comments_have_no_limit_and_agents_keep_theirs() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let long = "x".repeat(48_210);
+    let refusal_text = "Comment is 48,210 characters; the limit is 2,000. Put the full text in a report with \
+                        `--report-file` and keep the comment to what the next agent needs.";
+
+    // Posted whole, and through the service from the app.
+    let posted = post(&w, "SHOP-1", &long).await;
+    assert_eq!(posted.body, long);
+    let app = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let reply = app
+        .request(Request::TicketCommentPost(TicketCommentPostParams {
+            key: "SHOP-1".into(),
+            body: long.clone(),
+            attachments: Default::default(),
+            tell_agent: false,
+        }))
+        .await
+        .unwrap();
+    let Reply::TicketComment(through) = reply else {
+        panic!("{reply:?}")
+    };
+    assert_eq!((through.n, through.body.chars().count()), (2, 48_210));
+
+    // Edited whole: a short comment of the user's made long.
+    let short = post(&w, "SHOP-1", "Keep the column order.").await;
+    let longer = format!("{long}\nAnd the header row.");
+    let edited = w
+        .board
+        .edit_ticket_comment("SHOP-1", short.n, &longer, &me())
+        .await
+        .unwrap();
+    assert_eq!(edited.body, longer);
+
+    // A new ticket's first comment is the user's too.
+    let t = w
+        .board
+        .create_ticket(
+            &NewTicketInput {
+                project: "SHOP".into(),
+                title: "Order list paging".into(),
+                first_comment: Some(FirstComment {
+                    body: long.clone(),
+                    attachments: Vec::new(),
+                }),
+                ..Default::default()
+            },
+            &me(),
+        )
+        .await
+        .unwrap();
+    let first = w.board.ticket_comments(&t.key.to_string()).await.unwrap();
+    assert_eq!(first.comments[0].body, long);
+
+    // An agent's: refused with today's text, nothing posted.
+    let agent = Actor::Agent("SHOP-1".parse().unwrap());
+    let refused = w
+        .board
+        .post_ticket_comment("SHOP-1", &rust_developer(), &long, Vec::new(), &agent)
+        .await
+        .unwrap_err();
+    assert_eq!(refused.refusal(), Some(Refusal::TooLong));
+    assert_eq!(refused.to_string(), refusal_text);
+    // Its own comment edited long: refused, whoever edits it (the user too).
+    let theirs = w
+        .board
+        .post_ticket_comment(
+            "SHOP-1",
+            &rust_developer(),
+            "Reused the CSV writer.",
+            Vec::new(),
+            &agent,
+        )
+        .await
+        .unwrap();
+    for actor in [&agent, &me()] {
+        let refused = w
+            .board
+            .edit_ticket_comment("SHOP-1", theirs.n, &long, actor)
+            .await
+            .unwrap_err();
+        assert_eq!(refused.refusal(), Some(Refusal::TooLong));
+        assert_eq!(refused.to_string(), refusal_text);
+    }
+    let listed = w.board.ticket_comments("SHOP-1").await.unwrap().comments;
+    assert_eq!(
+        listed.iter().map(|c| c.n).collect::<Vec<_>>(),
+        [1, 2, 3, 4],
+        "the agent's long one was never posted"
+    );
+    assert_eq!(listed[3].body, "Reused the CSV writer.");
     w.stop().await;
 }
 

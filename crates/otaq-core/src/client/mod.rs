@@ -25,7 +25,7 @@ use tokio::sync::{Notify, broadcast, watch};
 use crate::data_dir::DataDir;
 use crate::protocol::{
     self, Body, DecodeError, ErrorBody, Event, FrameReader, Message, PROTOCOL_VERSION, Reply,
-    Request, ServiceStatus, VERSION_INDEPENDENT_METHODS, decode, write_message,
+    Request, ServiceStatus, VERSION_INDEPENDENT_METHODS, decode, encode_within_limit, write_frame,
 };
 use connection::Connection;
 pub use launcher::{CommandLauncher, Launcher};
@@ -369,12 +369,14 @@ async fn supervise(inner: std::sync::Weak<Inner>) {
 /// Sends one request on a fresh connection and waits for its answer. Version-independent requests
 /// (`ping`, `service.status`, `service.stop`) also work against a service with another protocol version.
 pub async fn request_once(socket: &Path, request: Request) -> Result<Reply, ClientError> {
+    const ID: u64 = 1;
+    let frame =
+        encode_within_limit(&Message::request(ID, request)).map_err(ClientError::TooLarge)?;
     let stream = crate::ipc::connect(socket)
         .await
         .map_err(ClientError::NotRunning)?;
     let (read, mut write) = crate::ipc::split(stream);
-    const ID: u64 = 1;
-    write_message(&mut write, &Message::request(ID, request))
+    write_frame(&mut write, &frame)
         .await
         .map_err(ClientError::Io)?;
     let mut reader = FrameReader::new(BufReader::new(read));
@@ -421,6 +423,9 @@ pub enum ClientError {
     Protocol(DecodeError),
     /// The service answered with an error.
     Service(ErrorBody),
+    /// The request, this many bytes as a frame, is longer than one message carries
+    /// ([`protocol::MAX_FRAME_BYTES`]): not sent, and the connection stays (tuq 112).
+    TooLarge(usize),
 }
 
 impl fmt::Display for ClientError {
@@ -441,6 +446,11 @@ impl fmt::Display for ClientError {
             Self::Io(e) => write!(f, "connection to the background service failed: {e}"),
             Self::Protocol(e) => write!(f, "{e}"),
             Self::Service(e) => write!(f, "{e}"),
+            Self::TooLarge(_) => write!(
+                f,
+                "too long to send: one message to the background service carries at most {}",
+                protocol::max_frame_label()
+            ),
         }
     }
 }
