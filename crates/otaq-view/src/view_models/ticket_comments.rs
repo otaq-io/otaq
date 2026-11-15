@@ -319,6 +319,15 @@ pub struct DeleteTexts {
     pub confirm: String,
 }
 
+/// A long comment in the thread (tuq 112): its first lines (about 15), then "Show more", which opens the rest in place,
+/// with "Show less" after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CommentFoldTexts")]
+pub struct FoldTexts {
+    pub more: String,
+    pub less: String,
+}
+
 /// The menu's choices, as [`MenuItem`] ids.
 pub const EDIT: &str = "edit";
 pub const COPY: &str = "copy";
@@ -341,6 +350,7 @@ pub struct ThreadView {
     pub menu_label: String,
     pub edit: EditTexts,
     pub delete: DeleteTexts,
+    pub fold: FoldTexts,
     #[serde(rename = "box")]
     #[ts(rename = "box")]
     pub composer: CommentBoxView,
@@ -421,6 +431,10 @@ pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
                 .to_owned(),
             cancel: "Cancel".to_owned(),
             confirm: "Delete".to_owned(),
+        },
+        fold: FoldTexts {
+            more: "Show more".to_owned(),
+            less: "Show less".to_owned(),
         },
         composer: CommentBoxView::thread(facts.working),
     }
@@ -944,6 +958,19 @@ mod tests {
                         .into(),
                 cancel: "Cancel".into(),
                 confirm: "Delete".into(),
+            }
+        );
+    }
+
+    /// tuq 112: a long comment folds after its first lines; the thread names the two ways to open and close it.
+    #[test]
+    fn a_long_comment_folds_with_show_more_and_show_less() {
+        let v = view(&shop_34(), None);
+        assert_eq!(
+            v.fold,
+            FoldTexts {
+                more: "Show more".into(),
+                less: "Show less".into(),
             }
         );
     }

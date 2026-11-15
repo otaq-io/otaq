@@ -2,6 +2,7 @@
 import type { CommentBoxView } from "./CommentBoxView";
 import type { CommentDeleteTexts } from "./CommentDeleteTexts";
 import type { CommentEditTexts } from "./CommentEditTexts";
+import type { CommentFoldTexts } from "./CommentFoldTexts";
 import type { CommentRow } from "./CommentRow";
 import type { MenuItem } from "./MenuItem";
 
@@ -24,4 +25,4 @@ menu: Array<MenuItem>,
 /**
  * The ⋯ button's name for screen readers.
  */
-menu_label: string, edit: CommentEditTexts, delete: CommentDeleteTexts, box: CommentBoxView, };
+menu_label: string, edit: CommentEditTexts, delete: CommentDeleteTexts, fold: CommentFoldTexts, box: CommentBoxView, };

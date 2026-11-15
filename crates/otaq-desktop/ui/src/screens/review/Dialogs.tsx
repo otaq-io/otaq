@@ -24,6 +24,7 @@ import type { SheetSent } from "../../generated/SheetSent";
 import type { ReviewChanged } from "../../generated/ReviewChanged";
 import type { SendBackParams } from "../../generated/SendBackParams";
 import type { SendBackView } from "../../generated/SendBackView";
+import { CommentMarkdown } from "../../markdown";
 import { asRequestError, useEverySecond, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -857,7 +858,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
             {view.comments.map((c, i) => (
               <div key={`${c.at}-${String(i)}`} className="review-comment">
                 <span className="review-comment-at">{c.at}</span>
-                <span>{c.body}</span>
+                <CommentMarkdown markdown={c.body} />
               </div>
             ))}
           </div>
