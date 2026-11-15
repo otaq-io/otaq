@@ -22,7 +22,7 @@ tracing = "0.1.44"
 
 [target.'cfg(unix)'.dependencies]
 # Raw mode and window size of the local terminal for `attach`.
-rustix = { version = "1.1.5", features = ["termios"] }
+rustix = { version = "1.1.5", features = ["termios", "process"] }
 
 [target.'cfg(windows)'.dependencies]
 # Raw console mode and window size for `attach`; detached service and app processes.

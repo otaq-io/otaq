@@ -5,7 +5,7 @@
 //! Nothing here installs a launch agent or login item: the service runs only when started (d0055).
 
 use std::path::{Path, PathBuf};
-use std::process::{Command, Stdio};
+use std::process::{Child, Command, Stdio};
 use std::time::{Duration, Instant};
 
 use otaq_core::client::{ClientError, request_once};
@@ -23,6 +23,11 @@ use crate::output::Output;
 /// ([`otaq_core::tools::DAEMON_LOGIN_PATH_TIMEOUT`], read before the service listens), with room for a startup slowed
 /// by a busy machine.
 const START_WAIT: Duration = Duration::from_secs(60);
+/// The variable whose seconds `start` waits instead of [`START_WAIT`] (`OTAQ_DAEMON_START_WAIT_SECS`): for tests of a
+/// start that gives up.
+fn start_wait_var() -> String {
+    naming::env_var("DAEMON_START_WAIT_SECS")
+}
 /// How long `stop` waits for the service to go away.
 const STOP_WAIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
@@ -56,13 +61,18 @@ fn query_status(data: &DataDir) -> Result<Option<ServiceStatus>, ErrorBody> {
 }
 
 fn start(data: &DataDir, out: &Output) -> Result<(), ErrorBody> {
-    let (status, already) = ensure_started(data)?;
+    let (status, already) = ensure_started(data, out.is_human())?;
     print_started(out, &status, already);
     Ok(())
 }
 
-/// Starts the service in the background unless it runs: its status, and whether it already ran.
-pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), ErrorBody> {
+/// Starts the service in the background unless it runs: its status, and whether it already ran. `announce` says on
+/// stderr that it is starting, when it does: the first start after an update migrates the database first, which can
+/// take a while.
+pub(crate) fn ensure_started(
+    data: &DataDir,
+    announce: bool,
+) -> Result<(ServiceStatus, bool), ErrorBody> {
     if let Some(status) = query_status(data)? {
         return Ok((status, true));
     }
@@ -85,9 +95,21 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
         .stderr(Stdio::null());
     #[cfg(unix)]
     {
-        // Its own process group: Ctrl+C in the terminal that ran `start` doesn't reach the service.
+        // A session of its own, so its own process group with no terminal: Ctrl+C in the terminal that ran `start`
+        // doesn't reach the service, and a start that gives up ends the whole group. With no terminal the login shell
+        // the service reads `PATH` from (`$SHELL -l -i`) can't turn on job control and leave the group, as an
+        // interactive zsh does when it has one.
         use std::os::unix::process::CommandExt;
-        command.process_group(0);
+        // SAFETY: setsid is async-signal-safe; nothing else runs between fork and exec.
+        unsafe {
+            command.pre_exec(|| {
+                rustix::process::setsid()?;
+                Ok(())
+            });
+        }
+    }
+    if announce {
+        eprintln!("Starting the background service…");
     }
     let mut child = match spawn_detached(&mut command) {
         Ok(child) => child,
@@ -100,41 +122,82 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
         }
     };
 
-    let deadline = Instant::now() + START_WAIT;
+    let waited = wait_for_service(data, &mut child, start_wait());
+    if !matches!(waited, Ok(Some(_))) {
+        // Not up, by any way out of the wait: ended if still starting, so a start that reports failure leaves no
+        // service coming up behind it, which `daemon stop` couldn't reach until it listens. Its database is safe to
+        // cut short: what a migration leaves to do after its SQL is marked in the database and done by the next start
+        // (`Store::open`). The lock file and socket it may leave are taken over by the next start.
+        end_starting(&mut child);
+    }
+    if let Some(started) = waited? {
+        return Ok(started);
+    }
+    if let Some(newer) = newer_database(data) {
+        return Err(newer_database_error(&newer));
+    }
+    Err(internal(format!(
+        "the background service didn't start within {} s; see the logs in {}",
+        start_wait().as_secs(),
+        data.logs_dir().display()
+    )))
+}
+
+/// Waits for the service `child` was launched as to answer, for up to `wait`: its status and whether another start's
+/// service answered instead; `None` when `child` exited or the time ran out with none answering.
+fn wait_for_service(
+    data: &DataDir,
+    child: &mut Child,
+    wait: Duration,
+) -> Result<Option<(ServiceStatus, bool)>, ErrorBody> {
+    let deadline = Instant::now() + wait;
     loop {
         std::thread::sleep(POLL);
         if let Some(status) = query_status(data)? {
             // Another `start` may have won the race; either way one service runs.
             let ours = status.pid == child.id();
-            return Ok((status, !ours));
+            return Ok(Some((status, !ours)));
         }
-        let exited = child.try_wait().ok().flatten();
-        if exited.is_some() || Instant::now() > deadline {
-            if let Some(status) = query_status(data)? {
-                return Ok((status, true));
-            }
-            if exited.is_none() {
-                // Still starting: ended, so a start that reports failure leaves no service coming up behind it,
-                // which `daemon stop` couldn't reach until it listens. The lock file and socket it may leave are
-                // taken over by the next start.
-                match child.kill() {
-                    Ok(()) => {
-                        let _ = child.wait();
-                    }
-                    Err(e) => {
-                        tracing::warn!(error = %e, "can't end the service that didn't start in time");
-                    }
-                }
-            }
-            if let Some(newer) = newer_database(data) {
-                return Err(newer_database_error(&newer));
-            }
-            return Err(internal(format!(
-                "the background service didn't start; see the logs in {}",
-                data.logs_dir().display()
-            )));
+        let exited = child.try_wait().ok().flatten().is_some();
+        if exited || Instant::now() > deadline {
+            return Ok(query_status(data)?.map(|status| (status, true)));
         }
     }
+}
+
+/// Ends `child` and, on macOS and Linux, its process group (the login shell it may be reading `PATH` from), unless
+/// it has exited already.
+fn end_starting(child: &mut Child) {
+    if !matches!(child.try_wait(), Ok(None)) {
+        return;
+    }
+    #[cfg(unix)]
+    let ended = match i32::try_from(child.id())
+        .ok()
+        .and_then(rustix::process::Pid::from_raw)
+    {
+        Some(group) => rustix::process::kill_process_group(group, rustix::process::Signal::KILL)
+            .map_err(std::io::Error::from),
+        None => child.kill(),
+    };
+    #[cfg(not(unix))]
+    let ended = child.kill();
+    match ended {
+        Ok(()) => {
+            let _ = child.wait();
+        }
+        Err(e) => {
+            tracing::warn!(error = %e, "can't end the service that didn't start in time");
+        }
+    }
+}
+
+/// How long `start` waits: [`START_WAIT`], or the seconds in [`start_wait_var`] (the tests' short wait).
+fn start_wait() -> Duration {
+    std::env::var(start_wait_var())
+        .ok()
+        .and_then(|secs| secs.parse().ok())
+        .map_or(START_WAIT, Duration::from_secs)
 }
 
 /// Why the service didn't start, when it's a database a newer build changed (UPD-08).

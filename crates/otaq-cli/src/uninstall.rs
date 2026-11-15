@@ -88,7 +88,7 @@ fn uninstall(keep_data: bool, global: &GlobalArgs) -> Result<Ended, ErrorBody> {
         return Err(refused(in_terminal));
     }
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;
-    crate::daemon::ensure_started(&data)?;
+    crate::daemon::ensure_started(&data, true)?;
     let rt = runtime()?;
     let client = rt.block_on(connect(&data, global))?;
     let request = |request: Request| rt.block_on(client.request(request)).map_err(client_error);

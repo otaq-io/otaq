@@ -356,7 +356,7 @@ mod tests {
     /// Opens the database at `path` as a build with the migrations up to `last`, named `version`.
     async fn open_as(path: &Path, last: i64, version: &str) -> Result<(), StoreError> {
         let pool = pool(path).await;
-        let migrated = migrate(&pool, path, &up_to(last), version).await;
+        let migrated = migrate(&pool, path, &up_to(last), version, &[]).await;
         pool.close().await;
         migrated
     }

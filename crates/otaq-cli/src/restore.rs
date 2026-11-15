@@ -28,7 +28,8 @@ impl ServiceControl for Daemon<'_> {
     }
 
     fn start(&mut self) -> Result<(), String> {
-        crate::daemon::ensure_started(self.0)
+        // The restore prints its own step: Starting the background service.
+        crate::daemon::ensure_started(self.0, false)
             .map(drop)
             .map_err(|e| e.message)
     }
