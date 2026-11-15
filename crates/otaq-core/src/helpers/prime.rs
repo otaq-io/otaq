@@ -29,6 +29,9 @@ pub struct HelperPrime {
     /// The ticket's other comments, oldest first.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub comments: Vec<TicketComment>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 impl Helpers {
@@ -49,6 +52,7 @@ impl Helpers {
             comments,
             ticket,
             helper,
+            long_text_file: None,
         })
     }
 }
@@ -125,6 +129,9 @@ pub fn render(p: &HelperPrime) -> String {
          - You never move the ticket: `{cmd} stage next`, `{cmd} stage done`, `{cmd} check` and `{cmd} helper start` \
            are the agent in charge's.\n",
         merges = p.merges_into
+    ));
+    out.push_str(&crate::prime::render_long_text_file(
+        p.long_text_file.as_deref(),
     ));
     out
 }

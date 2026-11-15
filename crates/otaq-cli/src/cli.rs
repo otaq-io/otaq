@@ -193,6 +193,9 @@ pub enum Command {
         /// Read the description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         #[command(flatten)]
         plan: PlanFlags,
         /// Create every ticket of a Markdown file (### headings), all or nothing
@@ -217,10 +220,13 @@ pub enum Command {
         /// Read the new description (Markdown) from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         #[command(flatten)]
         plan: PlanFlags,
         /// Read the new Plan (Markdown) from stdin
-        #[arg(long, conflicts_with_all = ["stdin", "plan", "plan_file"])]
+        #[arg(long, conflicts_with_all = ["stdin", "stdin_file", "plan", "plan_file"])]
         plan_stdin: bool,
         #[command(flatten)]
         choices: ChoiceFlags,
@@ -245,6 +251,9 @@ pub enum Command {
         /// Read the question from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// An answer option (repeatable, 2–4 short labels); without options the question is free text
         #[arg(long = "option", value_name = "LABEL")]
         options: Vec<String>,
@@ -269,6 +278,9 @@ pub enum Command {
         /// Read the answer from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// The questions other tickets' agents asked this one that wait for an answer
     Questions {
@@ -373,6 +385,9 @@ pub enum DecisionCommand {
         /// Read the decision from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
 }
 
@@ -386,6 +401,9 @@ pub enum StageCommand {
         /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
         /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
@@ -403,6 +421,9 @@ pub enum StageCommand {
         /// Read the reason from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
         /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
@@ -421,6 +442,9 @@ pub enum CheckCommand {
         /// Read the report from stdin, posted as your comment (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
         /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
@@ -436,6 +460,9 @@ pub enum CheckCommand {
         /// 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
         /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
@@ -456,6 +483,9 @@ pub enum ReviewCommand {
         /// Read the summary from stdin (at most 2,000 characters)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
         /// screenshot; repeat it for each file
         #[arg(long, value_name = "PATH")]
@@ -479,6 +509,9 @@ pub enum PrCommand {
         /// Read the proposal from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Send the delivery's message for a ticket waiting in Review (JSON on stdin: title, description, branch); the
     /// user sees it when they approve, and nothing is merged or pushed
@@ -486,6 +519,9 @@ pub enum PrCommand {
         /// Read the message from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Report the pull request the skill opened (or pushed to)
     Opened {
@@ -543,8 +579,13 @@ pub enum FlowCommand {
     /// Propose a flow to the user: it opens in Otaq's flow editor and nothing changes until they apply it
     #[command(group(clap::ArgGroup::new("source").required(true).args(["file", "stdin", "from"])))]
     Propose {
-        /// A flow file (YAML: agents and flow)
-        #[arg(short = 'f', long = "file", value_name = "FILE")]
+        /// A flow file (YAML: agents and flow); `--stdin-file` is another name for it
+        #[arg(
+            short = 'f',
+            long = "file",
+            value_name = "FILE",
+            visible_alias = "stdin-file"
+        )]
         file: Option<PathBuf>,
         /// Read the flow (YAML) from stdin
         #[arg(long)]
@@ -592,6 +633,82 @@ pub fn parse_from(args: &[OsString]) -> Result<(Cli, ArgMatches), clap::Error> {
     let matches = Cli::command().try_get_matches_from(args)?;
     let cli = Cli::from_arg_matches(&matches)?;
     Ok((cli, matches))
+}
+
+impl Command {
+    /// The command's `--stdin-file`, taken out and turned into `--stdin` (fixes-before-0-3, piece 1): the command then
+    /// runs as with `--stdin`, its text read from that file ([`crate::input`]). `None`, and nothing changed, without
+    /// one. (`flow propose` takes `--stdin-file` as another name for its own `--file`.)
+    pub fn take_stdin_file(&mut self) -> Option<PathBuf> {
+        let (stdin, file) = match self {
+            Command::Create {
+                stdin, stdin_file, ..
+            }
+            | Command::Update {
+                stdin, stdin_file, ..
+            }
+            | Command::Ask {
+                stdin, stdin_file, ..
+            }
+            | Command::Answer {
+                stdin, stdin_file, ..
+            }
+            | Command::Decision(DecisionCommand::Record {
+                stdin, stdin_file, ..
+            })
+            | Command::Stage(
+                StageCommand::Next {
+                    stdin, stdin_file, ..
+                }
+                | StageCommand::Done {
+                    stdin, stdin_file, ..
+                },
+            )
+            | Command::Check(
+                CheckCommand::Pass {
+                    stdin, stdin_file, ..
+                }
+                | CheckCommand::Fail {
+                    stdin, stdin_file, ..
+                },
+            )
+            | Command::Review(ReviewCommand::Submit {
+                stdin, stdin_file, ..
+            })
+            | Command::Pr(
+                PrCommand::Propose { stdin, stdin_file } | PrCommand::Message { stdin, stdin_file },
+            )
+            | Command::Helper(
+                crate::helper::HelperCommand::Start {
+                    stdin, stdin_file, ..
+                }
+                | crate::helper::HelperCommand::Back {
+                    stdin, stdin_file, ..
+                }
+                | crate::helper::HelperCommand::Drop {
+                    stdin, stdin_file, ..
+                }
+                | crate::helper::HelperCommand::Answer {
+                    stdin, stdin_file, ..
+                }
+                | crate::helper::HelperCommand::Done { stdin, stdin_file },
+            )
+            | Command::Comment(crate::comment::CommentArgs {
+                command:
+                    Some(crate::comment::CommentCommand::Edit {
+                        stdin, stdin_file, ..
+                    }),
+                ..
+            }) => (stdin, stdin_file),
+            Command::Comment(args) if args.command.is_none() => {
+                (&mut args.stdin, &mut args.stdin_file)
+            }
+            _ => return None,
+        };
+        let file = file.take()?;
+        *stdin = true;
+        Some(file)
+    }
 }
 
 /// `ask`'s notes (ATT-17), one entry per `--option` in order, `None` for an option without one: each `--note`
@@ -1196,6 +1313,100 @@ mod tests {
                 "{later} shown:\n{help}"
             );
         }
+    }
+
+    /// Every command with `--stdin`, with what it needs besides: each also takes `--stdin-file` (fixes-before-0-3,
+    /// piece 1).
+    const WITH_STDIN: &[(&str, &[&str])] = &[
+        ("create", &["Title"]),
+        ("update", &[]),
+        ("ask", &["human"]),
+        ("answer", &["Q1"]),
+        ("decision record", &[]),
+        ("stage next", &[]),
+        ("stage done", &[]),
+        ("check pass", &[]),
+        ("check fail", &[]),
+        ("comment", &[]),
+        ("comment edit", &["2"]),
+        ("review submit", &[]),
+        ("pr propose", &[]),
+        ("pr message", &[]),
+        ("helper start", &["1", "--title", "Piece"]),
+        ("helper back", &["1"]),
+        ("helper drop", &["1"]),
+        ("helper answer", &["1"]),
+        ("helper done", &[]),
+        ("flow propose", &[]),
+    ];
+
+    /// The commands of the tree that take `--stdin`, as paths of names.
+    fn commands_with_stdin(command: &clap::Command, path: &mut Vec<String>, out: &mut Vec<String>) {
+        if command
+            .get_arguments()
+            .any(|a| a.get_long() == Some("stdin"))
+        {
+            out.push(path.join(" "));
+        }
+        for sub in command.get_subcommands() {
+            path.push(sub.get_name().to_owned());
+            commands_with_stdin(sub, path, out);
+            path.pop();
+        }
+    }
+
+    #[test]
+    fn every_command_with_stdin_takes_a_stdin_file() {
+        let mut found = Vec::new();
+        commands_with_stdin(&Cli::command(), &mut Vec::new(), &mut found);
+        let listed: Vec<String> = WITH_STDIN.iter().map(|(c, _)| (*c).to_owned()).collect();
+        found.sort();
+        let mut sorted = listed.clone();
+        sorted.sort();
+        assert_eq!(
+            found, sorted,
+            "a command took --stdin without a --stdin-file test"
+        );
+
+        for (path, args) in WITH_STDIN {
+            let command: Vec<&str> = path.split(' ').chain(args.iter().copied()).collect();
+            let command = command.as_slice();
+            let mut cli = parse(&[command, &["--stdin-file", "/tmp/text.md"][..]].concat())
+                .unwrap_or_else(|e| panic!("{command:?}: {e}"));
+            let command_line = format!("{command:?}");
+            let taken = cli.command.as_mut().unwrap().take_stdin_file();
+            if *path == "flow propose" {
+                // `flow propose` reads its own `--file`: `--stdin-file` is another name for it.
+                assert_eq!(taken, None);
+                assert!(matches!(
+                    cli.command,
+                    Some(Command::Flow(FlowCommand::Propose { file: Some(ref f), stdin: false, .. }))
+                        if f == std::path::Path::new("/tmp/text.md")
+                ));
+                continue;
+            }
+            assert_eq!(taken, Some(PathBuf::from("/tmp/text.md")), "{command_line}");
+            // It now runs as with `--stdin`, and the file is taken once.
+            let again = cli.command.as_mut().unwrap().take_stdin_file();
+            assert_eq!(again, None, "{command_line}");
+            let as_stdin = parse(&[command, &["--stdin"][..]].concat()).unwrap();
+            assert_eq!(
+                format!("{:?}", cli.command),
+                format!("{:?}", as_stdin.command),
+                "{command_line}"
+            );
+            // Not both.
+            assert!(
+                parse(&[command, &["--stdin", "--stdin-file", "/tmp/text.md"][..]].concat())
+                    .is_err(),
+                "{command_line}"
+            );
+        }
+        // Without `--stdin-file`, nothing changes.
+        let mut cli = parse(&["stage", "next", "--stdin"]).unwrap();
+        let before = format!("{:?}", cli.command);
+        assert_eq!(cli.command.as_mut().unwrap().take_stdin_file(), None);
+        assert_eq!(format!("{:?}", cli.command), before);
     }
 
     #[test]

@@ -12,6 +12,7 @@ mod deps;
 mod flow;
 mod helper;
 mod hook;
+mod input;
 mod launch;
 mod notify_check;
 mod output;
@@ -38,10 +39,14 @@ use output::{EXIT_ERROR, EXIT_USAGE, Mode, Output};
 
 fn main() -> ExitCode {
     let args: Vec<_> = std::env::args_os().collect();
-    let (cli, matches) = match cli::parse_from(&args) {
+    let (mut cli, matches) = match cli::parse_from(&args) {
         Ok(parsed) => parsed,
         Err(e) => return usage_error(e, cli::wants_json(&args)),
     };
+    // `--stdin-file <PATH>`: the command runs as with `--stdin`, its text read from the file.
+    if let Some(file) = cli.command.as_mut().and_then(Command::take_stdin_file) {
+        input::use_file(file);
+    }
     let out = Output::new(cli.global.mode());
     let result = match cli.command {
         None => launch::launch_app(),
@@ -89,6 +94,7 @@ fn main() -> ExitCode {
             priority,
             deps,
             stdin,
+            stdin_file: _,
             plan,
             file,
             choices,
@@ -112,6 +118,7 @@ fn main() -> ExitCode {
             description,
             priority,
             stdin,
+            stdin_file: _,
             plan,
             plan_stdin,
             choices,
@@ -133,6 +140,7 @@ fn main() -> ExitCode {
         Some(Command::Ask {
             target,
             stdin,
+            stdin_file: _,
             options,
             notes: _,
             recommended,
@@ -154,12 +162,14 @@ fn main() -> ExitCode {
         Some(Command::Review(cli::ReviewCommand::Submit {
             key,
             stdin,
+            stdin_file: _,
             report_file,
             manual_check,
         }))
         | Some(Command::Stage(cli::StageCommand::Next {
             key,
             stdin,
+            stdin_file: _,
             report_file,
             manual_check,
         })) => agent::stage_next(
@@ -175,6 +185,7 @@ fn main() -> ExitCode {
         Some(Command::Stage(cli::StageCommand::Done {
             key,
             stdin,
+            stdin_file: _,
             report_file,
             manual_check,
         })) => agent::stage_done(
@@ -197,7 +208,7 @@ fn main() -> ExitCode {
         }
         Some(Command::Pr(command)) => pr::pr(command, &cli.global, &out),
         Some(Command::Branch(command)) => pr::branch(command, &cli.global, &out),
-        Some(Command::Answer { id, stdin }) => agent::answer(id, stdin, &cli.global, &out),
+        Some(Command::Answer { id, stdin, .. }) => agent::answer(id, stdin, &cli.global, &out),
         Some(Command::Questions { key }) => agent::questions(key, &cli.global, &out),
         Some(Command::Comment(args)) => comment::comment(args, &cli.global, &out),
         Some(Command::Comments { key }) => comment::list(key, &cli.global, &out),

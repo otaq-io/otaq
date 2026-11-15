@@ -2271,16 +2271,29 @@ pub(super) async fn stage_session(
 /// ADP-05); a caller with no agent session (by hand, with `OTAQ_TICKET`) gets a new session's tool.
 /// The tool of the caller's session; `None` for the user (a new session's tool names the skills then).
 fn caller_tool(shared: &Shared, caller: &Caller) -> Option<crate::agent_tools::Tool> {
-    let session = match caller {
+    caller_session(caller)
+        .and_then(|s| shared.sessions.info(s).ok())
+        .and_then(|info| info.tool)
+}
+
+/// The agent session the caller runs in; `None` for the user.
+fn caller_session(caller: &Caller) -> Option<&str> {
+    match caller {
         Caller::Agent { session, .. }
         | Caller::Validator { session, .. }
         | Caller::Helper { session, .. }
         | Caller::ProjectAgent { session, .. } => Some(session),
         Caller::User => None,
-    };
-    session
-        .and_then(|s| shared.sessions.info(s).ok())
-        .and_then(|info| info.tool)
+    }
+}
+
+/// The file a Codex session's `prime` tells it to pass long text through (fixes-before-0-3, piece 1;
+/// [`crate::prime::long_text_file`]); `None` for every other tool's session and the user, whose prime stays as it was.
+pub(super) fn codex_long_text_file(shared: &Shared, caller: &Caller) -> Option<std::path::PathBuf> {
+    if caller_tool(shared, caller) != Some(crate::agent_tools::Tool::Codex) {
+        return None;
+    }
+    caller_session(caller).map(crate::prime::long_text_file)
 }
 
 async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
@@ -2291,10 +2304,11 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
     {
         return prime_validate(shared, caller, key).await;
     }
-    let context = shared
+    let mut context = shared
         .board
         .prime_context(key, shared.adapters.of_session(caller_tool(shared, caller)))
         .await?;
+    context.long_text_file = codex_long_text_file(shared, caller);
     record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::Prime(Box::new(context)))
 }
@@ -2302,12 +2316,13 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
 /// `otaq prime --validate` (VAL-10), and a plain `otaq prime` from the ticket's validator: its stage's skill named as
 /// the caller's tool names it, as the working prime does (no-skill-copies F6).
 async fn prime_validate(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
-    let context = Box::pin(
+    let mut context = Box::pin(
         shared
             .board
             .validate_prime_for(key, shared.adapters.of_session(caller_tool(shared, caller))),
     )
     .await?;
+    context.long_text_file = codex_long_text_file(shared, caller);
     record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::PrimeValidate(Box::new(context)))
 }

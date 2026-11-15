@@ -10,7 +10,7 @@
 //! `--json` prints the helper (`otaq_core::helpers::Helper`) with the text as `{"helper", "text"}`, `list --json` the
 //! helpers, `diff --json` `{"helper", "against", "files", "patch"}`.
 
-use std::io::Read;
+use std::path::PathBuf;
 
 use clap::Subcommand;
 use otaq_core::data_dir::DataDir;
@@ -40,6 +40,9 @@ pub enum HelperCommand {
         /// Read a note for the helper from stdin (posted as its first comment)
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Each helper's piece, title, status, branch, last activity and worktree
     List,
@@ -55,6 +58,9 @@ pub enum HelperCommand {
         /// Read the note from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Merge the helper's piece into the ticket's branch: refused with uncommitted files or a conflict
     Merge {
@@ -69,6 +75,9 @@ pub enum HelperCommand {
         /// Read the reason from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Answer the helper's question with the answer on stdin, typed into its session when it is idle
     Answer {
@@ -77,6 +86,9 @@ pub enum HelperCommand {
         /// Read the answer from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
     /// Pass the helper's question on to the user (its id is in the note that told you about it), with why
     #[command(name = "pass-on")]
@@ -93,6 +105,9 @@ pub enum HelperCommand {
         /// Read the summary from stdin
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
     },
 }
 
@@ -101,10 +116,7 @@ fn usage(message: impl Into<String>) -> ErrorBody {
 }
 
 fn read_stdin() -> Result<String, ErrorBody> {
-    let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    let text = crate::input::read()?;
     Ok(text.trim().to_owned())
 }
 
@@ -117,6 +129,7 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
         HelperCommand::Back {
             stdin: false,
             piece,
+            ..
         } => {
             return Err(usage(format!(
                 "give the note on stdin: `{cmd} helper back {piece} --stdin`"
@@ -125,6 +138,7 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
         HelperCommand::Drop {
             stdin: false,
             piece,
+            ..
         } => {
             return Err(usage(format!(
                 "give the reason on stdin: `{cmd} helper drop {piece} --stdin`"
@@ -133,12 +147,13 @@ pub fn run(command: HelperCommand, global: &GlobalArgs, out: &Output) -> Result<
         HelperCommand::Answer {
             stdin: false,
             piece,
+            ..
         } => {
             return Err(usage(format!(
                 "give the answer on stdin: `{cmd} helper answer {piece} --stdin`"
             )));
         }
-        HelperCommand::Done { stdin: false } => {
+        HelperCommand::Done { stdin: false, .. } => {
             return Err(usage(format!(
                 "give your summary on stdin: `{cmd} helper done --stdin`"
             )));

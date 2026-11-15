@@ -36,6 +36,9 @@ pub struct ProjectPrime {
     /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<PrimeChoice>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// One ticket as `prime --project` lists it.
@@ -108,6 +111,7 @@ impl Board {
             instructions,
             flow,
             choices: Vec::new(),
+            long_text_file: None,
         })
     }
 }
@@ -183,6 +187,9 @@ pub fn render(ctx: &ProjectPrime) -> String {
     if let Some(instructions) = &ctx.instructions {
         out.push_str(&instructions.render("Noyan’s instructions"));
     }
+    out.push_str(&crate::prime::render_long_text_file(
+        ctx.long_text_file.as_deref(),
+    ));
     out
 }
 
@@ -239,6 +246,7 @@ mod tests {
                 },
             ],
             choices: Vec::new(),
+            long_text_file: None,
         };
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;
