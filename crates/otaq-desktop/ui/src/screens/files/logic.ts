@@ -75,6 +75,12 @@ export function chunks(count: number, size: number = CHUNK_ROWS): [number, numbe
   return out;
 }
 
+/** A chunk's size while it is skipped: its rows' height, and no width, so a long line out of view never widens the
+ * card's sideways scroll (`.files-card`). */
+export function chunkSize(start: number, end: number): string {
+  return `0px auto ${String((end - start) * LINE_HEIGHT)}px`;
+}
+
 // ---- The tree ----
 
 /**

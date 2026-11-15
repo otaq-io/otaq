@@ -411,13 +411,33 @@
   cursor: pointer;
 }
 
+/* Long lines scroll sideways: the card's one column is as wide as its widest line drawn (a chunk out of view adds no
+   width, `chunkSize`), and never narrower than the card, so every row's tint reaches the same edge. */
 .files-card {
+  container-type: inline-size;
+  display: grid;
+  grid-template-columns: minmax(max-content, 1fr);
   padding: 8px 0;
-  overflow: hidden;
+  overflow: auto hidden;
   border-radius: 8px;
   outline: 1px solid var(--border);
   outline-offset: -1px;
   background: var(--bg-card);
+}
+
+/* Notes, hunk headers, comments and folds keep the card's width and stay in view as the lines scroll. */
+.files-card > :not(.diff-chunk),
+.files-card .diff-thread,
+.files-card .files-view-fold {
+  position: sticky;
+  left: 0;
+  box-sizing: border-box;
+  width: 100cqw;
+}
+
+/* Split's halves share the card's width; a long line wraps in its half instead. */
+.files-card .diff-side-row {
+  width: 100cqw;
 }
 
 /* The review notes above All changes: how it reached Review, the agent's summary, decisions, the report. */
@@ -559,6 +579,17 @@
 .diff-half {
   flex: 1;
   min-width: 0;
+}
+
+/* A long line wraps in its half of Split; its number stays on the first row. */
+.diff-half .diff-code {
+  white-space: pre-wrap;
+  overflow-wrap: anywhere;
+}
+
+.diff-half,
+.diff-half .diff-gutter {
+  align-items: flex-start;
 }
 
 .diff-half + .diff-half {

@@ -29,10 +29,10 @@ import {
   type Composer,
   type ComposerAction,
   canSave,
+  chunkSize,
   chunks,
   composerKey,
   composerReducer,
-  LINE_HEIGHT,
   rowAnchors,
   saveRequest,
   threadsByAnchor,
@@ -158,7 +158,8 @@ export function useScrollToLine(
     const row = container.current?.querySelector(`.diff-line[data-line="${String(line)}"]`);
     if (!row) return;
     done.current = ask;
-    row.scrollIntoView({ block: "center" });
+    // Sideways too: back to the line's start, where its number is, wherever the card was scrolled.
+    row.scrollIntoView({ block: "center", inline: "start" });
   }, [container, line, ask, drawn]);
 }
 
@@ -407,11 +408,7 @@ export function Hunk({
     <>
       <div className="diff-hunk-header">{hunk.header}</div>
       {chunks(count).map(([start, end]) => (
-        <div
-          key={start}
-          className="diff-chunk"
-          style={{ containIntrinsicSize: `auto ${String((end - start) * LINE_HEIGHT)}px` }}
-        >
+        <div key={start} className="diff-chunk" style={{ containIntrinsicSize: chunkSize(start, end) }}>
           {sideBySide
             ? hunk.rows
                 .slice(start, end)

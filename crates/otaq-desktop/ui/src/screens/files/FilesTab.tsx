@@ -52,6 +52,7 @@ import {
   type OpenFile,
   changeRuns,
   changedRows,
+  chunkSize,
   fileAtTop,
   chunks,
   openFile,
@@ -962,11 +963,7 @@ export function FileBody({ ticket, page, file, ctx, width, onMode, onSplit }: Fi
         {mode === "file" ? (
           <>
             {chunks(page.lines.length).map(([start, end]) => (
-              <div
-                key={start}
-                className="diff-chunk"
-                style={{ containIntrinsicSize: `auto ${String((end - start) * LINE_HEIGHT)}px` }}
-              >
+              <div key={start} className="diff-chunk" style={{ containIntrinsicSize: chunkSize(start, end) }}>
                 {page.lines.slice(start, end).map((line) => (
                   <CodeLineRow
                     key={line.number}

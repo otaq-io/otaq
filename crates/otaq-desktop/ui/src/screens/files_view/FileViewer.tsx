@@ -21,7 +21,7 @@ import { Icon } from "../../theme/Icon";
 import { paletteInk } from "../../cards/look";
 import { type DiffLoad, DiffLines, Path } from "../files/FilesTab";
 import { CodeLineRow, useScrollToLine } from "../files/Hunks";
-import { chunks, LINE_HEIGHT } from "../files/logic";
+import { chunkSize, chunks } from "../files/logic";
 import { PROJECT_FILES_EVENTS, diffOwner, ownerMenu, shownFileMode } from "./logic";
 
 /** The bars beside one line: one slot per ticket on the base, in its colour along the line or as a tick between two. */
@@ -46,11 +46,7 @@ function FileRows({ view, marked }: { view: FilesViewFile; marked: number | null
   return (
     <>
       {chunks(view.rows.length).map(([start, end]) => (
-        <div
-          key={start}
-          className="diff-chunk"
-          style={{ containIntrinsicSize: `auto ${String((end - start) * LINE_HEIGHT)}px` }}
-        >
+        <div key={start} className="diff-chunk" style={{ containIntrinsicSize: chunkSize(start, end) }}>
           {view.rows.slice(start, end).map((row: FilesViewRow, i) =>
             row.kind === "line" ? (
               <CodeLineRow
