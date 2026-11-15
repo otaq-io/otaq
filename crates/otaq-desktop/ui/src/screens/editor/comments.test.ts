@@ -555,6 +555,7 @@ const THREAD: CommentThreadView = {
   menu_label: "Comment actions",
   edit: { cancel: "Cancel", save: "Save" },
   delete: { title: "Delete this comment?", note: "", cancel: "Cancel", confirm: "Delete" },
+  fold: { more: "Show more", less: "Show less" },
   box: BOX,
 };
 

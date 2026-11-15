@@ -23,6 +23,7 @@ import type { DiffLineView } from "../../generated/DiffLineView";
 import type { FilesComments } from "../../generated/FilesComments";
 import type { FilesThread } from "../../generated/FilesThread";
 import type { NewToast } from "../../generated/NewToast";
+import { CommentMarkdown } from "../../markdown";
 import { asRequestError } from "../../service";
 import { request } from "../../tauri";
 import {
@@ -302,7 +303,8 @@ function ThreadBlock({ anchor, ctx }: { anchor: DiffAnchor; ctx: CommentContext 
                   </>
                 )}
               </div>
-              <p className="diff-comment-body">{c.body}</p>
+              {/* Drawn as Markdown, like the thread's (tuq 110); Edit opens the text as written. */}
+              <CommentMarkdown className="diff-comment-body" markdown={c.body} />
             </div>
           </div>
         ),

@@ -433,8 +433,44 @@
   margin: 0;
   color: var(--text-primary);
   font: 400 13px/1.5 var(--font-ui);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A long comment folds (tuq 112): folded, its text shows about 15 lines, 15 of the drawn text's 13 px × 1.45 lines
+   (markdown.css), and fades out at the cut; `CommentText` measures whether what it draws is taller than that. */
+.comment-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comment-text > .comment-body {
+  align-self: stretch;
+  min-width: 0;
+}
+
+.comment-text[data-folded] > .comment-body {
+  max-height: calc(15 * 13px * 1.45);
+  overflow: hidden;
+}
+
+.comment-text[data-folded][data-long] > .comment-body {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+
+.comment-fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.comment-fold:hover {
+  text-decoration: underline;
 }
 
 /* A comment's attachments: one chip each, stacked. */

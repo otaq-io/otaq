@@ -432,7 +432,8 @@ describe("the Files tab", () => {
     };
     const out = renderToStaticMarkup(createElement(Hunk, { hunk, sideBySide: false, ctx }));
     expect(out).toContain("on line 21 · not sent yet");
-    expect(out).toContain("Expired codes should say");
+    // Its text is Markdown, drawn once the page mounts it (tuq 110): diff_comment.page.test.ts reads it.
+    expect(out).toContain('class="md-editor md-comment diff-comment-body"');
     expect(out).toContain('aria-label="Comment on this line"');
     expect(out).toContain(">Edit<");
     expect(out).toContain(">Reply<");

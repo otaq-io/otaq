@@ -743,11 +743,10 @@
   font-size: 11px;
 }
 
-.diff-comment-body {
-  margin: 0;
+/* A comment on a line, drawn as Markdown (tuq 110): the description's nodes at the card's smaller text. */
+.diff-comment-body.md-editor .ProseMirror {
   font-size: 12.5px;
   line-height: 1.4;
-  white-space: pre-wrap;
 }
 
 .diff-composer-input {
