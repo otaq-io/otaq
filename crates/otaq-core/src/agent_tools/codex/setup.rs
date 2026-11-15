@@ -26,11 +26,12 @@
 //!   with `config/batchWrite` (`hooks.state."<key>".trusted_hash`). The hook command lines never change (per-ticket
 //!   data travels in the environment), so the trust holds;
 //! - **`rules/otaq.rules`**: `prefix_rule(pattern=["otaq"], decision="allow")`, the same for tuq's `tuq` and
-//!   `tuq-plan` (tuq decision 077), and `prefix_rule(pattern=["git", "commit"], decision="allow")` (agreed
-//!   2026-11-15: a ticket's commit writes the main checkout's `.git`, outside Codex's sandbox), so those commands
-//!   run without a prompt and every other command (`git push`, `git reset`, …) still asks. A rules file an older
-//!   Otaq wrote (without tuq's commands or `git commit`) makes the next check run the setup again, which rewrites it
-//!   once ([`stale_rules`]).
+//!   `tuq-plan` (tuq decision 077), and `prefix_rule(pattern=["git", "add"], decision="allow")` and
+//!   `prefix_rule(pattern=["git", "commit"], decision="allow")` (agreed 2026-11-15: a ticket's commit, which Otaq's
+//!   commit skill makes with `git add -A` then `git commit`, writes the main checkout's `.git`, outside Codex's
+//!   sandbox), so those commands run without a prompt and every other command (`git push`, `git reset`, …) still
+//!   asks. A rules file an older Otaq wrote (without tuq's commands, `git add` or `git commit`) makes the next check
+//!   run the setup again, which rewrites it once ([`stale_rules`]).
 //!
 //! A `config.toml` that doesn't parse is never written, by Otaq or by the Codex commands it runs: the setup stops
 //! and the page shows why. Codex's own commands write their entries the same careful way (checked: the user's
@@ -92,19 +93,22 @@ fn rules_file(home: &Path) -> PathBuf {
         .join(format!("{}.rules", naming::COMMAND_NAME))
 }
 
-/// The rules that pre-approve only `otaq` commands, tuq's (`tuq`, `tuq-plan`, decision 077) and `git commit`.
+/// The rules that pre-approve only `otaq` commands, tuq's (`tuq`, `tuq-plan`, decision 077), `git add` and
+/// `git commit`.
 pub(super) fn rules_text() -> String {
     let mut text: String = std::iter::once(naming::COMMAND_NAME)
         .chain(crate::tuq::COMMANDS)
         .map(|command| format!("prefix_rule(pattern=[\"{command}\"], decision=\"allow\")\n"))
         .collect();
-    text.push_str(GIT_COMMIT_RULE);
+    text.push_str(GIT_COMMIT_RULES);
     text
 }
 
-/// A ticket's commit runs without a prompt (agreed 2026-11-15): a worktree's git data is in the main checkout's
-/// `.git`, outside Codex's sandbox. Only `git commit`: `git push`, `git reset` and every other command still ask.
-const GIT_COMMIT_RULE: &str = "prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n";
+/// A ticket's commit runs without a prompt (agreed 2026-11-15): a worktree's git data (its index, its objects) is
+/// in the main checkout's `.git`, outside Codex's sandbox, and Otaq's commit skill runs `git add -A` before
+/// `git commit`. Only these two: `git push`, `git reset` and every other command still ask.
+const GIT_COMMIT_RULES: &str = "prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
+                                prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n";
 
 fn folder_trust() -> SetupEntry {
     SetupEntry {
@@ -474,7 +478,7 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
 /// Whether the next check should run the setup again: Otaq's folders are known and a launch would be refused
 /// for a missing setup ([`launch_refusal`]), or Codex's installed copy of the plugin differs from the fixed folder
 /// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it, or the rules file an older Otaq
-/// wrote doesn't pre-approve what this one does ([`stale_rules`]: tuq's commands and `git commit` came later).
+/// wrote doesn't pre-approve what this one does ([`stale_rules`]: tuq's commands, `git add` and `git commit` came later).
 pub(super) fn setup_needed(context: &CodexContext) -> bool {
     context.tool.launch.is_some()
         && (launch_refusal(context).is_some()
@@ -1078,6 +1082,7 @@ mod tests {
                 "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n\
                  prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
                  prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
                  prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n",
                 naming::COMMAND_NAME
             )
@@ -1140,20 +1145,22 @@ mod tests {
     }
 
     /// Upgrade (fixes-before-0-3, piece 2): a rules file an older Otaq wrote (0.2's `otaq`, `tuq`, `tuq-plan`
-    /// without `git commit`, or `otaq` alone from before tuq) makes the next check run the setup, which rewrites it
-    /// to today's rules once; after that nothing is stale and a second setup leaves the file as it is. Disconnect
-    /// still removes the whole file.
+    /// without the git rules, `otaq` alone from before tuq, or a build with `git commit` but not `git add`) makes the
+    /// next check run the setup, which rewrites it to today's rules once; after that nothing is stale and a second
+    /// setup leaves the file as it is. Disconnect still removes the whole file.
     #[tokio::test]
     async fn an_older_rules_file_is_rewritten_once() {
         let otaq_rule = format!(
             "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
             naming::COMMAND_NAME
         );
+        let with_tuq = format!(
+            "{otaq_rule}prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
+             prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n"
+        );
         let older = [
-            format!(
-                "{otaq_rule}prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
-                 prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n"
-            ),
+            format!("{with_tuq}prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n"),
+            with_tuq,
             otaq_rule,
         ];
         for old in older {
@@ -1173,9 +1180,10 @@ mod tests {
             assert_eq!(report.failed, []);
             let rules = fs::read_to_string(rules_file(&home.home())).unwrap();
             assert_eq!(rules, rules_text());
-            assert!(
-                rules.ends_with("prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n")
-            );
+            assert!(rules.ends_with(
+                "prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n"
+            ));
             assert!(!stale_rules(&context));
             assert!(
                 !setup_needed(&context),
@@ -1212,10 +1220,10 @@ mod tests {
         }
     }
 
-    /// The rules pre-approve exactly `otaq`, tuq's commands and `git commit`: no other git command (`git push`,
-    /// `git reset`, a bare `git`) and nothing broader than `git commit`.
+    /// The rules pre-approve exactly `otaq`, tuq's commands, `git add` and `git commit`: no other git command
+    /// (`git push`, `git reset`, a bare `git`) and nothing broader than those two.
     #[test]
-    fn only_git_commit_among_git_commands() {
+    fn only_git_add_and_commit_among_git_commands() {
         let text = rules_text();
         let patterns: Vec<&str> = text
             .lines()
@@ -1232,9 +1240,13 @@ mod tests {
                 otaq.as_str(),
                 "\"tuq\"",
                 "\"tuq-plan\"",
+                "\"git\", \"add\"",
                 "\"git\", \"commit\""
             ]
         );
+        for other in ["\"git\"", "\"git\", \"push\"", "\"git\", \"reset\""] {
+            assert!(!patterns.contains(&other), "{other} still asks");
+        }
     }
 
     /// A new build (its plugin in another runtime folder) refreshes the fixed folder: Codex's config doesn't change,
