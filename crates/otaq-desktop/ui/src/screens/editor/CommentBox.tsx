@@ -12,6 +12,14 @@
 // the ticket's agent or check runs, the thread's box has a second button, "Tell Strong now" (`CommentBoxView.tell_agent`):
 // it posts the comment with `tell_agent`, so the running agent also gets it when idle; Comment never does. Editing a posted comment uses this box
 // too (tuq 008): its attachments are `posted` chips with ✕, and the thread gives it Cancel · Save (`actions`).
+//
+// The text is Markdown, written with GitHub's helpers (tuq 111) while the box stays a plain textarea: Write and Preview
+// tabs over it (Preview draws the text as the thread will, `CommentMarkdown`; Write brings the textarea back with its
+// caret and selection where they were: the textarea only hides meanwhile, so its undo history stays too), and a toolbar
+// whose buttons add Markdown marks (`markdownEdits.ts`). ⌘B, ⌘I, ⌘E and ⌘K (Ctrl on Windows and Linux) are Bold,
+// Italic, Code and Link while the text has the focus: the page's key dispatcher leaves them to the box (`keysKeptBy`),
+// and everywhere else ⌘K stays the command palette. Every edit goes through the textarea's own editing
+// (`textareaEdit.ts`), so ⌘Z undoes it.
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -25,8 +33,13 @@ import {
   useState,
 } from "react";
 
-import { Button, Kbd, PROSE_TEXT } from "../../components";
+import { keymap } from "../../app/keyboard";
+import { commandLetter } from "../../app/keys";
+import { useStore } from "../../app/store";
+import { Button, Kbd, PROSE_TEXT, Tabs } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
+import type { CommentFormat } from "../../generated/CommentFormat";
+import { CommentMarkdown, ToolButton } from "../../markdown";
 import { attachmentImage, pickAttachmentFiles } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
@@ -41,6 +54,18 @@ import {
   withThumb,
 } from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
+import { formatEdit } from "./markdownEdits";
+import { applyEdit } from "./textareaEdit";
+
+/** Whether keys are ⌘ keys: the keymap's platform, or the browser's guess before it arrived (as the editor's toolbar). */
+function useMac(): boolean {
+  const map = useStore(keymap);
+  return map ? map.platform === "mac" : navigator.userAgent.includes("Mac");
+}
+
+/** The Write and Preview tabs. */
+const WRITE = 0;
+const PREVIEW = 1;
 
 /** "perf-notes.md 2 KB ✕", or an image's thumbnail before its name (tuq 002). */
 export function FileChip({
@@ -150,6 +175,50 @@ export function CommentBox({
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
+  const mac = useMac();
+  const writing = view.writing;
+
+  // The textarea, for the toolbar and the tabs, and for whoever passed `ref`.
+  const text = useRef<HTMLTextAreaElement | null>(null);
+  const setText = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      text.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
+    },
+    [ref],
+  );
+  const format = (f: CommentFormat) => {
+    const el = text.current;
+    if (!el) return;
+    applyEdit(el, formatEdit(f, { text: el.value, start: el.selectionStart, end: el.selectionEnd }));
+  };
+
+  // Write / Preview. Preview hides the textarea (its caret, selection and undo stay) and Write focuses it again.
+  const [tab, setTab] = useState(WRITE);
+  /** The selection Write left, put back when it comes back. */
+  const left = useRef<{ start: number; end: number; direction: "forward" | "backward" | "none" } | null>(
+    null,
+  );
+  const selectTab = (next: number) => {
+    const el = text.current;
+    if (tab === WRITE && next !== WRITE && el) {
+      left.current = {
+        start: el.selectionStart,
+        end: el.selectionEnd,
+        direction: el.selectionDirection,
+      };
+    }
+    setTab(next);
+  };
+  useLayoutEffect(() => {
+    const was = left.current;
+    const el = text.current;
+    if (tab !== WRITE || !was || !el) return;
+    left.current = null;
+    el.focus();
+    el.setSelectionRange(was.start, was.end, was.direction);
+  }, [tab]);
   // Files arrive after a moment (a request, a picker): they join what the box holds then, not when they were added.
   const latest = useRef(value);
   useLayoutEffect(() => {
@@ -224,6 +293,16 @@ export function CommentBox({
       onCancel();
       return;
     }
+    // ⌘B, ⌘I, ⌘E, ⌘K: the button whose shortcut it is (the dispatcher left these keys to the box, `keysKeptBy`).
+    const letter = e.nativeEvent.isComposing ? null : commandLetter(e, mac);
+    const button =
+      letter === null ? undefined : writing.buttons.find((b) => b.keys?.slice(-1).toLowerCase() === letter);
+    if (button) {
+      e.preventDefault();
+      e.stopPropagation();
+      format(button.format);
+      return;
+    }
     if (!isSaveKey(e)) return;
     e.preventDefault();
     // The dialog around it or the sheet acts on none of it.
@@ -240,11 +319,38 @@ export function CommentBox({
           {view.label}
         </label>
       )}
+      <div className="comment-box-head">
+        <Tabs
+          label={writing.tabs}
+          items={[
+            { icon: "pencil", label: writing.write },
+            { icon: "eye", label: writing.preview },
+          ]}
+          active={tab}
+          onSelect={selectTab}
+        />
+        {tab === WRITE && (
+          <div className="comment-box-tools" role="toolbar" aria-label={writing.toolbar}>
+            {writing.buttons.map((b) => (
+              <ToolButton
+                key={b.format}
+                label={b.label}
+                icon={b.icon}
+                keys={b.keys ?? undefined}
+                onPress={() => {
+                  format(b.format);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <textarea
         {...PROSE_TEXT}
-        ref={ref}
+        ref={setText}
         id={id}
         className="text-input text-area comment-box-text"
+        hidden={tab !== WRITE}
         value={value.text}
         placeholder={view.placeholder}
         aria-label={view.label ?? view.placeholder}
@@ -254,6 +360,15 @@ export function CommentBox({
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
+      {tab === PREVIEW && (
+        <div className="comment-box-preview" role="tabpanel" aria-label={writing.preview}>
+          {value.text.trim() === "" ? (
+            <p className="comment-box-nothing">{writing.nothing_to_preview}</p>
+          ) : (
+            <CommentMarkdown markdown={value.text} />
+          )}
+        </div>
+      )}
       {value.attachments.length > 0 && (
         <div className="comment-box-chips">
           {value.attachments.map((a) => {

@@ -31,4 +31,9 @@ export {
 export { openingMode, rememberMode } from "./source/source";
 export { type Shortcut, TOOLBAR_BUTTONS, type ToolbarButton, type ToolbarGroup } from "./toolbar/buttons";
 export { openLink } from "./toolbar/link";
-export { MarkdownToolbar, type MarkdownToolbarProps } from "./toolbar/Toolbar";
+export {
+  MarkdownToolbar,
+  type MarkdownToolbarProps,
+  ToolButton,
+  type ToolButtonProps,
+} from "./toolbar/Toolbar";

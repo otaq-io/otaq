@@ -1,11 +1,31 @@
 // The editor's view for the tests that draw it (the form, read mode, Overview's description; T-0465): SHOP-12
 // "Dark mode" in words as Rust gives them (`editor.open`).
+import type { CommentWritingView } from "../../generated/CommentWritingView";
 import type { EditorForm } from "../../generated/EditorForm";
 import type { EditorReadView } from "../../generated/EditorReadView";
 import type { EditorAttachmentsField } from "../../generated/EditorAttachmentsField";
 import type { EditorTexts } from "../../generated/EditorTexts";
 import type { EditorView } from "../../generated/EditorView";
 import type { PriorityView } from "../../generated/PriorityView";
+
+/** The comment box's tabs and toolbar as Rust gives them on a Mac (`CommentWritingView`, tuq 111). */
+export const WRITING: CommentWritingView = {
+  tabs: "Comment",
+  write: "Write",
+  preview: "Preview",
+  nothing_to_preview: "Nothing to preview",
+  toolbar: "Formatting",
+  buttons: [
+    { format: "bold", label: "Bold", icon: "bold", keys: "⌘B" },
+    { format: "italic", label: "Italic", icon: "italic", keys: "⌘I" },
+    { format: "code", label: "Code", icon: "code", keys: "⌘E" },
+    { format: "link", label: "Link", icon: "link", keys: "⌘K" },
+    { format: "bullet_list", label: "Bulleted list", icon: "list", keys: null },
+    { format: "numbered_list", label: "Numbered list", icon: "list-ordered", keys: null },
+    { format: "task_list", label: "Task list", icon: "list-todo", keys: null },
+    { format: "quote", label: "Quote", icon: "text-quote", keys: null },
+  ],
+};
 
 export const priority = (number: number, word: string): PriorityView => ({
   number,
@@ -95,6 +115,7 @@ export const ATTACHMENTS_FIELD: EditorAttachmentsField = {
         "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.",
     },
     tell_agent: null,
+    writing: WRITING,
   },
 };
 

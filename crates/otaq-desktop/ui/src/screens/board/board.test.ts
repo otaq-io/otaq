@@ -14,6 +14,7 @@ import { EMPTY_BOX, fileAttachment, withAdded } from "../editor/commentRules";
 import { boxOnScreen, openRequests } from "../new_work/logic";
 import { DragBackBody, sendDragBack } from "./DragBackDialog";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
+import { WRITING } from "../editor/editor_fixtures";
 import type { DragBackDialog } from "../../generated/DragBackDialog";
 import { columnsAfter, moreText, nextScroll } from "./more";
 import { FilterStrip } from "./FilterStrip";
@@ -332,6 +333,7 @@ describe("drags to any stage (FLW-18, CMT-13)", () => {
         "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.",
     },
     tell_agent: null,
+    writing: WRITING,
   });
   const sendBack: DragBackDialog = {
     key: "SHOP-19",

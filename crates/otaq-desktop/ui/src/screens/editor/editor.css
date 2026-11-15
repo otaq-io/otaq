@@ -574,6 +574,50 @@
   background: var(--bg-card);
 }
 
+/* Write · Preview on the left, the formatting toolbar on the right (tuq 111). */
+.comment-box-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.comment-box-head > .tabs {
+  border-bottom: none;
+}
+
+.comment-box-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  margin-left: auto;
+  padding-bottom: 3px;
+}
+
+/* Preview hides the text box but keeps it, with its caret, selection and undo. */
+.comment-box-text[hidden] {
+  display: none;
+}
+
+/* Preview: the comment as the thread draws it, in a box the size of the text box. */
+.comment-box-preview {
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+}
+
+.comment-box-nothing {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 13px var(--font-ui);
+}
+
 .comment-box-chips {
   display: flex;
   flex-wrap: wrap;
