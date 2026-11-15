@@ -141,8 +141,10 @@ function Box({ view, text }: { view: CommentBoxView; text: string }) {
 
 /** A fresh box holding `text`. */
 function mount(mac: boolean, text = ""): HTMLTextAreaElement {
-  keymap.set(mapFor(mac));
-  act(() => root?.unmount());
+  act(() => {
+    keymap.set(mapFor(mac));
+    root?.unmount();
+  });
   root = createRoot(host);
   act(() => root?.render(createElement(Box, { view: viewFor(mac), text })));
   return area();
