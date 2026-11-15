@@ -1,7 +1,8 @@
 // The comment box's Markdown edits (tuq 111, plan comments-as-markdown piece 7): what a toolbar button or a shortcut
 // does to the text, as one replacement and the selection after it. Pure, so each edit is tested on its own; the box
-// applies it through the textarea's own editing (`applyEdit` in `CommentBox.tsx`), so ⌘Z undoes it. Piece 8 adds list
-// continuation on Enter and a URL pasted over a selection here.
+// applies it through the textarea's own editing (`applyEdit` in `textareaEdit.ts`), so ⌘Z undoes it. Enter and a paste
+// go the same way (piece 8): `continueList` and `pasteLink` give their edit, or `null` to leave the key or the paste to
+// the textarea.
 //
 // - Bold, italic and code wrap the selection in their marks (`**fix**`, `_fix_`, `` `fix` ``), or with nothing selected
 //   insert the marks with the caret between them. Pressed again on marked text (the marks inside or just around the
@@ -11,7 +12,14 @@
 //   the caret in the brackets; on a link it gives back the text.
 // - The lists and quote act on every line the selection touches: each gets the marker (numbered lists count 1, 2,
 //   3…), replacing another list's; when every line already has it, it is taken away.
+// - Enter in a list item's text (`- `, `* `, `+ `, `1. `, `1) `, `- [ ] `, at any indent) starts the next item at the
+//   same indent: the same bullet, the next number (the items after it aren't renumbered), an unticked box for a task.
+//   Text after the caret moves into the new item. Enter on an item with no text takes its marker away and ends the
+//   list. With a selection, or the caret in the indent or the marker, Enter is plain.
+// - A single `https:`/`http:` URL pasted over selected text makes `[text](url)`, with the caret after it. Any other
+//   paste is plain: nothing or only spaces selected, a selected URL (the paste replaces it), or anything but one web URL.
 import type { CommentFormat } from "../../generated/CommentFormat";
+import { LINK_SCHEMES } from "../../markdown/link/url";
 
 /** The text and its selection (`start === end`: the caret). */
 export interface Selected {
@@ -248,4 +256,58 @@ export function formatEdit(format: CommentFormat, s: Selected): TextEdit {
     case "quote":
       return toggleLines(s, format);
   }
+}
+
+/** The marker of the item after one marked `marker`: the same bullet, the next number with the same delimiter, an
+ * unticked box with the same bullet. */
+function nextMarker(kind: ListKind, marker: string): string {
+  switch (kind) {
+    case "bullet_list":
+      return marker;
+    case "task_list":
+      return `${marker.charAt(0)} [ ] `;
+    case "numbered_list": {
+      const m = /^(\d+)([.)])/.exec(marker);
+      return `${String(Number(m?.[1] ?? "0") + 1)}${m?.[2] ?? "."} `;
+    }
+  }
+}
+
+/** Enter in a list item: the next item, or on an item with no text the end of the list. `null`: a plain Enter. */
+export function continueList(s: Selected): TextEdit | null {
+  if (s.start !== s.end) return null;
+  const { from, to } = linesOf(s);
+  const item = parseListLine(s.text.slice(from, to));
+  if (item.kind === null || s.start < from + item.indent.length + item.marker.length) return null;
+  if (item.rest.trim() === "") return { from, to, insert: "", selStart: from, selEnd: from };
+  const insert = `\n${item.indent}${nextMarker(item.kind, item.marker)}`;
+  const caret = s.start + insert.length;
+  return { from: s.start, to: s.start, insert, selStart: caret, selEnd: caret };
+}
+
+/** Whether `text` is one web URL: `https:` or `http:` (`LINK_SCHEMES`), with a host and no spaces. */
+export function isWebUrl(text: string): boolean {
+  if (!/^https?:\/\/\S+$/i.test(text)) return false;
+  try {
+    const url = new URL(text);
+    return LINK_SCHEMES.includes(url.protocol) && url.hostname !== "";
+  } catch {
+    return false;
+  }
+}
+
+/** A paste over a selection: a single web URL makes `[selection](url)` with the caret after it; spaces at the ends of
+ * the selection stay outside the link. `null`: a plain paste. */
+export function pasteLink(s: Selected, pasted: string): TextEdit | null {
+  if (s.start === s.end) return null;
+  const url = pasted.trim();
+  if (!isWebUrl(url)) return null;
+  const inner = s.text.slice(s.start, s.end);
+  const core = inner.trim();
+  if (core === "" || isWebUrl(core)) return null;
+  const head = inner.slice(0, inner.length - inner.trimStart().length);
+  const trail = inner.slice(head.length + core.length);
+  const link = `[${core}](${url})`;
+  const caret = s.start + head.length + link.length;
+  return { from: s.start, to: s.end, insert: head + link + trail, selStart: caret, selEnd: caret };
 }

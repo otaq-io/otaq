@@ -19,7 +19,10 @@
 // whose buttons add Markdown marks (`markdownEdits.ts`). ⌘B, ⌘I, ⌘E and ⌘K (Ctrl on Windows and Linux) are Bold,
 // Italic, Code and Link while the text has the focus: the page's key dispatcher leaves them to the box (`keysKeptBy`),
 // and everywhere else ⌘K stays the command palette. Every edit goes through the textarea's own editing
-// (`textareaEdit.ts`), so ⌘Z undoes it.
+// (`textareaEdit.ts`), so ⌘Z undoes it. So do the two edits the box makes on its own: Enter in a list item starts the
+// next item (or, on an empty one, ends the list), and a web URL pasted over selected text links it (`continueList`,
+// `pasteLink`). Shift+Enter, ⌘↵, Enter during an IME composition and every other paste stay as they were. A comment
+// sent from Preview brings the box back to Write.
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -54,7 +57,7 @@ import {
   withThumb,
 } from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
-import { formatEdit } from "./markdownEdits";
+import { continueList, formatEdit, pasteLink } from "./markdownEdits";
 import { applyEdit } from "./textareaEdit";
 
 /** Whether keys are ⌘ keys: the keymap's platform, or the browser's guess before it arrived (as the editor's toolbar). */
@@ -219,6 +222,14 @@ export function CommentBox({
     el.focus();
     el.setSelectionRange(was.start, was.end, was.direction);
   }, [tab]);
+  // Sent from Preview: the box is emptied, and comes back to Write, its text focused for the next comment (as GitHub's
+  // does). Only the value turning empty does it; opening Preview on an empty box still says there is nothing to preview.
+  const empty = value.text === "" && value.attachments.length === 0;
+  const [wasEmpty, setWasEmpty] = useState(empty);
+  if (empty !== wasEmpty) {
+    setWasEmpty(empty);
+    if (empty) setTab(WRITE);
+  }
   // Files arrive after a moment (a request, a picker): they join what the box holds then, not when they were added.
   const latest = useRef(value);
   useLayoutEffect(() => {
@@ -283,8 +294,19 @@ export function CommentBox({
     if (files.length > 0) {
       e.preventDefault();
       void addFiles(files).then(take);
+      return;
     }
-    // Text, however long, goes into the text as any paste does (tuq 112): the box doesn't read it.
+    // A web URL pasted over selected text links it (tuq 111).
+    const el = e.currentTarget;
+    const link = pasteLink(
+      { text: el.value, start: el.selectionStart, end: el.selectionEnd },
+      e.clipboardData.getData("text/plain"),
+    );
+    if (link) {
+      e.preventDefault();
+      applyEdit(el, link);
+    }
+    // Any other text, however long, goes into the text as any paste does (tuq 112): the box leaves it alone.
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape" && onCancel) {
@@ -301,6 +323,24 @@ export function CommentBox({
       e.preventDefault();
       e.stopPropagation();
       format(button.format);
+      return;
+    }
+    // Enter alone in a list item: the next item, or the end of the list (tuq 111). Shift+Enter is a plain line break,
+    // ⌘↵ sends, and Enter that ends an IME composition is the composition's.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.nativeEvent.isComposing
+    ) {
+      const el = e.currentTarget;
+      const edit = continueList({ text: el.value, start: el.selectionStart, end: el.selectionEnd });
+      if (edit) {
+        e.preventDefault();
+        applyEdit(el, edit);
+      }
       return;
     }
     if (!isSaveKey(e)) return;
