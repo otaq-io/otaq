@@ -113,6 +113,19 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
             if let Some(status) = query_status(data)? {
                 return Ok((status, true));
             }
+            if exited.is_none() {
+                // Still starting: ended, so a start that reports failure leaves no service coming up behind it,
+                // which `daemon stop` couldn't reach until it listens. The lock file and socket it may leave are
+                // taken over by the next start.
+                match child.kill() {
+                    Ok(()) => {
+                        let _ = child.wait();
+                    }
+                    Err(e) => {
+                        tracing::warn!(error = %e, "can't end the service that didn't start in time");
+                    }
+                }
+            }
             if let Some(newer) = newer_database(data) {
                 return Err(newer_database_error(&newer));
             }
