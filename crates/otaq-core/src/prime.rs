@@ -1208,15 +1208,17 @@ pub fn render_long_text_file(file: Option<&std::path::Path>) -> String {
          skill pass text to `{cmd}` with `--stdin`, write the text to \"{file}\" first, then run the command with \
          `--stdin-file \"{file}\"` in place of `--stdin`: two commands, each run on its own (an `{cmd}` in the same \
          command as the heredoc runs in the sandbox too), the path written out in full (so does one with a `$` \
-         variable in it). Never write that text in the worktree: an uncommitted file there stops `{cmd} stage \
-         next`.\n\n\
+         variable in it). Run every `{cmd}` command on its own, never joined to another with `&&`, `;` or `|`: \
+         joined, it runs in the sandbox too. Never write that text in the worktree: an uncommitted file there stops \
+         `{cmd} stage next`. This changes only how you pass text, never when: run each `{cmd}` command when your \
+         stage's skill says to, as before.\n\n\
          ```sh\n\
          cat > \"{file}\" <<'EOF'\n\
-         Added the price table with sorting by price and name.\n\
+         <the text>\n\
          EOF\n\
          ```\n\n\
          ```sh\n\
-         {cmd} stage next --stdin-file \"{file}\"\n\
+         {cmd} <command> <its options> --stdin-file \"{file}\"\n\
          ```\n\n\
          In PowerShell, write the file with `Set-Content -LiteralPath \"{file}\"`. `update --plan-stdin` has \
          `--plan-file` instead.\n",
@@ -1505,11 +1507,17 @@ mod tests {
         );
         assert!(
             section.contains(&format!(
-                "\n{} stage next --stdin-file \"/var/folders/x/T/long-s1.md\"\n",
+                "\n{} <command> <its options> --stdin-file \"/var/folders/x/T/long-s1.md\"\n",
                 naming::COMMAND_NAME
             )),
             "{section}"
         );
+        assert!(
+            !section.contains("stage next --stdin-file")
+                && !section.contains("stage done --stdin-file"),
+            "the example must never be a command that ends the stage: {section}"
+        );
+        assert!(section.contains("never when"), "{section}");
         assert!(
             !section.contains("$TMPDIR") && !section.contains("{file}"),
             "{section}"
