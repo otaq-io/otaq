@@ -57,6 +57,15 @@ pub(super) const SHORT_NAME: &str = "Copilot";
 /// The command name.
 pub(super) const COMMAND_NAME: &str = "copilot";
 
+/// On every Copilot command Otaq runs, `--version` included: Copilot never updates itself under Otaq (it was seen
+/// going from 1.0.109 to 1.0.112 during sessions). Without it Copilot's launcher downloads a newer package into its
+/// `pkg` cache and runs the newest one there; with it, it runs the version bundled in the executable launched. It
+/// goes before a subcommand (`copilot --no-auto-update login`; after one, 1.0.112 says "unexpected argument", as it
+/// does for any flag it doesn't know). Every version Otaq runs ([`detect::OLDEST`], 1.0.98) takes it: its help
+/// describes it since 1.0.85 (Copilot's changelog) and 1.0.98's launcher reads it; checked by hand with 1.0.109 and
+/// 1.0.112. Detect asks `copilot --no-auto-update --version` too, so the version it checks is the one launched.
+pub(super) const NO_AUTO_UPDATE: &str = "--no-auto-update";
+
 /// Ctrl+E (end of line) then Ctrl+U (delete to the start of the line); it clears a multi-line draft too. Never
 /// Ctrl+C: it arms Copilot's exit (ADP-06).
 const CLEAR_LINE: &[u8] = b"\x05\x15";
@@ -102,6 +111,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
         home.join(".agents").join("skills"),
     ]
 }
+
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// tuq's Copilot plugin names each skill `tuq-<name>` (`/tuq:tuq-product-spec`), so a repository's own `product-spec` can't hide it.
+pub const TUQ_PREFIXED: bool = true;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = true;
 
 /// Whether Copilot loads a `SKILL.md` that starts with a UTF-8 byte order mark. Not checked
 /// yet, so counted as loaded.
@@ -308,7 +324,7 @@ impl AgentTool for Copilot {
         EFFORT_LEVELS
     }
 
-    /// `/otaq:commit`, `/team-validate` ([`launch::skill_reference`]).
+    /// `/otaq:otaq-commit`, `/team-validate` ([`launch::skill_reference`]).
     fn skill_reference(&self, skill: &str) -> String {
         skill_reference(skill)
     }

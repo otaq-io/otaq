@@ -2,15 +2,27 @@
 // deleting*, `s05-41`…`s05-44`): at the end of the Ticket tab's thread, and inside the Send back, Fail and drag-back
 // dialogs (T-0447), which give it their label and line (`CommentBoxView.dialog`) and send it with their own button.
 // It holds the text and a list of attachments (tuq 001), each its own chip with ✕, added three ways (tuq 003): a paste
-// (a screenshot becomes an image, files copied in Finder keep their names, text over the limit becomes "Pasted text ·
-// 48 KB", never text), files dropped on the box, and Attach (the system picker, several at once). An image's chip shows
-// a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name, and
-// the rest of the box stays (tuq 005; `attachmentAdding.ts`). Attachments alone may be sent (tuq 007); typing past the
-// limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
+// (a screenshot becomes an image, files copied in Finder keep their names), files dropped on the box, and Attach (the
+// system picker, several at once). Pasted text always goes into the text, however long (tuq 112). An image's chip
+// shows a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name,
+// and the rest of the box stays (tuq 005; `attachmentAdding.ts`). Attachments alone may be sent (tuq 007). The box
+// never blocks on length: no counter, no red box; only text that would not fit in one message to the service says so
+// in words instead of being sent (`commentRules.ts`). Its words and the
 // limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it as a Comment. While
 // the ticket's agent or check runs, the thread's box has a second button, "Tell Strong now" (`CommentBoxView.tell_agent`):
 // it posts the comment with `tell_agent`, so the running agent also gets it when idle; Comment never does. Editing a posted comment uses this box
 // too (tuq 008): its attachments are `posted` chips with ✕, and the thread gives it Cancel · Save (`actions`).
+//
+// The text is Markdown, written with GitHub's helpers (tuq 111) while the box stays a plain textarea: Write and Preview
+// tabs over it (Preview draws the text as the thread will, `CommentMarkdown`; Write brings the textarea back with its
+// caret and selection where they were: the textarea only hides meanwhile, so its undo history stays too), and a toolbar
+// whose buttons add Markdown marks (`markdownEdits.ts`). ⌘B, ⌘I, ⌘E and ⌘K (Ctrl on Windows and Linux) are Bold,
+// Italic, Code and Link while the text has the focus: the page's key dispatcher leaves them to the box (`keysKeptBy`),
+// and everywhere else ⌘K stays the command palette. Every edit goes through the textarea's own editing
+// (`textareaEdit.ts`), so ⌘Z undoes it. So do the two edits the box makes on its own: Enter in a list item starts the
+// next item (or, on an empty one, ends the list), and a web URL pasted over selected text links it (`continueList`,
+// `pasteLink`). Shift+Enter, ⌘↵, Enter during an IME composition and every other paste stay as they were. A comment
+// sent from Preview brings the box back to Write.
 import {
   type ClipboardEvent,
   type KeyboardEvent,
@@ -24,10 +36,14 @@ import {
   useState,
 } from "react";
 
-import { Button, Kbd, PROSE_TEXT } from "../../components";
+import { keymap } from "../../app/keyboard";
+import { commandLetter } from "../../app/keys";
+import { useStore } from "../../app/store";
+import { Button, Kbd, PROSE_TEXT, Tabs } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
-import { useServiceView } from "../../service";
-import { attachmentImage, pickAttachmentFiles, request } from "../../tauri";
+import type { CommentFormat } from "../../generated/CommentFormat";
+import { CommentMarkdown, ToolButton } from "../../markdown";
+import { attachmentImage, pickAttachmentFiles } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
 import { type Added, addFiles, addPaths, clipboardFiles, thumbnailOf } from "./attachmentAdding";
@@ -35,57 +51,24 @@ import {
   type BoxValue,
   boxState,
   type FileAttachment,
-  type PastedAttachment,
-  pasteAction,
   type PostedAttachment,
   withAdded,
   withoutAttachment,
-  withPasted,
   withThumb,
 } from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
-import { openReport } from "./reportOpener";
+import { continueList, formatEdit, pasteLink } from "./markdownEdits";
+import { applyEdit } from "./textareaEdit";
 
-const NO_EVENTS: readonly string[] = [];
-
-/** "Pasted text · 48 KB ✕": the label opens it, ✕ removes it. */
-function PastedChip({
-  ticket,
-  pasted,
-  view,
-  onRemove,
-}: {
-  ticket: string;
-  pasted: PastedAttachment;
-  view: CommentBoxView;
-  onRemove: () => void;
-}) {
-  const { bytes } = pasted;
-  const load = useCallback(
-    () => request("ticket_comments.pasted_size", { bytes }) as Promise<string>,
-    [bytes],
-  );
-  const size = useServiceView(load, NO_EVENTS).view ?? "";
-  return (
-    <span className="comment-chip">
-      <button
-        type="button"
-        className="comment-chip-open"
-        title={view.open}
-        onClick={() => {
-          openReport({ kind: "pasted", ticket, text: pasted.text, size });
-        }}
-      >
-        <Icon name="file-text" size={13} />
-        <span className="comment-chip-label">{pasted.name ?? view.pasted}</span>
-        <span className="comment-chip-size">{size}</span>
-      </button>
-      <button type="button" className="comment-chip-remove" aria-label={view.remove} onClick={onRemove}>
-        <Icon name="x" size={13} />
-      </button>
-    </span>
-  );
+/** Whether keys are ⌘ keys: the keymap's platform, or the browser's guess before it arrived (as the editor's toolbar). */
+function useMac(): boolean {
+  const map = useStore(keymap);
+  return map ? map.platform === "mac" : navigator.userAgent.includes("Mac");
 }
+
+/** The Write and Preview tabs. */
+const WRITE = 0;
+const PREVIEW = 1;
 
 /** "perf-notes.md 2 KB ✕", or an image's thumbnail before its name (tuq 002). */
 export function FileChip({
@@ -195,6 +178,58 @@ export function CommentBox({
 }: CommentBoxProps) {
   const id = useId();
   const state = boxState(value, view.limits, view.optional);
+  const mac = useMac();
+  const writing = view.writing;
+
+  // The textarea, for the toolbar and the tabs, and for whoever passed `ref`.
+  const text = useRef<HTMLTextAreaElement | null>(null);
+  const setText = useCallback(
+    (el: HTMLTextAreaElement | null) => {
+      text.current = el;
+      if (typeof ref === "function") ref(el);
+      else if (ref) ref.current = el;
+    },
+    [ref],
+  );
+  const format = (f: CommentFormat) => {
+    const el = text.current;
+    if (!el) return;
+    applyEdit(el, formatEdit(f, { text: el.value, start: el.selectionStart, end: el.selectionEnd }));
+  };
+
+  // Write / Preview. Preview hides the textarea (its caret, selection and undo stay) and Write focuses it again.
+  const [tab, setTab] = useState(WRITE);
+  /** The selection Write left, put back when it comes back. */
+  const left = useRef<{ start: number; end: number; direction: "forward" | "backward" | "none" } | null>(
+    null,
+  );
+  const selectTab = (next: number) => {
+    const el = text.current;
+    if (tab === WRITE && next !== WRITE && el) {
+      left.current = {
+        start: el.selectionStart,
+        end: el.selectionEnd,
+        direction: el.selectionDirection,
+      };
+    }
+    setTab(next);
+  };
+  useLayoutEffect(() => {
+    const was = left.current;
+    const el = text.current;
+    if (tab !== WRITE || !was || !el) return;
+    left.current = null;
+    el.focus();
+    el.setSelectionRange(was.start, was.end, was.direction);
+  }, [tab]);
+  // Sent from Preview: the box is emptied, and comes back to Write, its text focused for the next comment (as GitHub's
+  // does). Only the value turning empty does it; opening Preview on an empty box still says there is nothing to preview.
+  const empty = value.text === "" && value.attachments.length === 0;
+  const [wasEmpty, setWasEmpty] = useState(empty);
+  if (empty !== wasEmpty) {
+    setWasEmpty(empty);
+    if (empty) setTab(WRITE);
+  }
   // Files arrive after a moment (a request, a picker): they join what the box holds then, not when they were added.
   const latest = useRef(value);
   useLayoutEffect(() => {
@@ -261,17 +296,51 @@ export function CommentBox({
       void addFiles(files).then(take);
       return;
     }
-    const text = e.clipboardData.getData("text/plain");
-    if (pasteAction(text, view.limits) !== "chip") return;
-    // Over the limit: the report chip, never text (d0109).
-    e.preventDefault();
-    change(withPasted(value, text));
+    // A web URL pasted over selected text links it (tuq 111).
+    const el = e.currentTarget;
+    const link = pasteLink(
+      { text: el.value, start: el.selectionStart, end: el.selectionEnd },
+      e.clipboardData.getData("text/plain"),
+    );
+    if (link) {
+      e.preventDefault();
+      applyEdit(el, link);
+    }
+    // Any other text, however long, goes into the text as any paste does (tuq 112): the box leaves it alone.
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape" && onCancel) {
       e.preventDefault();
       e.stopPropagation();
       onCancel();
+      return;
+    }
+    // ⌘B, ⌘I, ⌘E, ⌘K: the button whose shortcut it is (the dispatcher left these keys to the box, `keysKeptBy`).
+    const letter = e.nativeEvent.isComposing ? null : commandLetter(e, mac);
+    const button =
+      letter === null ? undefined : writing.buttons.find((b) => b.keys?.slice(-1).toLowerCase() === letter);
+    if (button) {
+      e.preventDefault();
+      e.stopPropagation();
+      format(button.format);
+      return;
+    }
+    // Enter alone in a list item: the next item, or the end of the list (tuq 111). Shift+Enter is a plain line break,
+    // ⌘↵ sends, and Enter that ends an IME composition is the composition's.
+    if (
+      e.key === "Enter" &&
+      !e.shiftKey &&
+      !e.metaKey &&
+      !e.ctrlKey &&
+      !e.altKey &&
+      !e.nativeEvent.isComposing
+    ) {
+      const el = e.currentTarget;
+      const edit = continueList({ text: el.value, start: el.selectionStart, end: el.selectionEnd });
+      if (edit) {
+        e.preventDefault();
+        applyEdit(el, edit);
+      }
       return;
     }
     if (!isSaveKey(e)) return;
@@ -284,27 +353,62 @@ export function CommentBox({
     change(withoutAttachment(value, attachment));
   };
   return (
-    <div ref={root} className="comment-box" data-over={state.over || undefined}>
+    <div ref={root} className="comment-box">
       {view.label !== null && (
         <label className="comment-box-label" htmlFor={id}>
           {view.label}
         </label>
       )}
+      <div className="comment-box-head">
+        <Tabs
+          label={writing.tabs}
+          items={[
+            { icon: "pencil", label: writing.write },
+            { icon: "eye", label: writing.preview },
+          ]}
+          active={tab}
+          onSelect={selectTab}
+        />
+        {tab === WRITE && (
+          <div className="comment-box-tools" role="toolbar" aria-label={writing.toolbar}>
+            {writing.buttons.map((b) => (
+              <ToolButton
+                key={b.format}
+                label={b.label}
+                icon={b.icon}
+                keys={b.keys ?? undefined}
+                onPress={() => {
+                  format(b.format);
+                }}
+              />
+            ))}
+          </div>
+        )}
+      </div>
       <textarea
         {...PROSE_TEXT}
-        ref={ref}
+        ref={setText}
         id={id}
         className="text-input text-area comment-box-text"
+        hidden={tab !== WRITE}
         value={value.text}
         placeholder={view.placeholder}
         aria-label={view.label ?? view.placeholder}
-        aria-invalid={state.over || undefined}
         onChange={(e) => {
           change({ ...value, text: e.target.value });
         }}
         onPaste={onPaste}
         onKeyDown={onKeyDown}
       />
+      {tab === PREVIEW && (
+        <div className="comment-box-preview" role="tabpanel" aria-label={writing.preview}>
+          {value.text.trim() === "" ? (
+            <p className="comment-box-nothing">{writing.nothing_to_preview}</p>
+          ) : (
+            <CommentMarkdown markdown={value.text} />
+          )}
+        </div>
+      )}
       {value.attachments.length > 0 && (
         <div className="comment-box-chips">
           {value.attachments.map((a) => {
@@ -314,8 +418,6 @@ export function CommentBox({
             switch (a.kind) {
               case "file":
                 return <FileChip key={a.id} file={a} view={view} onRemove={onRemove} />;
-              case "pasted":
-                return <PastedChip key={a.id} ticket={ticket} pasted={a} view={view} onRemove={onRemove} />;
               case "posted":
                 return <PostedChip key={a.id} ticket={ticket} posted={a} view={view} onRemove={onRemove} />;
             }
@@ -332,11 +434,6 @@ export function CommentBox({
             pickAttachmentFiles(view.attach_title).then(addPathsToBox, () => undefined);
           }}
         />
-        {state.counter !== null && (
-          <span className="comment-box-counter" role="status">
-            {state.counter}
-          </span>
-        )}
         <span className="editor-spacer" />
         {view.tell_agent !== null && onTell && (
           <Button
@@ -362,6 +459,11 @@ export function CommentBox({
           </>
         )}
       </div>
+      {state.tooLong !== null && (
+        <p className="comment-box-error" role="alert">
+          {state.tooLong}
+        </p>
+      )}
       {error != null && (
         <p className="comment-box-error" role="alert">
           {error}

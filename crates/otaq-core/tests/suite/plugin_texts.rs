@@ -9,9 +9,9 @@ use otaq_core::naming;
 
 /// Every SKILL.md of the plugin, with its folder name.
 fn skill_files() -> Vec<(String, PathBuf)> {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder"),
+    );
     let mut files: Vec<(String, PathBuf)> = std::fs::read_dir(&skills)
         .unwrap()
         .map(|e| e.unwrap())
@@ -75,6 +75,13 @@ fn every_skill_has_front_matter_with_name_and_description() {
         assert!(
             field("description").is_some_and(|d| !d.trim().is_empty()),
             "{name}: no description"
+        );
+        // GitHub Copilot CLI refuses to load a skill whose description is longer (1.0.109: "Skill description must
+        // be at most 1024 characters"), and the stage then never starts its skill.
+        let length = field("description").map_or(0, |d| d.chars().count());
+        assert!(
+            length <= 1024,
+            "{name}: its description has {length} characters, more than the 1024 Copilot loads"
         );
     }
 }
@@ -212,9 +219,9 @@ fn skills_end_stages_with_the_stage_commands() {
 /// `.agents/skills`).
 #[test]
 fn no_skill_text_names_a_copy() {
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .expect("the repository's plugin folder")
-        .join("skills");
+    let skills = otaq_core::runtime::shipped_skills(
+        &find_plugin_dir(Path::new("/nonexistent")).expect("the repository's plugin folder"),
+    );
     let names: Vec<String> = skill_files().into_iter().map(|(name, _)| name).collect();
     let mut needles: Vec<String> = names.iter().map(|name| format!("otaq-{name}")).collect();
     needles.extend([".claude/skills".to_owned(), ".agents/skills".to_owned()]);
@@ -272,13 +279,7 @@ fn the_flow_skills_agents_have_no_skill_list() {
 /// skill says so, and Noyan reads the descriptions without ever skipping for a ticket.
 #[test]
 fn stage_skills_finish_at_once_when_there_is_nothing_to_add() {
-    for name in [
-        "work-ticket",
-        "product-spec",
-        "tech-spec",
-        "milestone-plan",
-        "validate",
-    ] {
+    for name in ["work-ticket", "validate"] {
         let skill = read_skill(name).replace("\n   ", " ");
         for text in [
             "\"## The flow\"",
@@ -307,170 +308,92 @@ fn flat(text: &str) -> String {
     text.split_whitespace().collect::<Vec<_>>().join(" ")
 }
 
-/// T-0546 (d0129, d0084, d0131 Q514): `product-spec` finds where the project keeps its decisions (asking once when the
-/// notes don't say), asks one question at a time with `ask human`, commits the decisions and docs, ends with
-/// `stage next` naming what it wrote, and knows the plain Send back sentence.
-#[test]
-fn product_spec_asks_one_at_a_time_commits_and_moves_on() {
-    let cmd = naming::COMMAND_NAME;
-    let spec = flat(&read_skill("product-spec"));
-    for step in [
-        format!("{cmd} prime"),
-        "Notes every agent in".to_owned(),
-        "ask the user once".to_owned(),
-        "record the answer in the ticket's description".to_owned(),
-        format!("{cmd} update SHOP-40 --stdin"),
-        format!("{cmd} ask human"),
-        "Ask one question at a time".to_owned(),
-        "what to build, for whom and why".to_owned(),
-        "with Otaq's `commit` skill".to_owned(),
-        format!("{cmd} stage next --stdin"),
-        "Product spec: decisions/0140 (the share link), DESIGN.md".to_owned(),
-        format!("Spec review sent SHOP-40 back to you with a comment. Run `{cmd} prime`."),
-        "Only when the user agrees the ticket isn't needed".to_owned(),
-    ] {
-        assert!(spec.contains(&step), "product-spec must say {step:?}");
-    }
-    let ask = spec.find(&format!("{cmd} ask human")).unwrap();
-    let commit = spec.find("**Commit everything**").unwrap();
-    let next = spec.find(&format!("{cmd} stage next --stdin")).unwrap();
-    assert!(
-        ask < commit && commit < next,
-        "ask, then commit, then stage next"
-    );
-    assert!(
-        !spec.contains(&format!("{cmd} check ")),
-        "product-spec gives no verdict"
-    );
-}
+// product-spec, tech-spec and milestone-plan are tuq's (decision 102): their texts are checked in tuq's repository.
 
-/// T-0546 (d0129, d0084): `tech-spec` reads what Product spec committed, asks only where a choice changes what gets
-/// built and decides the rest, commits the architecture decisions and docs, and ends with `stage next`; when the card
-/// walks its stage again it changes only what the change touches.
+/// Decisions 081, 098: in a stage whose skill isn't Otaq's, `work-ticket` gets the context in its first turn and ends
+/// it without starting the task skill (Otaq types it), then says how the task skill's steps meet Otaq: asking through
+/// the ticket, committing at the end, pushing only when the user asks, ending with `stage next`. Decision 089: it and
+/// `noyan` never start a skill on their own initiative.
 #[test]
-fn tech_spec_reads_the_product_spec_decides_commits_and_moves_on() {
+fn work_ticket_runs_a_task_skill_the_otaq_way() {
     let cmd = naming::COMMAND_NAME;
-    let spec = flat(&read_skill("tech-spec"));
-    for step in [
-        format!("{cmd} prime"),
-        "git diff main...HEAD".to_owned(),
-        "Read what Product spec committed".to_owned(),
-        "Ask the user only where a choice changes what gets built".to_owned(),
-        "Decide everything else yourself".to_owned(),
-        format!("{cmd} ask human"),
-        "with Otaq's `commit` skill".to_owned(),
-        format!("{cmd} stage next --stdin"),
-        "**Start from the caller.**".to_owned(),
-        "**Design it twice when the shape matters**".to_owned(),
-        "A smaller change needs one design".to_owned(),
-        "**Check the chosen design against the warning signs.**".to_owned(),
-        "**Two writers of one state**".to_owned(),
-        "**Two ways to do one task**".to_owned(),
-        "**Lists kept in step by hand**".to_owned(),
-        "when you keep one on purpose".to_owned(),
-        format!(
-            "SHOP-40 is back in Tech spec: Spec review sent it to Product spec, which finished. Run `{cmd} prime`."
+    let work = flat(&read_skill("work-ticket"));
+    for text in [
+        "## With a task skill".to_owned(),
+        "Follow \"With a task skill\" below in place of steps 3 and 4".to_owned(),
+        "**never start the task skill yourself**".to_owned(),
+        "Otaq types the task skill into this session next".to_owned(),
+        format!("every question goes to the user through `{cmd} ask human --stdin`"),
+        "never with the tool's own question tool (AskUserQuestion)".to_owned(),
+        "commit everything at the end of the stage with Otaq's `commit` skill".to_owned(),
+        "its \"push\" or \"open a PR\" is not a request from the user".to_owned(),
+        format!("end your stage instead (step 6): `{cmd} stage next --stdin`"),
+        "a skill that was started may call the skills it names".to_owned(),
+        "about how, this skill wins; about what, the task skill wins".to_owned(),
+        "**Never start a skill on your own initiative.**".to_owned(),
+        // Decision 098: whether the stage has anything to do is the task skill's call (what), never the first turn's.
+        "Don't judge yet whether your stage has anything to add: that is the task skill's call"
+            .to_owned(),
+        "When the task skill finds nothing to do, end the stage then".to_owned(),
+    ] {
+        assert!(work.contains(&text), "work-ticket must say {text:?}");
+    }
+    assert!(
+        !work.contains(
+            "When your stage has nothing to add, end it at once with a short note, as step 1 says"
         ),
-    ] {
-        assert!(spec.contains(&step), "tech-spec must say {step:?}");
-    }
-    assert!(
-        !spec.contains(&format!("{cmd} check ")),
-        "tech-spec gives no verdict"
+        "work-ticket's first turn must not end a task-skill stage before its task skill runs"
     );
+    let noyan = flat(&read_skill("noyan"));
+    for text in [
+        "**Never start a skill on your own initiative.**",
+        "never for `tuq:product-spec` or any other skill",
+    ] {
+        assert!(noyan.contains(text), "noyan must say {text:?}");
+    }
 }
 
-/// T-0546 (d0129 as d0133 refines it, and decision 047): `milestone-plan` writes the ticket's Plan with
-/// `update --plan-file`, keeps all the ticket's work on the ticket (a ticket only as a follow-up for something new), writes the plan into the project's docs and commits, ends with `stage next`, and after a Send back starts
-/// from the Plan as it is now, keeping the user's edits and changing only what the comment asks.
+/// Decision 093: `work-ticket` copies the text between a tuq plan file's markers onto the ticket as its Plan, with the
+/// command it gives, and the text it copies reads as the Plan's pieces.
+#[cfg(unix)]
 #[test]
-fn milestone_plan_writes_the_plan_files_nothing_and_keeps_the_users_edits() {
+fn work_ticket_copies_the_plan_files_plan_onto_the_ticket() {
     let cmd = naming::COMMAND_NAME;
-    let plan = flat(&read_skill("milestone-plan"));
-    for step in [
-        format!("{cmd} prime"),
-        format!("{cmd} update SHOP-40 --plan-file \"$plan\""),
-        // One ticket per scope (decision 047): the whole ticket becomes pieces, never several tickets; a ticket only
-        // as a follow-up for something new outside it.
-        "**The ticket stays one ticket.**".to_owned(),
-        "Never suggest splitting it into several tickets.".to_owned(),
-        "**Big work stays one ticket**".to_owned(),
-        "**No tickets for this ticket's work**".to_owned(),
-        format!("follow-up in Backlog with `{cmd} create \"Title\" --stdin`"),
-        "**Start from the Plan as `prime` shows it now**".to_owned(),
-        "**Keep the user's edits**".to_owned(),
-        "unless their comment says otherwise".to_owned(),
-        "**Change only what the comment asks**".to_owned(),
-        "with Otaq's `commit` skill".to_owned(),
-        format!("{cmd} stage next --stdin"),
-        "Milestone plan: 4 pieces; docs/milestones/wishlist.md".to_owned(),
-        // The size measure is concrete signs, not time (T3).
-        "**A piece fits one agent when** it changes one behaviour, in one area or layer (for example the API, or the \
-         page, not both), and the agent needs to read only a handful of files to do it."
-            .to_owned(),
-        "**Split it** when it crosses layers, bundles several behaviours, or needs a lot of unfamiliar code read first."
-            .to_owned(),
-        "**When unsure, split.**".to_owned(),
-        "**One piece when the work is one**".to_owned(),
-        "**Order them by what each needs**".to_owned(),
-        // A helper starts with a fresh context, so a piece's details stand on their own (T3).
-        "**They must stand on their own**: a helper starts with a fresh context".to_owned(),
-    ] {
-        assert!(plan.contains(&step), "milestone-plan must say {step:?}");
-    }
-    for time in ["about a day", "days of work"] {
-        assert!(
-            !plan.contains(time),
-            "milestone-plan measures a piece by concrete signs, not time: {time:?}"
-        );
-    }
-    // `create` appears only for a follow-up, never for the ticket's own work (decision 047).
-    assert_eq!(
-        plan.matches(&format!("{cmd} create")).count(),
-        plan.matches(&format!("{cmd} create \"Title\" --stdin"))
-            .count(),
-        "milestone-plan files only follow-ups"
-    );
-    assert!(
-        !plan.contains(&format!("{cmd} check ")),
-        "milestone-plan gives no verdict"
-    );
-    let write = plan.find("**Write the ticket's Plan**").unwrap();
-    let next = plan.find("**End your stage**").unwrap();
-    assert!(write < next, "the Plan, then stage next");
-}
-
-/// T-0546 (d0133 "The Plan has one fixed Pieces list"): the Plan `milestone-plan` shows reads with Otaq's own parser
-/// as the pieces, titles and waits it means, so the skill and `domain::plan` can't drift apart.
-#[test]
-fn the_milestone_plan_example_parses_as_its_pieces() {
-    let skill = read_skill("milestone-plan");
-    let start = skill.find("<<'PLAN'\n").expect("the Plan example") + "<<'PLAN'\n".len();
-    let end = start
-        + skill[start..]
-            .find("\nPLAN\n")
-            .expect("the Plan example's end");
-    let pieces = otaq_core::domain::plan::pieces(&skill[start..end]);
-    let read: Vec<(u32, &str, &[u32])> = pieces
+    let work = read_skill("work-ticket");
+    let lines: Vec<&str> = work.lines().map(str::trim).collect();
+    let at = lines
         .iter()
-        .map(|p| (p.number, p.title.as_str(), p.waits_for.as_slice()))
-        .collect();
+        .position(|l| l.starts_with("awk '"))
+        .expect("the awk line");
+    let awk = lines[at];
+    assert!(awk.ends_with(" > \"$plan\""), "{awk}");
+    assert_eq!(lines[at - 1], "plan=\"$(mktemp)\"");
+    assert_eq!(lines[at + 1], format!("{cmd} update --plan-file \"$plan\""));
+    let plan = "1. Share token — waits for nothing\n   A token per list.\n   Check: tokens pass.\n\
+                2. Share link — waits for 1\n   Check: the link opens.";
+    let file = format!(
+        "# Plan · wishlist\n\n- **Ticket:** SHOP-40\n\n<!-- tuq:plan:start -->\n\nWhy it is split.\n\n## Pieces\n\n\
+         {plan}\n\n<!-- tuq:plan:end -->\n"
+    );
+    let dir = tempfile::TempDir::new().unwrap();
+    std::fs::create_dir_all(dir.path().join("tuq/plans")).unwrap();
+    std::fs::write(dir.path().join("tuq/plans/wishlist.md"), file).unwrap();
+    let out = std::process::Command::new("sh")
+        .arg("-c")
+        .arg(format!("F=wishlist\nplan=copied.md\n{awk}"))
+        .current_dir(dir.path())
+        .output()
+        .unwrap();
+    assert!(out.status.success(), "{out:?}");
+    let copied = std::fs::read_to_string(dir.path().join("copied.md")).unwrap();
     assert_eq!(
-        read,
-        [
-            (1, "Wishlist API", &[][..]),
-            (2, "Wishlist button", &[1][..]),
-            (3, "Wishlist page", &[1][..]),
-            (4, "Share link", &[2, 3][..]),
-        ]
+        copied,
+        format!("\nWhy it is split.\n\n## Pieces\n\n{plan}\n\n")
     );
-    assert!(
-        pieces.iter().all(|p| !p.text.is_empty()),
-        "each piece has its details"
-    );
+    let pieces = otaq_core::domain::plan::pieces(&copied);
     assert_eq!(
         otaq_core::domain::plan::order_line(&pieces).as_deref(),
-        Some("Pieces: 4 (1 \u{2192} 2, 3 \u{2192} 4)")
+        Some("Pieces: 2 (1 \u{2192} 2)")
     );
 }
 

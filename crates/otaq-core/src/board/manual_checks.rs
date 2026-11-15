@@ -23,7 +23,7 @@ use crate::agent_tools::Tool;
 use crate::domain::{Actor, TicketKey};
 use crate::store::{new_id, now_ms};
 
-/// The longest manual check, in Unicode characters: a comment's limit (CMT-02).
+/// The longest manual check, in Unicode characters: an agent's comment's limit (CMT-02), whoever writes it (tuq 112).
 pub const MANUAL_CHECK_LIMIT_CHARS: usize = COMMENT_LIMIT_CHARS;
 
 /// The refusal of an empty `--manual-check`.

@@ -52,7 +52,8 @@ pub struct StageRun {
 }
 
 /// Ends the ticket's open run with `result` (and the hand-over `comment` it ended with, when one was posted), before
-/// the move that leaves the stage.
+/// the move that leaves the stage. A task skill still waiting for the stage's session (tuq decision 081) goes with
+/// it, in the same write: it is never typed, carried to the next stage's session or counted as waiting.
 pub(crate) async fn end_open(
     tx: &mut Transaction<'_, Sqlite>,
     ticket_id: &str,
@@ -66,6 +67,14 @@ pub(crate) async fn end_open(
     .bind(now_ms())
     .bind(result.as_str())
     .bind(comment)
+    .bind(ticket_id)
+    .execute(&mut **tx)
+    .await?;
+    sqlx::query(
+        "DELETE FROM pending_deliveries WHERE kind = ?
+           AND session_id IN (SELECT id FROM sessions WHERE ticket_id = ?)",
+    )
+    .bind(crate::session::deliveries::DeliveryKind::TaskSkill.as_str())
     .bind(ticket_id)
     .execute(&mut **tx)
     .await?;

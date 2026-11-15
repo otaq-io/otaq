@@ -109,7 +109,7 @@ pub struct DragBackParams {
     pub target: DropTargetId,
     #[serde(default)]
     pub note: String,
-    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
+    /// What the comment box holds: its files (CMT-13; tuq 001, 003; pasted text stays in the comment, tuq 112).
     #[serde(default)]
     pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]

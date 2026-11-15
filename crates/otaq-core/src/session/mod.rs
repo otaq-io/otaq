@@ -201,6 +201,10 @@ pub struct SessionInfo {
     /// does.
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub model_ran: Option<String>,
+    /// The tuq release the session's tool had when it started (decisions 069, 102), as the `sessions` row recorded
+    /// it; `None` when the tool had no tuq, or for a session without an agent tool.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub tuq_version: Option<String>,
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub size: Option<TerminalSize>,
 }
@@ -667,6 +671,8 @@ const DRAIN_WAIT: Duration = Duration::from_millis(500);
 /// How long after a person's key the program's screen isn't read for the input line ([`input_line`]): it may not
 /// have drawn the key yet.
 pub const KEY_SETTLE: Duration = Duration::from_millis(500);
+/// The prompt a dialog of the tool's own is told by when it draws no question ([`Sessions::dialog_prompt`]).
+pub const DIALOG_WITHOUT_QUESTION: &str = "Choose one of the options in its terminal";
 
 /// Owns every live session. Cheap to clone.
 #[derive(Clone)]
@@ -689,9 +695,23 @@ struct Inner {
     ticket_env: OnceLock<env::TicketEnvProvider>,
     /// The theme in use (d0117 point 4), set once at service start; without it sessions are told the default.
     theme: OnceLock<ThemeProvider>,
+    /// The tuq release a tool has for a project ([`crate::tuq`]), set once at service start: stored with each agent
+    /// session it starts (tuq decision 102). Without it none is stored.
+    tuq_version: OnceLock<TuqVersionProvider>,
     /// Set by `otaq uninstall`'s removal (d0134): no session starts any more, until the service restarts.
     closed: std::sync::atomic::AtomicBool,
 }
+
+/// The tuq release `tool` has for the project with this id, read when asked: set once at service start
+/// ([`Sessions::set_tuq_version_provider`]).
+pub type TuqVersionProvider = Arc<
+    dyn Fn(
+            String,
+            Tool,
+        ) -> std::pin::Pin<Box<dyn std::future::Future<Output = Option<String>> + Send>>
+        + Send
+        + Sync,
+>;
 
 /// The theme in use, read when asked: set once at service start ([`Sessions::set_theme_provider`]).
 pub type ThemeProvider = Arc<
@@ -715,7 +735,7 @@ struct Live {
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
     /// The last read of the input line on screen ([`input_line`]), for the output and size it was read at.
-    input_line: Mutex<Option<(u64, TerminalSize, input_line::InputLine)>>,
+    input_line: Mutex<Option<(u64, TerminalSize, input_line::Reading)>>,
     /// The last read of the visible screen ([`Sessions::visible_screen`]), for the output and size it was read at.
     screen: Mutex<Option<(u64, TerminalSize, Arc<str>)>>,
     /// Set when Otaq stops the session; the end reason then says so.
@@ -761,6 +781,7 @@ impl Sessions {
                 live: Mutex::new(HashMap::new()),
                 project_env: OnceLock::new(),
                 ticket_env: OnceLock::new(),
+                tuq_version: OnceLock::new(),
                 theme: OnceLock::new(),
                 closed: std::sync::atomic::AtomicBool::new(false),
             }),
@@ -777,6 +798,12 @@ impl Sessions {
     /// ticket (its agent, validator, answering, Run and Shell) asks `provider` for them, then.
     pub fn set_ticket_env_provider(&self, provider: env::TicketEnvProvider) {
         let _ = self.inner.ticket_env.set(provider);
+    }
+
+    /// Gives the sessions the tuq release of their tool (tuq decision 102): every agent session's spawn asks
+    /// `provider` and stores the answer with the session, for its History row.
+    pub fn set_tuq_version_provider(&self, provider: TuqVersionProvider) {
+        let _ = self.inner.tuq_version.set(provider);
     }
 
     /// Gives the sessions the theme in use (d0117 point 4): every spawn asks `provider`, then, and tells the
@@ -938,7 +965,7 @@ impl Sessions {
             argv[0] = launch.program.into_os_string();
             argv.splice(1..1, launch.leading);
         }
-        let info = SessionInfo {
+        let mut info = SessionInfo {
             id: id.unwrap_or_else(new_id),
             kind: spec.kind,
             project: spec.project_key.clone(),
@@ -953,6 +980,7 @@ impl Sessions {
             agent: spec.agent.clone(),
             effort: spec.effort.clone(),
             model_ran: None,
+            tuq_version: None,
             size: Some(spec.size),
         };
         // The row, then the program, then the session in the map with nothing awaited in between: the program may
@@ -960,11 +988,17 @@ impl Sessions {
         // too) and recorded against the row. A terminal of no project (an agent tool's Sign in…, d0086) lives in
         // memory only.
         let stored = !spec.project_id.is_empty();
+        // The tuq the session's tool has now, asked before the row so nothing is awaited between the row and the
+        // program.
+        info.tuq_version = match (spec.tool, self.inner.tuq_version.get()) {
+            (Some(tool), Some(provider)) if stored => provider(spec.project_id.clone(), tool).await,
+            _ => None,
+        };
         if stored {
             sqlx::query(
                 "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, model, state, started_at,
-                                       agent_id, agent_name, effort, project_agent_id)
-                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
+                                       agent_id, agent_name, effort, project_agent_id, tuq_version)
+                 VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
             )
             .bind(&info.id)
             .bind(&spec.project_id)
@@ -979,6 +1013,7 @@ impl Sessions {
             .bind(info.agent.as_ref().map(|a| &a.name))
             .bind(&info.effort)
             .bind(&project_agent)
+            .bind(&info.tuq_version)
             .execute(self.inner.store.pool())
             .await
             .map_err(|e| SessionError::Store(e.into()))?;
@@ -1212,6 +1247,48 @@ impl Sessions {
             input_line::InputLine::Blank => keys && lines_above,
             input_line::InputLine::Unknown => keys,
         })
+    }
+
+    /// Whether the session's screen shows one of its tool's own dialogs, a permission or selection prompt
+    /// ([`input_line::Reading::dialog`]): a line typed now would answer the prompt (its Enter picks an option), so
+    /// nothing is typed. A session that isn't running shows none.
+    pub fn shows_dialog(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| live.screen_reading().dialog)
+    }
+
+    /// The dialog of the tool's own on the session's screen, as a prompt the user is told of: its question as drawn
+    /// ("Do you want to run this command?"), or [`DIALOG_WITHOUT_QUESTION`]. `None` when it shows none.
+    pub fn dialog_prompt(&self, id: &str) -> Option<String> {
+        let reading = self.live(id).ok()?.screen_reading();
+        reading.dialog.then(|| {
+            reading
+                .question
+                .unwrap_or_else(|| DIALOG_WITHOUT_QUESTION.to_owned())
+        })
+    }
+
+    /// Whether the cursor is visible in the text field of a dialog of the tool's own (Copilot's "No, and tell
+    /// Copilot…" option, [`input_line::Reading::field`]): the user is answering it.
+    pub fn in_dialog_field(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| live.screen_reading().field)
+    }
+
+    /// Whether the session's screen shows its tool's input line (empty, a placeholder, or text in it), no dialog of
+    /// the tool's own, and nothing that says the tool is at work (Copilot's `○ Working · …` footer): the tool waits
+    /// for a message.
+    pub fn shows_input_line(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| {
+            let reading = live.screen_reading();
+            reading.line != input_line::InputLine::Unknown && !reading.dialog && !reading.busy
+        })
+    }
+
+    /// How much output the session's program has written so far (a position that only moves on): unchanged between
+    /// two looks, the program drew nothing in between. `None` once the session is gone from memory.
+    pub fn output_written(&self, id: &str) -> Option<u64> {
+        let live = self.live(id).ok()?;
+        let output = live.output.lock().expect("session output");
+        Some(output.scrollback.end())
     }
 
     /// The session's screen as the user sees it now, as plain text without the lines above it ([`screen::render`]),
@@ -1495,7 +1572,7 @@ impl Sessions {
     pub async fn history(&self, ticket: &SessionTicket) -> Result<Vec<SessionInfo>, SessionError> {
         let rows: Vec<SessionRow> = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version
              FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.ticket_id = ? ORDER BY s.started_at DESC, s.id DESC",
         )
@@ -1595,7 +1672,7 @@ impl Sessions {
         }
         let row: Row = sqlx::query_as(
             "SELECT s.id, s.kind, p.key AS project_key, s.state, s.started_at, s.ended_at, s.end_reason,
-                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort,
+                    s.tool, s.tool_session_id, s.model, s.agent_id, s.agent_name, s.model_ran, s.effort, s.tuq_version,
                     t.number
              FROM sessions s JOIN projects p ON p.id = s.project_id LEFT JOIN tickets t ON t.id = s.ticket_id
              WHERE s.id = ?",
@@ -1801,23 +1878,29 @@ impl Drop for Inner {
 }
 
 impl Live {
-    /// The input line as the program's screen shows it now ([`input_line::read`]), read again only after new
-    /// output or a resize.
+    /// The input line as the program's screen shows it now ([`input_line::read`]).
     fn input_line(&self) -> input_line::InputLine {
+        self.screen_reading().line
+    }
+
+    /// The input line and any dialog of the tool's own as the program's screen shows them now
+    /// ([`input_line::read_all`]), read again only after new output or a resize.
+    fn screen_reading(&self) -> input_line::Reading {
         let (bytes, end, size) = {
             let output = self.output.lock().expect("session output");
             let (end, size) = (output.scrollback.end(), output.size);
-            if let Some((at, at_size, line)) = *self.input_line.lock().expect("session input line")
-                && at == end
-                && at_size == size
+            if let Some((at, at_size, reading)) =
+                &*self.input_line.lock().expect("session input line")
+                && *at == end
+                && *at_size == size
             {
-                return line;
+                return reading.clone();
             }
             (output.scrollback.contents().0, end, size)
         };
-        let line = input_line::read(&bytes, size, self.colors);
-        *self.input_line.lock().expect("session input line") = Some((end, size, line));
-        line
+        let reading = input_line::read_all(&bytes, size, self.colors);
+        *self.input_line.lock().expect("session input line") = Some((end, size, reading.clone()));
+        reading
     }
 
     /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a
@@ -1977,6 +2060,7 @@ struct SessionRow {
     agent_name: Option<String>,
     model_ran: Option<String>,
     effort: Option<String>,
+    tuq_version: Option<String>,
 }
 
 impl SessionRow {
@@ -1996,6 +2080,7 @@ impl SessionRow {
             agent: SessionAgent::of_columns(self.agent_id, self.agent_name),
             effort: self.effort,
             model_ran: self.model_ran,
+            tuq_version: self.tuq_version,
             size: None,
         })
     }

@@ -90,6 +90,11 @@ const WIDGET_KEYS: ReadonlySet<string> = new Set(["Enter", "Escape"]);
  * recorded on it (`description_editor_keys`). Its read mode isn't a text field and keeps nothing. */
 const DESCRIPTION_EDITOR = ".md-editor";
 const EDITOR_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "k", "b"]);
+/** The comment box (tuq 111): while its text has the focus, ⌘B / ⌘I / ⌘E / ⌘K (Ctrl on Windows and Linux) are its
+ * Bold, Italic, Code and Link, not the command palette or whatever the user recorded on them. Its tabs and toolbar
+ * keep nothing: there ⌘K is the palette. */
+const COMMENT_BOX = ".comment-box";
+const COMMENT_BOX_KEYS: ReadonlySet<string> = new Set([...TEXT_FIELD_KEYS, "b", "i", "e", "k"]);
 /** Where the app's single letters don't run (KEY-02): a menu, a list or a dialog has its own keys. */
 const LETTER_WIDGETS = '[role="menu"], [role="listbox"], [role="dialog"]';
 /** Where the digits are the focus's own: a radio group, and an answer box's options, whose number keys pick or tick
@@ -111,11 +116,13 @@ export interface FocusLike {
  * The keys the focused element acts on itself, so a binding on them waits: a text field keeps Enter, Backspace and
  * Esc (↵ Open sheet, ⌘⌫ Send back and Esc Close sheet don't fire while typing); a button, link or list keeps Enter;
  * anything in a menu, dialog or popover also keeps Enter and Esc. A text field of the description editor also keeps
- * K, so ⌘K reaches the editor's Link (d0078 D2); everywhere else ⌘K stays the command palette.
+ * K, so ⌘K reaches the editor's Link (d0078 D2); the comment box's text keeps B, I, E and K (tuq 111); everywhere else
+ * ⌘K stays the command palette.
  */
 export function keysKeptBy(element: FocusLike | null): ReadonlySet<string> {
   let own = keptByElement(element);
   if (own === TEXT_FIELD_KEYS && element?.closest?.(DESCRIPTION_EDITOR)) own = EDITOR_KEYS;
+  else if (own === TEXT_FIELD_KEYS && element?.closest?.(COMMENT_BOX)) own = COMMENT_BOX_KEYS;
   // The editor's field itself, focused after Esc left its text (T-0259): Esc then goes to the form (discard), not
   // the sheet, and ↵ goes back into the text.
   else if (own === NO_KEYS && element !== null && element.closest?.(DESCRIPTION_EDITOR) === element)
@@ -208,6 +215,17 @@ function letterOf(e: KeyLike): string {
   if (isLatinLetter(e.key)) return e.key.toLowerCase();
   const physical = /^Key([A-Z])$/.exec(e.code);
   return physical ? (physical[1] ?? "").toLowerCase() : e.key.toLowerCase();
+}
+
+/**
+ * The letter of ⌘ + a letter on a Mac, Ctrl + a letter on Windows and Linux, with no other modifier (the comment box's
+ * ⌘B, ⌘I, ⌘E, ⌘K); `null` for any other key. The letter follows the layout, as the map's keys do.
+ */
+export function commandLetter(e: KeyLike, mac: boolean): string | null {
+  const command = mac ? e.metaKey && !e.ctrlKey : e.ctrlKey && !e.metaKey;
+  if (!command || e.altKey || e.shiftKey) return null;
+  const letter = letterOf(e);
+  return /^[a-z]$/.test(letter) ? letter : null;
 }
 
 /** Whether `e` is `stroke`: the same modifiers, and the same letter, named key or (digits and signs) physical key. */

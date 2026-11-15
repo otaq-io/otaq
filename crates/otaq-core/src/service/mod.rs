@@ -120,6 +120,11 @@ pub struct ServiceConfig {
     /// [`crate::agent_tools::ToolContext`]). `None` (the default, and in tests) reads and writes none of those
     /// tools' files; the daemon sets it.
     pub tool_home: Option<std::path::PathBuf>,
+    /// Whether the data folder isn't the default one in [`Self::tool_home`] ([`DataDir::is_default`]): a second
+    /// Otaq, such as a dev build with its own `OTAQ_HOME`, which leaves a tool home shared machine-wide alone unless
+    /// told ([`crate::agent_tools::ToolContext::own_data`]: Codex's `~/.codex` without `CODEX_HOME`). Off by default
+    /// (and in tests, whose tool homes are temporary, unless a test turns it on); the daemon works it out.
+    pub own_data_folder: bool,
     /// Whether the check before every launch asks the agent tools' detected states (SCH-04 `[M23]`, d0086). Off by
     /// default (and in tests, whose empty tools PATH finds no tool): every tool counts as available, as the tests'
     /// stand-in agents run as them, and a failed launch rechecks nothing; the daemon turns it on. Limits and model
@@ -130,6 +135,10 @@ pub struct ServiceConfig {
     /// (and in tests, unless a test turns it on), so [`Self::launch`] and [`Self::terminals`] are used as they are;
     /// the daemon turns it on.
     pub runtime_copy: bool,
+    /// What installs tuq on a tool when a stage needs a `tuq:` skill its tuq doesn't have ([`crate::tuq`], decision
+    /// 103). `None` (the default, and in tests unless they pass a stand-in) installs nothing; the daemon runs tuq's
+    /// published installer.
+    pub tuq_installer: Option<crate::tuq::Installer>,
 }
 
 impl ServiceConfig {
@@ -157,8 +166,10 @@ impl ServiceConfig {
             claude: None,
             read_model_lists: false,
             tool_home: None,
+            own_data_folder: false,
             check_tool_states: false,
             runtime_copy: false,
+            tuq_installer: None,
         }
     }
 
@@ -173,6 +184,10 @@ impl ServiceConfig {
         }
         // Located once, here: the only place the service reads Claude Code's config location (PRJ-06).
         let claude = ClaudeConfig::for_service();
+        let tool_home = std::env::home_dir();
+        let own_data_folder = tool_home
+            .as_deref()
+            .is_some_and(|home| !data.is_default(home));
         Self {
             launch,
             notifier: crate::attention::notify::platform_notifier(),
@@ -183,9 +198,11 @@ impl ServiceConfig {
             claude,
             tools: CheckEnv::from_process(),
             read_model_lists: true,
-            tool_home: std::env::home_dir(),
+            tool_home,
+            own_data_folder,
             check_tool_states: true,
             runtime_copy: true,
+            tuq_installer: Some(crate::tuq::Installer::Published),
             ..Self::new(data)
         }
     }
@@ -644,10 +661,14 @@ impl Service {
             path: config.tools.path.clone(),
             home: config.tool_home.clone(),
             data: config.data.clone(),
+            own_data: config.own_data_folder,
         };
         // The skills the user already has are read from the same home as the adapters' (T3), each tool's variables
         // from the environment its sessions get.
         board.set_skill_home(tool_context.home.clone());
+        // tuq is installed where the tools are found (decision 103).
+        board.tuq().set_installer(config.tuq_installer.clone());
+        board.tuq().set_path(config.tools.path.clone());
         let adapters = Adapters::new(
             ClaudeCode::new(ClaudeContext {
                 launch: config.launch.clone(),
@@ -689,6 +710,14 @@ impl Service {
         let (stop, _) = watch::channel(false);
         let events = EventBus::new(config.event_capacity);
         let sessions = Sessions::with_focus(store.clone(), events.clone(), board.focus().clone());
+        // Every agent session records the tuq its tool has (tuq decision 102).
+        {
+            let board = board.clone();
+            sessions.set_tuq_version_provider(Arc::new(move |project_id, tool| {
+                let board = board.clone();
+                Box::pin(async move { board.tuq_version(&project_id, tool).await })
+            }));
+        }
         // Every session gets its project's variables, read at each spawn (ENV-02).
         {
             let board = board.clone();
@@ -807,7 +836,8 @@ impl Service {
             Arc::new(signals.clone()),
             adapters.clone(),
         )
-        .with_hand_offs(board.hand_offs().clone());
+        .with_hand_offs(board.hand_offs().clone())
+        .with_session_prompts(board.session_prompts().clone());
         starter.set_deliveries(deliveries.clone());
         // The stage reminder before Idle is typed as an automatic delivery (d0042 2026-10-28).
         signals.set_deliveries(deliveries.clone());

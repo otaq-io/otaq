@@ -295,7 +295,13 @@ async fn the_setup_command_and_the_started_agent_get_the_rows() {
     // `session::env`.
     if cfg!(unix) {
         let path = value(&agent, "PATH").unwrap();
-        assert!(path.starts_with("/opt/cb/bin:/custom/bin:"), "{path}");
+        // The `otaq` folder, tuq's commands' folder, then the project's PATH.
+        let first = otaq_core::tuq::launch_path(
+            std::path::Path::new("/opt/cb/bin"),
+            std::ffi::OsStr::new(""),
+        );
+        let first = first.to_string_lossy();
+        assert!(path.starts_with(&format!("{first}:/custom/bin:")), "{path}");
         assert_eq!(value(&setup, "PATH"), Some(row_path.as_str()));
     }
     w.stop().await;

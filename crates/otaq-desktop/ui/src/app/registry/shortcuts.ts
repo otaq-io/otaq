@@ -3,7 +3,8 @@
 //
 // ⌘K and ⌘B in the description: Link and Bold. While the description editor has focus, ⌘K / Ctrl+K never reaches the
 // `command_palette` handlers, nor ⌘B / Ctrl+B whatever action the user recorded on it: the dispatcher leaves them to
-// the editor (`keysKeptBy`, d0078 D2); everywhere else ⌘K is the palette (d0097; the base map has no ⌘B since d0113).
+// the editor (`keysKeptBy`, d0078 D2). The comment box's text keeps ⌘B, ⌘I, ⌘E and ⌘K the same way, for its Bold,
+// Italic, Code and Link (tuq 111). Everywhere else ⌘K is the palette (d0097; the base map has no ⌘B since d0113).
 import type { KeyAction } from "../../generated/KeyAction";
 
 export type KeyActionName = KeyAction["action"];

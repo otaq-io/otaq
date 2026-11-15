@@ -1036,8 +1036,8 @@ pub fn drop_step_in(
 
 /// *03 → Dragging a card back to an earlier stage* (s03-50/s03-51, FLW-18, CMT-13): "Send SHOP-19 back to Dev?" with a
 /// comment for that stage ("Comment for Dev (Rust developer)"), or "Run Security again on SHOP-18?" with a comment for
-/// the check; either is posted as a comment every later stage reads, in the comment box (a long paste becomes its
-/// report). When an agent
+/// the check; either is posted as a comment every later stage reads, in the comment box (no length limit, tuq 112).
+/// When an agent
 /// works where the card is now, the dialog says it stops ("Security reviewer is working on it now. It stops, and the
 /// check runs again after Dev.") and the button reads "Stop and send to Dev"; otherwise it says where the card goes
 /// after ("Then it goes on to Security, Review and Done as usual."). Cancel leaves the card where it was.
@@ -2338,7 +2338,7 @@ mod tests {
             provider: None,
             logged_in: None,
             cli_found: false,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         };
         assert!(no_provider.open_pr_blocked().is_some());
         let menu = approve_menu(

@@ -3,6 +3,8 @@
 //! **Automatic deliveries** (another agent's question or answer, the ticket-change note, "continue" after the
 //! limit reset) are stored in `pending_deliveries` and typed only when the agent is **idle between turns and
 //! the input line is empty**. Until then the card and the terminal strip show "1 message waiting · Deliver now".
+//! Nor while the screen shows a permission or selection prompt of the tool's own ([`Sessions::shows_dialog`]), even
+//! one no signal told of: typed there, the message's Enter would answer it.
 //!
 //! **The user's own clicks** (Deliver now, Send back, a needs-you answer) are never held: if the input line has
 //! unsent text the request answers [`Delivery::NeedsConfirmation`] instead, and the client asks *"SHOP-23 has
@@ -26,7 +28,7 @@
 //! to the ticket's live agent session, and any other (a check's, a helper's) is dropped. The waiting count a ticket
 //! shows is its live agent session's alone, the session its Deliver now types into.
 
-use std::collections::HashMap;
+use std::collections::{HashMap, HashSet};
 use std::future::Future;
 use std::pin::Pin;
 use std::sync::{Arc, Mutex};
@@ -39,6 +41,7 @@ use tokio::sync::{broadcast, watch};
 use super::hand_offs::{HandOff, HandOffs};
 use super::{SessionError, SessionInfo, SessionKind, SessionState, Sessions};
 use crate::agent_tools::{Adapters, InputQuirks};
+use crate::board::session_prompts::SessionPrompts;
 use crate::domain::{TicketKey, stored_enum};
 use crate::protocol::Event;
 use crate::service::EventBus;
@@ -60,6 +63,10 @@ stored_enum! {
         Validation = "validation",
         /// "You ended your turn but your stage is still open…": once, before Idle (d0042 2026-10-28).
         StageReminder = "stage_reminder",
+        /// A stage's task skill (tuq decision 081), typed once Otaq's `work-ticket` ended its first turn. The agent's
+        /// own `stage next` / `stage done` waits for it; Otaq's own stage ends and the user's moves end its stage's
+        /// run, which removes it ([`crate::board::stage_runs::end_open`]).
+        TaskSkill = "task_skill",
     }
 }
 
@@ -86,7 +93,8 @@ impl IdleSignal for NeverIdle {
 pub enum Delivery {
     /// Typed and submitted; `count` messages.
     Sent { count: usize },
-    /// The input line has unsent text: ask "Keep it and cancel / Clear it and send".
+    /// The input line has unsent text: ask "Keep it and cancel / Clear it and send". Or the tool shows a prompt of
+    /// its own (`prompt`): nothing can be sent until it is answered in the terminal.
     NeedsConfirmation {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         ticket: Option<TicketKey>,
@@ -94,6 +102,10 @@ pub enum Delivery {
         /// and cancel is offered.
         #[serde(default, skip_serializing_if = "Option::is_none")]
         unclearable_by: Option<String>,
+        /// It isn't text: the session's screen shows a dialog of the tool's own, this question
+        /// ([`Sessions::dialog_prompt`]), which typing would answer. Only Keep it and cancel is offered.
+        #[serde(default, skip_serializing_if = "Option::is_none")]
+        prompt: Option<String>,
     },
 }
 
@@ -119,6 +131,10 @@ pub type StillWanted = Arc<dyn Fn() -> Pin<Box<dyn Future<Output = bool> + Send>
 /// a cleared line settle before the text.
 const SUBMIT_PAUSE: Duration = Duration::from_millis(80);
 
+/// How often a session whose messages wait behind a dialog of its tool's own is looked at again: no signal says the
+/// dialog went (a key at it, the tool's next turn and its end do, and they look too).
+const DIALOG_RECHECK: Duration = Duration::from_millis(500);
+
 /// Queues and types deliveries. Cheap to clone.
 #[derive(Clone)]
 pub struct Deliveries {
@@ -138,6 +154,15 @@ pub struct Deliveries {
     /// By session: whether its input line held unsent text when a person's key last settled
     /// ([`Self::line_settled`]).
     lines: Arc<Mutex<HashMap<String, bool>>>,
+    /// The task skills queued ([`Self::queue_task_skill`]), by `pending_deliveries.id`, with their session: once the
+    /// end of their stage's run removed the row, the session's waiting count is told again.
+    task_skills: Arc<Mutex<HashMap<String, String>>>,
+    /// The sessions whose waiting messages wait only for a dialog of the tool's own to leave the screen, each looked
+    /// at again every [`DIALOG_RECHECK`] ([`Self::after_dialog`]).
+    behind_dialog: Arc<Mutex<HashSet<String>>>,
+    /// The permission prompts on tickets' sessions' screens their tools told of (the board's,
+    /// [`Self::with_session_prompts`]).
+    session_prompts: SessionPrompts,
 }
 
 impl Deliveries {
@@ -158,12 +183,21 @@ impl Deliveries {
             senders: Arc::default(),
             conditions: Arc::default(),
             lines: Arc::default(),
+            task_skills: Arc::default(),
+            behind_dialog: Arc::default(),
+            session_prompts: SessionPrompts::default(),
         }
     }
 
     /// Marks hand-offs in `hand_offs` (the board's, so cards show them).
     pub fn with_hand_offs(mut self, hand_offs: HandOffs) -> Self {
         self.hand_offs = hand_offs;
+        self
+    }
+
+    /// Reads the permission prompts its tools told of in `prompts` (the board's), so a click never types over one.
+    pub fn with_session_prompts(mut self, prompts: SessionPrompts) -> Self {
+        self.session_prompts = prompts;
         self
     }
 
@@ -237,6 +271,46 @@ impl Deliveries {
         .map_err(store_error)?;
         self.publish_waiting(session).await?;
         Ok(id)
+    }
+
+    /// A stage's task skill (tuq decision 081) for its new `session`: typed, as any automatic delivery, once Otaq's
+    /// `work-ticket` ended its first turn and the input line is empty. The agent's own `stage next` / `stage done` is
+    /// refused until it is typed ([`crate::board::Board::task_skill_waiting`]). It waits only as long as its stage's
+    /// run: the run's end by Otaq or the user removes it ([`crate::board::stage_runs::end_open`]: a drag, Move…, Skip,
+    /// Stop, a fail, a send-back), and it is never carried to another session ([`Self::session_ended`]).
+    pub async fn queue_task_skill(&self, session: &str, text: &str) -> Result<(), SessionError> {
+        let id = self.hold(session, DeliveryKind::TaskSkill, text).await?;
+        self.task_skills
+            .lock()
+            .expect("task skills")
+            .insert(id, session.to_owned());
+        self.not_for_an_ended(session).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
+    /// A ticket changed (a stage's run may have ended, removing its task skill): each session whose queued task skill
+    /// is gone is told its waiting count again, so no "1 message waiting" stays behind.
+    async fn task_skills_removed(&self) -> Result<(), SessionError> {
+        let queued: Vec<(String, String)> = self
+            .task_skills
+            .lock()
+            .expect("task skills")
+            .iter()
+            .map(|(id, session)| (id.clone(), session.clone()))
+            .collect();
+        for (id, session) in queued {
+            let there: Option<String> =
+                sqlx::query_scalar("SELECT id FROM pending_deliveries WHERE id = ?")
+                    .bind(&id)
+                    .fetch_optional(self.store.pool())
+                    .await
+                    .map_err(store_error)?;
+            if there.is_none() {
+                self.task_skills.lock().expect("task skills").remove(&id);
+                self.publish_waiting(&session).await?;
+            }
+        }
+        Ok(())
     }
 
     /// An automatic hand-off (a merge conflict's `restack`, an automatic Delivery's PR step): queued as a
@@ -370,6 +444,13 @@ impl Deliveries {
                         tracing::warn!(session = session.id, error = %e, "can't move an ended session's messages");
                     }
                 }
+                Ok(Event::TicketChanged { .. })
+                    if !self.task_skills.lock().expect("task skills").is_empty() =>
+                {
+                    if let Err(e) = self.task_skills_removed().await {
+                        tracing::warn!(error = %e, "can't tell the waiting count after a task skill went");
+                    }
+                }
                 Ok(_) => {}
                 Err(broadcast::error::RecvError::Lagged(missed)) => {
                     tracing::warn!(missed, "deliveries fell behind on session events");
@@ -393,6 +474,17 @@ impl Deliveries {
     /// reading its ticket, so nothing it needs is lost.
     pub async fn session_ended(&self, ended: &SessionInfo) -> Result<(), SessionError> {
         self.lines.lock().expect("input lines").remove(&ended.id);
+        // A task skill is its session's stage's alone: never carried to another session.
+        sqlx::query("DELETE FROM pending_deliveries WHERE session_id = ? AND kind = ?")
+            .bind(&ended.id)
+            .bind(DeliveryKind::TaskSkill.as_str())
+            .execute(self.store.pool())
+            .await
+            .map_err(store_error)?;
+        self.task_skills
+            .lock()
+            .expect("task skills")
+            .retain(|_, session| session != &ended.id);
         let pending = self.pending(&ended.id).await?;
         if pending.is_empty() {
             return Ok(());
@@ -450,9 +542,63 @@ impl Deliveries {
     /// Returns how many were sent.
     pub async fn deliver_if_ready(&self, session: &str) -> Result<usize, SessionError> {
         if !self.is_ready(session)? {
+            self.after_dialog(session);
             return Ok(0);
         }
         self.send_pending(session, true).await
+    }
+
+    /// Whether the session's waiting messages wait for a dialog of its tool's own to leave the screen, looked at again
+    /// until then ([`Self::after_dialog`]).
+    pub fn waits_behind_dialog(&self, session: &str) -> bool {
+        self.behind_dialog
+            .lock()
+            .expect("behind dialog")
+            .contains(session)
+    }
+
+    /// The session would be ready but for a dialog of its tool's own on screen (a permission prompt the tool drew
+    /// before saying so, or never says): its waiting messages go once the dialog has left the screen, looked at
+    /// every [`DIALOG_RECHECK`] while the agent stays idle and something waits. One look at a time per session.
+    fn after_dialog(&self, session: &str) {
+        let blocked = || {
+            self.sessions.info(session).is_ok_and(|i| i.is_running())
+                && self.idle.is_idle(session)
+                && self.sessions.shows_dialog(session)
+        };
+        if !blocked()
+            || !self
+                .behind_dialog
+                .lock()
+                .expect("behind dialog")
+                .insert(session.to_owned())
+        {
+            return;
+        }
+        tracing::info!(
+            session,
+            "a dialog of the tool's own is on screen: waiting messages wait for it to go"
+        );
+        let this = self.clone();
+        let session = session.to_owned();
+        tokio::spawn(async move {
+            loop {
+                tokio::time::sleep(DIALOG_RECHECK).await;
+                let waiting = this.pending(&session).await.is_ok_and(|p| !p.is_empty());
+                let idle = this.sessions.info(&session).is_ok_and(|i| i.is_running())
+                    && this.idle.is_idle(&session);
+                if !waiting || !idle || !this.sessions.shows_dialog(&session) {
+                    break;
+                }
+            }
+            this.behind_dialog
+                .lock()
+                .expect("behind dialog")
+                .remove(&session);
+            if let Err(e) = this.deliver_if_ready(&session).await {
+                tracing::warn!(session, error = %e, "delivery failed");
+            }
+        });
     }
 
     /// A person's key reached the session and the program has drawn it: `unsent` is whether its input line holds text
@@ -472,31 +618,39 @@ impl Deliveries {
         self.publish_waiting(session).await
     }
 
-    /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns and its
-    /// input line is empty.
+    /// Whether an automatic delivery would be typed now: the session runs, its agent is idle between turns, its
+    /// input line is empty, and its screen shows no dialog of the tool's own ([`Sessions::shows_dialog`]: typed
+    /// there, the message's Enter would answer the tool's prompt, approving a command, and the message would be lost).
     pub fn is_ready(&self, session: &str) -> Result<bool, SessionError> {
         let running = self.sessions.info(session).is_ok_and(|i| i.is_running());
-        Ok(running && self.idle.is_idle(session) && !self.sessions.has_unsent_input(session)?)
+        Ok(running
+            && self.idle.is_idle(session)
+            && !self.sessions.has_unsent_input(session)?
+            && !self.sessions.shows_dialog(session))
     }
 
     /// **Deliver now** (the user's click): sends the waiting messages even if the agent is busy; asks first if
-    /// the input line has unsent text.
+    /// the input line has unsent text, and types nothing over a dialog of the tool's own (its question comes back).
     pub async fn deliver_now(&self, session: &str) -> Result<Delivery, SessionError> {
-        if self.sessions.has_unsent_input(session)? {
+        if self.held_for_click(session)? {
             return Ok(self.needs_confirmation(session));
         }
         let count = self.send_pending(session, false).await?;
+        // A dialog drawn meanwhile stopped it before anything was typed: say so, not "sent".
+        if count == 0 && self.prompt_on_screen(session).is_some() {
+            return Ok(self.needs_confirmation(session));
+        }
         Ok(Delivery::Sent { count })
     }
 
     /// Text from a user's click (Send back, a needs-you answer): never held; asks first if the input line has
-    /// unsent text.
+    /// unsent text, and types nothing over a dialog of the tool's own (its question comes back).
     pub async fn deliver_from_click(
         &self,
         session: &str,
         text: &str,
     ) -> Result<Delivery, SessionError> {
-        if self.sessions.has_unsent_input(session)? {
+        if self.held_for_click(session)? {
             return Ok(self.needs_confirmation(session));
         }
         self.type_and_submit(session, text).await?;
@@ -513,8 +667,9 @@ impl Deliveries {
     ) -> Result<Delivery, SessionError> {
         let input = self.input(session);
         // A tool whose clear-line keys leave the rest of a multi-line draft can't clear it: the user clears it in
-        // the terminal (SES-07, ADP-06). Never Ctrl+C.
-        if self.unclearable_by(session)?.is_some() {
+        // the terminal (SES-07, ADP-06). Never Ctrl+C. Nor over a dialog of the tool's own, which the keys would
+        // answer.
+        if self.prompt_on_screen(session).is_some() || self.unclearable_by(session)?.is_some() {
             return Ok(self.needs_confirmation(session));
         }
         self.sessions.clear_line(session, input.clear_line)?;
@@ -559,6 +714,7 @@ impl Deliveries {
             .clone();
         let _sending = sender.lock().await;
         if when_ready && !self.is_ready(session)? {
+            self.after_dialog(session);
             return Ok(0);
         }
         let pending = self.pending(session).await?;
@@ -581,6 +737,13 @@ impl Deliveries {
                     .map_err(store_error)?;
                 self.forget_condition(&delivery.id);
                 continue;
+            }
+            // A dialog the tool drew meanwhile (the condition above awaited): the rest waits for it to go.
+            if self.sessions.shows_dialog(session) {
+                if when_ready {
+                    self.after_dialog(session);
+                }
+                break;
             }
             // A hand-off is marked before its Enter, as a click's ([`Self::hand_off`]).
             if let Some(hand_off) = self.hand_offs.take_queued(&delivery.id) {
@@ -698,10 +861,29 @@ impl Deliveries {
     }
 
     fn needs_confirmation(&self, session: &str) -> Delivery {
+        let prompt = self.prompt_on_screen(session);
         Delivery::NeedsConfirmation {
             ticket: self.sessions.info(session).ok().and_then(|i| i.ticket),
-            unclearable_by: self.unclearable_by(session).ok().flatten(),
+            unclearable_by: match prompt {
+                Some(_) => None,
+                None => self.unclearable_by(session).ok().flatten(),
+            },
+            prompt,
         }
+    }
+
+    /// Whether a click can't type into the session now: its input line has unsent text, or its screen shows a dialog
+    /// of the tool's own (typed there, the click's text would answer it).
+    fn held_for_click(&self, session: &str) -> Result<bool, SessionError> {
+        Ok(self.prompt_on_screen(session).is_some() || self.sessions.has_unsent_input(session)?)
+    }
+
+    /// The prompt on the session's screen that a typed line would answer: one its tool told of (a hook's, whatever the
+    /// cursor shows), else a dialog of the tool's own the screen shows ([`Sessions::dialog_prompt`]).
+    fn prompt_on_screen(&self, session: &str) -> Option<String> {
+        self.session_prompts
+            .on_screen(session)
+            .or_else(|| self.sessions.dialog_prompt(session))
     }
 
     async fn publish_waiting(&self, session: &str) -> Result<(), SessionError> {

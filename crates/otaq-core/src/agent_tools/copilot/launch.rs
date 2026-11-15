@@ -1,26 +1,31 @@
 //! Launch and resume (ADP-08, SES-03; T-0352). A new conversation:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:$PATH  [PORT, OTAQ_ROLE as for every tool]
+//! OTAQ_TICKET=SHOP-29  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH  [PORT, OTAQ_ROLE as for every tool]
 //! copilot --session-id <uuid> [--model <model> | --model auto --auto-tier <tier>]
-//!         --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)' -i "/otaq:work-ticket"
+//!         --no-auto-update --plugin-dir <otaq plugin>/copilot --allow-tool 'shell(otaq:*)'
+//!         --allow-tool 'shell(tuq:*)' --allow-tool 'shell(tuq-plan:*)' -i "/otaq:otaq-work-ticket"
 //! ```
 //!
-//! and a resume `copilot --resume <id> [--model …] --plugin-dir … --allow-tool … [-i "<prompt>"]` (the model is
+//! and a resume `copilot --resume <id> [--model …] --no-auto-update --plugin-dir … --allow-tool … [-i "<prompt>"]`
+//! (`--no-auto-update`: Copilot never updates itself during a session, [`super::NO_AUTO_UPDATE`]; the model is
 //! passed again: whether a resume keeps it isn't verified, the models report, row 6). **No permission flag**
-//! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approval is
-//! Otaq's own `otaq` commands. Otaq doesn't touch the user's Copilot settings or status line (d0088).
+//! (d0011): never `--allow-all`, `--yolo`, `--allow-all-tools` or `COPILOT_ALLOW_ALL`; the only pre-approvals are
+//! Otaq's own `otaq` commands and tuq's `tuq` and `tuq-plan` (tuq decision 077). Otaq doesn't touch the user's
+//! Copilot settings or status line (d0088).
 //!
 //! **Copilot's plugin folder** (ADP-03): `copilot/` inside Otaq's plugin folder (found where
 //! [`crate::agent_tools::claude::find_plugin_dir`] looks, `Otaq.app/Contents/Resources` among them), holds a manifest,
-//! a `hooks/hooks.json` whose commands pass `--tool copilot`, and Otaq's shipped skills in its `skills/` folder. They
-//! reach every session from its start and run as `/otaq:<name>` (a plugin's skill, the skill name "preceded by a
-//! forward slash", docs.github.com, "Adding agent skills for GitHub Copilot CLI"); the user's skills are Copilot's to
-//! find, by their own names (`/<name>`). Otaq writes no skill into the working folder (T2).
+//! a `hooks/hooks.json` whose commands pass `--tool copilot`, and the prefixed copy of Otaq's shipped skills in its
+//! `skills/` folder (`otaq-validate/`, [`crate::skills::prefixed`], decision 092): Copilot lists a plugin's skills by
+//! their own names, so a repository's own `.github/skills/validate` would hide a plugin's `validate` ("Unknown
+//! command"). They reach every session from its start and run as `/otaq:otaq-<name>` ([`skill_reference`]); the
+//! user's skills are Copilot's to find, by their own names (`/<name>`). Otaq writes no skill into the working folder
+//! (T2).
 
 use std::path::{Path, PathBuf};
 
-use super::{COMMAND_NAME, Copilot, CopilotContext};
+use super::{COMMAND_NAME, Copilot, CopilotContext, NO_AUTO_UPDATE};
 use crate::agent_tools::follow::FollowChoice;
 use crate::agent_tools::{
     FirstPrompt, LaunchContext, LaunchError, LaunchPlan, LaunchRequest, LaunchRole, ToolIdMode,
@@ -86,11 +91,16 @@ pub(super) fn launch(
         args.extend(["--reasoning-effort".to_owned(), effort.clone()]);
     }
     args.extend([
+        NO_AUTO_UPDATE.to_owned(),
         "--plugin-dir".to_owned(),
         plugin.display().to_string(),
         "--allow-tool".to_owned(),
         format!("shell({}:*)", naming::COMMAND_NAME),
     ]);
+    // tuq's commands, as `otaq` (decision 077).
+    for command in crate::tuq::COMMANDS {
+        args.extend(["--allow-tool".to_owned(), format!("shell({command}:*)")]);
+    }
     if let Some(prompt) = prompt {
         args.extend(["-i".to_owned(), prompt]);
     }
@@ -121,14 +131,31 @@ pub(super) fn model_flags(model: Option<&str>) -> Vec<String> {
     }
 }
 
-/// The first prompt as typed: `/otaq:noyan <message>`, or the text.
+/// The first prompt as typed: `/otaq:otaq-noyan <message>`, or the text.
 fn prompt_text(adapter: &Copilot, prompt: &FirstPrompt) -> String {
     prompt.text(adapter)
 }
 
-/// A skill as Copilot runs it: Otaq's own from its plugin as `/otaq:work-ticket`, the user's as `/team-validate`.
+/// A skill as Copilot runs it: Otaq's own from the prefixed copy in its plugin as `/otaq:otaq-work-ticket`, the
+/// user's as `/team-validate`. A typed slash command names a plugin's skill under the plugin's name: in the hands-on
+/// check (Copilot CLI 1.0.109, Windows, interactive, 2026-11-14) `/otaq:otaq-validate`, typed or passed with `-i`,
+/// ran the plugin's skill in a repository with its own `.github/skills/validate`, while `/otaq-validate` answered
+/// "Unknown command: /otaq-validate".
+///
+/// tuq's skills the same way (decision 105): tuq's Copilot plugin, named `tuq`, names each skill `tuq-<name>`, so
+/// `tuq:product-spec` is `/tuq:tuq-product-spec`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    crate::agent_tools::namespaced_reference("/", skill)
+    if let Some(name) = crate::skills::prefixed::own_name(skill) {
+        return format!("/{}:{name}", crate::naming::PLUGIN_NAMESPACE);
+    }
+    match crate::tuq::skill_of(skill) {
+        Some(name) => format!(
+            "/{}:{}",
+            crate::tuq::NAMESPACE,
+            crate::tuq::installed_name(crate::agent_tools::Tool::Copilot, name)
+        ),
+        None => format!("/{skill}"),
+    }
 }
 
 /// Otaq's variables for the role, as for every tool: the ticket and `PORT` for a ticket's agent (an answer, a
@@ -138,7 +165,7 @@ fn environment(
     launch: &LaunchContext,
     request: &LaunchRequest,
 ) -> Result<Vec<(String, String)>, LaunchError> {
-    let path = crate::shell::prepend_path(Some(&launch.bin_dir), &launch.path)
+    let path = crate::tuq::launch_path(&launch.bin_dir, &launch.path)
         .to_string_lossy()
         .into_owned();
     let ticket = || {
@@ -262,11 +289,14 @@ mod tests {
         }
     }
 
+    /// The `otaq` folder, tuq's commands' folder, then the service's PATH.
     fn path() -> String {
-        std::env::join_paths(["/opt/cb/bin", "/usr/bin", "/bin"])
-            .unwrap()
-            .to_string_lossy()
-            .into_owned()
+        crate::tuq::launch_path(
+            Path::new("/opt/cb/bin"),
+            &std::env::join_paths(["/usr/bin", "/bin"]).unwrap(),
+        )
+        .to_string_lossy()
+        .into_owned()
     }
 
     fn allow() -> String {
@@ -297,12 +327,17 @@ mod tests {
                 id,
                 "--model".into(),
                 "gpt-5.5".into(),
+                "--no-auto-update".into(),
                 "--plugin-dir".into(),
                 i.plugin(),
                 "--allow-tool".into(),
                 allow(),
+                "--allow-tool".into(),
+                "shell(tuq:*)".into(),
+                "--allow-tool".into(),
+                "shell(tuq-plan:*)".into(),
                 "-i".into(),
-                format!("/{}:work-ticket", naming::PLUGIN_NAMESPACE),
+                format!("/{ns}:{ns}-work-ticket", ns = naming::PLUGIN_NAMESPACE),
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-29"));
@@ -332,7 +367,7 @@ mod tests {
             req.model = model.map(str::to_owned);
             let args = launch(&i.copilot, &req).unwrap().args;
             assert!(!args.iter().any(|a| a == "--model"), "{args:?}");
-            assert_eq!(args[2], "--plugin-dir");
+            assert_eq!(args[2..4], ["--no-auto-update", "--plugin-dir"]);
         }
         req.model = Some("auto".into());
         assert_eq!(
@@ -373,10 +408,15 @@ mod tests {
                 "5f1c0a2e-0000-7000-8000-000000000000".into(),
                 "--model".into(),
                 "gpt-5.5".into(),
+                "--no-auto-update".into(),
                 "--plugin-dir".into(),
                 i.plugin(),
                 "--allow-tool".into(),
                 allow(),
+                "--allow-tool".into(),
+                "shell(tuq:*)".into(),
+                "--allow-tool".into(),
+                "shell(tuq-plan:*)".into(),
             ]
         );
         req.first_prompt = Some(FirstPrompt::Text("push now".into()));
@@ -427,7 +467,11 @@ mod tests {
                     .filter(|(_, a)| a.starts_with("--allow"))
                     .map(|(n, _)| plan.args[n + 1].clone())
                     .collect();
-                assert_eq!(allowed, [allow()], "only the command is pre-approved");
+                assert_eq!(
+                    allowed,
+                    [allow(), "shell(tuq:*)".into(), "shell(tuq-plan:*)".into()],
+                    "only the command and tuq's are pre-approved"
+                );
             }
         }
     }
@@ -438,7 +482,7 @@ mod tests {
         let i = install();
         let mut req = request(LaunchRole::Validator);
         req.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let plan = launch(&i.copilot, &req).unwrap();
@@ -453,7 +497,7 @@ mod tests {
         // Otaq's own skill by its plugin name; no `--add-dir` (d0011).
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("/{}:validate", naming::PLUGIN_NAMESPACE)
+            &format!("/{ns}:{ns}-validate", ns = naming::PLUGIN_NAMESPACE)
         );
         assert!(!plan.args.iter().any(|a| a == "--add-dir"));
 

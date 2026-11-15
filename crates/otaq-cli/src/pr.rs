@@ -7,8 +7,6 @@
 //! Each prints the ticket afterwards (`Ticket`); after `pr opened` its `flags.pr_number` and `work.pr_url` are set,
 //! after `branch rename` its `work.branch`.
 
-use std::io::Read;
-
 use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
 use otaq_core::protocol::{
@@ -25,17 +23,14 @@ use crate::target;
 pub fn pr(command: PrCommand, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     let cmd = naming::COMMAND_NAME;
     match command {
-        PrCommand::Propose { stdin } => {
+        PrCommand::Propose { stdin, .. } => {
             if !stdin {
                 return Err(ErrorBody::new(
                     ErrorKind::Usage,
                     format!("give the proposal on stdin: `{cmd} pr propose --stdin`"),
                 ));
             }
-            let mut proposal = String::new();
-            std::io::stdin()
-                .read_to_string(&mut proposal)
-                .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+            let proposal = crate::input::read()?;
             if proposal.trim().is_empty() {
                 return Err(ErrorBody::new(
                     ErrorKind::Usage,
@@ -59,17 +54,14 @@ pub fn pr(command: PrCommand, global: &GlobalArgs, out: &Output) -> Result<(), E
                 move |key| Request::TicketPrPropose(PrProposeParams { key, proposal }),
             )
         }
-        PrCommand::Message { stdin } => {
+        PrCommand::Message { stdin, .. } => {
             if !stdin {
                 return Err(ErrorBody::new(
                     ErrorKind::Usage,
                     format!("give the message on stdin: `{cmd} pr message --stdin`"),
                 ));
             }
-            let mut message = String::new();
-            std::io::stdin()
-                .read_to_string(&mut message)
-                .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+            let message = crate::input::read()?;
             if message.trim().is_empty() {
                 return Err(ErrorBody::new(
                     ErrorKind::Usage,

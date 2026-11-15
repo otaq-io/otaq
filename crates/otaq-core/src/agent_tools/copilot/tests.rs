@@ -45,19 +45,28 @@ fn input_quirks() {
     assert!(adapter.swaps_refused_model());
 }
 
-/// Otaq's own skill by its plugin's namespace, the user's by its own name (Copilot runs a skill with `/`) (T2).
+/// Otaq's own skill by its name in the prefixed copy under the plugin's name, `/otaq:otaq-commit` (decision 092, the
+/// form the hands-on check ran), the user's by its own name (Copilot runs a skill with `/`) (T2).
 #[test]
-fn otaqs_skills_namespaced_the_users_by_their_own_name() {
+fn otaqs_skills_prefixed_the_users_by_their_own_name() {
     let bin = tempfile::tempdir().unwrap();
     let adapter = copilot(bin.path(), None);
+    let ns = crate::naming::PLUGIN_NAMESPACE;
     assert_eq!(
-        adapter.skill_reference("commit"),
-        format!("/{}:commit", crate::naming::PLUGIN_NAMESPACE)
+        adapter.skill_reference(crate::own_skill!("commit")),
+        format!("/{ns}:{ns}-commit")
     );
+    // The user's tuq: its Copilot plugin, named tuq, names each skill tuq-<name> (decision 105).
+    assert_eq!(
+        adapter.skill_reference("tuq:tech-spec"),
+        "/tuq:tuq-tech-spec"
+    );
+    assert_eq!(adapter.skill_reference("commit"), "/commit");
     assert_eq!(adapter.skill_reference("team-validate"), "/team-validate");
 }
 
-/// Detect runs the program on the context's PATH (here a stand-in that prints what `copilot --version` prints).
+/// Detect runs the program on the context's PATH (here a stand-in that prints what `copilot --no-auto-update
+/// --version` prints).
 /// The Homebrew 0.0.404 needs an update (Q-G); 1.0.98 runs.
 // Unix only: the stand-in tool is an `sh` script started by name, which Windows can't run (Q598).
 #[cfg(unix)]
@@ -81,6 +90,7 @@ async fn detect_reads_the_version_and_an_old_one_needs_an_update() {
             update_needed: true,
             account: None,
             sign_in_offered: false,
+            not_usable: None,
         }
     );
 
@@ -89,6 +99,49 @@ async fn detect_reads_the_version_and_an_old_one_needs_an_update() {
     assert!(found.installed);
     assert_eq!(found.version.as_deref(), Some("1.0.98"));
     assert!(!found.update_needed);
+}
+
+/// The version is the one launches run, `copilot --no-auto-update --version` (the bundled one), never what a plain
+/// `--version` names (the newest cached package). A Copilot that refuses the flag needs an update, whatever its plain
+/// `--version` says.
+#[cfg(unix)]
+#[tokio::test]
+async fn detect_reads_the_version_that_launches() {
+    use std::os::unix::fs::PermissionsExt;
+    let bin = tempfile::tempdir().unwrap();
+    let adapter = copilot(bin.path(), None);
+    let copilot_script = |flagged: &str| {
+        let file = bin.path().join("copilot");
+        let script = format!(
+            "#!/bin/sh\ncase \"$*\" in\n'--no-auto-update --version') {flagged} ;;\n\
+             --version) printf 'GitHub Copilot CLI 1.0.112.\\n' ;;\n*) exit 2 ;;\nesac\n"
+        );
+        std::fs::write(&file, script).unwrap();
+        std::fs::set_permissions(&file, std::fs::Permissions::from_mode(0o755)).unwrap();
+    };
+
+    copilot_script("printf 'GitHub Copilot CLI 1.0.109.\\n'");
+    let found = adapter.detect().await;
+    assert!(found.installed);
+    assert_eq!(found.version.as_deref(), Some("1.0.109"));
+    assert!(!found.update_needed);
+
+    copilot_script("printf 'GitHub Copilot CLI 1.0.97.\\n'");
+    let found = adapter.detect().await;
+    assert_eq!(found.version.as_deref(), Some("1.0.97"));
+    assert!(
+        found.update_needed,
+        "the bundled one is too old, a newer cached one is no help"
+    );
+
+    copilot_script("echo \"error: unexpected argument '--no-auto-update' found\" >&2; exit 1");
+    let found = adapter.detect().await;
+    assert!(found.installed);
+    assert_eq!(found.version.as_deref(), Some("1.0.112"));
+    assert!(
+        found.update_needed,
+        "it refuses the flag every launch passes"
+    );
 }
 
 #[test]

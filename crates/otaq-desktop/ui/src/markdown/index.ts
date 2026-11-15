@@ -8,6 +8,8 @@ export {
   useMarkdownEditor,
 } from "./Editor";
 export { serializeMarkdown } from "./changes";
+// A comment's Markdown, drawn read-only with the description's nodes and no editor (tuq 110).
+export { CommentMarkdown, type CommentMarkdownProps } from "./comment/CommentMarkdown";
 export {
   ExpandButton,
   FullView,
@@ -29,4 +31,9 @@ export {
 export { openingMode, rememberMode } from "./source/source";
 export { type Shortcut, TOOLBAR_BUTTONS, type ToolbarButton, type ToolbarGroup } from "./toolbar/buttons";
 export { openLink } from "./toolbar/link";
-export { MarkdownToolbar, type MarkdownToolbarProps } from "./toolbar/Toolbar";
+export {
+  MarkdownToolbar,
+  type MarkdownToolbarProps,
+  ToolButton,
+  type ToolButtonProps,
+} from "./toolbar/Toolbar";

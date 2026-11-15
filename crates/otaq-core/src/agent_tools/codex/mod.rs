@@ -93,15 +93,39 @@ pub struct CodexContext {
     pub tool: ToolContext,
     /// Codex's home folder: `$CODEX_HOME`, else `~/.codex`; `None` without a home folder (tests).
     pub codex_home: Option<PathBuf>,
+    /// This Otaq leaves Codex's home alone: its data folder isn't the default one ([`ToolContext::own_data`]) and
+    /// `CODEX_HOME` isn't set, so the home would be the `~/.codex` every Codex on the machine shares, whose one
+    /// marketplace and `rules/otaq.rules` belong to the default Otaq. Then no Codex command runs and nothing in its
+    /// home is written: no setup, plugin refresh, hook trust, rules, folder trust or disconnect, no launch, one-off
+    /// or model list. Detect only looks for the program, and Codex shows as not usable, saying why
+    /// ([`held_back_reason`]). `CODEX_HOME` (a home of this Otaq's own) lifts it.
+    pub held_back: bool,
+}
+
+/// Why Codex isn't usable with an Otaq that leaves its home alone ([`CodexContext::held_back`]), for Settings and
+/// wherever a launch on Codex is refused.
+pub fn held_back_reason() -> String {
+    format!(
+        "this {product} has its own data folder: set CODEX_HOME to use {DISPLAY_NAME} with this {product}",
+        product = crate::naming::PRODUCT_NAME
+    )
 }
 
 impl CodexContext {
     pub fn new(tool: ToolContext) -> Self {
-        let codex_home = tool
-            .home
-            .as_deref()
-            .map(|home| codex_home(home, &super::process_var));
-        Self { tool, codex_home }
+        Self::with_vars(tool, &super::process_var)
+    }
+
+    /// The context with `CODEX_HOME` read with `var` (empty is unset).
+    pub fn with_vars(tool: ToolContext, var: super::EnvVar<'_>) -> Self {
+        let codex_home = tool.home.as_deref().map(|home| codex_home(home, var));
+        let own_home = var("CODEX_HOME").is_some_and(|dir| !dir.is_empty());
+        let held_back = tool.own_data && codex_home.is_some() && !own_home;
+        Self {
+            tool,
+            codex_home,
+            held_back,
+        }
     }
 }
 
@@ -124,6 +148,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
         home.join(".agents").join("skills"),
     ]
 }
+
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// Codex runs tuq's plugin skills in its namespace, `$tuq:product-spec`.
+pub const TUQ_PREFIXED: bool = false;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = true;
 
 /// Whether Codex loads a `SKILL.md` that starts with a UTF-8 byte order mark: it doesn't (seen with Codex 0.166.0 on
 /// Windows, where PowerShell 5 writes one). Its front matter must start with the `---` line itself.
@@ -165,6 +196,13 @@ impl Codex {
     pub fn context(&self) -> &CodexContext {
         &self.context
     }
+
+    /// Why nothing may run on Codex: this Otaq leaves its home alone ([`CodexContext::held_back`]).
+    fn held_back(&self) -> Option<LaunchError> {
+        self.context
+            .held_back
+            .then(|| LaunchError(held_back_reason()))
+    }
 }
 
 impl AgentTool for Codex {
@@ -197,15 +235,22 @@ impl AgentTool for Codex {
     }
 
     fn permission_warning(&self) -> Option<String> {
+        if self.context.held_back {
+            return None;
+        }
         permissions::warning(&self.context)
     }
 
     fn launch(&self, request: &LaunchRequest) -> Result<LaunchPlan, LaunchError> {
+        if let Some(refused) = self.held_back() {
+            return Err(refused);
+        }
         launch::launch(self, request)
     }
 
     fn unavailable(&self) -> Option<LaunchError> {
-        launch::unavailable(&self.context)
+        self.held_back()
+            .or_else(|| launch::unavailable(&self.context))
     }
 
     fn can_resume(&self, tool_id: &str, cwd: &Path) -> bool {
@@ -221,10 +266,19 @@ impl AgentTool for Codex {
     }
 
     fn list_models(&self) -> BoxFuture<'_, Result<ModelList, ModelListError>> {
+        if self.context.held_back {
+            return Box::pin(std::future::ready(Err(ModelListError {
+                message: format!("{DISPLAY_NAME} didn't list its models"),
+                reason: held_back_reason(),
+            })));
+        }
         Box::pin(models::read_list(&self.context))
     }
 
     fn one_off(&self, request: &OneOffRequest) -> Result<OneOffCommand, LaunchError> {
+        if let Some(refused) = self.held_back() {
+            return Err(refused);
+        }
         oneoff::command(&self.context, request)
     }
 
@@ -233,10 +287,16 @@ impl AgentTool for Codex {
     }
 
     fn record_project(&self, repo: &Path) -> Option<SetupOutcome> {
+        if self.context.held_back {
+            return None;
+        }
         setup::record_project(&self.context, repo)
     }
 
     fn set_up_tool(&self) -> BoxFuture<'_, SetupReport> {
+        if self.context.held_back {
+            return Box::pin(std::future::ready(SetupReport::default()));
+        }
         Box::pin(setup::set_up_tool(&self.context))
     }
 
@@ -245,11 +305,14 @@ impl AgentTool for Codex {
     }
 
     fn remove_setup(&self) -> SetupReport {
+        if self.context.held_back {
+            return SetupReport::default();
+        }
         setup::remove_setup(&self.context)
     }
 
     fn setup_needed(&self) -> bool {
-        setup::setup_needed(&self.context)
+        !self.context.held_back && setup::setup_needed(&self.context)
     }
 
     fn map_hook(&self, event: &str, payload: &Value, context: SignalContext<'_>) -> Vec<ToolEvent> {
@@ -322,6 +385,10 @@ impl AgentTool for Codex {
 
     fn turn_end_reports_background(&self) -> bool {
         false
+    }
+
+    fn long_text_through_file(&self) -> bool {
+        true
     }
 
     /// Codex starts its code-mode host during the first turn and keeps it until it quits (seen on Windows with Codex

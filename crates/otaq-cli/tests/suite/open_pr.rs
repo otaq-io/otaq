@@ -395,7 +395,7 @@ async fn rework_then_push_to_pr_rewords_only_the_new_commits() {
     // Approve offers Push to PR: the Push skill runs; only the two new commits are editable.
     let outcome = w.prs.open("SHOP-1", false, false, &me()).await.unwrap();
     assert!(matches!(outcome, PrOutcome::Started { .. }), "{outcome:?}");
-    w.wait_for_output(&s.agent.session, &claude_skill("push"))
+    w.wait_for_output(&s.agent.session, &claude_skill("otaq:push"))
         .await;
     let view = w.board.pr_flow_view("SHOP-1").await.unwrap();
     assert_eq!(

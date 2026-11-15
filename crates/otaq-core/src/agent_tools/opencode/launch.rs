@@ -1,18 +1,20 @@
 //! Launch and resume (ADP-09, SES-03; T-0354). A new conversation is created first by [`super::prepare`], then:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],"skills":["<otaq plugin>/skills"],
-//!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"}],"model":"<m>"}
+//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH
+//! OPENCODE_CONFIG_CONTENT={"plugins":["<otaq plugin>/opencode"],"skills":["<otaq plugin>/prefixed-skills"],
+//!                          "permissions":[{"action":"shell","resource":"otaq *","effect":"allow"},
+//!                                         <the same for "tuq *" and "tuq-plan *">],"model":"<m>"}
 //! OPENCODE_CLI_CONFIG_CONTENT={"theme":{"mode":"light"|"dark"}}
 //! opencode --standalone --session <ses_…> --prompt "<first prompt>"
 //! ```
 //!
 //! Always `--standalone`: the default mode attaches to the user's shared OpenCode service, which ignores the
 //! launch's environment and config (hands-on check). Everything per launch goes in `OPENCODE_CONFIG_CONTENT`, which
-//! adds to the user's own config: Otaq's plugin folder (its hooks), Otaq's own skills folder (`<otaq plugin>/skills`,
-//! the shipped skills in the one place they live; Otaq's own skills come from its plugin, as for every tool, and the
-//! user's own skills are still found by OpenCode where it always looks), the one rule pre-approving `otaq` commands,
+//! adds to the user's own config: Otaq's plugin folder (its hooks), the prefixed copy of Otaq's own skills
+//! (`<otaq plugin>/prefixed-skills`, `otaq-validate/`, made by the runtime copy, [`crate::runtime::prefixed_skills`],
+//! decisions 072, 079; Otaq's own skills come from its plugin, as for every tool, and the user's own skills are still
+//! found by OpenCode where it always looks), the rules pre-approving `otaq` commands and tuq's (`tuq`, `tuq-plan`, tuq decision 077),
 //! and the model when one is set. The `skills` form is the one Otaq used before its skills were copied into each
 //! session's folder (T-0408), which worked then. Never `OPENCODE_CONFIG_DIR` (it replaces the user's config folder) and
 //! never `--auto` (it approves every prompt; d0011). The user's own data folder is used (no `XDG_*` change), so
@@ -45,9 +47,6 @@ const CLI_CONFIG_CONTENT: &str = "OPENCODE_CLI_CONFIG_CONTENT";
 /// The folder of Otaq's OpenCode plugin inside Otaq's plugin folder (`package.json` and `index.js`).
 const PLUGIN_FOLDER: &str = "opencode";
 
-/// Otaq's own skills inside its plugin folder (the one place they live).
-const SKILLS_FOLDER: &str = crate::runtime::SKILLS_FOLDER;
-
 pub(super) fn launch(
     adapter: &OpenCode,
     request: &LaunchRequest,
@@ -69,7 +68,7 @@ pub(super) fn launch(
             })
         })
         .transpose()?;
-    let path = crate::shell::prepend_path(Some(&launch.bin_dir), &launch.path)
+    let path = crate::tuq::launch_path(&launch.bin_dir, &launch.path)
         .to_string_lossy()
         .into_owned();
     let prompt = request
@@ -127,13 +126,23 @@ pub(crate) fn resume_hint(tool_id: &str) -> String {
     format!("{COMMAND_NAME} --session {tool_id}")
 }
 
-/// A skill named for the agent: its own name, `work-ticket` for Otaq's and `team-validate` for the user's (OpenCode
-/// has no namespace). OpenCode lists the skills it found to the model by name (`<available_skills>`) and its skill
+/// A skill named for the agent: Otaq's `otaq:work-ticket` by its name in the prefixed copy, `otaq-work-ticket`
+/// ([`crate::skills::prefixed`], decision 072: OpenCode has no namespace, so a bare `work-ticket` could be the
+/// user's), and the user's by its own name, `team-validate`. OpenCode lists the skills it found to the model by name
+/// (`<available_skills>`) and its skill
 /// tool loads one by name ("`skill({ name: "git-release" })`", its skills page); it has no syntax of its own for
 /// running a skill from typed text (the TUI's `@<skill>` is an attachment made by its picker, not parsed from text;
 /// checked on 2.0.17). A typed line names the skill inside an instruction ([`skill_prompt`]).
+///
+/// tuq's skills the same way (decision 105): tuq's install names each `tuq-<name>`, so `tuq:product-spec` is
+/// `tuq-product-spec`.
 pub(super) fn skill_reference(skill: &str) -> String {
-    skill.to_owned()
+    crate::skills::prefixed::own_name(skill)
+        .or_else(|| {
+            crate::tuq::skill_of(skill)
+                .map(|name| crate::tuq::installed_name(crate::agent_tools::Tool::OpenCode, name))
+        })
+        .unwrap_or_else(|| skill.to_owned())
 }
 
 /// A skill as typed into an OpenCode session to run it (S3, changed 2026-11-06): OpenCode has no typed command for a
@@ -219,12 +228,15 @@ fn cli_config(theme: ThemeKind) -> Value {
 fn config(launch: &LaunchContext, model: Option<&str>) -> Value {
     let mut config = json!({
         "plugins": [launch.plugin_dir.join(PLUGIN_FOLDER).display().to_string()],
-        "skills": [launch.plugin_dir.join(SKILLS_FOLDER).display().to_string()],
-        "permissions": [{
-            "action": "shell",
-            "resource": format!("{} *", naming::COMMAND_NAME),
-            "effect": "allow",
-        }],
+        "skills": [crate::runtime::prefixed_skills(&launch.plugin_dir).display().to_string()],
+        "permissions": std::iter::once(naming::COMMAND_NAME)
+            .chain(crate::tuq::COMMANDS)
+            .map(|command| json!({
+                "action": "shell",
+                "resource": format!("{command} *"),
+                "effect": "allow",
+            }))
+            .collect::<Vec<_>>(),
     });
     if let Some(model) = model {
         config["model"] = json!(model);
@@ -255,11 +267,14 @@ mod tests {
         OpenCode::new(tools)
     }
 
+    /// The `otaq` folder, tuq's commands' folder, then the service's PATH.
     fn path() -> String {
-        std::env::join_paths(["/opt/cb/bin", "/usr/bin", "/bin"])
-            .unwrap()
-            .into_string()
-            .unwrap()
+        crate::tuq::launch_path(
+            Path::new("/opt/cb/bin"),
+            &std::env::join_paths(["/usr/bin", "/bin"]).unwrap(),
+        )
+        .into_string()
+        .unwrap()
     }
 
     fn request(role: LaunchRole, model: Option<&str>) -> LaunchRequest {
@@ -340,7 +355,7 @@ mod tests {
                 "--session",
                 id.as_str(),
                 "--prompt",
-                skill_prompt("work-ticket").as_str()
+                skill_prompt(crate::own_skill!("work-ticket")).as_str()
             ]
         );
         assert_eq!(plan.cwd, Path::new("/wt/shop-web/SHOP-50"));
@@ -348,12 +363,16 @@ mod tests {
             config(&plan),
             json!({
                 "plugins": [Path::new("/opt/cb/plugin").join("opencode").display().to_string()],
-                "skills": [Path::new("/opt/cb/plugin").join("skills").display().to_string()],
-                "permissions": [{
-                    "action": "shell",
-                    "resource": format!("{} *", naming::COMMAND_NAME),
-                    "effect": "allow"
-                }],
+                "skills": [Path::new("/opt/cb/plugin").join("prefixed-skills").display().to_string()],
+                "permissions": [
+                    {
+                        "action": "shell",
+                        "resource": format!("{} *", naming::COMMAND_NAME),
+                        "effect": "allow"
+                    },
+                    {"action": "shell", "resource": "tuq *", "effect": "allow"},
+                    {"action": "shell", "resource": "tuq-plan *", "effect": "allow"}
+                ],
                 "model": "opencode/big-pickle"
             })
         );
@@ -464,13 +483,16 @@ mod tests {
         assert!(step.args.last().unwrap().contains(" · SHOP\""));
         let mut first = project.clone();
         first.first_prompt = Some(FirstPrompt::Skill {
-            name: "noyan".into(),
+            name: crate::own_skill!("noyan").into(),
             message: Some("Start with the cart".into()),
         });
         let plan = launch(&adapter(), &first).unwrap();
         assert_eq!(
             plan.args.last().unwrap(),
-            &format!("{} Start with the cart", skill_prompt("noyan"))
+            &format!(
+                "{} Start with the cart",
+                skill_prompt(crate::own_skill!("noyan"))
+            )
         );
     }
 
@@ -528,18 +550,21 @@ mod tests {
         assert_eq!(&a[..10], "ses_eb4534");
     }
 
-    /// A stage's skill as a first prompt: Otaq's own and the user's alike by their own names, in the instruction to
+    /// A stage's skill as a first prompt: Otaq's own by its prefixed name and the user's by its own, in the instruction to
     /// load it ([`skill_prompt`]); the launch is
-    /// otherwise the same, and the config names only Otaq's own skills folder and no outside folder.
+    /// otherwise the same, and the config names only the prefixed copy of Otaq's skills and no outside folder.
     #[test]
     fn a_skill_first_prompt() {
         let mut req = request(LaunchRole::Validator, None);
         req.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let shipped = launch(&adapter(), &req).unwrap();
-        assert_eq!(shipped.args.last().unwrap(), &skill_prompt("validate"));
+        assert_eq!(
+            shipped.args.last().unwrap(),
+            &skill_prompt(crate::own_skill!("validate"))
+        );
         req.first_prompt = Some(FirstPrompt::Skill {
             name: "team-validate".into(),
             message: None,
@@ -555,7 +580,7 @@ mod tests {
         assert_eq!(
             config["skills"],
             json!([Path::new("/opt/cb/plugin")
-                .join("skills")
+                .join("prefixed-skills")
                 .display()
                 .to_string()])
         );

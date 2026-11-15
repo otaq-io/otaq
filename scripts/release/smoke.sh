@@ -12,8 +12,9 @@
 # 2. `otaq --version` names the version (when one is given).
 # 3. The background service starts on a throwaway data folder and home, answers `daemon status`, has made its runtime
 #    copy with the plugin folder in it (so it found the plugin folder, UPD-02), and stops. Otaq's own skills come
-#    from its plugin: every shipped skill (the bundle's plugin/skills/<name>/SKILL.md) is in the copy's claude/skills
-#    and copilot/skills, and in Codex's fixed folder runtime/codex-plugin/skills. On Windows the copy has the
+#    from its plugin: every shipped skill (the bundle's plugin/skills/skills/<name>/SKILL.md: plugin/skills is the
+#    otaq-skills submodule, its skills in its skills/) is in the copy's claude/skills and copilot/skills, and in
+#    Codex's fixed folder runtime/codex-plugin/skills. On Windows the copy has the
 #    ConPTY too and the service's log says its sessions run in it.
 # Nothing outside a scratch folder is used: OTAQ_HOME, HOME and the tools' config folders point into it.
 
@@ -103,17 +104,24 @@ done
 echo "$found"
 
 step "Each tool's plugin carries Otaq's own skills"
+shipped="$plugin/skills/skills"
+[[ -d "$shipped" ]] || fail "no $shipped (plugin/skills is the otaq-skills submodule: is it checked out?)"
 skills=0
-for skill in "$plugin"/skills/*/SKILL.md; do
+for skill in "$shipped"/*/SKILL.md; do
     [[ -f "$skill" ]] || continue
     name="$(basename "$(dirname "$skill")")"
-    for into in "$found/claude/skills" "$found/copilot/skills" "$home/runtime/codex-plugin/skills"; do
+    for into in "$found/claude/skills" "$home/runtime/codex-plugin/skills"; do
         cmp -s "$skill" "$into/$name/SKILL.md" || fail "the skill $name isn't in $into (or differs from the bundle's)"
     done
+    # Copilot (and OpenCode, through prefixed-skills/) get the prefixed copy: otaq-<name>, its name: and references
+    # rewritten (tuq decision 092).
+    prefixed="$found/prefixed-skills/otaq-$name/SKILL.md"
+    grep -qx "name: otaq-$name" "$prefixed" 2>/dev/null || fail "the skill otaq-$name isn't in $found/prefixed-skills (or isn't named otaq-$name)"
+    cmp -s "$prefixed" "$found/copilot/skills/otaq-$name/SKILL.md" || fail "the skill otaq-$name isn't in $found/copilot/skills (or differs from prefixed-skills/)"
     skills=$((skills + 1))
 done
-[[ "$skills" -gt 0 ]] || fail "no shipped skills in $plugin/skills"
-echo "$skills skills in claude/, copilot/ and codex-plugin/"
+[[ "$skills" -gt 0 ]] || fail "no shipped skills in $shipped"
+echo "$skills skills in claude/ and codex-plugin/, prefixed in copilot/ and prefixed-skills/"
 if [[ "$kind" == nsis ]]; then
     step "Its sessions run in Microsoft's ConPTY (in the runtime copy, named in the log)"
     copy="$(dirname "$found")"

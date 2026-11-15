@@ -1136,6 +1136,10 @@ pub enum Request {
     /// with the use recorded first when given. Answered with [`Reply::RecentItems`], newest first.
     #[serde(rename = "recent.items")]
     RecentItems(RecentItemsParams),
+    /// The tuq release each connected agent tool has, for Settings → About (decisions 100, 102). Answered with
+    /// [`Reply::TuqVersions`].
+    #[serde(rename = "tuq.versions")]
+    TuqVersions,
 }
 
 /// `tools.git_identity`: what the user typed.
@@ -1529,7 +1533,7 @@ pub struct MergeIntoParams {
 }
 
 /// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
-/// is the user's comment (CMT-05), `attachments` the files attached to it (the dialog's pasted text, CMT-13).
+/// is the user's comment (CMT-05), `attachments` the files attached to it (the dialog's comment box, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FailParams {
     pub key: String,
@@ -1933,7 +1937,7 @@ pub struct DragParams {
     /// "Clear it and send" after the unsent-text question (d0048).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
-    /// The files attached to the note's comment (the dialog's pasted text, CMT-13).
+    /// The files attached to the note's comment (the dialog's comment box, CMT-13).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::board::reports::ReportSource>,
 }
@@ -2358,6 +2362,7 @@ impl Request {
             Self::AgentToolsDisconnect(_) => "agent_tools.disconnect",
             Self::LimitsResumeTool(_) => "limits.resume_tool",
             Self::RecentItems(_) => "recent.items",
+            Self::TuqVersions => "tuq.versions",
         }
     }
 }
@@ -2512,6 +2517,16 @@ pub enum Reply {
     AgentTools(Box<crate::agent_tools::connected::AgentToolsList>),
     /// The command palette's recent items, newest first (`recent.items`).
     RecentItems(Vec<crate::store::recents::RecentItem>),
+    /// Each connected agent tool's tuq, in [`crate::agent_tools::Tool::ALL`] order (`tuq.versions`).
+    TuqVersions(Vec<ToolTuq>),
+}
+
+/// A connected agent tool and the tuq release it has (`None`: no tuq, or one without a release stamp).
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+pub struct ToolTuq {
+    pub tool: crate::agent_tools::Tool,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub version: Option<String>,
 }
 
 /// The global settings with any values flagged as invalid.
@@ -2944,8 +2959,30 @@ impl<R: AsyncBufRead + Unpin> FrameReader<R> {
 
 /// Writes one message as a frame and flushes it.
 pub async fn write_message<W: AsyncWrite + Unpin>(w: &mut W, message: &Message) -> io::Result<()> {
-    w.write_all(&encode(message)).await?;
+    write_frame(w, &encode(message)).await
+}
+
+/// Writes one frame ([`encode`]'s) and flushes it.
+pub async fn write_frame<W: AsyncWrite + Unpin>(w: &mut W, frame: &[u8]) -> io::Result<()> {
+    w.write_all(frame).await?;
     w.flush().await
+}
+
+/// A message as one frame, or its length when it is longer than [`MAX_FRAME_BYTES`]. Clients check before sending
+/// ([`crate::client::ClientError::TooLarge`]), so the service never reads a frame it can't take: the one ceiling on
+/// the user's comments (tuq 112).
+pub fn encode_within_limit(message: &Message) -> Result<Vec<u8>, usize> {
+    let frame = encode(message);
+    if frame.len() > MAX_FRAME_BYTES {
+        Err(frame.len())
+    } else {
+        Ok(frame)
+    }
+}
+
+/// [`MAX_FRAME_BYTES`] as people read it: "16 MB".
+pub fn max_frame_label() -> String {
+    crate::board::reports::size_label(MAX_FRAME_BYTES as u64)
 }
 
 #[cfg(test)]
@@ -3247,6 +3284,28 @@ mod tests {
         let (hash, secs) = id.rsplit_once('.').expect(id);
         assert!(!hash.is_empty(), "{id}");
         assert!(secs.parse::<u64>().unwrap() > 0, "{id}");
+    }
+
+    /// Tuq 112: a request longer than one frame is caught before it is sent, with its length; one that fits is the
+    /// frame `encode` makes.
+    #[test]
+    fn a_frame_over_the_limit_is_caught_before_sending() {
+        let comment = |body: String| {
+            Message::request(
+                1,
+                Request::TicketCommentPost(TicketCommentPostParams {
+                    key: "SHOP-1".into(),
+                    body,
+                    attachments: Default::default(),
+                    tell_agent: false,
+                }),
+            )
+        };
+        let fits = comment("x".repeat(48_210));
+        assert_eq!(encode_within_limit(&fits).unwrap(), encode(&fits));
+        let over = comment("x".repeat(MAX_FRAME_BYTES));
+        assert_eq!(encode_within_limit(&over), Err(encode(&over).len()));
+        assert_eq!(max_frame_label(), "16 MB");
     }
 
     /// Yields at most `chunk` bytes per read, to exercise partial reads.

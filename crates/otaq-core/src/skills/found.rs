@@ -13,7 +13,10 @@
 //! description the front matter's `description:`, on one line. Every folder holding a `SKILL.md` is listed: front
 //! matter that is missing or doesn't read gives the folder's name and no description (F4). A name found in several
 //! folders is listed once, with every place. Otaq's own skills (the plugin's, [`crate::agents::shipped::SKILLS`])
-//! are listed too, marked as Otaq's; a name that matches one of them always means Otaq's skill.
+//! are listed too, marked as Otaq's, by their namespaced names (`otaq:validate`, [`crate::skills::own_name`]), and so
+//! are tuq's (`tuq:product-spec`), found in the tools' tuq installs ([`crate::tuq`], decisions 100, 104): tuq's plugin
+//! isn't listed as a plugin, nor tuq's stamped `tuq-<name>` folders in OpenCode's skills folder as personal skills. A
+//! bare name is always the user's skill, even one that matches one of Otaq's or tuq's.
 //!
 //! Links are followed, as the tools follow them: a skill folder (or its `SKILL.md`) linked from anywhere is read
 //! (F3). A skill reached through several folders (the same real folder) is one place, at the first folder it is
@@ -53,60 +56,51 @@ use crate::agents::shipped;
 /// The file every skill folder has.
 pub const SKILL_FILE: &str = "SKILL.md";
 
-/// Otaq's own skills as shipped in its plugin (`plugin/skills/<name>/SKILL.md`), embedded at build time: their
-/// names and descriptions need no installed bundle. The same names as [`shipped::SKILLS`] (tested).
+/// The key under `metadata:` that names the tuq release a `SKILL.md` came with (tech spec §5).
+const TUQ_RELEASE_KEY: &str = "tuq-release";
+
+/// Otaq's own skills as shipped in its plugin (`plugin/skills/skills/<name>/SKILL.md`, the `otaq-skills` submodule),
+/// embedded at build time: their names and descriptions need no installed bundle. The same names as [`shipped::SKILLS`] (tested).
 const SHIPPED_TEXTS: &[(&str, &str)] = &[
     (
         "address-review",
-        include_str!("../../../../plugin/skills/address-review/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/address-review/SKILL.md"),
     ),
     (
         "answer-question",
-        include_str!("../../../../plugin/skills/answer-question/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/answer-question/SKILL.md"),
     ),
     (
         "commit",
-        include_str!("../../../../plugin/skills/commit/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/commit/SKILL.md"),
     ),
     (
         "flow",
-        include_str!("../../../../plugin/skills/flow/SKILL.md"),
-    ),
-    (
-        "milestone-plan",
-        include_str!("../../../../plugin/skills/milestone-plan/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/flow/SKILL.md"),
     ),
     (
         "noyan",
-        include_str!("../../../../plugin/skills/noyan/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/noyan/SKILL.md"),
     ),
     (
         "open-pr",
-        include_str!("../../../../plugin/skills/open-pr/SKILL.md"),
-    ),
-    (
-        "product-spec",
-        include_str!("../../../../plugin/skills/product-spec/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/open-pr/SKILL.md"),
     ),
     (
         "push",
-        include_str!("../../../../plugin/skills/push/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/push/SKILL.md"),
     ),
     (
         "restack",
-        include_str!("../../../../plugin/skills/restack/SKILL.md"),
-    ),
-    (
-        "tech-spec",
-        include_str!("../../../../plugin/skills/tech-spec/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/restack/SKILL.md"),
     ),
     (
         "validate",
-        include_str!("../../../../plugin/skills/validate/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/validate/SKILL.md"),
     ),
     (
         "work-ticket",
-        include_str!("../../../../plugin/skills/work-ticket/SKILL.md"),
+        include_str!("../../../../plugin/skills/skills/work-ticket/SKILL.md"),
     ),
 ];
 
@@ -413,13 +407,34 @@ pub fn list(homes: &Homes, checkout: Option<&Path>) -> Vec<FoundSkill> {
 pub fn list_in(homes: &Homes, project: &ProjectFolders) -> Vec<FoundSkill> {
     let mut skills: BTreeMap<String, FoundSkill> = shipped_skills()
         .into_iter()
+        .chain(tuq_skills(homes))
         .map(|skill| (skill.name.clone(), skill))
         .collect();
     // The real folders already listed: a skill linked into several folders is one place, at the first; the tools
     // that reach it from the others still have it.
     let mut seen = HashSet::new();
+    // The personal folders tuq installs into (a tool whose tuq isn't a plugin: OpenCode's).
+    let tuqs_folders: Vec<PathBuf> = homes
+        .tools
+        .as_ref()
+        .map(|tools| {
+            Tool::ALL
+                .iter()
+                .filter(|tool| !tool.tuq_as_plugin())
+                .map(|&tool| tools.of(tool).to_path_buf())
+                .collect()
+        })
+        .unwrap_or_default();
     for source in sources(homes, project, true) {
+        // tuq's install is listed as tuq's skills, by their `tuq:` names ([`tuq_skills`]).
+        if source.plugin.as_deref() == Some(crate::tuq::NAMESPACE) {
+            continue;
+        }
+        let tuqs_folder = tuqs_folders.contains(&source.folder);
         for read in read_folder(&source.folder) {
+            if tuqs_folder && crate::tuq::is_tuqs_folder(&read) {
+                continue;
+            }
             let name = match &source.plugin {
                 Some(plugin) => format!("{plugin}:{}", read.name),
                 None => read.name.clone(),
@@ -504,20 +519,20 @@ pub fn has(homes: &Homes, checkout: Option<&Path>, name: &str) -> bool {
     !tools_with(homes, &ProjectFolders::checkout(checkout), name).is_empty()
 }
 
-/// Whether `name` is one of Otaq's own skills.
+/// Whether `name` is one of Otaq's own skills, named in its namespace (`otaq:validate`).
 pub fn is_shipped(name: &str) -> bool {
-    shipped::SKILLS.contains(&name)
+    crate::skills::is_own(name)
 }
 
 /// Otaq's own skills, marked as Otaq's, with their shipped descriptions.
 fn shipped_skills() -> Vec<FoundSkill> {
     shipped::SKILLS
         .iter()
-        .map(|&name| FoundSkill {
-            name: name.to_owned(),
+        .map(|&folder| FoundSkill {
+            name: crate::skills::own_name(folder),
             description: SHIPPED_TEXTS
                 .iter()
-                .find(|(n, _)| *n == name)
+                .find(|(n, _)| *n == folder)
                 .and_then(|(_, text)| front_matter(text).ok())
                 .and_then(|front| front.description),
             otaq: true,
@@ -528,12 +543,43 @@ fn shipped_skills() -> Vec<FoundSkill> {
         .collect()
 }
 
+/// tuq's skills (decision 104: tuq counts as Otaq's, whoever installed it), marked as Otaq's, by their `tuq:` names:
+/// the ones any tool's tuq has ([`crate::tuq::installs`]), with that install's description, and the ones tuq is known
+/// to have ([`crate::tuq::KNOWN`]). Every tool has them: Otaq installs tuq on a tool when a stage needs it there.
+fn tuq_skills(homes: &Homes) -> Vec<FoundSkill> {
+    let mut named: BTreeMap<String, Option<String>> = crate::tuq::KNOWN
+        .iter()
+        .map(|name| ((*name).to_owned(), None))
+        .collect();
+    for (_, install) in crate::tuq::installs(homes) {
+        for (name, description) in install.skills {
+            let entry = named.entry(name).or_default();
+            if entry.is_none() {
+                *entry = description;
+            }
+        }
+    }
+    named
+        .into_iter()
+        .map(|(name, description)| FoundSkill {
+            name: format!("{}:{name}", crate::tuq::NAMESPACE),
+            description,
+            otaq: true,
+            places: Vec::new(),
+            tools: Tool::ALL.to_vec(),
+            skipped: Vec::new(),
+        })
+        .collect()
+}
+
 /// A skill read from a skills folder.
-struct Read {
-    name: String,
-    description: Option<String>,
+pub(crate) struct Read {
+    pub(crate) name: String,
+    pub(crate) description: Option<String>,
+    /// Its front matter's `metadata.tuq-release`: a skill of a tuq release.
+    pub(crate) tuq_release: Option<String>,
     /// The skill's folder in the skills folder.
-    path: PathBuf,
+    pub(crate) path: PathBuf,
     /// Where it really is: every link followed.
     real: PathBuf,
     /// Where it would be if it weren't a link itself: the skills folder's real place, and its name.
@@ -544,7 +590,7 @@ struct Read {
 }
 
 /// The skills in one skills folder, by folder name. A missing folder has none.
-fn read_folder(folder: &Path) -> Vec<Read> {
+pub(crate) fn read_folder(folder: &Path) -> Vec<Read> {
     let entries = match fs::read_dir(folder) {
         Ok(entries) => entries,
         Err(e) => {
@@ -602,6 +648,7 @@ fn read_skill(real_folder: &Path, path: &Path) -> Option<Read> {
     Some(Read {
         name,
         description: front.description,
+        tuq_release: front.tuq_release,
         path: path.to_path_buf(),
         unlinked: real_folder.join(folder_name),
         real,
@@ -616,6 +663,9 @@ pub struct FrontMatter {
     pub name: Option<String>,
     /// Its `description:`, folded to one line, when it has a non-empty one.
     pub description: Option<String>,
+    /// The tuq release that wrote it: `metadata:`'s `tuq-release:` (`2026.11.14`), which every tuq `SKILL.md`
+    /// carries ([`crate::tuq`]).
+    pub tuq_release: Option<String>,
 }
 
 /// A SKILL.md's front matter: the lines between a first `---` line and the next one. Each line is `key: value`, a
@@ -632,6 +682,7 @@ pub fn front_matter(text: &str) -> Result<FrontMatter, String> {
     // The description's lines while they are read: its value, then its continuations.
     let mut description: Option<Vec<&str>> = None;
     let mut in_description = false;
+    let mut in_metadata = false;
     for (n, line) in lines.enumerate() {
         let number = n + 2;
         let trimmed = line.trim();
@@ -649,6 +700,14 @@ pub fn front_matter(text: &str) -> Result<FrontMatter, String> {
             if in_description && let Some(parts) = description.as_mut() {
                 parts.push(trimmed);
             }
+            if in_metadata
+                && let Some(release) = trimmed.strip_prefix(TUQ_RELEASE_KEY)
+                && let Some(release) = release.strip_prefix(':')
+                && let Some(release) = unquote(release.trim())
+                && !release.is_empty()
+            {
+                front.tuq_release = Some(release.to_owned());
+            }
             continue;
         }
         let Some((key, value)) = line.split_once(':') else {
@@ -663,6 +722,7 @@ pub fn front_matter(text: &str) -> Result<FrontMatter, String> {
         }
         keyed = true;
         in_description = key == "description";
+        in_metadata = key == "metadata";
         if key == "name" {
             let value = unquote(value.trim())
                 .ok_or_else(|| unreadable(&format!("line {number} has an unclosed quote")))?;

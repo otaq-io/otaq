@@ -27,6 +27,15 @@ pub struct MenuItem {
     pub checked: bool,
     /// A group label ("LOCAL", "REMOTE"); never chosen.
     pub header: bool,
+    /// A small label after the row's label, saying whose it is: "Otaq" on Otaq's own skills in Pick a skill…
+    /// (decision 108). Left out when there is none.
+    #[ts(optional)]
+    #[serde(skip_serializing_if = "Option::is_none")]
+    pub badge: Option<String>,
+    /// Draws Otaq's mark before the label: Pick a skill…'s "Otaq" group header (decision 108). Left out when false.
+    #[ts(as = "Option<bool>", optional)]
+    #[serde(skip_serializing_if = "std::ops::Not::not")]
+    pub mark: bool,
 }
 
 impl MenuItem {
@@ -42,6 +51,8 @@ impl MenuItem {
             separated: false,
             checked: false,
             header: false,
+            badge: None,
+            mark: false,
         }
     }
 
@@ -93,6 +104,17 @@ impl MenuItem {
 
     pub fn checked(mut self, checked: bool) -> Self {
         self.checked = checked;
+        self
+    }
+
+    pub fn badge(mut self, badge: impl Into<String>) -> Self {
+        self.badge = Some(badge.into());
+        self
+    }
+
+    /// Otaq's mark before the label.
+    pub fn mark(mut self) -> Self {
+        self.mark = true;
         self
     }
 }

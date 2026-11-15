@@ -232,6 +232,24 @@ pub(super) async fn handle(
         Request::AgentToolsList => {
             boxed(move || async move { Ok(Reply::AgentTools(Box::new(shared.connected.list()))) })
         }
+        // Settings → About: the tuq each connected tool has (decisions 100, 102).
+        Request::TuqVersions => boxed(move || async move {
+            let connected = shared
+                .connected
+                .list()
+                .tools
+                .into_iter()
+                .filter(|t| t.state.is_connected())
+                .map(|t| t.tool)
+                .collect();
+            let versions = shared.board.tuq_versions(connected).await;
+            Ok(Reply::TuqVersions(
+                versions
+                    .into_iter()
+                    .map(|(tool, version)| crate::protocol::ToolTuq { tool, version })
+                    .collect(),
+            ))
+        }),
         Request::AgentToolsSetHidden(p) => boxed(move || async move {
             shared
                 .connected
@@ -843,7 +861,7 @@ pub(super) async fn handle(
             boxed(move || async move { change_decision(shared, &p, &actor).await })
         }
         Request::TicketStageNext(p) => boxed(move || async move {
-            refuse_unprimed(board, caller, &p.key).await?;
+            refuse_unprimed(shared, board, caller, &p.key).await?;
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await?;
             // The summary is the agent's comment (CMT-05): checked and its report copied before anything moves.
@@ -879,7 +897,7 @@ pub(super) async fn handle(
             )))
         }),
         Request::TicketStageDone(p) => boxed(move || async move {
-            refuse_unprimed(board, caller, &p.key).await?;
+            refuse_unprimed(shared, board, caller, &p.key).await?;
             let project = project_of(&p.key);
             // From inside the ticket's own agent session, the session ends after its turn (the Done cleanup would
             // otherwise end the command's own session before it answers).
@@ -2022,12 +2040,13 @@ async fn send_back_on_request(
         Ok(ReturnOutcome::NeedsConfirmation {
             ticket: asked_ticket,
             unclearable_by,
-            ..
+            prompt,
         }) => {
             undo().await;
             Ok(Delivery::NeedsConfirmation {
                 ticket: Some(asked_ticket),
                 unclearable_by,
+                prompt,
             })
         }
         Err(e) => {
@@ -2252,16 +2271,31 @@ pub(super) async fn stage_session(
 /// ADP-05); a caller with no agent session (by hand, with `OTAQ_TICKET`) gets a new session's tool.
 /// The tool of the caller's session; `None` for the user (a new session's tool names the skills then).
 fn caller_tool(shared: &Shared, caller: &Caller) -> Option<crate::agent_tools::Tool> {
-    let session = match caller {
+    caller_session(caller)
+        .and_then(|s| shared.sessions.info(s).ok())
+        .and_then(|info| info.tool)
+}
+
+/// The agent session the caller runs in; `None` for the user.
+fn caller_session(caller: &Caller) -> Option<&str> {
+    match caller {
         Caller::Agent { session, .. }
         | Caller::Validator { session, .. }
         | Caller::Helper { session, .. }
         | Caller::ProjectAgent { session, .. } => Some(session),
         Caller::User => None,
-    };
-    session
-        .and_then(|s| shared.sessions.info(s).ok())
-        .and_then(|info| info.tool)
+    }
+}
+
+/// The file a session's `prime` tells it to pass long text through, when its tool's adapter asks for one
+/// ([`crate::agent_tools::AgentTool::long_text_through_file`]: Codex; fixes-before-0-3, piece 1;
+/// [`crate::prime::long_text_file`]); `None` for every other tool's session and the user, whose prime stays as it was.
+pub(super) fn codex_long_text_file(shared: &Shared, caller: &Caller) -> Option<std::path::PathBuf> {
+    let tool = caller_tool(shared, caller)?;
+    if !shared.adapters.get(tool).long_text_through_file() {
+        return None;
+    }
+    caller_session(caller).map(crate::prime::long_text_file)
 }
 
 async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
@@ -2272,10 +2306,11 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
     {
         return prime_validate(shared, caller, key).await;
     }
-    let context = shared
+    let mut context = shared
         .board
         .prime_context(key, shared.adapters.of_session(caller_tool(shared, caller)))
         .await?;
+    context.long_text_file = codex_long_text_file(shared, caller);
     record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::Prime(Box::new(context)))
 }
@@ -2283,12 +2318,13 @@ async fn prime(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, Boa
 /// `otaq prime --validate` (VAL-10), and a plain `otaq prime` from the ticket's validator: its stage's skill named as
 /// the caller's tool names it, as the working prime does (no-skill-copies F6).
 async fn prime_validate(shared: &Shared, caller: &Caller, key: &str) -> Result<Reply, BoardError> {
-    let context = Box::pin(
+    let mut context = Box::pin(
         shared
             .board
             .validate_prime_for(key, shared.adapters.of_session(caller_tool(shared, caller))),
     )
     .await?;
+    context.long_text_file = codex_long_text_file(shared, caller);
     record_prime(&shared.board, caller, &context.ticket.id).await?;
     Ok(Reply::PrimeValidate(Box::new(context)))
 }
@@ -2311,13 +2347,28 @@ async fn record_prime(board: &Board, caller: &Caller, ticket_id: &str) -> Result
     }
 }
 
-/// The read gate on an agent's `stage next` / `stage done` (CMT-08): the user's own (a terminal of theirs) isn't
-/// gated.
-async fn refuse_unprimed(board: &Board, caller: &Caller, key: &str) -> Result<(), BoardError> {
-    match caller {
-        Caller::Agent { session, .. } => board.refuse_unprimed(key, session).await,
-        _ => Ok(()),
+/// The gates on an agent's `stage next` / `stage done`: its stage's task skill typed first (tuq decision 081: an
+/// agent that ends its stage in `work-ticket`'s first turn would never run it; it is told to end its turn), then the
+/// read gate (CMT-08). The user's own moves (a terminal of theirs, a drag, Move…, Skip) aren't gated, nor a checker's,
+/// a helper's or a Project agent's.
+async fn refuse_unprimed(
+    shared: &Shared,
+    board: &Board,
+    caller: &Caller,
+    key: &str,
+) -> Result<(), BoardError> {
+    let Caller::Agent { session, .. } = caller else {
+        return Ok(());
+    };
+    if let Some(named) = board.task_skill_waiting(key, session).await? {
+        let adapter = shared.adapters.of_session(caller_tool(shared, caller));
+        let reference = named.map(|skill| adapter.skill_reference(&skill));
+        return Err(BoardError::refused(
+            Refusal::MoveRefused,
+            crate::board::primed::task_skill_untyped_refusal(reference.as_deref()),
+        ));
     }
+    board.refuse_unprimed(key, session).await
 }
 
 /// #47: a ticket a ticket's agent (or its validator) created tells the app ("DEMO-7 created DEMO-12

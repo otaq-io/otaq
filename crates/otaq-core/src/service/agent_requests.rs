@@ -124,5 +124,6 @@ async fn project_prime(
     let mut context = shared.board.project_prime(project, conversation).await?;
     context.choices =
         crate::prime::reader_choices(&shared.board, &context.project, &shared.models).await?;
+    context.long_text_file = super::board_requests::codex_long_text_file(shared, caller);
     Ok(context)
 }

@@ -1,7 +1,7 @@
 # 003 · Attachments are added by paste, drag and drop, or an Attach button
 
 - **Date:** 2026-11-07
-- **Status:** Accepted
+- **Status:** Partly superseded by 112
 - **Related:** 001, 002
 
 ## Summary

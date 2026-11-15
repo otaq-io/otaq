@@ -1,12 +1,10 @@
 //! The client starts the real service through `otaq daemon start` when none runs, and never a second one.
 //! Uses a temporary data folder; the service is stopped at the end even if the test fails.
 
-use std::future::Future;
 use std::path::Path;
-use std::pin::Pin;
 use std::process::Command;
 
-use otaq_core::client::{Client, ClientConfig, CommandLauncher, Launcher};
+use otaq_core::client::{Client, ClientConfig, CommandLauncher};
 use otaq_core::data_dir::DataDir;
 use otaq_core::protocol::{Reply, Request};
 
@@ -27,33 +25,14 @@ impl Drop for StopOnDrop {
     }
 }
 
-/// `otaq daemon start` for the test's data folder, the test then waiting for the service itself rather than for that
-/// command's verdict. The command gives up after its own few seconds, but the service it started keeps starting: on
-/// a machine busy with the whole test run, a debug build's start (its runtime copy, the store) can take longer than
-/// that. A start that really failed still fails the test, when the client finds no service within [`SLOW_MACHINE`].
-struct UntilItAnswers(CommandLauncher);
-
-impl Launcher for UntilItAnswers {
-    fn launch(&self) -> Pin<Box<dyn Future<Output = std::io::Result<()>> + Send + '_>> {
-        Box::pin(async move {
-            if let Err(e) = self.0.launch().await {
-                eprintln!("{e}; waiting for the service to answer");
-            }
-            Ok(())
-        })
-    }
-}
-
-fn launcher(data: &Path) -> UntilItAnswers {
-    UntilItAnswers(
-        CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
-            .with_env(DataDir::env_var(), data)
-            // The real service locates Claude Code's config file: never the user's (PRJ-06).
-            .with_env("CLAUDE_CONFIG_DIR", data)
-            // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
-            .with_env("PATH", data.join("no-tools"))
-            .with_env("HOME", data),
-    )
+fn launcher(data: &Path) -> CommandLauncher {
+    CommandLauncher::new(env!("CARGO_BIN_EXE_otaq"))
+        .with_env(DataDir::env_var(), data)
+        // The real service locates Claude Code's config file: never the user's (PRJ-06).
+        .with_env("CLAUDE_CONFIG_DIR", data)
+        // Nor any agent tool's: the service detects the tools on an empty test PATH, with a test home.
+        .with_env("PATH", data.join("no-tools"))
+        .with_env("HOME", data)
 }
 
 #[tokio::test]

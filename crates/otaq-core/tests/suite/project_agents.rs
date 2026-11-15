@@ -177,7 +177,7 @@ async fn opening_starts_claude_with_the_role_the_skill_and_the_message_several_a
             args.ends_with(&format!(
                 "--session-id {} {} {message}",
                 agent.tool_session_id.as_deref().unwrap(),
-                claude_skill("noyan")
+                claude_skill("otaq:noyan")
             )),
             "{out}"
         );
@@ -361,7 +361,7 @@ async fn without_a_name_the_first_words_of_the_message_name_it_after_its_first_t
     let message = "Why is checkout so slow? Make tickets for what you find";
     let a = open(&w, message).await;
     // Its first turn is the skill with the message (the launch's first prompt).
-    prompt(&w, &a, &format!("{} {message}", claude_skill("noyan"))).await;
+    prompt(&w, &a, &format!("{} {message}", claude_skill("otaq:noyan"))).await;
     assert_eq!(first_request(&w, &a.id).await.as_deref(), Some(message));
     let a = w.project_agents.get(&a.id).await.unwrap();
     assert!(a.got_request);
@@ -478,7 +478,7 @@ async fn an_agent_that_exits_ends_and_resume_continues_its_conversation() {
         "{out}"
     );
     assert!(
-        !out.contains(&claude_skill("noyan")),
+        !out.contains(&claude_skill("otaq:noyan")),
         "no skill on resume: {out}"
     );
     assert!(!out.contains("Carry on"), "it ended, not a restart: {out}");
@@ -497,7 +497,7 @@ async fn after_a_restart_agents_are_ended_by_restart_and_resume() {
         &used,
         &format!(
             "{} Import the GitHub issues labelled ready",
-            claude_skill("noyan")
+            claude_skill("otaq:noyan")
         ),
     )
     .await;

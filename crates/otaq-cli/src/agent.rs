@@ -24,8 +24,6 @@
 //! unresolved PR comments fetched while the command runs (T-0148)
 //! (`round` 0 and no comments when the ticket was never sent back; `side` is `old` for a removed line).
 
-use std::io::Read;
-
 use otaq_core::data_dir::DataDir;
 use otaq_core::naming;
 use otaq_core::protocol::{
@@ -44,10 +42,7 @@ fn usage(message: impl Into<String>) -> ErrorBody {
 }
 
 fn read_stdin() -> Result<String, ErrorBody> {
-    let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    let text = crate::input::read()?;
     Ok(text.trim().to_owned())
 }
 
@@ -599,11 +594,13 @@ pub fn check(
             stdin,
             report_file,
             manual_check,
+            ..
         } => (true, stdin, report_file, manual_check),
         crate::cli::CheckCommand::Fail {
             stdin,
             report_file,
             manual_check,
+            ..
         } => (false, stdin, report_file, manual_check),
     };
     let attachments = crate::comment::report_sources(report_file)?;

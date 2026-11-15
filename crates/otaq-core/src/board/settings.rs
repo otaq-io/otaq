@@ -66,13 +66,13 @@ impl WorkflowStep {
         }
     }
 
-    /// Otaq's own skill for the step, by its name in the plugin: `commit`, `push`, `open-pr`, `validate`.
+    /// Otaq's own skill for the step, in its namespace: `otaq:commit`, `otaq:push`, `otaq:open-pr`, `otaq:validate`.
     pub fn own_skill(self) -> &'static str {
         match self {
-            Self::Commit => "commit",
-            Self::Push => "push",
-            Self::OpenPr => "open-pr",
-            Self::Validate => "validate",
+            Self::Commit => crate::own_skill!("commit"),
+            Self::Push => crate::own_skill!("push"),
+            Self::OpenPr => crate::own_skill!("open-pr"),
+            Self::Validate => crate::own_skill!("validate"),
         }
     }
 }

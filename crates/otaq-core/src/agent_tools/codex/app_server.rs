@@ -263,6 +263,7 @@ exit 2"#,
         let context = CodexContext {
             tool: crate::agent_tools::test_support::context(dir.path(), None),
             codex_home: Some(dir.path().to_path_buf()),
+            held_back: false,
         };
         let mut server = AppServer::start(&context, dir.path()).await.unwrap();
         assert_eq!(

@@ -1,6 +1,6 @@
 // The description in place (SHT-03, d0078; T-0465; *25 → Editing the description* `s25-04`): shown as it reads, with
 // "Click to edit" on hover; a click turns it into the editor (toolbar, `/` for blocks) with the caret where it was
-// clicked, and "Editing · Esc to discard, ⌘S to save" on its label row. Once the text differs from what is saved,
+// clicked (a drag only selects text, to copy it), and "Editing · Esc to discard, ⌘S to save" on its label row. Once the text differs from what is saved,
 // the sheet's tab row shows "Description changed · Discard · Save ⌘S" (`descriptionDraft`, `SaveBar`); switching
 // tabs, moving to another ticket or closing the sheet then asks first (`guardLeaving`): Save stores it and then goes
 // where the user was going, a failed save staying in the editor with its error; Discard changes goes at once; Keep
@@ -49,6 +49,12 @@ interface Draft {
 function caretAt(e: MouseEvent<HTMLElement>): number | undefined {
   const dom = e.currentTarget.querySelector<HTMLElement & { editor?: Editor }>(".ProseMirror");
   return dom?.editor?.view.posAtCoords({ left: e.clientX, top: e.clientY })?.pos;
+}
+
+/** Whether text inside `el` is selected (a drag over the read view leaves it selected when the click arrives). */
+function selectsIn(el: HTMLElement): boolean {
+  const picked = window.getSelection();
+  return picked !== null && !picked.isCollapsed && el.contains(picked.anchorNode);
 }
 
 /** What a save tells the ticket's working agent ("SHOP-19's agent will be told what changed."), with Open terminal. */
@@ -294,6 +300,9 @@ export function DescriptionSection({ ticket, view, overview, overviewTabs }: Des
           onClick={(e) => {
             // A link in the text opens as a link, not the editor.
             if (e.target instanceof Element && e.target.closest("a")) return;
+            // A drag that selects text stays in the read view, so it can be copied (the click ends it with the text
+            // selected). A double click opens the editor on its first click and selects the word in it.
+            if (selectsIn(e.currentTarget)) return;
             start(caretAt(e));
           }}
           onKeyDown={(e) => {

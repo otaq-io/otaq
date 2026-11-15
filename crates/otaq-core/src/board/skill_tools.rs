@@ -97,6 +97,98 @@ impl Board {
         !self.skill_tools(project, None, name).await.is_empty()
     }
 
+    /// Makes sure `tool`'s tuq has the `tuq:` skill `skill` for `ticket` ([`crate::tuq::TuqInstalls::ensure`]: tuq's
+    /// installer runs for the tool when it doesn't), as the ticket's sessions find it; an install or update is
+    /// written in the ticket's History, "tuq updated from 2026.11.10 to 2026.11.14" (decision 103). `false` when it
+    /// still doesn't have it.
+    pub(crate) async fn ensure_tuq(
+        &self,
+        ticket: &super::tickets::Ticket,
+        tool: Tool,
+        skill: &str,
+    ) -> bool {
+        let project = match self.project(ticket.key.project.as_str()).await {
+            Ok(project) => project,
+            Err(e) => {
+                tracing::warn!(key = %ticket.key, error = %e, "the ticket's project isn't found: tuq isn't checked");
+                return false;
+            }
+        };
+        let homes = self.skill_homes(Some(&project.id)).await;
+        let env = self.project_env(&project.id).await.unwrap_or_default();
+        match self.tuq().ensure(tool, skill, &homes, &env).await {
+            crate::tuq::Tuq::Ready {
+                updated: Some(updated),
+                ..
+            } => {
+                self.note_tuq_updated(ticket, &updated).await;
+                true
+            }
+            crate::tuq::Tuq::Ready { .. } => true,
+            crate::tuq::Tuq::Missing { reason } => {
+                tracing::info!(key = %ticket.key, %tool, skill, reason, "the tool's tuq doesn't have the skill");
+                false
+            }
+        }
+    }
+
+    /// The ticket's History line for tuq installed or updated for it (a note, Otaq's row).
+    async fn note_tuq_updated(
+        &self,
+        ticket: &super::tickets::Ticket,
+        updated: &crate::tuq::Updated,
+    ) {
+        let payload = serde_json::json!({
+            "note": "tuq_updated",
+            "message": updated.text(),
+            "tool": updated.tool.as_str(),
+            "from": updated.from,
+            "to": updated.to,
+        });
+        let result = async {
+            let mut tx = self.store().begin_write().await?;
+            super::tickets::record_event(
+                &mut tx,
+                &ticket.id,
+                super::tickets::EventKind::StartNote,
+                &crate::domain::Actor::current_user(),
+                payload,
+            )
+            .await?;
+            tx.commit().await?;
+            Ok::<_, BoardError>(())
+        }
+        .await;
+        if let Err(e) = result {
+            tracing::warn!(key = %ticket.key, error = %e, "can't record tuq's update in the ticket's History");
+        }
+    }
+
+    /// The tuq release `tool` has for the project with id `project_id`, for a session's record (piece 7 shows it).
+    pub async fn tuq_version(&self, project_id: &str, tool: Tool) -> Option<String> {
+        let homes = self.skill_homes(Some(project_id)).await;
+        let tuq = self.tuq().clone();
+        tokio::task::spawn_blocking(move || tuq.version(&homes, tool))
+            .await
+            .ok()
+            .flatten()
+    }
+
+    /// Each of `tools`' tuq release as the service's own environment finds it, in `tools`' order (`None`: no tuq, or
+    /// one without a release stamp), for Settings → About (decisions 100, 102).
+    pub async fn tuq_versions(&self, tools: Vec<Tool>) -> Vec<(Tool, Option<String>)> {
+        let homes = self.skill_homes(None).await;
+        let tuq = self.tuq().clone();
+        tokio::task::spawn_blocking(move || {
+            tools
+                .into_iter()
+                .map(|tool| (tool, tuq.version(&homes, tool)))
+                .collect()
+        })
+        .await
+        .unwrap_or_default()
+    }
+
     /// The personal folders as the tools launched for the project with id `project_id` find them (`None`: the
     /// service's own environment only).
     async fn skill_homes(&self, project_id: Option<&str>) -> Homes {

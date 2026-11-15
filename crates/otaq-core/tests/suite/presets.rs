@@ -5,7 +5,6 @@
 
 use std::path::Path;
 
-use otaq_core::agents::shipped;
 use otaq_core::flow::presets::{self, preset, presets};
 use otaq_core::flow::{Delivers, DeliveryMode, check, check_agents, yaml};
 use otaq_core::naming;
@@ -90,7 +89,10 @@ fn every_preset_reads_and_passes_the_checks() {
         }
         for stage in &file.flow.stages {
             if let Some(skill) = &stage.skill {
-                assert!(shipped::SKILLS.contains(&skill.as_str()), "{skill}");
+                assert!(
+                    otaq_core::skills::is_own(skill) || otaq_core::tuq::is_tuq(skill),
+                    "{skill}"
+                );
             }
         }
     }
@@ -148,15 +150,15 @@ fn the_presets_stages_run_their_agents_and_skills() {
     let some = |s: &str| Some(s.to_owned());
     assert_eq!(
         stage("spec-first.yaml", "product-spec"),
-        (some("Spec writer"), some("product-spec"), None)
+        (some("Spec writer"), some("tuq:product-spec"), None)
     );
     assert_eq!(
         stage("spec-first.yaml", "tech-spec"),
-        (some("Architect"), some("tech-spec"), None)
+        (some("Architect"), some("tuq:tech-spec"), None)
     );
     assert_eq!(
         stage("spec-first.yaml", "milestone-plan"),
-        (some("Milestone planner"), some("milestone-plan"), None)
+        (some("Milestone planner"), some("tuq:milestone-plan"), None)
     );
     let spec_first = preset("spec-first.yaml").unwrap().read().flow;
     assert_eq!(spec_first.stages[0].id, "product-spec");
@@ -192,7 +194,7 @@ fn the_presets_stages_run_their_agents_and_skills() {
         delivery("team-pr.yaml"),
         (
             some("Shipper"),
-            some("open-pr"),
+            some("otaq:open-pr"),
             Some((DeliveryMode::Automatic, Delivers::Pr))
         )
     );
@@ -204,7 +206,7 @@ fn the_presets_stages_run_their_agents_and_skills() {
         delivery(naming::DEFAULT_FLOW_FILE),
         (
             some("Developer"),
-            some("open-pr"),
+            some("otaq:open-pr"),
             Some((DeliveryMode::Click, Delivers::Either))
         )
     );

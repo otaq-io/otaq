@@ -42,6 +42,12 @@ if [ "$(uname -s)" != "Darwin" ]; then
 fi
 
 if [ -z "$from" ]; then
+    # Otaq's workflow skills are the otaq-skills submodule at plugin/skills (decision 057), bundled with the plugin
+    # folder: checked out when it isn't yet (a clone without --recursive); one already checked out is left as it is.
+    if git -C "$root" submodule status | grep -q '^-'; then
+        echo "==> Checking out the submodules (git submodule update --init)"
+        git -C "$root" submodule update --init
+    fi
     echo "==> Building $app_name (npm run bundle -- --bundles app)"
     # Never a release: OTAQ_RELEASE=1 belongs to the release workflow (d0140).
     # No updater files: those are a release's, signed with its key.

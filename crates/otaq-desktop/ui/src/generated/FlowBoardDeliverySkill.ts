@@ -10,7 +10,7 @@ export type FlowBoardDeliverySkill = { label: string,
  */
 field: string, value: string, 
 /**
- * "open-pr": Otaq's own, which runs while the field is empty.
+ * "otaq:open-pr": Otaq's own, which runs while the field is empty.
  */
 placeholder: string, hint: string, 
 /**

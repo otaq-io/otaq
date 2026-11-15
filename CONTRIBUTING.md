@@ -21,6 +21,19 @@ changes.
 If an issue would be easiest to explain with code, describe the change in the issue, or link to a branch in your
 fork. We may write it ourselves.
 
+## Building from source
+
+Otaq's workflow skills live in their own repository, [otaq-skills](https://github.com/otaq-io/otaq-skills), checked
+out at `plugin/skills/` as a git submodule, so clone with `--recursive`:
+
+```sh
+git clone --recursive https://github.com/otaq-io/otaq.git
+```
+
+In a clone made without it, run `git submodule update --init` (`scripts/check.sh` does it for you).
+[docs/install.md](docs/install.md#build-and-run-from-source) says how to build and install, and
+[scripts/README.md](scripts/README.md) how to run the checks.
+
 ## License
 
 Otaq is licensed under [FSL-1.1-MIT](LICENSE). You're free to fork it and change it under that license.

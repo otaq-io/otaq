@@ -128,7 +128,7 @@ async fn a_merged_parent_is_resumed_answer_only_and_cleaned_up() {
         "{printed}"
     );
     assert!(
-        printed.contains(&claude_skill("answer-question")),
+        printed.contains(&claude_skill("otaq:answer-question")),
         "{printed}"
     );
     assert!(worktree.is_dir(), "recreated at the same path");

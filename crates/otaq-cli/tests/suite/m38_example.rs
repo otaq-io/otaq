@@ -50,8 +50,9 @@ const PLAN_WHY: &str = "Big tickets in shop-web get a plan first";
 /// test's service). Every start is logged to `state/starts` (`<ticket> <arguments>`). Then:
 /// - a ticket's agent with `state/ask-<KEY>` asks that question once (`otaq ask human`);
 /// - a ticket's agent then waits for `state/go-<KEY>` (taken when seen), commits if it is a Dev
-///   (`/otaq:work-ticket`), reads `otaq prime` and ends its stage (`otaq stage next`); it waits again, for the next `go`, whatever comes
-///   after;
+///   (`/otaq:work-ticket`), reads `otaq prime` and ends its stage (`otaq stage next`); refused while its stage's task
+///   skill waits for the first turn's end, it ends its turn (the `Stop` hook) and tries again; it waits again, for the
+///   next `go`, whatever comes after;
 /// - a Project agent asked to add a stage after Product spec proposes `state/plan.yaml` (`otaq flow propose --stdin`).
 ///
 /// Nothing typed into it is ever run.
@@ -92,7 +93,15 @@ while :; do
         ;;
     esac
     otaq prime > /dev/null
-    printf 'Done.' | otaq stage next --stdin > /dev/null
+    until printf 'Done.' | '{CB}' stage next --stdin > /dev/null 2> "$STATE/stage-next"; do
+        cat "$STATE/stage-next" >> "$STATE/errors"
+        grep -q "hasn't run yet" "$STATE/stage-next" || break
+        # Its stage's task skill waits for the first turn to end: the turn ends (Claude Code's Stop hook), Otaq types
+        # the task skill, and that turn ends the stage.
+        printf '%s' '{{"hook_event_name":"Stop","stop_hook_active":false,"background_tasks":[],"session_crons":[]}}' \
+            | otaq hook --tool claude Stop
+        sleep 0.1
+    done
 done
 "#
     )
@@ -659,7 +668,9 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         ["SHOP-33"]
     );
 
-    // SHOP-12 leaves Plan: it waits at the span's edge, before Dev, and doesn't start.
+    // SHOP-12 leaves Plan: it waits at the span's edge, before Dev, and doesn't start. Only starts from here on count:
+    // Plan's own start also begins with Otaq's work-ticket (its task skill is typed after it).
+    let before = world.starts_of("SHOP-12").len();
     world.go("SHOP-12");
     world
         .until("SHOP-12 waits before Dev", async || {
@@ -677,6 +688,7 @@ async fn the_flow_editor_adds_plan_and_moves_security() {
         world
             .starts_of("SHOP-12")
             .iter()
+            .skip(before)
             .filter(|l| l.contains("otaq:work-ticket"))
             .count()
     };

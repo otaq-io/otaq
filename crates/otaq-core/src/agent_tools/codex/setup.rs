@@ -25,8 +25,13 @@
 //!   `trustStatus`), and Otaq's five (`otaq@otaq-local:plugin.json#hooks[0]:<event>:0:0`) are recorded as trusted
 //!   with `config/batchWrite` (`hooks.state."<key>".trusted_hash`). The hook command lines never change (per-ticket
 //!   data travels in the environment), so the trust holds;
-//! - **`rules/otaq.rules`**: `prefix_rule(pattern=["otaq"], decision="allow")`, so `otaq` commands run without a
-//!   prompt and every other command still asks.
+//! - **`rules/otaq.rules`**: `prefix_rule(pattern=["otaq"], decision="allow")`, the same for tuq's `tuq` and
+//!   `tuq-plan` (tuq decision 077), and `prefix_rule(pattern=["git", "add"], decision="allow")` and
+//!   `prefix_rule(pattern=["git", "commit"], decision="allow")` (agreed 2026-11-15: a ticket's commit, which Otaq's
+//!   commit skill makes with `git add -A` then `git commit`, writes the main checkout's `.git`, outside Codex's
+//!   sandbox), so those commands run without a prompt and every other command (`git push`, `git reset`, …) still
+//!   asks. A rules file an older Otaq wrote (without tuq's commands, `git add` or `git commit`) makes the next check
+//!   run the setup again, which rewrites it once ([`stale_rules`]).
 //!
 //! A `config.toml` that doesn't parse is never written, by Otaq or by the Codex commands it runs: the setup stops
 //! and the page shows why. Codex's own commands write their entries the same careful way (checked: the user's
@@ -88,13 +93,22 @@ fn rules_file(home: &Path) -> PathBuf {
         .join(format!("{}.rules", naming::COMMAND_NAME))
 }
 
-/// The rule that pre-approves only `otaq` commands.
+/// The rules that pre-approve only `otaq` commands, tuq's (`tuq`, `tuq-plan`, decision 077), `git add` and
+/// `git commit`.
 pub(super) fn rules_text() -> String {
-    format!(
-        "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
-        naming::COMMAND_NAME
-    )
+    let mut text: String = std::iter::once(naming::COMMAND_NAME)
+        .chain(crate::tuq::COMMANDS)
+        .map(|command| format!("prefix_rule(pattern=[\"{command}\"], decision=\"allow\")\n"))
+        .collect();
+    text.push_str(GIT_COMMIT_RULES);
+    text
 }
+
+/// A ticket's commit runs without a prompt (agreed 2026-11-15): a worktree's git data (its index, its objects) is
+/// in the main checkout's `.git`, outside Codex's sandbox, and Otaq's commit skill runs `git add -A` before
+/// `git commit`. Only these two: `git push`, `git reset` and every other command still ask.
+const GIT_COMMIT_RULES: &str = "prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
+                                prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n";
 
 fn folder_trust() -> SetupEntry {
     SetupEntry {
@@ -228,7 +242,7 @@ pub(crate) fn refresh_plugin(
         return Ok(None);
     }
     let dest = data.codex_plugin_dir();
-    let skills = plugin_dir.join(crate::runtime::SKILLS_FOLDER);
+    let skills = crate::runtime::shipped_skills(plugin_dir);
     crate::runtime::replace_dir_with_skills(&source, Some(&skills), &dest)?;
     Ok(Some(dest))
 }
@@ -463,10 +477,21 @@ pub(super) fn launch_refusal(context: &CodexContext) -> Option<LaunchError> {
 
 /// Whether the next check should run the setup again: Otaq's folders are known and a launch would be refused
 /// for a missing setup ([`launch_refusal`]), or Codex's installed copy of the plugin differs from the fixed folder
-/// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it.
+/// in any plugin file ([`stale_cached_plugin`]), so `codex plugin add` refreshes it, or the rules file an older Otaq
+/// wrote doesn't pre-approve what this one does ([`stale_rules`]: tuq's commands, `git add` and `git commit` came later).
 pub(super) fn setup_needed(context: &CodexContext) -> bool {
     context.tool.launch.is_some()
-        && (launch_refusal(context).is_some() || stale_cached_plugin(context))
+        && (launch_refusal(context).is_some()
+            || stale_cached_plugin(context)
+            || stale_rules(context))
+}
+
+/// Whether `rules/otaq.rules` is there but says something other than [`rules_text`] (written by an older Otaq).
+fn stale_rules(context: &CodexContext) -> bool {
+    let Some(home) = context.codex_home.as_deref() else {
+        return false;
+    };
+    matches!(config_toml::read_bytes(&rules_file(home)), Ok(Some(bytes)) if bytes != rules_text().as_bytes())
 }
 
 /// Where Codex keeps its installed copies of Otaq's plugin: `<codex home>/plugins/cache/otaq-local/otaq/`, one
@@ -695,7 +720,7 @@ mod tests {
     use super::super::app_server::tests::{saved, stand_in};
     use super::super::config_toml::tests::{USER_CONFIG, with_shop_web};
     use super::*;
-    use crate::agent_tools::{LaunchContext, claude};
+    use crate::agent_tools::{AgentTool, LaunchContext, claude};
 
     /// Otaq's real plugin folder (the repository's).
     fn repo_plugin() -> PathBuf {
@@ -767,6 +792,7 @@ mod tests {
             CodexContext {
                 tool,
                 codex_home: Some(self.home()),
+                held_back: false,
             }
         }
 
@@ -879,6 +905,208 @@ mod tests {
                 .collect::<Vec<_>>(),
             [false, true, true, true]
         );
+    }
+
+    /// Every folder and file under `dir`, with the files' bytes.
+    fn tree(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+        let mut out = Vec::new();
+        let mut stack = vec![dir.to_path_buf()];
+        while let Some(at) = stack.pop() {
+            for entry in fs::read_dir(&at).unwrap().flatten() {
+                let path = entry.path();
+                let rel = path.strip_prefix(dir).unwrap().to_path_buf();
+                if path.is_dir() {
+                    out.push((rel, None));
+                    stack.push(path);
+                } else {
+                    out.push((rel, Some(fs::read(&path).unwrap())));
+                }
+            }
+        }
+        out.sort();
+        out
+    }
+
+    /// A second Otaq's adapter (its data folder isn't the default one), with `user` as the home folder and
+    /// `CODEX_HOME` as `codex_home_var` says.
+    fn second_otaq(
+        home: &Home,
+        user: &Path,
+        codex_home_var: Option<PathBuf>,
+    ) -> super::super::Codex {
+        let mut context = home.context(&repo_plugin());
+        context.tool.home = Some(user.to_path_buf());
+        context.tool.own_data = true;
+        let var = move |name: &str| {
+            (name == "CODEX_HOME")
+                .then(|| codex_home_var.clone())
+                .flatten()
+                .map(OsString::from)
+        };
+        super::super::Codex::with_context(CodexContext::with_vars(context.tool, &var))
+    }
+
+    /// A stand-in `~/.codex` an older (or the default) Otaq set up: the user's config with a marketplace of the same
+    /// name added from another folder, its plugin and hook trust, the rules file and an installed copy.
+    fn shared_codex_home(user: &Path) -> PathBuf {
+        let shared = user.join(".codex");
+        fs::create_dir_all(shared.join("rules")).unwrap();
+        fs::create_dir_all(cached_plugins(&shared).join("0.1.0").join(".codex-plugin")).unwrap();
+        let config = format!(
+            "{USER_CONFIG}\n[marketplaces.{m}]\nsource_type = \"local\"\nsource = \"/Users/me/{data}/runtime/codex-plugin\"\n\n[plugins.\"{id}\"]\nenabled = true\n\n[hooks.state.\"{key}\"]\ntrusted_hash = \"sha256:old\"\n",
+            m = marketplace(),
+            id = plugin_id(),
+            key = hook_key("stop"),
+            data = naming::data_dir_name(),
+        );
+        fs::write(config_toml::path(&shared), config).unwrap();
+        fs::write(
+            rules_file(&shared),
+            format!(
+                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
+                naming::COMMAND_NAME
+            ),
+        )
+        .unwrap();
+        fs::write(
+            cached_plugins(&shared)
+                .join("0.1.0")
+                .join(".codex-plugin")
+                .join("plugin.json"),
+            format!(
+                "{{\"name\":\"{}\",\"version\":\"0.1.0\"}}",
+                naming::PLUGIN_NAMESPACE
+            ),
+        )
+        .unwrap();
+        shared
+    }
+
+    /// Piece 3 of fixes-before-0-3: an Otaq whose data folder isn't the default one, without `CODEX_HOME`, leaves the
+    /// shared `~/.codex` byte for byte as it was and runs no Codex command: detect only finds the program and says
+    /// why Codex isn't usable; setup, the setup check, folder trust, disconnect, launches, one-off questions and the
+    /// model list do nothing.
+    #[tokio::test]
+    async fn a_second_otaq_without_codex_home_leaves_the_shared_home_alone() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let user = home.dir.path().join("user");
+        let shared = shared_codex_home(&user);
+        let before = tree(&shared);
+        let codex = second_otaq(&home, &user, None);
+        assert!(codex.context().held_back);
+        assert_eq!(
+            codex.context().codex_home.as_deref(),
+            Some(shared.as_path())
+        );
+
+        let found = codex.detect().await;
+        assert!(found.installed);
+        assert_eq!(found.not_usable, Some(super::super::held_back_reason()));
+        assert_eq!((found.version, found.signed_in), (None, None));
+        assert!(found.not_usable.unwrap().contains("set CODEX_HOME"));
+        assert!(!codex.setup_needed());
+        assert_eq!(codex.set_up_tool().await, SetupReport::default());
+        assert_eq!(codex.record_project(Path::new("/tmp/m23/shop-web")), None);
+        assert_eq!(codex.remove_setup(), SetupReport::default());
+        let refused = Some(LaunchError(super::super::held_back_reason()));
+        assert_eq!(codex.unavailable(), refused);
+        let request = crate::agent_tools::LaunchRequest {
+            role: crate::agent_tools::LaunchRole::TicketAgent,
+            cwd: "/wt/shop-web/SHOP-18".into(),
+            project: "SHOP".into(),
+            ticket: Some("SHOP-18".parse().unwrap()),
+            port: 4012,
+            first_prompt: None,
+            resume: None,
+            model: None,
+            title: None,
+            effort: None,
+            theme: crate::board::settings::Theme::OtaqDark,
+        };
+        assert_eq!(codex.launch(&request).err(), refused);
+        let question = crate::agent_tools::OneOffRequest {
+            cwd: "/tmp".into(),
+            prompt: "what?".into(),
+            model: None,
+        };
+        assert_eq!(codex.one_off(&question).err(), refused);
+        assert!(codex.list_models().await.is_err());
+        assert_eq!(codex.permission_warning(), None);
+
+        assert_eq!(tree(&shared), before, "~/.codex is byte for byte as it was");
+        assert!(!home.log().exists(), "no Codex command ran");
+        // Without Codex on PATH it is simply not installed.
+        let mut bare = home.context(&repo_plugin());
+        (bare.tool.home, bare.tool.own_data, bare.tool.path) =
+            (Some(user.clone()), true, OsString::new());
+        let bare = super::super::Codex::with_context(CodexContext::with_vars(bare.tool, &|_| None));
+        assert_eq!(
+            bare.detect().await,
+            crate::agent_tools::Detection::default()
+        );
+    }
+
+    /// The same second Otaq with `CODEX_HOME` set sets Codex up there as before, and still leaves `~/.codex` alone;
+    /// an empty `CODEX_HOME` counts as unset.
+    #[tokio::test]
+    async fn a_second_otaq_with_codex_home_sets_up_there_as_before() {
+        let home = Home::new();
+        home.codex(untrusted());
+        let user = home.dir.path().join("user");
+        let shared = shared_codex_home(&user);
+        let before = tree(&shared);
+        let empty = second_otaq(&home, &user, Some(PathBuf::new()));
+        assert!(empty.context().held_back, "an empty CODEX_HOME is unset");
+
+        let codex = second_otaq(&home, &user, Some(home.home()));
+        assert!(!codex.context().held_back);
+        assert_eq!(codex.context().codex_home, Some(home.home()));
+        assert!(codex.setup_needed());
+        let report = codex.set_up_tool().await;
+        assert_eq!(report.failed, []);
+        assert_eq!(
+            texts(&report.done),
+            ["its hooks", &pre_approved(), "its plugin"]
+        );
+        assert_eq!(
+            fs::read_to_string(rules_file(&home.home())).unwrap(),
+            rules_text()
+        );
+        assert!(
+            home.config()
+                .contains(&format!("[plugins.\"{}\"]", plugin_id()))
+        );
+        assert_eq!(
+            codex.record_project(Path::new("/tmp/m23/shop-web")),
+            Some(SetupOutcome::Recorded)
+        );
+        assert_eq!(tree(&shared), before, "~/.codex is byte for byte as it was");
+    }
+
+    /// The default data folder is unchanged: with or without `CODEX_HOME`, nothing is held back, and Codex's home is
+    /// `~/.codex` or `CODEX_HOME` as before.
+    #[test]
+    fn the_default_data_folder_holds_nothing_back() {
+        let home = Home::new();
+        let user = home.dir.path().join("user");
+        let mut context = home.context(&repo_plugin());
+        context.tool.home = Some(user.clone());
+        assert!(!context.tool.own_data);
+        let unset = CodexContext::with_vars(context.tool.clone(), &|_| None);
+        assert!(!unset.held_back);
+        assert_eq!(unset.codex_home, Some(user.join(".codex")));
+        let set = home.home();
+        let var = |name: &str| (name == "CODEX_HOME").then(|| set.clone().into());
+        let with_var = CodexContext::with_vars(context.tool.clone(), &var);
+        assert!(!with_var.held_back);
+        assert_eq!(with_var.codex_home, Some(home.home()));
+        // No home folder (tests, parts of the service built on their own): nothing to hold back either.
+        context.tool.home = None;
+        context.tool.own_data = true;
+        let no_home = CodexContext::with_vars(context.tool, &|_| None);
+        assert!(!no_home.held_back);
+        assert_eq!(no_home.codex_home, None);
     }
 
     /// The manifest beside Claude Code's: no `skills` entry and no `skills/` folder in the repository's copy (Codex
@@ -1054,7 +1282,11 @@ mod tests {
         assert_eq!(
             fs::read_to_string(rules_file(&home.home())).unwrap(),
             format!(
-                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
+                "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n",
                 naming::COMMAND_NAME
             )
         );
@@ -1115,6 +1347,111 @@ mod tests {
         );
     }
 
+    /// Upgrade (fixes-before-0-3, piece 2): a rules file an older Otaq wrote (0.2's `otaq`, `tuq`, `tuq-plan`
+    /// without the git rules, `otaq` alone from before tuq, or a build with `git commit` but not `git add`) makes the
+    /// next check run the setup, which rewrites it to today's rules once; after that nothing is stale and a second
+    /// setup leaves the file as it is. Disconnect still removes the whole file.
+    #[tokio::test]
+    async fn an_older_rules_file_is_rewritten_once() {
+        let own_rule = format!(
+            "prefix_rule(pattern=[\"{}\"], decision=\"allow\")\n",
+            naming::COMMAND_NAME
+        );
+        let with_tuq = format!(
+            "{own_rule}prefix_rule(pattern=[\"tuq\"], decision=\"allow\")\n\
+             prefix_rule(pattern=[\"tuq-plan\"], decision=\"allow\")\n"
+        );
+        let older = [
+            format!("{with_tuq}prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n"),
+            with_tuq,
+            own_rule,
+        ];
+        for old in older {
+            let home = Home::new();
+            home.codex(untrusted());
+            let context = home.context(&repo_plugin());
+            assert!(set_up_tool(&context).await.failed.is_empty());
+            home.apply_batch_write();
+            assert!(!setup_needed(&context), "a current setup is complete");
+
+            fs::write(rules_file(&home.home()), &old).unwrap();
+            assert!(stale_rules(&context));
+            assert!(setup_needed(&context), "an older rules file runs the setup");
+            assert_eq!(launch_refusal(&context), None, "launches aren't refused");
+
+            let report = set_up_tool(&context).await;
+            assert_eq!(report.failed, []);
+            let rules = fs::read_to_string(rules_file(&home.home())).unwrap();
+            assert_eq!(rules, rules_text());
+            assert!(rules.ends_with(
+                "prefix_rule(pattern=[\"git\", \"add\"], decision=\"allow\")\n\
+                 prefix_rule(pattern=[\"git\", \"commit\"], decision=\"allow\")\n"
+            ));
+            assert!(!stale_rules(&context));
+            assert!(
+                !setup_needed(&context),
+                "rewritten once: nothing left to do"
+            );
+
+            // A second setup (two checks racing, or a re-check) changes nothing.
+            let before = fs::metadata(rules_file(&home.home()))
+                .unwrap()
+                .modified()
+                .unwrap();
+            assert_eq!(set_up_tool(&context).await.failed, []);
+            assert_eq!(
+                fs::metadata(rules_file(&home.home()))
+                    .unwrap()
+                    .modified()
+                    .unwrap(),
+                before
+            );
+            assert_eq!(fs::read_to_string(rules_file(&home.home())).unwrap(), rules);
+
+            let removed = tokio::task::spawn_blocking(move || {
+                let report = remove_setup(&context);
+                (report, context)
+            })
+            .await
+            .unwrap()
+            .0;
+            assert_eq!(removed.failed, []);
+            assert!(
+                !rules_file(&home.home()).exists(),
+                "disconnect removes it all"
+            );
+        }
+    }
+
+    /// The rules pre-approve exactly `otaq`, tuq's commands, `git add` and `git commit`: no other git command
+    /// (`git push`, `git reset`, a bare `git`) and nothing broader than those two.
+    #[test]
+    fn only_git_add_and_commit_among_git_commands() {
+        let text = rules_text();
+        let patterns: Vec<&str> = text
+            .lines()
+            .map(|line| {
+                line.strip_prefix("prefix_rule(pattern=[")
+                    .and_then(|rest| rest.strip_suffix("], decision=\"allow\")"))
+                    .unwrap()
+            })
+            .collect();
+        let otaq = format!("\"{}\"", naming::COMMAND_NAME);
+        assert_eq!(
+            patterns,
+            [
+                otaq.as_str(),
+                "\"tuq\"",
+                "\"tuq-plan\"",
+                "\"git\", \"add\"",
+                "\"git\", \"commit\""
+            ]
+        );
+        for other in ["\"git\"", "\"git\", \"push\"", "\"git\", \"reset\""] {
+            assert!(!patterns.contains(&other), "{other} still asks");
+        }
+    }
+
     /// A new build (its plugin in another runtime folder) refreshes the fixed folder: Codex's config doesn't change,
     /// launches aren't refused and, with no plugin file changed (only the marketplace folder has a new file), no
     /// setup runs again (gap review R4).
@@ -1164,7 +1501,12 @@ mod tests {
             let skill = Path::new("skills").join(name).join("SKILL.md");
             assert_eq!(
                 fs::read(home.codex_folder().join(&skill)).unwrap_or_default(),
-                fs::read(repo_plugin().join(&skill)).unwrap(),
+                fs::read(
+                    crate::runtime::shipped_skills(&repo_plugin())
+                        .join(name)
+                        .join("SKILL.md")
+                )
+                .unwrap(),
                 "{name}"
             );
         }
@@ -1198,7 +1540,9 @@ mod tests {
 
         let next = tempfile::tempdir().unwrap();
         let plugin = next_build_plugin(next.path());
-        let skill = plugin.join("skills").join("commit").join("SKILL.md");
+        let skill = crate::runtime::shipped_skills(&plugin)
+            .join("commit")
+            .join("SKILL.md");
         let changed = format!("{}\nOne more line.\n", fs::read_to_string(&skill).unwrap());
         fs::write(&skill, &changed).unwrap();
         refresh_plugin(&context.tool.data, &plugin).unwrap();

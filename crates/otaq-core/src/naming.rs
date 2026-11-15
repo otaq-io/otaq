@@ -14,6 +14,10 @@ pub const COMMAND_NAME: &str = "otaq";
 /// The releases on GitHub (d0140): each version's page holds its setup files.
 pub const RELEASES_URL: &str = "https://github.com/otaq-io/otaq/releases";
 
+/// Where tuq's installer is published, without its extension (`install.sh`, `install.ps1`; tuq decision 106): the one
+/// place Otaq names it ([`crate::tuq::Installer::Published`]).
+pub const TUQ_INSTALLER_URL: &str = "https://raw.githubusercontent.com/otaq-io/tuq/main/install";
+
 /// A version's release page: `https://github.com/otaq-io/otaq/releases/tag/v0.2.0`.
 pub fn release_page(version: &str) -> String {
     format!("{RELEASES_URL}/tag/v{version}")
@@ -21,6 +25,15 @@ pub fn release_page(version: &str) -> String {
 
 /// The plugin namespace: the name of Otaq's hooks plugin for each tool (`otaq@otaq-local` in Codex).
 pub const PLUGIN_NAMESPACE: &str = "otaq";
+
+/// One of Otaq's workflow skills named in its namespace ([`PLUGIN_NAMESPACE`]), as a constant:
+/// `own_skill!("validate")` is `otaq:validate` (tuq decision 063).
+#[macro_export]
+macro_rules! own_skill {
+    ($name:literal) => {
+        concat!("otaq", ":", $name)
+    };
+}
 
 /// The palette key of the bundled Otaq themes, Otaq Dark and Otaq Light, as the design has it and as
 /// d0069's settings stored both (d0070 stores `otaq-dark` and `otaq-light`).
@@ -156,6 +169,10 @@ mod tests {
         assert_eq!(COMMAND_NAME, "otaq");
         assert_eq!(PLUGIN_NAMESPACE, "otaq");
         assert_eq!(ENV_PREFIX, "OTAQ_");
+        assert_eq!(
+            own_skill!("validate"),
+            format!("{PLUGIN_NAMESPACE}:validate")
+        );
     }
 
     #[test]

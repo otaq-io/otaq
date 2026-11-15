@@ -1673,6 +1673,17 @@ impl Unsent {
         )
     }
 
+    /// Over a dialog of the tool's own in a session that isn't a ticket's (a Project agent's): titled `title`, its
+    /// question said, only Keep it and cancel.
+    pub(super) fn over_prompt(title: String, prompt: &str) -> Self {
+        Self {
+            title,
+            body: strip::prompt_note(prompt),
+            clear: None,
+            cancel: "Keep it and cancel",
+        }
+    }
+
     /// The question titled `title` with `body`; a multi-line draft `unclearable_by` can't clear replaces the body
     /// with the note and drops Clear it and send: the user clears it (SES-07, Q-N).
     pub(super) fn asking(title: String, body: String, unclearable_by: Option<&str>) -> Self {
@@ -1833,12 +1844,18 @@ pub async fn card(app: &App, params: CardParams) -> Result<Sent, RequestError> {
         }
     };
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             let waiting = ticket(app, &params.key)
                 .await?
                 .map_or(1, |t| t.flags.messages_waiting);
             Ok(Sent::Ask(Unsent::of(
-                &UnsentPrompt::deliver_now(key, None, waiting).unclearable_by(unclearable_by),
+                &UnsentPrompt::deliver_now(key, None, waiting)
+                    .unclearable_by(unclearable_by)
+                    .over_prompt(prompt),
             )))
         }
         Ok(_) => Ok(Sent::Done),
@@ -1883,7 +1900,11 @@ pub async fn send_again(app: &App, params: SendAgainParams) -> Result<Sent, Requ
         clear_first: params.clear,
     });
     match app.service.send(request).await {
-        Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        })) => {
             let kind = ticket(app, &params.key)
                 .await?
                 .and_then(|t| t.flags.hand_off)
@@ -1895,7 +1916,8 @@ pub async fn send_again(app: &App, params: SendAgainParams) -> Result<Sent, Requ
                     actions::send_again_sending(kind),
                     strip::Click::SendAgain,
                 )
-                .unclearable_by(unclearable_by),
+                .unclearable_by(unclearable_by)
+                .over_prompt(prompt),
             )))
         }
         Ok(_) => Ok(Sent::Done),
@@ -2239,6 +2261,7 @@ mod tests {
             agent: None,
             effort: None,
             model_ran: None,
+            tuq_version: None,
             size: None,
         }
     }

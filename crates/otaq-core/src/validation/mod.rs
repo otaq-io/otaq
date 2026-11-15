@@ -958,6 +958,10 @@ impl Validation {
     /// which its tool sends nothing until its turn ends or asks again): as when its turn goes on, the ticket is
     /// Validating… again once no checker waits on one. A checker with no prompt open is left as it is.
     pub async fn prompt_answered(&self, ticket_id: &str, session: &str) -> Result<(), BoardError> {
+        // The tool's own Working for this answer may be under way (its hook, or Otaq's own new turn after a key at
+        // Copilot's prompt, both applied in the background): it clears the wait and sets the status under the
+        // ticket's lock. Once the lock is free, a wait already cleared has its status set too.
+        drop(self.end_lock(ticket_id).lock().await);
         if !self.asking_of(ticket_id, |asking| asking.contains(session)) {
             return Ok(());
         }

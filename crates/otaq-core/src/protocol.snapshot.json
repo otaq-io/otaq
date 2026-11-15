@@ -546,6 +546,17 @@
           }
         },
         "not_installed": {},
+        "not_usable": {
+          "fields": {
+            "version": {
+              "ty": "Option<String>"
+            },
+            "why": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "update_needed": {
           "fields": {
             "version": {
@@ -625,6 +636,7 @@
       "values": [
         "project_agent",
         "shipped",
+        "skill_rename",
         "user"
       ]
     },
@@ -1514,6 +1526,10 @@
       "variants": {
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "TicketKey",
               "required": true
@@ -2141,6 +2157,10 @@
       "variants": {
         "needs_confirmation": {
           "fields": {
+            "prompt": {
+              "ty": "Option<String>",
+              "omittable": true
+            },
             "ticket": {
               "ty": "Option<TicketKey>",
               "omittable": true
@@ -4273,6 +4293,10 @@
         "helper": {
           "ty": "Helper",
           "required": true
+        },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
+          "omittable": true
         },
         "merges_into": {
           "ty": "String",
@@ -6636,6 +6660,10 @@
           "ty": "Option<Instructions>",
           "omittable": true
         },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
+          "omittable": true
+        },
         "manual_checks": {
           "ty": "Vec<ManualCheck>",
           "omittable": true
@@ -7256,6 +7284,10 @@
         },
         "instructions": {
           "ty": "Option<Instructions>",
+          "omittable": true
+        },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
           "omittable": true
         },
         "name": {
@@ -8284,6 +8316,9 @@
         "tools_check": {
           "newtype": "ToolsReport"
         },
+        "tuq_versions": {
+          "newtype": "Vec<ToolTuq>"
+        },
         "uninstall_outcome": {
           "newtype": "UninstallOutcome"
         },
@@ -9020,6 +9055,7 @@
         "tools.terminal": {
           "newtype": "ToolTerminalParams"
         },
+        "tuq.versions": {},
         "uninstall.remove": {
           "newtype": "UninstallRemoveParams"
         },
@@ -9855,6 +9891,10 @@
           "omittable": true
         },
         "tool_session_id": {
+          "ty": "Option<String>",
+          "omittable": true
+        },
+        "tuq_version": {
           "ty": "Option<String>",
           "omittable": true
         }
@@ -11608,6 +11648,19 @@
         }
       }
     },
+    "ToolTuq": {
+      "kind": "struct",
+      "fields": {
+        "tool": {
+          "ty": "crate::agent_tools::Tool",
+          "required": true
+        },
+        "version": {
+          "ty": "Option<String>",
+          "omittable": true
+        }
+      }
+    },
     "ToolWindow": {
       "kind": "struct",
       "fields": {
@@ -12033,6 +12086,10 @@
         },
         "instructions": {
           "ty": "Option<Instructions>",
+          "omittable": true
+        },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
           "omittable": true
         },
         "manual_checks": {

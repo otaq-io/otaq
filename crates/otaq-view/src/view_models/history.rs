@@ -317,6 +317,9 @@ pub struct HistoryRow {
     pub quiet: Option<String>,
     /// An agent session's quiet row: when the session ended (`None` while it runs).
     pub ended: Option<i64>,
+    /// An agent session's start: the tuq release its tool had, as the session's record names it ("2026.11.12";
+    /// decisions 069, 102). Its quiet row ends with "· tuq 2026.11.12" ([`one_row_per_session`]).
+    pub tuq: Option<String>,
 }
 
 impl HistoryRow {
@@ -471,6 +474,7 @@ pub fn rows_with_rounds(
             kind: Kind::Check,
             quiet: None,
             ended: None,
+            tuq: None,
         }
     }));
     rows.sort_by(|a, b| b.at.cmp(&a.at).then(b.is_session.cmp(&a.is_session)));
@@ -561,6 +565,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         kind,
         quiet,
         ended: s.ended_at,
+        tuq: s.tuq_version.clone().filter(|_| agent),
     };
     let end = s.ended_at.filter(|_| agent).map(|at| HistoryRow {
         title: format!("{title} ended"),
@@ -571,6 +576,7 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         tool_session_id: None,
         is_session: false,
         quiet: None,
+        tuq: None,
         ..start.clone()
     });
     std::iter::once(start).chain(end).collect()
@@ -1066,6 +1072,7 @@ fn told(
         kind,
         quiet: None,
         ended: None,
+        tuq: None,
     }
 }
 
@@ -1853,6 +1860,7 @@ fn event_row_in(e: &HistoryEvent, facts: &Facts) -> Option<HistoryRow> {
         kind: kind_of(e.kind),
         quiet: None,
         ended: None,
+        tuq: None,
     })
 }
 
@@ -1948,6 +1956,7 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
                 kind: Kind::Session,
                 quiet: None,
                 ended: None,
+                tuq: None,
             }),
         }
     }
@@ -1981,7 +1990,10 @@ pub fn one_row_per_session(rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
             let Some(quiet) = r.quiet.take().filter(|_| r.is_session) else {
                 return r;
             };
-            r.title = quiet;
+            r.title = match &r.tuq {
+                Some(version) => format!("{quiet} \u{b7} tuq {version}"),
+                None => quiet,
+            };
             if let Some(end) = r.session.as_ref().and_then(|s| ends.get(s)) {
                 r.ended = Some(end.at);
                 r.duration = end.duration.clone();
@@ -2025,6 +2037,7 @@ mod tests {
             agent: None,
             effort: None,
             model_ran: None,
+            tuq_version: None,
             size: None,
         }
     }
@@ -3560,6 +3573,48 @@ mod tests {
         ))
         .unwrap();
         assert_eq!((restart.cost(), restart.mark), (None, Mark::Otaq));
+    }
+
+    /// Decisions 069, 102: a session's quiet row names the tuq its tool had, from the session's record; a session
+    /// with none recorded (no tuq on its tool, or from before tuq was recorded) says nothing about tuq, and a shell's
+    /// row never does.
+    #[test]
+    fn a_session_row_names_the_tuq_it_ran() {
+        let events = vec![event(EventKind::Created, 0, json!({}))];
+        let spec = SessionInfo {
+            tuq_version: Some("2026.11.12".into()),
+            ..session("g", 5 * MIN, Some(23 * MIN), Some("exited"))
+        };
+        let dev = session("d", 30 * MIN, None, None);
+        let shell = SessionInfo {
+            kind: SessionKind::Shell,
+            tuq_version: Some("2026.11.12".into()),
+            ..session("sh", 6 * MIN, Some(7 * MIN), None)
+        };
+        let rows = with_agents(
+            rows_in(&events, &[spec, dev, shell], &[], &Facts::default()),
+            &[HistoryLine::Session {
+                session: "g".into(),
+                started: "Product spec started \u{b7} Spec writer".into(),
+                detail: "Claude Code".into(),
+                note: None,
+                ended: "Product spec finished \u{b7} Spec writer".into(),
+                quiet: "Session \u{b7} Product spec \u{b7} Spec writer".into(),
+            }],
+        );
+        let titles: Vec<_> = oldest_first(one_row_per_session(rows))
+            .into_iter()
+            .map(|r| r.title)
+            .collect();
+        assert_eq!(
+            titles,
+            [
+                "You created the ticket",
+                "Session \u{b7} Product spec \u{b7} Spec writer \u{b7} tuq 2026.11.12",
+                "Terminal",
+                "Session \u{b7} Agent",
+            ]
+        );
     }
 
     #[test]

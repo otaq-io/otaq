@@ -181,8 +181,12 @@ async fn a_send_back_resumes_the_checks_stage_and_the_rewalk_resumes_dev() {
     let product_spec = start(&w, &t, None).await;
     let first = args(&w, &product_spec).await;
     assert!(
-        first.contains("/otaq:product-spec") && !first.contains("--resume"),
+        first.contains("/otaq:work-ticket") && !first.contains("--resume"),
         "{first}"
+    );
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &product_spec.id).await,
+        ["/tuq:product-spec"]
     );
     finished(&w, &t).await;
     let dev = start(&w, &t, Some(&product_spec.id)).await;

@@ -8,14 +8,14 @@ flow:
     name: Dev
     kind: agent
     agent: Developer
-    skill: work-ticket
+    skill: otaq:work-ticket
     description: "Builds what the ticket asks for, with its tests, and commits it: every ticket that changes the code needs it."
   - id: validate
     name: Validate
     kind: check
     by: agent
     agent: Checker
-    skill: validate
+    skill: otaq:validate
     rounds: 3
     description: "Checks the work against the ticket and runs the project's checks, so what Dev missed is caught before it is delivered."
 delivery:

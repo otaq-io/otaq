@@ -7,10 +7,9 @@
 //!   and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
 //!   once changed; its images are a row of thumbnails under its text that open full size (tuq 004, 006), each other
 //!   attachment a chip, "test-run.txt · 48 KB", with Open for text (tuq 001, 002).
-//! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
-//!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
-//!   page applies these rules while typing (it keeps no limit of its own: [`CommentLimits`] comes with the view); the
-//!   service checks again. While an agent works, a second button, **Tell Strong now**, also sends it to that agent
+//! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). The user's comments have
+//!   no length limit (tuq 112): a paste always stays text, and there is no counter. The one ceiling left, what one
+//!   message to the service carries, comes with the view ([`CommentLimits`]) and the page says it in words. While an agent works, a second button, **Tell Strong now**, also sends it to that agent
 //!   (typed when it is idle), and a quiet line says what each button does; Comment alone never reaches the running
 //!   agent. A comment sent that way is tagged "· told Strong now". The dialogs
 //!   (Send back, Fail, drag back; T-0447) reuse it with their own label and line ([`CommentBoxView::dialog`]).
@@ -27,6 +26,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::clock::clock_12h;
 use crate::view_models::comment_limits::CommentLimits;
+use crate::view_models::comment_writing::WritingView;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::tool_avatar::ToolAvatarView;
 
@@ -218,6 +218,8 @@ pub struct CommentBoxView {
     /// The second button, "Tell Strong now", only in the thread's box while the ticket's agent or check runs: it posts
     /// the comment with `tell_agent`, so the running agent also gets it when it is idle. Comment (and ⌘↵) never does.
     pub tell_agent: Option<String>,
+    /// Write and Preview over the box, and the formatting toolbar with its shortcuts (tuq 111).
+    pub writing: WritingView,
 }
 
 impl CommentBoxView {
@@ -245,6 +247,7 @@ impl CommentBoxView {
             optional,
             limits: CommentLimits::current(),
             tell_agent: None,
+            writing: WritingView::current(),
         }
     }
 
@@ -319,6 +322,15 @@ pub struct DeleteTexts {
     pub confirm: String,
 }
 
+/// A long comment in the thread (tuq 112): its first lines (about 15), then "Show more", which opens the rest in place,
+/// with "Show less" after it.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
+#[ts(rename = "CommentFoldTexts")]
+pub struct FoldTexts {
+    pub more: String,
+    pub less: String,
+}
+
 /// The menu's choices, as [`MenuItem`] ids.
 pub const EDIT: &str = "edit";
 pub const COPY: &str = "copy";
@@ -341,6 +353,7 @@ pub struct ThreadView {
     pub menu_label: String,
     pub edit: EditTexts,
     pub delete: DeleteTexts,
+    pub fold: FoldTexts,
     #[serde(rename = "box")]
     #[ts(rename = "box")]
     pub composer: CommentBoxView,
@@ -421,6 +434,10 @@ pub fn thread(facts: &Facts, clock: &dyn Fn(i64) -> String) -> ThreadView {
                 .to_owned(),
             cancel: "Cancel".to_owned(),
             confirm: "Delete".to_owned(),
+        },
+        fold: FoldTexts {
+            more: "Show more".to_owned(),
+            less: "Show less".to_owned(),
         },
         composer: CommentBoxView::thread(facts.working),
     }
@@ -510,14 +527,14 @@ const SEE_COMMENT: &str = "see comment";
 /// already says and up to its first ";", cut at a word to fit, and "· see comment" ("Fail: the 10,000 row limit isn't
 /// enforced; 3 tests fail in export_tests.rs." → "the 10,000 row limit isn't enforced · see comment").
 pub fn verdict_line(verdict: &str) -> String {
-    let line = verdict
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("");
+    // Its words without Markdown marks (tuq 110): "**Fail:** …" reads "Fail: …".
+    let line = otaq_core::markdown_plain::plain_lines(verdict)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
     let line = match line.split_once(':') {
         Some((word, rest)) if word.trim().eq_ignore_ascii_case("fail") => rest.trim(),
-        _ => line,
+        _ => &line,
     };
     let clause = line.split(';').next().unwrap_or(line).trim();
     // A verdict of only attachments (tuq 007): nothing to quote.
@@ -948,6 +965,19 @@ mod tests {
         );
     }
 
+    /// tuq 112: a long comment folds after its first lines; the thread names the two ways to open and close it.
+    #[test]
+    fn a_long_comment_folds_with_show_more_and_show_less() {
+        let v = view(&shop_34(), None);
+        assert_eq!(
+            v.fold,
+            FoldTexts {
+                more: "Show more".into(),
+                less: "Show less".into(),
+            }
+        );
+    }
+
     /// A comment the user also sent to the working agent says so after its time; the others don't.
     #[test]
     fn a_told_comment_is_tagged() {
@@ -974,8 +1004,8 @@ mod tests {
         assert_eq!(v.comments[0].told, None);
     }
 
-    /// `s05-43`'s writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB") and the
-    /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007).
+    /// `s05-43`'s writing states rest on the box's words and limits: no character limit for the user (tuq 112), only
+    /// the one-message ceiling (`CommentLimits`). A chip alone needs no line (tuq 007).
     #[test]
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
@@ -986,7 +1016,11 @@ mod tests {
         );
         assert_eq!(b.footer, None, "nor its line");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
-        assert_eq!(b.limits.chars, 2000);
+        assert_eq!(
+            b.limits,
+            CommentLimits::current(),
+            "the user's comments have no character limit (tuq 112)"
+        );
         assert_eq!(b.open, "Open");
         assert_eq!(
             b.attach, "Attach",
@@ -1029,6 +1063,15 @@ mod tests {
             "10,000 row limit isn\u{2019}t enforced \u{b7} see comment"
         );
         assert_eq!(verdict_line("fail : short"), "short \u{b7} see comment");
+        // Without its Markdown marks (tuq 110).
+        assert_eq!(
+            verdict_line("**Fail:** `limit` isn't *enforced*; more"),
+            "limit isn't enforced \u{b7} see comment"
+        );
+        assert_eq!(
+            verdict_line("## Fail: [the limit](https://x.y/1)"),
+            "the limit \u{b7} see comment"
+        );
         // A verdict of only attachments (tuq 007).
         assert_eq!(verdict_line(""), "see comment");
         assert_eq!(verdict_line("Fail:"), "see comment");

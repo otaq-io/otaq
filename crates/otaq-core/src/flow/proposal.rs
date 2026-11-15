@@ -981,6 +981,9 @@ pub fn edits_only(base: &Flow, new: &Flow) -> Flow {
 
 /// The warning on a stage whose `skill:` names a skill the user doesn't have: "You don't have the skill `<name>`".
 pub fn unknown_skill_text(skill: &str) -> String {
+    if crate::tuq::is_tuq(skill) {
+        return format!("Your tuq doesn\u{2019}t have `{}`", skill.trim());
+    }
     format!("You don't have the skill `{skill}`")
 }
 
@@ -988,6 +991,10 @@ pub fn unknown_skill_text(skill: &str) -> String {
 /// reads" for such a skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
 /// "Codex doesn’t have the skill `$team-validate`".
 pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
+    // The user's tuq, which Otaq installs or updates for the stage: it has no such skill (decision 083).
+    if crate::tuq::is_tuq(skill) {
+        return format!("Your tuq doesn\u{2019}t have `{}`", skill.trim());
+    }
     format!(
         "{} doesn\u{2019}t have the skill `{}`",
         tool.display_name(),
@@ -1753,6 +1760,11 @@ mod tests {
         flow
     }
 
+    /// `text` with Otaq's skills named in their namespace, as the default flow names them (`otaq:work-ticket`).
+    fn own_names(text: &str) -> String {
+        crate::flow::skill_names::renamed_text(text).unwrap_or_else(|| text.to_owned())
+    }
+
     const DEFAULT_RENAMED: &str = "flow:
   - name: Dev
     kind: agent
@@ -1780,7 +1792,7 @@ mod tests {
     #[test]
     fn a_rename_is_a_rename() {
         let base = default_flow();
-        let new = read(DEFAULT_RENAMED, &base);
+        let new = read(&own_names(DEFAULT_RENAMED), &base);
         assert_eq!(
             names(&new),
             [("dev", "Dev"), ("validate", "Validate"), ("review", "QA"),]
@@ -1802,7 +1814,7 @@ mod tests {
     #[test]
     fn adding_qa_applies_at_once() {
         let base = default_flow();
-        let text = DEFAULT_RENAMED.replace(
+        let text = own_names(DEFAULT_RENAMED).replace(
             "  - name: QA\n    kind: check\n    by: you\n",
             "  - name: Review\n    kind: check\n    by: you\n  - name: QA\n    kind: check\n    by: you\n",
         );
@@ -1845,8 +1857,10 @@ mod tests {
             "waits until no ticket is between Dev and Review"
         );
         let new = read(
-            "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - \
-             name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n",
+            &own_names(
+                "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  \
+                 - name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n",
+            ),
             &base,
         );
         assert_eq!(names(&new), [("build", "Dev")]);
@@ -1857,7 +1871,7 @@ mod tests {
     #[test]
     fn a_description_round_trips_and_applies_at_once() {
         let base = default_flow();
-        let text = DEFAULT_RENAMED.replace(
+        let text = own_names(DEFAULT_RENAMED).replace(
             "  - name: QA\n",
             "  - name: Review\n    why: \"Your PRs on GitHub always get one review before merging (gh)\"\n",
         );

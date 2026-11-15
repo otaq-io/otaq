@@ -234,7 +234,7 @@ pub struct DeliverySkill {
     /// The field `delivery.skill`; an empty value sends Otaq's own.
     pub field: &'static str,
     pub value: String,
-    /// "open-pr": Otaq's own, which runs while the field is empty.
+    /// "otaq:open-pr": Otaq's own, which runs while the field is empty.
     pub placeholder: &'static str,
     pub hint: &'static str,
     /// "You don't have the skill `my-pr`", amber; it still saves.

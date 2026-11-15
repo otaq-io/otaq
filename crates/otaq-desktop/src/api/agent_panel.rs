@@ -488,6 +488,13 @@ pub async fn answer(app: &App, params: AnswerParams) -> Result<super::sheet::Sen
     });
     match app.service.send(request).await {
         Ok(Reply::Delivery(Delivery::Sent { .. })) => Ok(super::sheet::Sent::Done),
+        Ok(Reply::Delivery(Delivery::NeedsConfirmation {
+            prompt: Some(prompt),
+            ..
+        })) => Ok(super::sheet::Sent::Ask(super::sheet::Unsent::over_prompt(
+            format!("A permission prompt is waiting in {}\u{2019}s terminal", agent.name),
+            &prompt,
+        ))),
         Ok(Reply::Delivery(Delivery::NeedsConfirmation { unclearable_by, .. })) => {
             Ok(super::sheet::Sent::Ask(super::sheet::Unsent::asking(
                 agent_question::unsent_title(&agent.name),

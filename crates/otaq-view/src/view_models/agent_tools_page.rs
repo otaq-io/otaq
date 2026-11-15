@@ -39,6 +39,8 @@ pub enum PillLook {
     /// Its sign-in answer couldn't be read: amber, as signed out.
     CouldNotCheck,
     UpdateNeeded,
+    /// Found, but this app won't use it (Codex with a data folder of its own and no `CODEX_HOME`): amber.
+    NotUsable,
     NotInstalled,
     Hidden,
 }
@@ -46,8 +48,8 @@ pub enum PillLook {
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "AgentToolPill")]
 pub struct Pill {
-    /// "Connected", "Found · not signed in", "Found · couldn't check", "Found · update needed", "Not installed",
-    /// "Hidden".
+    /// "Connected", "Found · not signed in", "Found · couldn't check", "Found · update needed", "Found · not
+    /// usable", "Not installed", "Hidden".
     pub label: String,
     pub look: PillLook,
 }
@@ -265,6 +267,11 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
             "Found \u{b7} update needed",
             with_version("too old for this app"),
         ),
+        AgentToolState::NotUsable { why, .. } => (
+            PillLook::NotUsable,
+            "Found \u{b7} not usable",
+            with_version(why),
+        ),
         AgentToolState::NotInstalled => (
             PillLook::NotInstalled,
             "Not installed",
@@ -323,9 +330,10 @@ pub fn row(s: &ToolStatus, place: Place, none_connected: bool) -> Row {
         notes.extend(s.notes.iter().map(|note| format!("{name}: {note}")));
     }
     let could_not_check = matches!(s.state, AgentToolState::CouldNotCheck { .. });
+    let not_usable = matches!(s.state, AgentToolState::NotUsable { .. });
     let mark = if connected {
         Mark::Connected
-    } else if s.can_sign_in || update.is_some() || could_not_check {
+    } else if s.can_sign_in || update.is_some() || could_not_check || not_usable {
         Mark::Attention
     } else if s.state == AgentToolState::NotInstalled && (settings || none_connected) {
         Mark::Missing
@@ -996,6 +1004,35 @@ mod tests {
         assert_eq!(update.command, "npm install -g @github/copilot");
         assert_eq!(update.copy, "Copy");
         assert!(r.sign_in.is_none() && r.can_see.is_none());
+    }
+
+    /// A second Otaq without `CODEX_HOME` (piece 3 of fixes-before-0-3): Codex is found but not usable, amber, and
+    /// the line says why and what to set; nothing Otaq added, no Sign in…, no Disconnect….
+    #[test]
+    fn not_usable_says_why() {
+        let codex = status(
+            Tool::Codex,
+            AgentToolState::NotUsable {
+                version: None,
+                why: otaq_core::agent_tools::codex::held_back_reason(),
+            },
+        );
+        let r = settings_row(&codex);
+        let pill = r.pill.as_ref().unwrap();
+        assert_eq!(
+            (pill.label.as_str(), pill.look),
+            ("Found \u{b7} not usable", PillLook::NotUsable)
+        );
+        assert_eq!(
+            r.detail,
+            format!(
+                "this {PRODUCT_NAME} has its own data folder: set CODEX_HOME to use Codex with this {PRODUCT_NAME}"
+            )
+        );
+        assert_eq!(r.mark, Mark::Attention);
+        assert!(r.sign_in.is_none() && r.can_see.is_none() && r.added.is_none());
+        assert!(r.update.is_none() && r.install.is_none());
+        assert!(!r.menu.iter().any(|m| m.action == MenuAction::Disconnect));
     }
 
     #[test]

@@ -58,6 +58,7 @@ mod tests {
         CodexContext {
             tool: crate::agent_tools::test_support::context(home, None),
             codex_home: Some(home.to_path_buf()),
+            held_back: false,
         }
     }
 

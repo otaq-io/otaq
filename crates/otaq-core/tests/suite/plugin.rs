@@ -26,9 +26,16 @@ fn json(path: &Path) -> Value {
     serde_json::from_str(&text).unwrap_or_else(|e| panic!("{}: {e}", path.display()))
 }
 
+/// A shipped skill's folder in the plugin: `work-ticket` for Otaq's `otaq:work-ticket`, a folder's name as it is.
+fn folder(name: &str) -> &str {
+    otaq_core::skills::own_folder(name).unwrap_or(name)
+}
+
 /// The front matter's `name:` and the body of a SKILL.md.
 fn skill(name: &str) -> (String, String) {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = otaq_core::runtime::shipped_skills(&plugin())
+        .join(folder(name))
+        .join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, body) = rest.split_once("\n---\n").expect("front matter end");
@@ -45,7 +52,9 @@ fn skill(name: &str) -> (String, String) {
 
 /// The front matter of a SKILL.md, as `key: value` lines.
 fn front_matter(name: &str) -> Vec<(String, String)> {
-    let path = plugin().join("skills").join(name).join("SKILL.md");
+    let path = otaq_core::runtime::shipped_skills(&plugin())
+        .join(folder(name))
+        .join("SKILL.md");
     let text = std::fs::read_to_string(&path).unwrap_or_else(|e| panic!("{}: {e}", path.display()));
     let rest = text.strip_prefix("---\n").expect("front matter");
     let (front, _) = rest.split_once("\n---\n").expect("front matter end");
@@ -58,7 +67,7 @@ fn front_matter(name: &str) -> Vec<(String, String)> {
 
 /// Every skill folder in the plugin.
 fn skill_names() -> Vec<String> {
-    let mut names: Vec<String> = std::fs::read_dir(plugin().join("skills"))
+    let mut names: Vec<String> = std::fs::read_dir(otaq_core::runtime::shipped_skills(&plugin()))
         .unwrap()
         .map(|e| e.unwrap())
         .filter(|e| e.path().is_dir())
@@ -69,7 +78,8 @@ fn skill_names() -> Vec<String> {
 }
 
 /// Claude Code's plugin folder holds its manifest and hooks in git; the shipped skills live once, beside it in
-/// `plugin/skills/`, and the runtime copy fills the plugin's own `skills/` from there (`crate::runtime`).
+/// `plugin/skills/` (the `otaq-skills` submodule, its skills in its `skills/`), and the runtime copy fills the
+/// plugin's own `skills/` from there (`crate::runtime`).
 #[test]
 fn the_manifest_names_the_plugin_namespace() {
     let claude = plugin().join("claude");
@@ -83,7 +93,11 @@ fn the_manifest_names_the_plugin_namespace() {
         .collect();
     entries.sort();
     assert_eq!(entries, [".claude-plugin", "hooks"]);
-    assert!(plugin().join("skills").join(WORK_TICKET_SKILL).is_dir());
+    assert!(
+        otaq_core::runtime::shipped_skills(&plugin())
+            .join(folder(WORK_TICKET_SKILL))
+            .is_dir()
+    );
 }
 
 #[test]
@@ -126,7 +140,7 @@ fn every_hook_runs_an_accepted_otaq_hook_event() {
 #[test]
 fn work_ticket_teaches_the_whole_path_to_the_next_stage() {
     let (name, body) = skill(WORK_TICKET_SKILL);
-    assert_eq!(name, WORK_TICKET_SKILL);
+    assert_eq!(name, folder(WORK_TICKET_SKILL));
     let cmd = naming::COMMAND_NAME;
     let prime = body.find(&format!("`{cmd} prime`")).expect("prime first");
     let commit = body.find(COMMIT_STEP).expect("the Commit skill");
@@ -260,28 +274,6 @@ fn work_ticket_teaches_answer_options() {
          --option \"Resend\" --note \"Simple API, but a new account and a new vendor to manage.\" --recommended 1",
         "What should",
     );
-}
-
-/// T-0546 (d0129, d0084, d0061): the planning stages that question the user teach both forms of a question, the
-/// question on its first line and where they are in the questions after it.
-#[test]
-fn the_spec_skills_teach_answer_options() {
-    assert_teaches_answer_options(
-        "product-spec",
-        "--option \"Anyone with the link\" --note \"Easy to send in a chat; anyone who gets the link sees the list.\" \
-         --option \"Signed-in friends\" --note \"Private, but each friend needs an account first: fewer people will look.\" \
-         --recommended 1",
-        "Who asked for wishlist sharing, and what do they want to do with it?\nQuestion 2 of about 4.",
-    );
-    assert_teaches_answer_options(
-        "tech-spec",
-        "--option \"Links never expire\" --note \"Simplest; an old link keeps working until the list is deleted.\" \
-         --option \"Expire after 30 days\" --note \"Safer, but friends get a 'link expired' page and ask for a new one.\" \
-         --recommended 1",
-        "How many wishlists does your largest customer have today, roughly?\nQuestion 2 of 2.",
-    );
-    let (_, plan) = skill("milestone-plan");
-    assert_every_ask_human_reads_stdin(&plan);
 }
 
 /// T-0376 (DEC-07, d0084): work-ticket checks the ticket for gaps before any code, asks what changes what gets
@@ -596,15 +588,7 @@ fn push_proposes_the_new_commits_and_pushes_after_the_confirmation() {
 #[test]
 fn committing_skills_push_only_when_the_user_asks_and_wait_for_the_pre_push_hook() {
     let cmd = naming::COMMAND_NAME;
-    for name in [
-        WORK_TICKET_SKILL,
-        "commit",
-        "address-review",
-        "restack",
-        "product-spec",
-        "tech-spec",
-        "milestone-plan",
-    ] {
+    for name in [WORK_TICKET_SKILL, "commit", "address-review", "restack"] {
         let (_, body) = skill(name);
         let text = flat(&body);
         assert!(
@@ -710,7 +694,10 @@ fn answer_question_changes_nothing_and_ends_with_answer() {
 fn validate_is_a_read_only_judge_that_ends_with_a_verdict() {
     let (name, body) = skill("validate");
     assert_eq!(name, "validate");
-    assert_eq!(WorkflowStep::Validate.own_skill(), name);
+    assert_eq!(
+        WorkflowStep::Validate.own_skill(),
+        otaq_core::skills::own_name(&name)
+    );
     assert!(
         front_matter("validate")
             .contains(&("disable-model-invocation".to_owned(), "true".to_owned()))
@@ -828,15 +815,7 @@ fn no_skill_mentions_done_when_and_the_agent_waits_for_validation() {
 fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
     let cmd = naming::COMMAND_NAME;
     let resource = format!("`${}`", naming::resource_dir_env_var());
-    let ends_stage = [
-        WORK_TICKET_SKILL,
-        "product-spec",
-        "tech-spec",
-        "milestone-plan",
-        "validate",
-        "address-review",
-        "restack",
-    ];
+    let ends_stage = [WORK_TICKET_SKILL, "validate", "address-review", "restack"];
     for name in ends_stage.iter().chain(&["answer-question", "commit"]) {
         let (_, body) = skill(name);
         let text = flat(&body);
@@ -920,38 +899,7 @@ fn the_skills_hand_over_short_comments_and_keep_long_output_in_reports() {
             "{name}: the \"<command> at <commit>: … log: …\" line in\n{comment}"
         );
     }
-    // The planning skills attach one document they wrote, never output, and say what a document is.
-    for (name, document) in [
-        ("product-spec", "market-comparison.md"),
-        ("tech-spec", "options.md"),
-        ("milestone-plan", "notes.md"),
-    ] {
-        let (_, body) = skill(name);
-        let lines = joined(&body);
-        let attached: Vec<_> = lines
-            .match_indices("--report-file ")
-            .map(|(at, flag)| {
-                lines[at + flag.len()..]
-                    .split_whitespace()
-                    .next()
-                    .unwrap_or_default()
-                    .trim_end_matches(['`', ':'])
-            })
-            .collect();
-        assert_eq!(
-            attached,
-            [format!("\"$OTAQ_RESOURCE_DIR/{document}\"")],
-            "{name}: one document attached"
-        );
-        let text = flat(&body);
-        for needle in [
-            "a write-up the user or a later stage will read (",
-            "never attach command output, such as a run, a diff or a log",
-            "It goes into the repo only when the project's notes say research lives there.",
-        ] {
-            assert!(text.contains(needle), "{name} must say {needle:?}");
-        }
-    }
+    // The planning skills (tuq's, decision 102) are checked in tuq's own repository.
     // T-0560 (CMT-09, VAL-03; d0136, d0063): the validator starts from the agent's comment, may rely on a passing
     // run at HEAD, lists when to run a check itself, and its verdicts attach nothing and say what was relied on and
     // run. Nothing forces or forbids a repeat.

@@ -258,8 +258,8 @@ pub const WORKS_AGENT: &str = "Developer";
 pub const CHECKS_AGENT: &str = "Checker";
 /// The skill a stage switched to each kind takes with the kind's agent (its own); a new stage starts with none
 /// (FED-05).
-pub const WORKS_SKILL: &str = "work-ticket";
-pub const CHECKS_SKILL: &str = "validate";
+pub const WORKS_SKILL: &str = otaq_core::agent_tools::WORK_TICKET_SKILL;
+pub const CHECKS_SKILL: &str = otaq_core::own_skill!("validate");
 /// An agent check's fails in a row before the card stops (the presets' 3).
 pub const CHECK_ROUNDS: u32 = 3;
 pub const NEW_STAGE: &str = "New stage";
@@ -274,9 +274,10 @@ pub const READY_CAPTION: &str =
     "Every flow starts here. Start a ticket and it goes into the first stage.";
 pub const PR_CAPTION: &str = "A pull request opens on GitHub; your team reviews it there.";
 
-/// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent.
+/// Shipped skills' captions in Otaq's words (Q-B): their SKILL.md descriptions are written for the agent. Only Otaq's
+/// own, named in their namespace (`otaq:work-ticket`, `tuq:product-spec`); a bare name is the user's skill.
 pub fn shipped_caption(skill: &str, back: Option<&str>) -> Option<String> {
-    Some(match skill {
+    Some(match otaq_core::skills::otaqs_or_tuqs(skill)? {
         "work-ticket" => {
             "An agent writes the code in the ticket\u{2019}s own copy of the repo (a worktree)."
                 .to_owned()
@@ -389,9 +390,11 @@ pub enum SkillState {
     },
 }
 
-/// Pick a skill…: the skills the user already has (personal ones, then the project's), then Otaq's own, searchable;
-/// each item's second line says where it lives, which tools have it and what it does ("Personal · Claude Code ·
-/// Lists the steps…", "Otaq’s · …": every tool has Otaq's own), its id is the skill's name. Never empty: Otaq's own are always there. `FlowEditorSkillPicker` on the page.
+/// Pick a skill…: the skills the user already has (personal ones, then the project's), unmarked, then Otaq's own
+/// under an "Otaq" header with Otaq's mark, each with an "Otaq" badge (decision 108), searchable. A user's skill's
+/// second line says where it lives, which tools have it and what it does ("Personal · Claude Code · Lists the
+/// steps…"), an Otaq row's what it does (every tool has Otaq's own); an item's id is the skill's name. Never empty:
+/// Otaq's own are always there. `FlowEditorSkillPicker` on the page.
 #[derive(Debug, Clone, PartialEq, Serialize, TS)]
 #[ts(rename = "FlowEditorSkillPicker")]
 pub struct SkillPicker {
@@ -1031,11 +1034,9 @@ pub fn write_skill_prefill(file: &FlowFile, stage: &str) -> String {
     format!("Write a skill for the {name} stage: ")
 }
 
-/// Where a skill of Pick a skill… lives, its second line's start: "Personal", "This project", "Plugin", "Otaq’s".
+/// Where one of the user's skills in Pick a skill… lives, its second line's start: "Personal", "This project",
+/// "Plugin" (Otaq's own say whose they are with their badge instead).
 fn skill_place(skill: &FoundSkill) -> String {
-    if skill.otaq {
-        return format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME);
-    }
     match skill.places.first().map(|p| p.scope) {
         Some(SkillScope::Project) => "This project".to_owned(),
         Some(SkillScope::Plugin) => "Plugin".to_owned(),
@@ -1058,10 +1059,12 @@ fn skill_tools(skill: &FoundSkill) -> String {
     otaq_core::flow::proposal::tool_names(&skill.tools)
 }
 
-/// Pick a skill…'s items: the user's own skills (personal ones, then the project's, each by name), then Otaq's own
-/// (by name), the stage's skill checked. A name that matches one of Otaq's own skills always means Otaq's skill, so it
-/// is listed once, as Otaq's. The second line is where it lives, the tools that have it (not for Otaq's own, which
-/// every tool has), then its description (Otaq's own words for its shipped skills).
+/// Pick a skill…'s items (decision 108): the user's own skills first, unmarked (personal ones, then the project's,
+/// each by name), then a group headed "Otaq" with Otaq's mark listing Otaq's own: its `otaq:` workflow skills and
+/// tuq's `tuq:` skills (decision 104: tuq counts as Otaq's, whoever installed it), each by its namespaced name with an
+/// "Otaq" badge; the stage's skill checked. The page's search keeps the header over the Otaq rows it shows, and the
+/// badge on each. A user's skill's second line is where it lives, the tools that have it, then its description; an
+/// Otaq row's says what it does (Otaq's own words for its shipped skills): every tool has it.
 fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
     let mut skills: Vec<&FoundSkill> = f.skills.iter().collect();
     let order = |s: &FoundSkill| match (s.otaq, s.places.first().map(|p| p.scope)) {
@@ -1070,28 +1073,37 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
         (false, _) => 0,
     };
     skills.sort_by_key(|s| (order(s), s.name.to_lowercase()));
-    skills
+    let (otaqs, users): (Vec<&FoundSkill>, Vec<&FoundSkill>) =
+        skills.into_iter().partition(|s| s.otaq);
+    let checked = |skill: &FoundSkill| stage.skill.as_deref() == Some(skill.name.as_str());
+    let mut items: Vec<MenuItem> = users
         .into_iter()
         .map(|skill| {
-            let description = if skill.otaq {
-                shipped_caption(&skill.name, None).or_else(|| skill.description.clone())
-            } else {
-                skill.description.clone()
-            };
-            let place = if skill.otaq {
-                skill_place(skill)
-            } else {
-                format!("{} \u{b7} {}", skill_place(skill), skill_tools(skill))
-            };
-            let hint = match description {
+            let place = format!("{} \u{b7} {}", skill_place(skill), skill_tools(skill));
+            let hint = match &skill.description {
                 Some(d) => format!("{place} \u{b7} {d}"),
                 None => place,
             };
             MenuItem::new(skill.name.as_str(), skill.name.as_str())
                 .hint(hint)
-                .checked(stage.skill.as_deref() == Some(skill.name.as_str()))
+                .checked(checked(skill))
         })
-        .collect()
+        .collect();
+    if !otaqs.is_empty() {
+        let mut header = MenuItem::header(otaq_core::naming::PRODUCT_NAME).mark();
+        header.separated = !items.is_empty();
+        items.push(header);
+    }
+    items.extend(otaqs.into_iter().map(|skill| {
+        let item = MenuItem::new(skill.name.as_str(), skill.name.as_str())
+            .badge(otaq_core::naming::PRODUCT_NAME)
+            .checked(checked(skill));
+        match shipped_caption(&skill.name, None).or_else(|| skill.description.clone()) {
+            Some(d) => item.hint(d),
+            None => item,
+        }
+    }));
+    items
 }
 
 /// "You don't have the skill `<name>`" on `stage`: the draft's warning for its skill, which neither Otaq ships nor
@@ -1828,8 +1840,12 @@ flow:
     delivers: pr
 ";
 
+    /// shop-web's flow as stored before Otaq's skills were renamed, renamed as the upgrade renames it
+    /// (`otaq:work-ticket`, `tuq:product-spec`).
     pub fn shop_web() -> FlowFile {
-        otaq_core::flow::yaml::read(SHOP_WEB).expect("shop-web's flow reads")
+        let mut file = otaq_core::flow::yaml::read(SHOP_WEB).expect("shop-web's flow reads");
+        otaq_core::flow::skill_names::name_own_skills(&mut file);
+        file
     }
 
     pub fn otaq_default() -> FlowFile {
@@ -2092,10 +2108,11 @@ mod tests {
     /// d0115, d0129: Spec first's planning skills show Otaq's own captions, not their agent-facing descriptions.
     #[test]
     fn the_planning_skills_show_otaqs_own_captions() {
-        let captions: Vec<Option<String>> = ["product-spec", "tech-spec", "milestone-plan"]
-            .into_iter()
-            .map(|skill| shipped_caption(skill, None))
-            .collect();
+        let captions: Vec<Option<String>> =
+            ["tuq:product-spec", "tuq:tech-spec", "tuq:milestone-plan"]
+                .into_iter()
+                .map(|skill| shipped_caption(skill, None))
+                .collect();
         assert_eq!(
             captions,
             [
@@ -2137,7 +2154,7 @@ mod tests {
         assert_eq!(
             details.skill.map(|s| s.state),
             Some(SkillState::Set {
-                skill: "work-ticket".into(),
+                skill: otaq_core::agent_tools::WORK_TICKET_SKILL.into(),
                 warning: None,
                 fix: None,
             })
@@ -2570,7 +2587,11 @@ mod tests {
         let s = back.flow.stage("validate").unwrap();
         assert_eq!(
             (s.agent.as_deref(), s.skill.as_deref(), s.rounds),
-            (Some("Checker"), Some("validate"), Some(3))
+            (
+                Some("Checker"),
+                Some(otaq_core::own_skill!("validate")),
+                Some(3)
+            )
         );
         assert!(otaq_core::flow::yaml::read(&otaq_core::flow::yaml::write(&back)).is_ok());
         // Rename, agent, an option.
@@ -2671,8 +2692,9 @@ mod tests {
             skill.state,
             SkillState::Empty {
                 text: format!(
-                    "No skill of yours: Plan runs {}\u{2019}s `work-ticket`.",
-                    otaq_core::naming::PRODUCT_NAME
+                    "No skill of yours: Plan runs {}\u{2019}s `{}`.",
+                    otaq_core::naming::PRODUCT_NAME,
+                    otaq_core::agent_tools::WORK_TICKET_SKILL
                 ),
                 pick: "Pick a skill\u{2026}",
                 ask: "Ask the agent to write it",
@@ -2730,23 +2752,96 @@ mod tests {
                 ),
             ]
         );
-        assert_eq!(items[2].0, "address-review");
-        let otaqs: Vec<&str> = items[2..].iter().map(|(id, _)| *id).collect();
-        assert_eq!(otaqs.len(), shipped::SKILLS.len());
-        assert!(otaqs.contains(&"validate") && otaqs.contains(&"work-ticket"));
-        assert!(items[2..].iter().all(|(_, hint)| hint.is_some_and(|h| {
+        // The user's own are unmarked; then the "Otaq" group, its header with Otaq's mark (decision 108).
+        assert!(
+            picker.items[..2]
+                .iter()
+                .all(|i| i.badge.is_none() && !i.mark && !i.header)
+        );
+        let header = &picker.items[2];
+        assert!(header.header && header.mark && header.separated);
+        assert_eq!(header.label, otaq_core::naming::PRODUCT_NAME);
+        let own = |folder: &str| otaq_core::skills::own_name(folder);
+        assert_eq!(items[3].0, own("address-review"));
+        let otaqs = &picker.items[3..];
+        // Otaq's workflow skills and tuq's (decision 104), tuq's as tuq is known to have them, by their namespaced
+        // names, each with the "Otaq" badge.
+        assert_eq!(
+            otaqs.len(),
+            shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+        );
+        let ids: Vec<&str> = otaqs.iter().map(|i| i.id.as_str()).collect();
+        let product_spec = format!("{}:product-spec", otaq_core::tuq::NAMESPACE);
+        assert!(
+            ids.contains(&own("validate").as_str())
+                && ids.contains(&own("work-ticket").as_str())
+                && ids.contains(&product_spec.as_str())
+        );
+        assert!(otaqs.iter().all(|i| i.label == i.id
+            && !i.header
+            && i.badge.as_deref() == Some(otaq_core::naming::PRODUCT_NAME)));
+        // Its second line says what it does, in Otaq's words where it has them; no "Otaq's ·" before it.
+        let hint = |id: &str| otaqs.iter().find(|i| i.id == id).unwrap().hint.clone();
+        assert_eq!(hint(&product_spec), shipped_caption(&product_spec, None));
+        assert!(otaqs.iter().all(|i| !i.hint.as_deref().is_some_and(|h| {
             h.starts_with(&format!("{}\u{2019}s", otaq_core::naming::PRODUCT_NAME))
         })));
         assert_eq!(picker.search.placeholder, "Search your skills\u{2026}");
         assert_eq!(picker.use_typed, "Use `{name}`");
 
-        // With none of the user's own, Otaq's own still show: the list is never empty.
+        // With none of the user's own, Otaq's own still show: the list is never empty, and starts with the group's
+        // header, nothing above it to separate it from.
         let mut e = e;
         e.skills = otaq_skills();
         let v = render(&e, &d, &file, &shop, Some("plan"));
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
-        assert_eq!(picker.items.len(), shipped::SKILLS.len());
-        assert!(picker.items.iter().all(|i| !i.disabled && !i.id.is_empty()));
+        assert_eq!(
+            picker.items.len(),
+            1 + shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+        );
+        assert!(picker.items[0].header && picker.items[0].mark && !picker.items[0].separated);
+        assert!(
+            picker.items[1..]
+                .iter()
+                .all(|i| !i.disabled && !i.id.is_empty())
+        );
+    }
+
+    /// Decision 108: a personal `validate` is the user's, listed above the "Otaq" group, unmarked, apart from Otaq's
+    /// `otaq:validate`, which is in the group with its badge.
+    #[test]
+    fn a_personal_validate_sits_above_otaqs_unmarked() {
+        let mut e = env();
+        e.skills.push(users_skill(
+            "validate",
+            "Checks the build.",
+            SkillScope::Personal,
+            "/Users/me/.claude/skills",
+            &[Tool::Claude],
+        ));
+        let shop = shop_web();
+        let (file, d) = plan_draft(None);
+        let d = Draft {
+            proposal: d,
+            ..draft(&file, false)
+        };
+        let v = render(&e, &d, &file, &shop, Some("plan"));
+        let items = &plan_details(&v).skill.as_ref().unwrap().picker.items;
+        let at = |id: &str| items.iter().position(|i| i.id == id && !i.header).unwrap();
+        let group = items.iter().position(|i| i.header).unwrap();
+        let mine = &items[at("validate")];
+        assert!(at("validate") < group);
+        assert_eq!(mine.badge, None);
+        assert_eq!(
+            mine.hint.as_deref(),
+            Some("Personal \u{b7} Claude Code \u{b7} Checks the build.")
+        );
+        let otaqs = &items[at(&otaq_core::skills::own_name("validate"))];
+        assert!(at(&otaqs.id) > group);
+        assert_eq!(
+            otaqs.badge.as_deref(),
+            Some(otaq_core::naming::PRODUCT_NAME)
+        );
     }
 
     /// A personal Codex skill says Codex has it; one Codex finds but skips (its SKILL.md starts with a byte order
@@ -2842,7 +2937,7 @@ mod tests {
                 .all(|(_, w)| w.is_none())
         );
 
-        // `validate` is Otaq's own: no warning, even one the draft says.
+        // `otaq:validate` is Otaq's own: no warning, even one the draft says.
         let mut d = draft(&shop, false);
         d.proposal.diff.warnings = vec![Warning {
             level: Level::Amber,
@@ -2853,7 +2948,7 @@ mod tests {
         assert_eq!(
             v.details.as_ref().unwrap().skill.as_ref().unwrap().state,
             SkillState::Set {
-                skill: "validate".into(),
+                skill: otaq_core::own_skill!("validate").into(),
                 warning: None,
                 fix: None,
             }
@@ -3047,7 +3142,7 @@ mod tests {
         let s = tech.flow.stage(id.as_deref().unwrap()).unwrap();
         assert_eq!(
             (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()),
-            ("Tech spec", Some("Architect"), Some("tech-spec"))
+            ("Tech spec", Some("Architect"), Some("tuq:tech-spec"))
         );
         assert!(s.description.is_some());
         assert!(tech.agents.iter().any(|a| a.name == "Architect"));

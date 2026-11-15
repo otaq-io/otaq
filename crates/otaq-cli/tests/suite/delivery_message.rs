@@ -226,6 +226,7 @@ async fn a_request_waiting_behind_unsent_text_is_dropped_when_the_ticket_leaves_
         otaq_core::session::deliveries::Delivery::NeedsConfirmation {
             ticket: Some(s.ticket.key.clone()),
             unclearable_by: None,
+            prompt: None,
         },
         "held behind the unsent text"
     );

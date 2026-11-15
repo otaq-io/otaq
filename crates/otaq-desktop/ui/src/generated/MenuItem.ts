@@ -29,4 +29,13 @@ checked: boolean,
 /**
  * A group label ("LOCAL", "REMOTE"); never chosen.
  */
-header: boolean, };
+header: boolean, 
+/**
+ * A small label after the row's label, saying whose it is: "Otaq" on Otaq's own skills in Pick a skill…
+ * (decision 108). Left out when there is none.
+ */
+badge?: string, 
+/**
+ * Draws Otaq's mark before the label: Pick a skill…'s "Otaq" group header (decision 108). Left out when false.
+ */
+mark?: boolean, };

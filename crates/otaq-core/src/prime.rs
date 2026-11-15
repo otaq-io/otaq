@@ -78,6 +78,9 @@ pub struct PrimeContext {
     /// The tickets this ticket's agent created that never started: what it may still fix (d0129).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub created_not_started: Vec<TicketKey>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// The "Pull request" section: what the skill proposes from, and what the user confirmed.
@@ -552,6 +555,7 @@ impl Board {
             manual_checks,
             pull_request,
             created_not_started,
+            long_text_file: None,
         };
         Ok((context, agent))
     }
@@ -743,6 +747,9 @@ pub struct ValidatePrime {
     /// Tickets that depend on this one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Linked>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// The user's line comments of the latest Send back (`prime --validate`'s "The user's review").
@@ -829,6 +836,7 @@ impl Board {
             parents: base.parents,
             children,
             ticket,
+            long_text_file: None,
         })
     }
 
@@ -919,7 +927,12 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
             review.round
         ));
         for c in &review.comments {
-            out.push_str(&format!("- {}:{}: {}\n", c.file, c.line, c.body.trim()));
+            out.push_str(&format!(
+                "- {}:{}: {}\n",
+                c.file,
+                c.line,
+                nest_headings(c.body.trim())
+            ));
         }
     }
     if !ctx.parents.is_empty() || !ctx.children.is_empty() {
@@ -953,11 +966,13 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
          failure. Finish with `{cmd} check pass --stdin` or \
          `{cmd} check fail --stdin` and the verdict on stdin. The agent's comment says what it ran; decide yourself \
          whether to run it again. Save any run to a file in `${dir}` (never in the worktree) and name it in the \
-         verdict. {manual}\n",
+         verdict. {manual} {skills}\n",
         ctx.diff.trim_end(),
         dir = naming::resource_dir_env_var(),
         manual = MANUAL_CHECK_RULE.replace("{cmd}", cmd).replace("{command}", "check pass|fail"),
+        skills = no_self_start_rule(),
     ));
+    out.push_str(&render_long_text_file(ctx.long_text_file.as_deref()));
     out
 }
 
@@ -1095,6 +1110,94 @@ fn subject(message: &str) -> &str {
     message.lines().next().unwrap_or_default()
 }
 
+/// How many levels a heading inside a comment's body is pushed down (tuq 110): a comment sits under `### <heading>`,
+/// so its `#` reads as `####`.
+const NESTED_BY: usize = 3;
+
+/// A comment's body with each Markdown heading pushed down below the comment's own `###` heading (tuq 110), so no
+/// heading in it reads as one of `prime`'s sections: `# Done` becomes `#### Done`, capped at `######`. Only ATX
+/// headings count (up to 3 spaces, 1 to 6 `#`, then a space, a tab or the line's end: never `#123` or `#tag`); lines
+/// inside a fenced code block (backticks or tildes) are left alone, and nothing else changes. A body with no heading
+/// comes back as it is.
+pub fn nest_headings(body: &str) -> std::borrow::Cow<'_, str> {
+    let mut out = String::with_capacity(body.len() + 16);
+    let mut changed = false;
+    // The open fence's character and length, while inside one.
+    let mut fence: Option<(char, usize)> = None;
+    for line in body.split_inclusive('\n') {
+        let text = line.trim_end_matches(['\n', '\r']);
+        let ending = &line[text.len()..];
+        match fence {
+            Some(open) => {
+                if closes_fence(text, open) {
+                    fence = None;
+                }
+                out.push_str(line);
+            }
+            None => {
+                if let Some(open) = opens_fence(text) {
+                    fence = Some(open);
+                    out.push_str(line);
+                } else if let Some((indent, level)) = atx_heading(text) {
+                    out.push_str(&text[..indent]);
+                    out.push_str(&"#".repeat((level + NESTED_BY).min(6)));
+                    out.push_str(&text[indent + level..]);
+                    out.push_str(ending);
+                    changed = true;
+                } else {
+                    out.push_str(line);
+                }
+            }
+        }
+    }
+    match changed {
+        true => std::borrow::Cow::Owned(out),
+        false => std::borrow::Cow::Borrowed(body),
+    }
+}
+
+/// Up to 3 leading spaces: their count, or nothing for a line indented further (an indented code block's).
+fn indent_of(line: &str) -> Option<usize> {
+    let n = line.len() - line.trim_start_matches(' ').len();
+    (n <= 3).then_some(n)
+}
+
+/// An ATX heading line: its indent and level (`## x` is `(0, 2)`).
+fn atx_heading(line: &str) -> Option<(usize, usize)> {
+    let indent = indent_of(line)?;
+    let rest = &line[indent..];
+    let level = rest.len() - rest.trim_start_matches('#').len();
+    if !(1..=6).contains(&level) {
+        return None;
+    }
+    match rest[level..].chars().next() {
+        None | Some(' ') | Some('\t') => Some((indent, level)),
+        Some(_) => None,
+    }
+}
+
+/// A line opening a fenced code block: its character and length (3 or more backticks or tildes; a backtick fence's
+/// info string holds no backtick).
+fn opens_fence(line: &str) -> Option<(char, usize)> {
+    let rest = &line[indent_of(line)?..];
+    let ch = rest.chars().next().filter(|c| matches!(c, '`' | '~'))?;
+    let len = rest.len() - rest.trim_start_matches(ch).len();
+    if len < 3 || (ch == '`' && rest[len..].contains('`')) {
+        return None;
+    }
+    Some((ch, len))
+}
+
+/// Whether `line` closes the fence `open`: the same character, at least as many, and nothing after but spaces.
+fn closes_fence(line: &str, (ch, len): (char, usize)) -> bool {
+    let Some(indent) = indent_of(line) else {
+        return false;
+    };
+    let rest = &line[indent..];
+    let run = rest.len() - rest.trim_start_matches(ch).len();
+    run >= len && rest[run..].trim().is_empty()
+}
+
 /// `> ` before each line of a quoted comment, indented by `indent`.
 fn quote(out: &mut String, indent: &str, text: &str) {
     for line in text.trim().lines() {
@@ -1165,6 +1268,69 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
     out
 }
 
+/// The file a Codex session passes long text to `otaq` through (fixes-before-0-3, piece 1): `otaq-<session>.md` in the
+/// temporary folder, which Codex's sandbox may write to and which the session inherits from the service. Named for the
+/// session, so agents working side by side never share one; never in the worktree, where an uncommitted file stops
+/// `otaq stage next`.
+pub fn long_text_file(session: &str) -> std::path::PathBuf {
+    let session: String = session
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => c,
+            _ => '-',
+        })
+        .collect();
+    std::env::temp_dir().join(format!("{}-{session}.md", naming::COMMAND_NAME))
+}
+
+/// What a Codex session's `prime` adds (fixes-before-0-3, piece 1): Codex runs a command that feeds `otaq` through a
+/// heredoc, a pipe or `<` in its sandbox, where `otaq` can't reach the service, while a plain `otaq …` command
+/// matches Codex's `otaq` rule and runs outside it. So the text goes to `file` first and `--stdin-file` reads it; the
+/// path is written out in full, as a `$VARIABLE` in it stops the rule matching too. Empty without a file (every other
+/// tool's session).
+pub fn render_long_text_file(file: Option<&std::path::Path>) -> String {
+    let Some(file) = file else {
+        return String::new();
+    };
+    let cmd = naming::COMMAND_NAME;
+    let file = file.display();
+    format!(
+        "\n## Long text in Codex\n\n\
+         Codex runs a command that passes text to `{cmd}` with a heredoc (`<<`), a pipe (`|`) or `<` in its sandbox, \
+         where `{cmd}` can't reach {product} (\"the background service isn't running\"). So wherever these rules or a \
+         skill pass text to `{cmd}` with `--stdin`, write the text to \"{file}\" first, then run the command with \
+         `--stdin-file \"{file}\"` in place of `--stdin`: two commands, each run on its own (an `{cmd}` in the same \
+         command as the heredoc runs in the sandbox too), the path written out in full (so does one with a `$` \
+         variable in it). Run every `{cmd}` command on its own, never joined to another with `&&`, `;` or `|`: \
+         joined, it runs in the sandbox too. Never write that text in the worktree: an uncommitted file there stops \
+         `{cmd} stage next`. This changes only how you pass text, never when: run each `{cmd}` command when your \
+         stage's skill says to, as before.\n\n\
+         ```sh\n\
+         cat > \"{file}\" <<'EOF'\n\
+         <the text>\n\
+         EOF\n\
+         ```\n\n\
+         ```sh\n\
+         {cmd} <command> <its options> --stdin-file \"{file}\"\n\
+         ```\n\n\
+         In PowerShell, write the file with `Set-Content -LiteralPath \"{file}\"`. `update --plan-stdin` has \
+         `--plan-file` instead.\n",
+        product = naming::PRODUCT_NAME,
+    )
+}
+
+/// What every session is told about starting skills (decision 089): Otaq starts a stage's skills, or the user types
+/// one; a skill that was started may call the skills it names (`product-spec` → `step-back`). Tickets', checks' and
+/// Noyan's `prime` carry it, and so do Otaq's `work-ticket` and `noyan` skills.
+pub fn no_self_start_rule() -> String {
+    format!(
+        "Never start a skill on your own initiative: a skill runs only when {} types it for your stage or the user \
+         asks for it (types it, or names it in their instructions), even when what you read matches a skill's \
+         description (\"I want users to…\"). A skill that was started may call the skills it names.",
+        naming::PRODUCT_NAME
+    )
+}
+
 /// The heading of `prime`'s list of manual checks (d0125).
 pub const MANUAL_CHECKS_HEADING: &str = "Manual checks for the user";
 
@@ -1213,7 +1379,7 @@ pub fn render_comments(key: &TicketKey, comments: &[TicketComment]) -> String {
         // A comment of only attachments (tuq 007): its heading, then its attachments' lines.
         let body = c.body.trim();
         if !body.is_empty() {
-            out.push_str(&format!("\n{body}\n"));
+            out.push_str(&format!("\n{}\n", nest_headings(body)));
         }
         let lines = c.attachment_lines(key);
         if !lines.is_empty() {
@@ -1250,7 +1416,7 @@ pub fn render_user_answers(answers: &[HumanAnswer]) -> String {
 /// report's line.
 fn render_last_comment(out: &mut String, key: &TicketKey, comment: &TicketComment) {
     out.push_str(&format!("  Last comment, {}:\n", comment.heading()));
-    quote(out, "  ", &comment.body);
+    quote(out, "  ", &nest_headings(&comment.body));
     for line in comment.attachment_lines(key) {
         out.push_str(&format!("  {line}\n"));
     }
@@ -1395,9 +1561,59 @@ pub fn render(ctx: &PrimeContext) -> String {
         format!(
             "`{cmd} show <KEY>` reads any ticket; `{cmd} create \"Title\" --stdin` files a follow-up in Backlog."
         ),
+        no_self_start_rule(),
     ];
     for (n, rule) in rules.iter().enumerate() {
         out.push_str(&format!("{}. {rule}\n", n + 1));
     }
+    out.push_str(&render_long_text_file(ctx.long_text_file.as_deref()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// fixes-before-0-3, piece 1: a Codex session's file is its own, in the temporary folder, named safely.
+    #[test]
+    fn the_long_text_file_is_the_sessions_own_in_the_temporary_folder() {
+        let file = long_text_file("01a1dfae-1cb4");
+        let named =
+            |rest: &str| std::env::temp_dir().join(format!("{}-{rest}", naming::COMMAND_NAME));
+        assert_eq!(file, named("01a1dfae-1cb4.md"));
+        assert_eq!(long_text_file("a/b c$d"), named("a-b-c-d.md"));
+    }
+
+    /// Only a Codex session's prime has the section (the others pass `None`), with the file written out in full.
+    #[test]
+    fn the_long_text_section_names_the_file_in_full() {
+        assert_eq!(render_long_text_file(None), "");
+        let file = std::path::Path::new("/var/folders/x/T/long-s1.md");
+        let section = render_long_text_file(Some(file));
+        assert!(
+            section.starts_with("\n## Long text in Codex\n\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("cat > \"/var/folders/x/T/long-s1.md\" <<'EOF'\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains(&format!(
+                "\n{} <command> <its options> --stdin-file \"/var/folders/x/T/long-s1.md\"\n",
+                naming::COMMAND_NAME
+            )),
+            "{section}"
+        );
+        assert!(
+            !section.contains("stage next --stdin-file")
+                && !section.contains("stage done --stdin-file"),
+            "the example must never be a command that ends the stage: {section}"
+        );
+        assert!(section.contains("never when"), "{section}");
+        assert!(
+            !section.contains("$TMPDIR") && !section.contains("{file}"),
+            "{section}"
+        );
+    }
 }

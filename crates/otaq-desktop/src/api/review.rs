@@ -537,7 +537,7 @@ pub struct SendBackParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
-    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
+    /// What the comment box holds: its files (CMT-13; tuq 001, 003; pasted text stays in the comment, tuq 112).
     #[serde(default)]
     pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]
@@ -649,7 +649,7 @@ pub struct SendBackPrParams {
     pub key: String,
     #[serde(default)]
     pub note: String,
-    /// What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
+    /// What the comment box holds: its files (CMT-13; tuq 001, 003; pasted text stays in the comment, tuq 112).
     #[serde(default)]
     pub attachments: Vec<super::attachments::Sent>,
     #[serde(default)]
@@ -823,6 +823,7 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
         Ok(Reply::DecisionChanged(ChangeOutcome::NeedsConfirmation {
             ticket,
             unclearable_by,
+            prompt,
         })) => Ok(Sent::Ask(Unsent::of(
             &UnsentPrompt::for_click(
                 ticket,
@@ -832,7 +833,8 @@ pub async fn change(app: &App, params: ChangeParams) -> Result<Sent, RequestErro
                     note: params.text.unwrap_or_default(),
                 },
             )
-            .unclearable_by(unclearable_by),
+            .unclearable_by(unclearable_by)
+            .over_prompt(prompt),
         ))),
         Ok(Reply::DecisionChanged(_)) => Ok(Sent::Done),
         Ok(other) => Err(unexpected("decision.change", &other)),

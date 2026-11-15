@@ -433,8 +433,44 @@
   margin: 0;
   color: var(--text-primary);
   font: 400 13px/1.5 var(--font-ui);
-  white-space: pre-wrap;
   overflow-wrap: anywhere;
+}
+
+/* A long comment folds (tuq 112): folded, its text shows about 15 lines, 15 of the drawn text's 13 px × 1.45 lines
+   (markdown.css), and fades out at the cut; `CommentText` measures whether what it draws is taller than that. */
+.comment-text {
+  display: flex;
+  flex-direction: column;
+  align-items: flex-start;
+  gap: 4px;
+  min-width: 0;
+}
+
+.comment-text > .comment-body {
+  align-self: stretch;
+  min-width: 0;
+}
+
+.comment-text[data-folded] > .comment-body {
+  max-height: calc(15 * 13px * 1.45);
+  overflow: hidden;
+}
+
+.comment-text[data-folded][data-long] > .comment-body {
+  mask-image: linear-gradient(to bottom, #000 calc(100% - 24px), transparent);
+}
+
+.comment-fold {
+  padding: 0;
+  border: 0;
+  background: none;
+  color: var(--accent);
+  font: 500 12.5px var(--font-ui);
+  cursor: pointer;
+}
+
+.comment-fold:hover {
+  text-decoration: underline;
 }
 
 /* A comment's attachments: one chip each, stacked. */
@@ -538,11 +574,48 @@
   background: var(--bg-card);
 }
 
-/* Past the limit: the red box (st-error on bg-card, 5.2:1 light, 5.9:1 dark; the counter on bg-panel 5.2:1 / 6.4:1). */
-.comment-box[data-over] .comment-box-text,
-.comment-edit[data-over] .comment-box-text {
-  border-color: var(--st-error);
-  box-shadow: inset 0 0 0 0.5px var(--st-error);
+/* Write · Preview on the left, the formatting toolbar on the right (tuq 111). */
+.comment-box-head {
+  display: flex;
+  align-items: flex-end;
+  gap: 8px;
+  border-bottom: 1px solid var(--border);
+}
+
+.comment-box-head > .tabs {
+  border-bottom: none;
+}
+
+.comment-box-tools {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  justify-content: flex-end;
+  gap: 1px;
+  margin-left: auto;
+  padding-bottom: 3px;
+}
+
+/* Preview hides the text box but keeps it, with its caret, selection and undo. */
+.comment-box-text[hidden] {
+  display: none;
+}
+
+/* Preview: the comment as the thread draws it, in a box the size of the text box. */
+.comment-box-preview {
+  box-sizing: border-box;
+  min-height: 72px;
+  padding: 8px 10px;
+  overflow-wrap: anywhere;
+  border: 1px solid var(--border);
+  border-radius: var(--r-md);
+  background: var(--bg-card);
+}
+
+.comment-box-nothing {
+  margin: 0;
+  color: var(--text-muted);
+  font: 400 13px var(--font-ui);
 }
 
 .comment-box-chips {
@@ -565,11 +638,6 @@
   display: flex;
   align-items: center;
   gap: 8px;
-}
-
-.comment-box-counter {
-  color: var(--st-error);
-  font: 500 12px var(--font-mono);
 }
 
 .comment-box-error {

@@ -3,8 +3,9 @@
 //! A ticket's agent is the real interactive `claude` CLI, started in the ticket's worktree:
 //!
 //! ```text
-//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:$PATH
-//! claude --plugin-dir <otaq plugin>/claude --allowedTools "Bash(otaq:*)" --settings <status-line settings>
+//! OTAQ_TICKET=SHOP-18  PORT=<agent port>  PATH=<otaq bin dir>:<~/.tuq/bin>:$PATH
+//! claude --plugin-dir <otaq plugin>/claude --allowedTools "Bash(otaq:*) Bash(tuq:*) Bash(tuq-plan:*)"
+//!        --settings <status-line settings>
 //!        --session-id <uuid> "/otaq:work-ticket"
 //! ```
 //!
@@ -14,8 +15,10 @@
 //! their own names (`/<name>`). Otaq writes no skill into the working folder (T2).
 //!
 //! **No permission mode or other permission flag**: the user's own Claude Code settings apply (d0011). The only
-//! pre-approval is `Bash(otaq:*)`. `--settings` points at Otaq's file in its data folder whose only key is
-//! `statusLine` ([`super::statusline`], USG-04); it is left out when that file couldn't be written.
+//! pre-approvals are `Bash(otaq:*)` and tuq's commands (`tuq`, `tuq-plan`, tuq decision 077; `~/.tuq/bin`, where
+//! tuq's installer puts them, is on the PATH, [`crate::tuq::launch_path`]). `--settings` points at Otaq's file in
+//! its data folder whose only key is `statusLine` ([`super::statusline`], USG-04); it is left out when that file
+//! couldn't be written.
 //!
 //! The Claude session ID (the tool id) is chosen by Otaq and passed with `--session-id` (the installed CLI
 //! supports it, checked with `claude --help`, 2.1.296), so it is known and stored before the session starts;
@@ -266,12 +269,21 @@ fn common_flags(ctx: &LaunchContext, settings: Option<&Path>) -> Vec<String> {
         "--plugin-dir".to_owned(),
         ctx.plugin_dir.join(PLUGIN_FOLDER).display().to_string(),
         "--allowedTools".to_owned(),
-        format!("Bash({}:*)", naming::COMMAND_NAME),
+        allowed_tools(),
     ];
     if let Some(settings) = settings {
         flags.extend(["--settings".to_owned(), settings.display().to_string()]);
     }
     flags
+}
+
+/// The `--allowedTools` value: `otaq` and tuq's commands (decision 077), `Bash(otaq:*) Bash(tuq:*) Bash(tuq-plan:*)`.
+fn allowed_tools() -> String {
+    std::iter::once(naming::COMMAND_NAME)
+        .chain(crate::tuq::COMMANDS)
+        .map(|command| format!("Bash({command}:*)"))
+        .collect::<Vec<_>>()
+        .join(" ")
 }
 
 fn command(
@@ -304,7 +316,7 @@ fn program_and_path(ctx: &LaunchContext) -> (String, Vec<String>, String) {
         .split_first()
         .map(|(p, rest)| (p.clone(), rest.to_vec()))
         .unwrap_or_else(|| (super::command_name().to_owned(), Vec::new()));
-    let path = crate::shell::prepend_path(Some(&ctx.bin_dir), &ctx.path);
+    let path = crate::tuq::launch_path(&ctx.bin_dir, &ctx.path);
     (program, leading, path.to_string_lossy().into_owned())
 }
 
@@ -331,6 +343,23 @@ mod tests {
         std::env::join_paths(dirs).unwrap()
     }
 
+    /// A session's PATH: the `otaq` folder, tuq's commands' folder, then `dirs`.
+    fn session_path(dirs: &[&str]) -> OsString {
+        crate::tuq::launch_path(Path::new("/opt/cb/bin"), &platform_path(dirs))
+    }
+
+    /// The pre-approval: `otaq`, `tuq` and `tuq-plan` (decision 077).
+    #[test]
+    fn otaq_and_tuqs_commands_are_pre_approved() {
+        assert_eq!(
+            allowed_tools(),
+            format!(
+                "Bash({}:*) Bash(tuq:*) Bash(tuq-plan:*)",
+                naming::COMMAND_NAME
+            )
+        );
+    }
+
     fn key() -> TicketKey {
         "SHOP-18".parse().unwrap()
     }
@@ -346,7 +375,6 @@ mod tests {
             "/my-validate",
             Some(Path::new("/home/me/.data/claude/SHOP-18.settings.json")),
         );
-        let name = naming::COMMAND_NAME;
         assert_eq!(
             cmd.args,
             [
@@ -356,7 +384,7 @@ mod tests {
                     .display()
                     .to_string(),
                 "--allowedTools".to_owned(),
-                format!("Bash({name}:*)"),
+                allowed_tools(),
                 "--settings".to_owned(),
                 "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
@@ -375,7 +403,7 @@ mod tests {
                 (naming::ticket_env_var(), "SHOP-18".to_owned()),
                 (
                     "PATH".to_owned(),
-                    platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+                    session_path(&["/usr/bin", "/bin"])
                         .to_string_lossy()
                         .into_owned()
                 ),
@@ -390,7 +418,6 @@ mod tests {
     fn project_agent_launch() {
         let settings = Path::new("/home/me/.data/claude/SHOP.project-agent.light.settings.json");
         let cmd = launch_project_agent(&ctx(), Path::new("/src/shop-web"), Some(settings));
-        let name = naming::COMMAND_NAME;
         assert_eq!(cmd.program, "claude");
         assert_eq!(
             cmd.args,
@@ -401,7 +428,7 @@ mod tests {
                     .display()
                     .to_string(),
                 "--allowedTools".to_owned(),
-                format!("Bash({name}:*)"),
+                allowed_tools(),
                 "--settings".to_owned(),
                 settings.display().to_string(),
                 "--session-id".to_owned(),
@@ -411,7 +438,7 @@ mod tests {
         );
         assert!(!cmd.args.iter().any(|a| a.contains("permission")));
         assert_eq!(cmd.cwd, Path::new("/src/shop-web"));
-        let path = platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+        let path = session_path(&["/usr/bin", "/bin"])
             .to_string_lossy()
             .into_owned();
         assert_eq!(
@@ -451,7 +478,6 @@ mod tests {
         assert_eq!(cmd.program, "claude");
         let session = cmd.tool_session_id.clone();
         assert!(uuid::Uuid::parse_str(&session).is_ok());
-        let name = naming::COMMAND_NAME;
         assert_eq!(
             cmd.args,
             [
@@ -461,7 +487,7 @@ mod tests {
                     .display()
                     .to_string(),
                 "--allowedTools".to_owned(),
-                format!("Bash({name}:*)"),
+                allowed_tools(),
                 "--settings".to_owned(),
                 "/home/me/.data/claude/SHOP-18.settings.json".to_owned(),
                 "--session-id".to_owned(),
@@ -477,7 +503,7 @@ mod tests {
                 ("PORT".to_owned(), "4019".to_owned()),
                 (
                     "PATH".to_owned(),
-                    platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+                    session_path(&["/usr/bin", "/bin"])
                         .to_string_lossy()
                         .into_owned()
                 ),
@@ -539,14 +565,14 @@ mod tests {
                     "{arg} must never be passed (d0011)"
                 );
             }
-            // The only pre-approval is Otaq's own command.
+            // The only pre-approvals are Otaq's own command and tuq's.
             let allowed: Vec<_> = cmd
                 .args
                 .windows(2)
                 .filter(|w| w[0] == "--allowedTools")
                 .map(|w| w[1].clone())
                 .collect();
-            assert_eq!(allowed, [format!("Bash({}:*)", naming::COMMAND_NAME)]);
+            assert_eq!(allowed, [allowed_tools()]);
         }
     }
 
@@ -559,7 +585,11 @@ mod tests {
         assert_eq!(cmd.program, "sh");
         assert_eq!(cmd.args[..3], ["-c", "echo", "sh"]);
         assert_eq!(cmd.args[3], "--plugin-dir");
-        assert_eq!(cmd.env[2].1, "/opt/cb/bin", "no trailing colon");
+        assert_eq!(
+            cmd.env[2].1,
+            session_path(&[]).to_string_lossy(),
+            "no trailing colon"
+        );
     }
 
     #[test]
@@ -597,7 +627,11 @@ mod tests {
         let dir = find_plugin_dir(Path::new("/nonexistent/bin")).expect("repo plugin");
         assert!(dir.ends_with("plugin"));
         assert!(dir.join("claude/.claude-plugin/plugin.json").is_file());
-        assert!(dir.join("skills/work-ticket/SKILL.md").is_file());
+        assert!(
+            crate::runtime::shipped_skills(&dir)
+                .join("work-ticket/SKILL.md")
+                .is_file()
+        );
     }
 
     /// Every role through the adapter (0088 launch tests): the exact program, arguments, folder and environment.
@@ -679,7 +713,7 @@ mod tests {
         }
 
         fn path() -> String {
-            platform_path(&["/opt/cb/bin", "/usr/bin", "/bin"])
+            session_path(&["/usr/bin", "/bin"])
                 .to_string_lossy()
                 .into_owned()
         }
@@ -704,7 +738,7 @@ mod tests {
                     .display()
                     .to_string(),
                 "--allowedTools".to_owned(),
-                format!("Bash({}:*)", naming::COMMAND_NAME),
+                allowed_tools(),
                 "--settings".to_owned(),
                 settings.display().to_string(),
             ]
@@ -836,7 +870,10 @@ mod tests {
         #[test]
         fn an_answer_resumes_with_the_answer_skill_and_no_port() {
             let f = fixture();
-            let mut request = ticket_request(LaunchRole::Answer, skill("answer-question", None));
+            let mut request = ticket_request(
+                LaunchRole::Answer,
+                skill(crate::own_skill!("answer-question"), None),
+            );
             request.port = 0;
             request.resume = Some(RESUMED.into());
             let plan = f.adapter.launch(&request).unwrap();
@@ -913,7 +950,7 @@ mod tests {
             assert_eq!(plan.cwd, Path::new(WORKTREE));
             assert_eq!(plan.env, env);
 
-            request.first_prompt = skill("address-review", None);
+            request.first_prompt = skill(crate::own_skill!("address-review"), None);
             let plan = f.adapter.launch(&request).unwrap();
             assert_eq!(
                 plan.args,
@@ -942,7 +979,10 @@ mod tests {
             let mut requests = vec![
                 ticket_request(LaunchRole::TicketAgent, skill(WORK_TICKET_SKILL, None)),
                 ticket_request(LaunchRole::Validator, Some(FirstPrompt::Text("/v".into()))),
-                ticket_request(LaunchRole::Answer, skill("answer-question", None)),
+                ticket_request(
+                    LaunchRole::Answer,
+                    skill(crate::own_skill!("answer-question"), None),
+                ),
                 ticket_request(LaunchRole::Delivery, Some(FirstPrompt::Text("/p".into()))),
                 project_request(LaunchRole::ProjectAgent, skill(PROJECT_AGENT_SKILL, None)),
             ];
@@ -969,7 +1009,7 @@ mod tests {
                     .filter(|w| w[0] == "--allowedTools")
                     .map(|w| w[1].clone())
                     .collect();
-                assert_eq!(allowed, [format!("Bash({}:*)", naming::COMMAND_NAME)]);
+                assert_eq!(allowed, [allowed_tools()]);
             }
         }
 

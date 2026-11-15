@@ -1460,12 +1460,15 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         for gone in ["validation", "validation_rounds", "auto_merge"] {
             assert!(json.get(gone).is_none(), "{key}: {gone}");
         }
+        // Version 1 as 0085 left it; version 2, Otaq's rename of its skills (0124), is the current one.
+        let versions = store.flow_versions(key).await.unwrap();
+        assert_eq!(versions[0].yaml, default_as_0085_upgraded(), "{key}");
         let flow = store.current_flow(key).await.unwrap().expect("a flow");
         assert_eq!(
             (flow.version, flow.yaml.as_str(), flow.preset.as_deref()),
             (
-                1,
-                default_as_0085_upgraded().as_str(),
+                2,
+                default_as_0124_renamed().as_str(),
                 Some("otaq-default.yaml")
             ),
             "{key}"
@@ -1532,6 +1535,18 @@ fn default_as_0085_upgraded() -> String {
     upgraded
 }
 
+/// [`default_as_0085_upgraded`] as Otaq's rename of its skills wrote it after 0124: `otaq:work-ticket`,
+/// `otaq:validate`, `otaq:open-pr` (tuq decision 075).
+fn default_as_0124_renamed() -> String {
+    let mut file = otaq_core::flow::yaml::read(&default_as_0085_upgraded()).unwrap();
+    assert!(otaq_core::flow::skill_names::name_own_skills(&mut file));
+    let renamed = otaq_core::flow::yaml::write(&file);
+    assert!(
+        renamed.contains("skill: otaq:work-ticket\n") && renamed.contains("skill: otaq:validate\n")
+    );
+    renamed
+}
+
 /// T-0412 (FLW-01, Q296): 0050 drops what M32's move-over and the old settings kept: the Validation, Validation
 /// rounds and Auto-merge settings (global and per project), the move-over's record and the names it bound,
 /// `agent_skills.stands_for`; it gives every project the default flow as version 1, and leaves everything else.
@@ -1593,10 +1608,16 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     assert!(!has_table(store.pool(), "agent_skills").await);
     store.agent("v").await.unwrap().expect("kept");
     let versions = store.flow_versions("NOTE").await.unwrap();
-    assert_eq!(versions.len(), 1);
+    assert_eq!(versions.len(), 2);
     assert_eq!(versions[0].yaml, default_as_0085_upgraded());
     assert_eq!(versions[0].applied_by, otaq_core::flow::AppliedBy::Shipped);
-    assert!(versions[0].current);
+    assert!(!versions[0].current);
+    assert_eq!(versions[1].yaml, default_as_0124_renamed());
+    assert_eq!(
+        versions[1].applied_by,
+        otaq_core::flow::AppliedBy::SkillRename
+    );
+    assert!(versions[1].current);
 }
 
 /// T-0405 (AGM-02): a fresh install applies the two files; the default model waits for the first connected tool.
@@ -2968,7 +2989,7 @@ async fn migration_0085_makes_the_delivery_a_setting_and_puts_approved_tickets_i
         "the Delivery run ended; being delivered in Review opens no run"
     );
     let flow = store.current_flow("SHOP").await.unwrap().unwrap();
-    assert_eq!(flow.yaml, default_as_0085_upgraded());
+    assert_eq!(flow.yaml, default_as_0124_renamed());
     let file = flow.file().unwrap();
     assert_eq!(file.flow.stages.len(), 3);
     assert_eq!(
@@ -2981,7 +3002,7 @@ async fn migration_0085_makes_the_delivery_a_setting_and_puts_approved_tickets_i
     let store = Store::open(&path).await.unwrap();
     assert_eq!(
         store.current_flow("SHOP").await.unwrap().unwrap().yaml,
-        default_as_0085_upgraded()
+        default_as_0124_renamed()
     );
 }
 
@@ -3120,4 +3141,193 @@ async fn migration_0111_counts_a_data_folder_with_projects_as_past_its_first_run
     let store = Store::open(&tmp.path().join("otaq.db")).await.unwrap();
     assert_eq!(store.hints_seen().await.unwrap(), vec![]);
     assert!(!store.first_approve().await.unwrap());
+}
+
+/// A 0.2 flow naming Otaq's skills and the team's own (tuq decision 075).
+const FLOW_0_2: &str = "agents:
+  - name: Developer
+    model: default
+  - name: Checker
+    model: default
+flow:
+  - id: spec
+    name: Product spec
+    kind: agent
+    agent: Developer
+    skill: product-spec
+  - id: dev
+    name: Dev
+    kind: agent
+    agent: Developer
+    skill: work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    agent: Checker
+    skill: validate
+    rounds: 3
+  - id: team
+    name: Team check
+    kind: check
+    by: agent
+    agent: Checker
+    skill: team-validate
+    rounds: 2
+  - id: review
+    name: Review
+    kind: check
+    by: you
+delivery:
+  delivers: either
+  mode: click
+  agent: Developer
+  skill: open-pr
+";
+
+/// [`FLOW_0_2`] with Otaq's skills in their namespace.
+fn flow_0_2_renamed() -> String {
+    let own = |bare: &str| format!("skill: {}", otaq_core::skills::namespaced(bare).unwrap());
+    FLOW_0_2
+        .replace("skill: product-spec", &own("product-spec"))
+        .replace("skill: work-ticket", &own("work-ticket"))
+        .replace("skill: validate\n", &format!("{}\n", own("validate")))
+        .replace("skill: open-pr", &own("open-pr"))
+}
+
+/// Tuq decisions 063, 075: on the first start of the version that names Otaq's skills `otaq:` and `tuq:`, every
+/// project whose current flow names them bare gets one new version, applied by Otaq: `tuq:product-spec`,
+/// `otaq:work-ticket`, `otaq:validate`, `otaq:open-pr`, the team's `team-validate` kept. Earlier versions stay as
+/// stored; a project naming none of Otaq's skills gets no version; open proposals, waiting changes and a sent-back
+/// ticket's skill are renamed in place. Opened again, nothing changes.
+#[tokio::test]
+async fn migration_0124_names_otaqs_skills_in_every_flow_once() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 123).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0),
+                ('q', 'pocket-api', '/tmp/pocket-api', 'API', 'main', 1, 0)",
+    )
+    .await;
+    let custom = FLOW_0_2
+        .replace("skill: product-spec", "skill: my-spec")
+        .replace("skill: work-ticket", "skill: my-work")
+        .replace("skill: validate\n", "skill: my-check\n")
+        .replace("skill: open-pr", "skill: my-pr");
+    for (project, version, text, current) in [
+        ("p", 1, default_as_0124_bare(), false),
+        ("p", 2, FLOW_0_2.to_owned(), true),
+        ("q", 1, custom.clone(), true),
+    ] {
+        sqlx::query(
+            "INSERT INTO project_flows (project_id, version, yaml, applied_by, preset, applied_at, current)
+             VALUES (?, ?, ?, 'user', NULL, 1, ?)",
+        )
+        .bind(project)
+        .bind(version)
+        .bind(text)
+        .bind(current)
+        .execute(&pool)
+        .await
+        .unwrap();
+    }
+    sqlx::query(
+        "INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
+         VALUES ('p', ?, '{}', '{}', 1)",
+    )
+    .bind(FLOW_0_2)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO flow_waiting (project_id, yaml, applied_by, changes_json, since)
+         VALUES ('q', ?, 'user', '[]', 1)",
+    )
+    .bind(FLOW_0_2)
+    .execute(&pool)
+    .await
+    .unwrap();
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, stage_id, state, created_by, created_at, updated_at,
+                              resume_skill)
+         VALUES ('t1', 'p', 1, 'Sent back', 'dev', 'queued', 'me', 0, 0, 'address-review'),
+                ('t2', 'p', 2, 'Their own', 'dev', 'queued', 'me', 0, 0, 'my-fix')",
+    )
+    .await;
+    pool.close().await;
+
+    let renamed = flow_0_2_renamed();
+    for _ in 0..2 {
+        // Opened twice: the second time nothing changes, as the rename ran once, with the migration.
+        let store = Store::open(&path).await.unwrap();
+        let versions = store.flow_versions("SHOP").await.unwrap();
+        let rows: Vec<(u32, otaq_core::flow::AppliedBy, bool)> = versions
+            .iter()
+            .map(|v| (v.version, v.applied_by, v.current))
+            .collect();
+        use otaq_core::flow::AppliedBy::{SkillRename, User};
+        assert_eq!(
+            rows,
+            [(1, User, false), (2, User, false), (3, SkillRename, true)]
+        );
+        assert_eq!(
+            versions[0].yaml,
+            default_as_0124_bare(),
+            "earlier versions stay as stored"
+        );
+        assert_eq!(
+            versions[1].yaml, FLOW_0_2,
+            "earlier versions stay as stored"
+        );
+        assert_eq!(
+            versions[2].file().unwrap(),
+            otaq_core::flow::yaml::read(&renamed).unwrap()
+        );
+        assert!(versions[2].yaml.contains("skill: team-validate\n"));
+        // A flow naming none of Otaq's skills keeps every name, and gets no version.
+        let api = store.flow_versions("API").await.unwrap();
+        assert_eq!(api.len(), 1);
+        assert_eq!(api[0].yaml, custom);
+        let proposal: String = sqlx::query_scalar("SELECT yaml FROM flow_proposals")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(proposal, renamed);
+        let waiting: String = sqlx::query_scalar("SELECT yaml FROM flow_waiting")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
+        assert_eq!(waiting, renamed);
+        let skills: Vec<Option<String>> =
+            sqlx::query_scalar("SELECT resume_skill FROM tickets ORDER BY number")
+                .fetch_all(store.pool())
+                .await
+                .unwrap();
+        assert_eq!(
+            skills,
+            [
+                Some(otaq_core::review::ADDRESS_REVIEW_SKILL.to_owned()),
+                Some("my-fix".to_owned())
+            ]
+        );
+        assert!(store.skills_namespaced_at().await.unwrap().is_some());
+        store.close().await;
+    }
+}
+
+/// The shipped default flow as a 0.2 project stored it: Otaq's skills by their bare names.
+fn default_as_0124_bare() -> String {
+    let mut text = naming::DEFAULT_FLOW_YAML.to_owned();
+    for bare in ["work-ticket", "validate", "open-pr"] {
+        text = text.replace(
+            &format!("skill: {}\n", otaq_core::skills::own_name(bare)),
+            &format!("skill: {bare}\n"),
+        );
+    }
+    assert!(!text.contains(&format!("{}:", naming::PLUGIN_NAMESPACE)));
+    text
 }

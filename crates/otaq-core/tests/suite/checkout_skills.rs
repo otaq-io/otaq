@@ -26,9 +26,8 @@ fn plugin(root: &Path) -> PathBuf {
     let manifest = plugin.join("claude").join(".claude-plugin");
     std::fs::create_dir_all(&manifest).unwrap();
     std::fs::write(manifest.join("plugin.json"), "{}").unwrap();
-    let skills = find_plugin_dir(Path::new("/nonexistent"))
-        .unwrap()
-        .join("skills");
+    let skills =
+        otaq_core::runtime::shipped_skills(&find_plugin_dir(Path::new("/nonexistent")).unwrap());
     for name in ["noyan", "flow"] {
         let to = plugin.join("skills").join(name);
         std::fs::create_dir_all(&to).unwrap();
@@ -87,7 +86,7 @@ async fn a_project_agent_writes_nothing_into_the_checkout() {
         .unwrap();
     let session = agent.session.as_ref().unwrap().id.clone();
     let out = w.wait_for_output(&session, "CLAUDE").await;
-    let typed = format!("{} Why is checkout slow?", claude_skill("noyan"));
+    let typed = format!("{} Why is checkout slow?", claude_skill("otaq:noyan"));
     assert!(out.contains(&typed), "{out}");
     assert!(out.contains("CLAUDE ."), "no skill in the checkout: {out}");
     assert!(!repo.join(".agents").exists());

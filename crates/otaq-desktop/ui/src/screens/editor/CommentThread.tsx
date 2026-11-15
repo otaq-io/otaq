@@ -5,7 +5,9 @@
 // `ticket_comments.thread` (Rust); it reloads on `ticket_changed`, so a comment an agent posts shows at once. React
 // keeps only the moment: the text being typed, which comment is edited, the open menu and dialog. Overview's
 // Attachments (Add, a drop; RPT-02) hand it a file with `attachReport`: the box takes it as its chip and the keyboard.
-import { useCallback, useEffect, useRef, useState } from "react";
+// A comment's text is drawn as Markdown (tuq 110) and a long one folds after about 15 lines (tuq 112); Copy text and
+// Edit still take the text exactly as written.
+import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import type { TicketProps } from "../../app/registry";
 import { createStore, type Store, useStore } from "../../app/store";
@@ -13,6 +15,7 @@ import { AnchoredMenu, Button, ConfirmDialog, IconButton, OtaqMark, ToolAvatar }
 import type { CommentAttachmentChip } from "../../generated/CommentAttachmentChip";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
+import { CommentMarkdown } from "../../markdown";
 import { asRequestError, useServiceView } from "../../service";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
@@ -149,6 +152,55 @@ export function commentMenu(
   return row.body === "" ? items.filter((i) => i.id !== "copy") : items;
 }
 
+/**
+ * A comment's text in the thread, drawn as Markdown (tuq 110). One taller than about 15 lines shows those lines, then
+ * "Show more", which opens the rest in place, with "Show less" after it (tuq 112). The fold is the drawn height, not a
+ * count of the text's lines: editor.css caps a folded body at 15 of its line heights, and the body folds when what it
+ * draws is taller than that cap (a code block or a long wrapped paragraph folds too). It is measured once drawn and
+ * again whenever the drawn text changes size (the width of the pane, a font loaded).
+ */
+export function CommentText({ markdown, fold }: { markdown: string; fold: CommentThreadView["fold"] }) {
+  const body = useRef<HTMLDivElement>(null);
+  const [open, setOpen] = useState(false);
+  const [long, setLong] = useState(false);
+  useLayoutEffect(() => {
+    const el = body.current;
+    // Measured only while folded: open, the body has no cap, and it stays long until it is folded again.
+    if (!el || open) return;
+    const measure = () => {
+      setLong(el.scrollHeight > el.clientHeight + 1);
+    };
+    measure();
+    if (typeof ResizeObserver === "undefined") return;
+    // The drawn text, not the capped body: its height follows the width while the body's stays at the cap.
+    const observer = new ResizeObserver(measure);
+    observer.observe(el);
+    for (const child of el.children) observer.observe(child);
+    return () => {
+      observer.disconnect();
+    };
+  }, [markdown, open]);
+  return (
+    <div className="comment-text" data-folded={open ? undefined : ""} data-long={long || undefined}>
+      <div ref={body} className="comment-body">
+        <CommentMarkdown markdown={markdown} />
+      </div>
+      {long && (
+        <button
+          type="button"
+          className="comment-fold"
+          aria-expanded={open}
+          onClick={() => {
+            setOpen((o) => !o);
+          }}
+        >
+          {open ? fold.less : fold.more}
+        </button>
+      )}
+    </div>
+  );
+}
+
 function MoreMenu({
   view,
   row,
@@ -194,7 +246,8 @@ function MoreMenu({
 /**
  * Edit in place (tuq 008): the comment box with its text and its attachments as chips with ✕, taking new ones by
  * paste, drop and Attach; Cancel · Save; ⌘↵ saves, Esc cancels. Save sends the text, the attachments removed and the
- * new ones together. The limit holds as in the box, and it must keep text or an attachment (tuq 007).
+ * new ones together. As in the box, length never blocks it (tuq 112), and it must keep text or an attachment (tuq
+ * 007).
  */
 export function EditInPlace({
   view,
@@ -304,7 +357,7 @@ function Comment({
         <EditInPlace view={view} row={row} onDone={onEditDone} />
       ) : (
         <>
-          {row.body !== "" && <p className="comment-body">{row.body}</p>}
+          {row.body !== "" && <CommentText markdown={row.body} fold={view.fold} />}
           <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
           <AttachmentChips
             chips={row.attachments}
@@ -346,7 +399,8 @@ function DeleteDialog({
         <div className="comment-delete">
           <p className="comment-meta">{row.heading}</p>
           <div className="comment comment-quoted">
-            {row.body !== "" && <p className="comment-body">{row.body}</p>}
+            {/* The whole comment, in the dialog's own scrolling box: nothing folds here. */}
+            {row.body !== "" && <CommentMarkdown className="comment-body" markdown={row.body} />}
             <Thumbnails ticket={view.key} n={row.n} thumbnails={row.thumbnails} />
             <AttachmentChips chips={row.attachments} />
           </div>

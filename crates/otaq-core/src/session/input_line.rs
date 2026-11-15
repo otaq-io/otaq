@@ -22,6 +22,25 @@
 //! [`InputLine::Typed`]: the line holds text, whatever the keys say. Anything else, a hidden cursor (a menu, a
 //! permission prompt) or text on a row without a prompt marker (a shell's line) included, is
 //! [`InputLine::Unknown`]: the tracker's answer stands.
+//!
+//! The same replay says whether the screen shows **one of the tool's own dialogs** ([`Reading::dialog`]): a
+//! permission or selection prompt, where a typed line would answer the prompt (its Enter picks the option under the
+//! pointer) instead of reaching the agent. Otaq types nothing over one: a tool may draw its next prompt before it says
+//! so (Copilot's, after "No, and tell Copilot…"), or never say it. A dialog is one of
+//!
+//! - a hidden cursor (Codex's "Would you like to run the following command?", Copilot's permission prompt, folder
+//!   trust and `/model` picker, captured on Copilot 1.0.112);
+//! - the cursor on a menu's pointed option, with another option next to it (Copilot's `│ ❯ 2. No, and tell Copilot
+//!   what to do differently`, which becomes a text field for the user's feedback);
+//! - with no input line under the cursor, a numbered menu inside a box (`│ ❯ 1. Yes`) among the screen's last rows.
+//!
+//! The cursor on the tool's own input line is never a dialog, whatever is drawn above it: the user's sent message is
+//! echoed with the same pointers (`❯` in Claude Code and Copilot, `›` in Codex), and one that starts with a numbered
+//! list would read as a menu.
+//!
+//! It also says whether the tool draws that it is still at work below its input line ([`Reading::busy`]): Copilot
+//! keeps its input line in sight while a turn runs, and only its footer tells the two apart (`○ Working · 144 B
+//! ctrl+c interrupt` with a spinner, `← open sidebar · Interactive · …` when idle).
 
 use crate::board::settings::TerminalColors;
 
@@ -46,9 +65,37 @@ const FADED: f32 = 0.65;
 /// The same on a background the tool paints itself, as a share of the most contrast that background allows.
 const FADED_ON_OWN: f32 = 0.5;
 
+/// What the screen shows: its input line, whether a dialog of the tool's own is drawn, and whether the tool says it is
+/// at work.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub struct Reading {
+    pub line: InputLine,
+    /// A permission or selection prompt of the tool's own: a typed line would answer it.
+    pub dialog: bool,
+    /// The cursor is visible in the dialog's own text field (Copilot's "No, and tell Copilot…" option, its feedback
+    /// wrapped or not): the user is answering it.
+    pub field: bool,
+    /// The dialog's question as drawn ("Do you want to run this command?"), when it has one.
+    pub question: Option<String>,
+    /// A row below the cursor says the tool is at work (Copilot's `◉ Working · …` footer).
+    pub busy: bool,
+}
+
+/// How many of the screen's last non-empty rows a boxed menu is looked for in: a tool draws its prompt at the bottom,
+/// where its input line was.
+const DIALOG_ROWS: usize = 16;
+
+/// How far apart two options of one menu may be drawn, in rows.
+const OPTION_GAP: usize = 3;
+
 /// Replays `bytes` (the session's kept output) in a terminal of `size` and reads the row the cursor is on.
 /// `colors` are the terminal's own text and background colours, for cells drawn in the default colours.
 pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLine {
+    read_all(bytes, size, colors).line
+}
+
+/// [`read`], whether the screen shows a dialog of the tool's own, and whether the tool says it is at work.
+pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Reading {
     let (rows, cols) = (size.rows.max(1), size.cols.max(1));
     let mut parser = vt100::Parser::new(rows, cols, 0);
     // A trimmed scrollback can start inside a character.
@@ -59,6 +106,142 @@ pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLi
         .count();
     parser.process(&bytes[start..]);
     let screen = parser.screen();
+    let line = line_of(screen, cols, colors);
+    let texts: Vec<String> = screen.rows(0, cols).collect();
+    let options: Vec<Option<MenuOption>> = texts.iter().map(|r| menu_option(r)).collect();
+    let cursor_row = usize::from(screen.cursor_position().0);
+    let menu_next_to = |at: usize| {
+        (at.saturating_sub(OPTION_GAP)..=at + OPTION_GAP)
+            .any(|i| i != at && options.get(i).is_some_and(Option::is_some))
+    };
+    // The pointed option that tells the dialog, if any. The cursor on the tool's own input line (a marker, then
+    // nothing, a placeholder or the user's text) is no dialog, whatever menu-like echo is drawn above it.
+    // The cursor in a dialog's text field: on its pointed option, or on a row of the box under it (the option's
+    // feedback wrapped onto more rows).
+    let in_field = if screen.hide_cursor() {
+        None
+    } else if options
+        .get(cursor_row)
+        .copied()
+        .flatten()
+        .is_some_and(|o| o.pointed)
+        && menu_next_to(cursor_row)
+    {
+        Some(cursor_row)
+    } else {
+        in_boxed_menu(&texts, &options, cursor_row)
+    };
+    let pointed = in_field.or_else(|| {
+        (!screen.hide_cursor() && line == InputLine::Unknown)
+            .then(|| boxed_menu(&texts, &options, menu_next_to))
+            .flatten()
+    });
+    let dialog = screen.hide_cursor() || pointed.is_some();
+    let field = in_field.is_some();
+    let question = dialog
+        .then(|| {
+            pointed.or_else(|| {
+                (0..texts.len())
+                    .rev()
+                    .find(|&i| options[i].is_some_and(|o| o.pointed))
+            })
+        })
+        .flatten()
+        .and_then(|at| question_above(&texts, at));
+    let busy = !screen.hide_cursor() && texts.iter().skip(cursor_row + 1).any(|r| says_working(r));
+    Reading {
+        line,
+        dialog,
+        field,
+        question,
+        busy,
+    }
+}
+
+/// How many rows a boxed menu's pointed option may run over (its text field wrapping the user's feedback).
+const FIELD_ROWS: usize = 8;
+
+/// The row of the boxed pointed option whose box the cursor row is in, below it (`│ ❯ 2. No, and tell…` and the
+/// rows its feedback wraps onto, every one behind the box's `│`).
+fn in_boxed_menu(
+    texts: &[String],
+    options: &[Option<MenuOption>],
+    cursor_row: usize,
+) -> Option<usize> {
+    let boxed = |i: usize| {
+        texts
+            .get(i)
+            .is_some_and(|t| t.trim_start().starts_with('\u{2502}'))
+    };
+    if !boxed(cursor_row) {
+        return None;
+    }
+    (cursor_row.saturating_sub(FIELD_ROWS)..cursor_row)
+        .rev()
+        .take_while(|&i| boxed(i))
+        .find(|&i| options[i].is_some_and(|o| o.pointed && o.boxed))
+}
+
+/// A menu option's row: `1. Yes`, `  2) No` (`❯`, `›`, `>`, `▶` as the pointer), behind a box's border or not.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+struct MenuOption {
+    /// The pointer is on it.
+    pointed: bool,
+    /// Drawn inside a box: a border (`│`, `┃`, `║`) before it.
+    boxed: bool,
+}
+
+fn menu_option(row: &str) -> Option<MenuOption> {
+    let start = row.trim_start();
+    let boxed = start.starts_with(['│', '┃', '║']);
+    let row = start.trim_start_matches(|c: char| c.is_whitespace() || "│┃║".contains(c));
+    let (pointed, rest) = match row.chars().next() {
+        Some(c) if "❯›>▶►➤".contains(c) => (true, row[c.len_utf8()..].trim_start()),
+        _ => (false, row),
+    };
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let after = &rest[digits..];
+    (digits > 0 && (after.starts_with(". ") || after.starts_with(") ")))
+        .then_some(MenuOption { pointed, boxed })
+}
+
+/// The row of a boxed menu's pointed option among the screen's last non-empty rows, with another option next to it.
+fn boxed_menu(
+    texts: &[String],
+    options: &[Option<MenuOption>],
+    menu_next_to: impl Fn(usize) -> bool,
+) -> Option<usize> {
+    let shown: Vec<usize> = (0..texts.len())
+        .filter(|&i| !texts[i].trim().is_empty())
+        .collect();
+    shown[shown.len().saturating_sub(DIALOG_ROWS)..]
+        .iter()
+        .copied()
+        .find(|&i| options[i].is_some_and(|o| o.pointed && o.boxed) && menu_next_to(i))
+}
+
+/// The question a dialog asks: the nearest row above its pointed option that ends with `?`, without a box's borders.
+fn question_above(texts: &[String], pointed: usize) -> Option<String> {
+    (pointed.saturating_sub(8)..pointed).rev().find_map(|i| {
+        let text = texts[i].trim_matches(|c: char| c.is_whitespace() || "│┃║".contains(c));
+        (text.ends_with('?') && menu_option(text).is_none()).then(|| text.to_owned())
+    })
+}
+
+/// Whether the row says the tool is at work: `◉ Working · 123 B ctrl+c interrupt` (Copilot's footer, after its
+/// spinner).
+fn says_working(row: &str) -> bool {
+    let row = row.trim();
+    let mut chars = row.chars();
+    let rest = match chars.next() {
+        Some(c) if !c.is_alphanumeric() => chars.as_str().trim_start(),
+        _ => row,
+    };
+    rest.starts_with("Working \u{b7}")
+}
+
+/// The row the cursor is on.
+fn line_of(screen: &vt100::Screen, cols: u16, colors: TerminalColors) -> InputLine {
     if screen.hide_cursor() {
         return InputLine::Unknown;
     }
@@ -104,14 +287,15 @@ pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLi
     }
 }
 
-/// A tool's prompt marker: one character that isn't a letter or digit, and either not ASCII (`›`, `❯`, `┃`, `│`) or
-/// `>`. ASCII punctuation the user may have typed (`/`, `!`, `@`) isn't one.
+/// A tool's prompt marker: one character that isn't a letter or digit, and either not ASCII (`›`, `❯`, `┃`) or `>`.
+/// ASCII punctuation the user may have typed (`/`, `!`, `@`) isn't one, nor a dialog box's thin border `│` (Copilot's
+/// input line is the heavy `┃`; its permission prompt's box is drawn with `│`).
 fn is_prompt_marker(text: &str) -> bool {
     let mut chars = text.chars();
     let (Some(c), None) = (chars.next(), chars.next()) else {
         return false;
     };
-    !c.is_alphanumeric() && (!c.is_ascii() || c == '>')
+    !c.is_alphanumeric() && c != '\u{2502}' && (!c.is_ascii() || c == '>')
 }
 
 /// Whether the cell's text is drawn faded: dim, or in a colour much closer to its background than the terminal's
@@ -298,7 +482,7 @@ mod tests {
             InputLine::Placeholder
         );
         assert_eq!(
-            line("\x1b[3;1H\u{2502} \x1b[38;2;90;90;90mAsk\x1b[39m\x1b[3;3H"),
+            line("\x1b[3;1H\u{2503} \x1b[38;2;90;90;90mAsk\x1b[39m\x1b[3;3H"),
             InputLine::Placeholder
         );
         // On a background of the tool's own, light and dark.
@@ -367,5 +551,177 @@ mod tests {
     fn the_marker_alone_is_blank() {
         assert_eq!(line("\x1b[3;1H> "), InputLine::Blank);
         assert_eq!(line("\x1b[3;1H\u{2503} "), InputLine::Blank);
+    }
+
+    /// What [`read_all`] gives for a capture: its input line, whether it is a dialog, and whether the tool says it is
+    /// at work.
+    fn reading_of(name: &str) -> (InputLine, bool, bool) {
+        let r = read_all(&capture(name), SIZE, DARK);
+        (r.line, r.dialog, r.busy)
+    }
+
+    /// Codex's command question (cursor hidden, `› 1. Yes, proceed (y)`) is a dialog; no tool's input line is, empty
+    /// or typed.
+    #[test]
+    fn a_tools_own_dialog_is_told_from_its_input_line() {
+        assert!(reading_of("codex-approval").1);
+        for name in [
+            "codex-after-approval",
+            "codex-empty",
+            "codex-typed",
+            "claude-empty",
+            "claude-typed",
+            "copilot-empty",
+            "copilot-typed",
+            "opencode-empty",
+            "opencode-typed",
+        ] {
+            assert!(!reading_of(name).1, "{name}");
+        }
+    }
+
+    /// Copilot 1.0.112 (see the fixtures' README): its permission prompt hides the cursor; with the pointer on "No, and
+    /// tell Copilot what to do differently" that option is a text field, the cursor visible in it, before and after
+    /// the user's feedback is typed: a dialog all the same. At work after the answer it shows its input line as when
+    /// idle, and only its footer (`○ Working · …`) says it is at work.
+    #[test]
+    fn copilots_permission_prompt_and_its_work() {
+        assert_eq!(
+            reading_of("copilot-approval"),
+            (InputLine::Unknown, true, false)
+        );
+        let r = read_all(&capture("copilot-approval"), SIZE, DARK);
+        assert_eq!(
+            r.question.as_deref(),
+            Some("Do you want to run this command?")
+        );
+        // The box's `│` is no input line's marker: no input line under the cursor, and the user is in the field.
+        assert!(!r.field);
+        for name in ["copilot-approval-no", "copilot-approval-feedback"] {
+            assert_eq!(
+                reading_of(name),
+                (InputLine::Unknown, true, false),
+                "{name}"
+            );
+            assert!(read_all(&capture(name), SIZE, DARK).field, "{name}");
+        }
+        assert_eq!(
+            reading_of("copilot-working"),
+            (InputLine::Blank, false, true)
+        );
+        assert_eq!(
+            reading_of("copilot-idle-after"),
+            (InputLine::Blank, false, false)
+        );
+        assert_eq!(
+            reading_of("copilot-empty"),
+            (InputLine::Blank, false, false)
+        );
+    }
+
+    /// Long feedback wraps inside Copilot's box: the cursor on the box's next row (`│   …more feedback…`), under the
+    /// pointed option, is still in the dialog's text field.
+    #[test]
+    fn feedback_wrapped_inside_copilots_box_is_the_dialog() {
+        let mut bytes = capture("copilot-approval-feedback");
+        bytes.extend_from_slice(
+            "\x1b[28;1H\u{2502}     and then run git status to check the result\x1b[28;52H\x1b[?25h".as_bytes(),
+        );
+        let r = read_all(&bytes, SIZE, DARK);
+        assert!(r.dialog && r.field, "{r:?}");
+        assert_eq!(r.line, InputLine::Unknown);
+        assert!(!r.busy);
+        assert_eq!(
+            r.question.as_deref(),
+            Some("Do you want to run this command?")
+        );
+    }
+
+    fn reading(bytes: &str) -> Reading {
+        read_all(bytes.as_bytes(), TerminalSize { cols: 60, rows: 14 }, DARK)
+    }
+
+    /// A permission prompt drawn in a box (`│ ❯ 1. Yes`, …) is a dialog with the cursor hidden, on its pointed option,
+    /// or anywhere but on an input line; so is an unboxed menu with the cursor hidden (Codex's).
+    #[test]
+    fn a_numbered_menu_with_a_pointer_is_a_dialog() {
+        let menu = "\x1b[3;1H\u{2502} Do you want to run this command?\
+                    \x1b[4;1H\u{2502} \u{276f} 1. Yes\
+                    \x1b[5;1H\u{2502}   2. Yes, and approve `git` for this session\
+                    \x1b[6;1H\u{2502}   3. No, and tell Copilot what to do differently (Esc)";
+        for cursor in ["\x1b[?25l", "\x1b[9;1H", "\x1b[4;5H"] {
+            let r = reading(&format!("{menu}{cursor}"));
+            assert!(r.dialog, "{cursor:?}: {r:?}");
+            assert_eq!(
+                r.question.as_deref(),
+                Some("Do you want to run this command?")
+            );
+        }
+        // The pointer on another option.
+        assert!(reading("\x1b[3;3H1. Yes\x1b[4;1H\u{203a} 2. No (esc)\x1b[?25l").dialog);
+        // A hidden cursor over a shell's output.
+        assert!(reading("abc\r\n\x1b[?25l").dialog);
+        assert!(!reading("abc\r\n").dialog);
+    }
+
+    /// The user's sent message echoed with the tool's pointer, starting with a numbered list, over the tool's own input
+    /// line: an idle screen, not a dialog (Claude Code's `❯` and placeholder, Codex's `›` and placeholder, Copilot's
+    /// `❯` echo and bare `┃` line). Nor an agent's numbered list.
+    #[test]
+    fn a_numbered_message_over_the_input_line_is_no_dialog() {
+        let echo = |pointer: char| {
+            format!(
+                "\x1b[2;1H{pointer} 1. Fix the coupon field\x1b[3;3H2. Fix the gift card total\
+                 \x1b[5;1H\u{25cf} Both are fixed."
+            )
+        };
+        let claude = format!(
+            "{}\x1b[8;1H\u{276f} \x1b[2mTry \"fix lint\"\x1b[22m\x1b[8;3H",
+            echo('\u{276f}')
+        );
+        let codex = format!(
+            "{}\x1b[8;1H\u{203a} \x1b[2mAsk Codex\x1b[22m\x1b[8;3H",
+            echo('\u{203a}')
+        );
+        let copilot = format!("{}\x1b[8;1H\u{2503} ", echo('\u{276f}'));
+        // Close to the input line, as right after the user sent it.
+        let copilot_at_once = "\x1b[6;3H\u{276f} 1. Fix the coupon field\x1b[7;5H2. Fix the gift card total\
+                               \x1b[8;1H\u{2503} ";
+        // The same under a box's border: Copilot's input line is `┃` too.
+        let boxed =
+            "\x1b[6;1H\u{2502} \u{276f} 1. Fix it\x1b[7;1H\u{2502}   2. Test it\x1b[8;1H\u{2503} ";
+        for (name, screen) in [
+            ("claude", claude.as_str()),
+            ("codex", codex.as_str()),
+            ("copilot", copilot.as_str()),
+            ("copilot at once", copilot_at_once),
+            ("boxed", boxed),
+        ] {
+            let r = reading(screen);
+            assert!(!r.dialog, "{name}: {r:?}");
+            assert_ne!(r.line, InputLine::Unknown, "{name}");
+        }
+        let list = "\x1b[3;1H\u{25cf} Plan:\x1b[4;3H1. Read the spec\x1b[5;3H2. Write the test\
+                    \x1b[9;1H\u{2503} ";
+        assert!(!reading(list).dialog);
+        // A user's own draft that starts like an option, alone on the input line.
+        assert!(!reading("\x1b[9;1H\u{276f} 1. Read the spec").dialog);
+    }
+
+    /// The footer says it: `◉ Working · …` below the cursor is the tool at work; the same words above it (the
+    /// transcript) or no spinner word aren't.
+    #[test]
+    fn a_working_footer_is_the_tool_at_work() {
+        assert!(
+            reading("\x1b[8;1H\u{2503} \x1b[10;1H \u{25c9} Working \u{b7} 12 B ctrl+c\x1b[8;3H")
+                .busy
+        );
+        assert!(
+            !reading(
+                "\x1b[8;1H\u{2503} \x1b[10;1H \u{2190} open sidebar \u{b7} Interactive\x1b[8;3H"
+            )
+            .busy
+        );
+        assert!(!reading("\x1b[2;1H\u{25cf} Working \u{b7} hard\x1b[8;1H\u{2503} ").busy);
     }
 }

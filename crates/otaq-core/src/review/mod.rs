@@ -64,10 +64,10 @@ use crate::ticket_env::TicketEnv;
 use crate::ticket_env::fetch::FetchWhy;
 
 /// The skill Send back runs (REV-04).
-pub const ADDRESS_REVIEW_SKILL: &str = "address-review";
+pub const ADDRESS_REVIEW_SKILL: &str = crate::own_skill!("address-review");
 /// The skill a Delivery's conflict runs, with no click: merge the target in and resolve the conflicts (GIT-03,
 /// FLW-17).
-pub const RESTACK_SKILL: &str = "restack";
+pub const RESTACK_SKILL: &str = crate::own_skill!("restack");
 
 /// The answer to a click that returns a ticket to its agent.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
@@ -90,12 +90,19 @@ pub enum ReturnOutcome {
     },
 }
 
-/// The ticket's live `session` waits at a permission prompt: the question a click that would type into it asks
+/// The ticket's live `session` waits at a permission prompt (one its tool told of, or a dialog of the tool's own its
+/// screen shows, [`crate::session::Sessions::dialog_prompt`]): the question a click that would type into it asks
 /// instead of the unsent-text one, since typing there would answer the prompt.
-pub(crate) fn prompt_first(board: &Board, ticket: &Ticket, session: &str) -> Option<ReturnOutcome> {
+pub(crate) fn prompt_first(
+    board: &Board,
+    sessions: &crate::session::Sessions,
+    ticket: &Ticket,
+    session: &str,
+) -> Option<ReturnOutcome> {
     board
         .session_prompts()
         .on_screen(session)
+        .or_else(|| sessions.dialog_prompt(session))
         .map(|prompt| ReturnOutcome::NeedsConfirmation {
             ticket: ticket.key.clone(),
             unclearable_by: None,
@@ -245,10 +252,11 @@ impl Review {
         &self.inner.board
     }
 
-    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `report`, the dialog's
-    /// pasted text) is the user's comment and the pending line comments go with it to the nearest earlier Agent
+    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `attachments`, the
+    /// dialog's files) is the user's comment and the pending line comments go with it to the nearest earlier Agent
     /// stage's session, which continues there; every agent check's counter restarts. `clear_first` is the user's
-    /// "Clear it and send" after a "needs confirmation" answer. A note over the limit refuses the whole Fail.
+    /// "Clear it and send" after a "needs confirmation" answer. The note has no length limit (tuq 112); a missing
+    /// attachment refuses the whole Fail.
     pub async fn fail(
         &self,
         key: &str,
@@ -757,7 +765,7 @@ impl Review {
         if !full
             && !clear_first
             && let Some(session) = &live
-            && let Some(asks) = prompt_first(&inner.board, ticket, &session.id)
+            && let Some(asks) = prompt_first(&inner.board, &inner.sessions, ticket, &session.id)
         {
             return Ok(asks);
         }

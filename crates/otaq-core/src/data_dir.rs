@@ -51,6 +51,19 @@ impl DataDir {
         &self.root
     }
 
+    /// Whether this is the default data folder of the user whose home is `user_home`: `~/.otaq`, where Otaq keeps
+    /// its data without `OTAQ_HOME` (or with it naming that same folder). A second Otaq (a dev build with its own
+    /// `OTAQ_HOME`) has another one, and leaves the tools' shared homes alone unless told
+    /// ([`crate::agent_tools::ToolContext::own_data`]).
+    pub fn is_default(&self, user_home: &Path) -> bool {
+        let default = user_home.join(naming::data_dir_name());
+        if self.root == default {
+            return true;
+        }
+        let real = |p: &Path| std::fs::canonicalize(p).ok();
+        matches!((real(&self.root), real(&default)), (Some(a), Some(b)) if a == b)
+    }
+
     /// The SQLite database file. The file name is an implementation choice (SDD §26).
     pub fn database_path(&self) -> PathBuf {
         self.root.join(format!("{}.db", naming::COMMAND_NAME))
@@ -339,6 +352,25 @@ mod tests {
             data.codex_plugin_dir(),
             root.join("runtime").join("codex-plugin")
         );
+    }
+
+    /// `~/.otaq` is the default data folder, however it is reached; any other folder isn't.
+    #[test]
+    fn the_default_data_folder_is_the_one_in_the_home_folder() {
+        let tmp = tempfile::tempdir().unwrap();
+        let home = tmp.path();
+        let unset = DataDir::resolve(None, Some(home.to_path_buf())).unwrap();
+        assert!(unset.is_default(home));
+        let empty = DataDir::resolve(Some(OsString::new()), Some(home.to_path_buf())).unwrap();
+        assert!(empty.is_default(home));
+        let name = crate::naming::data_dir_name();
+        assert!(DataDir::new(home.join(format!("{name}/"))).is_default(home));
+        std::fs::create_dir_all(home.join(&name)).unwrap();
+        std::fs::create_dir_all(home.join("x")).unwrap();
+        assert!(DataDir::new(home.join("x").join("..").join(&name)).is_default(home));
+        let dev = DataDir::resolve(Some(home.join("dev-data").into()), Some(home.to_path_buf()));
+        assert!(!dev.unwrap().is_default(home));
+        assert!(!DataDir::new(home.join("other").join(&name)).is_default(home));
     }
 
     #[test]

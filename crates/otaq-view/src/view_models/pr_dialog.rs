@@ -519,7 +519,7 @@ mod tests {
             provider: Some(Provider::GitHub),
             logged_in: Some(logged_in),
             cli_found: true,
-            open_pr_skill: "open-pr".to_owned(),
+            open_pr_skill: otaq_core::own_skill!("open-pr").to_owned(),
         }
     }
 
@@ -572,7 +572,7 @@ mod tests {
             }],
             pr_number: branch_locked.then_some(481),
             pr_url: None,
-            skill: "open-pr".to_owned(),
+            skill: otaq_core::own_skill!("open-pr").to_owned(),
             message: None,
             asks_in: None,
             waits: None,
@@ -606,7 +606,11 @@ mod tests {
         let mut ready = writing.clone();
         ready.message = Some(message(MessageState::Ready));
 
-        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
         d.update(&writing);
         assert_eq!(d.writing.as_deref(), Some("Strong"));
         assert_eq!(d.title, "Checkout API (SHOP-18)");
@@ -621,7 +625,11 @@ mod tests {
         );
         assert_eq!(d.filled, 2);
 
-        let mut typed = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let mut typed = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
         typed.update(&writing);
         typed.title = "Mine".into();
         typed.typed = true;
@@ -727,7 +735,7 @@ mod tests {
             message: Some("update stuff".into()),
         });
 
-        let mut d = PrDialog::opening(&t, "open-pr", Some(&github(true)));
+        let mut d = PrDialog::opening(&t, otaq_core::own_skill!("open-pr"), Some(&github(true)));
         d.update(&shown);
         assert_eq!(d.kind, FlowKind::Open);
         let page = crate::view_models::pr_page::dialog_view;
@@ -774,7 +782,11 @@ mod tests {
     /// A provider whose tool is missing or signed out keeps Push & open PR off until it is set up.
     #[test]
     fn a_provider_that_isnt_set_up_keeps_the_push_off() {
-        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(false)));
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(false)),
+        );
         assert_eq!(d.not_set_up.as_deref(), Some("GitHub"));
         d.update(&view(FlowState::Proposed, false));
         let n = d.edit_branch("feature/SHOP-18-checkout-api");
@@ -799,7 +811,11 @@ mod tests {
 
     #[test]
     fn preparing_then_proposed_with_a_live_name_check() {
-        let mut d = PrDialog::opening(&shop18(), "open-pr", Some(&github(true)));
+        let mut d = PrDialog::opening(
+            &shop18(),
+            otaq_core::own_skill!("open-pr"),
+            Some(&github(true)),
+        );
         assert_eq!(d.stage, Stage::Preparing);
         assert_eq!(d.heading(), "Open a pull request for SHOP-18");
         assert_eq!(d.provider.as_deref(), Some("GitHub \u{b7} acme/shop-web"));

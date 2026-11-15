@@ -194,7 +194,7 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
     let key = t.key.to_string();
     let t = working_in(w, &key, "dev").await;
     let dev = session(w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
+    w.wait_for_output(&dev.id, &claude_skill("otaq:work-ticket"))
         .await;
     commit(&worktree(&t), file, &format!("{}\n", t.title));
     let checking = stage_next(w, &t, "Done.").await;
@@ -203,7 +203,7 @@ async fn dev_and_validate(w: &TestService, t: &Ticket, file: &str) -> Ticket {
         (Status::Checking, &Place::stage_of("validate"))
     );
     let checker = session(w, &t, SessionKind::Validator).await;
-    w.wait_for_output(&checker.id, &claude_skill("validate"))
+    w.wait_for_output(&checker.id, &claude_skill("otaq:validate"))
         .await;
     w.validation
         .verdict(
@@ -278,8 +278,13 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
     let key = t.key.to_string();
     let t = working_in(&w, &key, "product-spec").await;
     let spec_writer = session(&w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&spec_writer.id, &claude_skill("product-spec"))
+    // Otaq's `work-ticket` first; the stage's task skill waits for that turn to end (decision 081).
+    w.wait_for_output(&spec_writer.id, &claude_skill("otaq:work-ticket"))
         .await;
+    assert_eq!(
+        crate::common::waiting_texts(&w.deliveries, &spec_writer.id).await,
+        [claude_skill("tuq:product-spec")]
+    );
 
     // `otaq ask human`: the question waits for the user; the answer is typed into Spec writer's session.
     let question = "Which columns go in the CSV?";
@@ -331,7 +336,13 @@ async fn spec_first_from_the_question_to_a_click_local_merge() {
         let planning = session(&w, &at, SessionKind::Agent).await;
         assert_ne!(planning.id, before);
         assert!(!w.sessions.info(&before).unwrap().is_running());
-        w.wait_for_output(&planning.id, &claude_skill(stage)).await;
+        w.wait_for_output(&planning.id, &claude_skill("otaq:work-ticket"))
+            .await;
+        assert_eq!(
+            crate::common::waiting_texts(&w.deliveries, &planning.id).await,
+            [claude_skill(&format!("tuq:{stage}"))],
+            "{stage}"
+        );
         let after = stage_next(&w, &at, "Written.").await;
         assert_eq!(after.place, next, "{stage}");
         before = planning.id;
@@ -437,7 +448,7 @@ async fn solo_autopilot_merges_a_ticket_that_skips_validate_automatically() {
         .unwrap();
     let t = working_in(&w, &key, "dev").await;
     let dev = session(&w, &t, SessionKind::Agent).await;
-    w.wait_for_output(&dev.id, &claude_skill("work-ticket"))
+    w.wait_for_output(&dev.id, &claude_skill("otaq:work-ticket"))
         .await;
     commit(&worktree(&t), "search.ts", "Search notes\n");
     stage_next(&w, &t, "Done.").await;
@@ -514,7 +525,7 @@ async fn team_pr_to_a_pr_opened_with_gh() {
     let shipper = session(&w, &t, SessionKind::Delivery).await;
     w.wait_for_output(
         &shipper.id,
-        &format!("{} automatic:", claude_skill("open-pr")),
+        &format!("{} automatic:", claude_skill("otaq:open-pr")),
     )
     .await;
     let flow = w.board.pr_flow(&t.id).await.unwrap().unwrap();

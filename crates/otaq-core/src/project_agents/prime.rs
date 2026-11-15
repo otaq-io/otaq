@@ -36,6 +36,9 @@ pub struct ProjectPrime {
     /// service.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub choices: Vec<PrimeChoice>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// One ticket as `prime --project` lists it.
@@ -108,6 +111,7 @@ impl Board {
             instructions,
             flow,
             choices: Vec::new(),
+            long_text_file: None,
         })
     }
 }
@@ -174,6 +178,7 @@ pub fn render(ctx: &ProjectPrime) -> String {
             "Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` \
              (with `--option` when there are clear alternatives), then end your turn."
         ),
+        crate::prime::no_self_start_rule(),
     ];
     for (n, rule) in rules.iter().enumerate() {
         out.push_str(&format!("{}. {rule}\n", n + 1));
@@ -182,6 +187,9 @@ pub fn render(ctx: &ProjectPrime) -> String {
     if let Some(instructions) = &ctx.instructions {
         out.push_str(&instructions.render("Noyan’s instructions"));
     }
+    out.push_str(&crate::prime::render_long_text_file(
+        ctx.long_text_file.as_deref(),
+    ));
     out
 }
 
@@ -238,9 +246,11 @@ mod tests {
                 },
             ],
             choices: Vec::new(),
+            long_text_file: None,
         };
         let cmd = naming::COMMAND_NAME;
         let product = naming::PRODUCT_NAME;
+        let skills = crate::prime::no_self_start_rule();
         let expected = format!(
             "# Noyan · shop-web (SHOP)
 
@@ -275,6 +285,7 @@ code changes go through tickets.
 only change Backlog tickets\"). If the CLI refuses, tell the user what you would need.
 6. Ask a ticket's agent with `{cmd} ask <KEY> --stdin`; ask the user with `{cmd} ask human --stdin` (with \
 `--option` when there are clear alternatives), then end your turn.
+7. {skills}
 
 ## Noyan’s instructions (Noyan)
 

@@ -103,7 +103,11 @@ pub fn sending(choice: &Choice) -> String {
 pub fn outcome(key: &TicketKey, choice: &Choice, delivery: &Delivery) -> AnswerOutcome {
     match delivery {
         Delivery::Sent { .. } => AnswerOutcome::Sent,
-        Delivery::NeedsConfirmation { unclearable_by, .. } => AnswerOutcome::Ask(
+        Delivery::NeedsConfirmation {
+            unclearable_by,
+            prompt,
+            ..
+        } => AnswerOutcome::Ask(
             UnsentPrompt::for_click(
                 key.clone(),
                 None,
@@ -112,7 +116,8 @@ pub fn outcome(key: &TicketKey, choice: &Choice, delivery: &Delivery) -> AnswerO
                     choice: choice.clone(),
                 },
             )
-            .unclearable_by(unclearable_by.clone()),
+            .unclearable_by(unclearable_by.clone())
+            .over_prompt(prompt.clone()),
         ),
     }
 }
@@ -191,6 +196,7 @@ mod tests {
             &Delivery::NeedsConfirmation {
                 ticket: None,
                 unclearable_by: None,
+                prompt: None,
             },
         ) else {
             panic!("asks")

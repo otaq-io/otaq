@@ -14,7 +14,17 @@ use crate::agent_tools::{Detection, version_output};
 const STATUS_TIMEOUT: Duration = Duration::from_secs(15);
 
 /// Installed when `codex --version` names a version; signed in as [`signed_in`] says.
+/// An Otaq that leaves Codex's home alone ([`CodexContext::held_back`]) runs no Codex command, not even these: it
+/// only looks for the program on PATH, and a Codex found there is not usable, saying why.
 pub(super) async fn detect(context: &CodexContext) -> Detection {
+    if context.held_back {
+        let found = crate::tools::find_on_path(COMMAND_NAME, &context.tool.path).is_some();
+        return Detection {
+            installed: found,
+            not_usable: found.then(super::held_back_reason),
+            ..Detection::default()
+        };
+    }
     let Some(output) = version_output(COMMAND_NAME, &context.tool.path).await else {
         return Detection::default();
     };
@@ -29,6 +39,7 @@ pub(super) async fn detect(context: &CodexContext) -> Detection {
         update_needed: false,
         account,
         sign_in_offered: false,
+        not_usable: None,
     }
 }
 
@@ -77,12 +88,17 @@ pub(super) async fn signed_in(context: &CodexContext) -> (Option<bool>, Option<S
     parse_login_status(&text)
 }
 
-/// "Logged in using ChatGPT" → signed in, "signed in with ChatGPT"; "Logged in using an API key - sk-…" → "signed
-/// in with an API key"; "Not logged in" → not signed in; anything else → not known.
+/// "Logged in using ChatGPT" → signed in, "signed in with ChatGPT"; "Logged in using an API key - sk-…" (before
+/// 0.164) or "API key configured - sk-…" (0.164 on) → "signed in with an API key"; "Not logged in" → not signed in;
+/// anything else → not known.
 pub(super) fn parse_login_status(output: &str) -> (Option<bool>, Option<String>) {
     for line in output.lines().map(str::trim) {
         if line.eq_ignore_ascii_case("Not logged in") {
             return (Some(false), None);
+        }
+        // Codex 0.164 on: an API key isn't checked until a request, so it says it is configured.
+        if line.starts_with("API key configured") {
+            return (Some(true), Some("signed in with an API key".to_owned()));
         }
         if let Some(how) = line.strip_prefix("Logged in using ") {
             let how = how.split(" - ").next().unwrap_or(how).trim();
@@ -114,6 +130,13 @@ mod tests {
             parse_login_status("\nLogged in using an API key - sk-proj-***ABCD\n"),
             (Some(true), Some("signed in with an API key".into()))
         );
+        // codex-cli 0.169.0 after `codex login --with-api-key`, on stderr, exit 0.
+        assert_eq!(
+            parse_login_status(
+                "\nAPI key configured - sk-test-***0ABCD\nAuthentication is checked when you send a request.\n"
+            ),
+            (Some(true), Some("signed in with an API key".into()))
+        );
         assert_eq!(
             parse_login_status("Logged in using access token"),
             (Some(true), Some("signed in with access token".into()))
@@ -130,6 +153,7 @@ mod tests {
         let context = CodexContext {
             tool: crate::agent_tools::test_support::context(bin.path(), None),
             codex_home: Some(bin.path().join("codex-home")),
+            held_back: false,
         };
         let stub = |status: &str| {
             crate::process::testing::stub_command(

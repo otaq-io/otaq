@@ -516,7 +516,8 @@ async fn deliver_now_sends_while_busy_but_asks_about_unsent_text() {
         answer,
         Delivery::NeedsConfirmation {
             ticket: Some("SHOP-1".parse().unwrap()),
-            unclearable_by: None
+            unclearable_by: None,
+            prompt: None,
         }
     );
     assert_eq!(s.waiting().await, 1, "nothing sent");

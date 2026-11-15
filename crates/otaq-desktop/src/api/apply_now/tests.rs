@@ -111,9 +111,10 @@ async fn world() -> TestService {
         })
         .await
         .unwrap();
-    w.board
-        .use_flow_for_tests("NOTE", &yaml::read(POCKET_NOTES).unwrap())
-        .await;
+    // Stored before Otaq's skills were renamed: renamed as the upgrade renames it (`tuq:product-spec`).
+    let mut file = yaml::read(POCKET_NOTES).unwrap();
+    otaq_core::flow::skill_names::name_own_skills(&mut file);
+    w.board.use_flow_for_tests("NOTE", &file).await;
     w
 }
 

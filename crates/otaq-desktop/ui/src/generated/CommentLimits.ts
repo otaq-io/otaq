@@ -5,14 +5,19 @@
  */
 export type CommentLimits = { 
 /**
- * The longest comment, in Unicode characters (code points, as the service counts them): 2000.
- */
-chars: number, 
-/**
  * The largest report, in bytes: 20 × 1024 × 1024.
  */
 report_bytes: number, 
 /**
  * "20 MB".
  */
-report_label: string, };
+report_label: string, 
+/**
+ * The most the comment's text may take as sent, in bytes of its JSON string (UTF-8,
+ * quotes and escapes included): one service message (16 MB) less room for the rest of it.
+ */
+message_bytes: number, 
+/**
+ * What the box says when its text would not fit in one message, instead of sending it.
+ */
+too_long_to_send: string, };

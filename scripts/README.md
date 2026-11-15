@@ -133,8 +133,8 @@ a running Ubuntu VM can't be snapshotted, and the user approved working without 
 
    Run `rsync` again after every change on the Mac. Never commit from the copy. `CARGO_BUILD_JOBS=4` keeps the
    builds within the VM's 16 GB. To check a committed branch instead of the Mac's working tree, clone it from the
-   shared folder: `git clone --branch <branch> /media/VMPal/software-factory ~/cb-src`. Undo: delete `~/cb-src` and
-   `~/cb-target`.
+   shared folder: `git clone --recursive --branch <branch> /media/VMPal/software-factory ~/cb-src`. Undo: delete
+   `~/cb-src` and `~/cb-target`.
 
 ## Windows VM (Windows 11 Pro 24H2, ARM64)
 
@@ -184,7 +184,8 @@ Set up on 2026-10-11, starting from a fresh install with only Git for Windows ad
 
    Run `robocopy` again after every change on the Mac. Never commit from the copy. To check a committed branch
    instead of the Mac's working tree, fetch it into the copy: `git fetch Z:/software-factory <branch>`, then
-   `git checkout -f --detach FETCH_HEAD`. Undo: delete `%USERPROFILE%\cb-src` and `%USERPROFILE%\cb-target`.
+   `git checkout -f --detach FETCH_HEAD` and `git submodule update --init` (the workflow skills it pins). Undo:
+   delete `%USERPROFILE%\cb-src` and `%USERPROFILE%\cb-target`.
 
 PowerShell's default execution policy blocks unsigned scripts, hence `-ExecutionPolicy Bypass` for this one run
 (the machine's policy stays as it is).
@@ -217,6 +218,13 @@ To look at the app in the VM (the hand checks), build it in the copy with `cargo
 service the app starts sits next to it) and, in `crates\otaq-desktop`, `npm run tauri build` (the page goes inside
 the binary), then start `%USERPROFILE%\cb-target\release\otaq-app.exe` from the signed-in desktop, with
 `OTAQ_HOME` set to a temporary folder.
+An Otaq whose data folder isn't the default `~/.otaq` (any `OTAQ_HOME` elsewhere: this one, `npm run tauri dev` on
+a throwaway folder, a second Otaq next to the installed one) leaves Codex's shared home (`~/.codex`) alone: it runs
+no Codex command and writes nothing there (no plugin or marketplace, hook trust, `rules/otaq.rules` or folder trust;
+Disconnect removes nothing), and Settings → Tools shows Codex as "Found · not usable", saying to set `CODEX_HOME`.
+To use Codex with that Otaq, set `CODEX_HOME` to a Codex home of its own (copy `auth.json` from a signed-in one, or
+run `codex login` with it set) before starting the service; with `CODEX_HOME` set, that Otaq sets Codex up there as
+the default Otaq does in `~/.codex`.
 A program started by a remote command (VMPal's exec, ssh) runs off the visible desktop; a scheduled task that runs
 in the signed-in session puts it on screen. On 2026-10-13 (T-0246) a `.cmd` setting `OTAQ_HOME` and
 `OTAQ_KEY_LOG=1` and starting the app was run with `schtasks /create /tn cb-t0246-app /tr <the .cmd> /sc once
@@ -289,7 +297,9 @@ build between them never crosses disks.
   (`otaq daemon stop`), move the folder `%USERPROFILE%\.otaq` to the Dev Drive (for example to `D:\otaq`) and delete
   the `scratch` folder inside it (Otaq makes it again at the next Local merge), run `git worktree prune` in each
   project's checkout, set `OTAQ_HOME` for your account (`setx OTAQ_HOME D:\otaq`) and start Otaq again. With
-  `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform).
+  `OTAQ_HOME` set, Otaq uses that folder instead of `~/.otaq` (on every platform). With the data folder moved, Otaq
+  leaves Codex's `~/.codex` alone unless `CODEX_HOME` is set: to keep using Codex, also set it for your account
+  (`setx CODEX_HOME %USERPROFILE%\.codex`).
 
 **Stock limit** (on a disk that can't clone). The stock keeps as many builds per project as there are tickets that
 could start soon: those waiting at the top of their first stage whose dependencies are done and that wait only for a free slot or the plan

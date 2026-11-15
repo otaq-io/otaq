@@ -35,7 +35,8 @@ pub const PASTED_TEXT: &str = "Pasted text";
 pub enum ReportSource {
     /// A file to copy (`--report-file PATH`), as an absolute path; the CLI makes a relative one absolute.
     Path(PathBuf),
-    /// Text the user pasted into the comment box (the app's chip, CMT-11): a "Pasted text" attachment.
+    /// Text sent as a "Pasted text" attachment (CMT-11). The app's box made one of a long paste until tuq 112; a paste
+    /// now always stays in the comment's text.
     Text(String),
 }
 

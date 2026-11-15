@@ -30,14 +30,16 @@ use super::versions::RUNNING_VERSION;
 use super::{MIGRATOR, Store};
 use crate::data_dir::DataDir;
 
-/// The folder under the system's temporary folder holding the templates.
-const TEMPLATES: &str = "otaq-test-store";
+/// The folder under the system's temporary folder holding the templates: `otaq-test-store`.
+fn templates() -> String {
+    format!("{}-test-store", crate::naming::COMMAND_NAME)
+}
 
 /// Copies the template database into `data`'s database path (creating the data folder), building the template
 /// first when this build's has none yet. `data` must have no database yet. Panics on any failure, like the other
 /// test helpers.
 pub fn seed(data: &DataDir) {
-    let dir = std::env::temp_dir().join(TEMPLATES);
+    let dir = std::env::temp_dir().join(templates());
     let template = template(&dir, &key(&MIGRATOR, RUNNING_VERSION));
     DataDir::ensure_dir(data.root()).expect("the data folder");
     let database = data.database_path();
@@ -58,7 +60,7 @@ pub fn seed(data: &DataDir) {
 /// The template's name: a hash of every migration (its version, description and checksum) and `version`.
 fn key(migrator: &Migrator, version: &str) -> String {
     let mut hash = Sha256::new();
-    hash.update(b"otaq-test-store 1\0");
+    hash.update(format!("{} 1\0", templates()).as_bytes());
     hash.update(version.as_bytes());
     for migration in migrator.iter() {
         hash.update(b"\0");
@@ -214,7 +216,15 @@ mod tests {
         let store = Store::open_in(&seeded).await.unwrap();
         // No migration ran: the applied rows are the template's, and no copy was made before migrations.
         assert_eq!(applied(store.pool()).await, as_copied);
-        assert_eq!(names(seeded.root())[0], "otaq.db");
+        assert_eq!(
+            names(seeded.root())[0],
+            seeded
+                .database_path()
+                .file_name()
+                .unwrap()
+                .to_str()
+                .unwrap()
+        );
         assert!(
             names(seeded.root()).iter().all(|n| !n.contains(".before-")),
             "{:?}",
@@ -249,11 +259,13 @@ mod tests {
         seed(&DataDir::new(tmp.path().join("a")));
         seed(&DataDir::new(tmp.path().join("b")));
         let template = std::env::temp_dir()
-            .join(TEMPLATES)
+            .join(templates())
             .join(format!("{}.db", key(&MIGRATOR, RUNNING_VERSION)));
         let bytes = std::fs::read(&template).unwrap();
-        assert_eq!(std::fs::read(tmp.path().join("a/otaq.db")).unwrap(), bytes);
-        assert_eq!(std::fs::read(tmp.path().join("b/otaq.db")).unwrap(), bytes);
+        for copy in ["a", "b"] {
+            let database = DataDir::new(tmp.path().join(copy)).database_path();
+            assert_eq!(std::fs::read(database).unwrap(), bytes);
+        }
     }
 
     #[test]

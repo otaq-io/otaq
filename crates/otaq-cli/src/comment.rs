@@ -19,7 +19,6 @@
 //! "other", "bytes", "lines"?, "path"}], "posted_at", "edited_at"?}`; `comments` prints `{"key", "comments": [...]}`;
 //! `report` prints `{"key", "n", "attachment": {…as above}, "deleted"?}` (never the file's bytes).
 
-use std::io::Read;
 use std::path::PathBuf;
 
 use clap::{Args, Subcommand};
@@ -47,9 +46,13 @@ pub struct CommentArgs {
     pub command: Option<CommentCommand>,
     /// SHOP-34, or 34 in the current project. Default: $OTAQ_TICKET
     pub key: Option<String>,
-    /// Read the comment from stdin (at most 2,000 characters; it may be empty when a file is attached)
+    /// Read the comment from stdin (an agent's: at most 2,000 characters; the user's: no limit; it may be empty when a
+    /// file is attached)
     #[arg(long)]
     pub stdin: bool,
+    /// Read the same text from this file instead of stdin
+    #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+    pub stdin_file: Option<PathBuf>,
     /// Attach a file to the comment (any type, at most 20 MB each): long output saved straight from a tool, a
     /// screenshot; repeat it for each file
     #[arg(long, value_name = "PATH")]
@@ -72,6 +75,9 @@ pub enum CommentCommand {
         /// stays
         #[arg(long)]
         stdin: bool,
+        /// Read the same text from this file instead of stdin
+        #[arg(long, value_name = "PATH", conflicts_with = "stdin")]
+        stdin_file: Option<PathBuf>,
         /// Attach a file to the comment (any type, at most 20 MB each); repeat it for each file
         #[arg(long, value_name = "PATH")]
         report_file: Vec<PathBuf>,
@@ -93,13 +99,11 @@ fn usage(message: impl Into<String>) -> ErrorBody {
 }
 
 fn read_stdin(stdin: bool) -> Result<String, ErrorBody> {
-    let mut text = String::new();
     if stdin {
-        std::io::stdin()
-            .read_to_string(&mut text)
-            .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+        crate::input::read()
+    } else {
+        Ok(String::new())
     }
-    Ok(text)
 }
 
 /// `[KEY] N`: the ticket (or `None` for `$OTAQ_TICKET`) and the comment's number.
@@ -160,6 +164,7 @@ pub fn comment(args: CommentArgs, global: &GlobalArgs, out: &Output) -> Result<(
             stdin,
             report_file,
             remove_attachment,
+            ..
         }) => edit(args, stdin, report_file, remove_attachment, global, out),
         Some(CommentCommand::Delete { args }) => delete(args, global, out),
         None => post(

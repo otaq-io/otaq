@@ -224,6 +224,24 @@ describe("the description in place (s25-04)", () => {
     expect(bar?.textContent).toContain("⌘S");
   });
 
+  it("a drag that selects text stays in the read view; a selection elsewhere doesn't", () => {
+    const page = mount();
+    const read = page.querySelector<HTMLElement>(".overview-read");
+    const text = read?.querySelector(".ProseMirror")?.firstChild;
+    if (!read || !text) throw new Error("no description text");
+    // A drag: the click arrives with the text selected.
+    act(() => {
+      window.getSelection()?.selectAllChildren(text);
+      read.click();
+    });
+    expect(page.querySelector(".overview-edit")).toBeNull();
+    // A selection elsewhere on the page doesn't stop a click here.
+    act(() => {
+      window.getSelection()?.selectAllChildren(page.querySelector(".overview-hint") ?? document.body);
+    });
+    clickToEdit(page);
+  });
+
   it("Save ⌘S sends only the description, to the in-place target", async () => {
     ipc.reply = (method) => (method === "editor.save" ? { outcome: "saved", key: KEY, note: null } : null);
     const page = mount();

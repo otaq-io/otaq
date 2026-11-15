@@ -66,6 +66,13 @@ pub fn personal_skill_folders(home: &Path, var: super::EnvVar<'_>) -> Vec<PathBu
     vec![skills_folder(home, var)]
 }
 
+/// Whether tuq's install names its skills with the prefix in their own name, `tuq-product-spec` (tuq decision
+/// 105), and whether it is a plugin (else stamped folders in the tool's personal skills folder, decision 100):
+/// Claude Code runs tuq's plugin skills in its namespace, `/tuq:product-spec`.
+pub const TUQ_PREFIXED: bool = false;
+/// See [`TUQ_PREFIXED`].
+pub const TUQ_AS_PLUGIN: bool = true;
+
 /// Whether Claude Code loads a `SKILL.md` that starts with a UTF-8 byte order mark. Not checked
 /// yet, so counted as loaded.
 pub const READS_SKILL_WITH_BOM: bool = true;
@@ -641,18 +648,24 @@ mod tests {
         assert!(quirks.multi_line_clearable);
     }
 
-    /// Otaq's own skill by its plugin's namespace, the user's by its own name; nothing to add to the launch (T2).
+    /// Otaq's own skill by its plugin's namespace, the user's by its own name, a bare one included (decision 063);
+    /// nothing to add to the launch (T2). A `tuq:` skill runs the user's tuq, in its plugin's namespace (decision 105).
     #[test]
     fn otaqs_skills_namespaced_the_users_by_their_own_name() {
         let f = fixture();
         assert_eq!(
-            f.adapter.skill_reference("commit"),
+            f.adapter.skill_reference(crate::own_skill!("commit")),
             format!("/{}:commit", naming::PLUGIN_NAMESPACE)
         );
+        assert_eq!(
+            f.adapter.skill_reference("tuq:product-spec"),
+            "/tuq:product-spec"
+        );
+        assert_eq!(f.adapter.skill_reference("commit"), "/commit");
         assert_eq!(f.adapter.skill_reference("team-validate"), "/team-validate");
         let mut request = request(LaunchRole::Validator);
         request.first_prompt = Some(FirstPrompt::Skill {
-            name: "validate".into(),
+            name: crate::own_skill!("validate").into(),
             message: None,
         });
         let plan = f.adapter.launch(&request).unwrap();
@@ -984,6 +997,7 @@ mod tests {
             path: OsString::new(),
             home: None,
             data: DataDir::new(data.path()),
+            own_data: false,
         };
         let adapters = Adapters::new(fixture().adapter, tools);
         let copy = adapters.clone();

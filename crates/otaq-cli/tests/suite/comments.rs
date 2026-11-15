@@ -106,18 +106,8 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
     );
     assert_eq!(stdout(&posted).trim(), "4");
 
-    // Refused: too long (the service's text), a missing report (before anything is posted).
-    let refused = cb(
-        &w,
-        &["comment", "SHOP-1", "--stdin", "--json"],
-        Some(&"ş".repeat(2_001)),
-    );
-    assert!(!refused.status.success());
-    assert_eq!(
-        json(&refused)["error"]["message"],
-        "Comment is 2,001 characters; the limit is 2,000. Put the full text in a report with `--report-file` and \
-         keep the comment to what the next agent needs."
-    );
+    // Refused: a missing report (before anything is posted). The user's comments have no length limit (tuq 112);
+    // an agent's does (`an_agent_comments_on_its_own_ticket_and_greps_a_report`).
     let refused = cb(
         &w,
         &["comment", "SHOP-1", "--stdin", "--report-file", "nope.txt"],
@@ -241,6 +231,21 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
         String::from_utf8_lossy(&refused.stderr).trim(),
         "error: SHOP-1's comment 3 has no attachments"
     );
+    w.stop().await;
+}
+
+/// tuq 110: `otaq comments` prints a Markdown comment exactly as written; only one-line previews drop the marks.
+#[tokio::test(flavor = "multi_thread")]
+async fn otaq_comments_prints_markdown_as_written() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let body = "## Done\n\n- [x] **Reused** `export.rs`\n- see [the PR](https://example.com/1)";
+    stdout(&cb(&w, &["comment", "SHOP-1", "--stdin"], Some(body)));
+    let listed = stdout(&cb(&w, &["comments", "SHOP-1"], None));
+    assert!(listed.contains(body), "{listed}");
+    let listed = json(&cb(&w, &["comments", "SHOP-1", "--json"], None));
+    assert_eq!(listed["comments"][0]["body"], body);
     w.stop().await;
 }
 
@@ -698,6 +703,47 @@ async fn an_agent_comments_on_its_own_ticket_and_greps_a_report() {
     let ran = agent.run(&format!("'{CB}' comments --json")).await;
     let listed: Value = serde_json::from_str(&ran.stdout).unwrap();
     assert_eq!(listed["comments"].as_array().unwrap().len(), 2);
+
+    // Tuq 112: the agent's comment keeps the 2,000-character limit and today's text, word for word; the user's has
+    // none.
+    let ran = agent
+        .run_with_stdin(
+            &format!("'{CB}' comment --stdin --json"),
+            &"ş".repeat(2_001),
+        )
+        .await;
+    assert_ne!(ran.status, 0);
+    let error: Value = serde_json::from_str(&ran.stdout).unwrap();
+    assert_eq!(
+        error["error"]["message"],
+        "Comment is 2,001 characters; the limit is 2,000. Put the full text in a report with `--report-file` and \
+         keep the comment to what the next agent needs."
+    );
+    let ran = agent
+        .run_with_stdin(&format!("'{CB}' comment --stdin"), &"x".repeat(48_210))
+        .await;
+    assert_ne!(ran.status, 0);
+    assert_eq!(
+        ran.stderr.trim(),
+        "error: Comment is 48,210 characters; the limit is 2,000. Put the full text in a report with \
+         `--report-file` and keep the comment to what the next agent needs."
+    );
+    let long = "x".repeat(48_210);
+    let posted = json(&cb(
+        &w,
+        &["comment", "SHOP-1", "--stdin", "--json"],
+        Some(&long),
+    ));
+    assert_eq!(
+        (&posted["n"], &posted["author"]["kind"], &posted["body"]),
+        (&json!(3), &json!("user"), &json!(long))
+    );
+    let edited = json(&cb(
+        &w,
+        &["comment", "edit", "SHOP-1", "3", "--stdin", "--json"],
+        Some(&format!("{long}!")),
+    ));
+    assert_eq!(edited["body"].as_str().map(str::len), Some(48_211));
     w.stop().await;
 }
 

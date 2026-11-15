@@ -3,11 +3,11 @@
 //! next` / `stage done` summary, a check's verdict, and the user's note on Move to next stage, Send back (a human
 //! check's Fail), Send back with PR comments and a drag back.
 //!
-//! A hand-over's text is checked ([`check_comment`]) and its attachments copied ([`Board::prepare_attachments`]) **before** the
-//! move, so a text over the limit or a missing attachment refuses the whole hand-over and nothing moves. An empty optional
-//! note posts nothing. What the agent is then typed or resumed with names the hand-over, never its text ("SHOP-18 was
-//! sent back to Dev with 2 line comments and a comment. Run `otaq prime`, then `otaq review feedback`."): the agent
-//! reads the comment in `prime`.
+//! A hand-over's text is checked ([`check_comment`]) and its attachments copied ([`Board::prepare_attachments`])
+//! **before** the move, so an agent's text over the limit (the user's have none, tuq 112) or a missing attachment
+//! refuses the whole hand-over and nothing moves. An empty optional note posts nothing. What the agent is then typed or
+//! resumed with names the hand-over, never its text ("SHOP-18 was sent back to Dev with 2 line comments and a comment.
+//! Run `otaq prime`, then `otaq review feedback`."): the agent reads the comment in `prime`.
 
 use sqlx::{Sqlite, Transaction};
 
@@ -55,8 +55,8 @@ impl HandOver {
         Ok(posted)
     }
 
-    /// Removes the copied attachments unless its comment was stored: the hand-over was refused or failed after the copy.
-    /// Safe after a commit (a stored comment keeps its attachments).
+    /// Removes the copied attachments unless its comment was stored: the hand-over was refused or failed after the
+    /// copy. Safe after a commit (a stored comment keeps its attachments).
     pub async fn discard_unposted(&self, board: &Board) {
         let Some(stored) = &self.attachments else {
             return;
@@ -87,9 +87,10 @@ pub async fn settled<T>(
 }
 
 impl Board {
-    /// The hand-over comment of `author` on `ticket`: `body` checked first (CMT-02's limit, refused whole), then the
-    /// attachments copied (missing or over 20 MB, refused). `None` when there is nothing to post: an empty optional note
-    /// and no attachments. Attachments with no text are posted as they are (tuq 007).
+    /// The hand-over comment of `author` on `ticket`: `body` checked first (an agent's CMT-02 limit, refused whole; the
+    /// user's has none, tuq 112), then the attachments copied (missing or over 20 MB, refused). `None` when there is
+    /// nothing to post: an empty optional note and no attachments. Attachments with no text are posted as they are
+    /// (tuq 007).
     pub async fn hand_over(
         &self,
         ticket: &Ticket,
@@ -100,7 +101,7 @@ impl Board {
         if body.trim().is_empty() && attachments.is_empty() {
             return Ok(None);
         }
-        let body = check_comment(body, attachments.len())?;
+        let body = check_comment(body, &author, attachments.len())?;
         let attachments = self.prepare_attachments(&ticket.key, attachments).await?;
         Ok(Some(HandOver {
             author,
