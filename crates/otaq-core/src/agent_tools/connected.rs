@@ -53,6 +53,12 @@ pub enum AgentToolState {
     CouldNotCheck { version: Option<String> },
     /// Found, but older than Otaq can run (Copilot before 1.0.98): never launched.
     UpdateNeeded { version: Option<String> },
+    /// Found, but this Otaq won't use it, and why ([`Detection::not_usable`]: Codex with a data folder that isn't
+    /// the default one and no `CODEX_HOME`). Never set up, launched or disconnected; nothing of it was run.
+    NotUsable {
+        version: Option<String>,
+        why: String,
+    },
     /// Not on PATH: **How to install**.
     NotInstalled,
     /// Found, and set by the user not to count.
@@ -66,6 +72,11 @@ impl AgentToolState {
         let version = detection.version.clone();
         if !detection.installed {
             Self::NotInstalled
+        } else if let Some(why) = &detection.not_usable {
+            Self::NotUsable {
+                version,
+                why: why.clone(),
+            }
         } else if detection.update_needed {
             Self::UpdateNeeded { version }
         } else {
@@ -87,6 +98,7 @@ impl AgentToolState {
             | Self::FoundNotSignedIn { version }
             | Self::CouldNotCheck { version }
             | Self::UpdateNeeded { version }
+            | Self::NotUsable { version, .. }
             | Self::Hidden { version } => version.as_deref(),
             Self::NotInstalled => None,
         }
@@ -98,12 +110,13 @@ impl AgentToolState {
 
     /// Why a tool in this state can't start an agent ("Codex isn't available · logged out"); `None` when
     /// Connected.
-    pub fn unavailable_reason(&self) -> Option<&'static str> {
+    pub fn unavailable_reason(&self) -> Option<&str> {
         match self {
             Self::Connected { .. } => None,
             Self::FoundNotSignedIn { .. } => Some("signed out"),
             Self::CouldNotCheck { .. } => Some("couldn\u{2019}t check its sign-in"),
             Self::UpdateNeeded { .. } => Some("update needed"),
+            Self::NotUsable { why, .. } => Some(why),
             Self::NotInstalled => Some("not installed"),
             Self::Hidden { .. } => Some("hidden in Settings"),
         }
@@ -902,6 +915,7 @@ mod tests {
             update_needed,
             account: Some("signed in with ChatGPT".into()),
             sign_in_offered: false,
+            not_usable: None,
         };
         assert_eq!(
             AgentToolState::from_detection(&Detection::default()),

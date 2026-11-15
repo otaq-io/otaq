@@ -247,10 +247,12 @@ mod tests {
             path: OsString::new(),
             home: None,
             data: crate::data_dir::DataDir::new("/nonexistent/data"),
+            own_data: false,
         };
         Codex::with_context(CodexContext {
             tool,
             codex_home: codex_home.map(Path::to_path_buf),
+            held_back: false,
         })
     }
 

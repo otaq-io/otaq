@@ -7,7 +7,7 @@
 
 use std::path::{Path, PathBuf};
 
-use otaq_core::agent_tools::connected::{AgentToolsList, SetupAction};
+use otaq_core::agent_tools::connected::{AgentToolState, AgentToolsList, SetupAction};
 use otaq_core::agent_tools::{LaunchContext, Tool, claude};
 use otaq_core::client::{Client, ClientConfig};
 use otaq_core::naming;
@@ -178,5 +178,108 @@ async fn a_check_repairs_a_missing_setup_and_leaves_a_complete_one_alone() {
     }
     recheck(&client).await;
     assert_eq!(app_servers(&log), 2);
+    w.stop().await;
+}
+
+/// Every folder and file under `dir`, with the files' bytes.
+fn tree(dir: &Path) -> Vec<(PathBuf, Option<Vec<u8>>)> {
+    let mut out = Vec::new();
+    let mut stack = vec![dir.to_path_buf()];
+    while let Some(at) = stack.pop() {
+        for entry in std::fs::read_dir(&at).unwrap().flatten() {
+            let path = entry.path();
+            let rel = path.strip_prefix(dir).unwrap().to_path_buf();
+            if path.is_dir() {
+                out.push((rel, None));
+                stack.push(path);
+            } else {
+                out.push((rel, Some(std::fs::read(&path).unwrap())));
+            }
+        }
+    }
+    out.sort();
+    out
+}
+
+/// Piece 3 of fixes-before-0-3: a second Otaq (its data folder isn't the default one) started without `CODEX_HOME`
+/// leaves the shared `~/.codex` byte for byte as it was, though the default Otaq's setup is there and points at
+/// another data folder: no Codex command runs at start, at a check, when a project is added (folder trust) or on
+/// Disconnect, and Settings says why Codex isn't usable.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_second_otaq_leaves_the_shared_codex_home_alone() {
+    if std::env::var_os("CODEX_HOME").is_some() {
+        // With CODEX_HOME set the second Otaq would use it: never risk the user's real one.
+        eprintln!("CODEX_HOME is set: skipped");
+        return;
+    }
+    let dir = tempfile::tempdir().unwrap();
+    let (bin, home) = (dir.path().join("bin"), dir.path().join("home"));
+    let shared = home.join(".codex");
+    std::fs::create_dir_all(&bin).unwrap();
+    std::fs::create_dir_all(shared.join("rules")).unwrap();
+    // The default Otaq's setup: its marketplace from its own data folder, its plugin, its hook trust, its rules.
+    let market = format!("{}-local", naming::PLUGIN_NAMESPACE);
+    let config = format!(
+        "# mine\nmodel = \"gpt-5.6-terra\"\n\n[marketplaces.{market}]\nsource_type = \"local\"\nsource = \"{}\"\n\n[plugins.\"{}\"]\nenabled = true\n\n[hooks.state.\"{}\"]\ntrusted_hash = \"sha256:stop\"\n",
+        home.join(".otaq/runtime/codex-plugin").display(),
+        plugin_id(),
+        hook_key("stop"),
+    );
+    std::fs::write(shared.join("config.toml"), config).unwrap();
+    std::fs::write(
+        shared
+            .join("rules")
+            .join(format!("{}.rules", naming::COMMAND_NAME)),
+        "prefix_rule(pattern=[\"otaq\"], decision=\"allow\")\n",
+    )
+    .unwrap();
+    let before = tree(&shared);
+    let log = dir.path().join("log");
+    stand_in(&bin, &shared, &log);
+    let plugin: PathBuf = Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugin");
+    let (path, tool_home, bin_dir) = (bin.clone().into_os_string(), home.clone(), bin.clone());
+    let w = TestService::start_with(move |mut config| {
+        config.tools.path = path.clone();
+        config.tool_home = Some(tool_home);
+        config.own_data_folder = true;
+        config.launch = Some(LaunchContext {
+            bin_dir,
+            plugin_dir: plugin,
+            path,
+            claude: claude::ClaudeLaunch {
+                program: vec!["claude".into()],
+                config_dir: None,
+            },
+        });
+        config
+    })
+    .await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+
+    let rows = recheck(&client).await;
+    let codex = rows.tools.iter().find(|t| t.tool == Tool::Codex).unwrap();
+    let AgentToolState::NotUsable { why, .. } = &codex.state else {
+        panic!("{:?}", codex.state)
+    };
+    assert!(why.contains("set CODEX_HOME to use Codex"), "{why}");
+    assert!(codex.setup.is_none(), "no setup ran");
+    assert!(!codex.can_disconnect);
+    assert_eq!(
+        w.connected.is_available(Tool::Codex).unwrap_err().reason,
+        *why
+    );
+
+    // A project added: no folder trust in Codex's config.
+    w.add_project("shop-web").await;
+    recheck(&client).await;
+    // Disconnect removes nothing of the default Otaq's.
+    let request = serde_json::from_value(
+        json!({"method": "agent_tools.disconnect", "params": {"tool": "codex"}}),
+    )
+    .unwrap();
+    let _ = client.request(request).await;
+
+    assert_eq!(tree(&shared), before, "~/.codex is byte for byte as it was");
+    assert!(!log.exists(), "no Codex command ran");
     w.stop().await;
 }

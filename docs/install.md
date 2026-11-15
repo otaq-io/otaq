@@ -110,7 +110,9 @@ update** (when an update is ready: only the app restarts, working agents continu
 
 ## Where things live
 
-- **Data:** `~/.otaq/` (a SQLite database, logs, the service socket). Set `OTAQ_HOME` to use another folder.
+- **Data:** `~/.otaq/` (a SQLite database, logs, the service socket). Set `OTAQ_HOME` to use another folder. An Otaq
+  with another data folder leaves Codex's `~/.codex` alone and shows Codex as not usable, unless `CODEX_HOME` is set
+  too (to `~/.codex` itself, or a Codex home of its own).
 - **The `otaq` command for your terminal:** `~/.otaq/bin/otaq`, kept by the app on every start (see
   [Your own terminal](otaq-command.md#your-own-terminal)). Agents use their own copy in `~/.otaq/runtime/<build>/`, so an update
   never changes the version an agent's session runs. Downloaded updates wait in `~/.otaq/updates/`.

@@ -100,6 +100,7 @@ const PILL_ICONS: Record<AgentToolPillLook, IconName> = {
   not_signed_in: "circle-alert",
   could_not_check: "circle-alert",
   update_needed: "circle-alert",
+  not_usable: "circle-alert",
   not_installed: "circle-dashed",
   hidden: "eye-off",
 };

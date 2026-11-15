@@ -52,6 +52,7 @@ pub(super) async fn detect(context: &CopilotContext) -> Detection {
         update_needed: false,
         account,
         sign_in_offered: false,
+        not_usable: None,
     }
 }
 

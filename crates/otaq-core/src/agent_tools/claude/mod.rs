@@ -997,6 +997,7 @@ mod tests {
             path: OsString::new(),
             home: None,
             data: DataDir::new(data.path()),
+            own_data: false,
         };
         let adapters = Adapters::new(fixture().adapter, tools);
         let copy = adapters.clone();

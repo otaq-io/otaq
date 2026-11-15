@@ -546,6 +546,17 @@
           }
         },
         "not_installed": {},
+        "not_usable": {
+          "fields": {
+            "version": {
+              "ty": "Option<String>"
+            },
+            "why": {
+              "ty": "String",
+              "required": true
+            }
+          }
+        },
         "update_needed": {
           "fields": {
             "version": {

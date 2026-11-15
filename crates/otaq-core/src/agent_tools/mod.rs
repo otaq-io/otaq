@@ -242,6 +242,10 @@ pub struct Detection {
     /// **Sign in…** is offered although the tool counts as Connected: it runs, but signing in gives it more
     /// (OpenCode with only its free models, Q-K).
     pub sign_in_offered: bool,
+    /// Found, but this Otaq won't use it, and why, as a sentence for Settings ("this Otaq has its own data folder:
+    /// set CODEX_HOME to use Codex with this Otaq", [`codex::CodexContext::held_back`]). Nothing was run to find out
+    /// more: no version, no sign-in.
+    pub not_usable: Option<String>,
 }
 
 /// The skill an Agent stage without a skill of its own starts with.
@@ -344,6 +348,11 @@ pub struct ToolContext {
     pub home: Option<PathBuf>,
     /// Otaq's data folder.
     pub data: crate::data_dir::DataDir,
+    /// The data folder isn't the default one ([`crate::data_dir::DataDir::is_default`]): a second Otaq, such as a
+    /// dev build with its own `OTAQ_HOME`. It leaves a home the tool shares machine-wide alone unless the tool's own
+    /// variable names one for it (Codex: `CODEX_HOME`, [`codex::CodexContext::held_back`]). `false` for the default
+    /// data folder, and in tests unless they ask.
+    pub own_data: bool,
 }
 
 /// How long a tool's `--version` may take (as the Tools checklist).
@@ -1114,6 +1123,7 @@ impl Adapters {
             path: OsString::new(),
             home: None,
             data: data.clone(),
+            own_data: false,
         };
         Self::new(
             claude::ClaudeCode::new(claude::ClaudeContext {
@@ -1220,6 +1230,7 @@ mod test_support {
             path: bin.as_os_str().to_owned(),
             home: home.map(Path::to_path_buf),
             data: crate::data_dir::DataDir::new(bin.join("data")),
+            own_data: false,
         }
     }
 
