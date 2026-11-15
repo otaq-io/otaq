@@ -209,13 +209,12 @@ pub struct AttachmentRow {
     pub line: String,
 }
 
-/// The first non-empty line of a comment, trimmed.
+/// The first non-empty line of a comment, its words without Markdown marks (tuq 110).
 fn first_line(body: &str) -> String {
-    body.lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
+    otaq_core::markdown_plain::plain_lines(body)
+        .into_iter()
+        .next()
         .unwrap_or_default()
-        .to_owned()
 }
 
 fn who(comment: &TicketComment) -> String {
@@ -812,6 +811,20 @@ mod tests {
         assert_eq!(with_own_agent(v(), &backlog, None).own_agent, None);
         let done = ticket("SHOP-5", "Fix the word tiny in README", Status::Merged);
         assert_eq!(with_own_agent(v(), &done, Some(&own)).own_agent, None);
+    }
+
+    /// tuq 110: an attachment row's line is its comment's first line without Markdown marks; the comment isn't changed.
+    #[test]
+    fn an_attachment_rows_line_has_no_markdown_marks() {
+        let mut comments = fixtures::shop_22();
+        let body = "\n## **Fails** 2 in 20: see [the run](https://x.y/1)\nFull run attached.";
+        comments[3].body = body.into();
+        let rows = attachments(&comments, true);
+        assert_eq!(rows[0].line, "Fails 2 in 20: see the run");
+        assert_eq!(comments[3].body, body, "the comment itself keeps its marks");
+        // A code block's first line is shown as written.
+        comments[3].body = "```\nlet a = *b;\n```".into();
+        assert_eq!(attachments(&comments, true)[0].line, "let a = *b;");
     }
 
     /// USG-07: only a live Idle agent offers "Mark as usage limit", as the Inbox's row did.

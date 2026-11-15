@@ -480,10 +480,11 @@ impl Row {
     }
 }
 
-/// The start of a comment for History's "commented" line.
+/// The start of a comment for History's "commented" line: its words without Markdown marks (tuq 110), then cut.
 fn excerpt(body: &str) -> String {
+    let body = crate::markdown_plain::plain(body);
     if body.chars().count() <= EXCERPT_CHARS {
-        return body.to_owned();
+        return body;
     }
     let mut cut: String = body.chars().take(EXCERPT_CHARS).collect();
     cut.push('…');
@@ -1149,5 +1150,17 @@ mod tests {
         let long = "a".repeat(200);
         assert_eq!(excerpt(&long).chars().count(), EXCERPT_CHARS + 1);
         assert!(excerpt(&long).ends_with('…'));
+        // Stripped first, then cut: the marks don't count, and none is left half at the cut (tuq 110).
+        assert_eq!(
+            excerpt("## Done\n\n- **Reused** `export.rs`"),
+            "Done Reused export.rs"
+        );
+        let marked = format!("**{}** `tail`", "b".repeat(EXCERPT_CHARS - 2));
+        assert_eq!(
+            excerpt(&marked),
+            format!("{} t…", "b".repeat(EXCERPT_CHARS - 2))
+        );
+        let exact = format!("**{}**", "c".repeat(EXCERPT_CHARS));
+        assert_eq!(excerpt(&exact), "c".repeat(EXCERPT_CHARS));
     }
 }

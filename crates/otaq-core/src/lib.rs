@@ -18,6 +18,7 @@ pub mod helpers;
 pub mod ipc;
 pub mod local_time;
 pub mod logging;
+pub mod markdown_plain;
 pub mod messages;
 pub mod naming;
 pub mod paths;

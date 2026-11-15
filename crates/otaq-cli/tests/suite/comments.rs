@@ -244,6 +244,21 @@ async fn the_user_posts_lists_edits_deletes_and_reads_reports() {
     w.stop().await;
 }
 
+/// tuq 110: `otaq comments` prints a Markdown comment exactly as written; only one-line previews drop the marks.
+#[tokio::test(flavor = "multi_thread")]
+async fn otaq_comments_prints_markdown_as_written() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let body = "## Done\n\n- [x] **Reused** `export.rs`\n- see [the PR](https://example.com/1)";
+    stdout(&cb(&w, &["comment", "SHOP-1", "--stdin"], Some(body)));
+    let listed = stdout(&cb(&w, &["comments", "SHOP-1"], None));
+    assert!(listed.contains(body), "{listed}");
+    let listed = json(&cb(&w, &["comments", "SHOP-1", "--json"], None));
+    assert_eq!(listed["comments"][0]["body"], body);
+    w.stop().await;
+}
+
 /// tuq 007: `otaq comment --report-file` with an empty stdin posts the file alone, and `otaq comments` shows it with
 /// no empty line; with neither text nor a file it is still refused.
 #[tokio::test(flavor = "multi_thread")]
