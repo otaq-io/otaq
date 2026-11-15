@@ -126,28 +126,65 @@ afterEach(() => {
   Reflect.deleteProperty(document, "execCommand");
 });
 
-/** The box with its own state, as the thread holds it. */
-function Box({ view, text }: { view: CommentBoxView; text: string }) {
+/** The box with its own state, as the thread holds it; `clears`: a sent comment empties it, as the thread's does. */
+function Box({ view, text, clears = false }: { view: CommentBoxView; text: string; clears?: boolean }) {
   const [value, setValue] = useState<BoxValue>({ text, attachments: [] });
   return createElement(CommentBox, {
     ticket: "SHOP-34",
     view,
     value,
     onChange: setValue,
-    onSubmit: () => sent.push({ how: "comment", value }),
+    onSubmit: () => {
+      sent.push({ how: "comment", value });
+      if (clears) setValue({ text: "", attachments: [] });
+    },
     onTell: () => sent.push({ how: "tell", value }),
   });
 }
 
 /** A fresh box holding `text`. */
-function mount(mac: boolean, text = ""): HTMLTextAreaElement {
+function mount(mac: boolean, text = "", clears = false): HTMLTextAreaElement {
   act(() => {
     keymap.set(mapFor(mac));
     root?.unmount();
   });
   root = createRoot(host);
-  act(() => root?.render(createElement(Box, { view: viewFor(mac), text })));
+  act(() => root?.render(createElement(Box, { view: viewFor(mac), text, clears })));
   return area();
+}
+
+/** The browser's `insertText` and `delete` as WebKit and WebView2 run them on the focused textarea (the test runner's
+ * DOM has neither); returns the commands run, so a test sees an edit went through the textarea's own editing. */
+function browserEditing(): string[] {
+  const commands: string[] = [];
+  const editing = (name: string, _ui: boolean, value = "") => {
+    const el = document.activeElement;
+    if (!(el instanceof HTMLTextAreaElement) || (name !== "insertText" && name !== "delete")) return false;
+    commands.push(name);
+    const { selectionStart: start, selectionEnd: end } = el;
+    const insert = name === "insertText" ? value : "";
+    Reflect.set(
+      HTMLTextAreaElement.prototype,
+      "value",
+      el.value.slice(0, start) + insert + el.value.slice(end),
+      el,
+    );
+    el.dispatchEvent(new Event("input", { bubbles: true }));
+    el.setSelectionRange(start + insert.length, start + insert.length);
+    return true;
+  };
+  Object.defineProperty(document, "execCommand", { configurable: true, value: editing });
+  return commands;
+}
+
+/** A paste of `text` (and `files`) into the box, as the webview sends it. */
+function pasteInto(el: HTMLTextAreaElement, text: string, files: File[] = []): Event {
+  const event = new Event("paste", { bubbles: true, cancelable: true });
+  Object.defineProperty(event, "clipboardData", { value: { getData: () => text, files } });
+  act(() => {
+    el.dispatchEvent(event);
+  });
+  return event;
 }
 
 function area(): HTMLTextAreaElement {
@@ -232,6 +269,110 @@ describe("Write and Preview", () => {
       tab("Preview").click();
     });
     expect(host.querySelector(".comment-box-preview")?.textContent).toBe("Nothing to preview");
+  });
+
+  it("comes back to Write after a comment is sent from Preview, as GitHub's box does", () => {
+    mount(true, "**done**", true);
+    act(() => {
+      tab("Preview").click();
+    });
+    act(() => {
+      [...host.querySelectorAll("button")].find((b) => b.textContent === "Comment")?.click();
+    });
+    expect(sent.map((s) => s.value.text)).toEqual(["**done**"]);
+    expect(tab("Write").getAttribute("aria-selected")).toBe("true");
+    expect(area().hidden).toBe(false);
+    expect(area().value).toBe("");
+    expect(document.activeElement).toBe(area());
+    expect(host.querySelector(".comment-box-preview")).toBeNull();
+    expect(host.querySelector(".comment-box-tools")).not.toBeNull();
+  });
+});
+
+describe("lists continue on Enter", () => {
+  it("Enter in an item starts the next one through the textarea's own editing, and on an empty item ends the list", () => {
+    const commands = browserEditing();
+    const el = mount(true, "Steps:\n1. build");
+    select(el, el.value.length);
+    expect(press("Enter").defaultPrevented).toBe(true);
+    expect(area().value).toBe("Steps:\n1. build\n2. ");
+    expect(area().selectionStart).toBe(area().value.length);
+    // An empty item: its marker goes and the list ends.
+    expect(press("Enter").defaultPrevented).toBe(true);
+    expect(area().value).toBe("Steps:\n1. build\n");
+    expect(commands).toEqual(["insertText", "delete"]);
+    // The next Enter, outside the list, is the textarea's own.
+    expect(press("Enter").defaultPrevented).toBe(false);
+    expect(area().value).toBe("Steps:\n1. build\n");
+  });
+
+  it("continues a task list with an unticked box", () => {
+    browserEditing();
+    const el = mount(true, "- [x] tests pass");
+    select(el, el.value.length);
+    press("Enter");
+    expect(area().value).toBe("- [x] tests pass\n- [ ] ");
+  });
+
+  it("leaves Enter outside a list, and Enter with a selection, to the textarea", () => {
+    const el = mount(true, "plain line\n- item");
+    select(el, 10);
+    expect(press("Enter").defaultPrevented).toBe(false);
+    select(el, 13, 17);
+    expect(press("Enter").defaultPrevented).toBe(false);
+    expect(area().value).toBe("plain line\n- item");
+  });
+
+  it("leaves Enter that ends an IME composition to the composition", () => {
+    const el = mount(true, "- 日本");
+    select(el, el.value.length);
+    expect(press("Enter", { isComposing: true }).defaultPrevented).toBe(false);
+    expect(area().value).toBe("- 日本");
+  });
+
+  it.each(PLATFORMS)("keeps Shift+Enter a line break and ⌘↵ a send in a list on $name", ({ mac, mods }) => {
+    const el = mount(mac, "- one");
+    select(el, 5);
+    expect(press("Enter", { shiftKey: true }).defaultPrevented).toBe(false);
+    expect(area().value).toBe("- one");
+    expect(sent).toEqual([]);
+    expect(press("Enter", mods).defaultPrevented).toBe(true);
+    expect(area().value).toBe("- one");
+    expect(sent.map((s) => [s.how, s.value.text])).toEqual([["comment", "- one"]]);
+  });
+});
+
+describe("a URL pasted over selected text", () => {
+  it("makes a link of the selection, through the textarea's own editing", () => {
+    const commands = browserEditing();
+    const el = mount(true, "see the docs for it");
+    select(el, 8, 12);
+    const paste = pasteInto(el, "https://example.com/docs\n");
+    expect(paste.defaultPrevented).toBe(true);
+    expect(area().value).toBe("see the [docs](https://example.com/docs) for it");
+    expect(area().selectionStart).toBe("see the [docs](https://example.com/docs)".length);
+    expect(commands).toEqual(["insertText"]);
+  });
+
+  it("leaves an ordinary paste with a selection to the textarea", () => {
+    const el = mount(true, "see the docs for it");
+    for (const text of [
+      "the guide",
+      "example.com/docs",
+      "mailto:me@example.com",
+      "https://a.com https://b.com",
+    ]) {
+      select(el, 8, 12);
+      expect(pasteInto(el, text).defaultPrevented).toBe(false);
+    }
+    expect(area().value).toBe("see the docs for it");
+  });
+
+  it("leaves a URL pasted with nothing selected to the textarea", () => {
+    const el = mount(true, "see ");
+    select(el, 4);
+    expect(pasteInto(el, "https://example.com").defaultPrevented).toBe(false);
+    expect(area().value).toBe("see ");
   });
 });
 

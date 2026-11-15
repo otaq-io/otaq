@@ -348,6 +348,21 @@ describe("CommentBox", () => {
     ]);
   });
 
+  it("keeps a file pasted over selected text an attachment, even with a URL as its text (tuq 003, 111)", async () => {
+    const host = await mount();
+    await type(host, "see the report");
+    const area = host.querySelector("textarea");
+    act(() => {
+      area?.focus();
+      area?.setSelectionRange(8, 14);
+    });
+    expect(
+      await paste(host, "https://example.com/report.pdf", [fileOf("report.pdf", "application/pdf", 2048)]),
+    ).toBe(true);
+    expect(chipLabels(host)).toEqual(["report.pdf"]);
+    expect(area?.value).toBe("see the report");
+  });
+
   it("tells two pasted screenshots and two files of one name apart, as core names them", async () => {
     const host = await mount();
     await paste(host, "", [fileOf("image.png", "image/png", 48_000)]);

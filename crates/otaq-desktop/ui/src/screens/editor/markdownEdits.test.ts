@@ -1,9 +1,9 @@
-// The comment box's Markdown edits (tuq 111, plan comments-as-markdown piece 7): each format wraps and unwraps, on a
-// selection and at the caret. A text is written with its selection marked: `[fix]` is a selection, `|` the caret.
+// The comment box's Markdown edits (tuq 111, plan comments-as-markdown pieces 7 and 8): each format wraps and unwraps,
+// on a selection and at the caret; Enter continues and ends each kind of list; a URL pasted over a selection links it. A text is written with its selection marked: `[fix]` is a selection, `|` the caret.
 import { describe, expect, it } from "vitest";
 
 import type { CommentFormat } from "../../generated/CommentFormat";
-import { applied, formatEdit, type Selected } from "./markdownEdits";
+import { applied, continueList, formatEdit, pasteLink, type Selected } from "./markdownEdits";
 
 /** "a [fix] b" → the text and its selection; "a | b" → the caret. */
 function at(marked: string): Selected {
@@ -144,5 +144,111 @@ describe("lists and quote", () => {
     expect(after("numbered_list", "[- one\n  - two]")).toBe("[1. one\n  2. two]");
     expect(after("task_list", "[1. one\n2. two]")).toBe("[- [ ] one\n- [ ] two]");
     expect(whole("bullet_list", "- [ ] one\nthree")).toBe("- one\n- three");
+  });
+});
+
+/** Enter at the caret (`|`): the text after it with the caret marked, or `null` for a plain Enter. Task boxes hold
+ * brackets, so the caret is the one mark here; `end` makes a selection from it. */
+function enter(marked: string, end?: number): string | null {
+  const caret = marked.indexOf("|");
+  const text = marked.replace("|", "");
+  const edit = continueList({ text, start: caret, end: end ?? caret });
+  if (!edit) return null;
+  const out = applied(text, edit);
+  return `${out.slice(0, edit.selStart)}|${out.slice(edit.selStart)}`;
+}
+
+describe("Enter in a list", () => {
+  it("starts the next bulleted item with the same bullet", () => {
+    expect(enter("- one|")).toBe("- one\n- |");
+    expect(enter("* one|")).toBe("* one\n* |");
+    expect(enter("+ one|")).toBe("+ one\n+ |");
+  });
+
+  it("starts the next numbered item with the next number and the same delimiter", () => {
+    expect(enter("1. one|")).toBe("1. one\n2. |");
+    expect(enter("1. one\n2. two|")).toBe("1. one\n2. two\n3. |");
+    expect(enter("9. nine|")).toBe("9. nine\n10. |");
+    expect(enter("1) one|")).toBe("1) one\n2) |");
+  });
+
+  it("doesn't renumber the items after it", () => {
+    expect(enter("1. one|\n2. two\n3. three")).toBe("1. one\n2. |\n2. two\n3. three");
+  });
+
+  it("starts the next task with an unticked box, after a ticked one too", () => {
+    expect(enter("- [ ] one|")).toBe("- [ ] one\n- [ ] |");
+    expect(enter("- [x] done|")).toBe("- [x] done\n- [ ] |");
+    expect(enter("* [ ] one|")).toBe("* [ ] one\n* [ ] |");
+  });
+
+  it("keeps an indented item's indent", () => {
+    expect(enter("- one\n  - two|")).toBe("- one\n  - two\n  - |");
+    expect(enter("  1. one|")).toBe("  1. one\n  2. |");
+  });
+
+  it("moves the text after the caret into the next item", () => {
+    expect(enter("- one| two")).toBe("- one\n- | two");
+  });
+
+  it("on an item with no text takes its marker away and ends the list", () => {
+    expect(enter("- one\n- |")).toBe("- one\n|");
+    expect(enter("1. one\n2. |")).toBe("1. one\n|");
+    expect(enter("- [ ] one\n- [ ] |")).toBe("- [ ] one\n|");
+    expect(enter("- one\n  - |\nafter")).toBe("- one\n|\nafter");
+    expect(enter("- one\n-   |")).toBe("- one\n|");
+  });
+
+  it("is a plain Enter outside a list, in the marker or the indent, and with a selection", () => {
+    expect(enter("plain|")).toBeNull();
+    expect(enter("-one|")).toBeNull();
+    expect(enter("|- one")).toBeNull();
+    expect(enter("-| one")).toBeNull();
+    expect(enter("  |- one")).toBeNull();
+    expect(enter("- [|x] one")).toBeNull();
+    expect(enter("- |one", 5)).toBeNull();
+  });
+});
+
+/** A paste of `pasted` over `start`…`end`: the text after it with the caret marked, or `null` for a plain paste. */
+function paste(text: string, start: number, end: number, pasted: string): string | null {
+  const edit = pasteLink({ text, start, end }, pasted);
+  if (!edit) return null;
+  const out = applied(text, edit);
+  return `${out.slice(0, edit.selStart)}|${out.slice(edit.selStart)}`;
+}
+
+describe("a URL pasted over a selection", () => {
+  it("links the selected text, with the caret after the link", () => {
+    expect(paste("see the docs here", 8, 12, "https://example.com/docs")).toBe(
+      "see the [docs](https://example.com/docs)| here",
+    );
+    expect(paste("old site", 0, 8, "http://example.com")).toBe("[old site](http://example.com)|");
+  });
+
+  it("trims the URL, and keeps spaces at the ends of the selection outside the link", () => {
+    expect(paste("a docs b", 1, 7, "  https://example.com/x\n")).toBe("a [docs](https://example.com/x)| b");
+  });
+
+  it("is a plain paste for anything but one web URL", () => {
+    for (const pasted of [
+      "docs",
+      "example.com",
+      "https://example.com and more",
+      "https://a.com\nhttps://b.com",
+      "mailto:me@example.com",
+      "javascript:alert(1)",
+      "file:///etc/hosts",
+      "ftp://example.com",
+      "https://",
+      "",
+    ])
+      expect(paste("see docs", 4, 8, pasted)).toBeNull();
+  });
+
+  it("is a plain paste with nothing or only spaces selected, or over a selected URL", () => {
+    expect(paste("see docs", 4, 4, "https://example.com")).toBeNull();
+    expect(paste("see  docs", 3, 5, "https://example.com")).toBeNull();
+    expect(paste("at https://old.example.com", 3, 26, "https://new.example.com")).toBeNull();
   });
 });
