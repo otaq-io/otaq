@@ -19,8 +19,12 @@ use serde_json::json;
 use crate::cli::DaemonCommand;
 use crate::output::Output;
 
-/// How long `start` and `stop` wait for the service to come up or go away.
-const WAIT: Duration = Duration::from_secs(10);
+/// How long `start` waits for the service to come up: longer than the login shell's PATH may take
+/// ([`otaq_core::tools::DAEMON_LOGIN_PATH_TIMEOUT`], read before the service listens), with room for a startup slowed
+/// by a busy machine.
+const START_WAIT: Duration = Duration::from_secs(60);
+/// How long `stop` waits for the service to go away.
+const STOP_WAIT: Duration = Duration::from_secs(10);
 const POLL: Duration = Duration::from_millis(50);
 
 pub fn run(command: DaemonCommand, out: &Output) -> Result<(), ErrorBody> {
@@ -96,7 +100,7 @@ pub(crate) fn ensure_started(data: &DataDir) -> Result<(ServiceStatus, bool), Er
         }
     };
 
-    let deadline = Instant::now() + WAIT;
+    let deadline = Instant::now() + START_WAIT;
     loop {
         std::thread::sleep(POLL);
         if let Some(status) = query_status(data)? {
@@ -206,7 +210,7 @@ pub(crate) fn stop_service(data: &DataDir) -> Result<Stopped, ErrorBody> {
 }
 
 fn wait_until_gone(path: &Path) -> bool {
-    let deadline = Instant::now() + WAIT;
+    let deadline = Instant::now() + STOP_WAIT;
     while path.exists() {
         if Instant::now() > deadline {
             return false;
