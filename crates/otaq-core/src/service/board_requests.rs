@@ -861,7 +861,7 @@ pub(super) async fn handle(
             boxed(move || async move { change_decision(shared, &p, &actor).await })
         }
         Request::TicketStageNext(p) => boxed(move || async move {
-            refuse_unprimed(board, caller, &p.key).await?;
+            refuse_unprimed(shared, board, caller, &p.key).await?;
             let project = project_of(&p.key);
             let before = board.ticket(&p.key).await?;
             // The summary is the agent's comment (CMT-05): checked and its report copied before anything moves.
@@ -897,7 +897,7 @@ pub(super) async fn handle(
             )))
         }),
         Request::TicketStageDone(p) => boxed(move || async move {
-            refuse_unprimed(board, caller, &p.key).await?;
+            refuse_unprimed(shared, board, caller, &p.key).await?;
             let project = project_of(&p.key);
             // From inside the ticket's own agent session, the session ends after its turn (the Done cleanup would
             // otherwise end the command's own session before it answers).
@@ -2347,13 +2347,28 @@ async fn record_prime(board: &Board, caller: &Caller, ticket_id: &str) -> Result
     }
 }
 
-/// The read gate on an agent's `stage next` / `stage done` (CMT-08): the user's own (a terminal of theirs) isn't
-/// gated.
-async fn refuse_unprimed(board: &Board, caller: &Caller, key: &str) -> Result<(), BoardError> {
-    match caller {
-        Caller::Agent { session, .. } => board.refuse_unprimed(key, session).await,
-        _ => Ok(()),
+/// The gates on an agent's `stage next` / `stage done`: its stage's task skill typed first (tuq decision 081: an
+/// agent that ends its stage in `work-ticket`'s first turn would never run it; it is told to end its turn), then the
+/// read gate (CMT-08). The user's own moves (a terminal of theirs, a drag, Move…, Skip) aren't gated, nor a checker's,
+/// a helper's or a Project agent's.
+async fn refuse_unprimed(
+    shared: &Shared,
+    board: &Board,
+    caller: &Caller,
+    key: &str,
+) -> Result<(), BoardError> {
+    let Caller::Agent { session, .. } = caller else {
+        return Ok(());
+    };
+    if let Some(named) = board.task_skill_waiting(key, session).await? {
+        let adapter = shared.adapters.of_session(caller_tool(shared, caller));
+        let reference = named.map(|skill| adapter.skill_reference(&skill));
+        return Err(BoardError::refused(
+            Refusal::MoveRefused,
+            crate::board::primed::task_skill_untyped_refusal(reference.as_deref()),
+        ));
     }
+    board.refuse_unprimed(key, session).await
 }
 
 /// #47: a ticket a ticket's agent (or its validator) created tells the app ("DEMO-7 created DEMO-12

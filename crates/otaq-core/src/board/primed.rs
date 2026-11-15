@@ -6,6 +6,10 @@
 //! user's own moves never pass through here. A prime read before the session's first run opened (`sessions.primed_at`)
 //! counts for that run. The count leaves out the session's own comments (Q388), and a session whose only unread
 //! comments are its own has nothing to read: it isn't refused.
+//!
+//! The task skill gate sits beside it (tuq decisions 081, 098): an agent's `stage next` / `stage done` is refused
+//! while its stage's task skill still waits to be typed ([`Board::task_skill_waiting`]), so an agent that ignores
+//! "first turn: prime, then end your turn" can't end the stage before the task skill ever runs.
 
 use sqlx::FromRow;
 
@@ -39,7 +43,58 @@ pub fn unprimed_refusal(key: &str, unread: usize) -> String {
     }
 }
 
+/// The refusal of a stage end before the stage's task skill was typed (tuq decision 081, decision 098): "Your stage's
+/// skill `/tuq:product-spec` hasn't run yet: end your turn now, and Otaq types it next." `reference` is the skill as the
+/// session's tool names it ([`crate::agent_tools::Tool::skill_reference`]); `None` when the stage no longer names one.
+pub fn task_skill_untyped_refusal(reference: Option<&str>) -> String {
+    let product = crate::naming::PRODUCT_NAME;
+    match reference {
+        Some(skill) => format!(
+            "Your stage's skill `{skill}` hasn't run yet: end your turn now, and {product} types it next."
+        ),
+        None => {
+            format!(
+                "Your stage's skill hasn't run yet: end your turn now, and {product} types it next."
+            )
+        }
+    }
+}
+
 impl Board {
+    /// The task skill gate: while `session`'s stage task skill (a [`DeliveryKind::TaskSkill`] delivery) still waits to
+    /// be typed, `Some` with the stage's skill as the flow names it (`tuq:product-spec`; `None` inside when the flow no
+    /// longer names one); `None` when nothing waits. A task skill waits only as long as its open run (the run's end
+    /// removes it, `stage_runs::end_open`) and its running session
+    /// ([`crate::session::deliveries::Deliveries::session_ended`]); a stage held because its tool lacks the skill
+    /// never launched, so never queued one.
+    ///
+    /// [`DeliveryKind::TaskSkill`]: crate::session::deliveries::DeliveryKind::TaskSkill
+    pub async fn task_skill_waiting(
+        &self,
+        key: &str,
+        session: &str,
+    ) -> Result<Option<Option<String>>, BoardError> {
+        let waiting: Option<String> = sqlx::query_scalar(
+            "SELECT id FROM pending_deliveries WHERE session_id = ? AND kind = ? LIMIT 1",
+        )
+        .bind(session)
+        .bind(crate::session::deliveries::DeliveryKind::TaskSkill.as_str())
+        .fetch_optional(self.store.pool())
+        .await?;
+        if waiting.is_none() {
+            return Ok(None);
+        }
+        let ticket = self.ticket(key).await?;
+        let flow = self.effective_flow(ticket.key.project.as_str()).await?;
+        let named = ticket
+            .place
+            .stage()
+            .and_then(|id| flow.stage(id))
+            .and_then(|stage| crate::skills::task_skill(stage.skill.as_deref()))
+            .map(str::to_owned);
+        Ok(Some(named))
+    }
+
     /// The ticket's open run that `session` works in; else the ticket's open run (a session the run hasn't taken).
     async fn open_run(
         &self,
