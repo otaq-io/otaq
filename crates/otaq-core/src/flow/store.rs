@@ -144,7 +144,8 @@ impl Store {
     /// version with a Delivery stage or a stage's `column:` is rewritten in today's form ([`yaml::upgraded`]), and
     /// every ticket being delivered (To deliver, PR open, Merged into) moves into its project's current flow's last
     /// stage, where a ticket being delivered stays. A ticket in the Delivery stage or Review's Approved section is
-    /// then in Review. Runs once, right after the migration ([`Store::open`]).
+    /// then in Review. Runs once, right after the migration ([`Store::open`]); its transaction clears the mark that it
+    /// is still to run ([`crate::store::DELIVERIES_PENDING`]).
     pub(crate) async fn move_deliveries_into_flows(&self) -> Result<(), StoreError> {
         let mut tx = self.begin_write().await?;
         let rows: Vec<(String, i64, String, bool)> =
@@ -178,6 +179,10 @@ impl Store {
                 .await?;
             }
         }
+        sqlx::query("DELETE FROM settings WHERE key = ?")
+            .bind(crate::store::DELIVERIES_PENDING)
+            .execute(&mut *tx)
+            .await?;
         tx.commit().await?;
         Ok(())
     }

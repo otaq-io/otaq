@@ -245,3 +245,148 @@ fn a_service_started_from_bin_otaq_runs_from_a_runtime_copy_with_the_plugin() {
     );
     assert_ne!(program, std::fs::canonicalize(&bin_otaq).unwrap());
 }
+
+/// A start that gives up ends the service it launched and the service's process group with it: here the login shell
+/// the service reads `PATH` from, which never answers. The next start takes over what the first left.
+#[cfg(unix)]
+#[test]
+fn a_start_that_gives_up_ends_the_service_and_its_login_shell() {
+    use std::os::unix::fs::PermissionsExt;
+    let home = Home::new();
+    let dir = home.tmp.path();
+    let pids = dir.join("shell.pids");
+    let shell = dir.join("slow-shell");
+    std::fs::write(
+        &shell,
+        format!(
+            "#!/bin/sh\necho \"$$ $PPID\" > '{}'\nexec /bin/sleep 120\n",
+            pids.display()
+        ),
+    )
+    .unwrap();
+    std::fs::set_permissions(&shell, std::fs::Permissions::from_mode(0o755)).unwrap();
+    let wait = otaq_core::naming::env_var("DAEMON_START_WAIT_SECS");
+    let env = [
+        ("SHELL".to_owned(), shell.to_str().unwrap()),
+        (wait.clone(), "2"),
+    ];
+
+    let started = std::time::Instant::now();
+    let out = home.run_with(&env, &["daemon", "start"]);
+    assert!(!out.status.success(), "{out:?}");
+    let stderr = String::from_utf8_lossy(&out.stderr);
+    assert!(
+        stderr.contains("Starting the background service")
+            && stderr.contains("didn't start within 2 s"),
+        "{stderr}"
+    );
+    assert!(started.elapsed() < std::time::Duration::from_secs(30));
+
+    let text = std::fs::read_to_string(&pids).unwrap();
+    let (shell_pid, service_pid) = text.trim().split_once(' ').unwrap();
+    let (shell_pid, service_pid): (u64, u64) =
+        (shell_pid.parse().unwrap(), service_pid.parse().unwrap());
+    wait_for_exit(service_pid);
+    wait_for_exit(shell_pid);
+
+    // `--json` says nothing on stderr but the error.
+    let out = home.run_with(&env, &["daemon", "start", "--json"]);
+    assert!(!out.status.success(), "{out:?}");
+    assert!(
+        !String::from_utf8_lossy(&out.stderr).contains("Starting"),
+        "{out:?}"
+    );
+    let (shell_pid, _) = std::fs::read_to_string(&pids)
+        .unwrap()
+        .trim()
+        .split_once(' ')
+        .map(|(a, b)| (a.parse::<u64>().unwrap(), b.to_owned()))
+        .unwrap();
+    wait_for_exit(shell_pid);
+
+    // A shell that answers: the next start comes up.
+    let started = home.json_with(&[(wait, "60")], &["daemon", "start", "--json"]);
+    assert_eq!(started["already_running"], false);
+}
+
+/// The same from a terminal with a real zsh, as most Macs have it: an interactive zsh with a terminal turns on job
+/// control and moves into a process group of its own. The service runs in a session of its own, with no terminal, so
+/// its login shell stays in its group and ends with it.
+#[cfg(unix)]
+#[test]
+fn a_start_from_a_terminal_that_gives_up_ends_a_real_zsh() {
+    use portable_pty::{CommandBuilder, PtySize, native_pty_system};
+    let zsh = std::path::Path::new("/bin/zsh");
+    if !zsh.exists() {
+        eprintln!("no /bin/zsh here: skipped");
+        return;
+    }
+    let home = Home::new();
+    let dir = home.tmp.path();
+    let pid_file = dir.join("zsh.pid");
+    std::fs::write(
+        dir.join(".zshrc"),
+        format!("echo $$ > '{}'\n/bin/sleep 120\n", pid_file.display()),
+    )
+    .unwrap();
+
+    let pty = native_pty_system()
+        .openpty(PtySize {
+            rows: 24,
+            cols: 80,
+            pixel_width: 0,
+            pixel_height: 0,
+        })
+        .unwrap();
+    // The terminal's own shell runs the start and stays, as a user's does: the terminal isn't hung up after it.
+    let done = dir.join("start.done");
+    let mut cmd = CommandBuilder::new("/bin/sh");
+    cmd.args([
+        "-c",
+        &format!(
+            "'{}' daemon start; echo $? > '{}'; exec /bin/sleep 60",
+            env!("CARGO_BIN_EXE_otaq"),
+            done.display()
+        ),
+    ]);
+    cmd.env(DataDir::env_var(), dir);
+    cmd.env("CLAUDE_CONFIG_DIR", dir);
+    cmd.env("PATH", dir.join("no-tools"));
+    cmd.env("HOME", dir);
+    cmd.env("ZDOTDIR", dir);
+    cmd.env("SHELL", zsh);
+    cmd.env(otaq_core::naming::env_var("DAEMON_START_WAIT_SECS"), "3");
+    let mut child = pty.slave.spawn_command(cmd).unwrap();
+    drop(pty.slave);
+    let mut reader = pty.master.try_clone_reader().unwrap();
+    std::thread::spawn(move || {
+        let mut buf = [0u8; 4096];
+        while matches!(std::io::Read::read(&mut reader, &mut buf), Ok(n) if n > 0) {}
+    });
+    let deadline = std::time::Instant::now() + std::time::Duration::from_secs(60);
+    while !done.exists() {
+        assert!(
+            std::time::Instant::now() < deadline,
+            "daemon start didn't end"
+        );
+        std::thread::sleep(std::time::Duration::from_millis(50));
+    }
+    std::thread::sleep(std::time::Duration::from_millis(100));
+    assert_ne!(std::fs::read_to_string(&done).unwrap().trim(), "0");
+
+    let shell_pid: u64 = std::fs::read_to_string(&pid_file)
+        .unwrap()
+        .trim()
+        .parse()
+        .unwrap();
+    let ended = (0..100).any(|_| {
+        let gone = !pid_alive(shell_pid);
+        if !gone {
+            std::thread::sleep(std::time::Duration::from_millis(50));
+        }
+        gone
+    });
+    let _ = child.kill();
+    let _ = child.wait();
+    assert!(ended, "the login shell {shell_pid} still runs");
+}
