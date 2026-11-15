@@ -449,6 +449,16 @@ impl TestService {
 
     /// An `sh` running as a session of `kind` for `ticket`.
     pub async fn shell(&self, ticket: &Ticket, kind: SessionKind) -> AgentShell {
+        self.shell_on(ticket, kind, None).await
+    }
+
+    /// [`Self::shell`] as a session of the agent tool `tool` (`None`: no tool recorded, read as a new session's).
+    pub async fn shell_on(
+        &self,
+        ticket: &Ticket,
+        kind: SessionKind,
+        tool: Option<crate::agent_tools::Tool>,
+    ) -> AgentShell {
         let project = self
             .board
             .project(ticket.key.project.as_str())
@@ -479,7 +489,7 @@ impl TestService {
                     cols: 400,
                     rows: 50,
                 },
-                tool: None,
+                tool,
                 tool_session_id: None,
                 model: None,
                 agent: None,

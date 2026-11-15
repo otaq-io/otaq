@@ -78,6 +78,9 @@ pub struct PrimeContext {
     /// The tickets this ticket's agent created that never started: what it may still fix (d0129).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub created_not_started: Vec<TicketKey>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// The "Pull request" section: what the skill proposes from, and what the user confirmed.
@@ -552,6 +555,7 @@ impl Board {
             manual_checks,
             pull_request,
             created_not_started,
+            long_text_file: None,
         };
         Ok((context, agent))
     }
@@ -743,6 +747,9 @@ pub struct ValidatePrime {
     /// Tickets that depend on this one.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub children: Vec<Linked>,
+    /// Codex sessions only: the file to pass long text through with `--stdin-file` ([`crate::prime::long_text_file`]).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub long_text_file: Option<std::path::PathBuf>,
 }
 
 /// The user's line comments of the latest Send back (`prime --validate`'s "The user's review").
@@ -829,6 +836,7 @@ impl Board {
             parents: base.parents,
             children,
             ticket,
+            long_text_file: None,
         })
     }
 
@@ -959,6 +967,7 @@ pub fn render_validate(ctx: &ValidatePrime) -> String {
         manual = MANUAL_CHECK_RULE.replace("{cmd}", cmd).replace("{command}", "check pass|fail"),
         skills = no_self_start_rule(),
     ));
+    out.push_str(&render_long_text_file(ctx.long_text_file.as_deref()));
     out
 }
 
@@ -1164,6 +1173,55 @@ pub fn render_reports_from_you(key: &TicketKey, comments: &[TicketComment]) -> S
         }
     }
     out
+}
+
+/// The file a Codex session passes long text to `otaq` through (fixes-before-0-3, piece 1): `otaq-<session>.md` in the
+/// temporary folder, which Codex's sandbox may write to and which the session inherits from the service. Named for the
+/// session, so agents working side by side never share one; never in the worktree, where an uncommitted file stops
+/// `otaq stage next`.
+pub fn long_text_file(session: &str) -> std::path::PathBuf {
+    let session: String = session
+        .chars()
+        .map(|c| match c {
+            'a'..='z' | 'A'..='Z' | '0'..='9' | '-' | '_' | '.' => c,
+            _ => '-',
+        })
+        .collect();
+    std::env::temp_dir().join(format!("{}-{session}.md", naming::COMMAND_NAME))
+}
+
+/// What a Codex session's `prime` adds (fixes-before-0-3, piece 1): Codex runs a command that feeds `otaq` through a
+/// heredoc, a pipe or `<` in its sandbox, where `otaq` can't reach the service, while a plain `otaq …` command
+/// matches Codex's `otaq` rule and runs outside it. So the text goes to `file` first and `--stdin-file` reads it; the
+/// path is written out in full, as a `$VARIABLE` in it stops the rule matching too. Empty without a file (every other
+/// tool's session).
+pub fn render_long_text_file(file: Option<&std::path::Path>) -> String {
+    let Some(file) = file else {
+        return String::new();
+    };
+    let cmd = naming::COMMAND_NAME;
+    let file = file.display();
+    format!(
+        "\n## Long text in Codex\n\n\
+         Codex runs a command that passes text to `{cmd}` with a heredoc (`<<`), a pipe (`|`) or `<` in its sandbox, \
+         where `{cmd}` can't reach {product} (\"the background service isn't running\"). So wherever these rules or a \
+         skill pass text to `{cmd}` with `--stdin`, write the text to \"{file}\" first, then run the command with \
+         `--stdin-file \"{file}\"` in place of `--stdin`: two commands, each run on its own (an `{cmd}` in the same \
+         command as the heredoc runs in the sandbox too), the path written out in full (so does one with a `$` \
+         variable in it). Never write that text in the worktree: an uncommitted file there stops `{cmd} stage \
+         next`.\n\n\
+         ```sh\n\
+         cat > \"{file}\" <<'EOF'\n\
+         Added the price table with sorting by price and name.\n\
+         EOF\n\
+         ```\n\n\
+         ```sh\n\
+         {cmd} stage next --stdin-file \"{file}\"\n\
+         ```\n\n\
+         In PowerShell, write the file with `Set-Content -LiteralPath \"{file}\"`. `update --plan-stdin` has \
+         `--plan-file` instead.\n",
+        product = naming::PRODUCT_NAME,
+    )
 }
 
 /// What every session is told about starting skills (decision 089): Otaq starts a stage's skills, or the user types
@@ -1413,5 +1471,46 @@ pub fn render(ctx: &PrimeContext) -> String {
     for (n, rule) in rules.iter().enumerate() {
         out.push_str(&format!("{}. {rule}\n", n + 1));
     }
+    out.push_str(&render_long_text_file(ctx.long_text_file.as_deref()));
     out
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    /// fixes-before-0-3, piece 1: a Codex session's file is its own, in the temporary folder, named safely.
+    #[test]
+    fn the_long_text_file_is_the_sessions_own_in_the_temporary_folder() {
+        let file = long_text_file("01a1dfae-1cb4");
+        assert_eq!(file, std::env::temp_dir().join("otaq-01a1dfae-1cb4.md"));
+        assert_eq!(
+            long_text_file("a/b c$d"),
+            std::env::temp_dir().join("otaq-a-b-c-d.md")
+        );
+    }
+
+    /// Only a Codex session's prime has the section (the others pass `None`), with the file written out in full.
+    #[test]
+    fn the_long_text_section_names_the_file_in_full() {
+        assert_eq!(render_long_text_file(None), "");
+        let file = std::path::Path::new("/var/folders/x/T/otaq-s1.md");
+        let section = render_long_text_file(Some(file));
+        assert!(
+            section.starts_with("\n## Long text in Codex\n\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("cat > \"/var/folders/x/T/otaq-s1.md\" <<'EOF'\n"),
+            "{section}"
+        );
+        assert!(
+            section.contains("\notaq stage next --stdin-file \"/var/folders/x/T/otaq-s1.md\"\n"),
+            "{section}"
+        );
+        assert!(
+            !section.contains("$TMPDIR") && !section.contains("{file}"),
+            "{section}"
+        );
+    }
 }

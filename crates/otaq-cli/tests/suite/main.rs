@@ -40,6 +40,7 @@ mod skills;
 mod stage_choices;
 mod stage_path;
 mod statusline;
+mod stdin_file;
 mod terminals;
 mod uninstall;
 mod validate;

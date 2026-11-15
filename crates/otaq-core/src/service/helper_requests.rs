@@ -52,7 +52,10 @@ pub(super) async fn handle(
         Request::HelperPrime(_) => helpers
             .prime(caller)
             .await
-            .map(|p| Reply::HelperPrime(Box::new(p)))
+            .map(|mut p| {
+                p.long_text_file = super::board_requests::codex_long_text_file(shared, caller);
+                Reply::HelperPrime(Box::new(p))
+            })
             .map_err(|e| error_body(&e)),
         other => Err(ErrorBody::new(
             ErrorKind::BadRequest,

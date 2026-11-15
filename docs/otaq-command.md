@@ -63,7 +63,9 @@ otaq run stop                # stop a Run an agent started (yours keeps running)
 otaq run set --command 'pnpm dev --port $PORT'   # add a missing run command (or app)
 ```
 
-Every command takes `--json`. Run `otaq --help` for the full list.
+Every command takes `--json`. Run `otaq --help` for the full list. Every command that reads text with `--stdin` also
+takes `--stdin-file <path>`, which reads the same text from a file: Codex agents use it, as Codex runs an `otaq` fed
+by a heredoc or a pipe in its sandbox, where it can't reach Otaq.
 
 The agent's workflow lives in Otaq's own skills, written `otaq:<name>` in a flow: `work-ticket` (the main loop, for
 the agent in charge and for its helpers), `validate`, `commit`, `push`, `open-pr`, `address-review`,

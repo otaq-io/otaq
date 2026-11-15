@@ -8,8 +8,6 @@
 //! The recorded decision (`otaq_core::decisions::Decision`): `{"id": "SHOP-23#1", "question", "built",
 //! "other_options": […], "why", "recorded_by", "recorded_at", "outcome": "open", …}`. `--silent` prints the ID.
 
-use std::io::Read;
-
 use otaq_core::data_dir::DataDir;
 use otaq_core::decisions::{NewDecision, recorded_message};
 use otaq_core::naming;
@@ -23,7 +21,7 @@ use crate::target;
 
 pub fn run(command: DecisionCommand, global: &GlobalArgs, out: &Output) -> Result<(), ErrorBody> {
     match command {
-        DecisionCommand::Record { key, stdin } => record(key, stdin, global, out),
+        DecisionCommand::Record { key, stdin, .. } => record(key, stdin, global, out),
     }
 }
 
@@ -42,10 +40,7 @@ fn record(
             ),
         ));
     }
-    let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    let text = crate::input::read()?;
     let decision =
         NewDecision::parse(&text).map_err(|e| ErrorBody::new(ErrorKind::Usage, e.to_string()))?;
     let data = DataDir::from_env().map_err(|e| internal(e.to_string()))?;

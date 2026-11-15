@@ -4294,6 +4294,10 @@
           "ty": "Helper",
           "required": true
         },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
+          "omittable": true
+        },
         "merges_into": {
           "ty": "String",
           "required": true
@@ -6656,6 +6660,10 @@
           "ty": "Option<Instructions>",
           "omittable": true
         },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
+          "omittable": true
+        },
         "manual_checks": {
           "ty": "Vec<ManualCheck>",
           "omittable": true
@@ -7276,6 +7284,10 @@
         },
         "instructions": {
           "ty": "Option<Instructions>",
+          "omittable": true
+        },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
           "omittable": true
         },
         "name": {
@@ -12074,6 +12086,10 @@
         },
         "instructions": {
           "ty": "Option<Instructions>",
+          "omittable": true
+        },
+        "long_text_file": {
+          "ty": "Option<PathBuf>",
           "omittable": true
         },
         "manual_checks": {

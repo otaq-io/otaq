@@ -21,7 +21,6 @@
 //! them (Noyan only). Only the user picks: the service refuses a ticket agent's choice
 //! (`otaq_core::board::stage_choices`).
 
-use std::io::Read;
 use std::path::PathBuf;
 
 use otaq_core::board::batch::{BatchTicket, parse_markdown};
@@ -88,10 +87,7 @@ fn body(description: Option<String>, stdin: bool) -> Result<Option<String>, Erro
 }
 
 fn read_stdin() -> Result<String, ErrorBody> {
-    let mut text = String::new();
-    std::io::stdin()
-        .read_to_string(&mut text)
-        .map_err(|e| internal(format!("can't read stdin: {e}")))?;
+    let text = crate::input::read()?;
     Ok(text.trim_end().to_owned())
 }
 
