@@ -7,6 +7,7 @@ import type { Keymap } from "../generated/Keymap";
 import type { KeyModifiers } from "../generated/KeyModifiers";
 import {
   BURST_MS,
+  commandLetter,
   createBurst,
   type Dispatch,
   dispatchKey,
@@ -302,6 +303,52 @@ describe("the key dispatcher on the board", () => {
       expect(dispatchKey(d, cmdK, BOARD).kind).toBe("ran");
       expect(ran).toEqual(["switch_project", "command_palette", "command_palette"]);
     }
+  });
+
+  it("leaves ⌘B, ⌘I, ⌘E and ⌘K to the comment box's text only (tuq 111)", () => {
+    const at = (tagName: string, selector: string) => ({
+      tagName,
+      isContentEditable: false,
+      getAttribute: () => null,
+      closest: (s: string) => (s === selector ? {} : null),
+    });
+    const box = { ...BOARD, focusKeeps: keysKeptBy(at("TEXTAREA", ".comment-box")) };
+    const tab = { ...BOARD, focusKeeps: keysKeptBy(at("BUTTON", ".comment-box")) };
+    const other = { ...BOARD, focusKeeps: keysKeptBy(at("TEXTAREA", ".somewhere-else")) };
+    expect([...keysKeptBy(at("TEXTAREA", ".comment-box"))]).toEqual([
+      "Enter",
+      "Backspace",
+      "Escape",
+      "b",
+      "i",
+      "e",
+      "k",
+    ]);
+    for (const [map, mods] of [
+      [MAC, { metaKey: true }],
+      [WIN, { ctrlKey: true }],
+    ] as const) {
+      const { d, ran } = setup(map, ["command_palette", "switch_project"]);
+      const cmdK = key("k", "KeyK", mods);
+      expect(dispatchKey(d, cmdK, box)).toEqual({ kind: "passed" });
+      // ⇧⌘K isn't the box's; the box's other neighbours (its tabs and buttons) and other fields keep ⌘K the palette.
+      expect(dispatchKey(d, key("p", "KeyP", mods), box).kind).toBe("ran");
+      expect(dispatchKey(d, cmdK, tab).kind).toBe("ran");
+      expect(dispatchKey(d, cmdK, other).kind).toBe("ran");
+      expect(ran).toEqual(["switch_project", "command_palette", "command_palette"]);
+    }
+  });
+
+  it("names the letter of ⌘ + a letter on a Mac and Ctrl + a letter elsewhere (the comment box's shortcuts)", () => {
+    expect(commandLetter(key("b", "KeyB", { metaKey: true }), true)).toBe("b");
+    expect(commandLetter(key("b", "KeyB", { ctrlKey: true }), false)).toBe("b");
+    // The layout's letter, or the physical key's where the layout types none (⌘K on a Russian layout).
+    expect(commandLetter(key("л", "KeyK", { metaKey: true }), true)).toBe("k");
+    expect(commandLetter(key("b", "KeyB", { ctrlKey: true }), true)).toBeNull();
+    expect(commandLetter(key("b", "KeyB", { metaKey: true }), false)).toBeNull();
+    expect(commandLetter(key("B", "KeyB", { metaKey: true, shiftKey: true }), true)).toBeNull();
+    expect(commandLetter(key("∫", "KeyB", { metaKey: true, altKey: true }), true)).toBeNull();
+    expect(commandLetter(key("Enter", "Enter", { metaKey: true }), true)).toBeNull();
   });
 
   it("lets ⌥⌘C through to the description editor's text only, where it's Code block (Q51)", () => {

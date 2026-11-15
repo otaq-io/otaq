@@ -26,6 +26,7 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::clock::clock_12h;
 use crate::view_models::comment_limits::CommentLimits;
+use crate::view_models::comment_writing::WritingView;
 use crate::view_models::menu::MenuItem;
 use crate::view_models::tool_avatar::ToolAvatarView;
 
@@ -217,6 +218,8 @@ pub struct CommentBoxView {
     /// The second button, "Tell Strong now", only in the thread's box while the ticket's agent or check runs: it posts
     /// the comment with `tell_agent`, so the running agent also gets it when it is idle. Comment (and ⌘↵) never does.
     pub tell_agent: Option<String>,
+    /// Write and Preview over the box, and the formatting toolbar with its shortcuts (tuq 111).
+    pub writing: WritingView,
 }
 
 impl CommentBoxView {
@@ -244,6 +247,7 @@ impl CommentBoxView {
             optional,
             limits: CommentLimits::current(),
             tell_agent: None,
+            writing: WritingView::current(),
         }
     }
 

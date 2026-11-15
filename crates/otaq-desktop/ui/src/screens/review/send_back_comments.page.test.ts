@@ -6,6 +6,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, expect, test, vi } from "vitest";
 
 import type { SendBackView } from "../../generated/SendBackView";
+import { WRITING } from "../editor/editor_fixtures";
 import { request } from "../../tauri";
 import { SendBackDialog } from "./Dialogs";
 
@@ -57,6 +58,7 @@ const VIEW: SendBackView = {
         "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.",
     },
     tell_agent: null,
+    writing: WRITING,
   },
   waiting_title: null,
   waiting: [],
@@ -90,4 +92,11 @@ test("each listed comment is drawn as Markdown under where it sits", async () =>
   expect(first?.textContent).toContain("Then rerun <tests>.");
   expect(first?.querySelector("tests")).toBeNull();
   expect(listed[1]?.querySelector(".md-comment .ProseMirror")?.textContent).toBe("Plain text, as written.");
+  // The dialog's comment box is the thread's (tuq 111): Write and Preview, and the formatting toolbar.
+  const box = document.querySelector(".comment-box");
+  expect([...(box?.querySelectorAll('[role="tab"]') ?? [])].map((t) => t.textContent)).toEqual([
+    "Write",
+    "Preview",
+  ]);
+  expect(box?.querySelectorAll('[role="toolbar"] button')).toHaveLength(8);
 });

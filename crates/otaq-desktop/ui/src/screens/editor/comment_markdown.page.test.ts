@@ -9,6 +9,7 @@ import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
 import type { CommentBoxView } from "../../generated/CommentBoxView";
+import { WRITING } from "./editor_fixtures";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
 import { CommentThread } from "./CommentThread";
@@ -85,6 +86,7 @@ const BOX: CommentBoxView = {
       "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.",
   },
   tell_agent: null,
+  writing: WRITING,
 };
 
 const row = (n: number, body: string): CommentRow => ({

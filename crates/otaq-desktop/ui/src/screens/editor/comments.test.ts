@@ -7,6 +7,7 @@ import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
 
 import type { CommentBoxView } from "../../generated/CommentBoxView";
+import { WRITING } from "./editor_fixtures";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { CommentThreadView } from "../../generated/CommentThreadView";
 import type { CommentThumbnail } from "../../generated/CommentThumbnail";
@@ -125,6 +126,7 @@ const BOX: CommentBoxView = {
   optional: false,
   limits: LIMITS,
   tell_agent: null,
+  writing: WRITING,
 };
 
 /** A file's chip, as `overview.file` gives it. */
