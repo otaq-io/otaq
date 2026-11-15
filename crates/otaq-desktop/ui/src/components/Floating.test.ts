@@ -192,7 +192,11 @@ describe("every useFloatingStyle user draws through FloatingPortal", () => {
       readFileSync(path: string, encoding: "utf8"): string;
     };
     const src = `${(import.meta as ImportMeta & { dirname: string }).dirname}/..`;
-    const files = fs.readdirSync(src, { recursive: true }).filter((f) => f.endsWith(".tsx"));
+    // Windows lists `components\Floating.tsx`: the paths are matched with `/` below, so turn its separators into `/`.
+    const files = fs
+      .readdirSync(src, { recursive: true })
+      .map((f) => f.replaceAll("\\", "/"))
+      .filter((f) => f.endsWith(".tsx"));
     const users = files.filter((f) => fs.readFileSync(`${src}/${f}`, "utf8").includes("useFloatingStyle("));
     const missing = users.filter(
       (f) =>
