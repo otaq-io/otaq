@@ -1,8 +1,8 @@
 // The review dialogs (REV-04, REV-06, REV-08, GIT-03, GIT-05, UI-02; *07 · Diff, review, approve & send back*):
 // Approve ▾ and Local merge in one overlay that walks its steps (the choice, changed since review, the confirmation
 // with the squash message, Merging…, and the conflict / refused / uncommitted results), and Send back with the
-// pending line comments and a comment for Dev in the comment box (CMT-13, `s07-20`: a long paste becomes its report,
-// the limit applies). Their words come from `review.approve`, `review.local_merge` and
+// pending line comments and a comment for Dev in the comment box (CMT-13, `s07-20`: any paste stays text, no length
+// limit: tuq 112). Their words come from `review.approve`, `review.local_merge` and
 // `review.send_back_view`; Open PR and Push to PR hand over to T-0227's `open_pr` dialog. Change… on a recorded
 // decision (DEC-06, T-0288) opens "Change this decision" (a Send back with the other option), from
 // `review.change_view`.

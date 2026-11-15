@@ -5,10 +5,6 @@
  */
 export type CommentLimits = { 
 /**
- * The longest comment, in Unicode characters: none for the user's (tuq 112), so always `null` here.
- */
-chars: number | null, 
-/**
  * The largest report, in bytes: 20 × 1024 × 1024.
  */
 report_bytes: number, 
@@ -17,7 +13,7 @@ report_bytes: number,
  */
 report_label: string, 
 /**
- * The most the comment's text (with any pasted text) may take as sent, in bytes of its JSON string (UTF-8,
+ * The most the comment's text may take as sent, in bytes of its JSON string (UTF-8,
  * quotes and escapes included): one service message (16 MB) less room for the rest of it.
  */
 message_bytes: number, 

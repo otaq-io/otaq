@@ -1,6 +1,7 @@
 // @vitest-environment happy-dom
-// The comment box's paste and limit rules (CMT-11, T-0446): a paste over the limit becomes the report chip, never
-// text; with only the chip the button stays off; typing past the limit shows the counter and turns it off.
+// The comment box's paste and length rules (CMT-11, T-0446, tuq 112): a paste of text, however long, stays text; there
+// is no counter and length alone never turns the button off; only text too long for one message to the service is
+// refused, in words. Files and images pasted, dropped or attached become attachments (tuq 003).
 import { act, createElement, useState } from "react";
 import { createRoot } from "react-dom/client";
 import { afterEach, beforeAll, describe, expect, it, vi } from "vitest";
@@ -19,18 +20,16 @@ import { pastedName } from "./attachmentAdding";
 import {
   type BoxValue,
   boxState,
-  chars,
   editBox,
   editChanges,
   EMPTY_BOX,
-  pasteAction,
+  fileAttachment,
   sentAttachments,
   sentBytes,
   tooLongToSend,
   uniqueName,
   withAdded,
   withoutAttachment,
-  withPasted,
 } from "./commentRules";
 import { type ReportTarget, setReportOpener } from "./reportOpener";
 
@@ -103,17 +102,13 @@ afterEach(() => {
 const TOO_LONG_TO_SEND =
   "This comment is too long to send: one message carries at most 16 MB. Attach the text as a file instead.";
 
-/** With the old 2,000-character limit, which the rules still take (the service sends `chars: null` since tuq 112). */
+/** As the service sends them (`CommentLimits::current`): no character limit (tuq 112). */
 const LIMITS: CommentLimits = {
-  chars: 2000,
   report_bytes: 20 * 1024 * 1024,
   report_label: "20 MB",
   message_bytes: 16 * 1024 * 1024 - 64 * 1024,
   too_long_to_send: TOO_LONG_TO_SEND,
 };
-
-/** As the service sends them (`CommentLimits::current`): no character limit (tuq 112). */
-const NO_LIMIT: CommentLimits = { ...LIMITS, chars: null };
 
 const BOX: CommentBoxView = {
   label: null,
@@ -132,33 +127,9 @@ const BOX: CommentBoxView = {
   tell_agent: null,
 };
 
-describe("the paste rule", () => {
-  it("puts 1,999 characters in the text and turns 2,001 into the chip", () => {
-    expect(pasteAction("a".repeat(1999), LIMITS)).toBe("text");
-    expect(pasteAction("a".repeat(2000), LIMITS)).toBe("text");
-    expect(pasteAction("a".repeat(2001), LIMITS)).toBe("chip");
-  });
-
-  it("counts characters as the service does (code points)", () => {
-    expect(chars("é😀")).toBe(2);
-    expect(pasteAction("😀".repeat(2000), LIMITS)).toBe("text");
-  });
-
-  it("keeps every paste as its own attachment, in order (tuq 001)", () => {
-    const once = withPasted(EMPTY_BOX, "x".repeat(3000));
-    const twice = withPasted({ ...once, text: "Look at limit_rows" }, "é".repeat(2500));
-    expect(twice.text).toBe("Look at limit_rows");
-    expect(twice.attachments.map((a) => (a.kind === "pasted" ? a.bytes : 0))).toEqual([3000, 5000]);
-    expect(twice.attachments.map((a) => (a.kind === "pasted" ? a.name : ""))).toEqual([
-      "Pasted text",
-      "Pasted text 2",
-    ]);
-    expect(sentAttachments(twice)).toEqual([
-      { kind: "pasted", text: "x".repeat(3000) },
-      { kind: "pasted", text: "é".repeat(2500) },
-    ]);
-  });
-});
+/** A file's chip, as `overview.file` gives it. */
+const fileChip = (name: string) =>
+  fileAttachment({ path: `/Users/me/${name}`, name, size: "2 KB", image: name.endsWith(".png") });
 
 describe("attachment names (one comment, no two of a name)", () => {
   it("numbers a taken name before its extension, as core does", () => {
@@ -179,63 +150,56 @@ describe("attachment names (one comment, no two of a name)", () => {
   });
 });
 
-describe("the box's state", () => {
-  it("shows 2,140 / 2,000 and turns Comment off when typing past the limit", () => {
-    const state = boxState({ text: "x".repeat(2140), attachments: [] }, LIMITS);
-    expect(state).toEqual({
-      count: 2140,
-      over: true,
-      counter: "2,140 / 2,000",
-      tooLong: null,
-      canSubmit: false,
-    });
-    expect(boxState({ text: "x".repeat(2000), attachments: [] }, LIMITS).canSubmit).toBe(true);
-  });
-
-  it("sends a chip with no line, with a line, or with only spaces typed (tuq 007)", () => {
-    const chip = withPasted(EMPTY_BOX, "y".repeat(2001));
-    expect(boxState(chip, LIMITS).canSubmit).toBe(true);
-    expect(boxState({ ...chip, text: "  " }, LIMITS).canSubmit).toBe(true);
-    expect(boxState({ ...chip, text: "Look at limit_rows" }, LIMITS).canSubmit).toBe(true);
-    // The limit still holds with a chip.
-    expect(boxState({ ...chip, text: "x".repeat(2001) }, LIMITS).canSubmit).toBe(false);
-  });
-
-  it("needs text or an attachment in the thread; a dialog's optional box may stay empty", () => {
-    expect(boxState(EMPTY_BOX, LIMITS).canSubmit).toBe(false);
-    expect(boxState({ text: " \n ", attachments: [] }, LIMITS).canSubmit).toBe(false);
-    expect(boxState(EMPTY_BOX, LIMITS, true).canSubmit).toBe(true);
-    expect(boxState(withPasted(EMPTY_BOX, "z".repeat(2001)), LIMITS, true).canSubmit).toBe(true);
-  });
-});
-
-describe("the user's comments (tuq 112)", () => {
-  it("have no character limit: 48,210 characters typed or pasted stay text and can be sent", () => {
-    const long = "x".repeat(48_210);
-    expect(pasteAction(long, NO_LIMIT)).toBe("text");
-    expect(boxState({ text: long, attachments: [] }, NO_LIMIT)).toEqual({
-      count: 48_210,
-      over: false,
-      counter: null,
+describe("the box's state (tuq 112)", () => {
+  it("has no counter and no red box: only whether it may be sent, and why not in words", () => {
+    expect(boxState({ text: "x".repeat(2140), attachments: [] }, LIMITS)).toEqual({
       tooLong: null,
       canSubmit: true,
     });
   });
 
-  it("say in words, instead of sending, text that would not fit in one message", () => {
-    const fits = "x".repeat(NO_LIMIT.message_bytes - 2);
-    expect(sentBytes(fits)).toBe(NO_LIMIT.message_bytes);
-    expect(tooLongToSend({ text: fits, attachments: [] }, NO_LIMIT)).toBe(false);
-    expect(boxState({ text: fits, attachments: [] }, NO_LIMIT).canSubmit).toBe(true);
+  it("can be sent at any length a message carries: 2,001, 48,210 and 1,000,000 characters", () => {
+    for (const n of [2001, 48_210, 1_000_000]) {
+      expect(boxState({ text: "x".repeat(n), attachments: [] }, LIMITS).canSubmit).toBe(true);
+    }
+    // Code points past 2,000 too, in a dialog's box and with an attachment.
+    expect(boxState({ text: "😀".repeat(5000), attachments: [] }, LIMITS, true).canSubmit).toBe(true);
+    const attached = withAdded({ ...EMPTY_BOX, text: "é".repeat(3000) }, [fileChip("run.txt")]);
+    expect(boxState(attached, LIMITS).canSubmit).toBe(true);
+  });
+
+  it("sends a file with no line, with a line, or with only spaces typed (tuq 007)", () => {
+    const attached = withAdded(EMPTY_BOX, [fileChip("shot.png")]);
+    expect(boxState(attached, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ ...attached, text: "  " }, LIMITS).canSubmit).toBe(true);
+    expect(boxState({ ...attached, text: "y".repeat(2001) }, LIMITS).canSubmit).toBe(true);
+  });
+
+  it("needs text or an attachment in the thread; a dialog's optional box may stay empty", () => {
+    expect(boxState(EMPTY_BOX, LIMITS).canSubmit).toBe(false);
+    expect(boxState({ text: " \n\t  ", attachments: [] }, LIMITS).canSubmit).toBe(false);
+    expect(boxState(EMPTY_BOX, LIMITS, true).canSubmit).toBe(true);
+  });
+});
+
+describe("the one ceiling left: one message to the service (tuq 112)", () => {
+  it("says in words, instead of sending, text that would not fit in one message", () => {
+    const fits = "x".repeat(LIMITS.message_bytes - 2);
+    expect(sentBytes(fits)).toBe(LIMITS.message_bytes);
+    expect(tooLongToSend({ text: fits, attachments: [] }, LIMITS)).toBe(false);
+    expect(boxState({ text: fits, attachments: [] }, LIMITS).canSubmit).toBe(true);
     const over = { text: `${fits}x`, attachments: [] };
-    expect(boxState(over, NO_LIMIT)).toMatchObject({ tooLong: TOO_LONG_TO_SEND, canSubmit: false });
+    expect(boxState(over, LIMITS)).toEqual({ tooLong: TOO_LONG_TO_SEND, canSubmit: false });
     // Escapes and UTF-8 count as sent: a line break is two bytes, "é" two.
     expect(sentBytes('a\n"é')).toBe(9);
-    const lines = "\n".repeat(NO_LIMIT.message_bytes / 2);
-    expect(tooLongToSend({ text: lines, attachments: [] }, NO_LIMIT)).toBe(true);
-    // Pasted text goes in the same message.
-    const half = "y".repeat(NO_LIMIT.message_bytes / 2);
-    expect(tooLongToSend(withPasted({ text: half, attachments: [] }, half), NO_LIMIT)).toBe(true);
+    const lines = "\n".repeat(LIMITS.message_bytes / 2);
+    expect(tooLongToSend({ text: lines, attachments: [] }, LIMITS)).toBe(true);
+    // Between the quick bounds the text is counted, byte for byte.
+    const accents = "é".repeat(LIMITS.message_bytes / 2 - 1);
+    expect(tooLongToSend({ text: accents, attachments: [] }, LIMITS)).toBe(false);
+    expect(tooLongToSend({ text: `${accents}é`, attachments: [] }, LIMITS)).toBe(true);
+    // An attachment goes by its path, not in the message's text.
+    expect(tooLongToSend({ text: "short", attachments: [fileChip("huge.log")] }, LIMITS)).toBe(false);
   });
 });
 
@@ -314,39 +278,29 @@ function button(host: HTMLElement): HTMLButtonElement {
 }
 
 describe("CommentBox", () => {
-  it("leaves a 1,999-character paste to the text", async () => {
+  it("leaves every paste of text to the text, however long: no chip (tuq 112)", async () => {
     const host = await mount();
-    expect(await paste(host, "a".repeat(1999))).toBe(false);
+    for (const n of [1999, 2001, 50_000, 3 * 1024 * 1024]) {
+      expect(await paste(host, "a".repeat(n))).toBe(false);
+    }
     expect(host.querySelector(".comment-chip")).toBeNull();
+    expect(ipc.calls).not.toContain("ticket_comments.pasted_size");
   });
 
-  it("turns a 2,001-character paste into the chip, never text, with Comment on and no hint (tuq 007)", async () => {
+  it("never blocks on length: no counter, no red box, Comment stays on (tuq 112)", async () => {
     const sent: BoxValue[] = [];
     const host = await mount((v) => sent.push(v));
-    expect(await paste(host, "b".repeat(2001))).toBe(true);
-    expect(host.querySelector("textarea")?.value).toBe("");
-    expect(host.querySelector(".comment-chip-label")?.textContent).toBe("Pasted text");
-    expect(host.querySelector(".comment-chip-size")?.textContent).toBe("· 48 KB");
-    expect(ipc.calls).toContain("ticket_comments.pasted_size");
-    expect(button(host).disabled).toBe(false);
-
-    await type(host, "Look at limit_rows first.");
+    await type(host, "x".repeat(2140));
+    expect(host.querySelector(".comment-box-counter")).toBeNull();
+    expect(host.querySelector(".comment-box")?.hasAttribute("data-over")).toBe(false);
+    expect(host.querySelector("textarea")?.hasAttribute("aria-invalid")).toBe(false);
+    expect(host.querySelector(".comment-box-error")).toBeNull();
     expect(button(host).disabled).toBe(false);
     await act(async () => {
       button(host).click();
       await Promise.resolve();
     });
-    expect(sent).toHaveLength(1);
-    expect(sent[0]?.text).toBe("Look at limit_rows first.");
-    expect(sent[0] && sentAttachments(sent[0])).toEqual([{ kind: "pasted", text: "b".repeat(2001) }]);
-
-    // ✕ removes the chip.
-    const remove = host.querySelector<HTMLButtonElement>(".comment-chip-remove");
-    await act(async () => {
-      remove?.click();
-      await Promise.resolve();
-    });
-    expect(host.querySelector(".comment-chip")).toBeNull();
+    expect(sent.map((v) => v.text.length)).toEqual([2140]);
   });
 
   it("sends a pasted screenshot on its own: Comment is on with only the image chip (tuq 007)", async () => {
@@ -464,16 +418,6 @@ describe("CommentBox", () => {
     await settle();
     expect(host.querySelector(".comment-box-error")?.textContent).toMatch(/^big\.log is 21 MB/);
     expect(chipLabels(host)).toEqual(["log.txt"]);
-  });
-
-  it("shows the counter and the red box when 2,140 characters are typed", async () => {
-    const host = await mount();
-    await type(host, "x".repeat(2140));
-    expect(host.querySelector(".comment-box-counter")?.textContent).toBe("2,140 / 2,000");
-    expect(host.querySelector(".comment-box")?.hasAttribute("data-over")).toBe(true);
-    expect(host.querySelector("textarea")?.getAttribute("aria-invalid")).toBe("true");
-    expect(button(host).disabled).toBe(true);
-    expect(host.querySelector(".comment-chip")).toBeNull();
   });
 
   it("says in words, and doesn't send, text that would not fit in one message (tuq 112)", async () => {
@@ -605,6 +549,56 @@ describe("CommentThread", () => {
       await Promise.resolve();
     });
     expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 4, attachment: 2 }]);
+    setReportOpener(() => undefined);
+  });
+
+  async function thread(view: CommentThreadView) {
+    ipc.thread = view;
+    const host = document.createElement("div");
+    document.body.append(host);
+    await act(async () => {
+      createRoot(host).render(createElement(CommentThread, { ticket: "SHOP-34" }));
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    return host;
+  }
+
+  it("takes a 50,000-character paste as text and posts all of it (tuq 112)", async () => {
+    const host = await thread(THREAD);
+    const pasted = "line of a log copied from Jira\n".repeat(1613).slice(0, 50_000);
+    expect(pasted).toHaveLength(50_000);
+    // The box leaves the paste to the text area; the browser inserts it, as typing does.
+    expect(await paste(host, pasted)).toBe(false);
+    await type(host, pasted);
+    expect(host.querySelector(".comment-box .comment-chip")).toBeNull();
+    expect(host.querySelector("textarea")?.value).toBe(pasted);
+    expect(host.querySelector(".comment-box-error")).toBeNull();
+    expect(button(host).disabled).toBe(false);
+    await act(async () => {
+      button(host).click();
+      await new Promise((r) => setTimeout(r, 0));
+    });
+    expect(ipc.posts).toEqual([{ key: "SHOP-34", body: pasted, attachments: [], tell_agent: false }]);
+  });
+
+  it('still opens a posted comment\'s "Pasted text" chip', async () => {
+    const opened: ReportTarget[] = [];
+    setReportOpener((t) => opened.push(t));
+    const host = await thread({
+      ...THREAD,
+      comments: [
+        row(3, {
+          body: "The run before the fix.",
+          attachments: [{ attachment: 1, name: "Pasted text", kind: "text", size: "· 48 KB", open: "Open" }],
+        }),
+      ],
+    });
+    expect(chipLabels(host)).toEqual(["Pasted text"]);
+    await act(async () => {
+      host.querySelector<HTMLButtonElement>(".comment-report-open")?.click();
+      await Promise.resolve();
+    });
+    expect(opened).toEqual([{ kind: "comment", ticket: "SHOP-34", n: 3, attachment: 1 }]);
     setReportOpener(() => undefined);
   });
 });

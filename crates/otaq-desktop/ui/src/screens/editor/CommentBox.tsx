@@ -2,11 +2,12 @@
 // deleting*, `s05-41`…`s05-44`): at the end of the Ticket tab's thread, and inside the Send back, Fail and drag-back
 // dialogs (T-0447), which give it their label and line (`CommentBoxView.dialog`) and send it with their own button.
 // It holds the text and a list of attachments (tuq 001), each its own chip with ✕, added three ways (tuq 003): a paste
-// (a screenshot becomes an image, files copied in Finder keep their names, text over the limit becomes "Pasted text ·
-// 48 KB", never text), files dropped on the box, and Attach (the system picker, several at once). An image's chip shows
-// a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name, and
-// the rest of the box stays (tuq 005; `attachmentAdding.ts`). Attachments alone may be sent (tuq 007); typing past the
-// limit shows "2,140 / 2,000", the red box, and turns the button off (`commentRules.ts`). Its words and the
+// (a screenshot becomes an image, files copied in Finder keep their names), files dropped on the box, and Attach (the
+// system picker, several at once). Pasted text always goes into the text, however long (tuq 112). An image's chip
+// shows a thumbnail (tuq 002); other files show name and size. A file over 20 MB is refused when it is added, by name,
+// and the rest of the box stays (tuq 005; `attachmentAdding.ts`). Attachments alone may be sent (tuq 007). The box
+// never blocks on length: no counter, no red box; only text that would not fit in one message to the service says so
+// in words instead of being sent (`commentRules.ts`). Its words and the
 // limits come from Rust (`CommentBoxView`); the box keeps only what is typed and added. ⌘↵ sends it as a Comment. While
 // the ticket's agent or check runs, the thread's box has a second button, "Tell Strong now" (`CommentBoxView.tell_agent`):
 // it posts the comment with `tell_agent`, so the running agent also gets it when idle; Comment never does. Editing a posted comment uses this box
@@ -26,8 +27,7 @@ import {
 
 import { Button, Kbd, PROSE_TEXT } from "../../components";
 import type { CommentBoxView } from "../../generated/CommentBoxView";
-import { useServiceView } from "../../service";
-import { attachmentImage, pickAttachmentFiles, request } from "../../tauri";
+import { attachmentImage, pickAttachmentFiles } from "../../tauri";
 import { dropTargets } from "../../terminal/drops";
 import { Icon } from "../../theme/Icon";
 import { type Added, addFiles, addPaths, clipboardFiles, thumbnailOf } from "./attachmentAdding";
@@ -35,57 +35,12 @@ import {
   type BoxValue,
   boxState,
   type FileAttachment,
-  type PastedAttachment,
-  pasteAction,
   type PostedAttachment,
   withAdded,
   withoutAttachment,
-  withPasted,
   withThumb,
 } from "./commentRules";
 import { isSaveKey, SAVE_KEYS } from "./logic";
-import { openReport } from "./reportOpener";
-
-const NO_EVENTS: readonly string[] = [];
-
-/** "Pasted text · 48 KB ✕": the label opens it, ✕ removes it. */
-function PastedChip({
-  ticket,
-  pasted,
-  view,
-  onRemove,
-}: {
-  ticket: string;
-  pasted: PastedAttachment;
-  view: CommentBoxView;
-  onRemove: () => void;
-}) {
-  const { bytes } = pasted;
-  const load = useCallback(
-    () => request("ticket_comments.pasted_size", { bytes }) as Promise<string>,
-    [bytes],
-  );
-  const size = useServiceView(load, NO_EVENTS).view ?? "";
-  return (
-    <span className="comment-chip">
-      <button
-        type="button"
-        className="comment-chip-open"
-        title={view.open}
-        onClick={() => {
-          openReport({ kind: "pasted", ticket, text: pasted.text, size });
-        }}
-      >
-        <Icon name="file-text" size={13} />
-        <span className="comment-chip-label">{pasted.name ?? view.pasted}</span>
-        <span className="comment-chip-size">{size}</span>
-      </button>
-      <button type="button" className="comment-chip-remove" aria-label={view.remove} onClick={onRemove}>
-        <Icon name="x" size={13} />
-      </button>
-    </span>
-  );
-}
 
 /** "perf-notes.md 2 KB ✕", or an image's thumbnail before its name (tuq 002). */
 export function FileChip({
@@ -259,13 +214,8 @@ export function CommentBox({
     if (files.length > 0) {
       e.preventDefault();
       void addFiles(files).then(take);
-      return;
     }
-    const text = e.clipboardData.getData("text/plain");
-    if (pasteAction(text, view.limits) !== "chip") return;
-    // Over the limit: the report chip, never text (d0109).
-    e.preventDefault();
-    change(withPasted(value, text));
+    // Text, however long, goes into the text as any paste does (tuq 112): the box doesn't read it.
   };
   const onKeyDown = (e: KeyboardEvent<HTMLTextAreaElement>) => {
     if (e.key === "Escape" && onCancel) {
@@ -284,7 +234,7 @@ export function CommentBox({
     change(withoutAttachment(value, attachment));
   };
   return (
-    <div ref={root} className="comment-box" data-over={state.over || undefined}>
+    <div ref={root} className="comment-box">
       {view.label !== null && (
         <label className="comment-box-label" htmlFor={id}>
           {view.label}
@@ -298,7 +248,6 @@ export function CommentBox({
         value={value.text}
         placeholder={view.placeholder}
         aria-label={view.label ?? view.placeholder}
-        aria-invalid={state.over || undefined}
         onChange={(e) => {
           change({ ...value, text: e.target.value });
         }}
@@ -314,8 +263,6 @@ export function CommentBox({
             switch (a.kind) {
               case "file":
                 return <FileChip key={a.id} file={a} view={view} onRemove={onRemove} />;
-              case "pasted":
-                return <PastedChip key={a.id} ticket={ticket} pasted={a} view={view} onRemove={onRemove} />;
               case "posted":
                 return <PostedChip key={a.id} ticket={ticket} posted={a} view={view} onRemove={onRemove} />;
             }
@@ -332,11 +279,6 @@ export function CommentBox({
             pickAttachmentFiles(view.attach_title).then(addPathsToBox, () => undefined);
           }}
         />
-        {state.counter !== null && (
-          <span className="comment-box-counter" role="status">
-            {state.counter}
-          </span>
-        )}
         <span className="editor-spacer" />
         {view.tell_agent !== null && onTell && (
           <Button

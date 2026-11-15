@@ -194,7 +194,8 @@ function MoreMenu({
 /**
  * Edit in place (tuq 008): the comment box with its text and its attachments as chips with ✕, taking new ones by
  * paste, drop and Attach; Cancel · Save; ⌘↵ saves, Esc cancels. Save sends the text, the attachments removed and the
- * new ones together. The limit holds as in the box, and it must keep text or an attachment (tuq 007).
+ * new ones together. As in the box, length never blocks it (tuq 112), and it must keep text or an attachment (tuq
+ * 007).
  */
 export function EditInPlace({
   view,

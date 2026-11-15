@@ -1,8 +1,8 @@
 // The drag-back dialog (*03 → Dragging a card back to an earlier stage*, s03-50/s03-51; FLW-18, CMT-13; d0108, d0109):
 // a card dropped on an earlier Agent stage asks for a comment for that stage ("Send SHOP-19 back to Dev?" · "Comment
 // for Dev (Rust developer)" · Send to Dev), one dropped on an earlier agent check for a comment for the check ("Run
-// Security again on SHOP-18?" · Run Security). The comment is posted for every later stage, in the comment box (a long
-// paste becomes its report, the limit applies). When an agent works where the card is, the dialog says it stops and
+// Security again on SHOP-18?" · Run Security). The comment is posted for every later stage, in the comment box (any
+// paste stays text, no length limit: tuq 112). When an agent works where the card is, the dialog says it stops and
 // the button reads "Stop and send to Dev". Its words are `board_page::drag_back_dialog`'s, opened from `board.drop`'s
 // answer; the confirm sends `board.drag_back`. Cancel and Esc leave the card where it was; a refusal stays in the
 // dialog.

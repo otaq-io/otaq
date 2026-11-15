@@ -1,22 +1,20 @@
-// The comment box's rules while typing (CMT-11, d0109; *05 → Row · Writing, editing and deleting*): a paste over the
-// limit becomes a "Pasted text" chip, never text; typing past it shows "2,140 / 2,000" and turns the button off. A
-// comment needs text, or at least one attachment, or both (tuq 007): a pasted screenshot is sent on its own. The limit
-// comes with the view (`CommentLimits`, from core's constant); the service checks it again. Typed text is never turned
-// into a report. The user's comments have no character limit (tuq 112: `CommentLimits.chars` is `null`); the one
-// ceiling left is what one message to the service carries, and text that would not fit says so in words
+// The comment box's rules while typing (CMT-11, d0109; *05 → Row · Writing, editing and deleting*). The user is never
+// blocked by a comment's length (tuq 112): no counter, no red box, and the button never turns off because of length;
+// a paste always goes into the text, however long. A comment needs text, or at least one attachment, or both (tuq
+// 007): a pasted screenshot is sent on its own. Typed or pasted text is never turned into an attachment. The one
+// ceiling left is what one message to the service carries: text that would not fit says so in words
 // (`tooLongToSend`, `CommentLimits.too_long_to_send`) instead of being sent.
 //
 // The box holds a list of attachments (tuq 001, 003), each its own chip with ✕, sent together in the box's order
-// (`sentAttachments`): pasted text, and files picked with Attach, dropped, or pasted (a screenshot, files copied in
-// Finder), each sent by its path.
+// (`sentAttachments`): files picked with Attach, dropped, or pasted (a screenshot, files copied in Finder), each sent
+// by its path.
 //
 // Editing a posted comment uses the same box (tuq 008): it starts with the comment's text and its attachments as
 // `posted` chips (`editBox`); ✕ removes one, paste, drop and Attach add new ones, and Save sends the text with the
 // numbers of the posted ones gone and the new ones (`editChanges`), together.
 //
 // One comment never has two attachments of the same name: a new chip whose name another chip of the box already has
-// (a second screenshot, two folders' `run.txt`, a second paste) is shown as "Pasted image 2.png", "run 2.txt",
-// "Pasted text 2" (`uniqueName`). Core names the attachments by the same rule when it copies them (`unique_name` in
+// (a second screenshot, two folders' `run.txt`) is shown as "Pasted image 2.png", "run 2.txt" (`uniqueName`). Core names the attachments by the same rule when it copies them (`unique_name` in
 // otaq-core's `board/reports.rs`), in the order the box sends them, after the ones an edited comment keeps, so a
 // chip's name is the attachment's.
 import type { CommentAttachmentParams } from "../../generated/CommentAttachmentParams";
@@ -24,23 +22,13 @@ import type { CommentLimits } from "../../generated/CommentLimits";
 import type { CommentRow } from "../../generated/CommentRow";
 import type { OverviewFileChip } from "../../generated/OverviewFileChip";
 
-/** A paste kept as one of the comment's attachments ("Pasted text"): its text and its size in UTF-8 bytes. */
-export interface PastedAttachment {
-  kind: "pasted";
-  /** The chip's own, while the box holds it. */
-  id: number;
-  /** "Pasted text", or "Pasted text 2" beside another (`named`); unset until the box names it. */
-  name?: string;
-  text: string;
-  bytes: number;
-}
-
 /**
  * A file in the box: picked with Attach or Overview's Add, dropped, or pasted (kept in the data folder until the
  * comment is posted); sent by its path.
  */
 export interface FileAttachment {
   kind: "file";
+  /** The chip's own, while the box holds it. */
   id: number;
   path: string;
   /** The name the box shows and the comment will give it: `base`, or "shot 2.png" beside another `shot.png`. */
@@ -72,7 +60,7 @@ export interface PostedAttachment {
   image: boolean;
 }
 
-export type BoxAttachment = PastedAttachment | FileAttachment | PostedAttachment;
+export type BoxAttachment = FileAttachment | PostedAttachment;
 
 /** What the box holds: the typed text and its attachments, in the order they were added. */
 export interface BoxValue {
@@ -101,14 +89,6 @@ export function fileAttachment(chip: OverviewFileChip): FileAttachment {
   };
 }
 
-/** Pasted text as an attachment of the box. */
-export function pastedAttachment(text: string): PastedAttachment {
-  return { kind: "pasted", id: nextId(), text, bytes: new TextEncoder().encode(text).length };
-}
-
-/** What pasted text is called, as core's `PASTED_TEXT`. */
-export const PASTED_TEXT = "Pasted text";
-
 /**
  * `name` made unique among `taken`: itself when free, else " 2", " 3"… before its extension ("shot 2.png",
  * "Pasted text 2", ".env 2"). The same rule as core's `unique_name`.
@@ -133,11 +113,6 @@ function named(attachments: readonly BoxAttachment[]): BoxAttachment[] {
     switch (a.kind) {
       case "posted":
         return a;
-      case "pasted": {
-        const name = uniqueName(PASTED_TEXT, taken);
-        taken.push(name);
-        return a.name === name ? a : { ...a, name };
-      }
       case "file": {
         const base = a.base ?? a.name;
         const name = uniqueName(base, taken);
@@ -152,11 +127,6 @@ function named(attachments: readonly BoxAttachment[]): BoxAttachment[] {
 export function withAdded(value: BoxValue, added: readonly BoxAttachment[]): BoxValue {
   if (added.length === 0) return value;
   return { ...value, attachments: named([...value.attachments, ...added]) };
-}
-
-/** The box after a paste that becomes the "Pasted text" chip. */
-export function withPasted(value: BoxValue, text: string): BoxValue {
-  return withAdded(value, [pastedAttachment(text)]);
 }
 
 /** The box without attachment `id` (its ✕). */
@@ -174,15 +144,13 @@ export function withThumb(value: BoxValue, id: number, thumb: string): BoxValue 
 
 /**
  * What the box sends (`ticket_comments.post`, the dialogs' requests, an edit's new ones): each new attachment by its
- * path or its text; one the comment already has isn't sent again.
+ * path; one the comment already has isn't sent again.
  */
 export function sentAttachments(value: BoxValue): CommentAttachmentParams[] {
   return value.attachments.flatMap((a): CommentAttachmentParams[] => {
     switch (a.kind) {
       case "file":
         return [{ kind: "file", path: a.path }];
-      case "pasted":
-        return [{ kind: "pasted", text: a.text }];
       case "posted":
         return [];
     }
@@ -242,66 +210,41 @@ export function editChanges(
   return { remove, attachments, changed };
 }
 
-/** Unicode characters (code points), as the service counts them. */
-export function chars(text: string): number {
-  return Array.from(text).length;
-}
-
-/** What a paste does: over the limit it becomes the report chip; otherwise (and always with no limit, the user's
- * comments' since tuq 112) it goes into the text as usual. */
-export function pasteAction(pasted: string, limits: CommentLimits): "chip" | "text" {
-  return limits.chars !== null && chars(pasted) > limits.chars ? "chip" : "text";
-}
-
 /** The bytes `text` takes as sent: its JSON string in UTF-8, quotes and escapes included. */
 export function sentBytes(text: string): number {
   return new TextEncoder().encode(JSON.stringify(text)).length;
 }
 
+/** The last text `tooLongToSend` counted, with its bytes: a long text is counted once, not on every render. */
+let counted: { text: string; bytes: number } | null = null;
+
 /**
- * The box's text and pasted text would not fit in one message to the service (`limits.message_bytes`, 16 MB less
- * room for the rest): the one ceiling left on the user's comments (tuq 112).
+ * The box's text would not fit in one message to the service (`limits.message_bytes`, 16 MB less room for the rest):
+ * the one ceiling left on the user's comments (tuq 112).
  */
 export function tooLongToSend(value: BoxValue, limits: CommentLimits): boolean {
-  const texts = [value.text, ...value.attachments.flatMap((a) => (a.kind === "pasted" ? [a.text] : []))];
+  const { text } = value;
   // At most 6 bytes per UTF-16 unit (a control character's `\u0000`) and the quotes: most text needs no count.
-  const most = texts.reduce((n, t) => n + t.length * 6 + 2, 0);
-  if (most <= limits.message_bytes) return false;
-  return texts.reduce((n, t) => n + sentBytes(t), 0) > limits.message_bytes;
-}
-
-/** "2,140". */
-function grouped(n: number): string {
-  return n.toLocaleString("en-US");
+  if (text.length * 6 + 2 <= limits.message_bytes) return false;
+  // At least one byte per UTF-16 unit, and the quotes.
+  if (text.length + 2 > limits.message_bytes) return true;
+  if (counted?.text !== text) counted = { text, bytes: sentBytes(text) };
+  return counted.bytes > limits.message_bytes;
 }
 
 export interface BoxState {
-  /** The text's length as the service counts it (trimmed). */
-  count: number;
-  /** Past the limit: the red box. */
-  over: boolean;
-  /** "2,140 / 2,000" while over the limit. */
-  counter: string | null;
   /** Why it can't be sent, in words, when it would not fit in one message (`tooLongToSend`); else `null`. */
   tooLong: string | null;
-  /** The button may send it. */
+  /** The button may send it: length alone never turns it off (tuq 112). */
   canSubmit: boolean;
 }
 
 /** The box's state; `optional` is a dialog's box that may stay empty (no text and no chip). Text, an attachment, or
  * both may be sent (tuq 007). */
 export function boxState(value: BoxValue, limits: CommentLimits, optional = false): BoxState {
-  const count = chars(value.text.trim());
-  const limit = limits.chars;
-  const over = limit !== null && count > limit;
   const tooLong = tooLongToSend(value, limits) ? limits.too_long_to_send : null;
-  const empty = count === 0;
+  // Only blanks: as `trim() === ""`, without copying a long text on every render.
+  const empty = !/\S/.test(value.text);
   const attached = value.attachments.length > 0;
-  return {
-    count,
-    over,
-    counter: over ? `${grouped(count)} / ${grouped(limit)}` : null,
-    tooLong,
-    canSubmit: !over && tooLong === null && (!empty || attached || optional),
-  };
+  return { tooLong, canSubmit: tooLong === null && (!empty || attached || optional) };
 }

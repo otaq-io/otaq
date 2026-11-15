@@ -7,10 +7,9 @@
 //!   and round, and when ("Validate · round 2 · 3:05 pm"); yours are tinted with the accent, an agent's carries its tool's avatar (a plain agent mark while avatars are hidden, SHL-08); "· edited"
 //!   once changed; its images are a row of thumbnails under its text that open full size (tuq 004, 006), each other
 //!   attachment a chip, "test-run.txt · 48 KB", with Open for text (tuq 001, 002).
-//! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). A paste over the limit
-//!   becomes a "Pasted text · 48 KB" chip, never text; typing past it shows "2,140 / 2,000" and turns Comment off. The
-//!   page applies these rules while typing (it keeps no limit of its own: [`CommentLimits`] comes with the view); the
-//!   service checks again. While an agent works, a second button, **Tell Strong now**, also sends it to that agent
+//! - **The box** ([`CommentBoxView`]): "Add a comment for the next stage…", **Comment** (⌘↵). The user's comments have
+//!   no length limit (tuq 112): a paste always stays text, and there is no counter. The one ceiling left, what one
+//!   message to the service carries, comes with the view ([`CommentLimits`]) and the page says it in words. While an agent works, a second button, **Tell Strong now**, also sends it to that agent
 //!   (typed when it is idle), and a quiet line says what each button does; Comment alone never reaches the running
 //!   agent. A comment sent that way is tagged "· told Strong now". The dialogs
 //!   (Send back, Fail, drag back; T-0447) reuse it with their own label and line ([`CommentBoxView::dialog`]).
@@ -974,8 +973,8 @@ mod tests {
         assert_eq!(v.comments[0].told, None);
     }
 
-    /// `s05-43`'s writing states rest on the box's words and limits: the paste chip ("Pasted text · 48 KB") and the
-    /// counter against the limit (the page counts; the view gives the limit). A chip alone needs no line (tuq 007).
+    /// `s05-43`'s writing states rest on the box's words and limits: no character limit for the user (tuq 112), only
+    /// the one-message ceiling (`CommentLimits`). A chip alone needs no line (tuq 007).
     #[test]
     fn the_writing_states_words() {
         let b = CommentBoxView::thread(None);
@@ -987,8 +986,9 @@ mod tests {
         assert_eq!(b.footer, None, "nor its line");
         assert_eq!(pasted_size(48 * 1024), "\u{b7} 48 KB");
         assert_eq!(
-            b.limits.chars, None,
-            "the user's comments have no limit (tuq 112)"
+            b.limits,
+            CommentLimits::current(),
+            "the user's comments have no character limit (tuq 112)"
         );
         assert_eq!(b.open, "Open");
         assert_eq!(
