@@ -63,8 +63,9 @@ stored_enum! {
         Validation = "validation",
         /// "You ended your turn but your stage is still open…": once, before Idle (d0042 2026-10-28).
         StageReminder = "stage_reminder",
-        /// A stage's task skill (tuq decision 081), typed once Otaq's `work-ticket` ended its first turn. The end of
-        /// its stage's run removes it ([`crate::board::stage_runs::end_open`]), whatever ends the stage.
+        /// A stage's task skill (tuq decision 081), typed once Otaq's `work-ticket` ended its first turn. The agent's
+        /// own `stage next` / `stage done` waits for it; Otaq's own stage ends and the user's moves end its stage's
+        /// run, which removes it ([`crate::board::stage_runs::end_open`]).
         TaskSkill = "task_skill",
     }
 }
@@ -273,8 +274,9 @@ impl Deliveries {
     }
 
     /// A stage's task skill (tuq decision 081) for its new `session`: typed, as any automatic delivery, once Otaq's
-    /// `work-ticket` ended its first turn and the input line is empty. It waits only as long as its stage's run: the
-    /// run's end removes it ([`crate::board::stage_runs::end_open`]: `work-ticket` ending the stage at once, a drag,
+    /// `work-ticket` ended its first turn and the input line is empty. The agent's own `stage next` / `stage done` is
+    /// refused until it is typed ([`crate::board::Board::task_skill_waiting`]). It waits only as long as its stage's
+    /// run: the run's end by Otaq or the user removes it ([`crate::board::stage_runs::end_open`]: a drag, Move…, Skip,
     /// Stop, a fail, a send-back), and it is never carried to another session ([`Self::session_ended`]).
     pub async fn queue_task_skill(&self, session: &str, text: &str) -> Result<(), SessionError> {
         let id = self.hold(session, DeliveryKind::TaskSkill, text).await?;

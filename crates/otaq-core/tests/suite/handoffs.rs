@@ -405,9 +405,10 @@ async fn a_stage_runs_work_ticket_then_its_task_skill() {
     w.stop().await;
 }
 
-/// A stage `work-ticket` ended in its first turn (nothing to add) never gets its task skill: the end of the stage's run
-/// removes it at once, whatever ends it (here `stage next` from Product spec, and Dev's hand-over to Review). Nothing
-/// waits, nothing is carried into the next stage's session, and that session's first turn end shows Idle.
+/// A stage whose run ended before its first turn did never gets its task skill: the end of the stage's run removes it
+/// at once, whatever ends it (here Otaq's own submit from Product spec, which the agent's `stage next` can't do then:
+/// `task_skill_gate.rs`; and Dev's hand-over to Review). Nothing waits, nothing is carried into the next stage's
+/// session, and that session's first turn end shows Idle.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_ended_in_its_first_turn_never_gets_its_task_skill() {
     let World { w, repo, _dir } = world().await;
@@ -438,7 +439,7 @@ async fn a_stage_ended_in_its_first_turn_never_gets_its_task_skill() {
         ["/team-spec"]
     );
 
-    // `work-ticket` finds nothing to add and ends the stage in its first turn.
+    // The stage's run ends in its first turn, through Otaq's own submit (not the agent's gated `stage next`).
     let t = w.board.ticket(&key).await.unwrap();
     w.validation
         .submit(

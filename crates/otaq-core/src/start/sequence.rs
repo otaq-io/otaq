@@ -1172,8 +1172,9 @@ impl Starter {
 
     /// The stage's task skill (decision 081), queued for the new `session`: Otaq's `work-ticket` runs first, and the
     /// task skill is typed once that turn ends and the input line is empty (d0048), as the session's tool types a skill
-    /// (`/tuq:product-spec`, `$tuq:product-spec`). The end of the stage's run removes it ([`Deliveries::queue_task_skill`]):
-    /// a stage that `work-ticket` ended at once (nothing to add) never gets it.
+    /// (`/tuq:product-spec`, `$tuq:product-spec`). The agent's own `stage next` / `stage done` waits for it (refused
+    /// until it is typed: the task skill decides whether the stage has anything to do, decision 098). Otaq's own stage
+    /// ends and the user's moves end the stage's run, which removes it ([`Deliveries::queue_task_skill`]).
     async fn queue_task_skill(&self, ticket: &Ticket, session: &SessionInfo, task: &str) {
         let Some(deliveries) = self.inner.deliveries.get() else {
             tracing::warn!(ticket = %ticket.key, task, "no deliveries: the stage's task skill can't be typed");
