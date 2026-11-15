@@ -61,7 +61,7 @@ async fn agent_on(
             program: program.into(),
             args: args.iter().map(|a| (*a).to_owned()).collect(),
             cwd: PathBuf::from(&project.repo_path),
-            env: vec![("PS1".into(), String::new())],
+            env: vec![("PS1".into(), prompt_of(tool).into())],
             size: TerminalSize {
                 cols: 200,
                 rows: 50,
@@ -82,8 +82,27 @@ async fn agent_on(
     }
 }
 
+/// The shell's prompt as `tool`'s input line, a prompt marker (`>`: the shell may show Copilot's `┃` as escaped
+/// bytes): Otaq reads Copilot's screen for its input line before it takes a quiet Copilot as done after a key at its
+/// prompt. None for the others.
+fn prompt_of(tool: Tool) -> &'static str {
+    if tool == Tool::Copilot { "> " } else { "" }
+}
+
+/// An interactive `sh` as `ticket`'s agent on `tool`, once its prompt is drawn (a key before it would be echoed in
+/// front of the prompt, and the row would read as no input line).
 async fn sh_on(w: &TestService, ticket: &Ticket, tool: Tool) -> Caller {
-    agent_on(w, ticket, tool, "sh", &[]).await
+    let caller = agent_on(w, ticket, tool, "sh", &[]).await;
+    if !prompt_of(tool).is_empty() {
+        let drawn = tokio::time::timeout(Duration::from_secs(10), async {
+            while !w.sessions.shows_input_line(session_of(&caller)) {
+                tokio::time::sleep(Duration::from_millis(20)).await;
+            }
+        })
+        .await;
+        assert!(drawn.is_ok(), "the shell's prompt never showed");
+    }
+    caller
 }
 
 fn session_of(caller: &Caller) -> &str {
@@ -905,5 +924,231 @@ async fn a_multi_line_draft_is_the_users_to_clear() {
             .unwrap(),
         Delivery::Sent { count: 1 }
     );
+    w.stop().await;
+}
+
+/// A stand-in for Copilot's terminal that draws what the test writes into it (`cat`, without echo or line editing):
+/// the test draws the tool's input line, its work and its prompts, and whatever Otaq types lands on screen too.
+/// Nothing runs under it, as under Copilot while its model thinks.
+async fn copilot_screen(w: &TestService, ticket: &Ticket, kind: SessionKind) -> String {
+    let project = w.board.project("SHOP").await.unwrap();
+    let session = w
+        .sessions
+        .spawn(SpawnSpec {
+            kind,
+            start: Start::User,
+            project_id: project.id.clone(),
+            project_key: project.key.clone(),
+            ticket: Some(SessionTicket {
+                id: ticket.id.clone(),
+                key: ticket.key.clone(),
+            }),
+            program: "sh".into(),
+            args: ["-c", "stty -icanon -echo; echo 'REA''DY'; exec cat"]
+                .iter()
+                .map(|a| (*a).to_owned())
+                .collect(),
+            cwd: PathBuf::from(&project.repo_path),
+            env: Vec::new(),
+            size: TerminalSize {
+                cols: 100,
+                rows: 30,
+            },
+            tool: Some(Tool::Copilot),
+            tool_session_id: Some("conversation-1".into()),
+            model: None,
+            agent: None,
+            effort: None,
+            theme: None,
+        })
+        .await
+        .unwrap()
+        .id;
+    w.wait_for_output(&session, "READY").await;
+    draw(w, &session, &input_line("Ready")).await;
+    session
+}
+
+/// Copilot's screen with `above` over its empty input line (the `┃` marker, the cursor after it), as it shows both
+/// while idle and while at work.
+fn input_line(above: &str) -> String {
+    format!("\x1b[?25h\x1b[2J\x1b[1;1H{above}\x1b[20;1H\u{2503} ")
+}
+
+/// Copilot's permission prompt, drawn where its input line was: no input line, the cursor hidden.
+const PROMPT: &str = "\x1b[?25l\x1b[2J\x1b[12;1H\u{2502} Run command: git checkout -- calc.js test.js\
+    \x1b[14;1H\u{2502} Do you want to run this command?\
+    \x1b[15;1H\u{2502} \u{276f} 1. Yes\
+    \x1b[16;1H\u{2502}   2. Yes, and approve `git checkout` for the rest of the running session\
+    \x1b[17;1H\u{2502}   3. No, and tell Copilot what to do differently (Esc to stop)";
+
+/// Draws `screen` in the stand-in's terminal and waits until it is drawn (a mark on its last row, the cursor put
+/// back where `screen` left it).
+async fn draw(w: &TestService, session: &str, screen: &str) {
+    let mark = format!("DRAWN-{}", otaq_core::store::new_id());
+    w.sessions
+        .write(
+            session,
+            format!("{screen}\x1b7\x1b[30;1H{mark}\x1b[2K\x1b8").as_bytes(),
+        )
+        .unwrap();
+    w.wait_for_output(session, &mark).await;
+}
+
+/// Waits until no message waits for `session` (a typed one is taken off the queue after its Enter).
+async fn nothing_waits(w: &TestService, session: &str) {
+    let emptied = tokio::time::timeout(Duration::from_secs(10), async {
+        while !w.deliveries.pending(session).await.unwrap().is_empty() {
+            tokio::time::sleep(Duration::from_millis(20)).await;
+        }
+    })
+    .await;
+    assert!(emptied.is_ok(), "still waiting");
+}
+
+/// Everything the session's terminal has shown.
+fn shown(w: &TestService, session: &str) -> String {
+    String::from_utf8_lossy(&w.sessions.attach(session).unwrap().scrollback).into_owned()
+}
+
+/// The release run's tech spec stage (Copilot 1.0.112): the user refused a command with "No, and tell Copilot what
+/// to do differently" and feedback. Copilot goes on with the turn and sends nothing: it draws its work, then its next
+/// permission prompt before any hook says so. No turn end is made up meanwhile, so the stage's task skill waiting
+/// for the turn's end is never typed into that prompt (its Enter approved the command); it is typed once the turn
+/// really ends at the input line.
+#[tokio::test(flavor = "multi_thread")]
+async fn an_answer_the_turn_goes_on_from_never_ends_it() {
+    let (w, ticket) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    needs_you(&w, &agent, Tool::Copilot).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    draw(&w, &session, PROMPT).await;
+    key(&client, &agent, b"3").await;
+    key(&client, &agent, b"use git stash instead\r").await;
+    assert_eq!(card(&w).await.0, Status::Working);
+
+    // Copilot works on for several of the waits, drawing as it goes, its input line in sight.
+    for step in 0..12 {
+        draw(&w, &session, &input_line(&format!("Thinking {step}"))).await;
+        tokio::time::sleep(TIMING.answer_wait / 3).await;
+    }
+    assert_eq!(card(&w).await.0, Status::Working, "at work");
+    // Then its next prompt, and nothing for a while.
+    draw(&w, &session, PROMPT).await;
+    tokio::time::sleep(TIMING.answer_wait * 4).await;
+    assert_eq!(card(&w).await.0, Status::Working, "at its next prompt");
+    assert!(
+        !shown(&w, &session).contains("tuq-tech-spec"),
+        "typed into the prompt"
+    );
+    assert_eq!(w.deliveries.pending(&session).await.unwrap().len(), 1);
+
+    // Its hook says so at last; the user approves; the turn ends at the input line: the skill is typed, once.
+    event(
+        &w,
+        &agent,
+        Tool::Copilot,
+        ToolEvent::NeedsYou {
+            prompt: "Run command: git checkout -- calc.js test.js".into(),
+            helper_agent: false,
+        },
+    )
+    .await;
+    key(&client, &agent, b"1").await;
+    draw(&w, &session, &input_line("Done")).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    // What follows a hook's turn end in the service.
+    w.deliveries.deliver_if_ready(&session).await.unwrap();
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    assert_eq!(shown(&w, &session).matches("tuq-tech-spec").count(), 1);
+    nothing_waits(&w, &session).await;
+    w.stop().await;
+}
+
+/// A message waiting for an idle agent isn't typed while the tool's own prompt is on screen, whatever made the agent
+/// idle: it waits, and goes once the prompt has left the screen and the input line is back.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_delivery_waits_for_the_tools_prompt_to_go() {
+    let (w, ticket) = world().await;
+    let session = copilot_screen(&w, &ticket, SessionKind::Agent).await;
+    let agent = Caller::Agent {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: session.clone(),
+    };
+    event(&w, &agent, Tool::Copilot, new_turn()).await;
+    draw(&w, &session, PROMPT).await;
+    event(&w, &agent, Tool::Copilot, quiet_end()).await;
+    w.deliveries
+        .queue_task_skill(&session, "/tuq:tuq-tech-spec")
+        .await
+        .unwrap();
+    tokio::time::sleep(Duration::from_secs(1)).await;
+    assert!(
+        !shown(&w, &session).contains("tuq-tech-spec"),
+        "typed into the prompt"
+    );
+    assert_eq!(w.deliveries.pending(&session).await.unwrap().len(), 1);
+
+    draw(&w, &session, &input_line("Done")).await;
+    w.wait_for_output(&session, "/tuq:tuq-tech-spec").await;
+    nothing_waits(&w, &session).await;
+    w.stop().await;
+}
+
+/// The release run's validate stage: the user refused the checker's command, and Copilot started its next turn at
+/// once without a hook. While it works, and then at its next prompt, the check isn't taken as having ended: the
+/// ticket stays Validating.
+#[tokio::test(flavor = "multi_thread")]
+async fn a_checker_working_on_after_its_answer_isnt_stopped() {
+    let (w, _) = world().await;
+    let client = Client::connect(ClientConfig::new(&w.data)).await.unwrap();
+    let ticket = w.create("SHOP", "Coupon field").await;
+    let key = ticket.key.to_string();
+    let validator = copilot_screen(&w, &ticket, SessionKind::Validator).await;
+    w.validating_with(&ticket, &validator).await;
+    let caller = Caller::Validator {
+        ticket: ticket.key.clone(),
+        ticket_id: ticket.id.clone(),
+        session: validator.clone(),
+    };
+    event(&w, &caller, Tool::Copilot, new_turn()).await;
+    event(
+        &w,
+        &caller,
+        Tool::Copilot,
+        ToolEvent::NeedsYou {
+            prompt: "Run command: npm test".into(),
+            helper_agent: false,
+        },
+    )
+    .await;
+    // What the service makes of that hook for the check.
+    w.validation
+        .validator_signal(&ticket.id, &validator, &permission_prompt())
+        .await
+        .unwrap();
+    assert_eq!(w.status(&key).await, Status::CheckerNeedsYou);
+    draw(&w, &validator, PROMPT).await;
+    key_in(&client, &validator, b"3").await;
+    key_in(&client, &validator, b"run the tests with node instead\r").await;
+    assert_eq!(w.status(&key).await, Status::Checking, "answered");
+    for step in 0..12 {
+        draw(&w, &validator, &input_line(&format!("Thinking {step}"))).await;
+        tokio::time::sleep(TIMING.answer_wait / 3).await;
+    }
+    assert_eq!(w.status(&key).await, Status::Checking, "at work");
+    draw(&w, &validator, PROMPT).await;
+    tokio::time::sleep(TIMING.answer_wait * 4).await;
+    assert_eq!(w.status(&key).await, Status::Checking, "at its next prompt");
     w.stop().await;
 }

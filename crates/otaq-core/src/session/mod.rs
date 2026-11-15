@@ -733,7 +733,7 @@ struct Live {
     /// The unsent-input flag (SVC-06, d0048).
     input: Mutex<InputTracker>,
     /// The last read of the input line on screen ([`input_line`]), for the output and size it was read at.
-    input_line: Mutex<Option<(u64, TerminalSize, input_line::InputLine)>>,
+    input_line: Mutex<Option<(u64, TerminalSize, input_line::Reading)>>,
     /// The last read of the visible screen ([`Sessions::visible_screen`]), for the output and size it was read at.
     screen: Mutex<Option<(u64, TerminalSize, Arc<str>)>>,
     /// Set when Otaq stops the session; the end reason then says so.
@@ -1245,6 +1245,30 @@ impl Sessions {
             input_line::InputLine::Blank => keys && lines_above,
             input_line::InputLine::Unknown => keys,
         })
+    }
+
+    /// Whether the session's screen shows one of its tool's own dialogs, a permission or selection prompt, and no
+    /// input line ([`input_line::Reading::dialog`]): a line typed now would answer the prompt (its Enter picks an
+    /// option), so no automatic message is typed. A session that isn't running shows none.
+    pub fn shows_dialog(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| live.screen_reading().dialog)
+    }
+
+    /// Whether the session's screen shows its tool's input line (empty, a placeholder, or text in it) and no dialog
+    /// of the tool's own: the tool waits for a message, not at a prompt and not drawing a turn without one.
+    pub fn shows_input_line(&self, id: &str) -> bool {
+        self.live(id).is_ok_and(|live| {
+            let reading = live.screen_reading();
+            reading.line != input_line::InputLine::Unknown && !reading.dialog
+        })
+    }
+
+    /// How much output the session's program has written so far (a position that only moves on): unchanged between
+    /// two looks, the program drew nothing in between. `None` once the session is gone from memory.
+    pub fn output_written(&self, id: &str) -> Option<u64> {
+        let live = self.live(id).ok()?;
+        let output = live.output.lock().expect("session output");
+        Some(output.scrollback.end())
     }
 
     /// The session's screen as the user sees it now, as plain text without the lines above it ([`screen::render`]),
@@ -1834,23 +1858,29 @@ impl Drop for Inner {
 }
 
 impl Live {
-    /// The input line as the program's screen shows it now ([`input_line::read`]), read again only after new
-    /// output or a resize.
+    /// The input line as the program's screen shows it now ([`input_line::read`]).
     fn input_line(&self) -> input_line::InputLine {
+        self.screen_reading().line
+    }
+
+    /// The input line and any dialog of the tool's own as the program's screen shows them now
+    /// ([`input_line::read_all`]), read again only after new output or a resize.
+    fn screen_reading(&self) -> input_line::Reading {
         let (bytes, end, size) = {
             let output = self.output.lock().expect("session output");
             let (end, size) = (output.scrollback.end(), output.size);
-            if let Some((at, at_size, line)) = *self.input_line.lock().expect("session input line")
+            if let Some((at, at_size, reading)) =
+                *self.input_line.lock().expect("session input line")
                 && at == end
                 && at_size == size
             {
-                return line;
+                return reading;
             }
             (output.scrollback.contents().0, end, size)
         };
-        let line = input_line::read(&bytes, size, self.colors);
-        *self.input_line.lock().expect("session input line") = Some((end, size, line));
-        line
+        let reading = input_line::read_all(&bytes, size, self.colors);
+        *self.input_line.lock().expect("session input line") = Some((end, size, reading));
+        reading
     }
 
     /// The agent caller this running session's processes are: its own agent when it runs an agent tool for a

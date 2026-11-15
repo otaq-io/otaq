@@ -22,6 +22,13 @@
 //! [`InputLine::Typed`]: the line holds text, whatever the keys say. Anything else, a hidden cursor (a menu, a
 //! permission prompt) or text on a row without a prompt marker (a shell's line) included, is
 //! [`InputLine::Unknown`]: the tracker's answer stands.
+//!
+//! The same replay says whether the screen shows **one of the tool's own dialogs** ([`Reading::dialog`]): a
+//! permission or selection prompt, where a typed line would answer the prompt (its Enter picks the option under the
+//! pointer) instead of reaching the agent. No input line is in sight then, and either the cursor is hidden (Codex's
+//! "Would you like to run the following command?") or a numbered menu with a pointer on one of its options (`› 1.
+//! Yes, proceed`, `❯ 1. Yes`) is drawn among the screen's last rows. Otaq types no automatic message over one: a tool
+//! may draw its next prompt before it says so (Copilot's, after "No, and tell Copilot…"), or never say it.
 
 use crate::board::settings::TerminalColors;
 
@@ -46,9 +53,26 @@ const FADED: f32 = 0.65;
 /// The same on a background the tool paints itself, as a share of the most contrast that background allows.
 const FADED_ON_OWN: f32 = 0.5;
 
+/// What the screen shows: its input line, and whether a dialog of the tool's own is drawn.
+#[derive(Debug, Clone, Copy, PartialEq, Eq)]
+pub struct Reading {
+    pub line: InputLine,
+    /// A permission or selection prompt of the tool's own, with no input line in sight: a typed line would answer it.
+    pub dialog: bool,
+}
+
+/// How many of the screen's last non-empty rows a dialog's menu is looked for in: a tool draws its prompt at the
+/// bottom, where its input line was.
+const DIALOG_ROWS: usize = 12;
+
 /// Replays `bytes` (the session's kept output) in a terminal of `size` and reads the row the cursor is on.
 /// `colors` are the terminal's own text and background colours, for cells drawn in the default colours.
 pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLine {
+    read_all(bytes, size, colors).line
+}
+
+/// [`read`], and whether the screen shows a dialog of the tool's own.
+pub fn read_all(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> Reading {
     let (rows, cols) = (size.rows.max(1), size.cols.max(1));
     let mut parser = vt100::Parser::new(rows, cols, 0);
     // A trimmed scrollback can start inside a character.
@@ -59,6 +83,51 @@ pub fn read(bytes: &[u8], size: TerminalSize, colors: TerminalColors) -> InputLi
         .count();
     parser.process(&bytes[start..]);
     let screen = parser.screen();
+    let line = line_of(screen, cols, colors);
+    // A placeholder is drawn only on the tool's own empty input line, whatever else the screen shows. A cursor on a
+    // menu's pointed option (`❯ 1. Yes`) reads as text after a marker: the menu says what it is.
+    let dialog = match line {
+        InputLine::Placeholder => false,
+        InputLine::Unknown if screen.hide_cursor() => true,
+        _ => pointer_menu(screen),
+    };
+    Reading { line, dialog }
+}
+
+/// Whether a numbered menu with a pointer on one of its options is drawn among the screen's last rows: a row that
+/// reads `❯ 1. Yes` (`›`, `>`, `▶` as the pointer, its option's number and `.` or `)`; a box's border before it
+/// doesn't count), and another option's row (`2. No…`) next to it.
+fn pointer_menu(screen: &vt100::Screen) -> bool {
+    let rows: Vec<String> = screen
+        .rows(0, screen.size().1)
+        .map(|r| r.trim().to_owned())
+        .filter(|r| !r.is_empty())
+        .collect();
+    let last = &rows[rows.len().saturating_sub(DIALOG_ROWS)..];
+    let options: Vec<(usize, bool)> = last
+        .iter()
+        .enumerate()
+        .filter_map(|(i, row)| menu_option(row).map(|pointed| (i, pointed)))
+        .collect();
+    options
+        .iter()
+        .any(|&(i, pointed)| pointed && options.iter().any(|&(j, _)| j != i && j.abs_diff(i) <= 3))
+}
+
+/// A menu option's row (`1. Yes`, `  2) No`, behind a box's border): `Some(true)` when the pointer is on it.
+fn menu_option(row: &str) -> Option<bool> {
+    let row = row.trim_start_matches(|c: char| c.is_whitespace() || "│┃║|".contains(c));
+    let (pointed, rest) = match row.chars().next() {
+        Some(c) if "❯›>▶►➤".contains(c) => (true, row[c.len_utf8()..].trim_start()),
+        _ => (false, row),
+    };
+    let digits = rest.chars().take_while(char::is_ascii_digit).count();
+    let after = &rest[digits..];
+    (digits > 0 && (after.starts_with(". ") || after.starts_with(") "))).then_some(pointed)
+}
+
+/// The row the cursor is on.
+fn line_of(screen: &vt100::Screen, cols: u16, colors: TerminalColors) -> InputLine {
     if screen.hide_cursor() {
         return InputLine::Unknown;
     }
@@ -367,5 +436,65 @@ mod tests {
     fn the_marker_alone_is_blank() {
         assert_eq!(line("\x1b[3;1H> "), InputLine::Blank);
         assert_eq!(line("\x1b[3;1H\u{2503} "), InputLine::Blank);
+    }
+
+    /// Codex's command question (cursor hidden, `› 1. Yes, proceed (y)`) is a dialog; no tool's input line is, empty
+    /// or typed.
+    #[test]
+    fn a_tools_own_dialog_is_told_from_its_input_line() {
+        assert!(read_all(&capture("codex-approval"), SIZE, DARK).dialog);
+        for name in [
+            "codex-after-approval",
+            "codex-empty",
+            "codex-typed",
+            "claude-empty",
+            "claude-typed",
+            "copilot-empty",
+            "copilot-typed",
+            "opencode-empty",
+            "opencode-typed",
+        ] {
+            assert!(!read_all(&capture(name), SIZE, DARK).dialog, "{name}");
+        }
+    }
+
+    fn reading(bytes: &str) -> Reading {
+        read_all(bytes.as_bytes(), TerminalSize { cols: 60, rows: 12 }, DARK)
+    }
+
+    /// A permission prompt drawn in a box, as Copilot draws its own (`❯ 1. Yes`, …, "No, and tell Copilot what to do
+    /// differently"), is a dialog wherever the cursor is; a numbered list in the agent's text isn't, nor a menu over
+    /// an input line with its placeholder.
+    #[test]
+    fn a_numbered_menu_with_a_pointer_is_a_dialog() {
+        let menu = "\x1b[3;1H\u{2502} Do you want to run this command?\
+                    \x1b[4;1H\u{2502} \u{276f} 1. Yes\
+                    \x1b[5;1H\u{2502}   2. Yes, and approve `git` for this session\
+                    \x1b[6;1H\u{2502}   3. No, and tell Copilot what to do differently (Esc)";
+        // Hidden cursor, a visible one on an empty row, and one on the pointed option.
+        for cursor in ["\x1b[?25l", "\x1b[9;1H", "\x1b[4;5H", "\x1b[8;1H\u{2503} "] {
+            let r = reading(&format!("{menu}{cursor}"));
+            assert!(r.dialog, "{cursor:?}: {r:?}");
+        }
+        // The pointer on another option.
+        assert!(reading("\x1b[3;3H1. Yes\x1b[4;1H\u{203a} 2. No (esc)\x1b[?25l").dialog);
+        // An agent's numbered list, with Copilot's empty input line under it.
+        let list = "\x1b[3;1H\u{25cf} Plan:\x1b[4;3H1. Read the spec\x1b[5;3H2. Write the test\
+                    \x1b[9;1H\u{2503} ";
+        assert_eq!(
+            reading(list),
+            Reading {
+                line: InputLine::Blank,
+                dialog: false
+            }
+        );
+        // A lone pointed line (the user's prompt echoed) isn't a menu.
+        assert!(!reading("\x1b[3;1H\u{276f} 1. Read the spec\x1b[9;1H\u{2503} ").dialog);
+        // An input line with its placeholder is the tool's own line.
+        let placeholder = format!("{menu}\x1b[10;1H\u{276f} \x1b[2mTry this\x1b[22m\x1b[10;3H");
+        assert!(!reading(&placeholder).dialog);
+        // A hidden cursor over a shell's output.
+        assert!(reading("abc\r\n\x1b[?25l").dialog);
+        assert!(!reading("abc\r\n").dialog);
     }
 }
