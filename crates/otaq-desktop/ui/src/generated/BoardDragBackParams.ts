@@ -7,6 +7,6 @@ import type { CommentAttachmentParams } from "./CommentAttachmentParams";
  */
 export type BoardDragBackParams = { key: string, target: BoardDropTarget, note: string, 
 /**
- * What the comment box holds: files and text pasted over the limit (CMT-13; tuq 001, 003).
+ * What the comment box holds: its files (CMT-13; tuq 001, 003; pasted text stays in the comment, tuq 112).
  */
 attachments: Array<CommentAttachmentParams>, clear: boolean, };

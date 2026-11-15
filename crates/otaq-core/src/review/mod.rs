@@ -252,10 +252,11 @@ impl Review {
         &self.inner.board
     }
 
-    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `report`, the dialog's
-    /// pasted text) is the user's comment and the pending line comments go with it to the nearest earlier Agent
+    /// **Fail** on a human check (FLW-14; Send back on the default flow, REV-04): `note` (with `attachments`, the
+    /// dialog's files) is the user's comment and the pending line comments go with it to the nearest earlier Agent
     /// stage's session, which continues there; every agent check's counter restarts. `clear_first` is the user's
-    /// "Clear it and send" after a "needs confirmation" answer. A note over the limit refuses the whole Fail.
+    /// "Clear it and send" after a "needs confirmation" answer. The note has no length limit (tuq 112); a missing
+    /// attachment refuses the whole Fail.
     pub async fn fail(
         &self,
         key: &str,

@@ -804,7 +804,7 @@ export function SendBackDialog({ params, close }: OverlayProps<"send_back">) {
   }, [error, view, close]);
   if (!view) return null;
   const canSend = boxState(comment, view.comment.limits, view.comment.optional).canSubmit;
-  // "Clear it and send" sends the same comment and pasted report again.
+  // "Clear it and send" sends the same comment and its attachments again.
   const send = (clear: boolean): Promise<unknown> =>
     (
       request("review.send_back", {

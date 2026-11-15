@@ -1,7 +1,7 @@
 //! The dialog of an open PR (FLW-16, CMT-13; d0108, d0109; `s03-50`): **Send back with PR comments** ("Send SHOP-26
 //! back with PR comments?", the optional "Comment for Dev (optional)", **Send back**). It sends the ticket to the
 //! nearest earlier Agent stage of its flow, whose session resumes; what the user writes is posted as a comment for that
-//! stage, in the comment box (a long paste becomes its report, the limit applies); its request is
+//! stage, in the comment box (no length limit, tuq 112); its request is
 //! `ticket.send_back_pr`. A human check's Send back is `send_back.rs`'s dialog (d0093).
 
 use otaq_core::board::tickets::Ticket;

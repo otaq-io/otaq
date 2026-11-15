@@ -398,7 +398,7 @@ pub enum StageCommand {
     Next {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the summary from stdin (at most 2,000 characters)
+        /// Read the summary from stdin (an agent's: at most 2,000 characters; the user's: no limit)
         #[arg(long)]
         stdin: bool,
         /// Read the same text from this file instead of stdin
@@ -418,7 +418,7 @@ pub enum StageCommand {
     Done {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the reason from stdin (at most 2,000 characters)
+        /// Read the reason from stdin (an agent's: at most 2,000 characters; the user's: no limit)
         #[arg(long)]
         stdin: bool,
         /// Read the same text from this file instead of stdin
@@ -480,7 +480,7 @@ pub enum ReviewCommand {
     Submit {
         /// SHOP-18, or 18 in the current project. Default: $OTAQ_TICKET
         key: Option<String>,
-        /// Read the summary from stdin (at most 2,000 characters)
+        /// Read the summary from stdin (an agent's: at most 2,000 characters; the user's: no limit)
         #[arg(long)]
         stdin: bool,
         /// Read the same text from this file instead of stdin

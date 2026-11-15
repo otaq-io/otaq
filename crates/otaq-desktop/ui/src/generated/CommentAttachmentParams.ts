@@ -2,6 +2,7 @@
 
 /**
  * One attachment a comment box sends: `{"kind": "file", "path": "/Users/me/shot.png"}` (picked, dropped, or staged
- * from a paste) or `{"kind": "pasted", "text": "…48 KB of log…"}` (a paste over the limit, "Pasted text").
+ * from a paste) or `{"kind": "pasted", "text": "…48 KB of log…"}` (a "Pasted text" attachment; the box no longer
+ * sends one, tuq 112).
  */
 export type CommentAttachmentParams = { "kind": "file", path: string, } | { "kind": "pasted", text: string, };

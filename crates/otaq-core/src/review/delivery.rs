@@ -368,8 +368,8 @@ impl Review {
     }
 
     /// **Send back with PR comments** (FLW-16): a ticket whose PR is open goes back to its nearest earlier Agent
-    /// stage with `address-review`; the optional `note` (with `report`, the dialog's pasted text) is the user's comment
-    /// (CMT-05). `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer.
+    /// stage with `address-review`; the optional `note` (with `attachments`, the dialog's files) is the user's comment
+    /// (CMT-05), with no length limit (tuq 112). `clear_first` is the user's "Clear it and send" after a "needs confirmation" answer.
     pub async fn send_back_pr(
         &self,
         key: &str,

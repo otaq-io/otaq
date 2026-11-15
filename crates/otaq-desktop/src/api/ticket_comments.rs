@@ -1,8 +1,8 @@
 //! `ticket_comments.*`: the comments in the Ticket tab and their box (CMT-10, CMT-11; d0109; `s05-41`…`s05-44`). The
 //! thread's words come from `otaq-view`'s `ticket_comments.rs`; posting, editing and deleting go to the service
-//! (`ticket.comment_post`, `…_edit`, `…_delete`), which checks the limit and the rights again and publishes
-//! `ticket_changed`, so the thread follows. The box's attachments travel as one list ([`Sent`], `attachments.rs`):
-//! files by their paths, a paste over the limit as its text.
+//! (`ticket.comment_post`, `…_edit`, `…_delete`), which checks the text and the rights again (the user's comments have
+//! no length limit, tuq 112) and publishes `ticket_changed`, so the thread follows. The box's attachments travel as one
+//! list ([`Sent`], `attachments.rs`): files by their paths; pasted text always stays in the comment.
 
 use otaq_core::protocol::{
     KeyParams, Reply, Request, SessionListParams, TicketCommentEditParams, TicketCommentParams,
@@ -357,7 +357,7 @@ mod tests {
             .unwrap();
         assert_eq!(size, "\u{b7} 48 KB");
 
-        // A pasted screenshot (staged from its bytes), a picked file and a long paste go together, in the box's
+        // A pasted screenshot (staged from its bytes), a picked file and `pasted` text go together, in the box's
         // order (tuq 001, 003); the staged copy goes once the comment holds its own.
         let shot = attachments::stage(&h.app, "image.png".into(), b"\x89PNG\r\n\x1a\n".to_vec())
             .await

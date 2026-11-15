@@ -1,6 +1,6 @@
 // What a human check's Approve opens in another flow (its Pass, FLW-14; d0093), and the dialog of an open PR
-// (FLW-16, CMT-13; d0108, d0109; `s03-50`): **Send back with PR comments** (an optional comment in the comment box, a
-// long paste becomes its report, Send back). Its words come from `review.send_back_pr_view` (`check_dialogs.rs`); it
+// (FLW-16, CMT-13; d0108, d0109; `s03-50`): **Send back with PR comments** (an optional comment in the comment box,
+// with no length limit, tuq 112; Send back). Its words come from `review.send_back_pr_view` (`check_dialogs.rs`); it
 // sends `review.send_back_pr`, Approve `review.pass`. A human check's Send back is the `send_back` dialog
 // (`Dialogs.tsx`).
 import { useCallback, useEffect, useState } from "react";
