@@ -85,6 +85,38 @@ fn report_files(w: &TestService) -> Vec<std::path::PathBuf> {
     out
 }
 
+/// A Markdown comment (tuq 110): History's "commented" line has its words without the marks, cut after stripping;
+/// the comment itself (the thread's list, `prime`) is kept exactly as written.
+#[tokio::test(flavor = "multi_thread")]
+async fn history_shows_a_markdown_comment_without_its_marks() {
+    let w = TestService::start().await;
+    w.add_project("shop-web").await;
+    w.create("SHOP", "Export orders as CSV").await;
+    let body = "**Done.** Reused the CSV writer in [export.rs](https://example.com/export.rs).\n\n\
+                - [x] `snake_case` columns\n- kept `before-*` globs\n\n> Excel not added";
+    post(&w, "SHOP-1", body).await;
+    let long = format!("## Notes\n\n{}**tail**", "word ".repeat(30));
+    post(&w, "SHOP-1", &long).await;
+
+    let events = comment_events(&w, "SHOP-1").await;
+    assert_eq!(
+        events[0].payload["excerpt"],
+        "Done. Reused the CSV writer in export.rs. snake_case columns kept before-* globs Excel not added"
+    );
+    let cut = events[1].payload["excerpt"].as_str().unwrap();
+    assert_eq!(cut.chars().count(), 121);
+    assert!(cut.starts_with("Notes word word"), "{cut}");
+    assert!(!cut.contains('*') && !cut.contains('#'), "{cut}");
+
+    // Never stripped: the comment as listed and as prime prints it.
+    let listed = w.board.ticket_comments("SHOP-1").await.unwrap();
+    assert_eq!(listed.comments[0].body, body);
+    assert_eq!(listed.comments[1].body, long);
+    let key = "SHOP-1".parse().unwrap();
+    let primed = otaq_core::prime::render_comments(&key, &listed.comments[..1]);
+    assert!(primed.contains(body), "{primed}");
+}
+
 #[tokio::test(flavor = "multi_thread")]
 async fn the_limit_counts_characters_and_numbers_are_never_reused() {
     let w = TestService::start().await;

@@ -510,14 +510,14 @@ const SEE_COMMENT: &str = "see comment";
 /// already says and up to its first ";", cut at a word to fit, and "· see comment" ("Fail: the 10,000 row limit isn't
 /// enforced; 3 tests fail in export_tests.rs." → "the 10,000 row limit isn't enforced · see comment").
 pub fn verdict_line(verdict: &str) -> String {
-    let line = verdict
-        .lines()
-        .map(str::trim)
-        .find(|l| !l.is_empty())
-        .unwrap_or("");
+    // Its words without Markdown marks (tuq 110): "**Fail:** …" reads "Fail: …".
+    let line = otaq_core::markdown_plain::plain_lines(verdict)
+        .into_iter()
+        .next()
+        .unwrap_or_default();
     let line = match line.split_once(':') {
         Some((word, rest)) if word.trim().eq_ignore_ascii_case("fail") => rest.trim(),
-        _ => line,
+        _ => &line,
     };
     let clause = line.split(';').next().unwrap_or(line).trim();
     // A verdict of only attachments (tuq 007): nothing to quote.
@@ -1029,6 +1029,15 @@ mod tests {
             "10,000 row limit isn\u{2019}t enforced \u{b7} see comment"
         );
         assert_eq!(verdict_line("fail : short"), "short \u{b7} see comment");
+        // Without its Markdown marks (tuq 110).
+        assert_eq!(
+            verdict_line("**Fail:** `limit` isn't *enforced*; more"),
+            "limit isn't enforced \u{b7} see comment"
+        );
+        assert_eq!(
+            verdict_line("## Fail: [the limit](https://x.y/1)"),
+            "the limit \u{b7} see comment"
+        );
         // A verdict of only attachments (tuq 007).
         assert_eq!(verdict_line(""), "see comment");
         assert_eq!(verdict_line("Fail:"), "see comment");
