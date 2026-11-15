@@ -108,8 +108,10 @@ from `otaq-view`'s keymap), so no TypeScript file lists a shortcut. While the se
 every key goes to the terminal except the app's (⌘ on macOS, Ctrl+Shift on Windows and Linux); a terminal component
 calls `focusTerminal(session)` on focus and `focusTerminal(null)` on blur. Leave terminal focus blurs it when no screen
 handles it. Outside a terminal, bound keys that no handler takes, and keys the webview would act on (reload, print,
-find, zoom, devtools, caret browsing, history), are swallowed; a focused text field keeps Enter, Backspace and Esc. The
-app started with `OTAQ_KEY_LOG=1` shows the last keys and where each went, bottom right.
+find, zoom, devtools, caret browsing, history), are swallowed; a focused text field keeps Enter, Backspace and Esc,
+the description editor's text also ⌘K (Link) and ⌘B (Bold), and a comment box's text ⌘B, ⌘I, ⌘E and ⌘K (Bold, Italic,
+Code, Link; tuq 111), Ctrl on Windows and Linux. The app started with `OTAQ_KEY_LOG=1` shows the last keys and where
+each went, bottom right.
 
 **Testing a screen.** `registerScreens({ strip })` gives fresh registries with only that screen; `registered(app)`
 lists what it filled (see `ui/src/app/registry/registry.test.ts`). The frame renders without a DOM through

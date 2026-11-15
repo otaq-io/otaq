@@ -46,7 +46,8 @@ pub struct CommentArgs {
     pub command: Option<CommentCommand>,
     /// SHOP-34, or 34 in the current project. Default: $OTAQ_TICKET
     pub key: Option<String>,
-    /// Read the comment from stdin (at most 2,000 characters; it may be empty when a file is attached)
+    /// Read the comment from stdin (an agent's: at most 2,000 characters; the user's: no limit; it may be empty when a
+    /// file is attached)
     #[arg(long)]
     pub stdin: bool,
     /// Read the same text from this file instead of stdin

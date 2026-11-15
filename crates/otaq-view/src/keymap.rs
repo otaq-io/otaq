@@ -1042,7 +1042,8 @@ fn custom_bindings(
 
 /// The description editor's own keys that may also be app keys (0097, d0078): while its text has the focus, ⌘K /
 /// Ctrl+K inserts a link (not the palette) and ⌘B / Ctrl+B is Bold (the base map has no ⌘B since d0113; a key the
-/// user records there stays Bold in the editor). The only keys allowed two meanings, by focus.
+/// user records there stays Bold in the editor). With the comment box's ⌘B, ⌘I, ⌘E and ⌘K (tuq 111, `COMMENT_BOX_KEYS`
+/// in the page's `app/keys.ts`), the only keys allowed two meanings, by focus.
 pub fn description_editor_keys(platform: Platform) -> [&'static str; 2] {
     if platform.is_mac() {
         ["⌘K", "⌘B"]

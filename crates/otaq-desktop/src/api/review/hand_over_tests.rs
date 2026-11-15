@@ -1,9 +1,9 @@
 //! The user's hand-overs from the window, end to end (T-0448; CMT-15, CMT-05, CMT-13; d0109, d0056, d0079): shop-web
 //! (SHOP) on the Spec first preset, SHOP-34 "Export orders as CSV" waiting in Code review after Dev ran. **Send back**
-//! with a pasted log (over 2,000 characters, so a report) and a note: the note is the user's comment with the log as
-//! its report, posted before Dev's conversation resumes, and Dev is told only that a comment came. Then SHOP-34 is
-//! **dragged back** from Code review to Dev with a comment: the user's comment, and Dev told "SHOP-34 was sent back to
-//! Dev by you with a comment. Run `otaq prime`.".
+//! with a pasted log (sent as a `pasted` attachment, as the box sent a long paste before tuq 112) and a note: the note
+//! is the user's comment with the log as its report, posted before Dev's conversation resumes, and Dev is told only
+//! that a comment came. Then SHOP-34 is **dragged back** from Code review to Dev with a comment: the user's comment,
+//! and Dev told "SHOP-34 was sent back to Dev by you with a comment. Run `otaq prime`.".
 //!
 //! The app talks to a core `TestService` (temporary `OTAQ_HOME` and repositories); `claude` is stood in for by `sh`
 //! printing its arguments and sleeping, on a PATH without any `otaq`. No agent tool runs.
@@ -122,7 +122,7 @@ async fn send_back_with_a_pasted_log_and_a_drag_back_post_the_users_comments() {
     let (w, t) = world().await;
     let app = app(&w).await;
 
-    // Send back: the note and the pasted log (over the limit, so a report).
+    // Send back: the note and the pasted log as a `pasted` attachment (the box no longer makes one, tuq 112).
     let log: String = (1..=120)
         .map(|i| format!("test export::case_{i:04} ... ok\n"))
         .chain(["test export_tests::row_limit_10000 ... FAILED\n".to_owned()])

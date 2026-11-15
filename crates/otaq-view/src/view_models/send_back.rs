@@ -1,6 +1,6 @@
 //! The Send back dialog (REV-04, CMT-13; d0034, d0048, d0058, d0109, *07 → Send back · review & confirm* `s07-20` /
 //! `s07-21`): what the agent will receive (every pending line comment), the optional comment for Dev in the comment box
-//! (a long paste becomes its report), which tickets keep waiting, and the request it sends. Sending with no line
+//! (no length limit, tuq 112), which tickets keep waiting, and the request it sends. Sending with no line
 //! comments and no comment is allowed: the comment is optional.
 
 use otaq_core::agents::facts::TicketAgents;

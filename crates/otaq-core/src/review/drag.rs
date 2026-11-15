@@ -99,7 +99,7 @@ enum Stop<'a> {
 pub struct DragAnswers<'a> {
     /// The instructions (back to an Agent stage) or the note (back to an agent check): the user's comment (CMT-05).
     pub note: &'a str,
-    /// The attachments of that comment (the dialog's pasted text).
+    /// The attachments of that comment (the dialog's comment box).
     pub attachments: &'a [ReportSource],
     /// The dialog was confirmed.
     pub confirmed: bool,

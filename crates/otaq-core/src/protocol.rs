@@ -1533,7 +1533,7 @@ pub struct MergeIntoParams {
 }
 
 /// `{"key": "SHOP-18", "note": "…"}`: a Fail's comments; `clear_first` is the user's "Clear it and send". The note
-/// is the user's comment (CMT-05), `attachments` the files attached to it (the dialog's pasted text, CMT-13).
+/// is the user's comment (CMT-05), `attachments` the files attached to it (the dialog's comment box, CMT-13).
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct FailParams {
     pub key: String,
@@ -1937,7 +1937,7 @@ pub struct DragParams {
     /// "Clear it and send" after the unsent-text question (d0048).
     #[serde(default, skip_serializing_if = "std::ops::Not::not")]
     pub clear_first: bool,
-    /// The files attached to the note's comment (the dialog's pasted text, CMT-13).
+    /// The files attached to the note's comment (the dialog's comment box, CMT-13).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub attachments: Vec<crate::board::reports::ReportSource>,
 }

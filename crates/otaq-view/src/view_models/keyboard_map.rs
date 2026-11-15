@@ -25,7 +25,8 @@ pub const THEN: &str = "then";
 pub const NOTES: [&str; 3] = [
     "Single letters work on every platform, only while nobody is typing (a field, the description editor, the Project \
      agent’s box or a terminal) and no menu or dialog is open; Settings → Keyboard shortcuts can turn them off. “—” \
-     means no key there: the command palette covers it. In the description editor ⌘K inserts a link and ⌘B is Bold.",
+     means no key there: the command palette covers it. In the description editor ⌘K inserts a link and ⌘B is Bold; \
+     in a comment box ⌘B, ⌘I, ⌘E and ⌘K are Bold, Italic, Code and Link.",
     "While a terminal has focus every key goes to the shell or agent. On macOS ⌘ keys keep working (the terminal \
      doesn’t use ⌘). On Windows and Linux most of the app’s keys move to Ctrl+Shift+… inside a terminal (the third \
      column); Ctrl+1–9, Ctrl+`, Ctrl+, , Ctrl+Tab, Ctrl+K and Ctrl+P stay as they are. ⌃` / Ctrl+` opens, closes and \

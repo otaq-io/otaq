@@ -1,6 +1,7 @@
 //! The comment box's attachments (tuq 001, 002, 003, 005): what every comment box sends (the thread's
 //! `ticket_comments.post`, Send back, Send back with PR comments and the drag-back dialog), one list, each a file by
-//! its path or text pasted over the limit ([`Sent`]).
+//! its path ([`Sent`]). Pasted text always stays in the comment's text (tuq 112); `pasted` text is still taken as a
+//! "Pasted text" attachment, but the box no longer sends one.
 //!
 //! A file the user picked (Attach, Overview's Add) or dropped has a path, sent as it is: the service copies it when
 //! the comment is posted. A screenshot on the clipboard or files pasted from Finder have none: the page hands their
@@ -42,7 +43,8 @@ fn parse<T: serde::de::DeserializeOwned>(params: Value) -> Result<T, RequestErro
 }
 
 /// One attachment a comment box sends: `{"kind": "file", "path": "/Users/me/shot.png"}` (picked, dropped, or staged
-/// from a paste) or `{"kind": "pasted", "text": "…48 KB of log…"}` (a paste over the limit, "Pasted text").
+/// from a paste) or `{"kind": "pasted", "text": "…48 KB of log…"}` (a "Pasted text" attachment; the box no longer
+/// sends one, tuq 112).
 #[derive(Debug, Clone, PartialEq, Eq, Deserialize, TS)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 #[ts(rename = "CommentAttachmentParams")]
