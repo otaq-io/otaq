@@ -120,7 +120,7 @@
       "icon": "circle-check",
       "what": "Every flow ends here",
       "avatar": null,
-      "who": null,
+      "who": "default",
       "who_off": null,
       "skill": null,
       "check_line": null,

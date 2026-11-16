@@ -46,7 +46,7 @@ import { cardsOf } from "../board/Column";
 import { openOverlay } from "../../app/overlays";
 import { showAgentInPanel } from "../agent_panel/logic";
 import { ModelEffortField } from "../settings/ModelEffort";
-import { type EditorActions, ModelLineField, SkillField } from "../flow_editor/FlowEditor";
+import { type EditorActions, SkillField } from "../flow_editor/FlowEditor";
 import { editorAgents, editStage, pickEntry, skillButton, writeSkill } from "../flow_editor/logic";
 import {
   askForChanges,
@@ -1207,6 +1207,7 @@ function DeliveryPanel({
   onClose: () => void;
 }) {
   const skill = delivery.skill;
+  const who = delivery.who;
   return (
     <aside className="fb-side" aria-label={delivery.title}>
       <header className="fb-side-head">
@@ -1246,9 +1247,46 @@ function DeliveryPanel({
         ))}
         {delivery.mode_note !== null && <span className="fe-hint">{delivery.mode_note}</span>}
       </div>
-      {delivery.model !== null && <ModelLineField line={delivery.model} />}
+      {who !== null && (
+        <>
+          <span className="fb-section">{who.heading}</span>
+          {delivery.writes !== null && <p className="fe-hint">{delivery.writes}</p>}
+          <ModelEffortField
+            view={who.picker}
+            onPick={(pick) => {
+              onEdit(
+                pick.kind === "pair"
+                  ? {
+                      edit: "delivery_pair",
+                      model: pick.model,
+                      ...(pick.effort !== null && { effort: pick.effort }),
+                    }
+                  : { edit: "delivery_model", model: pick.model },
+              );
+            }}
+            onEffort={(effort) => {
+              onEdit(effort === null ? { edit: "delivery_effort" } : { edit: "delivery_effort", effort });
+            }}
+            onSetUp={() => {
+              openOverlay("settings", { section: "agent_tools" });
+            }}
+          />
+        </>
+      )}
       {skill !== null && (
         <DeliverySkillField key={skill.value} skill={skill} focus={focusSkill} onEdit={onEdit} />
+      )}
+      {who !== null && (
+        <TextField
+          key={`delivery-instructions-${who.instructions}`}
+          label={who.instructions_label}
+          value={who.instructions}
+          hint={who.instructions_hint}
+          multiline
+          onSave={(instructions) => {
+            onEdit({ edit: "delivery_instructions", instructions });
+          }}
+        />
       )}
       <p className="fe-hint">{delivery.note}</p>
     </aside>

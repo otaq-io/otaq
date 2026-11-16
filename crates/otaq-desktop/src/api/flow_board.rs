@@ -504,8 +504,9 @@ mod tests {
         );
     }
 
-    /// Done's panel names the delivery's agent and, for a PR, its PR skill: the user's own Open PR skill goes there
-    /// (empty: Otaq's own `open-pr`); a local merge has no PR skill and may name no agent.
+    /// Done's panel names the model that writes the PR and, for a PR, its PR skill: the user's own Open PR skill goes
+    /// there (empty: Otaq's own `open-pr`); a local merge has no PR skill and may name no model. Done's Who does it
+    /// (UX-69, A-5) writes the delivery's model, effort and instructions to the flow file.
     #[tokio::test(flavor = "multi_thread")]
     async fn dones_panel_sets_the_deliverys_agent_and_pr_skill() {
         let h = Harness::new(None);
@@ -527,12 +528,12 @@ mod tests {
         let own = otaq_core::board::settings::WorkflowStep::OpenPr.own_skill();
         assert_eq!((skill.value.as_str(), skill.placeholder), (own, own));
         assert_eq!(skill.warning, None);
-        assert!(panel.model.is_some(), "a PR names the model that writes it");
+        assert!(panel.who.is_some(), "a PR names the model that writes it");
 
         edit("delivery.skill", " /my-pr ").await.unwrap();
         edit("delivery.model", "codex").await.unwrap();
         let panel = load(&h, Some("done")).await.delivery.unwrap();
-        assert!(panel.model.unwrap().value.starts_with("Codex"));
+        assert!(panel.who.unwrap().picker.value.text.starts_with("Codex"));
         let skill = panel.skill.unwrap();
         assert_eq!(skill.value, "my-pr");
         assert_eq!(skill.warning.as_deref(), Some("You don't have the skill `my-pr`"));
@@ -545,7 +546,38 @@ mod tests {
         let panel = load(&h, Some("done")).await.delivery.unwrap();
         assert_eq!(panel.skill, None);
         edit("delivery.model", "").await.unwrap();
-        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().model, None, "the plain message");
+        assert_eq!(load(&h, Some("done")).await.delivery.unwrap().who, None, "the plain message");
+
+        // Done's Who does it: written on Codex · gpt-5.5 · medium with instructions, then a pull request again.
+        for edit in [
+            json!({ "edit": "delivery_model", "model": "codex:gpt-5.5" }),
+            json!({ "edit": "delivery_effort", "effort": "medium" }),
+            json!({ "edit": "delivery_instructions", "instructions": "Keep the title under 70 characters." }),
+        ] {
+            request(&h.app, "flow_editor.edit", json!({ "project": "SHOP", "edit": edit }))
+                .await
+                .unwrap();
+        }
+        edit("delivery.delivers", "pr").await.unwrap();
+        let v = load(&h, Some("done")).await;
+        let who = v.delivery.clone().unwrap().who.unwrap();
+        assert_eq!(who.picker.value.text, "Codex \u{b7} gpt-5.5");
+        assert_eq!(who.instructions, "Keep the title under 70 characters.");
+        assert_eq!(
+            v.columns.last().unwrap().who.as_deref(),
+            Some("gpt-5.5 \u{b7} medium"),
+            "the Done tile shows the model"
+        );
+        let delivery = &v.yaml[v.yaml.find("delivery:").unwrap()..];
+        for line in ["model: codex:gpt-5.5", "effort: medium", "instructions: Keep the title"] {
+            assert!(delivery.contains(line), "{line}: {}", v.yaml);
+        }
+        // The page's test draws Done's panel from this view (page.test.ts); `OTAQ_WRITE_FIXTURES=1` writes it again.
+        if std::env::var_os(otaq_core::naming::env_var("WRITE_FIXTURES")).is_some() {
+            let path = std::path::Path::new(env!("CARGO_MANIFEST_DIR"))
+                .join("ui/src/screens/flow_board/done_panel.view.json");
+            std::fs::write(&path, serde_json::to_string_pretty(&v).unwrap() + "\n").unwrap();
+        }
     }
 
     /// Import a flow file…, then Export flow file…: the same file comes back.

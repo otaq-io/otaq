@@ -28,7 +28,9 @@
 //! [`model_effort`] field: a menu of the tools set up on this Mac, each starting with `default`, and the pairs the
 //! flows already use on top), its Skill and Instructions · optional ([`Who`]); [`StageEdit::Model`],
 //! [`StageEdit::Pair`], [`StageEdit::Effort`] and [`StageEdit::Instructions`] change them in the draft. A model whose
-//! tool isn't set up is kept, marked, and its tickets wait (A-4).
+//! tool isn't set up is kept, marked, and its tickets wait (A-4). Done's model, which writes the pull request (UX-69),
+//! has the same rules: [`StageEdit::DeliveryModel`], [`StageEdit::DeliveryPair`], [`StageEdit::DeliveryEffort`] and
+//! [`StageEdit::DeliveryInstructions`].
 //!
 //! **Checks** (T-0529; d0131): a check's details have **Fails go to** ([`FailToField`]): the Agent stages before it,
 //! the nearest marked and picked by default (the flow file leaves `fail_to` out for it). A `fail_to` that no longer
@@ -53,7 +55,6 @@ use ts_rs::TS;
 use crate::icons::IconName;
 use crate::view_models::menu::{MenuItem, MenuSearch};
 use crate::view_models::model_effort;
-use crate::view_models::tool_avatar::ToolAvatarView;
 use crate::view_models::tool_problems::Tools;
 
 /// The editor's three kinds a step can be switched between (Delivery stays the last step's).
@@ -138,6 +139,27 @@ pub enum StageEdit {
     /// Instructions · optional (UX-67): added to the skill for every ticket at the stage (empty: none).
     Instructions {
         stage: String,
+        instructions: String,
+    },
+    /// Done's Model (UX-69): the model that writes the pull request, as [`Self::Model`] does for a stage.
+    DeliveryModel {
+        model: String,
+    },
+    /// A pair of Done's model menu: model and effort at once, as [`Self::Pair`].
+    DeliveryPair {
+        model: String,
+        #[serde(default)]
+        #[ts(optional)]
+        effort: Option<String>,
+    },
+    /// Done's Effort, as [`Self::Effort`].
+    DeliveryEffort {
+        #[serde(default)]
+        #[ts(optional)]
+        effort: Option<String>,
+    },
+    /// Done's Instructions · optional: added to the PR skill when it writes the pull request (empty: none).
+    DeliveryInstructions {
         instructions: String,
     },
     /// What it's for: the stage's description, which every agent reads (empty: none).
@@ -287,23 +309,6 @@ pub struct Who {
     /// The stage's instructions as the flow file says them; empty for none.
     pub instructions: String,
     pub instructions_hint: &'static str,
-}
-
-/// Who does the delivery, read-only until Done's panel picks it (UX-69): its tool's avatar, its model and
-/// effort and its instructions. `FlowEditorModelLine` on the page.
-#[derive(Debug, Clone, PartialEq, Serialize, TS)]
-#[ts(rename = "FlowEditorModelLine")]
-pub struct ModelLine {
-    pub label: &'static str,
-    pub avatar: Option<ToolAvatarView>,
-    /// "Claude Code · opus · effort high", "default", "—" for a stage with no model yet.
-    pub value: String,
-    /// The stage's own instructions (UX-67), as the flow file says them; `None` with none.
-    pub instructions: Option<String>,
-    /// "Copilot doesn’t have the skill `/team-validate`", amber: the model's tool doesn't have the stage's skill. Only
-    /// a warning, Apply still works.
-    pub warning: Option<String>,
-    pub hint: &'static str,
 }
 
 /// A check's Fails go to (d0131): the Agent stages before it under a header, "nearest" on the nearest, the stage its
@@ -1204,6 +1209,48 @@ fn agent_who(stage: &mut Stage) -> Result<&mut WhoDoesIt, String> {
     Ok(&mut stage.who)
 }
 
+/// Model (UX-65): `model` as stored, a tool (its `default`, UX-68) or `tool:model`. The effort stays when the new tool
+/// offers it, else takes the nearest level it does (UX-75); `default`'s tool is known only once the flow is applied,
+/// so its effort stays.
+fn set_model(who: &mut WhoDoesIt, model: &str) -> Result<(), String> {
+    let parsed = AgentModel::parse(model)?;
+    if let (Some(tool), Some(effort)) = (parsed.tool(), who.effort.as_deref()) {
+        who.effort = otaq_core::agents::nearest_effort(tool, effort).map(str::to_owned);
+    }
+    who.model = Some(parsed.text());
+    Ok(())
+}
+
+/// A pair of the model menu's "As in your other flows": model and effort at once (`None`: no effort).
+fn set_pair(who: &mut WhoDoesIt, model: &str, effort: Option<&str>) -> Result<(), String> {
+    let parsed = AgentModel::parse(model)?;
+    if let Some(why) = effort.and_then(|e| otaq_core::agents::effort_refusal(&parsed, e)) {
+        return Err(why);
+    }
+    who.model = Some(parsed.text());
+    who.effort = effort.map(str::to_owned);
+    Ok(())
+}
+
+/// Effort: one of the model's tool's levels; `None` (or empty) for the tool's own.
+fn set_effort(who: &mut WhoDoesIt, effort: Option<&str>) -> Result<(), String> {
+    let effort = effort.map(str::trim).filter(|e| !e.is_empty());
+    if let Some(effort) = effort {
+        let model = who.model.as_deref().map(AgentModel::parse).transpose()?;
+        if let Some(why) = model.and_then(|m| otaq_core::agents::effort_refusal(&m, effort)) {
+            return Err(why);
+        }
+    }
+    who.effort = effort.map(str::to_owned);
+    Ok(())
+}
+
+/// Instructions · optional (UX-67): empty for none.
+fn set_instructions(who: &mut WhoDoesIt, instructions: &str) {
+    let text = instructions.trim();
+    who.instructions = (!text.is_empty()).then(|| text.to_owned());
+}
+
 /// The draft's document after `edit`, and the stage to select after it (a new one). Refused with why when the edit
 /// doesn't fit the flow (a stage that isn't there).
 pub fn edited(file: &FlowFile, edit: &StageEdit) -> Result<(FlowFile, Option<String>), String> {
@@ -1311,14 +1358,7 @@ pub fn edited(file: &FlowFile, edit: &StageEdit) -> Result<(FlowFile, Option<Str
         }
         StageEdit::Model { stage, model } => {
             let i = at(stage)?;
-            let who = agent_who(&mut out.flow.stages[i])?;
-            let parsed = AgentModel::parse(model)?;
-            // UX-75: the effort the new tool doesn't offer becomes the nearest it does; `default`'s tool is known
-            // only once the flow is applied, so its effort stays.
-            if let (Some(tool), Some(effort)) = (parsed.tool(), who.effort.as_deref()) {
-                who.effort = otaq_core::agents::nearest_effort(tool, effort).map(str::to_owned);
-            }
-            who.model = Some(parsed.text());
+            set_model(agent_who(&mut out.flow.stages[i])?, model)?;
         }
         StageEdit::Pair {
             stage,
@@ -1326,38 +1366,32 @@ pub fn edited(file: &FlowFile, edit: &StageEdit) -> Result<(FlowFile, Option<Str
             effort,
         } => {
             let i = at(stage)?;
-            let who = agent_who(&mut out.flow.stages[i])?;
-            let parsed = AgentModel::parse(model)?;
-            if let Some(why) = effort
-                .as_deref()
-                .and_then(|e| otaq_core::agents::effort_refusal(&parsed, e))
-            {
-                return Err(why);
-            }
-            who.model = Some(parsed.text());
-            who.effort = effort.clone();
+            set_pair(
+                agent_who(&mut out.flow.stages[i])?,
+                model,
+                effort.as_deref(),
+            )?;
         }
         StageEdit::Effort { stage, effort } => {
             let i = at(stage)?;
-            let who = agent_who(&mut out.flow.stages[i])?;
-            let effort = effort.as_deref().map(str::trim).filter(|e| !e.is_empty());
-            if let Some(effort) = effort {
-                let model = who.model.as_deref().map(AgentModel::parse).transpose()?;
-                if let Some(why) = model.and_then(|m| otaq_core::agents::effort_refusal(&m, effort))
-                {
-                    return Err(why);
-                }
-            }
-            who.effort = effort.map(str::to_owned);
+            set_effort(agent_who(&mut out.flow.stages[i])?, effort.as_deref())?;
         }
         StageEdit::Instructions {
             stage,
             instructions,
         } => {
             let i = at(stage)?;
-            let who = agent_who(&mut out.flow.stages[i])?;
-            let text = instructions.trim();
-            who.instructions = (!text.is_empty()).then(|| text.to_owned());
+            set_instructions(agent_who(&mut out.flow.stages[i])?, instructions);
+        }
+        StageEdit::DeliveryModel { model } => set_model(&mut out.flow.delivery.who, model)?,
+        StageEdit::DeliveryPair { model, effort } => {
+            set_pair(&mut out.flow.delivery.who, model, effort.as_deref())?;
+        }
+        StageEdit::DeliveryEffort { effort } => {
+            set_effort(&mut out.flow.delivery.who, effort.as_deref())?;
+        }
+        StageEdit::DeliveryInstructions { instructions } => {
+            set_instructions(&mut out.flow.delivery.who, instructions);
         }
         StageEdit::Description { stage, description } => {
             let i = at(stage)?;
@@ -2132,6 +2166,85 @@ mod tests {
         )
         .unwrap();
         let who = &file.flow.stage("validate").unwrap().who;
+        assert_eq!(
+            (who.effort.as_deref(), who.instructions.as_deref()),
+            (None, None)
+        );
+    }
+
+    /// UX-69: Done's Model, Effort and Instructions write the delivery's `model:`, `effort:` and `instructions:`,
+    /// with a stage's rules (the nearest effort the new tool offers, UX-75), and leave every stage as it was.
+    #[test]
+    fn dones_who_does_it_edits_write_the_deliverys_model_effort_and_instructions() {
+        let s = |t: &str| t.to_owned();
+        let before = shop_web();
+        let apply = |file: &FlowFile, edit: StageEdit| edited(file, &edit).unwrap().0;
+        let file = apply(
+            &before,
+            StageEdit::DeliveryPair {
+                model: s("claude:opus"),
+                effort: Some(s("max")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryModel {
+                model: s("codex:gpt-5.5"),
+            },
+        );
+        let who = &file.flow.delivery.who;
+        assert_eq!(
+            (who.model.as_deref(), who.effort.as_deref()),
+            (Some("codex:gpt-5.5"), Some("xhigh")),
+            "Codex has no max: the nearest it offers"
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryEffort {
+                effort: Some(s("medium")),
+            },
+        );
+        let file = apply(
+            &file,
+            StageEdit::DeliveryInstructions {
+                instructions: s(" Use .github/pull_request_template.md.\n"),
+            },
+        );
+        let who = &file.flow.delivery.who;
+        assert_eq!(who.effort.as_deref(), Some("medium"));
+        assert_eq!(
+            who.instructions.as_deref(),
+            Some("Use .github/pull_request_template.md.")
+        );
+        assert_eq!(file.flow.stages, before.flow.stages, "no stage changes");
+        let yaml = otaq_core::flow::yaml::write(&file);
+        let delivery = &yaml[yaml.find("delivery:").expect("a delivery")..];
+        for line in [
+            "model: codex:gpt-5.5",
+            "effort: medium",
+            "instructions: Use .github/pull_request_template.md.",
+        ] {
+            assert!(delivery.contains(line), "{line}: {yaml}");
+        }
+        assert!(
+            edited(
+                &file,
+                &StageEdit::DeliveryEffort {
+                    effort: Some(s("max")),
+                },
+            )
+            .is_err(),
+            "Codex has no max"
+        );
+        // Empty instructions and no effort clear them.
+        let file = apply(
+            &file,
+            StageEdit::DeliveryInstructions {
+                instructions: s(""),
+            },
+        );
+        let file = apply(&file, StageEdit::DeliveryEffort { effort: None });
+        let who = &file.flow.delivery.who;
         assert_eq!(
             (who.effort.as_deref(), who.instructions.as_deref()),
             (None, None)
