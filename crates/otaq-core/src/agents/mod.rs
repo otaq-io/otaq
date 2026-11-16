@@ -1,23 +1,20 @@
-//! Agents (AGM-01…AGM-05; d0108, d0086, d0088, d0040, d0068, d0092): every session Otaq starts runs an agent, which
-//! has a name, its own instructions and its own model (a tool and a model from that tool's list, or `default`), with
-//! the tool's own effort level where the tool has a documented one. Agents belong to the account and are shared by
-//! every project; flows name them by name and Otaq keeps their ids, so a rename changes nothing.
+//! Who does an agent's work (UX-65…UX-75; AGM-03, AGM-05, d0086, d0088, d0068, d0092): every session Otaq starts runs
+//! on a model (a tool and a model from that tool's list, or `default`), with the tool's own effort level where the tool
+//! has a documented one, and optional instructions. There are no named agents: a stage of a project's flow says who does
+//! it (its `model:`, `effort:` and `instructions:`), so does the flow's delivery (UX-69), and Noyan starts on an app
+//! setting, "Noyan starts on" (UX-70).
 //!
-//! - The types: [`Agent`], [`AgentModel`], [`CameFrom`], [`ModelRef`] (a tool and a model: the default model) and
-//!   [`SessionRole`] (which kind of session a hold or a token count is about).
-//! - [`Agents`]: the requests' rules (add, edit, duplicate, delete, in use, the agent Noyan uses, the default
-//!   model). An agent has no skills: a stage's `skill:` is the only place a skill is picked (T6). An agent has no
-//!   role either: each stage names its agent, and Noyan's agent is one app setting (the agent Noyan uses), which a
-//!   new conversation may swap for another.
-//! - [`store`]: the tables; [`shipped`]: Otaq's agents file and the default flow's agents, applied at the first
-//!   start; [`in_use`]: what uses an agent; [`resolve`]: which agent a session runs (AGM-05);
-//!   [`gate`]: the check before every launch: an agent whose tool can't run waits for it; [`limits`]: the
-//!   plan-limit banner's lines and Resume per tool; [`mark`]: the amber mark of a model the tool refused; [`pause`]: Pause
-//!   and Resume per project (d0112).
+//! - The types: [`Who`] (what a session resolves to, and [`About`], where a mark about its model goes),
+//!   [`AgentModel`], [`ModelRef`] (a tool and a model: the default model), [`SessionRole`] (which kind of session a
+//!   hold or a token count is about), [`NoyanStartsOn`].
+//! - [`store`]: the holds, the settings and the sessions' facts; [`shipped`]: Otaq's own skills and the account's
+//!   default model; [`resolve`]: which model a session runs (AGM-05); [`gate`]: the check before every launch: a
+//!   session whose tool can't run waits for it; [`limits`]: the plan-limit banner's lines and Resume per tool;
+//!   [`mark`]: the amber mark of a model the tool refused, on the stage or Noyan's setting; [`pause`]: Pause and Resume
+//!   per project (d0112).
 
 pub mod facts;
 pub mod gate;
-pub mod in_use;
 pub mod kept;
 pub mod limits;
 pub mod mark;
@@ -25,22 +22,19 @@ pub mod pause;
 pub mod resolve;
 pub mod shipped;
 pub mod store;
-
-use std::sync::Arc;
+pub mod upgrade;
 
 use serde::{Deserialize, Serialize};
 
 use crate::agent_tools::Tool;
 use crate::agent_tools::models::{ModelKind, ModelLists};
-use crate::board::{Board, BoardError, Refusal};
 use crate::domain::stored_enum;
 use crate::session::{SessionAgent, StoredConversation};
-pub use in_use::InUse;
 
 stored_enum! {
     /// Which kind of session something is about: a hold (stored as its `role`), a token count, a running session.
     /// The Developer is an Agent stage's session (and its answers and PR), the Validator an agent check's round, the
-    /// Project agent is a Noyan conversation (on the agent Noyan uses, or the one picked for the conversation).
+    /// Project agent is a Noyan conversation.
     pub enum SessionRole ("session role") {
         Developer = "developer",
         Validator = "validator",
@@ -60,13 +54,13 @@ impl SessionRole {
 }
 
 stored_enum! {
-    /// Why an agent that would start is held (SCH-04 `[M23]`, §7.2; d0086, d0088).
+    /// Why a session that would start is held (SCH-04 `[M23]`, §7.2; d0086, d0088).
     pub enum HoldReason ("hold reason") {
-        /// Its tool is at its limit: only that tool's agents wait.
+        /// Its tool is at its limit: only that tool's sessions wait.
         ToolLimit = "tool_limit",
         /// Its tool isn't available (not installed, logged out, hidden, update needed).
         ToolUnavailable = "tool_unavailable",
-        /// Its model is no longer in its tool's list: "Model unavailable · Open agent…".
+        /// Its model is no longer in its tool's list: "Model unavailable · Edit flow…".
         ModelUnavailable = "model_unavailable",
         /// Its tool doesn't have the skill the stage names (a stage runs only on a tool that has its skill): the
         /// hold keeps the skill's name, and Check again asks the finder again.
@@ -74,9 +68,10 @@ stored_enum! {
     }
 }
 
-/// An agent's model (AGM-01): `default` (the account's default model, resolved when a session starts, AGM-03), or a
-/// tool and a model from its list (`None`: the tool's own default; a follow choice such as `opus`; an exact id). Which
-/// kind a model text is comes from the tool's list ([`Agent::model_kind`]); the text is passed to the tool unchanged.
+/// A model as a flow says it (UX-65, UX-68): `default` (the account's default model, AGM-03: only in shipped and
+/// older files, made a tool when a flow is applied), or a tool and a model from its list (`None`: the tool's own
+/// default; a follow choice such as `opus`; an exact id). Which kind a model text is comes from the tool's list
+/// ([`Who::model_kind`]); the text is passed to the tool unchanged.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum AgentModel {
@@ -89,6 +84,42 @@ pub enum AgentModel {
 }
 
 impl AgentModel {
+    /// A flow file's `model:`: `default`, a tool's stored name (`claude`: its default model) or `<tool>:<model>`
+    /// (`claude:opus`); why it doesn't read otherwise.
+    pub fn parse(text: &str) -> Result<Self, String> {
+        let text = text.trim();
+        if text == "default" {
+            return Ok(Self::Default);
+        }
+        let (tool, model) = match text.split_once(':') {
+            Some((tool, model)) => (
+                tool,
+                Some(model.trim().to_owned()).filter(|m| !m.is_empty()),
+            ),
+            None => (text, None),
+        };
+        let tool = tool.trim().parse().map_err(|_| {
+            let tools: Vec<&str> = Tool::ALL.iter().map(|t| t.as_str()).collect();
+            format!(
+                "{text} isn't a model: say a tool ({}) or `tool:model` (`claude:opus`)",
+                tools.join(", ")
+            )
+        })?;
+        Ok(Self::Tool { tool, model })
+    }
+
+    /// The model as a flow file writes it: `default`, `<tool>` or `<tool>:<model>`.
+    pub fn text(&self) -> String {
+        match self {
+            Self::Default => "default".to_owned(),
+            Self::Tool { tool, model: None } => tool.as_str().to_owned(),
+            Self::Tool {
+                tool,
+                model: Some(model),
+            } => format!("{}:{model}", tool.as_str()),
+        }
+    }
+
     /// Its own tool; `None` for `default`.
     pub fn tool(&self) -> Option<Tool> {
         match self {
@@ -107,6 +138,23 @@ impl AgentModel {
             }),
         }
     }
+}
+
+/// Why `level` can't go with `model` (the refusals of an effort, UX-75): it isn't one of its tool's levels, or the tool
+/// has none. `None` when it can, and for `default`, whose tool is known only once the flow is applied.
+pub fn effort_refusal(model: &AgentModel, level: &str) -> Option<String> {
+    let tool = model.tool()?;
+    if tool.effort_levels().contains(&level) {
+        return None;
+    }
+    Some(match tool.effort_levels() {
+        [] => format!("{} has no effort level", tool.display_name()),
+        levels => format!(
+            "{level} isn't one of {}'s effort levels: {}",
+            tool.display_name(),
+            levels.join(", ")
+        ),
+    })
 }
 
 /// A model text by kind, as the tool's list says (d0088). Always one picked from the tool's own list.
@@ -131,8 +179,8 @@ impl ToolModel {
     }
 }
 
-/// A tool and a model from its list (`None`: the tool's default): the default model for new agents, what a session
-/// runs on.
+/// A tool and a model from its list (`None`: the tool's default): the account's default model, what a session runs
+/// on.
 #[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
 pub struct ModelRef {
     pub tool: Tool,
@@ -140,40 +188,19 @@ pub struct ModelRef {
     pub model: Option<String>,
 }
 
-/// Where an agent came from (AGM-01): "From Otaq's agents file", "Added by the Otaq default preset", "Added by
-/// shop-web's flow", or the user's own.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "from", rename_all = "snake_case")]
-pub enum CameFrom {
-    /// Otaq's shipped `otaq-agents.yaml` (the Project agent).
-    AgentsFile,
-    /// The default flow's own `agents:` (Developer, Validator).
-    DefaultPreset,
-    /// Made by the user (New agent, Duplicate).
-    You,
-    /// A project's flow defined it.
-    Flow { project: String },
-}
-
-impl CameFrom {
-    /// The line under the agent's name.
-    pub fn label(&self) -> String {
-        match self {
-            Self::AgentsFile => format!("From {}'s agents file", crate::naming::PRODUCT_NAME),
-            Self::DefaultPreset => {
-                format!(
-                    "Added by the {} default preset",
-                    crate::naming::PRODUCT_NAME
-                )
-            }
-            Self::You => "Added by you".to_owned(),
-            Self::Flow { project } => format!("Added by {project}'s flow"),
+impl ModelRef {
+    /// As a flow file writes it: `<tool>` or `<tool>:<model>`.
+    pub fn text(&self) -> String {
+        AgentModel::Tool {
+            tool: self.tool,
+            model: self.model.clone(),
         }
+        .text()
     }
 }
 
-/// The amber mark on an agent (AGT-05): "Claude Code couldn't run `claude-fable-5-1` on SHOP-48". No dismiss; a
-/// saved model change clears it.
+/// The amber mark on a stage's (or the delivery's, or Noyan's) model (AGT-05): "Claude Code couldn't run
+/// `claude-fable-5-1` on SHOP-48". No dismiss; a saved model change clears it.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct Mark {
     /// The line as shown.
@@ -182,32 +209,68 @@ pub struct Mark {
     pub model: Option<String>,
     /// The ticket key it happened on.
     pub ticket: Option<String>,
-    /// The tool's own message, shown in quotes on the agent's page.
+    /// The tool's own message.
     pub message: Option<String>,
     pub at: i64,
 }
 
-/// One agent (AGM-01).
+/// What a session's model came from, and so where a mark about it goes ([`mark`]): a stage of a project's flow, the
+/// project's delivery, or Noyan's setting. Stored on the session as [`Self::scope`].
+#[derive(Debug, Clone, PartialEq, Eq, Hash, Serialize, Deserialize)]
+#[serde(tag = "kind", rename_all = "snake_case")]
+pub enum About {
+    /// The stage `stage` (its id) of the project `project` (its key).
+    Stage { project: String, stage: String },
+    /// The delivery of the project `project` (its key).
+    Delivery { project: String },
+    /// Noyan's "Noyan starts on", or a conversation's own pick.
+    Noyan,
+}
+
+impl About {
+    /// As stored: `stage/<project>/<stage id>`, `delivery/<project>`, `noyan`.
+    pub fn scope(&self) -> String {
+        match self {
+            Self::Stage { project, stage } => format!("stage/{project}/{stage}"),
+            Self::Delivery { project } => format!("delivery/{project}"),
+            Self::Noyan => "noyan".to_owned(),
+        }
+    }
+
+    /// The stored scope read back; `None` for one that isn't.
+    pub fn parse(scope: &str) -> Option<Self> {
+        if scope == "noyan" {
+            return Some(Self::Noyan);
+        }
+        if let Some(project) = scope.strip_prefix("delivery/") {
+            return Some(Self::Delivery {
+                project: project.to_owned(),
+            });
+        }
+        let (project, stage) = scope.strip_prefix("stage/")?.split_once('/')?;
+        Some(Self::Stage {
+            project: project.to_owned(),
+            stage: stage.to_owned(),
+        })
+    }
+}
+
+/// Who does a session's work (UX-65, UX-67, UX-69, UX-70): the model, effort and instructions of the stage it runs
+/// in, of the flow's delivery, or of Noyan's setting, and what they came from.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Agent {
-    /// Permanent: sessions, holds and the flows' names point at it.
-    pub id: String,
-    /// Unique ignoring case ("Developer", "Rust developer").
-    pub name: String,
-    /// Markdown; empty when it has none.
-    pub instructions: String,
+pub struct Who {
     pub model: AgentModel,
-    /// The tool's own effort level (`high`), only with a model on a tool that has a documented one
+    /// The tool's own effort level (`high`), passed only when the tool it runs on has that level
     /// ([`Tool::effort_levels`]).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub effort: Option<String>,
-    pub came_from: CameFrom,
-    pub mark: Option<Mark>,
-    pub created_at: i64,
-    pub updated_at: i64,
+    /// Markdown added to the skill (UX-67); empty when there are none.
+    #[serde(default)]
+    pub instructions: String,
+    pub about: About,
 }
 
-impl Agent {
+impl Who {
     /// Its model by kind, from its tool's list; `None` for `default`. A text the list no longer has counts as exact,
     /// or as a follow choice in one of Otaq's forms (`newest:gpt-sol`, `auto@balance`;
     /// [`crate::agent_tools::follow`]).
@@ -226,24 +289,64 @@ impl Agent {
         })
     }
 
-    /// The agent as a session stores it.
-    pub fn session_agent(&self) -> SessionAgent {
+    /// Who a flow's stage or delivery `who` says, about `about`; `None` while it names no model (or one that doesn't
+    /// read, which reading the flow refuses).
+    pub fn of(who: &crate::flow::model::WhoDoesIt, about: About) -> Option<Self> {
+        let model = AgentModel::parse(who.model.as_deref()?).ok()?;
+        Some(Self {
+            model,
+            effort: who.effort.clone(),
+            instructions: who.instructions.clone().unwrap_or_default(),
+            about,
+        })
+    }
+
+    /// As a session stores it: what it came from, and its tool's name as shown ("Claude Code"), the name History
+    /// and the cards show for it.
+    pub fn session_agent(&self, tool: Tool) -> SessionAgent {
         SessionAgent {
-            id: self.id.clone(),
-            name: self.name.clone(),
+            runs_for: self.about.scope(),
+            name: tool.display_name().to_owned(),
         }
     }
 }
 
-/// An agent that would start but doesn't (an Agent stage's start, an agent check's round, a Project agent's first
-/// message), one per ticket and session role (and check agent, d0130 row 17), or per project for its
-/// Project agent (`agent_holds`). It lifts when its cause goes.
+/// "Noyan starts on" (UX-70, UX-74): the model and effort every new Noyan conversation starts on, unless the
+/// conversation picks another before its first message. `default` (the account's default model) while none was set.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize, Default)]
+pub struct NoyanStartsOn {
+    /// `default`, a tool (`claude`) or `tool:model` (`claude:opus`).
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub model: Option<String>,
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub effort: Option<String>,
+}
+
+impl NoyanStartsOn {
+    /// Who a Noyan conversation on it runs as: no instructions (Noyan's behaviour comes from its skills, UX-74).
+    pub fn who(&self) -> Who {
+        Who {
+            model: self
+                .model
+                .as_deref()
+                .and_then(|m| AgentModel::parse(m).ok())
+                .unwrap_or(AgentModel::Default),
+            effort: self.effort.clone(),
+            instructions: String::new(),
+            about: About::Noyan,
+        }
+    }
+}
+
+/// A session that would start but doesn't (an Agent stage's start, an agent check's round, a Noyan conversation's
+/// first message), one per ticket and session role, or per project for its Noyan conversation (`agent_holds`). It
+/// lifts when its cause goes.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct AgentHold {
     pub id: String,
-    /// The held ticket; `None` for a Project agent's first message.
+    /// The held ticket; `None` for a Noyan conversation's first message.
     pub ticket_id: Option<String>,
-    /// The project of a held Project agent's first message; `None` for a ticket's hold.
+    /// The project of a held Noyan conversation's first message; `None` for a ticket's hold.
     pub project_id: Option<String>,
     pub role: SessionRole,
     pub reason: HoldReason,
@@ -251,8 +354,6 @@ pub struct AgentHold {
     pub tool: Tool,
     /// The model it would have passed (`None`: the tool's default).
     pub model: Option<String>,
-    /// The agent it would have started on.
-    pub agent_id: Option<String>,
     /// The skill its tool doesn't have, for a [`HoldReason::MissingSkill`] hold; `None` for every other.
     pub skill: Option<String>,
     /// When it was first held for this reason, in Unix milliseconds.
@@ -313,40 +414,9 @@ impl ModelCatalog for FixedModels {
     }
 }
 
-/// An agent's fields as its page sends them (`agents.add`, `agents.edit`) and as Duplicate's draft ("<name> copy",
-/// not saved). A model text comes from the tool's list (`"default"` or empty = the tool's default).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentFields {
-    pub name: String,
-    #[serde(default)]
-    pub instructions: String,
-    pub model: AgentModel,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub effort: Option<String>,
-}
-
-/// The answer to `agents.list`: every agent (oldest first), the default model for new agents (`None` until a tool
-/// connects) and the agent Noyan uses (its id; `None` while none is set).
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentList {
-    pub agents: Vec<Agent>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub default_model: Option<ModelRef>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub noyan_agent: Option<String>,
-}
-
-impl AgentList {
-    /// The agent Noyan uses, when it is one of the agents.
-    pub fn noyan(&self) -> Option<&Agent> {
-        let id = self.noyan_agent.as_deref()?;
-        self.agents.iter().find(|a| a.id == id)
-    }
-}
-
 /// What a session launches on (AGM-05, ADP-04; d0088 "The exact tool, model and agent are saved on the session"):
 /// the tool (`None`: the new-session tool, while no default model is set), the model passed to it unchanged (`None`
-/// passes no model option), the effort, and the agent saved on the session.
+/// passes no model option), the effort, and what the session runs for, saved on it.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct RunsOn {
     pub tool: Option<Tool>,
@@ -356,20 +426,21 @@ pub struct RunsOn {
 }
 
 impl RunsOn {
-    /// A new session on `agent` as it is now, without the check before a launch: its own model, or `default` (the
-    /// new-session tool with its default model while none is set). The effort goes only with its own model.
-    pub fn agent(agent: &Agent, default: Option<&ModelRef>) -> Self {
-        let on = agent.model.on(default);
+    /// A new session of `who` as it is now, without the check before a launch: its own model, or `default` (the
+    /// new-session tool with its default model while none is set). The effort goes only where its tool has it.
+    pub fn who(who: &Who, default: Option<&ModelRef>) -> Self {
+        let on = who.model.on(default);
+        let tool = on.as_ref().map(|m| m.tool);
         Self {
-            tool: on.as_ref().map(|m| m.tool),
+            tool,
             model: on.and_then(|m| m.model),
-            effort: agent.model.tool().and(agent.effort.clone()),
-            agent: Some(agent.session_agent()),
+            effort: tool.and_then(|tool| effort_on(who, tool)),
+            agent: tool.map(|tool| who.session_agent(tool)),
         }
     }
 
-    /// A resumed conversation: the tool, model, effort and agent its session stored, whatever the agent is set to now
-    /// (the models report: Claude Code doesn't keep the model, so it is passed again).
+    /// A resumed conversation: the tool, model, effort and what it runs for its session stored, whatever the stage
+    /// says now (the models report: Claude Code doesn't keep the model, so it is passed again).
     pub fn resumed(conversation: &StoredConversation) -> Self {
         Self {
             tool: Some(conversation.tool),
@@ -380,274 +451,16 @@ impl RunsOn {
     }
 }
 
-/// The name rules (AGM-01, Q256): trimmed, not empty, not `skip` (a stage option's word) or starting with `_` (kept
-/// for Otaq), and new ignoring case among `others`. The name as stored.
-pub fn checked_name<'a>(
-    name: &str,
-    mut others: impl Iterator<Item = &'a str>,
-) -> Result<String, BoardError> {
-    let name = name.trim();
-    if name.is_empty() {
-        return Err(BoardError::refused(
-            Refusal::EmptyField,
-            "An agent needs a name",
-        ));
-    }
-    if name.eq_ignore_ascii_case(crate::flow::StageOption::SKIP) {
-        return Err(BoardError::refused(
-            Refusal::BadName,
-            format!("{name} is how a flow says a stage can be skipped: pick another name"),
-        ));
-    }
-    if name.starts_with('_') {
-        return Err(BoardError::refused(
-            Refusal::BadName,
-            format!(
-                "Names starting with _ are kept for {}: pick another name",
-                crate::naming::PRODUCT_NAME
-            ),
-        ));
-    }
-    let folded = name.to_lowercase();
-    if others.any(|other| other.to_lowercase() == folded) {
-        return Err(BoardError::refused(
-            Refusal::NameTaken,
-            format!("Another agent is already called {name}"),
-        ));
-    }
-    Ok(name.to_owned())
-}
-
-/// The agents' rules, for the service's requests. Cheap to clone.
-#[derive(Clone)]
-pub struct Agents {
-    board: Board,
-    models: Arc<dyn ModelCatalog>,
-}
-
-impl Agents {
-    pub fn new(board: Board, models: Arc<dyn ModelCatalog>) -> Self {
-        Self { board, models }
-    }
-
-    /// The model list the rules check against.
-    pub fn models(&self) -> &dyn ModelCatalog {
-        self.models.as_ref()
-    }
-
-    pub async fn list(&self) -> Result<AgentList, BoardError> {
-        let store = self.board.store();
-        Ok(AgentList {
-            agents: store.agents().await?,
-            default_model: store.default_model().await?,
-            noyan_agent: store.noyan_agent_id().await?,
-        })
-    }
-
-    pub async fn agent(&self, id: &str) -> Result<Agent, BoardError> {
-        self.board
-            .store()
-            .agent(id)
-            .await?
-            .ok_or_else(|| BoardError::NotFound(format!("no agent {id}")))
-    }
-
-    /// New agent (AGM-01): "Added by you".
-    pub async fn add(&self, fields: &AgentFields) -> Result<Agent, BoardError> {
-        let new = self.checked(fields, None).await?;
-        let id = self
-            .board
-            .store()
-            .insert_agent(&new, &CameFrom::You, None)
-            .await?;
-        self.agent(&id).await
-    }
-
-    /// Changes an agent (name, instructions, model, effort). A saved model change clears the mark (AGT-05).
-    /// The next session that starts uses it; running and parked sessions keep what they started with (0088).
-    pub async fn edit(&self, id: &str, fields: &AgentFields) -> Result<Agent, BoardError> {
-        let before = self.agent(id).await?;
-        let new = self.checked(fields, Some(&before)).await?;
-        let model_changed = before.model != new.model;
-        self.board
-            .store()
-            .update_agent(id, &new, model_changed)
-            .await?;
-        self.agent(id).await
-    }
-
-    /// Duplicate's draft: the agent's fields named "<name> copy". Not saved; the
-    /// page saves it with [`Self::add`].
-    pub async fn duplicate(&self, id: &str) -> Result<AgentFields, BoardError> {
-        let agent = self.agent(id).await?;
-        Ok(AgentFields {
-            name: format!("{} copy", agent.name),
-            instructions: agent.instructions,
-            model: agent.model,
-            effort: agent.effort,
-        })
-    }
-
-    /// Deletes an agent nothing uses (AGM-01): refused for the agent Noyan uses ("Noyan uses Strong. Pick another
-    /// agent for Noyan first") and while a stage or a stage option names it ("Spec writer is used in shop-web ·
-    /// Product spec. Change that stage first.").
-    pub async fn delete(&self, id: &str) -> Result<(), BoardError> {
-        let uses = self.in_use(id).await?;
-        if let Some(message) = uses.refusal() {
-            return Err(BoardError::refused(Refusal::AgentInUse, message));
-        }
-        self.board.store().delete_agent(id).await?;
-        Ok(())
-    }
-
-    /// What uses an agent, before Delete asks: empty = the plain confirmation.
-    pub async fn in_use(&self, id: &str) -> Result<InUse, BoardError> {
-        let agent = self.agent(id).await?;
-        in_use::in_use(&self.board, &agent).await
-    }
-
-    /// The agent Noyan uses (an app setting): every new Noyan conversation starts on it unless the conversation
-    /// picks another. The next conversation uses it; running ones keep the agent they started on.
-    pub async fn set_noyan(&self, id: &str) -> Result<AgentList, BoardError> {
-        let agent = self.agent(id).await?;
-        self.board.store().set_noyan_agent(&agent.id).await?;
-        self.list().await
-    }
-
-    /// Default model for new agents (AGM-03): a tool and a model from its list.
-    pub async fn set_default_model(&self, model: &ModelRef) -> Result<ModelRef, BoardError> {
-        let model = self.checked_ref(model)?;
-        self.board.store().set_default_model(&model).await?;
-        Ok(model)
-    }
-
-    /// The fields as stored, after the rules: the name ([`checked_name`]), a model from its tool's list, an effort
-    /// only where the tool has one (one of its levels).
-    async fn checked(
-        &self,
-        fields: &AgentFields,
-        editing: Option<&Agent>,
-    ) -> Result<store::NewAgent, BoardError> {
-        let agents = self.board.store().agents().await?;
-        let name = checked_name(
-            &fields.name,
-            agents
-                .iter()
-                .filter(|a| Some(a.id.as_str()) != editing.map(|e| e.id.as_str()))
-                .map(|a| a.name.as_str()),
-        )?;
-        let model = match &fields.model {
-            AgentModel::Default => AgentModel::Default,
-            AgentModel::Tool { tool, model } => {
-                let checked = self.checked_ref(&ModelRef {
-                    tool: *tool,
-                    model: model.clone(),
-                })?;
-                AgentModel::Tool {
-                    tool: checked.tool,
-                    model: checked.model,
-                }
-            }
-        };
-        let effort = match (fields.effort.as_deref().map(str::trim), model.tool()) {
-            (None | Some(""), _) => None,
-            (Some(level), Some(tool)) if tool.effort_levels().contains(&level) => {
-                Some(level.to_owned())
-            }
-            (Some(level), Some(tool)) => {
-                return Err(BoardError::refused(
-                    Refusal::BadEffort,
-                    match tool.effort_levels() {
-                        [] => format!("{} has no effort level", tool.display_name()),
-                        levels => format!(
-                            "{level} isn't one of {}'s effort levels: {}",
-                            tool.display_name(),
-                            levels.join(", ")
-                        ),
-                    },
-                ));
-            }
-            (Some(_), None) => {
-                return Err(BoardError::refused(
-                    Refusal::BadEffort,
-                    "An effort level goes with a tool's model, not with default",
-                ));
-            }
-        };
-        Ok(store::NewAgent {
-            name,
-            instructions: fields.instructions.clone(),
-            model,
-            effort,
-        })
-    }
-
-    /// A tool and a model text as stored: the text from the tool's list (`"default"` or empty = the tool's default).
-    fn checked_ref(&self, model: &ModelRef) -> Result<ModelRef, BoardError> {
-        let picked = match model.model.as_deref().map(str::trim) {
-            None | Some("") => ToolModel::ToolDefault,
-            Some(text) => self.models.pick(model.tool, text).ok_or_else(|| {
-                BoardError::refused(
-                    Refusal::ModelNotListed,
-                    format!("{text} isn't in the tool's model list"),
-                )
-            })?,
-        };
-        Ok(ModelRef {
-            tool: model.tool,
-            model: picked.passed().map(str::to_owned),
-        })
-    }
+/// The effort `who` passes on `tool`: its own, when the tool has that level.
+pub fn effort_on(who: &Who, tool: Tool) -> Option<String> {
+    who.effort
+        .clone()
+        .filter(|level| tool.effort_levels().contains(&level.as_str()))
 }
 
 #[cfg(test)]
 mod tests {
     use super::*;
-
-    fn refusal(result: Result<String, BoardError>) -> (Refusal, String) {
-        match result {
-            Err(BoardError::Refused { code, message }) => (code, message),
-            other => panic!("refused: {other:?}"),
-        }
-    }
-
-    #[test]
-    fn names_are_trimmed_new_ignoring_case_and_not_skip_or_underscore() {
-        let others = ["Developer", "Ünal"];
-        assert_eq!(
-            checked_name("  Rust developer ", others.iter().copied()).unwrap(),
-            "Rust developer"
-        );
-        assert_eq!(
-            refusal(checked_name("developer", others.iter().copied())),
-            (
-                Refusal::NameTaken,
-                "Another agent is already called developer".to_owned()
-            )
-        );
-        assert_eq!(
-            refusal(checked_name("ünal", others.iter().copied())).0,
-            Refusal::NameTaken
-        );
-        assert_eq!(
-            refusal(checked_name("Skip", others.iter().copied())).0,
-            Refusal::BadName
-        );
-        assert_eq!(
-            refusal(checked_name("_x", others.iter().copied())),
-            (
-                Refusal::BadName,
-                format!(
-                    "Names starting with _ are kept for {}: pick another name",
-                    crate::naming::PRODUCT_NAME
-                )
-            )
-        );
-        assert_eq!(
-            refusal(checked_name(" ", others.iter().copied())).0,
-            Refusal::EmptyField
-        );
-    }
 
     #[test]
     fn session_roles_are_stored_as_named() {
@@ -656,7 +469,7 @@ mod tests {
     }
 
     #[test]
-    fn a_default_model_resolves_to_the_default_and_carries_no_effort() {
+    fn a_default_model_resolves_to_the_default() {
         let tool = Tool::ALL[0];
         let default = ModelRef {
             tool,
@@ -676,13 +489,61 @@ mod tests {
             Some("opus")
         );
         assert_eq!(ToolModel::ToolDefault.passed(), None);
+    }
+
+    #[test]
+    fn models_read_as_default_a_tool_or_tool_and_model_and_write_back() {
+        assert_eq!(AgentModel::parse("default"), Ok(AgentModel::Default));
         assert_eq!(
-            CameFrom::Flow {
-                project: "shop-web".into()
-            }
-            .label(),
-            "Added by shop-web's flow"
+            AgentModel::parse("claude"),
+            Ok(AgentModel::Tool {
+                tool: Tool::Claude,
+                model: None
+            })
         );
+        let opencode = AgentModel::parse("opencode:anthropic/claude-sonnet-5-5#high").unwrap();
+        assert_eq!(
+            opencode,
+            AgentModel::Tool {
+                tool: Tool::OpenCode,
+                model: Some("anthropic/claude-sonnet-5-5#high".into())
+            }
+        );
+        assert_eq!(opencode.text(), "opencode:anthropic/claude-sonnet-5-5#high");
+        assert!(AgentModel::parse("gpt").is_err());
+        for text in ["default", "claude", "claude:opus"] {
+            assert_eq!(AgentModel::parse(text).unwrap().text(), text);
+        }
+    }
+
+    #[test]
+    fn an_effort_is_one_of_its_tools_levels() {
+        let claude = AgentModel::parse("claude:opus").unwrap();
+        let level = Tool::Claude.effort_levels()[0];
+        assert_eq!(effort_refusal(&claude, level), None);
+        assert!(
+            effort_refusal(&claude, "ludicrous")
+                .unwrap()
+                .starts_with("ludicrous isn't one of Claude Code's effort levels: ")
+        );
+        assert_eq!(effort_refusal(&AgentModel::Default, "ludicrous"), None);
+    }
+
+    #[test]
+    fn what_a_session_runs_for_reads_back() {
+        for about in [
+            About::Stage {
+                project: "SHOP".into(),
+                stage: "dev".into(),
+            },
+            About::Delivery {
+                project: "SHOP".into(),
+            },
+            About::Noyan,
+        ] {
+            assert_eq!(About::parse(&about.scope()), Some(about));
+        }
+        assert_eq!(About::parse("agent-1"), None);
     }
 
     #[test]

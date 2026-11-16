@@ -406,7 +406,7 @@ async fn the_writers_prompt_under_an_open_pr_dialog_stays_in_the_dialog() {
     // The remote is a local folder, so the PR is opened by the team's own skill, which the writer's tool has.
     w.board
         .edit_flow_for_tests("SHOP", |file| {
-            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.who.instructions = Some("Write the pull request.".into());
             file.flow.delivery.skill = Some("my-pr".into());
         })
         .await;

@@ -1,6 +1,6 @@
 //! A project's flow, stored (FLW-01, T-0412; d0108): a new project gets the shipped default flow as version 1, every
-//! applied flow is kept in order, the board runs the current one, `use_flow_for_tests` stores a version, a rename
-//! follows into every stored flow, and no code reads the Validation, Validation rounds or Auto-merge settings or
+//! applied flow is kept in order, the board runs the current one, `use_flow_for_tests` stores a version, a stored
+//! `default` model becomes the default model's tool, a saved model change clears a stage's mark, and no code reads the Validation, Validation rounds or Auto-merge settings or
 //! M32's move-over any more.
 
 use std::path::{Path, PathBuf};
@@ -137,43 +137,94 @@ async fn use_flow_for_tests_stores_a_version() {
     );
 }
 
-/// AGM-01: flows name agents by name, so renaming an agent renames it in every stored version (an earlier one too,
-/// for Back), and the stage still runs it.
+/// UX-68: a stored flow's `model: default` (a shipped flow's) becomes the tool of the account's default model, so a
+/// stored flow names a tool; while no default model is set it stays `default` (resolved when a session starts).
 #[tokio::test]
-async fn a_rename_follows_into_every_stored_flow() {
+async fn default_becomes_the_default_models_tool_when_stored() {
     let f = Fixture::shop().await;
-    f.board.edit_flow_for_tests("SHOP", with_rounds(2)).await;
     let store = f.board.store();
-    let validator = store.agent_named("Checker").await.unwrap().unwrap();
-    let mut fields = otaq_core::agents::store::NewAgent {
-        name: "Gatekeeper".into(),
-        instructions: validator.instructions.clone(),
-        model: validator.model.clone(),
-        effort: validator.effort.clone(),
+    let stored = |f: &Fixture| {
+        let board = f.board.clone();
+        async move { board.current_flow("SHOP").await.unwrap().file().unwrap() }
     };
-    store
-        .update_agent(&validator.id, &fields, false)
-        .await
-        .unwrap();
-    for version in f.board.flow_versions("SHOP").await.unwrap() {
-        let file = version.file().unwrap();
-        assert!(file.agents.iter().any(|a| a.name == "Gatekeeper"));
-        assert!(!version.yaml.contains("Checker"), "{}", version.yaml);
+    if store.default_model().await.unwrap().is_none() {
+        f.board.edit_flow_for_tests("SHOP", with_rounds(2)).await;
+        let file = stored(&f).await;
+        assert_eq!(file.flow.stage("dev").unwrap().model(), Some("default"));
     }
-    let running = f.board.effective_flow("SHOP").await.unwrap();
-    assert_eq!(
-        running.stage("validate").unwrap().check_agent(),
-        Some("Gatekeeper")
-    );
-    assert_eq!(running.stage("validate").unwrap().rounds, Some(2));
-    // Saving it with its name unchanged rewrites nothing.
-    let before = f.board.flow_versions("SHOP").await.unwrap();
-    fields.instructions = "Be strict.".into();
     store
-        .update_agent(&validator.id, &fields, false)
+        .set_default_model(&otaq_core::agents::ModelRef {
+            tool: otaq_core::agent_tools::Tool::Codex,
+            model: Some("gpt-5.5".into()),
+        })
         .await
         .unwrap();
-    assert_eq!(f.board.flow_versions("SHOP").await.unwrap(), before);
+    f.board.edit_flow_for_tests("SHOP", with_rounds(3)).await;
+    let file = stored(&f).await;
+    for stage in file.flow.stages.iter().filter(|s| s.runs_agent()) {
+        assert_eq!(stage.model(), Some("codex"), "{}", stage.name);
+    }
+    assert_eq!(file.flow.delivery.who.model.as_deref(), Some("codex"));
+    assert!(
+        !f.board
+            .current_flow("SHOP")
+            .await
+            .unwrap()
+            .yaml
+            .contains("default")
+    );
+}
+
+/// AGT-05: a stage's mark (its model refused, or no longer listed) clears when its model or effort is changed and
+/// saved; another stage's change, or one to its instructions only, leaves it.
+#[tokio::test]
+async fn a_saved_model_change_clears_the_stages_mark() {
+    use otaq_core::agents::{About, mark};
+    let f = Fixture::shop().await;
+    let store = f.board.store();
+    let on = |stage: &str| About::Stage {
+        project: "SHOP".into(),
+        stage: stage.into(),
+    };
+    for stage in ["dev", "validate"] {
+        mark::set(
+            store,
+            &on(stage),
+            &mark::no_longer_lists("Codex", "gpt-5.4", "SHOP-1"),
+        )
+        .await
+        .unwrap();
+    }
+    f.board
+        .edit_flow_for_tests("SHOP", |file| {
+            let dev = file.flow.stages.iter_mut().find(|s| s.id == "dev").unwrap();
+            dev.who.instructions = Some("Be brief.".into());
+        })
+        .await;
+    assert!(
+        mark::get(store, &on("dev")).await.unwrap().is_some(),
+        "instructions only"
+    );
+    f.board
+        .edit_flow_for_tests("SHOP", |file| {
+            let dev = file.flow.stages.iter_mut().find(|s| s.id == "dev").unwrap();
+            dev.who.model = Some("claude:opus".into());
+        })
+        .await;
+    assert!(mark::get(store, &on("dev")).await.unwrap().is_none());
+    assert!(mark::get(store, &on("validate")).await.unwrap().is_some());
+    f.board
+        .edit_flow_for_tests("SHOP", |file| {
+            let check = file
+                .flow
+                .stages
+                .iter_mut()
+                .find(|s| s.id == "validate")
+                .unwrap();
+            check.who.effort = Some("high".into());
+        })
+        .await;
+    assert!(mark::get(store, &on("validate")).await.unwrap().is_none());
 }
 
 /// `flow.current` and `flow.versions` over the socket.

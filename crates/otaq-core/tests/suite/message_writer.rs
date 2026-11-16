@@ -66,7 +66,7 @@ async fn setup() -> Setup {
         .unwrap();
     w.board
         .edit_flow_for_tests("SHOP", |file| {
-            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.who.instructions = Some("Write the pull request.".into());
         })
         .await;
     let t = w
@@ -122,7 +122,7 @@ async fn setup() -> Setup {
         .expect("the writer's own delivery session");
     let message = w.board.delivery_message(&ticket.id).await.unwrap().unwrap();
     assert_eq!(message.state, MessageState::Writing);
-    assert_eq!(message.agent, "Checker");
+    assert_eq!(message.agent, "default", "the delivery's own model");
     Setup { w, ticket, writer }
 }
 
@@ -242,7 +242,7 @@ async fn a_writer_waiting_for_permission_shows_in_the_approve_dialogs_only() {
     assert_eq!(review_items().await, calm);
     // Approve & merge and Approve & open PR are told, with the session whose terminal answers it.
     let proposal = s.proposal().await;
-    assert_eq!(proposal.writing.as_deref(), Some("Checker"));
+    assert_eq!(proposal.writing.as_deref(), Some("default"));
     assert_eq!(proposal.asks_in.as_deref(), Some(s.writer.id.as_str()));
     assert!(proposal.message.starts_with("SHOP-1: Checkout timeout"));
     assert_eq!(
@@ -411,7 +411,7 @@ async fn approve_asks_a_writer_that_no_longer_runs_again() {
     s.leftover_request().await;
 
     let proposal = s.proposal().await;
-    assert_eq!(proposal.writing.as_deref(), Some("Checker"));
+    assert_eq!(proposal.writing.as_deref(), Some("default"));
     let again =
         s.w.sessions
             .running_of(&s.ticket.id, SessionKind::Delivery)

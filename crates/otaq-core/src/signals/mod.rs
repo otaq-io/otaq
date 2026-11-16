@@ -493,14 +493,18 @@ impl Signals {
             return Ok(());
         }
         let row: Option<(Option<String>, Option<String>, String)> = sqlx::query_as(
-            "SELECT s.model, COALESCE(s.agent_id, a.agent_id), p.name FROM sessions s
-             JOIN projects p ON p.id = s.project_id LEFT JOIN project_agents a ON a.id = s.project_agent_id
+            "SELECT s.model,
+                    COALESCE(s.runs_for, CASE WHEN s.project_agent_id IS NOT NULL THEN 'noyan' END), p.name
+             FROM sessions s JOIN projects p ON p.id = s.project_id
              WHERE s.id = ?",
         )
         .bind(session)
         .fetch_optional(self.inner.board.store().pool())
         .await?;
-        let Some((asked, Some(agent), project)) = row else {
+        let Some((asked, Some(runs_for), project)) = row else {
+            return Ok(());
+        };
+        let Some(about) = crate::agents::About::parse(&runs_for) else {
             return Ok(());
         };
         let models = self
@@ -526,7 +530,7 @@ impl Signals {
             ran,
             "the tool ran another model than the one asked for"
         );
-        if crate::agents::mark::set(self.inner.board.store(), &agent, &mark).await? {
+        if crate::agents::mark::set(self.inner.board.store(), &about, &mark).await? {
             self.inner.events.publish(Event::AgentsChanged);
         }
         Ok(())

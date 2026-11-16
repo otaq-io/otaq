@@ -2,11 +2,11 @@ flow:
   - id: plan
     name: Plan
     kind: agent
-    agent: Developer
+    model: default
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
 delivery:
   delivers: local

@@ -307,10 +307,8 @@ impl Board {
         let agent = match self.delivery_message(&ticket.id).await? {
             Some(m) => m.agent,
             None => self
-                .effective_flow(ticket.key.project.as_str())
+                .delivery_writer(ticket.key.project.as_str())
                 .await?
-                .delivery
-                .agent
                 .unwrap_or_default(),
         };
         let head = self.branch_head(&ticket).await;

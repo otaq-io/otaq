@@ -1,11 +1,13 @@
-//! The flow format (STG-01, STG-02, STG-03, STG-12; d0108): the default file and the test flow read and write back
-//! unchanged, and each STG-02 rule refuses its broken file in `tests/flows/broken/` with its message. A project's
-//! stored flow is `flow_store`'s.
+//! The flow format (STG-01, STG-02, STG-03, STG-12; d0108, UX-65, UX-73): the default file and the test flow read and
+//! write back unchanged, each STG-02 rule refuses its broken file in `tests/flows/broken/` with its message, and an
+//! older file (`tests/flows/older/`: agents named by the stages) reads as each stage's own model and instructions. A
+//! project's stored flow is `flow_store`'s.
 
 use std::path::{Path, PathBuf};
 
+use otaq_core::agent_tools::Tool;
 use otaq_core::flow::{
-    self, CheckBy, Delivers, Delivery, DeliveryMode, Rule, StageKind, check, yaml,
+    self, CheckBy, Delivers, Delivery, DeliveryMode, Rule, StageKind, WhoDoesIt, check, yaml,
 };
 use otaq_core::naming;
 
@@ -19,6 +21,11 @@ fn file(path: &Path) -> String {
 
 fn every_kind() -> String {
     file(&flows().join("every-kind.yaml"))
+}
+
+/// The test flow as it was written before stages said who does them: its agents listed, each stage naming one.
+fn older_every_kind() -> String {
+    file(&flows().join("older/every-kind.yaml"))
 }
 
 fn refused(text: &str) -> String {
@@ -43,28 +50,88 @@ fn the_test_flow_round_trips() {
     let text = every_kind();
     let read = yaml::read(&text).unwrap();
     assert_eq!(yaml::write(&read), text);
-    assert_eq!(read.agents.len(), 7);
+    let who = |id: &str| read.flow.stage(id).unwrap().who.clone();
     assert_eq!(
-        read.agents[0].instructions,
-        "Ask one question at a time.\nWrite what was agreed into the ticket.\n\nNever write code.\n"
+        who("product-spec").instructions.as_deref(),
+        Some(
+            "Ask one question at a time.\nWrite what was agreed into the ticket.\n\nNever write code."
+        )
     );
     assert_eq!(
-        read.agents[4].instructions,
-        "Never edit files.\nFail on unescaped SQL."
+        who("security").instructions.as_deref(),
+        Some("Never edit files.\nFail on unescaped SQL.")
     );
-    assert_eq!(read.agents[6].name, "Noyan");
+    assert_eq!(who("dev").model.as_deref(), Some("default"));
+    assert_eq!(who("qa"), WhoDoesIt::default());
+    assert_eq!(read.flow.delivery.who.model.as_deref(), Some("default"));
 }
 
-/// An agent has no role: an old file's `role: noyan` still reads, is ignored, and is never written back.
+/// UX-73: an older file's `agents:` and the agents its stages and delivery name (`agent:`) read as each stage's own
+/// model and instructions; written again it is the file in today's shape, which reads back the same.
 #[test]
-fn an_old_files_agent_role_reads_and_is_dropped() {
-    let old = "agents:\n  - name: Noyan\n    role: noyan\n    model: default\n";
-    let read = yaml::read_agents(old).unwrap();
-    assert_eq!(read[0].name, "Noyan");
+fn an_older_file_reads_as_each_stage_on_its_agents_model() {
+    let older = older_every_kind();
+    let read = yaml::read(&older).unwrap();
+    assert_eq!(read, yaml::read(&every_kind()).unwrap());
     assert_eq!(
-        yaml::write_agents(&read),
-        "agents:\n  - name: Noyan\n    model: default\n"
+        yaml::upgraded(&older).as_deref(),
+        Some(every_kind().as_str())
     );
+    assert_eq!(yaml::upgraded(&every_kind()), None, "already today's shape");
+    // An agent's model goes onto each stage naming it; two stages naming one agent each get their own copy.
+    let shared = older.replace(
+        "    agent: Security reviewer\n",
+        "    agent: Rust developer\n",
+    );
+    let read = yaml::read(&shared).unwrap();
+    let (dev, security) = (
+        read.flow.stage("dev").unwrap(),
+        read.flow.stage("security").unwrap(),
+    );
+    assert_eq!(dev.who, security.who);
+    assert_eq!(
+        security.who.instructions.as_deref(),
+        Some("Follow our error-handling rules: no unwrap in library code.")
+    );
+    // The migration's own lookup comes first: the stored agent's model and effort, else the file's.
+    let read = yaml::read_older(
+        &older,
+        &|name: &str| {
+            (name == "Rust developer").then(|| WhoDoesIt {
+                model: Some("codex:gpt-5.5".into()),
+                effort: Some("high".into()),
+                instructions: None,
+            })
+        },
+        None,
+    )
+    .unwrap();
+    assert_eq!(
+        read.flow.stage("dev").unwrap().who,
+        WhoDoesIt {
+            model: Some("codex:gpt-5.5".into()),
+            effort: Some("high".into()),
+            instructions: None,
+        }
+    );
+    assert_eq!(
+        read.flow.stage("validate").unwrap().who.model.as_deref(),
+        Some("default")
+    );
+}
+
+/// An older file's agent `role:`, `skills:` and `why:` still read, are ignored, and are never written back.
+#[test]
+fn an_old_files_agent_role_skills_and_why_read_and_are_dropped() {
+    let old = older_every_kind().replacen(
+        "  - name: Quick developer\n    model: default\n",
+        "  - name: Quick developer\n    role: noyan\n    skills: [work-ticket, commit]\n    model: default\n    \
+         why: From team.yaml\n",
+        1,
+    );
+    assert!(old.contains("role: noyan"));
+    let read = yaml::read(&old).expect("an old file still opens");
+    assert_eq!(yaml::write(&read), every_kind());
 }
 
 #[test]
@@ -76,35 +143,31 @@ fn the_default_flow_is_dev_validate_review_then_delivered() {
         unreachable!()
     };
     assert_eq!(
-        (dev.kind, dev.agent.as_deref(), dev.skill.as_deref()),
-        (
-            StageKind::Agent,
-            Some("Developer"),
-            Some("otaq:work-ticket")
-        )
+        (dev.kind, dev.model(), dev.skill.as_deref()),
+        (StageKind::Agent, Some("default"), Some("otaq:work-ticket"))
     );
     assert_eq!(
         (
             validate.kind,
-            validate.agent.as_deref(),
+            validate.model(),
             validate.skill.as_deref(),
             validate.rounds
         ),
         (
             StageKind::Check { by: CheckBy::Agent },
-            Some("Checker"),
+            Some("default"),
             Some("otaq:validate"),
             Some(3)
         )
     );
-    assert!(review.is_human_check() && !review.has_agent() && review.fail_to.is_none());
+    assert!(review.is_human_check() && review.model().is_none() && review.fail_to.is_none());
     // Delivered on Review's Approve, by a local merge or a PR: a setting of the flow, not a stage.
     assert_eq!(
         flow.delivery,
         Delivery {
             mode: DeliveryMode::Click,
             delivers: Delivers::Either,
-            agent: Some("Developer".to_owned()),
+            who: WhoDoesIt::on("default"),
             skill: Some("otaq:open-pr".to_owned()),
         }
     );
@@ -148,14 +211,14 @@ fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
     name: Dev
     kind: agent
     column: own
-    agent: Developer
+    model: default
     skill: work-ticket
   - id: validate
     name: Validate
     kind: check
     by: agent
     column: with-previous
-    agent: Validator
+    model: default
     skill: validate
     rounds: 3
   - id: review
@@ -167,7 +230,7 @@ fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
     name: Done
     kind: delivery
     column: with-previous
-    agent: Developer
+    model: default
     skill: open-pr
     mode: click
     delivers: either
@@ -186,7 +249,7 @@ fn an_old_file_with_a_delivery_stage_and_with_previous_loads() {
     assert_eq!(yaml::upgraded(&upgraded), None, "already today's form");
 
     // A file with no delivery at all doesn't read; one with two doesn't either.
-    let no_delivery = "flow:\n  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}\n";
+    let no_delivery = "flow:\n  - {name: Dev, kind: agent, model: default, skill: work-ticket}\n";
     assert!(refused(no_delivery).contains("doesn't say how its work is delivered"));
     let both = format!("{old}delivery:\n  delivers: local\n  mode: click\n");
     assert!(refused(&both).contains("Done is a Delivery stage and the flow has `delivery:` too"));
@@ -271,12 +334,12 @@ fn each_rule_refuses_its_broken_file() {
             ],
         ),
         (
-            // The editor's draft holds an agent check with no agent yet: a check has one.
-            "no-check-agent",
+            // The editor's draft holds an agent check with no model yet: a stage an agent works or checks has one.
+            "no-model",
             &[(
-                Rule::NoCheckAgent,
+                Rule::NoModel,
                 Some("validate"),
-                "Validate is an agent check with no agent: name one",
+                "Validate has no model: say who does it with `model:` (a tool, or `tool:model`)",
             )],
         ),
         (
@@ -325,9 +388,9 @@ fn each_rule_refuses_its_broken_file() {
 fn every_skip_combination_is_walked() {
     // Three Agent stages, all skippable: skipping all three leaves none.
     let text = "flow:
-  - {name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
-  - {name: Plan, kind: agent, agent: Noyan, skill: plan, options: [skip]}
-  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket, options: [skip]}
+  - {name: Product spec, kind: agent, model: claude, skill: product-spec, options: [skip]}
+  - {name: Plan, kind: agent, model: claude, skill: plan, options: [skip]}
+  - {name: Dev, kind: agent, model: claude, skill: work-ticket, options: [skip]}
   - {name: Done, kind: delivery, mode: click, delivers: local}
 ";
     let problems = check(&yaml::read(text).unwrap().flow).unwrap_err();
@@ -342,9 +405,9 @@ fn every_skip_combination_is_walked() {
     // A skippable human check after only skippable Agent stages is allowed (0129 row 4: a ticket that skips them
     // skips it too); a required one there isn't.
     let text = "flow:
-  - {name: Product spec, kind: agent, agent: Spec writer, skill: product-spec, options: [skip]}
+  - {name: Product spec, kind: agent, model: claude, skill: product-spec, options: [skip]}
   - {name: Spec review, kind: check, by: you, options: [skip]}
-  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
+  - {name: Dev, kind: agent, model: claude, skill: work-ticket}
   - {name: Code review, kind: check, by: you}
   - {name: Done, kind: delivery, mode: click, delivers: local}
 ";
@@ -367,9 +430,9 @@ fn every_skip_combination_is_walked() {
 fn an_old_with_previous_stage_is_its_own_column_and_passes() {
     // Polish once folded into Review's column, which was refused; every stage is its own column now, so it passes.
     let text = "flow:
-  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket}
+  - {name: Dev, kind: agent, model: claude, skill: work-ticket}
   - {name: Review, kind: check, by: you}
-  - {name: Polish, kind: check, by: agent, column: with-previous, agent: Validator, skill: validate, rounds: 1}
+  - {name: Polish, kind: check, by: agent, column: with-previous, model: claude, skill: validate, rounds: 1}
   - {name: Done, kind: delivery, column: with-previous, mode: click, delivers: local}
 ";
     let read = yaml::read(text).unwrap();
@@ -381,8 +444,8 @@ fn an_old_with_previous_stage_is_its_own_column_and_passes() {
 fn the_format_refuses_what_isnt_a_flow() {
     assert_eq!(
         refused("flow:\n  - id: dev\n    name: Dev\n    colour: blue\n"),
-        "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, agent, agents, \
-         skill, options, rounds, fail_to, mode, delivers, description, why"
+        "line 4 column 5: unknown field `colour`, expected one of id, name, kind, by, column, model, effort, \
+         instructions, agent, agents, skill, options, rounds, fail_to, mode, delivers, description, why"
     );
     assert_eq!(
         refused("flows: []\n"),
@@ -391,11 +454,11 @@ fn the_format_refuses_what_isnt_a_flow() {
 
     let cases = [
         (
-            "{name: Dev, kind: agent, by: you, agent: D, skill: s}",
+            "{name: Dev, kind: agent, by: you, model: claude, skill: s}",
             "Dev is an Agent stage: `by` belongs to a check",
         ),
         (
-            "{name: Check, kind: check, agent: V, skill: s, rounds: 3}",
+            "{name: Check, kind: check, model: claude, skill: s, rounds: 3}",
             "Check is a check: say who does it with `by: agent` or `by: you`",
         ),
         (
@@ -403,21 +466,39 @@ fn the_format_refuses_what_isnt_a_flow() {
             "Validate is an agent check: set its `rounds` (1 to 5)",
         ),
         (
-            "{name: Dev, kind: agent, skill: work-ticket}",
-            "Dev is an Agent stage: name the agent that runs it with `agent:`",
+            "{name: Dev, kind: agent, model: gpt-9, skill: work-ticket}",
+            "Dev's model: gpt-9 isn't a model: say a tool (claude, codex, copilot, opencode) or `tool:model` \
+             (`claude:opus`)",
         ),
         (
-            "{name: Dev, kind: agent, agent: D, skill: s, rounds: 2}",
+            "{name: Dev, kind: agent, effort: high, skill: work-ticket}",
+            "Dev has an effort but no model: say which model it runs with `model:`",
+        ),
+        (
+            "{name: Dev, kind: agent, model: opencode, effort: high, skill: work-ticket}",
+            "Dev's effort: OpenCode has no effort level",
+        ),
+        (
+            "{name: Dev, kind: agent, agent: Developer, model: claude, skill: work-ticket}",
+            "Dev names the agent Developer and its own model: say who does it once, with `model:`",
+        ),
+        (
+            "{name: Dev, kind: agent, agent: Developer, skill: work-ticket}",
+            "Dev names the agent Developer, which the file doesn't define: say who does it with `model:`, and \
+             `effort:` and `instructions:` if it has them",
+        ),
+        (
+            "{name: Dev, kind: agent, model: claude, skill: s, rounds: 2}",
             "Dev is an Agent stage: `rounds` belongs to an agent check",
         ),
         (
             // A check has one agent: named both ways is refused.
-            "{name: Validate, kind: check, by: agent, agent: Validator, agents: [Validator], skill: validate, \
+            "{name: Validate, kind: check, by: agent, model: claude, agents: [Validator], skill: validate, \
              rounds: 3}",
-            "Validate is an agent check: name its agent once, with `agent:`",
+            "Validate names the agent Validator and its own model: say who does it once, with `model:`",
         ),
         (
-            "{name: Dev, kind: agent, agent: D, agents: [D], skill: s}",
+            "{name: Dev, kind: agent, model: claude, agents: [D], skill: s}",
             "Dev is an Agent stage: `agents` belongs to an agent check",
         ),
         (
@@ -425,7 +506,7 @@ fn the_format_refuses_what_isnt_a_flow() {
             "Review is a check by you: `agents` belongs to an agent check",
         ),
         (
-            "{name: Dev, kind: agent, agent: D, skill: s, fail_to: Dev}",
+            "{name: Dev, kind: agent, model: claude, skill: s, fail_to: Dev}",
             "Dev is an Agent stage: `fail_to` belongs to a check",
         ),
         (
@@ -438,8 +519,12 @@ fn the_format_refuses_what_isnt_a_flow() {
              `fail_to:`, or leave it out for the nearest one",
         ),
         (
-            "{name: Review, kind: check, by: you, agent: Developer}",
-            "Review is a check by you: `agent` belongs to a stage an agent runs",
+            "{name: Review, kind: check, by: you, model: claude}",
+            "Review is a check by you: `model` belongs to a stage an agent works or checks",
+        ),
+        (
+            "{name: Review, kind: check, by: you, instructions: Look closely}",
+            "Review is a check by you: `instructions` belongs to a stage an agent works or checks",
         ),
         (
             "{name: Review, kind: check, by: you, mode: click}",
@@ -456,10 +541,10 @@ fn the_format_refuses_what_isnt_a_flow() {
         ),
         (
             "{name: Done, kind: delivery, mode: click, delivers: pr}",
-            "Done can open a PR: name the agent that opens it with `agent:`",
+            "Done can open a PR: say which model writes and opens it with `model:`",
         ),
         (
-            "{name: ' ', kind: agent, agent: D, skill: s}",
+            "{name: ' ', kind: agent, model: claude, skill: s}",
             "A stage has no name",
         ),
     ];
@@ -470,6 +555,20 @@ fn the_format_refuses_what_isnt_a_flow() {
             "{stage}"
         );
     }
+    // An effort is one of its tool's levels (UX-75).
+    let levels = Tool::Claude.effort_levels().join(", ");
+    assert_eq!(
+        refused("flow:\n  - {name: Dev, kind: agent, model: claude:opus, effort: ludicrous}\n"),
+        format!("Dev's effort: ludicrous isn't one of Claude Code's effort levels: {levels}")
+    );
+    // The delivery's: an older one names an agent its file defines, a PR-capable one names a model.
+    assert_eq!(
+        refused(
+            "flow:\n  - {name: Dev, kind: agent, model: claude}\ndelivery: {delivers: pr, mode: click, agent: Shipper}\n"
+        ),
+        "The delivery names the agent Shipper, which the file doesn't define: say who does it with `model:`, and \
+         `effort:` and `instructions:` if it has them"
+    );
 }
 
 /// A stage lists no agents: the agent names an older file lists in `options` are read and ignored, so `options` holds
@@ -477,7 +576,7 @@ fn the_format_refuses_what_isnt_a_flow() {
 #[test]
 fn the_agents_in_options_are_read_and_ignored() {
     let text = "flow:
-  - {name: Dev, kind: agent, agent: Developer, skill: work-ticket, options: [Quick developer]}
+  - {name: Dev, kind: agent, model: claude, skill: work-ticket, options: [Quick developer]}
   - {name: Review, kind: check, by: you, options: [Quick developer, skip]}
   - {name: Done, kind: delivery, mode: click, delivers: local}
 ";
@@ -494,7 +593,7 @@ fn the_agents_in_options_are_read_and_ignored() {
 #[test]
 fn ids_are_kept_as_written_and_given_when_left_out() {
     let text = "flow:
-  - {id: build, name: Dev, kind: agent, agent: Developer, skill: work-ticket}
+  - {id: build, name: Dev, kind: agent, model: claude, skill: work-ticket}
   - {name: Code review, kind: check, by: you}
   - {name: Code review!, kind: check, by: you}
   - {name: Done, kind: delivery, mode: click, delivers: local}
@@ -516,18 +615,18 @@ fn a_check_agent_and_fails_go_to_round_trip() {
   - id: plan
     name: Product spec
     kind: agent
-    agent: Developer
+    model: claude
     skill: work-ticket
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: claude
     skill: work-ticket
   - id: checks
     name: Checks
     kind: check
     by: agent
-    agent: Security reviewer
+    model: claude
     skill: validate
     options: [skip]
     rounds: 2
@@ -543,8 +642,7 @@ delivery:
 ";
     let read = yaml::read(text).unwrap();
     let checks = read.flow.stage("checks").unwrap();
-    assert_eq!(checks.agent.as_deref(), Some("Security reviewer"));
-    assert_eq!(checks.check_agent(), Some("Security reviewer"));
+    assert_eq!(checks.model(), Some("claude"));
     assert_eq!(checks.fail_to.as_deref(), Some("plan"), "kept by id");
     // A name is matched ignoring case when no stage has it exactly; written back as the stage's own name.
     assert_eq!(
@@ -557,10 +655,10 @@ delivery:
     );
     assert_eq!(check(&read.flow), Ok(()));
 
-    // The test flow: Security has its own agent, QA's fails go to Product spec rather than the nearest (Dev).
+    // The test flow: Security has its own instructions, QA's fails go to Product spec rather than the nearest (Dev).
     let every = yaml::read(&every_kind()).unwrap();
     let security = every.flow.stage("security").unwrap();
-    assert_eq!(security.check_agent(), Some("Security reviewer"));
+    assert!(security.who.instructions.is_some());
     let qa = every.flow.stage("qa").unwrap();
     assert_eq!(
         every.flow.fail_to_of(qa).map(|s| s.id.as_str()),
@@ -568,26 +666,24 @@ delivery:
     );
 }
 
-/// A check has one agent: an older file's list form with one name, `agents: [Validator]`, still reads as `agent:
-/// Validator` and is written back as `agent:`; naming it both ways is refused.
+/// A check has one model: an older file's list form with one agent, `agents: [Validator]`, still reads as `agent:
+/// Validator`, so as the check's own model; naming it both ways is refused.
 #[test]
 fn a_check_reads_its_one_agent_from_the_old_list_form() {
-    let old = every_kind().replace("agent: Validator\n", "agents: [Validator]\n");
+    let old = older_every_kind().replace("agent: Validator\n", "agents: [Validator]\n");
     assert!(old.contains("agents: [Validator]"));
     let read = yaml::read(&old).unwrap();
-    let validate = read.flow.stage("validate").unwrap();
-    assert_eq!(validate.agent.as_deref(), Some("Validator"));
+    assert_eq!(read, yaml::read(&every_kind()).unwrap());
     let written = yaml::write(&read);
-    assert!(!written.contains("agents: ["), "{written}");
-    assert_eq!(yaml::read(&written).unwrap(), read);
+    assert!(!written.contains("agents"), "{written}");
 
-    let both = every_kind().replace(
+    let both = older_every_kind().replace(
         "agent: Validator\n",
         "agent: Validator\n    agents: [Validator]\n",
     );
     assert_eq!(
         yaml::read(&both).unwrap_err().to_string(),
-        "Validate is an agent check: name its agent once, with `agent:`"
+        "Validate is an agent check: say who does it once, with `model:`"
     );
 }
 
@@ -598,13 +694,14 @@ fn a_check_reads_its_one_agent_from_the_old_list_form() {
 /// split left. A name or id the flow already has gets " 2" or "-2".
 #[test]
 fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
-    let several = file(&flows().join("several-check-agents.yaml"));
+    let several = file(&flows().join("older/several-check-agents.yaml"));
     let (read, splits) = yaml::read_split(&several).unwrap();
+    // Each copy runs on its own agent's model and instructions (only Security reviewer has instructions).
     let row = |s: &otaq_core::flow::Stage| {
         (
             s.id.clone(),
             s.name.clone(),
-            s.agent.clone().unwrap_or_default(),
+            s.who.instructions.clone().unwrap_or_default(),
         )
     };
     let security: Vec<_> = read
@@ -620,12 +717,12 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
             (
                 "security".to_owned(),
                 "Security".to_owned(),
-                "Security reviewer".to_owned()
+                "Never edit files.\nFail on unescaped SQL.".to_owned()
             ),
             (
                 "security-validator".to_owned(),
                 "Security · Validator".to_owned(),
-                "Validator".to_owned()
+                String::new()
             ),
         ]
     );
@@ -676,7 +773,7 @@ fn an_older_check_with_several_agents_reads_as_one_check_per_agent() {
     assert_eq!(check(&read.flow), Ok(()));
     assert_eq!(yaml::read(&several).unwrap(), read, "every read the same");
     let written = yaml::write(&read);
-    assert!(!written.contains("agents: ["), "{written}");
+    assert!(!written.contains("agents"), "{written}");
     let (again, none) = yaml::read_split(&written).unwrap();
     assert_eq!(again, read);
     assert!(none.is_empty());
@@ -725,45 +822,37 @@ fn fails_go_to_the_named_stage_else_the_nearest() {
         "a stage gone is the nearest again, no problem"
     );
     // Written without it: the file says nearest.
-    let written = yaml::write(&flow::FlowFile {
-        agents: Vec::new(),
-        flow: gone,
-    });
+    let written = yaml::write(&flow::FlowFile { flow: gone });
     assert!(!written.contains("fail_to"), "{written}");
 }
 
-/// An agent check's one agent is checked against the agents (AGM-01), as an Agent stage's is.
+/// UX-73: an older file whose stage names an agent the file doesn't define is refused (`tests/flows/broken/
+/// unknown-agent.yaml`), naming the stage and the agent.
 #[test]
-fn every_check_agent_must_be_an_agent() {
-    let every = yaml::read(&every_kind()).unwrap();
-    let known = |name: &str| name != "Validator";
-    let problems = flow::check_agents(&every.flow, known).unwrap_err();
-    let got: Vec<(Rule, Option<&str>, &str)> = problems
-        .iter()
-        .map(|p| (p.rule, p.stage.as_deref(), p.message.as_str()))
-        .collect();
+fn an_older_stage_naming_an_undefined_agent_is_refused() {
+    let text = file(&flows().join("broken/unknown-agent.yaml"));
     assert_eq!(
-        got,
-        [(
-            Rule::UnknownAgent,
-            Some("validate"),
-            "Validate names the agent Validator, which isn't one of your agents"
-        ),]
+        refused(&text),
+        "Dev names the agent Rust developer, which the file doesn't define: say who does it with `model:`, and \
+         `effort:` and `instructions:` if it has them"
     );
 }
 
-/// An agent has no skills (T6): an old file's agent `skills:` still reads, so the file opens, and is ignored: writing
-/// the file back leaves it out.
+/// Every stage an agent works or checks in Otaq's shipped flows runs on `default` (UX-68): the tool of the user's
+/// default model once applied.
 #[test]
-fn an_old_files_agent_skills_read_and_are_never_written() {
-    let old = naming::DEFAULT_FLOW_YAML.replacen(
-        "    model: default\n",
-        "    skills: [work-ticket, commit, /Users/me/team/my-commit]\n    model: default\n",
-        1,
-    );
-    assert_ne!(old, naming::DEFAULT_FLOW_YAML);
-    let read = otaq_core::flow::yaml::read(&old).expect("an old file still opens");
-    let written = otaq_core::flow::yaml::write(&read);
-    assert!(!written.contains("skills:"), "{written}");
-    assert_eq!(written, naming::DEFAULT_FLOW_YAML);
+fn the_shipped_flows_run_on_the_default_model() {
+    for preset in flow::presets::presets() {
+        let read = yaml::read(preset.yaml).unwrap();
+        for stage in read.flow.stages.iter().filter(|s| s.runs_agent()) {
+            assert_eq!(
+                stage.model(),
+                Some("default"),
+                "{}: {}",
+                preset.file,
+                stage.name
+            );
+        }
+        assert_eq!(yaml::write(&read), preset.yaml, "{}", preset.file);
+    }
 }

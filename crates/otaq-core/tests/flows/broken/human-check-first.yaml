@@ -6,7 +6,7 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
 delivery:
   delivers: local

@@ -201,7 +201,7 @@ impl Board {
             "SELECT COUNT(*), COALESCE(SUM(c.author_kind = 'agent' AND EXISTS (
                  SELECT 1 FROM stage_runs r
                  WHERE r.ticket_id = c.ticket_id AND r.session_id = ?
-                   AND c.author_id IS (SELECT agent_id FROM sessions WHERE id = ?)
+                   AND c.author_id IS (SELECT runs_for FROM sessions WHERE id = ?)
                    AND c.stage_id IS r.stage_id AND c.round IS r.round
                    AND (r.comment_id = c.id
                         OR (c.posted_at >= r.started_at AND (r.ended_at IS NULL OR c.posted_at <= r.ended_at)))

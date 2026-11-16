@@ -679,7 +679,7 @@ async fn a_ticket_in_a_spec_review_before_dev_is_not_offered() {
                     id: "spec-review".into(),
                     name: "Spec review".into(),
                     kind: StageKind::Check { by: CheckBy::You },
-                    agent: None,
+                    who: Default::default(),
                     skill: None,
                     options: Vec::new(),
                     rounds: None,

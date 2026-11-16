@@ -26,7 +26,7 @@ async fn session(
     let project = f.board.project("SHOP").await.unwrap();
     let id = new_id();
     sqlx::query(
-        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, agent_id,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, tool, tool_session_id, runs_for,
                                agent_name, model_ran, state, started_at, ended_at)
          VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, 'ended', ?, ?)",
     )

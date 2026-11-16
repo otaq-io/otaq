@@ -2,16 +2,16 @@
 //! with where it came from ([`Source`]) and who proposed it ([`ProposedBy`]). A project has at most one open
 //! proposal; a new one replaces it ([`Board::open_proposal`]).
 //!
-//! **The checks** ([`ProposalProblem`]): STG-02's rules ([`super::check()`]), the agents the stages name
-//! ([`super::check_agents`]), each agent's model against its tool's list, written stage ids starting with `_`
-//! (Otaq's own, Q267), and a stage skill that is a tool's built-in command (`/security-review`) rather than a skill,
-//! unless the user has a skill of that name ([`super::check_skills`]). Each problem names its stage or agent. A
-//! Project agent's proposal with problems is refused (it can act on them); a user's opens with them marked, and Apply
-//! waits for their fixes ([`Fix`]).
+//! **The checks** ([`ProposalProblem`]): STG-02's rules ([`super::check()`]: a stage an agent works or checks names
+//! its model), written stage ids starting with `_` (Otaq's own, Q267), and a stage skill that is a tool's built-in
+//! command (`/security-review`) rather than a skill, unless the user has a skill of that name
+//! ([`super::check_skills`]). Each problem names its stage. A Project agent's proposal with problems is refused (it
+//! can act on them); a user's opens with them marked, and Apply waits for their fixes. A stage whose model its tool
+//! doesn't list is kept and marked, not refused ([`model_warnings`], A-4): its tickets wait there.
 //!
 //! **A stage naming a skill the user doesn't have** isn't a problem: the flow still applies, and the stage carries
 //! the warning "You don't have the skill `<name>`" in the diff's warnings ([`Board::skill_warnings`]). Nor is a stage
-//! whose agent's tool doesn't have its skill: it warns "Codex doesn’t have the skill `$<name>`" (the skill as the
+//! whose model's tool doesn't have its skill: it warns "Codex doesn’t have the skill `$<name>`" (the skill as the
 //! tool calls it), and the stage is held when it is due to start on that tool. Otaq's own skills never warn.
 //!
 //! **The draft** ([`super::draft`], FED-02): the open proposal is the project's draft, which the flow editor and a
@@ -22,25 +22,22 @@
 //! is a rename. The agent never writes ids.
 //!
 //! **The diff** ([`FlowDiff`]) is against **the flow as it will be**: the waiting change when one exists (FLW-06),
-//! else the current flow. It lists the stage changes with when each applies ([`Applies`], FLW-05), the agents it adds
-//! or changes with every project that uses them, the import clashes (Keep mine · Take theirs · Add as), warnings, and
-//! the tickets whose chosen option it removes. Nothing is stored about it: it is read again on every request, so it
+//! else the current flow. It lists the stage changes with when each applies ([`Applies`], FLW-05), warnings, and the
+//! tickets whose chosen option it removes. Nothing is stored about it: it is read again on every request, so it
 //! always speaks of the board as it is.
 //!
-//! **Sources** (FLW-08…FLW-10): a document (a Project agent's, or a file the user imports) and a preset bring stages
-//! and agents; another project's flow and an earlier version bring stages only (agents are shared; Back never
-//! restores agents, second gap review rule 13); the shipped agents file brings agents only.
+//! **Sources** (FLW-08…FLW-10): a document (a Project agent's, or a file the user imports), a preset, another
+//! project's flow and an earlier version each bring stages and the delivery, with who does each (UX-65).
 
-use std::collections::{BTreeMap, HashSet};
+use std::collections::HashSet;
 
 use serde::{Deserialize, Serialize};
 
 use super::draft::DraftMemory;
-use super::model::{Delivery, Flow, FlowAgent, FlowFile, Stage, StageKind, StageOption};
+use super::model::{Delivery, Flow, FlowFile, Stage, StageKind, StageOption, WhoDoesIt};
 use super::yaml;
 use crate::agent_tools::Tool;
-use crate::agents::in_use::StageUse;
-use crate::agents::{Agent, AgentModel, ModelCatalog, in_use, shipped};
+use crate::agents::{AgentModel, ModelCatalog};
 use crate::board::{Board, BoardError, Refusal};
 use crate::store::now_ms;
 
@@ -53,7 +50,7 @@ pub const SAME: &str = "This is the same as your current flow.";
 #[serde(tag = "kind", rename_all = "snake_case")]
 pub enum Source {
     /// A flow document: a Project agent's (`otaq flow propose -f | --stdin`), or a file the user imports (Import
-    /// flow…), `file` its name ("team.yaml", for Add as "Rust developer (team.yaml)").
+    /// flow…), `file` its name ("team.yaml"). An older file's agents read as its stages' own models (UX-73).
     Document {
         #[serde(default, skip_serializing_if = "Option::is_none")]
         file: Option<String>,
@@ -64,50 +61,9 @@ pub enum Source {
     Project { key: String, name: String },
     /// One of the project's earlier flows (Back to the previous flow): its stages only.
     Previous { version: u32 },
-    /// The shipped `otaq-agents.yaml` (Apply the shipped agents file again): its agents only.
-    AgentsFile,
-}
-
-/// What a proposal can change.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum Scope {
-    /// Stages and agents.
-    Whole,
-    /// The project's stages; agents stay as they are.
-    Stages,
-    /// Agents; the stages stay as they are.
-    Agents,
-}
-
-impl Scope {
-    pub fn stages(self) -> bool {
-        self != Self::Agents
-    }
-
-    pub fn agents(self) -> bool {
-        self != Self::Stages
-    }
 }
 
 impl Source {
-    pub fn scope(&self) -> Scope {
-        match self {
-            Self::Document { .. } | Self::Preset { .. } => Scope::Whole,
-            Self::Project { .. } | Self::Previous { .. } => Scope::Stages,
-            Self::AgentsFile => Scope::Agents,
-        }
-    }
-
-    /// The file an agent clash's third choice names: Add as "Rust developer (team.yaml)".
-    fn file(&self) -> Option<&str> {
-        match self {
-            Self::Document { file } => file.as_deref(),
-            Self::Preset { file } => Some(file),
-            _ => None,
-        }
-    }
-
     /// The preset file a version applied from it records.
     pub fn preset(&self) -> Option<&str> {
         match self {
@@ -148,7 +104,7 @@ impl ProposedBy {
 /// A proposal to open.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct NewProposal {
-    /// The flow document. For [`Scope::Stages`] its `agents:` are ignored; for [`Scope::Agents`] its `flow:`.
+    /// The flow document.
     pub yaml: String,
     pub source: Source,
     pub proposed_by: ProposedBy,
@@ -164,26 +120,13 @@ pub enum About {
         id: String,
         name: String,
     },
-    Agent {
-        name: String,
-    },
 }
 
-/// What the user can do in the flow editor about a problem (FLW-04); Apply takes it as an [`ApplyChoices`] entry.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(tag = "kind", rename_all = "snake_case")]
-pub enum Fix {
-    /// An agent whose model isn't in its tool's list: pick a local model ([`ApplyChoices::models`]).
-    PickModel { agent: String },
-}
-
-/// One thing wrong with a proposal, naming its stage or agent.
+/// One thing wrong with a proposal, naming its stage.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct ProposalProblem {
     pub about: About,
     pub message: String,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub fix: Option<Fix>,
 }
 
 /// When a change takes effect (FLW-05, FED-08).
@@ -195,11 +138,11 @@ pub enum Applies {
     /// Removing or reordering stages, or a stage's kind (FED-08): once no ticket is inside the affected span, from
     /// `first` to `last` ([`super::apply::affected_span`]).
     Span { first: String, last: String },
-    /// A stage's agent, skill, options or rounds: when that stage next starts.
+    /// A stage's model, effort, instructions, skill, options or rounds: when that stage next starts.
     StageStarts { stage: String },
     /// A stage's name and column, a Delivery's mode or target: the next card that arrives.
     AtOnce,
-    /// An agent's instructions, skills or model: each session's next start; running ones keep theirs (d0088).
+    /// Each session's next start; running ones keep theirs (d0088).
     NextSession,
 }
 
@@ -244,12 +187,28 @@ pub enum Change {
         from: String,
         to: String,
     },
+    /// An older stage's agent, by name: still read in a waiting change stored before stages said who does them
+    /// (UX-65), never made.
     Agent {
         from: Option<String>,
         to: Option<String>,
     },
-    /// An agent check's several agents, from before a check had one ([`Self::Agent`] now): still read in a waiting
-    /// change stored then, never made.
+    /// Who does it: its model (UX-65).
+    Model {
+        from: Option<String>,
+        to: Option<String>,
+    },
+    Effort {
+        from: Option<String>,
+        to: Option<String>,
+    },
+    /// Its instructions (UX-67): the change says only that they changed.
+    Instructions {
+        from: Option<String>,
+        to: Option<String>,
+    },
+    /// An agent check's several agents, from before a check had one: still read in a waiting change stored then,
+    /// never made.
     Agents {
         from: Vec<String>,
         to: Vec<String>,
@@ -315,6 +274,9 @@ impl Change {
             }),
             Self::Agent { .. }
             | Self::Agents { .. }
+            | Self::Model { .. }
+            | Self::Effort { .. }
+            | Self::Instructions { .. }
             | Self::Skill { .. }
             | Self::Options { .. }
             | Self::Rounds { .. } => Applies::StageStarts {
@@ -337,60 +299,6 @@ pub struct StageChange {
     /// What the banner calls it while it waits: "QA after Security", "Review can be skipped".
     pub label: String,
     pub applies: Applies,
-}
-
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum AgentChangeKind {
-    /// Not one of the agents yet: AGENTS IT ADDS.
-    Added,
-    /// An agent with that name, with different content.
-    Changed,
-    /// An agent with that name and the same content: "Already there".
-    Same,
-}
-
-/// One field of a changed agent: "model: opus → fable".
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentField {
-    /// `instructions`, `skills` or `model`.
-    pub field: String,
-    pub from: String,
-    pub to: String,
-}
-
-/// An agent of the same name with other content brought in by a file, a preset or the agents file (second gap
-/// review rule 3): **Keep mine** (the default) · **Take theirs** · **Add as "<name> (<file>)"**.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct Clash {
-    /// The third choice's name; `None` where it isn't offered (the agents file: Keep mine · Take theirs).
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub add_as: Option<String>,
-}
-
-/// An agent the proposal defines.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentChange {
-    pub name: String,
-    pub change: AgentChangeKind,
-    /// What differs, for [`AgentChangeKind::Changed`].
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub fields: Vec<AgentField>,
-    /// Every stage of every project that uses it now ("Used in: shop-web (Security)").
-    #[serde(default, skip_serializing_if = "Vec::is_empty")]
-    pub used_in: Vec<StageUse>,
-    #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub clash: Option<Clash>,
-}
-
-/// The user's pick for an import clash.
-#[derive(Debug, Clone, Copy, PartialEq, Eq, Default, Serialize, Deserialize)]
-#[serde(rename_all = "snake_case")]
-pub enum ClashChoice {
-    #[default]
-    KeepMine,
-    TakeTheirs,
-    AddAs,
 }
 
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
@@ -419,8 +327,6 @@ pub struct FlowDiff {
     /// Nothing differs: [`SAME`].
     pub same: bool,
     pub stages: Vec<StageChange>,
-    /// The agents the document defines, in its order: added, changed, or already there.
-    pub agents: Vec<AgentChange>,
     pub warnings: Vec<Warning>,
     /// Apply makes a waiting change, or merges into the one there is.
     pub waits: bool,
@@ -440,57 +346,40 @@ pub struct Proposal {
     pub yaml: String,
     pub problems: Vec<ProposalProblem>,
     pub diff: FlowDiff,
-    /// The document's why lines, stages in order, then agents: each stage's description, then each agent's `why:`
-    /// (FLW-04: where it came from). An agent's is not a change; a stage's description is ([`Change::Description`]).
+    /// The document's why lines, stages in order: each stage's description ([`Change::Description`]).
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub why: Vec<WhyLine>,
     pub created_at: i64,
 }
 
-/// One why line: what it is about (a stage or an agent) and its text.
+/// One why line: what it is about (a stage) and its text.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
 pub struct WhyLine {
     pub about: About,
     pub text: String,
 }
 
-/// The why lines of `file`: its stages' (in order), then its agents'.
+/// The why lines of `file`: its stages', in order.
 pub fn why_lines(file: &FlowFile) -> Vec<WhyLine> {
-    let stages = file.flow.stages.iter().filter_map(|s| {
-        s.description.as_ref().map(|text| WhyLine {
-            about: About::Stage {
-                id: s.id.clone(),
-                name: s.name.clone(),
-            },
-            text: text.clone(),
+    file.flow
+        .stages
+        .iter()
+        .filter_map(|s| {
+            s.description.as_ref().map(|text| WhyLine {
+                about: About::Stage {
+                    id: s.id.clone(),
+                    name: s.name.clone(),
+                },
+                text: text.clone(),
+            })
         })
-    });
-    let agents = file.agents.iter().filter_map(|a| {
-        a.why.as_ref().map(|text| WhyLine {
-            about: About::Agent {
-                name: a.name.clone(),
-            },
-            text: text.clone(),
-        })
-    });
-    stages.chain(agents).collect()
+        .collect()
 }
 
-impl Proposal {
-    pub fn scope(&self) -> Scope {
-        self.source.scope()
-    }
-}
-
-/// The user's answers in the flow editor, sent with Apply: a pick per import clash (by the agent's name; Keep mine when
-/// left out), a local model per agent whose model isn't listed (`claude:sonnet`).
+/// The user's answers in the flow editor, sent with Apply. None are asked now (a stage's model is picked in the stage
+/// itself, UX-65); kept so Apply's request reads as before.
 #[derive(Debug, Clone, PartialEq, Eq, Default, Serialize, Deserialize)]
-pub struct ApplyChoices {
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub clashes: BTreeMap<String, ClashChoice>,
-    #[serde(default, skip_serializing_if = "BTreeMap::is_empty")]
-    pub models: BTreeMap<String, String>,
-}
+pub struct ApplyChoices {}
 
 fn same_name(a: &str, b: &str) -> bool {
     a.to_lowercase() == b.to_lowercase()
@@ -706,14 +595,8 @@ pub fn stage_changes(base: &Flow, new: &Flow, waiting: bool) -> Vec<StageChange>
             // A new kind brings its own fields: the kind change says it all.
             continue;
         }
-        if old.agent != stage.agent {
-            push(
-                stage,
-                Change::Agent {
-                    from: old.agent.clone(),
-                    to: stage.agent.clone(),
-                },
-            );
+        for change in who_changes(&old.who, &stage.who) {
+            push(stage, change);
         }
         // By the stages' names, each in its own flow: a rename of the target alone is no change here.
         let target = |flow: &Flow, s: &Stage| {
@@ -805,12 +688,7 @@ fn delivery_changes(was: &Delivery, now: &Delivery, waiting: bool) -> Vec<StageC
             to: now.mode.as_str().to_owned(),
         });
     }
-    if was.agent != now.agent {
-        found.push(Change::Agent {
-            from: was.agent.clone(),
-            to: now.agent.clone(),
-        });
-    }
+    found.extend(who_changes(&was.who, &now.who));
     if was.skill != now.skill {
         found.push(Change::Skill {
             from: was.skill.clone(),
@@ -834,6 +712,30 @@ fn delivery_changes(was: &Delivery, now: &Delivery, waiting: bool) -> Vec<StageC
             }
         })
         .collect()
+}
+
+/// What changed in who does a stage or the delivery: its model, effort and instructions.
+fn who_changes(was: &WhoDoesIt, now: &WhoDoesIt) -> Vec<Change> {
+    let mut found = Vec::new();
+    if was.model != now.model {
+        found.push(Change::Model {
+            from: was.model.clone(),
+            to: now.model.clone(),
+        });
+    }
+    if was.effort != now.effort {
+        found.push(Change::Effort {
+            from: was.effort.clone(),
+            to: now.effort.clone(),
+        });
+    }
+    if was.instructions != now.instructions {
+        found.push(Change::Instructions {
+            from: was.instructions.clone(),
+            to: now.instructions.clone(),
+        });
+    }
+    found
 }
 
 /// The flow editor's line and the banner's label for one change.
@@ -878,6 +780,23 @@ fn describe_named(name: &str, kind: StageKind, change: &Change) -> (String, Stri
         }
         Change::Agent { from, to } => {
             let text = detail("agent", or_none(from.as_deref()), or_none(to.as_deref()));
+            (text.clone(), text)
+        }
+        Change::Model { from, to } => {
+            let text = detail("model", or_none(from.as_deref()), or_none(to.as_deref()));
+            (text.clone(), text)
+        }
+        Change::Effort { from, to } => {
+            let text = detail("effort", or_none(from.as_deref()), or_none(to.as_deref()));
+            (text.clone(), text)
+        }
+        // The text itself can be long: the change only says what happened to it.
+        Change::Instructions { from, to } => {
+            let text = match (from, to) {
+                (None, _) => format!("{name} \u{b7} instructions added"),
+                (_, None) => format!("{name} \u{b7} instructions removed"),
+                _ => format!("{name} \u{b7} instructions changed"),
+            };
             (text.clone(), text)
         }
         Change::Skill { from, to } => {
@@ -987,8 +906,7 @@ pub fn unknown_skill_text(skill: &str) -> String {
     format!("You don't have the skill `{skill}`")
 }
 
-/// The warning on a stage whose agent's tool doesn't have the stage's skill, and Settings → Agents' "What this agent
-/// reads" for such a skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
+/// The warning on a stage whose model's tool doesn't have the stage's skill, the skill named as the tool calls it: "Copilot doesn’t have the skill `/team-validate`",
 /// "Codex doesn’t have the skill `$team-validate`".
 pub fn missing_skill_text(tool: Tool, skill: &str) -> String {
     // The user's tuq, which Otaq installs or updates for the stage: it has no such skill (decision 083).
@@ -1040,26 +958,16 @@ pub fn tool_names(tools: &[Tool]) -> String {
 impl Board {
     /// One amber warning per stage of `file` whose `skill:` the stage can't run with: a skill neither Otaq ships nor
     /// the user has in `project` ([`unknown_skill_text`]), or one the tool of the stage's agent doesn't have
-    /// ([`missing_skill_text`]; such a stage is held until the tool has it or the ticket picks another agent). Only
-    /// warnings: the flow still applies. Otaq's own skills never warn. The agent's tool is a stored agent's (`stored`,
-    /// on the default model when it names none), else the one the document brings.
-    pub async fn skill_warnings(
-        &self,
-        project: &str,
-        file: &FlowFile,
-        stored: &[Agent],
-    ) -> Vec<Warning> {
+    /// ([`missing_skill_text`]; such a stage is held until the tool has it or the stage gets another model). Only
+    /// warnings: the flow still applies. Otaq's own skills never warn. The tool is the stage's model's (the default
+    /// model's for `default`).
+    pub async fn skill_warnings(&self, project: &str, file: &FlowFile) -> Vec<Warning> {
         let default = self.store().default_model().await.ok().flatten();
-        let tool_of = |name: &str| -> Option<Tool> {
-            let model = match stored.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
-                Some(agent) => agent.model.clone(),
-                None => file
-                    .agents
-                    .iter()
-                    .find(|a| a.name.eq_ignore_ascii_case(name))
-                    .and_then(|a| shipped::model_of(&a.model).ok())?,
-            };
-            model.on(default.as_ref()).map(|on| on.tool)
+        let tool_of = |model: &str| -> Option<Tool> {
+            AgentModel::parse(model)
+                .ok()?
+                .on(default.as_ref())
+                .map(|on| on.tool)
         };
         let mut out = Vec::new();
         // Every stage's skill, and the delivery's PR skill.
@@ -1068,13 +976,13 @@ impl Board {
             .flow
             .stages
             .iter()
-            .map(|s| (s.name.as_str(), s.agent.as_deref(), s.skill.as_deref()))
+            .map(|s| (s.name.as_str(), s.model(), s.skill.as_deref()))
             .chain(std::iter::once((
                 DELIVERY_NAME,
-                delivery.agent.as_deref(),
+                delivery.who.model.as_deref(),
                 delivery.skill.as_deref(),
             )));
-        for (name, agent, skill) in uses {
+        for (name, model, skill) in uses {
             let Some(skill) = skill.map(str::trim) else {
                 continue;
             };
@@ -1100,7 +1008,7 @@ impl Board {
                     skipped_skill_text(&skipped, skill)
                 }
             } else {
-                match agent.and_then(tool_of) {
+                match model.and_then(tool_of) {
                     Some(tool) if skipped.contains(&tool) => skipped_skill_text(&[tool], skill),
                     Some(tool) if !tools.contains(&tool) => missing_skill_text(tool, skill),
                     _ => continue,
@@ -1148,69 +1056,6 @@ pub fn warnings(flow: &Flow, branch: &str, provider: Option<&str>) -> Vec<Warnin
             text: format!("{name} {what} without any check before it."),
         }
     }]
-}
-
-/// A stored agent as a flow file writes it: its model as `default`, `<tool>` or `<tool>:<model>`.
-pub fn flow_agent_of(agent: &Agent) -> FlowAgent {
-    FlowAgent {
-        name: agent.name.clone(),
-        instructions: agent.instructions.clone(),
-        model: model_text(&agent.model),
-        why: None,
-    }
-}
-
-/// `default`, `claude`, `claude:opus`.
-pub fn model_text(model: &AgentModel) -> String {
-    match model {
-        AgentModel::Default => "default".to_owned(),
-        AgentModel::Tool { tool, model: None } => tool.as_str().to_owned(),
-        AgentModel::Tool {
-            tool,
-            model: Some(m),
-        } => format!("{}:{m}", tool.as_str()),
-    }
-}
-
-/// The proposal's document as the checks and the diff read it: for a stages-only source its agents go, for the
-/// agents file its stages are `base`'s; `choices` set the picked local models and rename the agents added under
-/// another name (Add as).
-pub(crate) fn effective_file(
-    file: &FlowFile,
-    scope: Scope,
-    base: &Flow,
-    source: &Source,
-    choices: &ApplyChoices,
-) -> FlowFile {
-    let mut file = file.clone();
-    match scope {
-        Scope::Stages => file.agents.clear(),
-        Scope::Agents => file.flow = base.clone(),
-        Scope::Whole => {}
-    }
-    for agent in &mut file.agents {
-        if let Some((_, model)) = choices
-            .models
-            .iter()
-            .find(|(name, _)| same_name(name, &agent.name))
-        {
-            agent.model = model.clone();
-        }
-    }
-    for (name, choice) in &choices.clashes {
-        if *choice != ClashChoice::AddAs {
-            continue;
-        }
-        if let Some(file_name) = source.file() {
-            super::store::rename_agent(&mut file, name, &add_as_name(name, file_name));
-        }
-    }
-    file
-}
-
-/// Add as "Security reviewer (team.yaml)".
-pub fn add_as_name(name: &str, file: &str) -> String {
-    format!("{name} ({file})")
 }
 
 impl Board {
@@ -1265,10 +1110,7 @@ impl Board {
         let refuse = |message: String| BoardError::refused(Refusal::BadFlow, message);
         let project = self.project(project).await?;
         let (base, _) = self.flow_as_it_will_be(&project.key).await?;
-        match source.scope() {
-            Scope::Agents => file.flow = base.flow.clone(),
-            _ => match_ids(&base.flow, &mut file.flow, written),
-        }
+        match_ids(&base.flow, &mut file.flow, written);
         let text = yaml::write(&file);
         let row = Row {
             id: 0,
@@ -1426,9 +1268,8 @@ impl Board {
         let read = yaml::read(&row.yaml).map_err(|e| {
             BoardError::refused(Refusal::BadFlow, format!("The flow doesn't read: {e}"))
         })?;
-        let scope = row.source.scope();
-        let file = effective_file(&read, scope, &base.flow, &row.source, choices);
-        let stored = self.store().agents().await?;
+        let _ = choices;
+        let file = read;
         // A stage naming a tool's built-in command is refused unless the user has a skill of that name.
         let mut had = HashSet::new();
         for skill in file.flow.stages.iter().filter_map(|s| s.skill.as_deref()) {
@@ -1439,24 +1280,16 @@ impl Board {
                 had.insert(skill.to_owned());
             }
         }
-        let problems = problems(&file, scope, &stored, models, |skill| had.contains(skill));
+        let problems = problems(&file, |skill| had.contains(skill));
 
-        let mut stages = if scope.stages() {
-            stage_changes(&base.flow, &file.flow, against_waiting)
-        } else {
-            Vec::new()
-        };
+        let mut stages = stage_changes(&base.flow, &file.flow, against_waiting);
         // A swap to another flow waits for the whole board (FED-08): its shape changes say so.
         if row.draft.swap {
             for change in stages.iter_mut().filter(|c| c.change.is_shape()) {
                 change.applies = Applies::QuietBoard;
             }
         }
-        let mut agents = Vec::new();
-        for agent in &file.agents {
-            agents.push(self.agent_change(agent, row, &stored).await?);
-        }
-        let warnings = if scope.stages() {
+        let warnings = {
             let provider = self
                 .pr_provider_from_remote(&project.key)
                 .await
@@ -1464,12 +1297,11 @@ impl Board {
                 .and_then(|p| p.provider)
                 .map(|p| p.name());
             let mut found = warnings(&file.flow, &project.base_branch, provider);
-            found.extend(self.skill_warnings(&project.key, &file, &stored).await);
+            found.extend(model_warnings(&file, models));
+            found.extend(self.skill_warnings(&project.key, &file).await);
             found
-        } else {
-            Vec::new()
         };
-        let same = stages.is_empty() && agents.iter().all(|a| a.change == AgentChangeKind::Same);
+        let same = stages.is_empty();
         let waits = !stages.is_empty()
             && (against_waiting
                 || stages.iter().any(|c| match row.draft.swap {
@@ -1488,77 +1320,11 @@ impl Board {
                 against_waiting,
                 same,
                 stages,
-                agents,
                 warnings,
                 waits,
             },
             why: why_lines(&file),
             created_at: row.created_at,
-        })
-    }
-
-    /// One agent of the document against the stored agent of its name.
-    async fn agent_change(
-        &self,
-        agent: &FlowAgent,
-        row: &Row,
-        stored: &[Agent],
-    ) -> Result<AgentChange, BoardError> {
-        let Some(mine) = stored.iter().find(|a| same_name(&a.name, &agent.name)) else {
-            return Ok(AgentChange {
-                name: agent.name.clone(),
-                change: AgentChangeKind::Added,
-                fields: Vec::new(),
-                used_in: Vec::new(),
-                clash: None,
-            });
-        };
-        let ours = flow_agent_of(mine);
-        let mut fields = Vec::new();
-        if ours.instructions.trim() != agent.instructions.trim() {
-            fields.push(AgentField {
-                field: "instructions".into(),
-                from: ours.instructions.clone(),
-                to: agent.instructions.clone(),
-            });
-        }
-        let model_differs = match shipped::model_of(&agent.model) {
-            Ok(model) => model != mine.model,
-            Err(_) => true,
-        };
-        if model_differs {
-            fields.push(AgentField {
-                field: "model".into(),
-                from: ours.model.clone(),
-                to: agent.model.trim().to_owned(),
-            });
-        }
-        if fields.is_empty() {
-            return Ok(AgentChange {
-                name: mine.name.clone(),
-                change: AgentChangeKind::Same,
-                fields,
-                used_in: Vec::new(),
-                clash: None,
-            });
-        }
-        let used_in = in_use::in_use(self, mine).await?.stages;
-        // A Project agent's own document changes the agent, and so does the user's own (the editor's draft; their
-        // terminal); anything brought in (a file, a preset) clashes, Keep mine by default.
-        let agent_document = match (&row.proposed_by, &row.source) {
-            (ProposedBy::ProjectAgent { .. }, Source::Document { .. }) => true,
-            (ProposedBy::User, Source::Document { file }) => file.is_none(),
-            _ => false,
-        };
-        let clash = (!agent_document).then(|| Clash {
-            add_as: row.source.file().map(|f| add_as_name(&mine.name, f)),
-        });
-        Ok(AgentChange {
-            name: mine.name.clone(),
-            change: AgentChangeKind::Changed,
-            fields,
-            used_in,
-            clash,
         })
     }
 }
@@ -1597,14 +1363,8 @@ struct StoredSource {
     draft: DraftMemory,
 }
 
-/// Every problem of a proposal's document (FLW-03), each naming its stage or agent.
-pub fn problems(
-    file: &FlowFile,
-    scope: Scope,
-    stored: &[Agent],
-    models: &dyn ModelCatalog,
-    has_skill: impl Fn(&str) -> bool,
-) -> Vec<ProposalProblem> {
+/// Every problem of a proposal's document (FLW-03), each naming its stage.
+pub fn problems(file: &FlowFile, has_skill: impl Fn(&str) -> bool) -> Vec<ProposalProblem> {
     let mut out = Vec::new();
     let stage_about = |id: &str| {
         let name = file
@@ -1616,89 +1376,66 @@ pub fn problems(
             name,
         }
     };
-    if scope.stages() {
-        for stage in file.flow.stages.iter().filter(|s| s.id.starts_with('_')) {
-            out.push(ProposalProblem {
-                about: stage_about(&stage.id),
-                message: format!(
-                    "{} has the id `{}`: ids starting with _ are {}'s own, so leave the id out or pick another",
-                    stage.name,
-                    stage.id,
-                    crate::naming::PRODUCT_NAME
-                ),
-                fix: None,
-            });
-        }
-        if let Err(found) = super::check(&file.flow) {
-            out.extend(found.into_iter().map(|p| ProposalProblem {
-                about: p.stage.as_deref().map_or(About::Flow, stage_about),
-                message: p.message,
-                fix: None,
-            }));
-        }
-        let known = |name: &str| {
-            stored.iter().any(|a| same_name(&a.name, name))
-                || file.agents.iter().any(|a| same_name(&a.name, name))
-        };
-        if let Err(found) = super::check_agents(&file.flow, known) {
-            out.extend(found.into_iter().map(|p| ProposalProblem {
-                about: p.stage.as_deref().map_or(About::Flow, stage_about),
-                message: p.message,
-                fix: None,
-            }));
-        }
-        if let Err(found) = super::check_skills(&file.flow, has_skill) {
-            out.extend(found.into_iter().map(|p| ProposalProblem {
-                about: p.stage.as_deref().map_or(About::Flow, stage_about),
-                message: p.message,
-                fix: None,
-            }));
-        }
+    for stage in file.flow.stages.iter().filter(|s| s.id.starts_with('_')) {
+        out.push(ProposalProblem {
+            about: stage_about(&stage.id),
+            message: format!(
+                "{} has the id `{}`: ids starting with _ are {}'s own, so leave the id out or pick another",
+                stage.name,
+                stage.id,
+                crate::naming::PRODUCT_NAME
+            ),
+        });
     }
-    if scope.agents() {
-        for agent in &file.agents {
-            out.extend(agent_problems(agent, models));
-        }
+    if let Err(found) = super::check(&file.flow) {
+        out.extend(found.into_iter().map(|p| ProposalProblem {
+            about: p.stage.as_deref().map_or(About::Flow, stage_about),
+            message: p.message,
+        }));
+    }
+    if let Err(found) = super::check_skills(&file.flow, has_skill) {
+        out.extend(found.into_iter().map(|p| ProposalProblem {
+            about: p.stage.as_deref().map_or(About::Flow, stage_about),
+            message: p.message,
+        }));
     }
     out
 }
 
-/// An agent's problems: its name, or its model doesn't read or isn't in its tool's list.
-fn agent_problems(agent: &FlowAgent, models: &dyn ModelCatalog) -> Vec<ProposalProblem> {
+/// The amber warning on each stage (and the delivery) whose model its tool doesn't list (A-4): the flow is kept and
+/// applies, and its tickets wait there until the tool lists it or the stage gets another model. "Validate: Codex
+/// doesn't list gpt-9; tickets wait there until it does or you pick another model".
+pub fn model_warnings(file: &FlowFile, models: &dyn ModelCatalog) -> Vec<Warning> {
+    let delivery = &file.flow.delivery;
+    let whos = file
+        .flow
+        .stages
+        .iter()
+        .filter(|s| s.runs_agent())
+        .map(|s| (s.name.as_str(), &s.who))
+        .chain(std::iter::once((DELIVERY_NAME, &delivery.who)));
     let mut out = Vec::new();
-    let about = || About::Agent {
-        name: agent.name.clone(),
-    };
-    if let Err(why) = crate::agents::checked_name(&agent.name, std::iter::empty::<&str>()) {
-        out.push(ProposalProblem {
-            about: about(),
-            message: format!("The agent {}: {why}", agent.name),
-            fix: None,
-        });
-    }
-    match shipped::model_of(&agent.model) {
-        Err(why) => out.push(ProposalProblem {
-            about: about(),
-            message: format!("{}'s model: {why}", agent.name),
-            fix: Some(Fix::PickModel {
-                agent: agent.name.clone(),
-            }),
-        }),
-        Ok(AgentModel::Tool {
+    for (name, who) in whos {
+        let Some(Ok(AgentModel::Tool {
             tool,
             model: Some(model),
-        }) if models.pick(tool, &model).is_none() => out.push(ProposalProblem {
-            about: about(),
-            message: format!(
-                "{}'s model {model} isn't in {}'s model list: pick a model from it",
-                agent.name,
+        })) = who.model.as_deref().map(AgentModel::parse)
+        else {
+            continue;
+        };
+        if models.pick(tool, &model).is_some()
+            || crate::agent_tools::follow::FollowChoice::parse(&model).is_some()
+        {
+            continue;
+        }
+        out.push(Warning {
+            level: Level::Amber,
+            stage: Some(name.to_owned()),
+            text: format!(
+                "{name}: {} doesn't list {model}; tickets wait there until it does or you pick another model",
                 tool.display_name()
             ),
-            fix: Some(Fix::PickModel {
-                agent: agent.name.clone(),
-            }),
-        }),
-        Ok(_) => {}
+        });
     }
     out
 }
@@ -1768,12 +1505,12 @@ mod tests {
     const DEFAULT_RENAMED: &str = "flow:
   - name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: work-ticket
   - name: Validate
     kind: check
     by: agent
-    agents: [Checker]
+    model: default
     skill: validate
     rounds: 3
   - name: QA
@@ -1782,7 +1519,7 @@ mod tests {
   - name: Done
     kind: delivery
     column: with-previous
-    agent: Developer
+    model: default
     skill: open-pr
     mode: click
     delivers: either
@@ -1858,7 +1595,7 @@ mod tests {
         );
         let new = read(
             &own_names(
-                "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  \
+                "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    model: claude\n    skill: work-ticket\n  \
                  - name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n",
             ),
             &base,
@@ -1892,10 +1629,7 @@ mod tests {
             [("Review \u{b7} description added", &Applies::AtOnce)]
         );
         assert_eq!(applied_now(&base, &flow), flow);
-        let again = FlowFile {
-            agents: Vec::new(),
-            flow,
-        };
+        let again = FlowFile { flow };
         let written = yaml::write(&again);
         assert!(written.contains("    description: "), "{written}");
         assert!(!written.contains("why:"), "{written}");
@@ -1915,16 +1649,16 @@ mod tests {
     const FAILS_TO_SPEC: &str = "flow:
   - name: Product spec
     kind: agent
-    agent: Developer
+    model: claude
     skill: work-ticket
   - name: Dev
     kind: agent
-    agent: Developer
+    model: claude
     skill: work-ticket
   - name: Spec review
     kind: check
     by: agent
-    agents: [Validator]
+    model: claude
     skill: validate
     rounds: 3
     fail_to: Product spec
@@ -1980,12 +1714,9 @@ mod tests {
         let mut gone = base.clone();
         gone.stages.retain(|s| s.id != "product-spec");
         // Written and read back, as the editor's draft is: the removed stage leaves no `fail_to`.
-        let gone = yaml::read(&yaml::write(&FlowFile {
-            agents: Vec::new(),
-            flow: gone,
-        }))
-        .unwrap()
-        .flow;
+        let gone = yaml::read(&yaml::write(&FlowFile { flow: gone }))
+            .unwrap()
+            .flow;
         assert_eq!(gone.stage("spec-review").unwrap().fail_to, None);
         let changes = stage_changes(&base, &gone, false);
         let texts: Vec<(&str, String)> = changes
@@ -2014,11 +1745,14 @@ mod tests {
             }
         );
 
-        // Setting it, and changing a check's agent, are changes of their own.
+        // Setting it, and changing a check's model, are changes of their own.
         let unset = read(
             &FAILS_TO_SPEC
                 .replace("    fail_to: Product spec\n", "")
-                .replace("agents: [Validator]", "agent: Security reviewer"),
+                .replace(
+                    "    model: claude\n    skill: validate",
+                    "    model: codex\n    skill: validate",
+                ),
             &base,
         );
         let texts: Vec<String> = stage_changes(&base, &unset, false)
@@ -2028,8 +1762,7 @@ mod tests {
         assert_eq!(
             texts,
             [
-                "Spec review \u{b7} agent: Validator \u{2192} Security reviewer \u{2014} applies when Spec review \
-                 next starts",
+                "Spec review \u{b7} model: claude \u{2192} codex \u{2014} applies when Spec review next starts",
                 "Spec review \u{b7} fails go to: Product spec \u{2192} nearest \u{2014} applies at once",
             ]
         );
@@ -2042,7 +1775,7 @@ mod tests {
         flow.delivery = crate::flow::Delivery {
             mode: crate::flow::DeliveryMode::Automatic,
             delivers: crate::flow::Delivers::Local,
-            agent: None,
+            who: Default::default(),
             skill: None,
         };
         assert_eq!(

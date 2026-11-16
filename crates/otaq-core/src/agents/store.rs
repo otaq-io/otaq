@@ -1,16 +1,13 @@
-//! Thin access to the `agents` and `agent_holds` tables and the agent settings (AGM-01, AGM-03;
-//! d0108, d0088), and the agent Noyan uses. The rules (names, models from the tool's list, delete while in use) live in
-//! [`super`].
-//!
-//! A row of a tool this build doesn't know is skipped when read as an [`Agent`].
+//! Thin access to the `agent_holds` table, the settings about models (the account's default model, "Noyan starts
+//! on") and the sessions' facts (AGM-03, UX-70; d0108, d0088). The rules live in [`super`].
 
-use sqlx::{FromRow, Sqlite, Transaction};
+use sqlx::FromRow;
 
-use super::{Agent, AgentHold, AgentModel, CameFrom, HoldReason, Mark, ModelRef, SessionRole};
+use super::{AgentHold, HoldReason, ModelRef, NoyanStartsOn, SessionRole};
 use crate::agent_tools::Tool;
 use crate::session::END_MODEL_REFUSED;
-use crate::store::settings::{DEFAULT_MODEL, NOYAN_AGENT};
-use crate::store::{Store, StoreError, new_id, now_ms};
+use crate::store::settings::{DEFAULT_MODEL, NOYAN_STARTS_ON};
+use crate::store::{Store, StoreError};
 
 /// The query's session (its columns prefixed with the literal, `"s."`) started: it didn't end "not started", that is
 /// refused on the model (T-0337) or before its tool reported the conversation's id (a failed start, nothing to resume:
@@ -29,240 +26,23 @@ macro_rules! started {
     };
 }
 
-/// A new agent's fields as stored (checked by the rules).
-#[derive(Debug, Clone, PartialEq, Eq)]
-pub struct NewAgent {
-    pub name: String,
-    pub instructions: String,
-    pub model: AgentModel,
-    pub effort: Option<String>,
-}
-
-#[derive(Debug, Clone, FromRow)]
-struct AgentRecord {
-    id: String,
-    name: String,
-    instructions: String,
-    tool: Option<String>,
-    model: Option<String>,
-    effort: Option<String>,
-    came_from: String,
-    came_from_project: Option<String>,
-    mark_text: Option<String>,
-    mark_model: Option<String>,
-    mark_ticket: Option<String>,
-    mark_message: Option<String>,
-    marked_at: Option<i64>,
-    created_at: i64,
-    updated_at: i64,
-}
-
-impl AgentRecord {
-    fn into_agent(self) -> Option<Agent> {
-        let model = match self.tool.as_deref() {
-            None => AgentModel::Default,
-            Some(tool) => {
-                let Ok(tool) = tool.parse() else {
-                    tracing::warn!(id = self.id, tool, "an agent of an unknown tool");
-                    return None;
-                };
-                AgentModel::Tool {
-                    tool,
-                    model: self.model,
-                }
-            }
-        };
-        let mark = match (self.mark_text, self.marked_at) {
-            (Some(text), Some(at)) => Some(Mark {
-                text,
-                model: self.mark_model,
-                ticket: self.mark_ticket,
-                message: self.mark_message,
-                at,
-            }),
-            _ => None,
-        };
-        let came_from = match self.came_from.as_str() {
-            "agents_file" => CameFrom::AgentsFile,
-            "default_preset" => CameFrom::DefaultPreset,
-            "flow" => CameFrom::Flow {
-                project: self.came_from_project.unwrap_or_default(),
-            },
-            _ => CameFrom::You,
-        };
-        Some(Agent {
-            id: self.id,
-            name: self.name,
-            instructions: self.instructions,
-            model,
-            effort: self.effort,
-            came_from,
-            mark,
-            created_at: self.created_at,
-            updated_at: self.updated_at,
-        })
-    }
-}
-
-fn came_from_columns(came_from: &CameFrom) -> (&'static str, Option<&str>) {
-    match came_from {
-        CameFrom::AgentsFile => ("agents_file", None),
-        CameFrom::DefaultPreset => ("default_preset", None),
-        CameFrom::You => ("you", None),
-        CameFrom::Flow { project } => ("flow", Some(project)),
-    }
-}
-
 impl Store {
-    /// Every agent, oldest first.
-    pub async fn agents(&self) -> Result<Vec<Agent>, StoreError> {
-        let rows: Vec<AgentRecord> =
-            sqlx::query_as("SELECT * FROM agents ORDER BY created_at, rowid")
-                .fetch_all(self.pool())
-                .await?;
-        Ok(rows
-            .into_iter()
-            .filter_map(AgentRecord::into_agent)
-            .collect())
-    }
-
-    pub async fn agent(&self, id: &str) -> Result<Option<Agent>, StoreError> {
-        let row: Option<AgentRecord> = sqlx::query_as("SELECT * FROM agents WHERE id = ?")
-            .bind(id)
-            .fetch_optional(self.pool())
-            .await?;
-        Ok(row.and_then(AgentRecord::into_agent))
-    }
-
-    /// The agent called `name`, ignoring case.
-    pub async fn agent_named(&self, name: &str) -> Result<Option<Agent>, StoreError> {
-        let folded = name.trim().to_lowercase();
+    /// "Noyan starts on" (UX-70): `default` while none was set.
+    pub async fn noyan_starts_on(&self) -> Result<NoyanStartsOn, StoreError> {
         Ok(self
-            .agents()
+            .setting(NOYAN_STARTS_ON)
             .await?
-            .into_iter()
-            .find(|a| a.name.to_lowercase() == folded))
+            .and_then(|json| serde_json::from_str(&json).ok())
+            .unwrap_or_default())
     }
 
-    /// The id of the agent Noyan uses (an app setting); `None` while none is set.
-    pub async fn noyan_agent_id(&self) -> Result<Option<String>, StoreError> {
-        Ok(self
-            .setting(NOYAN_AGENT)
-            .await?
-            .and_then(|json| serde_json::from_str(&json).ok()))
+    /// Sets "Noyan starts on". The caller checked it.
+    pub async fn set_noyan_starts_on(&self, on: &NoyanStartsOn) -> Result<(), StoreError> {
+        let json = serde_json::to_string(on).expect("a setting serializes");
+        self.set_setting(NOYAN_STARTS_ON, &json).await
     }
 
-    /// The agent Noyan uses; `None` while none is set or it isn't one of the agents.
-    pub async fn noyan_agent(&self) -> Result<Option<Agent>, StoreError> {
-        match self.noyan_agent_id().await? {
-            Some(id) => self.agent(&id).await,
-            None => Ok(None),
-        }
-    }
-
-    /// Sets the agent Noyan uses. The caller checked the agent is there.
-    pub async fn set_noyan_agent(&self, id: &str) -> Result<(), StoreError> {
-        let json = serde_json::to_string(id).expect("an id serializes");
-        self.set_setting(NOYAN_AGENT, &json).await
-    }
-
-    /// Inserts an agent and returns its id. The caller checked the fields.
-    pub async fn insert_agent(
-        &self,
-        new: &NewAgent,
-        came_from: &CameFrom,
-        id: Option<&str>,
-    ) -> Result<String, StoreError> {
-        let mut tx = self.begin_write().await?;
-        let id = Self::insert_agent_in(&mut tx, new, came_from, id).await?;
-        tx.commit().await?;
-        Ok(id)
-    }
-
-    /// Inserts an agent in `tx` (with `id` when given: the move-over keeps a named agent's) and returns its id.
-    pub(crate) async fn insert_agent_in(
-        tx: &mut Transaction<'_, Sqlite>,
-        new: &NewAgent,
-        came_from: &CameFrom,
-        id: Option<&str>,
-    ) -> Result<String, StoreError> {
-        let id = id.map_or_else(new_id, str::to_owned);
-        let now = now_ms();
-        let (from, project) = came_from_columns(came_from);
-        let (tool, model) = model_columns(&new.model);
-        sqlx::query(
-            "INSERT INTO agents (id, name, instructions, tool, model, effort, came_from, came_from_project,
-                                 created_at, updated_at)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)",
-        )
-        .bind(&id)
-        .bind(&new.name)
-        .bind(&new.instructions)
-        .bind(tool)
-        .bind(model)
-        .bind(&new.effort)
-        .bind(from)
-        .bind(project)
-        .bind(now)
-        .bind(now)
-        .execute(&mut **tx)
-        .await?;
-        Ok(id)
-    }
-
-    /// Changes an agent's fields; `clear_mark` removes its mark (a saved model change, AGT-05).
-    pub async fn update_agent(
-        &self,
-        id: &str,
-        fields: &NewAgent,
-        clear_mark: bool,
-    ) -> Result<(), StoreError> {
-        let mut tx = self.begin_write().await?;
-        let old: Option<String> = sqlx::query_scalar("SELECT name FROM agents WHERE id = ?")
-            .bind(id)
-            .fetch_optional(&mut *tx)
-            .await?;
-        if let Some(old) = old.filter(|old| *old != fields.name) {
-            // Flows name agents by name: a rename follows into every stored flow (AGM-01).
-            Store::rename_agent_in_flows_in(&mut tx, &old, &fields.name).await?;
-        }
-        let (tool, model) = model_columns(&fields.model);
-        sqlx::query(
-            "UPDATE agents SET name = ?, instructions = ?, tool = ?, model = ?, effort = ?, updated_at = ?
-             WHERE id = ?",
-        )
-        .bind(&fields.name)
-        .bind(&fields.instructions)
-        .bind(tool)
-        .bind(model)
-        .bind(&fields.effort)
-        .bind(now_ms())
-        .bind(id)
-        .execute(&mut *tx)
-        .await?;
-        if clear_mark {
-            sqlx::query(
-                "UPDATE agents SET mark_text = NULL, mark_model = NULL, mark_ticket = NULL, mark_message = NULL,
-                                   marked_at = NULL
-                 WHERE id = ?",
-            )
-            .bind(id)
-            .execute(&mut *tx)
-            .await?;
-        }
-        tx.commit().await?;
-        Ok(())
-    }
-
-    pub async fn delete_agent(&self, id: &str) -> Result<(), StoreError> {
-        sqlx::query("DELETE FROM agents WHERE id = ?")
-            .bind(id)
-            .execute(self.pool())
-            .await?;
-        Ok(())
-    }
-
-    /// The default model for new agents (AGM-03); `None` until a tool connects.
+    /// The account's default model (AGM-03); `None` until a tool connects.
     pub async fn default_model(&self) -> Result<Option<ModelRef>, StoreError> {
         Ok(self
             .setting(DEFAULT_MODEL)
@@ -330,7 +110,7 @@ impl Store {
         ticket_id: &str,
     ) -> Result<Vec<SessionAgentRun>, StoreError> {
         let rows: Vec<SessionAgentRunRecord> = sqlx::query_as(
-            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at, s.tool, s.agent_id, s.agent_name, s.model,
+            "SELECT s.id, s.kind, s.state, s.started_at, s.ended_at, s.tool, s.runs_for, s.agent_name, s.model,
                     s.model_ran, s.effort,
                     (SELECT SUM(u.input + u.output + COALESCE(u.reasoning, 0)) FROM usage u
                      WHERE u.session_id = s.id) AS tokens,
@@ -350,14 +130,6 @@ impl Store {
     }
 }
 
-fn model_columns(model: &AgentModel) -> (Option<&'static str>, Option<&str>) {
-    match model {
-        AgentModel::Default => (None, None),
-        AgentModel::Tool { tool, model } => (Some(tool.as_str()), model.as_deref()),
-    }
-}
-
-/// Where an agent hold belongs: a ticket's session (its agent's or its check's), or a project's Project agent.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
 pub enum HoldScope<'a> {
     Ticket(&'a str),
@@ -374,13 +146,13 @@ impl Store {
             "(project_id, role) WHERE project_id IS NOT NULL"
         };
         let sql = format!(
-            "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, agent_id, skill, since)
-             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            "INSERT INTO agent_holds (id, ticket_id, project_id, role, reason, tool, model, skill, since)
+             VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)
              ON CONFLICT {conflict} DO UPDATE SET
                  since = CASE WHEN agent_holds.reason = excluded.reason THEN agent_holds.since
                               ELSE excluded.since END,
                  reason = excluded.reason, tool = excluded.tool, model = excluded.model,
-                 agent_id = excluded.agent_id, skill = excluded.skill"
+                 skill = excluded.skill"
         );
         sqlx::query(sqlx::AssertSqlSafe(sql))
             .bind(&hold.id)
@@ -390,7 +162,6 @@ impl Store {
             .bind(hold.reason.as_str())
             .bind(hold.tool.as_str())
             .bind(&hold.model)
-            .bind(&hold.agent_id)
             .bind(&hold.skill)
             .bind(hold.since)
             .execute(self.pool())
@@ -484,7 +255,6 @@ struct AgentHoldRecord {
     reason: String,
     tool: String,
     model: Option<String>,
-    agent_id: Option<String>,
     skill: Option<String>,
     since: i64,
 }
@@ -500,7 +270,6 @@ impl AgentHoldRecord {
             ticket_id: self.ticket_id,
             project_id: self.project_id,
             model: self.model,
-            agent_id: self.agent_id,
             skill: self.skill,
             since: self.since,
         })
@@ -544,8 +313,9 @@ pub struct SessionAgentRun {
     /// The tool it ran on (M23: the sheet names it once several tools are connected).
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub tool: Option<Tool>,
-    /// The agent at start: its id (the agent may be gone since) and its name then.
-    pub agent_id: Option<String>,
+    /// What it ran for ([`super::About::scope`]: a stage, the delivery; `None` for an older session) and the name
+    /// shown for it then (its tool's; an older session's agent's).
+    pub runs_for: Option<String>,
     pub agent_name: Option<String>,
     /// The model as passed (`None` = tool default) and the exact model the tool reported.
     pub model: Option<String>,
@@ -571,7 +341,7 @@ struct SessionAgentRunRecord {
     started_at: i64,
     ended_at: Option<i64>,
     tool: Option<String>,
-    agent_id: Option<String>,
+    runs_for: Option<String>,
     agent_name: Option<String>,
     model: Option<String>,
     model_ran: Option<String>,
@@ -593,7 +363,7 @@ impl SessionAgentRunRecord {
             started_at: self.started_at,
             ended_at: self.ended_at,
             tool: self.tool.and_then(|t| t.parse().ok()),
-            agent_id: self.agent_id,
+            runs_for: self.runs_for,
             agent_name: self.agent_name,
             model: self.model,
             model_ran: self.model_ran,

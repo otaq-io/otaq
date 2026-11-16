@@ -25,13 +25,13 @@ use std::collections::HashSet;
 use serde::{Deserialize, Serialize};
 
 use super::apply::{ProposeFrom, Span, Wait, affected_span, standing, still_working};
-use super::model::{Flow, FlowFile, Stage};
+use super::model::{Flow, FlowFile};
 use super::proposal::{
-    ApplyChoices, Change, Proposal, ProposedBy, Row, Source, applied_now, edits_only,
-    effective_file, match_ids, stage_changes,
+    ApplyChoices, Change, Proposal, ProposedBy, Row, Source, applied_now, edits_only, match_ids,
+    stage_changes,
 };
 use super::yaml;
-use crate::agents::{Agent, ModelCatalog};
+use crate::agents::ModelCatalog;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::TicketKey;
 use crate::store::now_ms;
@@ -40,11 +40,12 @@ use crate::store::now_ms;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
 #[serde(rename_all = "snake_case")]
 pub enum Mark {
-    /// A stage it added whose agents are already there ("Added").
+    /// A stage it added ("Added").
     Added,
-    /// A stage it added with an agent the draft brings ("New": its agent and skill are created on Apply).
+    /// A stage an older draft added with an agent it brought ("New"); never marked now that a stage says who does it.
     New,
-    /// A stage it edited: name, kind, agent, skill, options, rounds, column, a Delivery's mode or target.
+    /// A stage it edited: name, kind, model, effort, instructions, skill, options, rounds, column, a Delivery's mode
+    /// or target.
     Changed,
     /// A stage it put elsewhere in the order.
     Moved,
@@ -224,7 +225,6 @@ fn marks_between(
     before: &FlowFile,
     now: &FlowFile,
     by: &str,
-    stored: &[Agent],
     keep: Option<&HashSet<String>>,
     whys: &yaml::Whys,
 ) -> Vec<StageMark> {
@@ -235,7 +235,6 @@ fn marks_between(
         }
         let stage = now.flow.stage(&change.stage_id);
         let mark = match change.change {
-            Change::Added { .. } if stage.is_some_and(|s| brings_an_agent(s, stored)) => Mark::New,
             Change::Added { .. } => Mark::Added,
             Change::Removed => Mark::Removed,
             Change::Moved { .. } => Mark::Moved,
@@ -267,16 +266,8 @@ fn marks_between(
     marks
 }
 
-/// Whether `stage` names an agent that isn't one of the stored ones (the draft brings it).
-fn brings_an_agent(stage: &Stage, stored: &[Agent]) -> bool {
-    stage
-        .every_agent()
-        .any(|name| !stored.iter().any(|a| a.name.eq_ignore_ascii_case(name)))
-}
-
 /// `draft` with the stage `id` as it was in `before`: an added stage goes, a removed or moved one is put back after
-/// the stage before it in `before` (first when none is there), an edited one takes its old fields where it is. The
-/// agents the document brings that no stage names any more, and that `before` didn't have, go too.
+/// the stage before it in `before` (first when none is there), an edited one takes its old fields where it is.
 fn undo_stage(before: &FlowFile, draft: &FlowFile, id: &str) -> FlowFile {
     let mut file = draft.clone();
     let stages = &mut file.flow.stages;
@@ -298,20 +289,6 @@ fn undo_stage(before: &FlowFile, draft: &FlowFile, id: &str) -> FlowFile {
             }
         },
     }
-    let named: HashSet<String> = file
-        .flow
-        .stages
-        .iter()
-        .flat_map(Stage::every_agent)
-        .map(|n| n.to_lowercase())
-        .collect();
-    file.agents.retain(|a| {
-        named.contains(&a.name.to_lowercase())
-            || before
-                .agents
-                .iter()
-                .any(|b| b.name.eq_ignore_ascii_case(&a.name))
-    });
     file
 }
 
@@ -369,7 +346,6 @@ impl Board {
             Some(row) => row.clone(),
             None => self.undrafted(&key).await?,
         };
-        let stored_agents = self.store().agents().await?;
         match edit {
             DraftEdit::Document { yaml: text } => {
                 let (file, written) = yaml::read_with_written_ids(text).map_err(|e| {
@@ -379,7 +355,7 @@ impl Board {
                 let mut file = file;
                 match_ids(&base.flow, &mut file.flow, &written);
                 row.yaml = yaml::write(&file);
-                row.draft.marks = kept_marks(&row.draft, &file, &stored_agents, None)?;
+                row.draft.marks = kept_marks(&row.draft, &file, None)?;
             }
             DraftEdit::UndoStage { stage } => {
                 let Some(before) = &row.draft.before else {
@@ -396,8 +372,7 @@ impl Board {
                 }
                 let file = undo_stage(&read(before)?, &read(&row.yaml)?, stage);
                 row.yaml = yaml::write(&file);
-                row.draft.marks =
-                    kept_marks(&row.draft, &file, &stored_agents, Some(stage.as_str()))?;
+                row.draft.marks = kept_marks(&row.draft, &file, Some(stage.as_str()))?;
             }
             DraftEdit::UndoAll => {
                 if let Some(before) = row.draft.before.take() {
@@ -520,7 +495,6 @@ impl Board {
             Some(row) => row.clone(),
             None => self.undrafted(key).await?,
         };
-        let stored_agents = self.store().agents().await?;
         row.draft.swap |= matches!(source, Source::Project { .. });
         match by {
             ProposedBy::ProjectAgent { name, .. } => {
@@ -528,13 +502,12 @@ impl Board {
                     (Some(before), false) => before.clone(),
                     _ => row.yaml.clone(),
                 };
-                row.draft.marks =
-                    marks_between(&read(&before)?, &file, name, &stored_agents, None, whys);
+                row.draft.marks = marks_between(&read(&before)?, &file, name, None, whys);
                 row.draft.before = Some(before);
                 row.proposed_by = by.clone();
             }
             ProposedBy::User => {
-                row.draft.marks = kept_marks(&row.draft, &file, &stored_agents, None)?;
+                row.draft.marks = kept_marks(&row.draft, &file, None)?;
             }
         }
         row.yaml = yaml::write(&file);
@@ -646,13 +619,7 @@ impl Board {
             return Ok(DraftApplies::WithTheWaitingChange);
         }
         let (base, _) = self.flow_as_it_will_be(&row.project).await?;
-        let file = effective_file(
-            &read(&row.yaml)?,
-            row.source.scope(),
-            &base.flow,
-            &row.source,
-            &ApplyChoices::default(),
-        );
+        let file = read(&row.yaml)?;
         let swap = row.draft.swap;
         let now = match swap {
             true => edits_only(&base.flow, &file.flow),
@@ -691,7 +658,6 @@ impl Board {
 fn kept_marks(
     memory: &DraftMemory,
     now: &FlowFile,
-    stored: &[Agent],
     undone: Option<&str>,
 ) -> Result<Vec<StageMark>, BoardError> {
     let Some(before) = &memory.before else {
@@ -703,14 +669,7 @@ fn kept_marks(
         .map(|m| m.stage_id.clone())
         .filter(|id| Some(id.as_str()) != undone)
         .collect();
-    let mut marks = marks_between(
-        &read(before)?,
-        now,
-        "",
-        stored,
-        Some(&keep),
-        &yaml::Whys::new(),
-    );
+    let mut marks = marks_between(&read(before)?, now, "", Some(&keep), &yaml::Whys::new());
     for mark in &mut marks {
         if let Some(earlier) = memory.marks.iter().find(|m| m.stage_id == mark.stage_id) {
             mark.by.clone_from(&earlier.by);
@@ -727,10 +686,7 @@ mod tests {
     use crate::flow::default_flow;
 
     fn file(flow: Flow) -> FlowFile {
-        FlowFile {
-            agents: Vec::new(),
-            flow,
-        }
+        FlowFile { flow }
     }
 
     /// Undo puts an added stage out, a removed or moved one back where it was, an edited one's old fields in place.
@@ -744,18 +700,11 @@ mod tests {
         now.flow.stages.insert(0, plan);
         now.flow.stages.retain(|s| s.id != "review");
         now.flow.stages.swap(1, 2);
-        now.flow.stages[2].agent = Some("Rust developer".into());
+        now.flow.stages[2].who = crate::flow::WhoDoesIt::on("codex");
         let ids =
             |f: &FlowFile| -> Vec<String> { f.flow.stages.iter().map(|s| s.id.clone()).collect() };
         assert_eq!(ids(&now), ["plan", "validate", "dev"]);
-        let marks = marks_between(
-            &before,
-            &now,
-            "Checkout slowness",
-            &[],
-            None,
-            &yaml::Whys::new(),
-        );
+        let marks = marks_between(&before, &now, "Checkout slowness", None, &yaml::Whys::new());
         let tags: Vec<(&str, Mark)> = marks
             .iter()
             .map(|m| (m.stage_id.as_str(), m.mark))
@@ -763,7 +712,7 @@ mod tests {
         assert_eq!(
             tags,
             [
-                ("plan", Mark::New),
+                ("plan", Mark::Added),
                 ("dev", Mark::Changed),
                 ("review", Mark::Removed)
             ]
@@ -786,9 +735,9 @@ mod tests {
         let before = file(default_flow());
         let text = "\
 flow:
-  - {id: dev, name: Dev, kind: agent, agent: Developer, skill: OWN:work-ticket, description: Builds it.}
-  - {id: security, name: Security, kind: check, by: agent, agent: Checker, rounds: 2, description: Settles whether it is safe.}
-  - {id: validate, name: Validate, kind: check, by: agent, agent: Checker, skill: OWN:validate, rounds: 2}
+  - {id: dev, name: Dev, kind: agent, model: claude, skill: OWN:work-ticket, description: Builds it.}
+  - {id: security, name: Security, kind: check, by: agent, model: claude, rounds: 2, description: Settles whether it is safe.}
+  - {id: validate, name: Validate, kind: check, by: agent, model: claude, skill: OWN:validate, rounds: 2}
   - {id: review, name: Review, kind: check, by: you}
 delivery: {delivers: local, mode: click}
 why:
@@ -800,7 +749,7 @@ why:
         let (now, _, whys) = yaml::read_proposal(&text).unwrap();
         assert_eq!(whys.len(), 1, "an empty reason is dropped: {whys:?}");
         assert!(!yaml::write(&now).contains("why"));
-        let marks = marks_between(&before, &now, "Checkout slowness", &[], None, &whys);
+        let marks = marks_between(&before, &now, "Checkout slowness", None, &whys);
         let why = |id: &str| {
             marks
                 .iter()

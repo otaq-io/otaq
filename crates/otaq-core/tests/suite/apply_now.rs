@@ -748,7 +748,6 @@ async fn removing_the_stage_a_ticket_is_held_in_waits_and_the_move_drops_the_hol
             reason: HoldReason::MissingSkill,
             tool: Tool::Codex,
             model: None,
-            agent_id: None,
             skill: Some("product-spec".into()),
             since: 1,
         })

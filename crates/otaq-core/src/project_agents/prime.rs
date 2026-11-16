@@ -85,23 +85,9 @@ impl Board {
     ) -> Result<ProjectPrime, BoardError> {
         let p = self.project(project).await?;
         let tickets = self.tickets(&p.key).await?;
-        // The instructions of the agent the conversation runs on (the user may switch Noyan's agent when starting
-        // one), else of the agent Noyan uses; then the project's notes.
-        let mut agent = None;
-        if let Some(id) = conversation {
-            let picked: Option<Option<String>> =
-                sqlx::query_scalar("SELECT agent_id FROM project_agents WHERE id = ?")
-                    .bind(id)
-                    .fetch_optional(self.store().pool())
-                    .await?;
-            if let Some(agent_id) = picked.flatten() {
-                agent = self.store().agent(&agent_id).await?;
-            }
-        }
-        if agent.is_none() {
-            agent = self.store().noyan_agent().await?;
-        }
-        let instructions = self.instructions(&p.key, agent.as_ref()).await?;
+        // The project's notes: Noyan has no instructions of its own, its behaviour comes from its skills (UX-74).
+        let _ = conversation;
+        let instructions = self.instructions(&p.key, None).await?;
         let flow = flow_stages(&self.effective_flow(&p.key).await?, None, &[]);
         Ok(ProjectPrime {
             project: p.key,

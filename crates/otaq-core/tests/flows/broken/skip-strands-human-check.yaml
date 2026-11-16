@@ -2,7 +2,7 @@ flow:
   - id: product-spec
     name: Product spec
     kind: agent
-    agent: Spec writer
+    model: default
     skill: tuq:product-spec
     options: [skip]
   - id: review
@@ -12,7 +12,7 @@ flow:
   - id: dev
     name: Dev
     kind: agent
-    agent: Developer
+    model: default
     skill: otaq:work-ticket
 delivery:
   delivers: local

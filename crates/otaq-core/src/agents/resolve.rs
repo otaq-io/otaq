@@ -1,84 +1,62 @@
-//! Which agent runs (AGM-05; d0108, d0088): a session in a stage runs the ticket's choice for that stage (AGM-08,
-//! [`crate::board::stage_choices`]), else **the stage's agent** (the agent the flow names); a Noyan conversation runs
-//! **the agent Noyan uses** (an app setting) unless it was started on another. A flow names agents by name, looked up among the agents ignoring case; a rename renames the agent in
-//! every stored flow ([`crate::flow::store`]), so it changes nothing. An unknown name is a check error naming the
-//! stage ([`crate::flow::check_agents`]).
+//! Which model runs (AGM-05; UX-65, UX-69, UX-70; d0088): a session in a stage runs **the stage's** model, effort and
+//! instructions, as the project's flow says them (a ticket can't pick its own, UX-72); the PR-writing session runs
+//! **the delivery's** (or, with none, the first Agent stage's); a Noyan conversation runs **"Noyan starts on"** (an
+//! app setting) unless it picked another before its first message.
 //!
 //! The model is resolved by the check before every launch ([`super::gate`]): `default` becomes the default model,
-//! and the agent, tool, exact model and effort are saved on the session and its stage run.
+//! and the tool, exact model and effort are saved on the session and its stage run.
 
-use super::{Agent, SessionRole};
+use super::{About, SessionRole, Who};
 use crate::board::tickets::Ticket;
 use crate::board::{Board, BoardError, Refusal};
 use crate::domain::Place;
 use crate::flow::{Flow, Stage};
-use crate::store::{Store, StoreError};
+use crate::store::Store;
 
-/// The agent a flow's `name` stands for: the agent with that name, ignoring case.
-pub async fn named(store: &Store, name: &str) -> Result<Option<Agent>, StoreError> {
-    store.agent_named(name).await
-}
-
-/// The refusal for a stage whose agent isn't one of the agents: "Dev names the agent Rust developer, which isn't one
-/// of your agents".
-fn unknown(stage: &Stage, name: &str) -> BoardError {
+/// The refusal for a stage that names no model: "Dev has no model: pick one in Edit flow".
+fn no_model(what: &str) -> BoardError {
     BoardError::refused(
         Refusal::UnknownAgent,
-        crate::flow::check::unknown_agent_message(stage, name),
+        format!("{what} has no model: pick one in Edit flow"),
     )
 }
 
-/// The stage's agent (AGM-05): the agent `stage` names (an Agent stage's, an agent check's). Refused
-/// for a stage that runs no agent, or names one that isn't there.
-pub async fn stage_agent(board: &Board, stage: &Stage) -> Result<Agent, BoardError> {
-    let Some(name) = stage.agent.as_ref() else {
+/// Who does `stage` of `project`'s flow (by key; AGM-05): its model, effort and instructions. Refused for a stage
+/// that runs no agent, or names no model.
+pub fn stage_who(project: &str, stage: &Stage) -> Result<Who, BoardError> {
+    if !stage.runs_agent() {
         return Err(BoardError::refused(
             Refusal::UnknownAgent,
             format!("{} runs no agent", stage.name),
         ));
-    };
-    named(board.store(), name)
-        .await?
-        .ok_or_else(|| unknown(stage, name))
+    }
+    Who::of(
+        &stage.who,
+        About::Stage {
+            project: project.to_owned(),
+            stage: stage.id.clone(),
+        },
+    )
+    .ok_or_else(|| no_model(&stage.name))
 }
 
-/// Whether `stage` itself names `agent` (its agent), by name ignoring case
-/// as [`named`] looks it up.
-pub fn stage_names(stage: &Stage, agent: &Agent) -> bool {
-    stage
-        .named_agents()
-        .any(|name| name.trim().to_lowercase() == agent.name.to_lowercase())
-}
-
-/// The running agent of `ticket` in the stage `stage_id` (AGM-05): the ticket's choice for it (AGM-08), else the
-/// stage's agent.
-pub async fn running_agent(
+/// Who does the stage `stage_id` for `ticket` (AGM-05): the stage's own, as its project's flow says now.
+pub async fn running_who(
     board: &Board,
     ticket: &Ticket,
     stage_id: &str,
-) -> Result<Agent, BoardError> {
-    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
-    let stage = flow.stage(stage_id).ok_or_else(|| {
-        BoardError::NotFound(format!(
-            "{} has no stage {stage_id}",
-            ticket.key.project.as_str()
-        ))
-    })?;
-    match board.chosen_agent(ticket, stage).await? {
-        Some(agent) => Ok(agent),
-        None => stage_agent(board, stage).await,
-    }
+) -> Result<Who, BoardError> {
+    let project = ticket.key.project.as_str();
+    let flow = board.effective_flow(project).await?;
+    let stage = flow
+        .stage(stage_id)
+        .ok_or_else(|| BoardError::NotFound(format!("{project} has no stage {stage_id}")))?;
+    stage_who(project, stage)
 }
 
-/// The agent Noyan uses (an app setting). Refused while none is set: the conversation waits for the user to pick one,
-/// never starts on some other agent.
-pub async fn noyan_agent(store: &Store) -> Result<Agent, BoardError> {
-    store.noyan_agent().await?.ok_or_else(|| {
-        BoardError::refused(
-            Refusal::UnknownAgent,
-            "Noyan has no agent: pick the one it uses in Settings \u{2192} Agents",
-        )
-    })
+/// Who a new Noyan conversation runs as: "Noyan starts on" (an app setting; `default` while none was set).
+pub async fn noyan_who(store: &Store) -> Result<Who, BoardError> {
+    Ok(store.noyan_starts_on().await?.who())
 }
 
 /// The Agent stage a ticket's agent session starts or continues in: the one it waits before, the Agent stage it is in,
@@ -115,17 +93,18 @@ pub fn check_stage_of<'f>(flow: &'f Flow, ticket: &Ticket, skips: &[String]) -> 
     }
 }
 
-/// The agent a ticket's new session of `role` runs (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
-/// ([`check_stage_of`]), or the agent Noyan uses for a Noyan conversation.
-pub async fn session_agent(
+/// Who a ticket's new session of `role` runs as (AGM-05): an Agent stage's ([`agent_stage_of`]), an agent check's
+/// ([`check_stage_of`]), or "Noyan starts on" for a Noyan conversation.
+pub async fn session_who(
     board: &Board,
     ticket: &Ticket,
     role: SessionRole,
-) -> Result<Agent, BoardError> {
+) -> Result<Who, BoardError> {
     if role == SessionRole::ProjectAgent {
-        return noyan_agent(board.store()).await;
+        return noyan_who(board.store()).await;
     }
-    let flow = board.effective_flow(ticket.key.project.as_str()).await?;
+    let project = ticket.key.project.as_str();
+    let flow = board.effective_flow(project).await?;
     let skips = board.ticket_skips(ticket, &flow).await?;
     let stage = match role {
         SessionRole::Validator => check_stage_of(&flow, ticket, &skips),
@@ -138,32 +117,28 @@ pub async fn session_agent(
             role.label()
         ))
     })?;
-    running_agent(board, ticket, &stage.id.clone()).await
+    stage_who(project, stage)
 }
 
-/// The agent that opens a project's PRs (the PR path, AGM-05): the one its flow's delivery names, else the first
-/// Agent stage's.
-pub async fn delivery_agent(board: &Board, project: &str) -> Result<Agent, BoardError> {
+/// Who writes and opens a project's PRs (the PR path, AGM-05, UX-69): the flow's delivery's model, effort and
+/// instructions, else the first Agent stage's.
+pub async fn delivery_who(board: &Board, project: &str) -> Result<Who, BoardError> {
     let flow = board.effective_flow(project).await?;
-    if let Some(name) = flow.delivery.agent.as_deref() {
-        return named(board.store(), name).await?.ok_or_else(|| {
-            BoardError::refused(
-                Refusal::UnknownAgent,
-                format!("The delivery names the agent {name}, which isn't one of your agents"),
-            )
-        });
+    delivery_who_of(project, &flow)
+}
+
+/// [`delivery_who`] in `flow`, the flow of `project` (its key).
+pub fn delivery_who_of(project: &str, flow: &Flow) -> Result<Who, BoardError> {
+    if let Some(who) = Who::of(
+        &flow.delivery.who,
+        About::Delivery {
+            project: project.to_owned(),
+        },
+    ) {
+        return Ok(who);
     }
     let stage = flow
         .first_agent_stage()
         .ok_or_else(|| BoardError::NotFound(format!("{project}'s flow has no agent to deliver")))?;
-    stage_agent(board, stage).await
-}
-
-/// Whether the flow's delivery names `agent` as the one that opens its PRs, by name ignoring case as [`named`] looks
-/// it up.
-pub fn delivery_names(flow: &Flow, agent: &Agent) -> bool {
-    flow.delivery
-        .agent
-        .as_deref()
-        .is_some_and(|name| name.trim().to_lowercase() == agent.name.to_lowercase())
+    stage_who(project, stage)
 }

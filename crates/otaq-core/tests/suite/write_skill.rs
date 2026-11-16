@@ -27,13 +27,15 @@ async fn with_plan(w: &TestService, key: &str) -> FlowFile {
     let draft = w.board.draft(key, &models()).await.unwrap();
     let mut file = yaml::read(&draft.proposal.yaml).unwrap();
     let dev = file.flow.position("dev").unwrap();
+    // On Dev's own model.
+    let who = file.flow.stages[dev].who.clone();
     file.flow.stages.insert(
         dev + 1,
         Stage {
             id: "plan".into(),
             name: "Plan".into(),
             kind: StageKind::Agent,
-            agent: Some("Developer".into()),
+            who,
             skill: None,
             options: Vec::new(),
             rounds: None,
@@ -296,11 +298,12 @@ async fn a_skill_asked_for_a_new_stage_goes_to_that_stage_and_not_one_with_a_nea
     let checkout = PathBuf::from(&project.repo_path);
     let draft = w.board.draft(&key, &models()).await.unwrap();
     let mut file = yaml::read(&draft.proposal.yaml).unwrap();
+    let dev_who = file.flow.stage("dev").unwrap().who.clone();
     let docs = |id: &str, name: &str, skill: Option<&str>| Stage {
         id: id.into(),
         name: name.into(),
         kind: StageKind::Agent,
-        agent: Some("Developer".into()),
+        who: dev_who.clone(),
         skill: skill.map(str::to_owned),
         options: Vec::new(),
         rounds: None,

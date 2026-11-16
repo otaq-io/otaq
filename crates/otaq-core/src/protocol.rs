@@ -76,7 +76,7 @@ use tokio::io::{AsyncBufRead, AsyncBufReadExt, AsyncReadExt, AsyncWrite, AsyncWr
 /// which of the two a change is. After any change to the messages, regenerate the snapshot with
 /// `OTAQ_UPDATE_PROTOCOL_SNAPSHOT=1 cargo nextest run -p otaq-core protocol_snapshot`; it refuses while an
 /// incompatible change keeps the same number. The [`VERSION_INDEPENDENT_METHODS`] stay readable across numbers.
-pub const PROTOCOL_VERSION: u32 = 13;
+pub const PROTOCOL_VERSION: u32 = 14;
 
 /// The longest frame accepted, in bytes (newline included).
 pub const MAX_FRAME_BYTES: usize = 16 * 1024 * 1024;
@@ -1037,45 +1037,17 @@ pub enum Request {
     #[serde(rename = "ticket.terminal")]
     TicketTerminal(TerminalParams),
 
-    // Agents (AGM-01…AGM-05; d0108, d0088). The user's requests (Settings → Agents); agents never change agents.
-    /// Every agent (with its mark) and the default model. Answered
-    /// with [`Reply::Agents`].
-    #[serde(rename = "agents.list")]
-    AgentsList,
-    /// `{"name": "Rust developer", "instructions": "…", "model": {"kind": "tool", "tool": "claude", "model":
-    /// "opus"}, "effort": "high"}`: New agent ("Added by you"); the name new
-    /// ignoring case (not `skip` or `_…`), the model from the tool's list, the effort one of the tool's. Answered with
-    /// [`Reply::Agent`].
-    #[serde(rename = "agents.add")]
-    AgentsAdd(crate::agents::AgentFields),
-    /// `{"id": "0199…", …the fields}`: the whole page; a model change clears the mark. Applies to the next session
-    /// that starts. Answered with [`Reply::Agent`].
-    #[serde(rename = "agents.edit")]
-    AgentsEdit(AgentEditParams),
-    /// `{"id": "0199…"}`: Duplicate's draft, "<name> copy", not saved. Answered with [`Reply::AgentDraft`].
-    #[serde(rename = "agents.duplicate")]
-    AgentsDuplicate(IdParams),
-    /// `{"id": "0199…"}`: deletes an agent nothing uses. Refused (`agent_in_use`) for the agent Noyan uses ("Noyan
-    /// uses Strong. Pick another agent for Noyan first") and while a stage names it ("Spec writer is used in
-    /// shop-web · Product spec. Change that stage first.").
-    #[serde(rename = "agents.delete")]
-    AgentsDelete(IdParams),
-    /// `{"id": "0199…"}`: what uses an agent, before Delete asks. Answered with [`Reply::AgentInUse`].
-    #[serde(rename = "agents.in_use")]
-    AgentsInUse(IdParams),
-    /// `{"agent": "0199…"}`: the agent Noyan uses (an app setting); the next conversation starts on it. Answered
-    /// with [`Reply::Agents`].
-    #[serde(rename = "agents.noyan")]
-    AgentsNoyan(NoyanAgentParams),
-    /// `{"model": {"tool": "claude", "model": "sonnet"}}`: Default model for new agents (AGM-03). Answered with
-    /// [`Reply::Agents`].
-    #[serde(rename = "agents.default_model")]
-    AgentsDefaultModel(DefaultModelParams),
-    /// `{"agent": "0199…", "project": "SHOP"}`: "What this agent reads" (AGR-01…AGR-03), read-only: its
-    /// instructions, the project's notes, a skill part per stage it runs and one for Noyan, its other skills.
-    /// Answered with [`Reply::AgentReads`].
-    #[serde(rename = "agents.reads")]
-    AgentsReads(crate::agent_reads::AgentReadsParams),
+    // Who does the work (UX-65…UX-75): a stage's model is its flow's; Noyan's is an app setting. The user's requests;
+    // agents never change them.
+    /// "Noyan starts on" (UX-70): the model and effort new Noyan conversations start on. Answered with
+    /// [`Reply::NoyanStartsOn`].
+    #[serde(rename = "noyan.starts_on")]
+    NoyanStartsOn,
+    /// `{"model": "claude:opus", "effort": "high"}`: sets "Noyan starts on"; the next conversation starts on it. The
+    /// model a tool or `tool:model` (`default`: the account's default model), the effort one of its tool's levels.
+    /// Answered with [`Reply::NoyanStartsOn`].
+    #[serde(rename = "noyan.set_starts_on")]
+    NoyanSetStartsOn(crate::agents::NoyanStartsOn),
     /// **Pause** (PAU-01, PAU-02; d0112), `{"scope": "project", "project": "SHOP"}` or `{"scope": "all"}`: sets the
     /// pause first, then stops every agent session there at once; `agents.resume` lifts it and resumes what it
     /// stopped (PAU-06); `agents.pause_counts` reads the menus' counts. Each answered with [`Reply::PauseCounts`];
@@ -1174,31 +1146,11 @@ pub struct SetHiddenParams {
     pub hidden: bool,
 }
 
-/// `agents.noyan`: the agent Noyan uses.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct NoyanAgentParams {
-    pub agent: String,
-}
-
-/// `agents.default_model`.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct DefaultModelParams {
-    pub model: crate::agents::ModelRef,
-}
-
 /// `recent.items`.
 #[derive(Debug, Clone, Default, PartialEq, Eq, Serialize, Deserialize)]
 pub struct RecentItemsParams {
     #[serde(default, skip_serializing_if = "Option::is_none")]
     pub record: Option<crate::store::recents::RecentUse>,
-}
-
-/// `agents.edit`: the agent's id and its whole page.
-#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
-pub struct AgentEditParams {
-    pub id: String,
-    #[serde(flatten)]
-    pub fields: crate::agents::AgentFields,
 }
 
 /// `ticket.agents`: an existing ticket by `key`, else a new one in `project`.
@@ -1277,9 +1229,10 @@ pub struct ProjectAgentSendParams {
 pub struct ProjectAgentOpenParams {
     pub project: String,
     pub message: String,
-    /// The agent the user picked for this conversation when starting it, instead of the agent Noyan uses.
+    /// The model and effort the user picked for this conversation before its first message, instead of "Noyan
+    /// starts on" (UX-70).
     #[serde(default, skip_serializing_if = "Option::is_none")]
-    pub agent: Option<String>,
+    pub on: Option<crate::agents::NoyanStartsOn>,
 }
 
 /// `{"id": "…", "confirm": true}`: close a Project agent, stopping it mid-turn when confirmed.
@@ -2343,15 +2296,8 @@ impl Request {
             Self::ProjectAgentCreated(_) => "project_agent.created",
             Self::ProjectAgentUndone(_) => "project_agent.undone",
             Self::TicketTerminal(_) => "ticket.terminal",
-            Self::AgentsList => "agents.list",
-            Self::AgentsAdd(_) => "agents.add",
-            Self::AgentsEdit(_) => "agents.edit",
-            Self::AgentsDuplicate(_) => "agents.duplicate",
-            Self::AgentsDelete(_) => "agents.delete",
-            Self::AgentsInUse(_) => "agents.in_use",
-            Self::AgentsNoyan(_) => "agents.noyan",
-            Self::AgentsDefaultModel(_) => "agents.default_model",
-            Self::AgentsReads(_) => "agents.reads",
+            Self::NoyanStartsOn => "noyan.starts_on",
+            Self::NoyanSetStartsOn(_) => "noyan.set_starts_on",
             Self::AgentsPause(_) => "agents.pause",
             Self::AgentsResume(_) => "agents.resume",
             Self::AgentsPauseCounts(_) => "agents.pause_counts",
@@ -2509,14 +2455,10 @@ pub enum Reply {
     TicketTerminal(Box<TicketTerminal>),
     /// A tool's model list as Otaq's copy has it; `None` before it was first read.
     Models(Option<Box<crate::agent_tools::models::ModelCopy>>),
-    Agents(Box<crate::agents::AgentList>),
-    Agent(Box<crate::agents::Agent>),
-    AgentDraft(Box<crate::agents::AgentFields>),
+    NoyanStartsOn(Box<crate::agents::NoyanStartsOn>),
     TicketAgents(Box<crate::agents::facts::TicketAgents>),
     BoardAgents(Box<crate::agents::facts::BoardAgents>),
     TicketChoices(Box<crate::board::stage_choices::TicketChoices>),
-    AgentInUse(Box<crate::agents::InUse>),
-    AgentReads(Box<crate::agent_reads::AgentReads>),
     /// What Pause and Resume cover (`agents.pause`, `agents.resume`, `agents.pause_counts`).
     PauseCounts(Box<crate::agents::pause::PauseCounts>),
     /// Every agent tool's row (`agent_tools.list`, `agent_tools.set_hidden`).

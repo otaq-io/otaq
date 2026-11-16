@@ -64,8 +64,8 @@ pub mod testing {
         let delivery = &mut file.flow.delivery;
         delivery.mode = DeliveryMode::Automatic;
         delivery.delivers = Delivers::Local;
-        // A Local merge runs no agent.
-        delivery.agent = None;
+        // A Local merge runs no model.
+        delivery.who = Default::default();
         delivery.skill = None;
     }
 
@@ -75,7 +75,7 @@ pub mod testing {
             let delivery = &mut file.flow.delivery;
             delivery.delivers = delivers;
             if delivers == Delivers::Local {
-                delivery.agent = None;
+                delivery.who = Default::default();
                 delivery.skill = None;
             }
         }

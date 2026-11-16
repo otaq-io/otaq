@@ -1,4 +1,4 @@
-# Refused: Dev names the agent Rust developer, which isn't one of your agents
+# Refused: Dev names the agent Rust developer, which the file doesn't define
 flow:
   - id: dev
     name: Dev

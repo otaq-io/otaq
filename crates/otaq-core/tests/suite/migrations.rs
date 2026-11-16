@@ -46,6 +46,30 @@ async fn exec(pool: &SqlitePool, sql: &str) {
         .unwrap();
 }
 
+/// The database at `path` migrated up to 0127, before migration 0128 moved the agents into the flows and dropped them:
+/// what the tests of an older migration about the agents read their rows from.
+async fn before_0128(path: &Path) -> Before0128 {
+    Before0128(database_at(path, 127).await)
+}
+
+struct Before0128(SqlitePool);
+
+impl Before0128 {
+    fn pool(&self) -> &SqlitePool {
+        &self.0
+    }
+
+    /// The agent Noyan used then (the `agents.noyan` setting).
+    async fn noyan_agent_id(&self) -> Option<String> {
+        let json: Option<String> =
+            sqlx::query_scalar("SELECT value_json FROM settings WHERE key = 'agents.noyan'")
+                .fetch_optional(&self.0)
+                .await
+                .unwrap();
+        json.and_then(|j| serde_json::from_str(&j).ok())
+    }
+}
+
 /// T-0175 (TKT-04, d0067): migration 0022 appends each ticket's "Done when" items to its description under a
 /// "## Done when" heading, in position order, and drops the table; a ticket without items keeps its body byte
 /// for byte.
@@ -1394,20 +1418,6 @@ async fn has_table(pool: &SqlitePool, name: &str) -> bool {
 }
 
 /// Every agent row, as text: what a second start must leave as it is.
-async fn agent_rows(store: &Store) -> Vec<String> {
-    let mut rows = Vec::new();
-    for sql in [
-        "SELECT id || '|' || name || '|' || came_from || '|' || updated_at FROM agents ORDER BY id",
-    ] {
-        let found: Vec<String> = sqlx::query_scalar(sqlx::AssertSqlSafe(sql))
-            .fetch_all(store.pool())
-            .await
-            .unwrap();
-        rows.extend(found);
-    }
-    rows
-}
-
 /// A column's presence.
 async fn has_column(pool: &SqlitePool, table: &str, column: &str) -> bool {
     sqlx::query_scalar("SELECT EXISTS (SELECT 1 FROM pragma_table_info(?) WHERE name = ?)")
@@ -1418,13 +1428,12 @@ async fn has_column(pool: &SqlitePool, table: &str, column: &str) -> bool {
         .unwrap()
 }
 
-/// T-0412 (FLW-01; d0108, no migration from M32): an M31 database's data isn't moved over. The first start installs
-/// `otaq-agents.yaml` and the default flow's agents and nothing else: M31's named agents, role defaults,
-/// instructions, workflow skills and ticket rows are gone, the Validation settings with them, and every project is on
-/// the default flow as its version 1. A second start changes nothing.
+/// T-0412 (FLW-01; d0108, no migration from M32): an M31 database's data isn't moved over: M31's named agents, role
+/// defaults, instructions, workflow skills and ticket rows are gone, the Validation settings with them, and every
+/// project is on the default flow as its version 1, each stage on `default` (UX-65: no named agents, nothing to apply
+/// at the first start). A second start changes nothing.
 #[tokio::test]
-async fn an_m31_database_starts_clean_with_the_shipped_agents() {
-    use otaq_core::agents::{AgentModel, CameFrom};
+async fn an_m31_database_starts_clean_with_no_agents() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
     let pool = database_at(&path, 46).await;
@@ -1432,35 +1441,26 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
     pool.close().await;
 
     let store = Store::open(&path).await.unwrap();
-    let agents = store.agents().await.unwrap();
-    let shown: Vec<(&str, &CameFrom, bool)> = agents
-        .iter()
-        .map(|a| {
-            (
-                a.name.as_str(),
-                &a.came_from,
-                a.model == AgentModel::Default,
-            )
-        })
-        .collect();
-    assert_eq!(
-        shown,
-        [
-            ("Noyan", &CameFrom::AgentsFile, true),
-            ("Developer", &CameFrom::DefaultPreset, true),
-            ("Checker", &CameFrom::DefaultPreset, true),
-        ]
-    );
-    assert!(agents.iter().all(|a| a.instructions.is_empty()));
     assert_eq!(store.default_model().await.unwrap(), None);
-    assert!(!has_table(store.pool(), "named_agents").await);
-    assert!(!has_table(store.pool(), "ticket_agent_rows").await);
+    for gone in [
+        "named_agents",
+        "ticket_agent_rows",
+        "agents",
+        "agents_before_0128",
+    ] {
+        assert!(!has_table(store.pool(), gone).await, "{gone}");
+    }
+    assert_eq!(
+        store.setting("noyan.starts_on").await.unwrap(),
+        None,
+        "Noyan starts on `default`"
+    );
     for key in ["NOTE", "API"] {
         let json = project_json(&store, key).await;
         for gone in ["validation", "validation_rounds", "auto_merge"] {
             assert!(json.get(gone).is_none(), "{key}: {gone}");
         }
-        // Version 1 as 0085 left it; version 2, Otaq's rename of its skills (0124), is the current one.
+        // Version 1 as 0085 (and 0128) left it; version 2, Otaq's rename of its skills (0124), is the current one.
         let versions = store.flow_versions(key).await.unwrap();
         assert_eq!(versions[0].yaml, default_as_0085_upgraded(), "{key}");
         let flow = store.current_flow(key).await.unwrap().expect("a flow");
@@ -1475,10 +1475,10 @@ async fn an_m31_database_starts_clean_with_the_shipped_agents() {
         );
     }
 
-    let before = agent_rows(&store).await;
+    let before = store.flow_versions("NOTE").await.unwrap();
     store.close().await;
     let store = Store::open(&path).await.unwrap();
-    assert_eq!(agent_rows(&store).await, before);
+    assert_eq!(store.flow_versions("NOTE").await.unwrap(), before);
 }
 
 /// The default flow as 0050 stored it for the projects already there: before T-0415 named `open-pr` on its Delivery
@@ -1524,12 +1524,15 @@ flow:
     .to_owned()
 }
 
-/// [`default_as_0050_stored`] as migration 0085 rewrote it: its Delivery stage is the flow's `delivery:` setting, the
-/// columns gone (and the agents' skill lists, which nothing reads).
+/// [`default_as_0050_stored`] as migrations 0085 and 0128 rewrote it: its Delivery stage is the flow's `delivery:`
+/// setting, the columns gone, and each stage and the delivery on its agent's model (`default`: no default model is set
+/// in these databases), the agents gone (and their skill lists, which nothing reads).
 fn default_as_0085_upgraded() -> String {
     let upgraded = otaq_core::flow::yaml::upgraded(&default_as_0050_stored()).expect("an old form");
+    assert!(upgraded.contains("delivery:\n  delivers: either\n  mode: click\n  model: default\n"));
     assert!(
-        upgraded.contains("delivery:\n  delivers: either\n  mode: click\n  agent: Developer\n")
+        !upgraded.contains("agent:") && !upgraded.contains("agents"),
+        "{upgraded}"
     );
     assert!(!upgraded.contains("kind: delivery") && !upgraded.contains("column:"));
     upgraded
@@ -1604,9 +1607,9 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
         project_json(&store, "NOTE").await,
         json!({"project_notes": "pnpm"})
     );
-    // Migration 0078: the agents' skills are gone (an agent has none); the agent stays.
+    // Migration 0078: the agents' skills are gone (an agent has none); 0128: the agents too (UX-65).
     assert!(!has_table(store.pool(), "agent_skills").await);
-    store.agent("v").await.unwrap().expect("kept");
+    assert!(!has_table(store.pool(), "agents").await);
     let versions = store.flow_versions("NOTE").await.unwrap();
     assert_eq!(versions.len(), 2);
     assert_eq!(versions[0].yaml, default_as_0085_upgraded());
@@ -1620,28 +1623,21 @@ async fn migration_0050_drops_the_old_settings_and_gives_each_project_its_flow()
     assert!(versions[1].current);
 }
 
-/// T-0405 (AGM-02): a fresh install applies the two files; the default model waits for the first connected tool.
+/// T-0405 (AGM-02, UX-65): a fresh install has no agents to apply; the default model waits for the first connected
+/// tool, and Noyan starts on `default` until the user picks.
 #[tokio::test]
-async fn a_fresh_install_applies_the_two_files() {
+async fn a_fresh_install_has_no_agents() {
     let tmp = tempfile::tempdir().unwrap();
     let path = tmp.path().join("otaq.db");
     let store = Store::open(&path).await.unwrap();
-    let agents = store.agents().await.unwrap();
-    let names: Vec<(&str, bool)> = agents
-        .iter()
-        .map(|a| {
-            (
-                a.name.as_str(),
-                a.model == otaq_core::agents::AgentModel::Default,
-            )
-        })
-        .collect();
-    assert_eq!(
-        names,
-        [("Noyan", true), ("Developer", true), ("Checker", true)]
-    );
     assert_eq!(store.default_model().await.unwrap(), None);
-    assert!(!has_table(store.pool(), "named_agents").await);
+    assert_eq!(
+        store.noyan_starts_on().await.unwrap(),
+        otaq_core::agents::NoyanStartsOn::default()
+    );
+    for gone in ["named_agents", "agents", "agents_before_0128"] {
+        assert!(!has_table(store.pool(), gone).await, "{gone}");
+    }
 }
 
 /// T-0433 (ASK-03, ASK-04): 0054 keeps the open proposals with no tool, lets a project hold several, goes on
@@ -1854,7 +1850,7 @@ async fn the_project_agent_role_is_stored_as_noyan() {
     .await;
     pool.close().await;
 
-    let store = Store::open(&path).await.unwrap();
+    let store = before_0128(&path).await;
     let agents: Vec<(String, String, String)> =
         sqlx::query_as("SELECT id, name, instructions FROM agents ORDER BY id")
             .fetch_all(store.pool())
@@ -1869,7 +1865,7 @@ async fn the_project_agent_role_is_stored_as_noyan() {
             ("el".into(), "Epic lead".into(), String::new()),
         ]
     );
-    assert_eq!(store.noyan_agent_id().await.unwrap().as_deref(), Some("ag"));
+    assert_eq!(store.noyan_agent_id().await.as_deref(), Some("ag"));
     assert!(!has_column(store.pool(), "agents", "role").await);
     // Migration 0078: the agents' skill lists are gone with their table.
     assert!(!has_table(store.pool(), "agent_skills").await);
@@ -1991,13 +1987,8 @@ async fn one_card_drops_the_epic_type_and_the_lead() {
     ] {
         assert!(!has_table(store.pool(), table).await, "{table}");
     }
-    // The lead's agent keeps its row; agents have no role at all since migration 0088.
-    let kept: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents WHERE id = 'el'")
-        .fetch_one(store.pool())
-        .await
-        .unwrap();
-    assert_eq!(kept, 1);
-    assert!(!has_column(store.pool(), "agents", "role").await);
+    // The lead's agent kept its row (agents had no role at all since migration 0088), until 0128 dropped every agent.
+    assert!(!has_table(store.pool(), "agents").await);
     let null = sqlx::query("UPDATE tickets SET priority = NULL WHERE id = 't18'")
         .execute(store.pool())
         .await;
@@ -2139,7 +2130,7 @@ async fn migration_0072_clears_the_choices_agents_may_no_longer_set() {
     assert_eq!(
         kept,
         [
-            row("t2", "qa", "agent", "agent"),
+            // t2's pick of another agent for QA went with migration 0128 (UX-72).
             row("t2", "review", "usual", "agent"),
             row("t2", "spec", "skip", "project_agent"),
             row("t3", "spec", "skip", "user"),
@@ -2503,7 +2494,7 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
     .await;
     pool.close().await;
 
-    let store = Store::open(&path).await.unwrap();
+    let store = before_0128(&path).await;
     assert!(!has_table(store.pool(), "agent_skills").await);
     type AgentRow = (
         String,
@@ -2547,8 +2538,6 @@ async fn migration_0078_drops_the_agents_skills_and_keeps_the_agents() {
             ),
         ]
     );
-    let read = store.agents().await.unwrap();
-    assert_eq!(read.len(), 2, "both agents still read");
 }
 
 /// Otaq has no other tool to move work to: migration 0080 drops the stored setting per tool and the holds' and
@@ -2609,8 +2598,9 @@ async fn migration_0080_drops_the_other_tool_settings_and_keeps_holds_sessions_a
             .fetch_all(pool)
             .await
             .unwrap();
-    // The agent that held the Noyan role becomes the agent Noyan uses (migration 0088).
-    assert_eq!(keys, ["agents.default_model", "agents.noyan"]);
+    // No agent held the Noyan role, so there was no agent Noyan uses (migration 0088), and 0128 has no Noyan agent
+    // to start Noyan on.
+    assert_eq!(keys, ["agents.default_model"]);
     for (table, column) in [
         ("agent_holds", "fallback_tool"),
         ("agent_holds", "fallback_held"),
@@ -2703,11 +2693,8 @@ async fn migration_0082_clears_the_agent_picks_of_ticket_agents() {
     let row = |s: &str, c: &str, by: &str| (s.into(), c.into(), by.into());
     assert_eq!(
         kept,
-        [
-            row("dev", "agent", "agent"),
-            row("review", "usual", "agent"),
-            row("security", "agent", "user"),
-        ]
+        // The picks of another agent that 0082 kept went with migration 0128 (UX-72): only the required choice stays.
+        [row("review", "usual", "agent")]
     );
     let cleared: Vec<(String, String)> = sqlx::query_as(
         "SELECT actor, payload_json FROM events WHERE kind = 'stage_choice_cleared'",
@@ -2799,23 +2786,27 @@ async fn migration_0088_keeps_todays_noyan_agent_as_the_setting() {
     .await;
     pool.close().await;
 
-    let store = Store::open(&path).await.unwrap();
+    let store = before_0128(&path).await;
     assert!(!has_column(store.pool(), "agents", "role").await);
     assert_eq!(
-        store.noyan_agent_id().await.unwrap().as_deref(),
+        store.noyan_agent_id().await.as_deref(),
         Some("strong"),
         "the agent that held the role, not the one called Noyan"
     );
-    let strong = store.agent("strong").await.unwrap().unwrap();
+    let strong: (String, String, Option<String>) =
+        sqlx::query_as("SELECT name, instructions, effort FROM agents WHERE id = 'strong'")
+            .fetch_one(store.pool())
+            .await
+            .unwrap();
     assert_eq!(
-        (
-            strong.name.as_str(),
-            strong.instructions.as_str(),
-            strong.effort.as_deref()
-        ),
-        ("Strong", "Think hard.", Some("high"))
+        strong,
+        ("Strong".into(), "Think hard.".into(), Some("high".into()))
     );
-    assert_eq!(store.agents().await.unwrap().len(), 2);
+    let agents: i64 = sqlx::query_scalar("SELECT COUNT(*) FROM agents")
+        .fetch_one(store.pool())
+        .await
+        .unwrap();
+    assert_eq!(agents, 2);
 
     // No agent held the role: no setting.
     let tmp = tempfile::tempdir().unwrap();
@@ -2828,8 +2819,8 @@ async fn migration_0088_keeps_todays_noyan_agent_as_the_setting() {
     )
     .await;
     pool.close().await;
-    let store = Store::open(&path).await.unwrap();
-    assert_eq!(store.noyan_agent_id().await.unwrap(), None);
+    let store = before_0128(&path).await;
+    assert_eq!(store.noyan_agent_id().await, None);
 }
 
 /// Tickets have no External ID: migration 0091 drops the column and every ticket still loads. History forgets the
@@ -3274,13 +3265,17 @@ async fn migration_0124_names_otaqs_skills_in_every_flow_once() {
             rows,
             [(1, User, false), (2, User, false), (3, SkillRename, true)]
         );
+        // Earlier versions stay as stored, but for their agents, each stage on its own model since 0128.
+        let today =
+            |text: &str| otaq_core::flow::yaml::upgraded(text).unwrap_or_else(|| text.to_owned());
         assert_eq!(
             versions[0].yaml,
-            default_as_0124_bare(),
+            today(&default_as_0124_bare()),
             "earlier versions stay as stored"
         );
         assert_eq!(
-            versions[1].yaml, FLOW_0_2,
+            versions[1].yaml,
+            today(FLOW_0_2),
             "earlier versions stay as stored"
         );
         assert_eq!(
@@ -3291,17 +3286,17 @@ async fn migration_0124_names_otaqs_skills_in_every_flow_once() {
         // A flow naming none of Otaq's skills keeps every name, and gets no version.
         let api = store.flow_versions("API").await.unwrap();
         assert_eq!(api.len(), 1);
-        assert_eq!(api[0].yaml, custom);
+        assert_eq!(api[0].yaml, today(&custom));
         let proposal: String = sqlx::query_scalar("SELECT yaml FROM flow_proposals")
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(proposal, renamed);
+        assert_eq!(proposal, today(&renamed));
         let waiting: String = sqlx::query_scalar("SELECT yaml FROM flow_waiting")
             .fetch_one(store.pool())
             .await
             .unwrap();
-        assert_eq!(waiting, renamed);
+        assert_eq!(waiting, today(&renamed));
         let skills: Vec<Option<String>> =
             sqlx::query_scalar("SELECT resume_skill FROM tickets ORDER BY number")
                 .fetch_all(store.pool())
@@ -3330,4 +3325,364 @@ fn default_as_0124_bare() -> String {
     }
     assert!(!text.contains(&format!("{}:", naming::PLUGIN_NAMESPACE)));
     text
+}
+
+/// SHOP's flow as stored at 0127: Dev and Security naming one agent (Rust developer), Validate naming Checker (on
+/// `default`), the delivery naming Rust developer, with the file's own (older) copies of the agents, whose models the
+/// stored agents override.
+const SHOP_AT_0127: &str = "agents:
+  - name: Rust developer
+    model: default
+  - name: Checker
+    model: default
+flow:
+  - id: dev
+    name: Dev
+    kind: agent
+    agent: Rust developer
+    skill: otaq:work-ticket
+  - id: validate
+    name: Validate
+    kind: check
+    by: agent
+    agent: Checker
+    skill: otaq:validate
+    rounds: 3
+  - id: security
+    name: Security
+    kind: check
+    by: agent
+    agent: Rust developer
+    skill: team-security
+    rounds: 2
+  - id: review
+    name: Review
+    kind: check
+    by: you
+delivery:
+  delivers: pr
+  mode: click
+  agent: Rust developer
+  skill: otaq:open-pr
+";
+
+/// A database at 0127 as the plan's check draws it: named agents with instructions, a shared agent on two stages, an
+/// agent on `default` with a default model set, a ticket's override of a stage's agent, a skip, the agent Noyan uses,
+/// holds, sessions, a stage run, a Noyan conversation, an open proposal and a waiting change naming agents.
+async fn agents_at_0127(path: &Path) {
+    let pool = database_at(path, 127).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agents (id, name, instructions, tool, model, effort, came_from, mark_text, marked_at, created_at,
+                             updated_at)
+         VALUES ('rust', 'Rust developer', 'No unwrap in library code.', 'claude', 'opus', 'high', 'you',
+                 'Claude Code couldn''t run opus on SHOP-1', 5, 1, 1),
+                ('checker', 'Checker', '', NULL, NULL, NULL, 'default_preset', NULL, NULL, 2, 2),
+                ('noyan', 'Noyan', 'Keep tickets small.', 'codex', 'gpt-5.5', 'medium', 'agents_file', NULL, NULL,
+                 3, 3),
+                ('unused', 'Unused', 'Nobody runs me.', 'copilot', NULL, NULL, 'you', NULL, NULL, 4, 4)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO settings (key, value_json, updated_at)
+           VALUES ('agents.noyan', '"noyan"', 0), ('agents.default_model', '{"tool": "claude", "model": "sonnet"}', 0)"#,
+    )
+    .await;
+    sqlx::query(
+        "INSERT INTO project_flows (project_id, version, yaml, applied_by, applied_at, current)
+         VALUES ('p', 1, ?, 'user', 1, TRUE)",
+    )
+    .bind(SHOP_AT_0127)
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        "INSERT INTO flow_waiting (project_id, yaml, applied_by, changes_json, since)
+         VALUES ('p', ?, 'user', '[]', 1)",
+    )
+    .bind(SHOP_AT_0127.replace("    rounds: 2\n", "    rounds: 1\n"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    sqlx::query(
+        r#"INSERT INTO flow_proposals (project_id, yaml, source_json, proposed_by_json, created_at)
+           VALUES ('p', ?, '{"kind": "document"}', '{"by": "user"}', 1),
+                  ('p', 'agents: []', '{"kind": "agents_file"}', '{"by": "user"}', 2)"#,
+    )
+    .bind(SHOP_AT_0127.replace("    rounds: 3\n", "    rounds: 4\n"))
+    .execute(&pool)
+    .await
+    .unwrap();
+    exec(
+        &pool,
+        "INSERT INTO tickets (id, project_id, number, title, state, created_by, created_at, updated_at)
+         VALUES ('t1', 'p', 1, 'Price table', 'working', 'me', 0, 0),
+                ('t2', 'p', 2, 'Footer', 'held', 'me', 0, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO ticket_stage_choices (ticket_id, stage_id, choice, agent_id, set_by, by_name, reason, set_at)
+         VALUES ('t1', 'validate', 'agent', 'rust', 'user', NULL, NULL, 1),
+                ('t1', 'security', 'skip', NULL, 'user', NULL, NULL, 2),
+                ('t2', 'dev', 'usual', NULL, 'user', NULL, NULL, 3)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO agent_holds (id, ticket_id, role, reason, tool, model, agent_id, skill, since)
+         VALUES ('h1', 't2', 'developer', 'tool_limit', 'claude', 'opus', 'rust', NULL, 7)",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO sessions (id, project_id, ticket_id, kind, state, started_at, tool, model, effort, agent_id,
+                               agent_name, model_ran)
+         VALUES ('s1', 'p', 't1', 'agent', 'ended', 5, 'claude', 'opus', 'high', 'rust', 'Rust developer',
+                 'claude-opus-5-5')",
+    )
+    .await;
+    exec(
+        &pool,
+        "INSERT INTO project_agents (id, project_id, tool, model, state, created_at, agent_id, agent_name, effort)
+         VALUES ('a1', 'p', 'codex', 'gpt-5.5', 'ended', 6, 'noyan', 'Noyan', 'medium')",
+    )
+    .await;
+    pool.close().await;
+}
+
+/// UX-71…UX-74, migration 0128: a store at 0127 with named agents opens with every stage and the delivery carrying its
+/// agent's model, effort and instructions as stored (an agent on `default` on the account's default model, `tool:model`,
+/// so nothing changes; two stages naming one agent each with their own copy), and so do the waiting change and the open
+/// proposal; the agents file's proposal goes; Noyan's agent becomes "Noyan starts on" (its model and effort; its
+/// instructions dropped); a ticket's override of a stage's agent goes and its skip stays; holds, sessions, stage runs
+/// and Noyan's conversations lose their agent's id, sessions keep their tool, model, effort and name; the agents go.
+/// Once: a second start changes nothing.
+#[tokio::test]
+async fn migration_0128_moves_each_agent_onto_its_stages() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    agents_at_0127(&path).await;
+
+    let store = Store::open(&path).await.unwrap();
+    let pool = store.pool();
+    let flow = store.current_flow("SHOP").await.unwrap().unwrap();
+    let file = otaq_core::flow::yaml::read(&flow.yaml).unwrap();
+    assert!(
+        !flow.yaml.contains("agent:") && !flow.yaml.contains("agents"),
+        "{}",
+        flow.yaml
+    );
+    let rust = otaq_core::flow::WhoDoesIt {
+        model: Some("claude:opus".into()),
+        effort: Some("high".into()),
+        instructions: Some("No unwrap in library code.".into()),
+    };
+    let who = |id: &str| file.flow.stage(id).unwrap().who.clone();
+    assert_eq!(who("dev"), rust);
+    assert_eq!(who("security"), rust, "each its own copy");
+    assert_eq!(
+        who("validate"),
+        otaq_core::flow::WhoDoesIt::on("claude:sonnet"),
+        "default: the default model as it was"
+    );
+    assert_eq!(who("review"), otaq_core::flow::WhoDoesIt::default());
+    assert_eq!(file.flow.delivery.who, rust);
+    assert_eq!(
+        (flow.version, flow.applied_by),
+        (1, otaq_core::flow::AppliedBy::User),
+        "rewritten in place, not a new version"
+    );
+    // The waiting change and the open proposal the same way; the agents file's proposal is gone.
+    let waiting: String =
+        sqlx::query_scalar("SELECT yaml FROM flow_waiting WHERE project_id = 'p'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    let waiting = otaq_core::flow::yaml::read(&waiting).unwrap();
+    assert_eq!(waiting.flow.stage("dev").unwrap().who, rust);
+    assert_eq!(waiting.flow.stage("security").unwrap().rounds, Some(1));
+    let proposals: Vec<String> = sqlx::query_scalar("SELECT yaml FROM flow_proposals")
+        .fetch_all(pool)
+        .await
+        .unwrap();
+    let [proposal] = &proposals[..] else {
+        panic!("{proposals:?}")
+    };
+    let proposal = otaq_core::flow::yaml::read(proposal).unwrap();
+    assert_eq!(proposal.flow.stage("security").unwrap().who, rust);
+    assert_eq!(proposal.flow.stage("validate").unwrap().rounds, Some(4));
+
+    // Noyan starts on its agent's model and effort; its instructions are gone.
+    assert_eq!(
+        store.noyan_starts_on().await.unwrap(),
+        otaq_core::agents::NoyanStartsOn {
+            model: Some("codex:gpt-5.5".into()),
+            effort: Some("medium".into()),
+        }
+    );
+    assert_eq!(store.setting("agents.noyan").await.unwrap(), None);
+    assert!(
+        store
+            .setting("agents.default_model")
+            .await
+            .unwrap()
+            .is_some(),
+        "the account's default model stays"
+    );
+
+    // The override goes, the skip and the usual choice stay.
+    let choices: Vec<(String, String, String)> = sqlx::query_as(
+        "SELECT ticket_id, stage_id, choice FROM ticket_stage_choices ORDER BY ticket_id, stage_id",
+    )
+    .fetch_all(pool)
+    .await
+    .unwrap();
+    let row = |t: &str, s: &str, c: &str| (t.to_owned(), s.to_owned(), c.to_owned());
+    assert_eq!(
+        choices,
+        [row("t1", "security", "skip"), row("t2", "dev", "usual")]
+    );
+
+    // No agent ids left; what History and the Session tab show stays.
+    for (table, column) in [
+        ("ticket_stage_choices", "agent_id"),
+        ("agent_holds", "agent_id"),
+        ("sessions", "agent_id"),
+        ("stage_runs", "agent_id"),
+        ("project_agents", "agent_id"),
+    ] {
+        assert!(!has_column(pool, table, column).await, "{table}.{column}");
+    }
+    for gone in ["agents", "agents_before_0128"] {
+        assert!(!has_table(pool, gone).await, "{gone}");
+    }
+    let holds = store.ticket_holds("t2").await.unwrap();
+    assert_eq!(
+        holds
+            .iter()
+            .map(|h| (h.reason.as_str(), h.tool.as_str(), h.model.as_deref()))
+            .collect::<Vec<_>>(),
+        [("tool_limit", "claude", Some("opus"))]
+    );
+    let session: (String, String, String, String, String, Option<String>) = sqlx::query_as(
+        "SELECT tool, model, effort, agent_name, model_ran, runs_for FROM sessions WHERE id = 's1'",
+    )
+    .fetch_one(pool)
+    .await
+    .unwrap();
+    assert_eq!(
+        session,
+        (
+            "claude".into(),
+            "opus".into(),
+            "high".into(),
+            "Rust developer".into(),
+            "claude-opus-5-5".into(),
+            None
+        )
+    );
+    let conversation: (String, String, String) =
+        sqlx::query_as("SELECT tool, model, effort FROM project_agents WHERE id = 'a1'")
+            .fetch_one(pool)
+            .await
+            .unwrap();
+    assert_eq!(
+        conversation,
+        ("codex".into(), "gpt-5.5".into(), "medium".into())
+    );
+    // A model's mark is on what it is about now: none moved, and the table is there for the next one.
+    assert!(has_table(pool, "model_marks").await);
+
+    // Once.
+    let before = flow.yaml.clone();
+    store.close().await;
+    let store = Store::open(&path).await.unwrap();
+    assert_eq!(
+        store.current_flow("SHOP").await.unwrap().unwrap().yaml,
+        before
+    );
+    assert_eq!(store.flow_versions("SHOP").await.unwrap().len(), 1);
+}
+
+/// Migration 0128: an agent only the stored flow's own `agents:` defines (no stored agent of that name) runs on the
+/// file's model, a `default` there the account's default model; one neither defines falls back to the default model, so
+/// the flow still reads. With no Noyan agent set, "Noyan starts on" stays `default`.
+#[tokio::test]
+async fn migration_0128_reads_an_agent_the_store_never_had() {
+    let tmp = tempfile::tempdir().unwrap();
+    let path = tmp.path().join("otaq.db");
+    let pool = database_at(&path, 127).await;
+    exec(
+        &pool,
+        "INSERT INTO projects (id, name, repo_path, key, base_branch, next_ticket_number, created_at)
+         VALUES ('p', 'shop-web', '/tmp/shop-web', 'SHOP', 'main', 41, 0)",
+    )
+    .await;
+    exec(
+        &pool,
+        r#"INSERT INTO settings (key, value_json, updated_at)
+           VALUES ('agents.default_model', '{"tool": "codex"}', 0)"#,
+    )
+    .await;
+    let yaml = "agents:
+  - name: Spec writer
+    instructions: Ask one question at a time.
+    model: claude:haiku
+  - name: Developer
+    model: default
+flow:
+  - id: spec
+    name: Spec
+    kind: agent
+    agent: Spec writer
+  - id: dev
+    name: Dev
+    kind: agent
+    agent: Developer
+  - id: qa
+    name: QA
+    kind: check
+    by: agent
+    agent: Ghost
+    rounds: 1
+delivery:
+  delivers: local
+  mode: click
+";
+    sqlx::query(
+        "INSERT INTO project_flows (project_id, version, yaml, applied_by, applied_at, current)
+         VALUES ('p', 1, ?, 'user', 1, TRUE)",
+    )
+    .bind(yaml)
+    .execute(&pool)
+    .await
+    .unwrap();
+    pool.close().await;
+
+    let store = Store::open(&path).await.unwrap();
+    let flow = store.current_flow("SHOP").await.unwrap().unwrap();
+    let file = otaq_core::flow::yaml::read(&flow.yaml).unwrap();
+    let who = |id: &str| file.flow.stage(id).unwrap().who.clone();
+    assert_eq!(
+        who("spec"),
+        otaq_core::flow::WhoDoesIt {
+            model: Some("claude:haiku".into()),
+            effort: None,
+            instructions: Some("Ask one question at a time.".into()),
+        }
+    );
+    assert_eq!(who("dev"), otaq_core::flow::WhoDoesIt::on("codex"));
+    assert_eq!(who("qa"), otaq_core::flow::WhoDoesIt::on("codex"));
+    assert_eq!(
+        store.noyan_starts_on().await.unwrap(),
+        otaq_core::agents::NoyanStartsOn::default()
+    );
 }

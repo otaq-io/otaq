@@ -1,5 +1,6 @@
 //! Proposals, what applies when, and the quiet-board wait (T-0413; FLW-03, FLW-05, FLW-06, FLW-09, FLW-10; d0108):
-//! each refusal names its stage or agent; the diff keeps ids on a rename and says when each change applies; a shape
+//! each refusal names its stage; the diff keeps ids on a rename and says when each change applies (a stage's model,
+//! effort and instructions when it next starts); a model its tool doesn't list is kept and marked (A-4); a shape
 //! change waits for a quiet board while the project's starts are held; Cancel change resumes them; a second change
 //! merges into the waiting one; a choice the flow drops falls back to the
 //! stage's agent with a History note. On the example's names: pocket-api, API-1, QA, Security, Quick developer and
@@ -15,8 +16,7 @@ use otaq_core::board::{BoardError, Refusal};
 use otaq_core::domain::{Actor, Status};
 use otaq_core::flow::apply::{ProposeFrom, Wait};
 use otaq_core::flow::proposal::{
-    About, AgentChangeKind, Applies, ApplyChoices, Change, ClashChoice, Fix, NewProposal, Proposal,
-    ProposedBy, SAME, Source,
+    About, Applies, ApplyChoices, Change, NewProposal, Proposal, ProposedBy, SAME, Source,
 };
 use otaq_core::flow::{FlowFile, StageOption, check, yaml};
 use otaq_core::scheduler::{Gate, plan_holding};
@@ -50,7 +50,6 @@ fn every_kind() -> FlowFile {
 /// A document of `file`'s stages only, with no ids: what a Project agent writes.
 fn stages_only(file: &FlowFile) -> String {
     let text = yaml::write(&FlowFile {
-        agents: Vec::new(),
         flow: file.flow.clone(),
     });
     text.lines()
@@ -67,8 +66,8 @@ fn stages_only(file: &FlowFile) -> String {
         + "\n"
 }
 
-/// A stage whose agent's tool doesn't have its skill only warns: "Codex doesn’t have the skill `$team-validate`" on the
-/// stage, and the flow applies (the stage is held when due to start on that tool). The same skill on an agent whose
+/// A stage whose model's tool doesn't have its skill only warns: "Codex doesn’t have the skill `$team-validate`" on the
+/// stage, and the flow applies (the stage is held when due to start on that tool). The same skill on a model whose
 /// tool has it doesn't warn.
 #[tokio::test(flavor = "multi_thread")]
 async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
@@ -81,13 +80,12 @@ async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
         ".claude/skills/team-validate/SKILL.md",
         "---\nname: team-validate\ndescription: The team's check.\n---\n\nCheck it.\n",
     );
-    let doc = |name: &str, model: &str| {
+    let doc = |model: &str| {
         format!(
-            "agents:\n  - name: {name}\n    model: {model}\nflow:\n  - name: Dev\n    kind: agent\n    agent: \
-             Developer\n    skill: otaq:work-ticket\n  - name: Validate\n    kind: check\n    by: agent\n    agent: \
-             {name}\n    skill: team-validate\n    rounds: 1\n  - name: Review\n    kind: check\n    by: you\n  \
-             - name: Done\n    kind: delivery\n    column: with-previous\n    agent: Developer\n    mode: click\n    \
-             delivers: either\n"
+            "flow:\n  - name: Dev\n    kind: agent\n    model: claude\n    skill: otaq:work-ticket\n  - name: \
+             Validate\n    kind: check\n    by: agent\n    model: {model}\n    skill: team-validate\n    rounds: 1\n  \
+             - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
+             with-previous\n    model: claude\n    mode: click\n    delivers: either\n"
         )
     };
     let warned = |p: &Proposal| -> Vec<(Option<String>, String)> {
@@ -97,7 +95,7 @@ async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
             .map(|w| (w.stage.clone(), w.text.clone()))
             .collect()
     };
-    let on_codex = propose_as(&w, &key, &doc("Codex checker", "codex"), planner())
+    let on_codex = propose_as(&w, &key, &doc("codex"), planner())
         .await
         .unwrap();
     assert!(on_codex.problems.is_empty(), "{:?}", on_codex.problems);
@@ -112,7 +110,7 @@ async fn a_stage_whose_agents_tool_lacks_its_skill_warns() {
         .apply_proposal(&key, on_codex.id, &ApplyChoices::default(), &models())
         .await
         .expect("only a warning: the flow applies");
-    let on_claude = propose_as(&w, &key, &doc("Claude checker", "claude"), planner())
+    let on_claude = propose_as(&w, &key, &doc("claude"), planner())
         .await
         .unwrap();
     assert_eq!(warned(&on_claude), []);
@@ -177,13 +175,12 @@ async fn create(w: &TestService, key: &str, title: &str) -> Ticket {
     w.create(key, title).await
 }
 
-/// FLW-03: every refusal names its stage or agent: each has its broken file in `tests/flows/broken/` (each STG-02
-/// rule; an unknown agent, a bad agent name, a model that doesn't read or the tool doesn't list, a written `_` id, a
-/// document that doesn't read). A skill the user doesn't have is never refused: the stage carries a warning, and the
-/// flow applies (T6). The user's own import opens with the problems marked instead, with what to do about the fixable
-/// ones.
+/// FLW-03: every refusal names its stage: each has its broken file in `tests/flows/broken/` (each STG-02 rule; an
+/// older file's unknown agent, a model that doesn't read, a written `_` id, a document that doesn't read). A skill the
+/// user doesn't have is never refused, nor a model its tool doesn't list (A-4): the stage carries a warning, and the
+/// flow applies (T6). An older file's agents read as its stages' own models (UX-73).
 #[tokio::test(flavor = "multi_thread")]
-async fn each_refusal_names_its_stage_or_agent() {
+async fn each_refusal_names_its_stage() {
     let (w, key) = world().await;
 
     // A valid one opens, and the same flow says so.
@@ -199,7 +196,7 @@ async fn each_refusal_names_its_stage_or_agent() {
         .map(|e| e.unwrap().path())
         .collect();
     broken.sort();
-    assert_eq!(broken.len(), 15);
+    assert_eq!(broken.len(), 13);
     for path in broken {
         let text = std::fs::read_to_string(&path).unwrap();
         let message = refusal(propose_as(&w, &key, &text, planner()).await);
@@ -231,24 +228,20 @@ async fn each_refusal_names_its_stage_or_agent() {
         }
     }
 
-    // A model the tool doesn't list is refused; a skill the user doesn't have only warns, and an old file's agent
-    // `skills:` still reads and is ignored.
-    let reviewer = "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: claude:gpt-9\n";
+    // A model the tool doesn't list and a skill the user doesn't have only warn (A-4), and an older file's agent
+    // `skills:` still reads and is ignored: its agents become the stages' own models (UX-73).
+    let reviewer = "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: claude:gpt-9\n  \
+                    - name: Developer\n    model: claude\n";
     let doc = format!(
         "{reviewer}flow:\n  - name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  - name: \
          Security\n    kind: check\n    by: agent\n    agent: Security reviewer\n    skill: team-security-review\n    \
          rounds: 2\n  - name: Review\n    kind: check\n    by: you\n  - name: Done\n    kind: delivery\n    column: \
          with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n"
     );
-    let message = refusal(propose_as(&w, &key, &doc, planner()).await);
-    assert!(
-        message.contains(
-            "Security reviewer's model gpt-9 isn't in Claude Code's model list: pick a model from it"
-        ),
-        "{message}"
-    );
-    assert!(!message.contains("team-security-review"), "{message}");
-    // The user's import opens, marked: Apply waits for a local model only.
+    let kept = propose_as(&w, &key, &doc, planner()).await.unwrap();
+    assert!(kept.problems.is_empty(), "{:?}", kept.problems);
+    w.board.cancel_proposal(&key).await.unwrap();
+    // The user's import opens, marked, and applies.
     let imported = w
         .board
         .propose_from(
@@ -261,28 +254,20 @@ async fn each_refusal_names_its_stage_or_agent() {
         )
         .await
         .unwrap();
-    let fixes: Vec<(&About, Option<&Fix>)> = imported
-        .problems
-        .iter()
-        .map(|p| (&p.about, p.fix.as_ref()))
-        .collect();
-    assert_eq!(
-        fixes,
-        [(
-            &About::Agent {
-                name: "Security reviewer".into(),
-            },
-            Some(&Fix::PickModel {
-                agent: "Security reviewer".into()
-            })
-        )]
-    );
+    assert!(imported.problems.is_empty(), "{:?}", imported.problems);
     let warned: Vec<(Option<&str>, &str)> = imported
         .diff
         .warnings
         .iter()
         .map(|w| (w.stage.as_deref(), w.text.as_str()))
         .collect();
+    assert!(
+        warned.contains(&(
+            Some("Security"),
+            "Security: Claude Code doesn't list gpt-9; tickets wait there until it does or you pick another model"
+        )),
+        "{warned:?}"
+    );
     assert!(
         warned.contains(&(
             Some("Security"),
@@ -294,29 +279,23 @@ async fn each_refusal_names_its_stage_or_agent() {
         !warned.iter().any(|(_, text)| text.contains("work-ticket")),
         "Otaq's own skills never warn: {warned:?}"
     );
-    let refused = w
-        .board
+    w.board
         .apply_proposal(&key, imported.id, &ApplyChoices::default(), &models())
         .await
-        .unwrap_err();
-    assert_eq!(refused.refusal(), Some(Refusal::BadFlow));
-    // With the model picked it applies, the unknown skill and all; the stage names it as written.
-    let choices = ApplyChoices {
-        models: [("Security reviewer".to_owned(), "claude:opus".to_owned())].into(),
-        ..Default::default()
-    };
-    let applied = w
-        .board
-        .apply_proposal(&key, imported.id, &choices, &models())
-        .await
         .unwrap();
-    assert_eq!(applied.agents, ["Security reviewer"]);
     let flow = w.board.effective_flow(&key).await.unwrap();
     let security = flow.stages.iter().find(|s| s.name == "Security").unwrap();
     assert_eq!(security.skill.as_deref(), Some("team-security-review"));
-    // The stored flow never writes an agent's `skills:`.
+    assert_eq!(security.model(), Some("claude:gpt-9"));
+    assert_eq!(flow.stage("dev").unwrap().model(), Some("claude"));
+    // The stored flow is in today's shape: no agents, no `skills:`.
     let stored = w.board.store().current_flow(&key).await.unwrap().unwrap();
     assert!(!stored.yaml.contains("skills:"), "{}", stored.yaml);
+    assert!(
+        !stored.yaml.contains("agent: ") && !stored.yaml.contains("agents:"),
+        "{}",
+        stored.yaml
+    );
 
     w.stop().await;
 }
@@ -327,10 +306,10 @@ async fn each_refusal_names_its_stage_or_agent() {
 #[tokio::test(flavor = "multi_thread")]
 async fn a_built_in_command_is_not_a_skill() {
     let (w, key) = world().await;
-    let doc = "agents:\n  - name: Security reviewer\n    model: claude:opus\nflow:\n  - name: Dev\n    kind: agent\n    \
-               agent: Developer\n    skill: work-ticket\n  - name: Security\n    kind: check\n    by: agent\n    agent: \
-               Security reviewer\n    skill: security-review\n    rounds: 2\n  - name: Done\n    kind: delivery\n    \
-               column: with-previous\n    agent: Developer\n    mode: click\n    delivers: either\n";
+    let doc = "flow:\n  - name: Dev\n    kind: agent\n    model: claude\n    skill: work-ticket\n  - name: Security\n    \
+               kind: check\n    by: agent\n    model: claude:opus\n    skill: security-review\n    rounds: 2\n  - name: \
+               Done\n    kind: delivery\n    column: with-previous\n    model: claude\n    mode: click\n    delivers: \
+               either\n";
     let said = "Security: `/security-review` is Claude Code's built-in command, not a skill. Write a small skill that \
                 runs it, and name that skill here";
     let message = refusal(propose_as(&w, &key, doc, planner()).await);
@@ -343,7 +322,7 @@ async fn a_built_in_command_is_not_a_skill() {
         .iter()
         .map(|p| match &p.about {
             About::Stage { name, .. } => (Some(name.as_str()), p.message.as_str()),
-            _ => (None, p.message.as_str()),
+            About::Flow => (None, p.message.as_str()),
         })
         .collect();
     assert_eq!(problems, [(Some("Security"), said)]);
@@ -365,8 +344,8 @@ async fn a_built_in_command_is_not_a_skill() {
 }
 
 /// FLW-03, FLW-05, FED-08: a rename is a rename (Review's id kept, applied at once, nothing waits); adding QA applies
-/// at once, removing Validate waits for its span; a stage's new agent "applies when Security next starts"; a changed shared agent lists every
-/// project that uses it; a removed option lists the tickets that chose it.
+/// at once, removing Validate waits for its span; a stage's new model, effort and instructions each "apply when Security
+/// next starts".
 #[tokio::test(flavor = "multi_thread")]
 async fn the_diff_says_what_changes_and_when() {
     let (w, key) = world().await;
@@ -451,18 +430,18 @@ async fn the_diff_says_what_changes_and_when() {
     let flow = w.board.effective_flow(&key).await.unwrap();
     assert_eq!(flow.stage("review").unwrap().name, "QA");
 
-    // On the test flow, in two projects: Security's agent, and a shared agent's model.
-    let other = w.add_project("pocket-notes").await.key;
+    // On the test flow: Security's model, effort and instructions.
     w.board.use_flow_for_tests(&key, &every_kind()).await;
-    w.board.use_flow_for_tests(&other, &every_kind()).await;
     let mut strict = every_kind();
-    strict
+    let security = strict
         .flow
         .stages
         .iter_mut()
         .find(|s| s.id == "security")
-        .unwrap()
-        .agent = Some("Validator".into());
+        .unwrap();
+    security.who.model = Some("codex:gpt-5.5".into());
+    security.who.effort = Some("high".into());
+    security.who.instructions = None;
     let proposal = propose_as(&w, &key, &stages_only(&strict), planner())
         .await
         .unwrap();
@@ -476,36 +455,16 @@ async fn the_diff_says_what_changes_and_when() {
     assert_eq!(
         security,
         [
-            "Security \u{b7} agent: Security reviewer \u{2192} Validator \u{2014} applies when Security next starts"
+            "Security \u{b7} model: default \u{2192} codex:gpt-5.5 \u{2014} applies when Security next starts",
+            "Security \u{b7} effort: none \u{2192} high \u{2014} applies when Security next starts",
+            "Security \u{b7} instructions removed \u{2014} applies when Security next starts",
         ]
     );
+    assert!(matches!(
+        proposal.diff.stages[0].change,
+        Change::Model { .. }
+    ));
     assert!(!proposal.diff.waits);
-
-    let shared = format!(
-        "agents:\n  - name: Security reviewer\n    skills: [team-security-review]\n    model: claude:opus\n{}",
-        stages_only(&every_kind())
-    );
-    let proposal = propose_as(&w, &key, &shared, planner()).await.unwrap();
-    let reviewer = &proposal.diff.agents[0];
-    assert_eq!(reviewer.change, AgentChangeKind::Changed);
-    assert_eq!(
-        reviewer.clash, None,
-        "a Project agent's change isn't a clash"
-    );
-    let fields: Vec<(&str, &str, &str)> = reviewer
-        .fields
-        .iter()
-        .map(|f| (f.field.as_str(), f.from.as_str(), f.to.as_str()))
-        .collect();
-    assert!(
-        fields.contains(&("model", "default", "claude:opus")),
-        "{fields:?}"
-    );
-    let used: Vec<String> = reviewer.used_in.iter().map(|u| u.label()).collect();
-    assert_eq!(
-        used,
-        ["pocket-api \u{b7} Security", "pocket-notes \u{b7} Security"]
-    );
 
     w.stop().await;
 }
@@ -659,9 +618,8 @@ async fn a_removal_waits_for_its_span() {
     w.stop().await;
 }
 
-/// FLW-09, FLW-10: Back to the previous flow brings its stages only, never agents; Copy from another project brings
-/// that project's stages, matched by name; a preset that is the current flow is the same; the shipped agents file
-/// brings agents only, each changed one a clash (Keep mine by default · Take theirs).
+/// FLW-09, FLW-10: Back to the previous flow brings its stages; Copy from another project brings that project's stages,
+/// matched by name, each with who does it; a preset that is the current flow is the same.
 #[tokio::test(flavor = "multi_thread")]
 async fn the_other_sources() {
     let (w, key) = world().await;
@@ -682,7 +640,6 @@ async fn the_other_sources() {
         .await
         .unwrap();
     assert_eq!(back.source, Source::Previous { version: 1 });
-    assert!(back.diff.agents.is_empty(), "stages only");
     assert_eq!(
         back.diff.stages[0].text,
         "stage Validate (agent check) after Dev"
@@ -722,44 +679,6 @@ async fn the_other_sources() {
         .unwrap();
     assert!(preset.diff.same, "{:?}", preset.diff);
 
-    // The agents file: Noyan edited here, so it clashes; Keep mine leaves it, Take theirs puts it back.
-    w.edit_agent("Noyan", |page| page.instructions = "Mine.".into())
-        .await;
-    let agents = w
-        .board
-        .propose_from(&key, &ProposeFrom::AgentsFile, &models())
-        .await
-        .unwrap();
-    assert!(agents.diff.stages.is_empty(), "agents only");
-    let planner = agents
-        .diff
-        .agents
-        .iter()
-        .find(|a| a.name == "Noyan")
-        .unwrap();
-    assert_eq!(planner.change, AgentChangeKind::Changed);
-    assert_eq!(planner.clash.as_ref().unwrap().add_as, None);
-    w.board
-        .apply_proposal(&key, agents.id, &ApplyChoices::default(), &models())
-        .await
-        .unwrap();
-    let kept = w.board.store().agent_named("Noyan").await.unwrap().unwrap();
-    assert_eq!(kept.instructions, "Mine.");
-    let again = w
-        .board
-        .propose_from(&key, &ProposeFrom::AgentsFile, &models())
-        .await
-        .unwrap();
-    let choices = ApplyChoices {
-        clashes: [("Noyan".to_owned(), ClashChoice::TakeTheirs)].into(),
-        ..Default::default()
-    };
-    w.board
-        .apply_proposal(&key, again.id, &choices, &models())
-        .await
-        .unwrap();
-    let theirs = w.board.store().agent_named("Noyan").await.unwrap().unwrap();
-    assert_eq!(theirs.instructions, "");
     w.stop().await;
 }
 

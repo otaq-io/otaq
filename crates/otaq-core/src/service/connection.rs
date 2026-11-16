@@ -552,18 +552,12 @@ async fn respond(
             Ok(reply) => (reply, Then::Continue),
             Err(error) => return (Message::error(id, error), Then::Continue),
         },
-        request @ (Request::AgentsList
-        | Request::AgentsAdd(_)
-        | Request::AgentsEdit(_)
-        | Request::AgentsDuplicate(_)
-        | Request::AgentsDelete(_)
-        | Request::AgentsInUse(_)
-        | Request::AgentsNoyan(_)
-        | Request::AgentsDefaultModel(_)
-        | Request::AgentsReads(_)) => match agents_requests::handle(request, shared).await {
-            Ok(reply) => (reply, Then::Continue),
-            Err(error) => return (Message::error(id, error), Then::Continue),
-        },
+        request @ (Request::NoyanStartsOn | Request::NoyanSetStartsOn(_)) => {
+            match agents_requests::handle(request, shared).await {
+                Ok(reply) => (reply, Then::Continue),
+                Err(error) => return (Message::error(id, error), Then::Continue),
+            }
+        }
         // Boxed: the board handler's future is large, and a debug build's worker stack is small.
         board => match Box::pin(board_requests::handle(
             board,

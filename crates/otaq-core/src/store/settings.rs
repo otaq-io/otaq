@@ -12,13 +12,14 @@ pub const TRUST_NOTE_PENDING: &str = "trust.note_pending";
 /// The user dismissed the folder trust note: it never comes back (PRJ-08).
 pub const TRUST_NOTE_DISMISSED: &str = "trust.note_dismissed";
 
-/// The default model for new agents (AGM-03, d0108): `{"tool": "claude", "model": "sonnet"}`; `model: default`
-/// resolves to it at session start. Absent until a tool connects.
+/// The account's default model (AGM-03, d0108): `{"tool": "claude", "model": "sonnet"}`. A shipped flow's `model:
+/// default` becomes its tool when the flow is applied (UX-68); a `default` left resolves to it at session start.
+/// Absent until a tool connects.
 pub const DEFAULT_MODEL: &str = "agents.default_model";
 
-/// The agent Noyan uses (an app setting, "Noyan uses <agent>"): the agent's id as a JSON string. Set at the first
-/// start to the shipped Noyan agent; a new conversation may pick another for itself.
-pub const NOYAN_AGENT: &str = "agents.noyan";
+/// "Noyan starts on" (UX-70, UX-74): the model and effort new Noyan conversations start on,
+/// [`crate::agents::NoyanStartsOn`] as JSON. Absent: `default`.
+pub const NOYAN_STARTS_ON: &str = "noyan.starts_on";
 
 /// The agent tools the user set Hidden on Settings → Agent tools (d0086): a list of stored tool names
 /// (`["copilot"]`). A hidden tool doesn't count as connected.

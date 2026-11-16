@@ -778,28 +778,28 @@ impl Prs {
         }
     }
 
-    /// What a delivery session runs on: the Delivery stage's agent (AGM-05), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
+    /// What a delivery session runs on: the delivery's model (AGM-05, UX-69), through the check before every launch (T-0357's Q3): refused with the hold's message ("Codex
     /// isn't available · logged out", "Claude Code limit reached", "Model unavailable · Codex no longer lists
     /// gpt-5.4") when it can't start now, nothing held (it is the user's click); a family choice resolved to the
     /// model it passes.
     async fn delivery_runs_on(&self, ticket: &Ticket) -> Result<RunsOn, BoardError> {
         let board = &self.inner.board;
-        let agent = resolve::delivery_agent(board, ticket.key.project.as_str()).await?;
+        let who = resolve::delivery_who(board, ticket.key.project.as_str()).await?;
         let Some(gate) = self.inner.gate.get() else {
-            return Ok(RunsOn::agent(
-                &agent,
+            return Ok(RunsOn::who(
+                &who,
                 board.store().default_model().await?.as_ref(),
             ));
         };
-        let mut runs_on = gate.runs_on(&agent).await?;
-        let on = gate.model_of(&agent).await?;
+        let mut runs_on = gate.runs_on(&who).await?;
+        let on = gate.model_of(&who).await?;
         match check(&on, &gate.facts().await?) {
             Ok(model) => {
                 runs_on.model = model;
                 Ok(runs_on)
             }
             Err(blocked) => {
-                let held = Held { agent, on, blocked };
+                let held = Held { who, on, blocked };
                 tracing::info!(key = %ticket.key, reason = %held.blocked.reason(), "delivery refused before launch");
                 Err(BoardError::refused(Refusal::MoveRefused, held.message()))
             }
@@ -1054,7 +1054,7 @@ impl Prs {
         let project = ticket.key.project.to_string();
         let flow = board.effective_flow(&project).await?;
         let delivery = &flow.delivery;
-        let Some(agent) = delivery.agent.clone() else {
+        let Some(agent) = board.delivery_writer(&project).await? else {
             return Ok(false);
         };
         if delivery.is_automatic() {

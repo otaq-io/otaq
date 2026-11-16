@@ -197,11 +197,14 @@ mod tests {
             .unwrap()
     }
 
+    /// The settings a fresh store writes (none about named agents: a stage says who does it, UX-65).
     async fn agents(pool: &SqlitePool) -> Vec<String> {
-        sqlx::query_scalar("SELECT name FROM agents ORDER BY name")
-            .fetch_all(pool)
-            .await
-            .unwrap()
+        sqlx::query_scalar(
+            "SELECT key FROM settings WHERE key LIKE 'agents.%' OR key LIKE 'noyan.%' ORDER BY key",
+        )
+        .fetch_all(pool)
+        .await
+        .unwrap()
     }
 
     #[tokio::test]
@@ -248,7 +251,6 @@ mod tests {
         );
         assert_eq!(seeded_by, migrated_by(fresh.pool()).await);
         assert_eq!(seeded_by, format!("\"{RUNNING_VERSION}\""));
-        assert!(!seeded_agents.is_empty(), "the shipped agents are there");
         assert_eq!(seeded_agents, agents(fresh.pool()).await);
         fresh.close().await;
     }

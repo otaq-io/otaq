@@ -19,9 +19,7 @@
 use serde::{Deserialize, Serialize};
 
 use super::model::FlowFile;
-use super::proposal::{
-    ApplyChoices, Proposal, ProposedBy, Row, SAME, Source, flow_agent_of, match_ids,
-};
+use super::proposal::{ApplyChoices, Proposal, ProposedBy, Row, SAME, Source, match_ids};
 use super::yaml;
 use crate::agents::ModelCatalog;
 use crate::board::{Board, BoardError, Refusal};
@@ -155,37 +153,11 @@ pub async fn deliver_answer(
 }
 
 impl Board {
-    /// `flow show`: the project's applied stages, and the stored agents they name (their `agent` and options'), in
-    /// stage order.
+    /// `flow show`: the project's applied stages and delivery, each with who does it, in stage order.
     pub async fn flow_document(&self, project: &str) -> Result<FlowDocument, BoardError> {
         let key = self.project(project).await?.key;
         let version = self.current_flow(&key).await?;
-        let applied = self.current_flow_file(&key).await?;
-        let stored = self.store().agents().await?;
-        let mut file = FlowFile {
-            agents: Vec::new(),
-            flow: applied.flow,
-        };
-        // Every agent a stage names, then the delivery's (the one that opens its PRs).
-        let names: Vec<String> = file
-            .flow
-            .stages
-            .iter()
-            .flat_map(|s| s.every_agent().cloned())
-            .chain(file.flow.delivery.agent.clone())
-            .collect();
-        for name in &names {
-            if file
-                .agents
-                .iter()
-                .any(|a| a.name.eq_ignore_ascii_case(name))
-            {
-                continue;
-            }
-            if let Some(agent) = stored.iter().find(|a| a.name.eq_ignore_ascii_case(name)) {
-                file.agents.push(flow_agent_of(agent));
-            }
-        }
+        let file = self.current_flow_file(&key).await?;
         let text = yaml::write(&file);
         let document = serde_saphyr::from_str(&text).map_err(|e| {
             BoardError::NotFound(format!("{key}'s flow doesn't read as a document: {e}"))
@@ -225,7 +197,6 @@ impl Board {
                     )));
                 }
                 let file = FlowFile {
-                    agents: Vec::new(),
                     flow: self.effective_flow(&other.key).await?,
                 };
                 // Another project's ids mean nothing here: its stages match this flow's by name, then position.
@@ -251,8 +222,7 @@ impl Board {
             created_at: now_ms(),
         };
         let view = self.view(&row, models, &ApplyChoices::default()).await?;
-        let agent = matches!(by, ProposedBy::ProjectAgent { .. });
-        if view.problems.iter().any(|p| agent || p.fix.is_none()) {
+        if !view.problems.is_empty() {
             let lines: Vec<&str> = view.problems.iter().map(|p| p.message.as_str()).collect();
             return Err(refuse(lines.join("\n")));
         }

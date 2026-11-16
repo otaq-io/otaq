@@ -25,10 +25,10 @@ pub mod templates;
 pub mod write_skill;
 pub mod yaml;
 
-pub use check::{Problem, Rule, check, check_agents, check_skills};
+pub use check::{Problem, Rule, check, check_skills};
 pub use default::{default_file, default_flow};
 pub use model::{
-    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowAgent, FlowFile, Stage, StageKind,
-    StageOption,
+    CheckBy, Delivers, Delivery, DeliveryMode, Flow, FlowFile, Stage, StageKind, StageOption,
+    WhoDoesIt,
 };
 pub use store::{AppliedBy, FlowVersion, NewFlowVersion};

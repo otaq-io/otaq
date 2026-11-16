@@ -58,7 +58,7 @@ fn human_check(id: &str, name: &str) -> Stage {
         id: id.into(),
         name: name.into(),
         kind: StageKind::Check { by: CheckBy::You },
-        agent: None,
+        who: Default::default(),
         skill: None,
         options: Vec::new(),
         rounds: None,
@@ -443,7 +443,10 @@ async fn on_the_default_flow_reviews_pass_offers_the_delivery_choices() {
 #[tokio::test(flavor = "multi_thread")]
 async fn an_automatic_deliverys_card_is_not_in_group_three() {
     let w = world().await;
-    w.board.use_flow_for_tests("SHOP", &every_kind()).await;
+    // The delivery on its own model (UX-69): its own delivery session writes and opens the PR.
+    let mut file = every_kind();
+    file.flow.delivery.who.model = Some("claude".into());
+    w.board.use_flow_for_tests("SHOP", &file).await;
     // GitHub's built-in Open PR skill: the automatic PR starts (nothing is pushed or called before the proposal).
     let repo = w.board.project("SHOP").await.unwrap().repo_path;
     otaq_core::git::testing::git(
@@ -475,7 +478,7 @@ async fn an_automatic_deliverys_card_is_not_in_group_three() {
         w.sessions
             .running_of(&t.id, SessionKind::Delivery)
             .is_some(),
-        "Shipper's delivery session"
+        "the delivery's own session"
     );
     let items = w.board.needs_you_items(i64::MAX / 2).await.unwrap();
     assert!(items.iter().all(|i| i.id != t.id), "{items:?}");

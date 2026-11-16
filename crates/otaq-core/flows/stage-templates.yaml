@@ -1,17 +1,8 @@
 # The ready stages Edit flow's + offers between two columns, in the palette's order (Blank stage last). Each is a
 # stage in the flow file's own format, with the one line the palette shows under its name (and its own title when
-# it isn't the stage's name); the agents they name are defined here as a flow file defines them, so a template
-# brings an agent the user doesn't have yet. A skill is named as a flow file names it; none is a tool's built-in
+# it isn't the stage's name). Each stage an agent works or checks runs on `model: default`, the tool of the
+# user's default model when the stage is added (UX-68). A skill is named as a flow file names it; none is a tool's built-in
 # command (Claude Code's `/security-review` isn't a skill).
-agents:
-  - name: Developer
-    model: default
-  - name: Checker
-    model: default
-  - name: Spec writer
-    model: default
-  - name: Architect
-    model: default
 templates:
   - line: "An agent checks for secrets, injection and risky packages"
     stage:
@@ -19,7 +10,7 @@ templates:
       name: Security review
       kind: check
       by: agent
-      agent: Checker
+      model: default
       skill: security-check
       rounds: 2
       description: "Settles whether the change is safe to ship: no secrets, injection or risky packages. Matters for anything touching payments, accounts or user data."
@@ -28,7 +19,7 @@ templates:
       id: update-docs
       name: Update the docs
       kind: agent
-      agent: Developer
+      model: default
       skill: update-docs
       options: [skip]
       description: "Brings the docs in line with what changed: the README, guides and comments people read. Matters when the change alters what users or developers do."
@@ -44,7 +35,7 @@ templates:
       id: product-spec
       name: Product spec
       kind: agent
-      agent: Spec writer
+      model: default
       skill: tuq:product-spec
       options: [skip]
       description: "Settles what to build and how it behaves, with the user, before any code: needed for a new feature or a change to what the product does; a bug fix or a purely technical change has nothing to settle here."
@@ -53,7 +44,7 @@ templates:
       id: tech-spec
       name: Tech spec
       kind: agent
-      agent: Architect
+      model: default
       skill: tuq:tech-spec
       options: [skip]
       description: "Settles how it's built: needed when the change touches several parts or its approach isn't obvious."
@@ -63,4 +54,4 @@ templates:
       id: new-stage
       name: New stage
       kind: agent
-      agent: Developer
+      model: default

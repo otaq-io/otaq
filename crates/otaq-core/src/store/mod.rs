@@ -70,6 +70,9 @@ impl Store {
         };
         migrate(&pool, path, &MIGRATOR, versions::RUNNING_VERSION, marks).await?;
         let store = Self { pool };
+        // The rest of migration 0128, first: the agents the older flows name become each stage's own model, before
+        // the steps below write those flows in today's shape (UX-71). Once: it drops the agents it read.
+        crate::agents::upgrade::move_agents_into_flows(&store).await?;
         // The rest of migration 0085, which SQL can't write: the flows' Delivery stages become their setting. Also
         // when a start cut short left it undone.
         if deliveries_migrate || store.has_setting(DELIVERIES_PENDING).await? {
@@ -80,8 +83,6 @@ impl Store {
         if store.skills_namespaced_at().await?.is_none() {
             store.name_own_skills_in_flows().await?;
         }
-        // The first start: the shipped agents applied, once (AGM-02).
-        crate::agents::shipped::apply_on_first_start(&store).await?;
         Ok(store)
     }
 
@@ -328,7 +329,7 @@ mod tests {
     async fn the_delivery_move_runs_on_the_next_start_when_the_first_was_cut_short() {
         let tmp = tempfile::tempdir().unwrap();
         let db = tmp.path().join("board.db");
-        let old = "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    agent: Developer\n    skill: work-ticket\n  \
+        let old = "flow:\n  - id: build\n    name: Dev\n    kind: agent\n    model: claude\n    skill: work-ticket\n  \
                    - name: Done\n    kind: delivery\n    mode: click\n    delivers: local\n";
         assert!(crate::flow::yaml::upgraded(old).is_some());
         older_database(&db, DELIVERY_SETTING - 1, old).await;

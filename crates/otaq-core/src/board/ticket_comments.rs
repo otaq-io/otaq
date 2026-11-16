@@ -988,7 +988,7 @@ impl Board {
             Option<i64>,
         );
         let row: Option<SessionRow> = sqlx::query_as(
-            "SELECT s.agent_id, s.agent_name, s.tool, r.stage_id, r.round
+            "SELECT s.runs_for, s.agent_name, s.tool, r.stage_id, r.round
              FROM sessions s
              LEFT JOIN stage_runs r ON r.id = (SELECT id FROM stage_runs WHERE session_id = s.id
                                                ORDER BY rowid DESC LIMIT 1)
@@ -1045,7 +1045,7 @@ impl Board {
                 CommentAuthor::Agent { id: Some(id), .. },
             ) => {
                 let mine: Option<Option<String>> =
-                    sqlx::query_scalar("SELECT agent_id FROM sessions WHERE id = ?")
+                    sqlx::query_scalar("SELECT runs_for FROM sessions WHERE id = ?")
                         .bind(session)
                         .fetch_optional(self.store.pool())
                         .await?;

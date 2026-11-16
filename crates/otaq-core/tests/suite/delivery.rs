@@ -888,8 +888,8 @@ async fn an_automatic_pr_opens_with_no_dialog_and_pr_comments_push_to_the_same_p
     w.stop().await;
 }
 
-/// d0108 second gap review rule 6: a PR Delivery whose agent isn't Dev's starts a fresh delivery session in the
-/// ticket's worktree; once the PR is reported, that session ends and the worktree stays until Done.
+/// d0108 second gap review rule 6, UX-69: a PR Delivery that doesn't run as Dev does (here: instructions of its own)
+/// starts a fresh delivery session in the ticket's worktree; once the PR is reported, that session ends and the worktree stays until Done.
 #[tokio::test(flavor = "multi_thread")]
 async fn another_agent_delivers_in_a_fresh_session() {
     use otaq_core::board::settings::WorkflowStep;
@@ -908,7 +908,7 @@ async fn another_agent_delivers_in_a_fresh_session() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.who.instructions = Some("Write it for the reviewers.".into());
         })
         .await;
     let t = working(&w, "Login redirect", "login.ts").await;
@@ -966,7 +966,7 @@ async fn retry_and_the_click_reach_the_deliverys_own_agent() {
     let folder = otaq_core::skills::testing::skill_folder(w.data.root(), "my-pr");
     w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     let shipper = |file: &mut otaq_core::flow::FlowFile| {
-        file.flow.delivery.agent = Some("Checker".into());
+        file.flow.delivery.who.instructions = Some("Write it for the reviewers.".into());
     };
     w.board
         .edit_flow_for_tests("SHOP", |file| {
@@ -1063,7 +1063,7 @@ async fn pushing_can_be_cancelled_and_a_late_pr_is_still_recorded() {
     w.use_step_skill(WorkflowStep::OpenPr, &folder).await;
     w.board
         .edit_flow_for_tests("SHOP", |file| {
-            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.who.instructions = Some("Write it for the reviewers.".into());
             file.flow.delivery.mode = otaq_core::flow::DeliveryMode::Click;
             file.flow.delivery.delivers = otaq_core::flow::Delivers::Pr;
         })
@@ -1221,7 +1221,7 @@ async fn a_leftover_dev_session_ending_leaves_the_delivery_alone() {
     w.board
         .edit_flow_for_tests("SHOP", |file| {
             automatic_pr_delivery(file);
-            file.flow.delivery.agent = Some("Checker".into());
+            file.flow.delivery.who.instructions = Some("Write it for the reviewers.".into());
         })
         .await;
     let ended = |w: &TestService, session: String| {

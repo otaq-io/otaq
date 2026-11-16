@@ -606,11 +606,13 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
         .execute(w.board.store().pool())
         .await
         .unwrap();
-    // AGM-02: Noyan’s instructions are the Project agent role's agent's own.
-    w.edit_agent("Noyan", |a| {
-        a.instructions = "Split into tickets of about one day.".into();
-    })
-    .await;
+    // UX-74: Noyan has no instructions of its own; the project's notes are what it reads.
+    let mut settings = w.board.project_settings("SHOP").await.unwrap();
+    settings.project_notes = "Split into tickets of about one day.".into();
+    w.board
+        .set_project_settings("SHOP", &settings)
+        .await
+        .unwrap();
     let (_, shell) = open(&w).await;
     let answer = send(
         &w,
@@ -644,7 +646,9 @@ async fn prime_project_prints_every_ticket_worktrees_and_the_instructions() {
     );
     assert!(text.contains(BACKLOG_ONLY), "{text}");
     assert!(
-        text.ends_with("## Noyan’s instructions (Noyan)\n\nSplit into tickets of about one day.\n"),
+        text.ends_with(
+            "## Notes every agent in shop-web gets\n\nSplit into tickets of about one day.\n"
+        ),
         "{text}"
     );
     w.stop().await;

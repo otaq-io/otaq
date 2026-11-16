@@ -1,7 +1,6 @@
 //! Otaq core: domain, SQLite store, scheduler, git and worktrees, sessions, hook handling and the
 //! socket server. Runs as `otaq daemon`. Has no UI dependency, so it is fully testable headless (d0002).
 
-pub mod agent_reads;
 pub mod agent_tools;
 pub mod agents;
 pub mod attention;

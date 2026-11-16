@@ -1,28 +1,22 @@
 //! The ready stages Edit flow offers between two columns: data shipped with the app (`flows/stage-templates.yaml`),
-//! not code. Each template is a stage in the flow file's own format, with its description, agent and skill filled in,
-//! and one line for the palette; the agents its stages name are defined in the same file, so adding a template brings
-//! an agent the user doesn't have yet, as a preset does. Blank stage comes last.
+//! not code. Each template is a stage in the flow file's own format, with its description, model and skill filled in,
+//! and one line for the palette. Blank stage comes last.
 
 use std::sync::LazyLock;
 
-use super::model::{FlowAgent, Stage};
+use super::model::Stage;
 use super::yaml::{self, StageTemplate};
 
 /// The shipped templates file.
 pub const TEMPLATES_YAML: &str = include_str!("../../flows/stage-templates.yaml");
 
-static TEMPLATES: LazyLock<(Vec<FlowAgent>, Vec<StageTemplate>)> = LazyLock::new(|| {
+static TEMPLATES: LazyLock<Vec<StageTemplate>> = LazyLock::new(|| {
     yaml::read_templates(TEMPLATES_YAML).expect("the shipped stage templates read (tested)")
 });
 
 /// Every template, in the palette's order.
 pub fn templates() -> &'static [StageTemplate] {
-    &TEMPLATES.1
-}
-
-/// The agents the templates name, as the file defines them.
-pub fn template_agents() -> &'static [FlowAgent] {
-    &TEMPLATES.0
+    &TEMPLATES
 }
 
 /// A template by its stage's id (`security-review`).
@@ -63,28 +57,24 @@ mod tests {
         );
         for t in templates() {
             assert!(!t.line.is_empty(), "{} has a line", t.title);
-            // Every agent a template names is defined in the file, so it comes with the template.
-            if let Some(agent) = &t.stage.agent {
-                assert!(
-                    template_agents().iter().any(|a| &a.name == agent),
-                    "{} names {agent}",
-                    t.title
-                );
+            // Every stage an agent works or checks says who does it.
+            if t.stage.runs_agent() {
+                assert_eq!(t.stage.model(), Some("default"), "{}", t.title);
             }
         }
     }
 
     #[test]
-    fn each_ready_stage_comes_with_its_description_agent_and_skill() {
+    fn each_ready_stage_comes_with_its_description_model_and_skill() {
         let security = template("security-review").unwrap();
         assert_eq!(security.stage.kind, StageKind::Check { by: CheckBy::Agent });
-        assert_eq!(security.stage.agent.as_deref(), Some("Checker"));
+        assert_eq!(security.stage.model(), Some("default"));
         assert_eq!(security.stage.skill.as_deref(), Some("security-check"));
         assert!(security.stage.description.is_some());
-        // A check by you has no agent and no skill.
+        // A check by you has no model and no skill.
         let design = template("design-review").unwrap();
         assert_eq!(design.stage.kind, StageKind::Check { by: CheckBy::You });
-        assert!(design.stage.agent.is_none() && design.stage.skill.is_none());
+        assert!(design.stage.who.model.is_none() && design.stage.skill.is_none());
         // Blank stage: a name and a kind, nothing else.
         let blank = templates().last().unwrap();
         assert_eq!(blank.stage.name, "New stage");
