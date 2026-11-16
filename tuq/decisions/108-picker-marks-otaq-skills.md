@@ -23,3 +23,8 @@ which skills come with Otaq and which are their own.
 The user asked for a clear sign that a skill is a built-in one from the Otaq organization: today the only hint is a
 plain "Otaq's ·" at the start of the second line. Marking only the `otaq:` skills (tuq with a badge of its own) and
 marking with an icon alone were turned down as less clear for new users.
+
+## Changelog
+
+- 2026-11-16: refined: the picker opens about 360 px wide, each row's description is cut to two lines with the full text on
+  hover (0.3 regression F-D-1: 170 px with 8–9 lines of agent-facing text per row).

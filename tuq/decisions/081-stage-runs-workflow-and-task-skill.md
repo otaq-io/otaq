@@ -2,7 +2,7 @@
 
 - **Date:** 2026-11-14
 - **Status:** Accepted
-- **Related:** 057, 070, 080
+- **Related:** 057, 070, 080, 113
 
 ## Summary
 
@@ -28,3 +28,7 @@ skill, can never break Otaq.
 Today a stage runs one skill that mixes both halves (tuq's Product spec calls `otaq` 20 times), so a tuq change could
 break how Otaq works, and a user's older tuq could call an `otaq` command the way an older app did. Splitting the two
 removes that, and lets people use the same tuq in their own projects.
+
+## Changelog
+
+- 2026-11-16: refined by 113: a check stage gets the two halves too, through the new `otaq:check-ticket`; Otaq's own Validate stage still starts `otaq:validate` alone. 0.3 regression F-U2-2.
