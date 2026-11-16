@@ -1,12 +1,13 @@
 //! Search and filter (UI-02; KEY-09: `/` focuses it; *03 · Board & columns → Search & filter*): one field does
 //! both. Free text matches the key and the title; tokens filter by state (`is:needs-you`, `is:working`, `has:run`,
-//! …), by chain (`dep:SHOP-18`), by the column a ticket is in (`in:review`, `in:backlog`, `in:done`) or by the agent
-//! working its stage (`by:strong`). Everything combines (all must match). Non-matching cards hide; columns show
-//! "shown/total".
+//! …), by chain (`dep:SHOP-18`), by the column a ticket is in (`in:review`, `in:backlog`, `in:done`) or by the tool
+//! its current stage runs on (`by:codex`, `by:claude-code`; UX-65). Everything combines (all must match). Non-matching
+//! cards hide; columns show "shown/total".
 
 use std::collections::HashMap;
 
 use crate::view_models::flow_columns::{Columns, place_set};
+use otaq_core::agent_tools::Tool;
 use otaq_core::agents::facts::BoardAgents;
 use otaq_core::board::tickets::Ticket;
 use otaq_core::domain::StatusSet;
@@ -23,18 +24,19 @@ pub(crate) fn word(name: &str) -> String {
         .to_lowercase()
 }
 
-/// What the stage and agent filters read besides the tickets: the board's columns (Backlog, every stage of the
-/// project's flow, Done), the column each ticket shows in, every agent and the agent working each ticket's stage.
+/// What the stage and tool filters read besides the tickets: the board's columns (Backlog, every stage of the
+/// project's flow, Done), the column each ticket shows in, the tools the cards' stages run on and each ticket's.
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct Scope {
     /// Each column's id and name, left to right.
     pub columns: Vec<(String, String)>,
     /// The column each ticket's card shows in, by id.
     pub spots: HashMap<TicketKey, String>,
-    /// Every agent's name.
-    pub agents: Vec<String>,
-    /// The agent of the stage each ticket is in or waits before: its own choice there, else the stage's.
-    pub stage_agents: HashMap<TicketKey, String>,
+    /// The tools the cards' stages run on, in d0086's order: the ones `by:` suggests.
+    pub tools: Vec<Tool>,
+    /// The tool the stage each ticket is in or waits before runs on (UX-65: every ticket at a stage runs on its
+    /// model).
+    pub stage_tools: HashMap<TicketKey, Tool>,
 }
 
 impl Scope {
@@ -42,20 +44,19 @@ impl Scope {
     pub fn of(flow: &Flow, tickets: &[Ticket], cards: Option<&BoardAgents>) -> Self {
         // Where each card shows, as the board places it: a held ticket in the column of the stage it starts at.
         let columns = Columns::of(flow).knowing(cards);
-        let stage_agents: HashMap<TicketKey, String> = cards
+        let stage_tools: HashMap<TicketKey, Tool> = cards
             .map(|b| {
                 b.cards
                     .iter()
-                    .filter_map(|c| Some((c.key.clone(), c.stage_agent.clone()?)))
+                    .filter_map(|c| Some((c.key.clone(), named_tool(c.stage_agent.as_deref()?)?)))
                     .collect()
             })
             .unwrap_or_default();
-        let mut agents: Vec<String> = Vec::new();
-        for name in stage_agents.values() {
-            if !agents.iter().any(|a| word(a) == word(name)) {
-                agents.push(name.clone());
-            }
-        }
+        let tools = Tool::ALL
+            .iter()
+            .copied()
+            .filter(|t| stage_tools.values().any(|s| s == t))
+            .collect();
         Self {
             columns: columns
                 .iter()
@@ -65,8 +66,8 @@ impl Scope {
                 .iter()
                 .map(|t| (t.key.clone(), columns.spot(t).to_owned()))
                 .collect(),
-            agents,
-            stage_agents,
+            tools,
+            stage_tools,
         }
     }
 
@@ -86,15 +87,30 @@ impl Scope {
             .find(|(c, _)| c == id)
             .map(|(_, name)| name.as_str())
     }
+}
 
-    /// The agent `value` names, ignoring case.
-    fn agent(&self, value: &str) -> Option<&str> {
-        let value = word(value);
-        self.agents
+/// The tool a card's stage runs on, from its name as the board's facts give it ("Claude Code").
+fn named_tool(name: &str) -> Option<Tool> {
+    Tool::ALL
+        .iter()
+        .copied()
+        .find(|t| t.display_name().eq_ignore_ascii_case(name))
+}
+
+/// The tool `value` names, ignoring case: by its name (`claude-code`, `github-copilot`), its short name (`claude`,
+/// `copilot`) or its command (`opencode`). Every tool reads, whether a card runs on it or not.
+fn tool_named(value: &str) -> Option<Tool> {
+    let value = word(value);
+    Tool::ALL.iter().copied().find(|t| {
+        [t.display_name(), t.short_name(), t.as_str(), tool_word(*t)]
             .iter()
-            .find(|a| word(a) == value)
-            .map(String::as_str)
-    }
+            .any(|n| word(n) == value)
+    })
+}
+
+/// The tool's filter word: `by:claude-code`, `by:codex`, `by:copilot`, `by:opencode` (the name its cards show).
+fn tool_word(tool: Tool) -> &'static str {
+    crate::view_models::tool_problems::tool_word(tool)
 }
 
 /// A state filter.
@@ -207,14 +223,14 @@ pub enum Token {
         column: String,
         name: String,
     },
-    /// The agent working the ticket's stage (`by:strong`), its name as a filter word.
-    By(String),
+    /// The tool the ticket's current stage runs on (`by:codex`).
+    By(Tool),
 }
 
 impl Token {
-    /// Reads `is:needs-you`, `has:run`, `dep:SHOP-18`, `in:review`, `by:strong`. The old `is:needs-me` still reads as
-    /// `is:needs-you`, and `is:running` (agents only, d0093) as `is:working`. A stage or agent `scope` doesn't have
-    /// reads as nothing, like any unknown filter: it stays typed text.
+    /// Reads `is:needs-you`, `has:run`, `dep:SHOP-18`, `in:review`, `by:codex`. The old `is:needs-me` still reads as
+    /// `is:needs-you`, and `is:running` (agents only, d0093) as `is:working`. A stage `scope` doesn't have, or a word
+    /// that names no tool, reads as nothing, like any unknown filter: it stays typed text.
     pub fn parse(text: &str, scope: &Scope) -> Option<Self> {
         let (kind, value) = text.split_once(':')?;
         match kind.to_lowercase().as_str() {
@@ -224,7 +240,7 @@ impl Token {
                     name: word(name),
                 });
             }
-            "by" => return scope.agent(value).map(|name| Self::By(word(name))),
+            "by" => return tool_named(value).map(Self::By),
             _ => {}
         }
         let (kind, value) = (kind.to_lowercase(), value.to_lowercase());
@@ -248,7 +264,7 @@ impl Token {
             Self::Is(i) => format!("{}:{}", i.kind(), i.name()),
             Self::Dep(k) => format!("dep:{k}"),
             Self::In { name, .. } => format!("in:{name}"),
-            Self::By(name) => format!("by:{name}"),
+            Self::By(tool) => format!("by:{}", word(tool_word(*tool))),
         }
     }
 
@@ -257,10 +273,7 @@ impl Token {
             Self::Is(i) => i.matches(t),
             Self::Dep(k) => chain(k, all).is_some_and(|c| c.members.contains(&t.key)),
             Self::In { column, .. } => scope.spots.get(&t.key) == Some(column),
-            Self::By(name) => scope
-                .stage_agents
-                .get(&t.key)
-                .is_some_and(|a| word(a) == *name),
+            Self::By(tool) => scope.stage_tools.get(&t.key) == Some(tool),
         }
     }
 }
@@ -277,7 +290,7 @@ impl Filter {
     }
 
     /// Takes the field's text: complete tokens (followed by a space) become chips, the rest stays text. `scope`
-    /// says which stages and agents `in:` and `by:` know.
+    /// says which stages `in:` knows.
     pub fn take_input(&mut self, input: &str, scope: &Scope) -> String {
         let ends_with_space = input.ends_with(' ');
         let words: Vec<&str> = input.split_whitespace().collect();
@@ -335,7 +348,8 @@ impl Filter {
     }
 
     /// The suggestions under the field: every state filter and the selected ticket's chain, with how many cards
-    /// each would show; once something is typed, also every column (`in:`) and agent (`by:`) it starts.
+    /// each would show; once something is typed, also every column (`in:`) and every tool a card's stage runs on
+    /// (`by:`) it starts.
     pub fn suggestions(
         &self,
         all: &[Ticket],
@@ -361,9 +375,9 @@ impl Filter {
             }));
             out.extend(
                 scope
-                    .agents
+                    .tools
                     .iter()
-                    .map(|name| (Token::By(word(name)), format!("worked by {name}"))),
+                    .map(|tool| (Token::By(*tool), format!("runs on {}", tool.display_name()))),
             );
         }
         out.into_iter()

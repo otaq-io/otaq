@@ -302,7 +302,7 @@ pub struct HistoryRow {
     pub tool_session_id: Option<String>,
     /// A session's start: it comes before an event at the same moment.
     pub is_session: bool,
-    /// A session row's session id (its title names the agent, [`with_agents`]).
+    /// A session row's session id (its title names the tool and model, [`with_agents`]).
     pub session: Option<String>,
     /// Who: you, the agent (its tool avatar), or Otaq.
     pub mark: Mark,
@@ -312,8 +312,8 @@ pub struct HistoryRow {
     pub hook_changes: Option<HookChangesView>,
     /// Activity's filter it shows under.
     pub kind: Kind,
-    /// An agent session's start: its quiet row's words, "Session · Dev · Strong" ([`one_row_per_session`] makes it
-    /// that row).
+    /// An agent session's start: its quiet row's words, "Session · Dev · Claude Code · opus" ([`one_row_per_session`]
+    /// makes it that row).
     pub quiet: Option<String>,
     /// An agent session's quiet row: when the session ended (`None` while it runs).
     pub ended: Option<i64>,
@@ -527,20 +527,17 @@ fn session_rows(s: &SessionInfo, usage: &[SessionUsage], facts: &Facts) -> Vec<H
         // The Run's and the Shell's sessions aren't an agent's work.
         false => Kind::Other,
     };
-    // Its quiet row's words until the named agents name it ([`with_agents`]): "Session · Checker", "Session · Spec
-    // writer".
+    // Its quiet row's words until the stage lines name it ([`with_agents`]): "Session · Claude Code" by its tool
+    // (UX-65), else "Session · Checker", "Session · Agent".
     let quiet = agent.then(|| {
-        let who = s.agent.as_ref().map_or(
-            match s.kind {
-                SessionKind::Validator => "Checker",
-                SessionKind::Helper => "Helper",
-                SessionKind::Answer => "Answer",
-                SessionKind::Delivery => "PR",
-                SessionKind::ProjectAgent => "Noyan",
-                _ => "Agent",
-            },
-            |a| a.name.as_str(),
-        );
+        let who = s.tool.map(tool_word).unwrap_or(match s.kind {
+            SessionKind::Validator => "Checker",
+            SessionKind::Helper => "Helper",
+            SessionKind::Answer => "Answer",
+            SessionKind::Delivery => "PR",
+            SessionKind::ProjectAgent => "Noyan",
+            _ => "Agent",
+        });
         format!("Session \u{b7} {who}")
     });
     let start = HistoryRow {
@@ -1906,10 +1903,10 @@ fn event_mark(e: &HistoryEvent, facts: &Facts) -> Mark {
     }
 }
 
-/// The named agents in Activity (AGT-05, d0086; Q432): each session's start reads "Product spec started · Spec writer"
-/// over "Claude Code · claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when it moved on, and the swap note
-/// after it), its end "Product spec finished · Spec writer" with its duration and tokens, and a Done ticket's agents
-/// are lines of their own, newest first like the rest.
+/// The sessions in Activity by stage, tool and model (AGT-05, d0086; Q432; UX-65): each session's start reads
+/// "Product spec started · Claude Code · sonnet" over "claude-sonnet-5-6" (with "(Sonnet → claude-sonnet-5-6)" when
+/// it moved on, and the swap note after it), its end "Product spec finished · Claude Code · sonnet" with its duration
+/// and tokens, and a Done ticket's sessions are lines of their own, newest first like the rest.
 pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<HistoryRow> {
     for line in lines {
         match line {
@@ -1964,9 +1961,9 @@ pub fn with_agents(mut rows: Vec<HistoryRow>, lines: &[HistoryLine]) -> Vec<Hist
     rows
 }
 
-/// History keeps one quiet row per agent session: its start becomes "Session · Dev · Strong" with its tool session
-/// id (copyable, for resuming it by hand) and its times, the duration and tokens its end carried; the end's own row
-/// goes. The Shell's and the Run's rows, and every event, stay as they are.
+/// History keeps one quiet row per agent session: its start becomes "Session · Dev · Claude Code · opus" with its tool
+/// session id (copyable, for resuming it by hand) and its times, the duration and tokens its end carried; the end's
+/// own row goes. The Shell's and the Run's rows, and every event, stay as they are.
 pub fn one_row_per_session(rows: Vec<HistoryRow>) -> Vec<HistoryRow> {
     let ends: BTreeMap<String, HistoryRow> = rows
         .iter()
@@ -3490,11 +3487,11 @@ mod tests {
             base,
             &[HistoryLine::Session {
                 session: "g".into(),
-                started: "Product spec started \u{b7} Spec writer".into(),
-                detail: "Claude Code \u{b7} sonnet".into(),
+                started: "Product spec started \u{b7} Claude Code \u{b7} sonnet".into(),
+                detail: "claude-sonnet-5-5".into(),
                 note: None,
-                ended: "Product spec finished \u{b7} Spec writer".into(),
-                quiet: "Session \u{b7} Product spec \u{b7} Spec writer".into(),
+                ended: "Product spec finished \u{b7} Claude Code \u{b7} sonnet".into(),
+                quiet: "Session \u{b7} Product spec \u{b7} Claude Code \u{b7} sonnet".into(),
             }],
         ));
         // History keeps one quiet row per agent session, with its id, its times and its tokens; the Shell's stays.
@@ -3507,7 +3504,10 @@ mod tests {
             quiet,
             [
                 ("You created the ticket", false),
-                ("Session \u{b7} Product spec \u{b7} Spec writer", true),
+                (
+                    "Session \u{b7} Product spec \u{b7} Claude Code \u{b7} sonnet",
+                    true
+                ),
                 ("Terminal", false),
             ]
         );
@@ -3524,19 +3524,20 @@ mod tests {
             read,
             [
                 ("You created the ticket", Mark::You, None),
-                ("Product spec started \u{b7} Spec writer", Mark::Agent, None),
+                (
+                    "Product spec started \u{b7} Claude Code \u{b7} sonnet",
+                    Mark::Agent,
+                    None
+                ),
                 ("Terminal", Mark::You, None),
                 (
-                    "Product spec finished \u{b7} Spec writer",
+                    "Product spec finished \u{b7} Claude Code \u{b7} sonnet",
                     Mark::Agent,
                     Some("\u{b7} 18 min \u{b7} 64k tokens".to_owned())
                 ),
             ]
         );
-        assert_eq!(
-            named[1].detail.as_deref(),
-            Some("Claude Code \u{b7} sonnet")
-        );
+        assert_eq!(named[1].detail.as_deref(), Some("claude-sonnet-5-5"));
         assert_eq!(named[1].tool_session_id.as_deref(), Some("3be94c10-g"));
         assert_eq!(named[3].detail.as_deref(), Some("exited"));
         // With avatars on, the agent's rows show its tool.
@@ -3595,11 +3596,11 @@ mod tests {
             rows_in(&events, &[spec, dev, shell], &[], &Facts::default()),
             &[HistoryLine::Session {
                 session: "g".into(),
-                started: "Product spec started \u{b7} Spec writer".into(),
-                detail: "Claude Code".into(),
+                started: "Product spec started \u{b7} Claude Code \u{b7} sonnet".into(),
+                detail: "default".into(),
                 note: None,
-                ended: "Product spec finished \u{b7} Spec writer".into(),
-                quiet: "Session \u{b7} Product spec \u{b7} Spec writer".into(),
+                ended: "Product spec finished \u{b7} Claude Code \u{b7} sonnet".into(),
+                quiet: "Session \u{b7} Product spec \u{b7} Claude Code \u{b7} sonnet".into(),
             }],
         );
         let titles: Vec<_> = oldest_first(one_row_per_session(rows))
@@ -3610,9 +3611,10 @@ mod tests {
             titles,
             [
                 "You created the ticket",
-                "Session \u{b7} Product spec \u{b7} Spec writer \u{b7} tuq 2026.11.12",
+                "Session \u{b7} Product spec \u{b7} Claude Code \u{b7} sonnet \u{b7} tuq 2026.11.12",
                 "Terminal",
-                "Session \u{b7} Agent",
+                // A session no stage line names reads by its tool (UX-65).
+                "Session \u{b7} Claude Code",
             ]
         );
     }

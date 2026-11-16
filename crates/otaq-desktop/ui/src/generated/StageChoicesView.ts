@@ -6,7 +6,7 @@ import type { StageChoiceRow } from "./StageChoiceRow";
  */
 export type StageChoicesView = { heading: string, 
 /**
- * The form's words beside the heading: "optional · another agent, or skip where the flow allows".
+ * The form's words beside the heading: "optional · skip where the flow allows" (a ticket picks no model, UX-65).
  */
 hint: string | null, 
 /**

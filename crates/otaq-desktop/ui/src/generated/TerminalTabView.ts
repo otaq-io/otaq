@@ -54,7 +54,7 @@ background: string | null,
  */
 narrow_below: number, ended: TerminalEndMarker | null, recovery: TerminalTabRecovery | null, 
 /**
- * "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22": the agent session's, once there is one.
+ * "Claude Code · opus · high": the tool, model and effort the agent session runs on (UX-65), once there is one.
  */
 line: string | null, 
 /**

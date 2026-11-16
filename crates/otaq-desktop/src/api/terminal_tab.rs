@@ -143,7 +143,7 @@ pub struct Check {
     pub agent: Option<String>,
     /// The terminal's accessible name: "SHOP-19 · Security reviewer terminal".
     pub terminal_label: String,
-    /// "Security reviewer · Claude Code · sonnet · ~/.otaq/wt/shop-web/SHOP-19".
+    /// "Claude Code · sonnet · high": the tool, model and effort it runs on (UX-65).
     pub line: String,
     /// "Typing goes to Security reviewer · SHOP-19" (or "Click to type to …") while it runs.
     pub typing: Option<session_tab::Typing>,
@@ -189,7 +189,7 @@ pub struct View {
     pub narrow_below: f32,
     pub ended: Option<EndMarker>,
     pub recovery: Option<Recovery>,
-    /// "Rust developer · Codex · gpt-5.5 · ~/.otaq/wt/shop-web/SHOP-22": the agent session's, once there is one.
+    /// "Claude Code · opus · high": the tool, model and effort the agent session runs on (UX-65), once there is one.
     pub line: Option<String>,
     /// "Typing goes to Rust developer · SHOP-22" (or "Click to type to …") while its session runs.
     pub typing: Option<session_tab::Typing>,
@@ -238,7 +238,12 @@ pub fn check_of(
         label: side.label(),
         agent: side.several.then(|| side.agent.clone()),
         terminal_label: format!("{} \u{b7} {} terminal", ticket.key, side.agent),
-        line: session_tab::agent_line(&side.agent, session.tool, chosen_model(session)),
+        line: session_tab::agent_line(
+            &side.agent,
+            session.tool,
+            chosen_model(session),
+            session.effort.as_deref(),
+        ),
         typing: side
             .running
             .then(|| session_tab::typing_goes_to(&side.agent, &ticket.key)),
@@ -434,7 +439,7 @@ pub fn view_with(
         ended,
         recovery: recovering.then(|| recovery_of(ticket, session.and_then(|s| s.tool), before)),
         line: session.zip(agent.as_deref()).map(|(s, agent)| {
-            session_tab::agent_line(agent, s.tool, chosen_model(s))
+            session_tab::agent_line(agent, s.tool, chosen_model(s), s.effort.as_deref())
         }),
         typing: agent
             .filter(|_| running && !recovering)
@@ -857,6 +862,27 @@ mod tests {
         assert_eq!(view.background, None);
     }
 
+    /// UX-65: the line over the agent's terminal names the tool, the model and the effort the stage chose
+    /// ("Claude Code · opus · high"), and typing goes to the tool by name.
+    #[test]
+    fn the_line_names_the_tool_model_and_effort() {
+        let mut s = session("s1", SessionState::Running, 0);
+        s.tool = Some(otaq_core::agent_tools::Tool::Claude);
+        s.model = Some("opus".into());
+        s.model_ran = Some("claude-opus-5-5".into());
+        s.effort = Some("high".into());
+        s.agent = Some(otaq_core::session::SessionAgent {
+            runs_for: "stage/SHOP/dev".into(),
+            name: "Claude Code".into(),
+        });
+        let view = view_of(&ticket(Status::Working), &[s], &[], "shop-web", None);
+        assert_eq!(view.line.as_deref(), Some("Claude Code \u{b7} opus \u{b7} high"));
+        assert_eq!(
+            view.typing.unwrap().focused,
+            "Typing goes to Claude Code \u{b7} SHOP-19"
+        );
+    }
+
     /// Re-test 6: a Codex prompt in a session of a ticket in Review left its header "Live". Any prompt drawn in the
     /// session reads "Waiting for you", whatever the ticket shows (the message writer's in a calm Review too); once it
     /// is answered the header is "Live" again.
@@ -1083,10 +1109,8 @@ mod tests {
         assert_eq!(v.session, "v1");
         assert_eq!(v.label, "Validator");
         assert_eq!(v.terminal_label, "SHOP-19 \u{b7} Validator terminal");
-        assert_eq!(
-            v.line,
-            "Validator \u{b7} Codex \u{b7} gpt-5.5"
-        );
+        // UX-65: the line names the tool and model, not the agent an older session ran as.
+        assert_eq!(v.line, "Codex \u{b7} gpt-5.5");
         assert_eq!(
             v.typing.as_ref().map(|t| t.focused.as_str()),
             Some("Typing goes to Validator \u{b7} SHOP-19")
@@ -1165,7 +1189,7 @@ mod tests {
             view.checks[1].typing.as_ref().map(|t| t.focused.as_str()),
             Some("Typing goes to Performance reviewer \u{b7} SHOP-19")
         );
-        assert!(view.checks[0].line.starts_with("Security reviewer \u{b7} Claude Code"));
+        assert!(view.checks[0].line.starts_with("Claude Code"));
     }
 
     #[test]
