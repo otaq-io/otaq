@@ -894,6 +894,11 @@ impl Validation {
                 }
             }
             Signal::Idle { .. } | Signal::TurnEnded if validating(ticket.status) => {
+                // `check-ticket`'s first turn: the stage's task skill is typed next (the service types it after this),
+                // so no verdict yet is no missing verdict (decision 113).
+                if board.task_skill_queued(session).await? {
+                    return Ok(());
+                }
                 // No verdict this turn.
                 if let Some(head) = head
                     && board.worktree_changed(&ticket, &head).await?
@@ -1393,11 +1398,11 @@ impl Validation {
         row: Option<&str>,
         agent: &crate::agents::Agent,
         runs_on: RunsOn,
-        first_prompt: Option<FirstPrompt>,
+        prompt: CheckPrompt,
         start: Start,
     ) -> Result<ValidatorStart, BoardError> {
         match self
-            .launch_validator(ticket, runs_on, row, first_prompt, start)
+            .launch_validator(ticket, runs_on, row, prompt, start)
             .await
         {
             Ok(session) => Ok(ValidatorStart::Started(Box::new(session))),
@@ -1432,10 +1437,11 @@ impl Validation {
             })
     }
 
-    /// A checker's first prompt: the check's own skill (Q261) by its name, the stage's
-    /// `skill:` else Otaq's `validate`. Nothing is written into the worktree, so the round's recorded head and tracked
-    /// files stay as they were (VAL-02).
-    async fn check_prompt(&self, ticket: &Ticket) -> Result<Option<FirstPrompt>, BoardError> {
+    /// A checker's first prompt: the check's own skill (Q261) by its name when it is Otaq's (the stage's `skill:`, else
+    /// Otaq's `validate`, which starts alone); any other (the user's `team-validate`, a `tuq:` one) is the stage's task
+    /// skill, typed after Otaq's `check-ticket` once that first turn ends (decision 113). Nothing is written into the
+    /// worktree, so the round's recorded head and tracked files stay as they were (VAL-02).
+    async fn check_prompt(&self, ticket: &Ticket) -> Result<CheckPrompt, BoardError> {
         let board = &self.inner.board;
         Self::worktree_of(ticket)?;
         let flow = board.effective_flow(ticket.key.project.as_str()).await?;
@@ -1447,10 +1453,18 @@ impl Validation {
                     .own_skill()
                     .to_owned()
             });
-        Ok(Some(FirstPrompt::Skill {
-            name: skill,
-            message: None,
-        }))
+        let task = crate::skills::task_skill(Some(&skill)).map(str::to_owned);
+        let name = match task {
+            Some(_) => crate::agent_tools::CHECK_TICKET_SKILL.to_owned(),
+            None => skill,
+        };
+        Ok(CheckPrompt {
+            first: FirstPrompt::Skill {
+                name,
+                message: None,
+            },
+            task,
+        })
     }
 
     async fn launch_validator(
@@ -1458,7 +1472,7 @@ impl Validation {
         ticket: &Ticket,
         runs_on: RunsOn,
         row: Option<&str>,
-        first_prompt: Option<FirstPrompt>,
+        prompt: CheckPrompt,
         start: Start,
     ) -> Result<SessionInfo, BoardError> {
         let inner = &self.inner;
@@ -1473,7 +1487,7 @@ impl Validation {
                 project: ticket.key.project.to_string(),
                 ticket: Some(ticket.key.clone()),
                 port: 0,
-                first_prompt,
+                first_prompt: Some(prompt.first),
                 resume: None,
                 model: runs_on.model,
                 effort: runs_on.effort.clone(),
@@ -1482,9 +1496,14 @@ impl Validation {
             },
         )?;
         let project = board.project(ticket.key.project.as_str()).await?;
-        let session = inner
-            .sessions
-            .prepared(launched.prepare)
+        let mut prepared = inner.sessions.prepared(launched.prepare);
+        // The task skill waits from the session's first instant: a first turn that ends before it is stored would end
+        // the check with no result.
+        if let Some(task) = &prompt.task {
+            let adapter = inner.adapters.of_session(Some(launched.tool));
+            prepared = prepared.with_task_skill(adapter.skill_prompt(task));
+        }
+        let session = prepared
             .spawn(SpawnSpec {
                 kind: SessionKind::Validator,
                 start,
@@ -1511,6 +1530,11 @@ impl Validation {
         board
             .validator_started(&ticket.id, row, &session.id)
             .await?;
+        if prompt.task.is_some()
+            && let Err(e) = inner.deliveries.task_skill_stored(&session.id).await
+        {
+            tracing::warn!(key = %ticket.key, error = %e, "can't take on the check's task skill");
+        }
         tracing::info!(key = %ticket.key, session = %session.id, "validator started");
         Ok(session)
     }
@@ -1531,6 +1555,12 @@ impl Validation {
         }
         Ok(started)
     }
+}
+
+/// A checker's start: its first prompt, and the stage's task skill typed once its first turn ended (decision 113).
+struct CheckPrompt {
+    first: FirstPrompt,
+    task: Option<String>,
 }
 
 /// What the agent gets on Give it another round or Answer the agent: the user's note first, then the findings.

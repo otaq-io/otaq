@@ -288,6 +288,29 @@ impl Deliveries {
         self.deliver_if_ready(session).await.map(|_| ())
     }
 
+    /// The task skill stored with `session`'s row before its program started
+    /// ([`crate::session::Prepared::with_task_skill`], a checker's, decision 113), taken on as
+    /// [`Self::queue_task_skill`] takes one: watched for its run's end, its count told, typed once the session is ready.
+    pub async fn task_skill_stored(&self, session: &str) -> Result<(), SessionError> {
+        let ids: Vec<String> = sqlx::query_scalar(
+            "SELECT id FROM pending_deliveries WHERE session_id = ? AND kind = ?",
+        )
+        .bind(session)
+        .bind(DeliveryKind::TaskSkill.as_str())
+        .fetch_all(self.store.pool())
+        .await
+        .map_err(store_error)?;
+        {
+            let mut queued = self.task_skills.lock().expect("task skills");
+            for id in ids {
+                queued.insert(id, session.to_owned());
+            }
+        }
+        self.publish_waiting(session).await?;
+        self.not_for_an_ended(session).await?;
+        self.deliver_if_ready(session).await.map(|_| ())
+    }
+
     /// A ticket changed (a stage's run may have ended, removing its task skill): each session whose queued task skill
     /// is gone is told its waiting count again, so no "1 message waiting" stays behind.
     async fn task_skills_removed(&self) -> Result<(), SessionError> {
