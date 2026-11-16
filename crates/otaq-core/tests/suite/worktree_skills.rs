@@ -292,7 +292,8 @@ fn installer_runs(home: &Path) -> Vec<String> {
         .collect()
 }
 
-/// The ticket's notes about tuq ([`otaq_core::tuq::Updated::text`]), oldest first.
+/// The ticket's notes about tuq ([`otaq_core::tuq::Updated::text`], [`otaq_core::tuq::Missing::text`]), oldest
+/// first.
 async fn tuq_notes(w: &TestService, t: &Ticket) -> Vec<String> {
     let mut notes: Vec<String> = w
         .board
@@ -302,7 +303,7 @@ async fn tuq_notes(w: &TestService, t: &Ticket) -> Vec<String> {
         .into_iter()
         .filter(|e| {
             e.kind == otaq_core::board::tickets::EventKind::StartNote
-                && e.payload["note"] == "tuq_updated"
+                && (e.payload["note"] == "tuq_updated" || e.payload["note"] == "tuq_missing")
         })
         .map(|e| e.payload["message"].as_str().unwrap().to_owned())
         .collect();
@@ -396,6 +397,42 @@ async fn an_older_tuq_lacking_the_skill_is_updated_then_runs() {
     w.stop().await;
 }
 
+/// tuq's installer running fine but installing a tuq without the stage's skill: the stage holds as for a failing
+/// install, and History says no tuq release has the skill yet, not that the install failed (F-E1-1).
+#[cfg(unix)]
+#[tokio::test(flavor = "multi_thread")]
+async fn a_tuq_release_without_the_skill_holds_and_history_says_so() {
+    let World { w, home, _dir } = world().await;
+    w.board.tuq().set_installer(Some(tuq_installer(
+        _dir.path(),
+        &home,
+        "2026.11.14",
+        &["step-back"],
+    )));
+    w.board.use_flow_for_tests("SHOP", &every_kind_file()).await;
+    let t = w.create("SHOP", "Coupon codes").await;
+    let key = t.key.to_string();
+    w.board
+        .move_ticket(&key, DropTarget::ReadyForDev, true, &me())
+        .await
+        .unwrap();
+    let outcome = w
+        .starter
+        .start(&key, &me(), otaq_core::session::Start::Auto)
+        .await
+        .unwrap();
+    assert!(
+        matches!(&outcome, otaq_core::start::StartOutcome::Held { .. }),
+        "{outcome:?}"
+    );
+    assert_eq!(installer_runs(&home).len(), 1);
+    assert_eq!(
+        tuq_notes(&w, &t).await,
+        ["No tuq release has tuq:product-spec yet: Claude Code has tuq 2026.11.14, the latest"]
+    );
+    w.stop().await;
+}
+
 /// tuq's installer failing (offline): the stage holds in Needs you, "Your tuq doesn't have `tuq:product-spec`"
 /// (decision 083), and nothing starts. The installer isn't run again on its own; Check again runs it again, and once
 /// it installs tuq the stage starts.
@@ -450,11 +487,21 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     assert_eq!(task_skills, 0);
     assert_eq!(needs_you_line(&w, &t).await.as_deref(), Some(text));
     assert_eq!(installer_runs(&home).len(), 1);
+    // History says why: the installer failed, with its reason cut to one short line (F-E1-1).
+    let notes = tuq_notes(&w, &t).await;
+    assert_eq!(notes.len(), 1, "{notes:?}");
+    let failed = format!(
+        "{} couldn't install tuq on Claude Code: tuq's installer failed: tuq install: couldn't download",
+        otaq_core::naming::PRODUCT_NAME
+    );
+    assert!(notes[0].starts_with(&failed), "{notes:?}");
+    assert!(notes[0].ends_with('\u{2026}'), "{notes:?}");
 
-    // Check again runs the installer again; still offline, still held.
+    // Check again runs the installer again; still offline, still held, and History doesn't say it twice.
     assert!(!w.gate.check_again(&t.id).await.unwrap());
     assert_eq!(installer_runs(&home).len(), 2);
     assert_eq!(w.status(&key).await, Status::Held);
+    assert_eq!(tuq_notes(&w, &t).await, notes);
 
     // Back online: Check again installs tuq and the stage starts with it.
     w.board.tuq().set_installer(Some(tuq_installer(
@@ -466,7 +513,10 @@ async fn a_failing_tuq_install_holds_the_stage_until_check_again() {
     w.gate.check_again(&t.id).await.unwrap();
     assert_eq!(installer_runs(&home).len(), 3);
     assert_eq!(hold_of(&w, &t, SessionRole::Developer).await, None);
-    assert_eq!(tuq_notes(&w, &t).await, ["tuq 2026.11.14 installed"]);
+    assert_eq!(
+        tuq_notes(&w, &t).await,
+        [notes[0].clone(), "tuq 2026.11.14 installed".to_owned()]
+    );
     let _ = w
         .starter
         .start(&key, &me(), otaq_core::session::Start::Auto)

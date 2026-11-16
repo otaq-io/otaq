@@ -21,6 +21,11 @@ use crate::board::settings::same_env_name;
 use crate::skills::found::{self, FoundSkill, Homes, PROJECT, ProjectFolders};
 use crate::tools::Os;
 
+/// The History note of tuq installed or updated for a ticket ([`crate::tuq::Updated`]).
+const TUQ_UPDATED: &str = "tuq_updated";
+/// The History note of tuq's installer leaving a ticket's stage without its skill ([`crate::tuq::Missing`]).
+const TUQ_MISSING: &str = "tuq_missing";
+
 impl Board {
     /// Every skill the user already has for `project` plus Otaq's own, read only, each with the tools that have it
     /// for the project's tickets ([`found::list_in`]): its project skills count when committed at the project's base.
@@ -125,8 +130,11 @@ impl Board {
                 true
             }
             crate::tuq::Tuq::Ready { .. } => true,
-            crate::tuq::Tuq::Missing { reason } => {
+            crate::tuq::Tuq::Missing { reason, note } => {
                 tracing::info!(key = %ticket.key, %tool, skill, reason, "the tool's tuq doesn't have the skill");
+                if let Some(missing) = note {
+                    self.note_tuq_missing(ticket, &missing).await;
+                }
                 false
             }
         }
@@ -139,12 +147,58 @@ impl Board {
         updated: &crate::tuq::Updated,
     ) {
         let payload = serde_json::json!({
-            "note": "tuq_updated",
+            "note": TUQ_UPDATED,
             "message": updated.text(),
             "tool": updated.tool.as_str(),
             "from": updated.from,
             "to": updated.to,
         });
+        self.note_tuq(ticket, payload).await;
+    }
+
+    /// The ticket's History line for tuq's installer that just ran and left the stage's tool without its skill, and
+    /// why (F-E1-1): it failed, or no tuq release has the skill. Not written again while the ticket's last tuq note
+    /// already says the same, so a held stage checked again doesn't fill its History.
+    async fn note_tuq_missing(
+        &self,
+        ticket: &super::tickets::Ticket,
+        missing: &crate::tuq::Missing,
+    ) {
+        let message = missing.text();
+        let last: Option<(Option<String>, Option<String>)> = sqlx::query_as(
+            "SELECT json_extract(payload_json, '$.note'), json_extract(payload_json, '$.message') FROM events
+             WHERE ticket_id = ? AND kind = ? AND json_extract(payload_json, '$.note') IN (?, ?)
+             ORDER BY at DESC, rowid DESC LIMIT 1",
+        )
+        .bind(&ticket.id)
+        .bind(super::tickets::EventKind::StartNote.as_str())
+        .bind(TUQ_UPDATED)
+        .bind(TUQ_MISSING)
+        .fetch_optional(self.store().pool())
+        .await
+        .unwrap_or_else(|e| {
+            tracing::debug!(key = %ticket.key, error = %e, "the ticket's last tuq note isn't known");
+            None
+        });
+        if last.is_some_and(|(note, said)| {
+            note.as_deref() == Some(TUQ_MISSING) && said.as_deref() == Some(&message)
+        }) {
+            return;
+        }
+        let tool = match missing {
+            crate::tuq::Missing::Failed { tool, .. }
+            | crate::tuq::Missing::NoRelease { tool, .. } => tool,
+        };
+        let payload = serde_json::json!({
+            "note": TUQ_MISSING,
+            "message": message,
+            "tool": tool.as_str(),
+        });
+        self.note_tuq(ticket, payload).await;
+    }
+
+    /// Writes a tuq note (`payload`) in the ticket's History, as Otaq's row.
+    async fn note_tuq(&self, ticket: &super::tickets::Ticket, payload: serde_json::Value) {
         let result = async {
             let mut tx = self.store().begin_write().await?;
             super::tickets::record_event(
@@ -160,7 +214,7 @@ impl Board {
         }
         .await;
         if let Err(e) = result {
-            tracing::warn!(key = %ticket.key, error = %e, "can't record tuq's update in the ticket's History");
+            tracing::warn!(key = %ticket.key, error = %e, "can't record tuq's note in the ticket's History");
         }
     }
 

@@ -18,7 +18,9 @@
 //!   <tool>` from tuq's published repository, decision 106), one install at a time, and the tool's tuq is asked
 //!   again. The ticket's History says "tuq updated from … to …" ([`Updated::text`]). Still missing, or the installer
 //!   failed (offline, the tool refused): the stage waits in Needs you, "Your tuq doesn't have `tuq:<name>`"
-//!   ([`crate::flow::proposal::missing_skill_text`], decision 083). A failed or fruitless install isn't tried again
+//!   ([`crate::flow::proposal::missing_skill_text`], decision 083), and the ticket's History says which and why
+//!   ([`Missing::text`]: the installer failed, or no tuq release has the skill). A failed or fruitless install isn't
+//!   tried again
 //!   for that tool for a while ([`RETRY_AFTER`]), so a held stage that is checked again on every lift doesn't run the
 //!   installer each time; **Check again** forgets that ([`TuqInstalls::forget_failures`]).
 //! - **Its commands** (`tuq`, `tuq-plan`) are in `~/.tuq/bin` (`%LOCALAPPDATA%\tuq\bin`), where tuq's installer puts
@@ -217,8 +219,119 @@ pub enum Tuq {
         version: Option<String>,
         updated: Option<Updated>,
     },
-    /// It doesn't, even after tuq's installer ran (or the installer failed): why, for the log.
-    Missing { reason: String },
+    /// It doesn't, even after tuq's installer ran (or the installer failed): why, for the log. `note` is the
+    /// ticket's History line when the installer just ran ([`Missing`]); `None` when it didn't run (a recent failure,
+    /// no installer, not one of tuq's skills).
+    Missing {
+        reason: String,
+        note: Option<Missing>,
+    },
+}
+
+/// Why the installer that just ran left a tool's tuq without a skill: the two cases decision 103 tells apart.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Missing {
+    /// The installer failed (offline, the tool refused): `reason` is its last line.
+    Failed {
+        tool: Tool,
+        had: bool,
+        reason: String,
+    },
+    /// It ran, and the release it installed has no such skill: no tuq release has it yet.
+    NoRelease {
+        tool: Tool,
+        skill: String,
+        version: Option<String>,
+    },
+}
+
+/// The longest installer reason a History note shows; the log keeps it whole.
+const NOTE_REASON_CHARS: usize = 120;
+
+impl Missing {
+    /// The ticket's History line: "Otaq couldn't install tuq on Claude Code: tuq's installer failed: offline",
+    /// "No tuq release has tuq:update-docs yet: Claude Code has tuq 2026.11.14, the latest".
+    pub fn text(&self) -> String {
+        match self {
+            Self::Failed { tool, had, reason } => format!(
+                "{} couldn't {} {NAMESPACE} on {}: {}",
+                crate::naming::PRODUCT_NAME,
+                if *had { "update" } else { "install" },
+                tool.display_name(),
+                short_reason(reason)
+            ),
+            Self::NoRelease {
+                tool,
+                skill,
+                version: Some(version),
+            } => format!(
+                "No {NAMESPACE} release has {skill} yet: {} has {NAMESPACE} {version}, the latest",
+                tool.display_name()
+            ),
+            Self::NoRelease {
+                tool,
+                skill,
+                version: None,
+            } => format!(
+                "No {NAMESPACE} release has {skill} yet: {NAMESPACE}'s installer ran, and {}'s {NAMESPACE} still \
+                 doesn't have it",
+                tool.display_name()
+            ),
+        }
+    }
+}
+
+/// An installer's reason cut to one short line for a History note: PowerShell's CLIXML error records read as their
+/// text, terminal colour codes dropped, at most [`NOTE_REASON_CHARS`] characters.
+fn short_reason(reason: &str) -> String {
+    let mut text = String::new();
+    // Windows PowerShell writes its errors to a redirected stderr as `#< CLIXML` then `<Objs …><S S="Error">…</S>`.
+    if reason.contains("<S S=\"Error\">") {
+        for part in reason.split("<S S=\"Error\">").skip(1) {
+            let part = part.split("</S>").next().unwrap_or_default();
+            text.push_str(&part.replace("_x000D_", "").replace("_x000A_", " "));
+            text.push(' ');
+        }
+        // The CLIXML began after the installer's own prefix ("tuq's installer failed: #< CLIXML"): keep that.
+        let prefix = reason
+            .split("#< CLIXML")
+            .next()
+            .filter(|p| !p.contains('<'))
+            .unwrap_or_default();
+        text = format!("{prefix}{text}");
+    } else {
+        text.push_str(reason);
+    }
+    // Colour codes: ESC [ … letter.
+    let mut plain = String::with_capacity(text.len());
+    let mut chars = text.chars().peekable();
+    while let Some(c) = chars.next() {
+        if c == '\u{1b}' {
+            if chars.peek() == Some(&'[') {
+                chars.next();
+                for c in chars.by_ref() {
+                    if c.is_ascii_alphabetic() {
+                        break;
+                    }
+                }
+            }
+            continue;
+        }
+        plain.push(if c.is_control() { ' ' } else { c });
+    }
+    let plain = plain
+        .replace("&apos;", "'")
+        .replace("&quot;", "\"")
+        .replace("&lt;", "<")
+        .replace("&gt;", ">")
+        .replace("&amp;", "&");
+    let words: Vec<&str> = plain.split_whitespace().collect();
+    let line = words.join(" ");
+    if line.chars().count() <= NOTE_REASON_CHARS {
+        return line;
+    }
+    let cut: String = line.chars().take(NOTE_REASON_CHARS - 1).collect();
+    format!("{}\u{2026}", cut.trim_end())
 }
 
 /// How tuq gets installed or updated on a tool.
@@ -359,6 +472,7 @@ impl TuqInstalls {
         let Some(name) = skill_of(skill).map(str::to_owned) else {
             return Tuq::Missing {
                 reason: format!("{skill} isn't one of tuq's skills"),
+                note: None,
             };
         };
         let Some(home) = homes.home.clone() else {
@@ -375,8 +489,9 @@ impl TuqInstalls {
                 updated: None,
             };
         }
+        // Not tried again so soon: the History note was written when it last ran.
         if let Some(reason) = self.recent_failure(tool) {
-            return Tuq::Missing { reason };
+            return Tuq::Missing { reason, note: None };
         }
         let installer = self
             .installer
@@ -386,6 +501,7 @@ impl TuqInstalls {
         let Some(installer) = installer else {
             return Tuq::Missing {
                 reason: format!("{}'s tuq doesn't have {name}", tool.display_name()),
+                note: None,
             };
         };
         let path = self.path.lock().unwrap_or_else(|e| e.into_inner()).clone();
@@ -393,7 +509,14 @@ impl TuqInstalls {
         if let Err(reason) = run(&installer, tool, &home, &path, env).await {
             tracing::warn!(%tool, skill, reason, "tuq's installer failed");
             self.failed(tool, &reason);
-            return Tuq::Missing { reason };
+            return Tuq::Missing {
+                note: Some(Missing::Failed {
+                    tool,
+                    had: before.is_some(),
+                    reason: reason.clone(),
+                }),
+                reason,
+            };
         }
         let after = look(homes, tool).await;
         match after {
@@ -411,7 +534,8 @@ impl TuqInstalls {
                 }
             }
             after => {
-                let reason = match after.and_then(|i| i.version) {
+                let version = after.and_then(|i| i.version);
+                let reason = match &version {
                     Some(version) => format!("tuq {version} has no {name}"),
                     None => format!(
                         "tuq's installer ran, and {}'s tuq still has no {name}",
@@ -420,7 +544,14 @@ impl TuqInstalls {
                 };
                 tracing::warn!(%tool, skill, reason, "tuq still doesn't have the skill");
                 self.failed(tool, &reason);
-                Tuq::Missing { reason }
+                Tuq::Missing {
+                    reason,
+                    note: Some(Missing::NoRelease {
+                        tool,
+                        skill: skill.trim().to_owned(),
+                        version,
+                    }),
+                }
             }
         }
     }
@@ -720,7 +851,7 @@ mod tests {
                 assert_eq!(version.as_deref(), Some("2026.11.14"));
                 updated.is_some()
             }
-            Tuq::Missing { reason } => panic!("{reason}"),
+            Tuq::Missing { reason, .. } => panic!("{reason}"),
         };
         assert_ne!(updated(&a), updated(&b), "one of them installed");
         assert_eq!(
@@ -749,34 +880,84 @@ mod tests {
         let missing = tuq
             .ensure(Tool::OpenCode, "tuq:product-spec", &homes, &[])
             .await;
-        assert!(
-            matches!(&missing, Tuq::Missing { reason } if reason.contains("tuq install: offline")),
-            "{missing:?}"
+        // The installer failed: History's note says so, with its reason (F-E1-1).
+        let Tuq::Missing {
+            reason,
+            note: Some(note),
+        } = &missing
+        else {
+            panic!("{missing:?}");
+        };
+        assert!(reason.contains("tuq install: offline"), "{reason}");
+        assert_eq!(
+            note.text(),
+            format!(
+                "{} couldn't install tuq on OpenCode: tuq's installer failed: tuq install: offline",
+                crate::naming::PRODUCT_NAME
+            )
         );
+        // Not run again so soon, and no second note.
         assert!(matches!(
             tuq.ensure(Tool::OpenCode, "tuq:product-spec", &homes, &[])
                 .await,
-            Tuq::Missing { .. }
+            Tuq::Missing { note: None, .. }
         ));
         assert_eq!(runs(&home), 1, "not run again on its own");
         tuq.forget_failures();
-        tuq.ensure(Tool::OpenCode, "tuq:product-spec", &homes, &[])
-            .await;
+        assert!(matches!(
+            tuq.ensure(Tool::OpenCode, "tuq:product-spec", &homes, &[])
+                .await,
+            Tuq::Missing {
+                note: Some(Missing::Failed { had: false, .. }),
+                ..
+            }
+        ));
         assert_eq!(runs(&home), 2);
 
-        // Installed, but without the skill: still missing.
+        // Installed, but without the skill: still missing, and the note says no tuq release has it (not that the
+        // install failed).
         tuq.forget_failures();
         tuq.set_installer(Some(stand_in(dir.path(), false)));
+        let missing = tuq
+            .ensure(Tool::OpenCode, "tuq:update-docs", &homes, &[])
+            .await;
+        let Tuq::Missing {
+            reason,
+            note: Some(note),
+        } = &missing
+        else {
+            panic!("{missing:?}");
+        };
+        assert_eq!(reason, "tuq 2026.11.14 has no update-docs");
+        assert_eq!(
+            note,
+            &Missing::NoRelease {
+                tool: Tool::OpenCode,
+                skill: "tuq:update-docs".into(),
+                version: Some("2026.11.14".into()),
+            }
+        );
+        assert_eq!(
+            note.text(),
+            "No tuq release has tuq:update-docs yet: OpenCode has tuq 2026.11.14, the latest"
+        );
+        // A tool that had tuq and failed to update says "update".
+        tuq.forget_failures();
+        tuq.set_installer(Some(stand_in(dir.path(), true)));
         assert!(matches!(
-            tuq.ensure(Tool::OpenCode, "tuq:update-docs", &homes, &[]).await,
-            Tuq::Missing { reason } if reason == "tuq 2026.11.14 has no update-docs"
+            tuq.ensure(Tool::OpenCode, "tuq:update-docs", &homes, &[])
+                .await,
+            Tuq::Missing {
+                note: Some(Missing::Failed { had: true, .. }),
+                ..
+            }
         ));
-        // Without an installer nothing runs.
+        // Without an installer nothing runs, and there is no note.
         let none = TuqInstalls::default();
         assert!(matches!(
             none.ensure(Tool::Claude, "tuq:product-spec", &homes, &[])
                 .await,
-            Tuq::Missing { .. }
+            Tuq::Missing { note: None, .. }
         ));
         // Without a home nothing can be read: the skill counts as there.
         assert!(matches!(
@@ -784,6 +965,49 @@ mod tests {
                 .await,
             Tuq::Ready { .. }
         ));
+    }
+
+    /// A History note's installer reason is one short line: Windows PowerShell's CLIXML error record reads as its
+    /// text, colour codes go, and a long reason is cut to [`NOTE_REASON_CHARS`].
+    #[test]
+    fn a_notes_installer_reason_is_one_short_line() {
+        let failed = |reason: &str| Missing::Failed {
+            tool: Tool::Claude,
+            had: false,
+            reason: reason.into(),
+        };
+        let product = crate::naming::PRODUCT_NAME;
+        let clixml = "tuq's installer failed: #< CLIXML <Objs Version=\"1.1.0.1\" \
+                      xmlns=\"http://schemas.microsoft.com/powershell/2004/04\"><S S=\"Error\">The remote name could \
+                      not be resolved: &apos;github.com&apos;_x000D__x000A_</S></Objs>";
+        assert_eq!(
+            failed(clixml).text(),
+            format!(
+                "{product} couldn't install tuq on Claude Code: tuq's installer failed: The remote name could not \
+                 be resolved: 'github.com'"
+            )
+        );
+        assert_eq!(
+            short_reason("tuq's installer failed: \u{1b}[31merror:\u{1b}[0m offline"),
+            "tuq's installer failed: error: offline"
+        );
+        let long = format!("tuq's installer failed: {}", "x".repeat(300));
+        let short = short_reason(&long);
+        assert_eq!(short.chars().count(), NOTE_REASON_CHARS);
+        assert!(short.ends_with('\u{2026}'), "{short}");
+        assert_eq!(
+            short_reason("tuq's installer couldn't start (/bin/sh): line one\nline two"),
+            "tuq's installer couldn't start (/bin/sh): line one line two"
+        );
+        assert_eq!(
+            Missing::NoRelease {
+                tool: Tool::Codex,
+                skill: "tuq:update-docs".into(),
+                version: None,
+            }
+            .text(),
+            "No tuq release has tuq:update-docs yet: tuq's installer ran, and Codex's tuq still doesn't have it"
+        );
     }
 
     #[test]

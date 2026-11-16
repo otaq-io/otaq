@@ -290,9 +290,22 @@ fn model_text(hold: &AgentHold, tools: &Tools) -> String {
     model_label(hold.model.as_deref(), tools.list(hold.tool))
 }
 
-/// What to do about a stage held because `tool` doesn't have its skill. A tool that skips a `SKILL.md` starting with
-/// a byte order mark (Codex) is told so too, since such a skill is already in its folder.
-fn missing_skill_hint(tool: Tool) -> String {
+/// What to do about a stage held because `tool` doesn't have its skill `skill`. A tool that skips a `SKILL.md`
+/// starting with a byte order mark (Codex) is told so too, since such a skill is already in its folder.
+///
+/// A `tuq:` skill is the user's tuq's, which Otaq installs or updates itself (decision 103); a linked or committed
+/// copy doesn't count as it (decision 100). Its stage waits because tuq's installer failed (offline) or because no
+/// tuq release has the skill yet: which one, with the installer's reason, is the ticket's History note.
+fn missing_skill_hint(tool: Tool, skill: &str) -> String {
+    if otaq_core::tuq::is_tuq(skill) {
+        return format!(
+            "Nothing started. {} couldn\u{2019}t install or update tuq on {}, or no tuq release has this skill yet: \
+             the ticket\u{2019}s History says which. Check again tries again; or give the stage an agent whose tool \
+             has it.",
+            otaq_core::naming::PRODUCT_NAME,
+            tool_word(tool)
+        );
+    }
     let saved = if tool.reads_skill_with_bom() {
         ""
     } else {
@@ -321,7 +334,7 @@ pub fn hold_callout(hold: &AgentHold, agents: &[Agent], tools: &Tools) -> Callou
             tone: Tone::Amber,
             avatar: tools.avatar(tool, hold.model.as_deref()),
             heading: otaq_core::flow::proposal::missing_skill_text(tool, skill),
-            text: Some(missing_skill_hint(tool)),
+            text: Some(missing_skill_hint(tool, skill)),
             model: None,
             buttons: [
                 Some(Button {
@@ -747,6 +760,50 @@ mod tests {
                  (a ticket already started needs it on its own branch), then Check again; or give the stage an agent \
                  whose tool has it."
             )
+        );
+    }
+
+    /// A stage held for a `tuq:` skill: the heading is decision 083's, and the advice is not the user-skill one (a
+    /// linked or committed copy isn't the user's tuq, decision 100) but that Otaq couldn't install or update tuq, or
+    /// that no tuq release has the skill yet, with History saying which (F-E1-1). Check again leads as for any skill.
+    #[test]
+    fn a_stage_held_for_a_tuq_skill_says_tuq_couldnt_be_installed() {
+        let mut held = hold(
+            SessionRole::Developer,
+            HoldReason::MissingSkill,
+            CLAUDE,
+            "strong",
+            None,
+        );
+        held.skill = Some("tuq:product-spec".into());
+        let c = hold_callout(&held, &agents(), &several());
+        assert_eq!(c.heading, "Your tuq doesn\u{2019}t have `tuq:product-spec`");
+        assert_eq!(c.tone, Tone::Amber);
+        assert_eq!(labels(&c), [CHECK_AGAIN, CHANGE_AGENT]);
+        assert_eq!(
+            c.text.unwrap(),
+            format!(
+                "Nothing started. {} couldn\u{2019}t install or update tuq on Claude Code, or no tuq release has \
+                 this skill yet: the ticket\u{2019}s History says which. Check again tries again; or give the stage \
+                 an agent whose tool has it.",
+                otaq_core::naming::PRODUCT_NAME
+            )
+        );
+        // Codex: no byte order mark advice either, since nothing is linked.
+        held.tool = CODEX;
+        let text = hold_callout(&held, &agents(), &several()).text.unwrap();
+        assert!(text.contains("install or update tuq on Codex"), "{text}");
+        assert!(!text.contains("Link the skill"), "{text}");
+        assert!(!text.contains("byte order mark"), "{text}");
+        // A user's skill named like tuq's but without its namespace keeps the user-skill advice.
+        held.tool = CLAUDE;
+        held.skill = Some("product-spec".into());
+        let text = hold_callout(&held, &agents(), &several()).text.unwrap();
+        assert!(
+            text.starts_with(
+                "Nothing started. Link the skill into Claude Code\u{2019}s skills folder"
+            ),
+            "{text}"
         );
     }
 
