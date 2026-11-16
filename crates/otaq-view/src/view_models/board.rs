@@ -70,7 +70,7 @@ pub struct DevSections {
 }
 
 /// Who runs a column's stage, on hovering its title (FLW-12; *Row · Stage kinds on the column header*): "Product spec
-/// · Spec writer · tuq:product-spec" over "Claude Code · sonnet" and "Options: skip".
+/// · Claude Code · tuq:product-spec" over "Claude Code · sonnet · effort high" and "Options: skip".
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub struct HeaderTooltip {
     pub title: String,
@@ -230,11 +230,10 @@ pub struct BoardInput<'a> {
     pub agent_names: &'a [(String, String)],
     /// Interrupted tickets that were validating (the startup report, T-0244).
     pub was_validating: &'a [TicketKey],
-    /// The cards' named agents (`board.agents`, T-0345); `None` names none.
+    /// The cards' sessions, holds and tools (`board.agents`, T-0345); `None` names none.
     pub agents: Option<&'a BoardAgents>,
-    /// Every agent (`agents.list`): the headers' tooltips name each stage's tool and model (FLW-12); `None` names
-    /// only the agents.
-    /// The account's default model, for a `default` a flow still says.
+    /// The account's default model, for a `default` a flow still says: the headers' tooltips name each stage's tool
+    /// and model (FLW-12).
     pub default_model: Option<&'a ModelRef>,
     /// The starts a waiting flow change holds back (FLW-06, FED-08): of the tickets waiting to begin, or at its span's
     /// edge. A card

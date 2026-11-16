@@ -23,7 +23,7 @@ priority: PriorityView | null, title: string,
  */
 status: CardStatusLine | null, 
 /**
- * One muted line under it, only when set: the ticket's own agent for a stage, or the stages it skips.
+ * One muted line under it, only when set: the stages it skips.
  */
 note: CardNote | null, 
 /**
@@ -35,7 +35,8 @@ blocks: CardBlocks | null,
  */
 avatar: ToolAvatarView | null, 
 /**
- * The agent's name ("Strong"); `null` while there is only one agent (d0086).
+ * The tool of whoever has the turn ("Claude Code"; UX-65: the model stays off the card); `null` while only one
+ * tool is connected (d0086).
  */
 who: string | null, 
 /**

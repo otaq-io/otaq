@@ -1,6 +1,6 @@
 //! The board card's plain words: a card is at most four lines plus one action. Its key, its title, one status line,
-//! who and how long; only when set, one muted note under the line (the ticket's own agent for a stage, or the stages
-//! it skips). A coloured edge only while the card needs the user: turquoise asks or decides, magenta is the user's
+//! who (the tool, never the model: UX-65) and how long; only when set, one muted note under the line (the stages it
+//! skips). A coloured edge only while the card needs the user: turquoise asks or decides, magenta is the user's
 //! review, red broke and waits. Waiting is the status line itself, with an amber hourglass ("Waits for SHOP-27 to
 //! merge"). Tokens, models, rounds, Plan pieces, Run ports, decision counts and conflict details are the sheet's,
 //! never the card's.
@@ -58,7 +58,8 @@ pub struct Words {
     pub edge: Option<Tone>,
 }
 
-/// The muted line under the status line, only when set: "Dev: Light instead of Strong", "Skips Product spec".
+/// The muted line under the status line, only when set: "Skips Product spec" (a ticket picks no model of its own,
+/// UX-65).
 /// `CardNote` on the page.
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "CardNote")]

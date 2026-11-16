@@ -135,7 +135,7 @@ pub struct ChoiceRow {
 #[ts(rename = "StageChoicesView")]
 pub struct ChoicesView {
     pub heading: &'static str,
-    /// The form's words beside the heading: "optional · another agent, or skip where the flow allows".
+    /// The form's words beside the heading: "optional · skip where the flow allows" (a ticket picks no model, UX-65).
     pub hint: Option<&'static str>,
     /// "set by Noyan".
     pub set_by: Option<String>,
@@ -955,23 +955,24 @@ pub fn token_line(t: &TicketAgents, tools: &Tools) -> Option<String> {
 // ---------------------------------------------------------------------------------------------------------------
 // History
 
-/// A History line of the agents (`history.rs` adds them to Activity's timeline).
+/// A History line of the agents (`history.rs` adds them to Activity's timeline). Each names the tool and the model a
+/// session ran on, never an agent (UX-65), older sessions too.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum HistoryLine {
-    /// A session's own rows (Q432, `s25-07`): its start "Product spec started · Spec writer" with "Claude Code ·
-    /// sonnet" under it ("Claude Code · claude-sonnet-5-6 (Sonnet → claude-sonnet-5-6)" when it moved on) and the swap
-    /// note ("asked for gpt-5.5, ran on auto"), and its end "Product spec finished · Spec writer".
+    /// A session's own rows (Q432, `s25-07`): its start "Product spec started · Claude Code · sonnet" (the model as
+    /// the stage chose it) with the exact model under it ("claude-sonnet-5-6", "claude-sonnet-5-6 (Sonnet →
+    /// claude-sonnet-5-6)" when it moved on) and the swap note ("asked for gpt-5.5, ran on auto"), and its end
+    /// "Product spec finished · Claude Code · sonnet".
     Session {
         session: String,
         started: String,
         detail: String,
         note: Option<String>,
         ended: String,
-        /// Its quiet row in History: "Session · Product spec · Spec writer".
+        /// Its quiet row in History: "Session · Product spec · Claude Code · sonnet".
         quiet: String,
     },
-    /// A line of its own: "Session ended · Sonnet · claude-sonnet-5-5 · 54k", "Developer: Light (deleted) ·
-    /// claude-haiku-5-5 · 48k".
+    /// A line of its own: "Developer: Claude Code · claude-haiku-5-5 · 48k".
     Line {
         at: i64,
         title: String,
@@ -1001,30 +1002,32 @@ fn session_stage(t: &TicketAgents, session: &SessionAgentRun) -> String {
         .unwrap_or_else(|| session.role.label().to_owned())
 }
 
-/// Each named session's start and end with its stage, tool and exact model, and a Done or Closed ticket's agents as
-/// they ran.
+/// Each named session's start and end with its stage, tool and model, and a Done or Closed ticket's sessions as they
+/// ran: by tool and model, an older session's agent name left out (UX-65).
 pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
     let mut lines = Vec::new();
     for session in &t.sessions {
-        let Some(name) = session.agent_name.clone().filter(|n| !n.is_empty()) else {
+        if session.agent_name.as_deref().is_none_or(str::is_empty) {
             continue;
-        };
+        }
         let tool = session_tool(t, session, tools);
         let models = tools.list(tool);
         let exact = exact_model(session, models);
         let stage = session_stage(t, session);
-        let mut detail = format!("{} \u{b7} {exact}", tool_word(tool));
+        let chosen = short_model(session.model.as_deref(), models);
+        let on = format!("{} \u{b7} {chosen}", tool_word(tool));
+        let mut detail = exact;
         if let Some(moved) = &session.moved_on {
-            let follow = follow_name(session.model.as_deref(), models).unwrap_or(name.clone());
+            let follow = follow_name(session.model.as_deref(), models).unwrap_or(chosen);
             detail.push_str(&format!(" ({follow} \u{2192} {})", moved.now));
         }
         lines.push(HistoryLine::Session {
             session: session.id.clone(),
-            started: format!("{stage} started \u{b7} {name}"),
+            started: format!("{stage} started \u{b7} {on}"),
             detail,
             note: swap_note(session, tool, tools),
-            ended: format!("{stage} finished \u{b7} {name}"),
-            quiet: format!("Session \u{b7} {stage} \u{b7} {name}"),
+            ended: format!("{stage} finished \u{b7} {on}"),
+            quiet: format!("Session \u{b7} {stage} \u{b7} {on}"),
         });
     }
     if finished(t) {
@@ -1033,20 +1036,13 @@ pub fn history_lines(t: &TicketAgents, tools: &Tools) -> Vec<HistoryLine> {
             let Some(last) = ran.last() else { continue };
             let tool = session_tool(t, last, tools);
             let exact = exact_model(last, tools.list(tool));
-            let deleted = false;
-            let name = last.agent_name.clone().unwrap_or_default();
             let tokens: Option<u64> = ran.iter().filter_map(|s| s.tokens).reduce(|a, b| a + b);
-            let exact = if names_tool(tools, tool, &name) {
-                format!("{} \u{b7} {exact}", tool_word(tool))
-            } else {
-                exact
-            };
             lines.push(HistoryLine::Line {
                 at: last.ended_at.unwrap_or(last.started_at),
                 title: format!(
-                    "{}: {name}{} \u{b7} {exact} \u{b7} {}",
+                    "{}: {} \u{b7} {exact} \u{b7} {}",
                     role.label(),
-                    if deleted { " (deleted)" } else { "" },
+                    tool_word(tool),
                     tokens_text(tokens)
                 ),
                 tokens: "\u{2014}".to_owned(),
@@ -2203,6 +2199,8 @@ mod tests {
         );
     }
 
+    /// UX-65: History names the tool and the model each session ran on; an older session's agent name ("Quick
+    /// developer") is left out.
     #[test]
     fn the_token_line_and_history_name_each_agent() {
         let tools = tools();
@@ -2241,23 +2239,30 @@ mod tests {
         assert_eq!(
             titles,
             [
-                "Dev started \u{b7} Quick developer",
-                "Validate started \u{b7} Validator",
-                "Developer: Quick developer \u{b7} claude-haiku-5-5 \u{b7} 10k",
-                "Checker: Validator \u{b7} claude-opus-5-5 \u{b7} 10k",
+                "Dev started \u{b7} Claude Code \u{b7} haiku",
+                "Validate started \u{b7} Claude Code \u{b7} opus",
+                "Developer: Claude Code \u{b7} claude-haiku-5-5 \u{b7} 10k",
+                "Checker: Claude Code \u{b7} claude-opus-5-5 \u{b7} 10k",
             ]
         );
-        let HistoryLine::Session { detail, ended, .. } = &lines[0] else {
+        let HistoryLine::Session {
+            detail,
+            ended,
+            quiet,
+            ..
+        } = &lines[0]
+        else {
             panic!("a session's rows first");
         };
-        assert_eq!(detail, "Claude Code \u{b7} claude-haiku-5-5");
-        assert_eq!(ended, "Dev finished \u{b7} Quick developer");
+        assert_eq!(detail, "claude-haiku-5-5");
+        assert_eq!(ended, "Dev finished \u{b7} Claude Code \u{b7} haiku");
+        assert_eq!(quiet, "Session \u{b7} Dev \u{b7} Claude Code \u{b7} haiku");
         // A session no stage run names reads by its role.
         t.runs.clear();
         let HistoryLine::Session { started, .. } = &history_lines(&t, &tools)[0] else {
             panic!("a session's rows first");
         };
-        assert_eq!(started, "Developer started \u{b7} Quick developer");
+        assert_eq!(started, "Developer started \u{b7} Claude Code \u{b7} haiku");
     }
 
     #[test]

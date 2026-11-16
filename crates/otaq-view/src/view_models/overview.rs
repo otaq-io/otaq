@@ -773,8 +773,6 @@ mod tests {
         assert_eq!(v.editing, "Editing \u{b7} Esc to discard, Ctrl+S to save");
     }
 
-    /// A ticket's own agent shows on Overview from the moment it is set, Backlog included, as its card says it; never
-    /// once the ticket is done, and not at all when it chose nothing.
     /// tuq 110: an attachment row's line is its comment's first line without Markdown marks; the comment isn't changed.
     #[test]
     fn an_attachment_rows_line_has_no_markdown_marks() {

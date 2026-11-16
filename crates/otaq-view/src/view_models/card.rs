@@ -165,12 +165,14 @@ pub struct CardExtras {
     pub skips: Option<String>,
 }
 
-/// What the card knows about its agents (`board.agents`, AGT-04): the footer's agent part ([`footer_agent`]).
+/// What the card knows about its sessions (`board.agents`, AGT-04): who has the turn ([`who`]) and the footer's part
+/// ([`footer_agent`]).
 #[derive(Debug, Clone, Default, PartialEq, Eq)]
 pub struct AgentFacts {
-    /// How many agents there are: with one, the card names none (d0086, "only what's needed").
+    /// How many tools are connected: with one, the card names none (d0086, "only what's needed").
     pub count: usize,
-    /// The agent of the running developer session and of the running validator.
+    /// The name of the running developer session and of the running validator: its tool's (an older session's
+    /// agent's).
     pub running_developer: Option<String>,
     pub running_validator: Option<String>,
     /// The roles held before they start (M23): a Developer's while it waits to begin, a Validator's in Dev.
@@ -631,8 +633,8 @@ pub struct CardViewModel {
 pub struct OneLine {
     /// The one status line: the head flag's words and the situation's, joined ([`status_line`]).
     pub line: Option<StatusLine>,
-    /// Who: the agent of whoever has the turn, or where it starts ("Rust developer"); named only while there are two
-    /// or more agents (d0086). The model stays in the sheet.
+    /// Who: the tool of whoever has the turn, or of where it starts ("Claude Code"; UX-65); named only while two or
+    /// more tools are connected (d0086). The model stays in the sheet.
     pub who: Option<String>,
     /// How long ago the working agent last said something ("3m").
     pub time: Option<Signal>,
@@ -2148,14 +2150,27 @@ pub fn who(ticket: &Ticket, status: Status, x: &CardExtras) -> Option<String> {
         return None;
     }
     if let Some(hold) = held(ticket, status, x) {
-        return Some(crate::view_models::tool_problems::tool_word(hold.tool).to_owned());
+        return Some(tool_word(hold.tool).to_owned());
     }
+    // The tool the session runs on, even for a session an older agent started (UX-65).
+    let named = |name: &Option<String>, on: &Option<RunsOnTool>| match on {
+        Some(on) => Some(tool_word(on.tool).to_owned()),
+        None => name.clone(),
+    };
     match status {
-        Status::Checking | Status::CheckerNeedsYou => a.running_validator.clone(),
-        _ if a.running_developer.is_some() => a.running_developer.clone(),
-        _ if ticket.place.is_waiting() => a.starts.as_ref().map(|s| s.agent.clone()),
+        Status::Checking | Status::CheckerNeedsYou => named(&a.running_validator, &a.validator_on),
+        _ if a.running_developer.is_some() => named(&a.running_developer, &a.developer_on),
+        _ if ticket.place.is_waiting() => a.starts.as_ref().map(|s| match &s.model {
+            Some(model) => tool_word(model.tool).to_owned(),
+            None => s.agent.clone(),
+        }),
         _ => None,
     }
+}
+
+/// A tool as the card names it: "Claude Code", "Codex", "Copilot".
+fn tool_word(tool: otaq_core::agent_tools::Tool) -> &'static str {
+    crate::view_models::tool_problems::tool_word(tool)
 }
 
 /// Whose avatar the head shows (*Has the turn*): the validator while the ticket validates, the validator asks or
@@ -6196,6 +6211,79 @@ mod tests {
                 .agents,
             AgentFacts::default()
         );
+    }
+
+    /// A-9, UX-65: a card names the tool where it named the agent ("Claude Code · 26m"), and the model stays off
+    /// the card, a session an older agent started included; the checker's tool while it checks, the tool a waiting
+    /// ticket starts on; with one tool connected it names none (d0086).
+    #[test]
+    fn a_working_card_names_its_tool_not_its_model() {
+        use crate::view_models::card_page::TicketCardView;
+        use otaq_core::agent_tools::Tool;
+        use otaq_core::agents::ModelRef;
+        use otaq_core::agents::facts::{CardAgents, CardStart, RunsOnTool};
+        let card = CardAgents {
+            key: "SHOP-27".parse().unwrap(),
+            running_developer: Some("Strong".into()),
+            running_validator: Some("Codex".into()),
+            running_developer_on: Some(RunsOnTool {
+                tool: Tool::Claude,
+                model: Some("claude-opus-5-5".into()),
+                passed: Some("opus".into()),
+            }),
+            running_validator_on: Some(RunsOnTool {
+                tool: Tool::Codex,
+                model: Some("gpt-5.5".into()),
+                passed: None,
+            }),
+            holds: Vec::new(),
+            starts: None,
+            refused_stage: None,
+            stage_agent: Some("Claude Code".into()),
+            skips: Vec::new(),
+        };
+        let board = |card: &CardAgents, connected: Vec<Tool>| BoardAgents {
+            cards: vec![card.clone()],
+            connected,
+        };
+        let key: TicketKey = "SHOP-27".parse().unwrap();
+        let both = vec![Tool::Claude, Tool::Codex];
+        let x = main_project().with_agents(&board(&card, both.clone()), &key);
+        let face = |status, x: &CardExtras| {
+            let mut t = ticket("SHOP-27", "Wishlist share link", status);
+            t.status_since = Some(NOW - 26 * 60_000);
+            let view = TicketCardView::of(&t, x, NOW);
+            [view.who, view.time.map(|t| t.text)]
+                .into_iter()
+                .flatten()
+                .collect::<Vec<_>>()
+                .join(" \u{b7} ")
+        };
+        assert_eq!(face(Status::Working, &x), "Claude Code \u{b7} 26m");
+        assert_eq!(face(Status::Checking, &x), "Codex \u{b7} 26m");
+        // Waiting before its stage: the tool it starts on.
+        let waiting = CardAgents {
+            running_developer: None,
+            running_developer_on: None,
+            running_validator: None,
+            running_validator_on: None,
+            starts: Some(CardStart {
+                stage: "Dev".into(),
+                agent: "Codex".into(),
+                model: Some(ModelRef {
+                    tool: Tool::Codex,
+                    model: Some("gpt-5.5".into()),
+                }),
+            }),
+            ..card.clone()
+        };
+        let w = main_project().with_agents(&board(&waiting, both), &key);
+        let mut t = ticket("SHOP-27", "Wishlist share link", Status::Queued);
+        t.place = otaq_core::domain::Place::Waiting(None);
+        assert_eq!(who(&t, Status::Queued, &w).as_deref(), Some("Codex"));
+        // One tool connected: nobody is named.
+        let one = main_project().with_agents(&board(&card, vec![Tool::Claude]), &key);
+        assert_eq!(face(Status::Working, &one), "26m");
     }
 
     /// A hand-off typed in that the agent hasn't picked up (d0118): the one line says what it waits for, in the

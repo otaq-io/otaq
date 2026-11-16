@@ -377,20 +377,26 @@ pub struct Agents {
     pub empty: Option<String>,
 }
 
-/// A ticket with an agent working: "SHOP-27 Wishlist share link · Developer · 26m".
+/// A ticket with an agent working: "SHOP-27 Wishlist share link · Claude Code · 26m".
 #[derive(Debug, Clone, PartialEq, Eq, Serialize, TS)]
 #[ts(rename = "ActivityTicketRow")]
 pub struct TicketRow {
     pub key: String,
     pub title: String,
-    /// "Developer · 26m", "Checker · 3m".
+    /// "Claude Code · 26m", "Codex · 3m": the tool, as its card names it (UX-65).
     pub line: String,
 }
 
-/// "Developer · 26m". An agent waiting for you isn't in Running (Needs you lists it).
+/// "Claude Code · 26m": the session's tool, even for a session an older agent started (UX-65); that agent's name only
+/// when no tool was stored. An agent waiting for you isn't in Running (Needs you lists it).
 fn ticket_line(agent: &WorkingAgent, now: i64) -> String {
     let age = age_label(now - agent.since);
-    match &agent.agent {
+    let tool = agent
+        .tool
+        .as_deref()
+        .and_then(|t| t.parse::<otaq_core::agent_tools::Tool>().ok())
+        .map(|t| crate::view_models::tool_problems::tool_word(t).to_owned());
+    match tool.or_else(|| agent.agent.clone()) {
         Some(name) => format!("{name} \u{b7} {age}"),
         None => age,
     }
@@ -1446,7 +1452,7 @@ mod tests {
             key: key.into(),
             title: format!("{key} title"),
             status: Status::Working,
-            tool: None,
+            tool: Some("claude".into()),
             agent: Some("Developer".into()),
             since: NOW - 26 * 60_000,
         }
@@ -1522,6 +1528,8 @@ mod tests {
         let p = popover(&inputs, &KeyLabels::base(Platform::Mac));
         assert_eq!(p.agents.tickets.len(), 1);
         assert_eq!(p.agents.tickets[0].key, "SHOP-1");
+        // UX-65: the row names the session's tool, not the agent an older session ran as.
+        assert_eq!(p.agents.tickets[0].line, "Claude Code \u{b7} 26m");
         let lines: Vec<(&str, &str)> = p
             .agents
             .holders

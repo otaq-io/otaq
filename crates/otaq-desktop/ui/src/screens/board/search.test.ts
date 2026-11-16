@@ -59,7 +59,7 @@ const VIEW: SearchView = {
       status: { palette: "approved", icon: "check", label: "Done" },
     },
   ],
-  filters_hint: "Filters: is:needs-you · is:working · in:review · by:strong",
+  filters_hint: "Filters: is:needs-you · is:working · in:review · by:claude-code",
   enter_adds: null,
   enter_opens_cleanup: false,
   enter_opens: "SHOP-18",
@@ -138,7 +138,7 @@ describe("the search field", () => {
     expect(html).toContain("SHOP-9");
     expect(html).toMatch(/data-palette="approved"><\/span><span[^>]*>Done</);
     // The filters, as text under the tickets.
-    expect(html).toMatch(/SHOP-9.*Filters: is:needs-you · is:working · in:review · by:strong/s);
+    expect(html).toMatch(/SHOP-9.*Filters: is:needs-you · is:working · in:review · by:claude-code/s);
     // While typing, the field shows esc in place of the count.
     expect(html).toContain(">esc<");
     expect(html).not.toContain("4 results");
