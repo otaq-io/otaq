@@ -27,8 +27,9 @@ already checked.
   that pass or fail it, and how finished work leaves the flow (a merge or a pull request). Change them with **Edit
   flow**, right on the board. Start from a preset (Otaq default, Spec first, Solo autopilot, Team PR), or have an
   agent suggest one based on how you already work.
-- **Named agents.** Each one is a tool, a model and instructions: a Rust developer on Opus, a security reviewer
-  that only reads code, a docs updater on a small model. Each stage of your flow names one, and a ticket can pick another.
+- **Any tool, any model, per stage.** Each stage of your flow says who does it: a tool and one of its models, an
+  effort and optional instructions. Dev on Opus, Validate on a GPT model in Codex, a docs check on a small model.
+  New flows start on each tool's default model; change one in the stage's panel in Edit flow.
 - **Your skills, where they are.** Your agent tools find your skills the way they always do; Otaq copies nothing.
   Each stage of your flow names the skill it runs: yours by name, Otaq's workflow skills (`otaq:validate`) come with
   the app, and Otaq installs [tuq](https://github.com/otaq-io/tuq) when a stage needs its skills (`tuq:product-spec`).

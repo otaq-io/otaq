@@ -250,27 +250,57 @@ fn no_skill_text_names_a_copy() {
     assert!(read >= names.len(), "read {read} files");
 }
 
-/// Agents have no skill list, and a stage's `skill:` is the only place a skill is picked (T4): no agent the `flow`
-/// skill shows carries a `skills:` key, and its example security reviewer's skill is its stage's.
+/// There are no named agents (UX-65): the `flow` skill writes no `agents:` list, no stage names an `agent:`, and its
+/// example Security check says who does it on the stage itself, in the file's field order (model, effort, skill,
+/// instructions). No skill names an agent list either.
 #[test]
-fn the_flow_skills_agents_have_no_skill_list() {
-    let flow = read_skill("flow");
-    let lines: Vec<&str> = flow.lines().collect();
-    for (n, line) in lines.iter().enumerate() {
-        assert!(
-            !line.trim_start().starts_with("skills:"),
-            "flow line {}: {line:?}",
-            n + 1
-        );
+fn the_flow_skill_writes_who_does_a_stage_on_the_stage() {
+    for (name, path) in skill_files() {
+        let text = std::fs::read_to_string(&path).unwrap();
+        for (n, line) in text.lines().enumerate() {
+            let line = line.trim_start();
+            for key in ["agents:", "agent:", "skills:", "role:"] {
+                assert!(!line.starts_with(key), "{name} line {}: {line:?}", n + 1);
+            }
+        }
     }
+    let flow = read_skill("flow");
     assert!(
-        flow.contains("agent: Security reviewer\n       skill: team-security-review\n"),
-        "the security reviewer's skill is its stage's"
+        flow.contains(
+            "model: claude:opus\n       effort: high\n       skill: team-security-review\n       instructions: |\n"
+        ),
+        "Security says who does it on the stage"
     );
-    assert!(
-        !flow.contains("- **`skills`**"),
-        "no `skills` field for agents"
-    );
+    for gone in ["- **`role`**", "- **`skills`**", "| `agent` |"] {
+        assert!(!flow.contains(gone), "flow must not say {gone:?}");
+    }
+    // A stage's model is changed in Edit flow only, never per ticket (UX-65).
+    assert!(flow.contains("**Edit flow**, in the stage's panel under **Who does it**"));
+    let work = flat(&read_skill("work-ticket"));
+    assert!(work.contains("A stage's model and effort are set in the flow, only in Edit flow"));
+    assert!(work.contains(otaq_core::board::stage_choices::ONLY_THE_USER_PICKS));
+}
+
+/// The effort levels the `flow` skill lists for each tool are the tool's own ([`Tool::effort_levels`], UX-75), and a
+/// tool without any is said to have none.
+#[test]
+fn the_flow_skills_effort_levels_are_the_tools() {
+    use otaq_core::agent_tools::Tool;
+    let flow = flat(&read_skill("flow"));
+    for tool in Tool::ALL {
+        let levels = tool.effort_levels();
+        let name = tool.display_name();
+        if levels.is_empty() {
+            assert!(
+                flow.contains(&format!("{name} has none: leave it out")),
+                "flow must say {name} has no effort"
+            );
+            continue;
+        }
+        let list: Vec<String> = levels.iter().map(|l| format!("`{l}`")).collect();
+        let text = format!("{name}: {}.", list.join(", "));
+        assert!(flow.contains(&text), "flow must say {text:?}");
+    }
 }
 
 /// The text of the shipped skill `name`.
@@ -424,8 +454,10 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
         "name",
         "kind",
         "by",
-        "agent",
+        "model",
+        "effort",
         "skill",
+        "instructions",
         "options",
         "rounds",
         "mode",
@@ -438,11 +470,11 @@ fn flow_teaches_show_propose_the_format_and_the_wait() {
             "flow must document `{field}`"
         );
     }
-    // Agents have no skill list (T4): the agent's fields leave `skills` out.
-    for field in ["role", "instructions", "why", "model"] {
+    // Who does a stage (UX-65, UX-67): its model, effort and instructions, explained once for stages and delivery.
+    for field in ["model", "effort", "instructions"] {
         assert!(
-            flow.contains(&format!("**`{field}`**")),
-            "flow must document the agent's `{field}`"
+            flow.contains(&format!("- **`{field}`**")),
+            "flow must explain a stage's `{field}`"
         );
     }
 }
@@ -465,8 +497,41 @@ fn flow_writes_a_stages_skill_only_in_the_folder_it_is_given() {
     }
 }
 
-/// T-0415 (FLW-11), T-0546 (d0129, Q556): the `flow` skill's whole example is a flow `propose` reads and the checks
-/// pass: the Spec first preset without its `skip` options, Spec review's fails going to Product spec.
+/// UX-65, UX-67, UX-69: the `flow` skill's Stages and Delivery snippets, put together, are a file the core reader
+/// reads with every field of who does it (model, effort, instructions) where the skill shows it, and reads the same
+/// once Otaq writes it back.
+#[test]
+fn the_flow_skills_stage_and_delivery_snippets_read() {
+    let flow = read_skill("flow");
+    let block = |heading: &str| {
+        let from = flow.find(heading).unwrap_or_else(|| panic!("no {heading}"));
+        let start = from + flow[from..].find("```yaml\n").unwrap() + "```yaml\n".len();
+        let end = start + flow[start..].find("```").unwrap();
+        flow[start..end].to_owned()
+    };
+    let text = block("\n### Stages\n") + &block("\n### Delivery\n");
+    let file = otaq_core::flow::yaml::read(&text).expect("the snippets read");
+    let spec = &file.flow.stages[0];
+    assert_eq!(spec.model(), Some("claude:opus"));
+    assert_eq!(spec.who.effort.as_deref(), Some("high"));
+    assert!(
+        spec.who
+            .instructions
+            .as_deref()
+            .is_some_and(|i| i.contains("billing code"))
+    );
+    let delivery = &file.flow.delivery.who;
+    assert_eq!(delivery.model.as_deref(), Some("claude"));
+    assert_eq!(delivery.effort.as_deref(), Some("medium"));
+    assert!(delivery.instructions.is_some());
+    let written = otaq_core::flow::yaml::write(&file);
+    assert_eq!(otaq_core::flow::yaml::read(&written).unwrap(), file);
+}
+
+/// T-0415 (FLW-11), T-0546 (d0129, Q556), UX-65, UX-68: the `flow` skill's whole example is a flow `propose` reads and
+/// the checks pass: the Spec first preset without its `skip` options, Spec review's fails going to Product spec, its
+/// `model: default` written as a tool's default (`claude`) on every Agent stage, agent check and the delivery. Written
+/// back by Otaq, it reads the same.
 #[test]
 fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let flow = read_skill("flow");
@@ -475,13 +540,31 @@ fn the_flow_skills_whole_example_reads_and_passes_the_checks() {
     let end = start + flow[start..].find("```").unwrap();
     let file = otaq_core::flow::yaml::read(&flow[start..end]).expect("the example reads");
     assert_eq!(otaq_core::flow::check(&file.flow), Ok(()));
+    let written = otaq_core::flow::yaml::write(&file);
+    assert_eq!(otaq_core::flow::yaml::read(&written).unwrap(), file);
+    assert_eq!(
+        written,
+        flow[start..end],
+        "the example is in Otaq's own layout"
+    );
     let mut spec_first = otaq_core::flow::presets::preset("spec-first.yaml")
         .unwrap()
         .read();
     for stage in &mut spec_first.flow.stages {
         stage.options.clear();
+        if stage.who.model.as_deref() == Some("default") {
+            stage.who.model = Some("claude".to_owned());
+        }
     }
+    let delivery = &mut spec_first.flow.delivery.who;
+    assert_eq!(delivery.model.as_deref(), Some("default"));
+    delivery.model = Some("claude".to_owned());
     assert_eq!(file, spec_first);
+    for stage in &file.flow.stages {
+        let model = stage.model();
+        assert_eq!(model.is_some(), stage.runs_agent(), "{}", stage.name);
+        assert!(model.is_none_or(|m| m == "claude"), "{}", stage.name);
+    }
     let review = file.flow.stage("spec-review").unwrap();
     assert_eq!(review.fail_to.as_deref(), Some("product-spec"));
     assert!(flow.contains("Backlog \u{2192}\nProduct spec"));

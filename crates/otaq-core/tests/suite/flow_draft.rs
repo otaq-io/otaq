@@ -614,3 +614,73 @@ async fn asking_for_changes_keeps_the_proposal_until_the_next_one() {
         "{marked:?}"
     );
 }
+
+/// The `flow` skill's text (Noyan drafts flows with it).
+fn flow_skill() -> String {
+    let path =
+        Path::new(env!("CARGO_MANIFEST_DIR")).join("../../plugin/skills/skills/flow/SKILL.md");
+    std::fs::read_to_string(path).unwrap()
+}
+
+/// The YAML of the `flow` skill's first yaml block after `heading`.
+fn skill_block(skill: &str, heading: &str) -> String {
+    let from = skill.find(heading).unwrap();
+    let start = from + skill[from..].find("```yaml\n").unwrap() + "```yaml\n".len();
+    let end = start + skill[start..].find("```").unwrap();
+    skill[start..end].to_owned()
+}
+
+/// Piece 7 of agents-inside-the-flow (UX-65, UX-67, UX-68): flows Noyan writes as the `flow` skill says are proposed
+/// with no refusal and land in Edit flow's draft with no problems, a model on every Agent stage and agent check (never
+/// `default`), and apply: the skill's whole example (Spec first on Claude Code's default), and step 5's Dev and
+/// Security (opus, high effort, its own instructions) with a delivery.
+#[tokio::test(flavor = "multi_thread")]
+async fn flows_written_as_the_flow_skill_says_are_proposed_and_apply() {
+    let skill = flow_skill();
+    let step5 = {
+        let from = skill.find("   flow:\n").unwrap();
+        let end = from + skill[from..].find("     \u{2026}\n").unwrap();
+        let stages: String = skill[from..end]
+            .lines()
+            .map(|line| format!("{}\n", line.strip_prefix("   ").unwrap_or(line)))
+            .collect();
+        stages + "delivery:\n  delivers: either\n  mode: click\n  model: claude\n"
+    };
+    for doc in [skill_block(&skill, "A whole example"), step5] {
+        let (w, key) = world().await;
+        let proposal = w
+            .board
+            .propose(
+                &key,
+                &Proposed::Document {
+                    yaml: doc.clone(),
+                    file: None,
+                },
+                &noyan(),
+                &models(),
+            )
+            .await
+            .unwrap_or_else(|e| panic!("refused: {e:?}\n{doc}"));
+        let draft = w.board.draft(&key, &models()).await.unwrap();
+        assert_eq!(draft.proposal.id, proposal.id);
+        assert_eq!(draft.proposal.problems, [], "{doc}");
+        let file = yaml::read(&draft.proposal.yaml).unwrap();
+        for stage in &file.flow.stages {
+            let model = stage.model();
+            assert_eq!(model.is_some(), stage.runs_agent(), "{}", stage.name);
+            assert_ne!(model, Some("default"), "{}", stage.name);
+        }
+        if let Some(security) = file.flow.stage("security") {
+            assert_eq!(security.model(), Some("claude:opus"));
+            assert_eq!(security.who.effort.as_deref(), Some("high"));
+            assert!(security.who.instructions.is_some());
+        }
+        let applied = w
+            .board
+            .apply_proposal(&key, draft.proposal.id, &ApplyChoices::default(), &models())
+            .await
+            .unwrap();
+        assert!(applied.version.is_some(), "{doc}");
+        assert_eq!(w.board.effective_flow(&key).await.unwrap(), file.flow);
+    }
+}

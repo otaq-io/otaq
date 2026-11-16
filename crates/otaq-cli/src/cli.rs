@@ -571,14 +571,14 @@ pub enum ProjectCommand {
 
 #[derive(Debug, Clone, PartialEq, Eq, Subcommand)]
 pub enum FlowCommand {
-    /// The project's applied flow and the agents it names, as the YAML `flow propose` reads
+    /// The project's applied flow, each stage with its model, as the YAML `flow propose` reads
     Show,
     /// The ready-made flows Otaq ships, one line each
     Presets,
     /// Propose a flow to the user: it opens in Otaq's flow editor and nothing changes until they apply it
     #[command(group(clap::ArgGroup::new("source").required(true).args(["file", "stdin", "from"])))]
     Propose {
-        /// A flow file (YAML: agents and flow); `--stdin-file` is another name for it
+        /// A flow file (YAML: flow and delivery); `--stdin-file` is another name for it
         #[arg(
             short = 'f',
             long = "file",
@@ -589,7 +589,7 @@ pub enum FlowCommand {
         /// Read the flow (YAML) from stdin
         #[arg(long)]
         stdin: bool,
-        /// Propose another project's stages (its key or name); agents are shared
+        /// Propose another project's stages (its key or name), with their models
         #[arg(long, value_name = "PROJECT")]
         from: Option<String>,
     },

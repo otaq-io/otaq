@@ -80,9 +80,10 @@ source**: it never checks for updates, a release never replaces it, and Settings
 2. **Your first ticket** waits in Backlog, "Tidy the README", editable in place. **Create & start** starts it (on
    macOS it first asks for notifications, with one line on why); **Not now** leaves an empty Backlog. After that,
    new tickets start from the box at the bottom of the board ("New ticket, or ask Noyan…").
-3. Optional: make a few named agents in Settings → Agents (the gear at the foot of the rail;
-   [named agents](how-it-works.md#agents-any-tool-any-model)). The project's own **Settings** (next to Board and
-   Files) has its flow, Repository (base branch, delivery, merge check), a **run** command for Session's Run
+3. Optional: pick the model each stage runs on in **Edit flow** (click a stage: **Who does it**; every stage starts
+   on its tool's default model, see [Any tool, any model](how-it-works.md#any-tool-any-model)), and the model Noyan
+   starts on in the app's Settings → Tools (the gear at the foot of the rail). The project's own **Settings** (next
+   to Board and Files) has its flow, Repository (base branch, delivery, merge check), a **run** command for Session's Run
    (`pnpm dev --port $PORT`, or **Add app** for each app of a monorepo), Workspace (a **setup** command run in every
    new worktree, such as `pnpm install`, and your variables) and Notes for agents (for example "run `cargo test`
    before you submit"). Leave the run command empty and an agent that needs the app can add it.
