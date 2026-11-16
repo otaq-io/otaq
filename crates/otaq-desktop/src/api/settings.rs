@@ -334,14 +334,24 @@ mod tests {
         let view = request(&h.app, "settings.view", Value::Null).await.unwrap();
         assert_eq!(view["page"]["page"], "global");
         assert_eq!(view["page"]["title"], "General");
-        // Eight topics about you and your machine, no projects.
+        // Nine topics about you and your machine, no projects; Noyan right after Tools (UX-70).
         let labels: Vec<&str> =
             view["nav"].as_array().unwrap().iter().map(|n| n["label"].as_str().unwrap()).collect();
         assert_eq!(
             labels,
-            ["Tools", "Git & pull requests", "Limits & usage", "Notifications", "Appearance", "Keyboard", "Data", "About"]
+            [
+                "Tools",
+                "Noyan",
+                "Git & pull requests",
+                "Limits & usage",
+                "Notifications",
+                "Appearance",
+                "Keyboard",
+                "Data",
+                "About"
+            ]
         );
-        let data = &view["page"]["sections"][7];
+        let data = &view["page"]["sections"][8];
         assert_eq!(data["id"], "data");
         assert_eq!(data["rows"][0]["control"]["kind"], "path");
 
@@ -352,10 +362,10 @@ mod tests {
         )
         .await
         .unwrap();
-        let renderer = edited["page"]["sections"][5]["rows"][4]["control"]["value"].clone();
+        let renderer = edited["page"]["sections"][6]["rows"][4]["control"]["value"].clone();
         assert_eq!(renderer, "dom");
         // No fonts in the test's folders: only Geist Mono is listed, and a family not installed is refused.
-        let font = &edited["page"]["sections"][5]["rows"][3];
+        let font = &edited["page"]["sections"][6]["rows"][3];
         assert_eq!(font["field"], "terminal_font_family");
         assert_eq!(font["control"]["kind"], "select");
         assert_eq!(font["control"]["choices"][0]["label"], "Geist Mono (default)");

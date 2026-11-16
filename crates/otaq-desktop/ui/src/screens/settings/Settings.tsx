@@ -118,6 +118,20 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
     openProjectSettings(key, section === "project_notes" ? "project_notes" : null);
   }, []);
 
+  // Another topic, as its nav row (Settings → Noyan's Set up <Tool> opens Tools): only state here, so the context can
+  // carry it; the page goes back to its top once the topic is drawn.
+  const [jumps, setJumps] = useState(0);
+  const openTopic = useCallback((section: string) => {
+    setHeading(null);
+    setSolo(null);
+    setVisit((v) => v + 1);
+    setTopic(section);
+    setJumps((j) => j + 1);
+  }, []);
+  useEffect(() => {
+    if (jumps > 0) body.current?.scrollTo({ top: 0 });
+  }, [jumps]);
+
   const page = view?.page;
   const context = useMemo<SettingsContextValue | null>(
     () =>
@@ -133,9 +147,10 @@ export function Settings({ params, close }: OverlayProps<"settings">) {
             visit,
             agent: params?.agent,
             openProject,
+            openTopic,
           }
         : null,
-    [page, edit, act, headerSlot, visit, params?.agent, openProject],
+    [page, edit, act, headerSlot, visit, params?.agent, openProject, openTopic],
   );
 
   const globalRows = view?.nav ?? [];

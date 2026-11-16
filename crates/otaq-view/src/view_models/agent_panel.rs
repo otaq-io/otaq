@@ -17,7 +17,7 @@
 //! runs on, or the model picked for this conversation, which the first message starts ("Claude Code · starts when you
 //! send"); on a running agent the one its session started on ("Claude Code · 52k"). The header shows the
 //! conversation's **model · effort** ([`HeaderModel`], canvas A-6): before the first message it opens "For this
-//! conversation" ([`model_effort::for_conversation`]: the default from Settings → Tools, the pairs the flows use,
+//! conversation" ([`model_effort::for_conversation`]: the default from Settings → Noyan, the pairs the flows use,
 //! Another model or effort…), so a new conversation can start on another than the setting's; once the conversation
 //! has started it is read-only, and a new conversation is how to change it (one tool's session can't carry on in
 //! another tool).
@@ -150,7 +150,7 @@ pub struct HeaderModel {
 
 /// The header model's tooltip before the conversation's first message.
 pub const MODEL_SWITCHES: &str =
-    "For this conversation. The next one starts on the default from Settings \u{2192} Tools.";
+    "For this conversation. The next one starts on the default from Settings \u{2192} Noyan.";
 /// The header model's tooltip once the conversation has started (UX-70).
 pub const MODEL_STARTED: &str = "To use another model, start a new conversation.";
 
@@ -2614,7 +2614,7 @@ mod tests {
     }
 
     /// A-6, UX-70: before the first message the header shows the model "Noyan starts on" and opens "For this
-    /// conversation": the default from Settings → Tools first, the pairs the flows use, Another model or effort… and
+    /// conversation": the default from Settings → Noyan first, the pairs the flows use, Another model or effort… and
     /// the foot. A conversation switched to sonnet · medium shows and starts on it (the first message names it); the
     /// following new conversation, with no pick, is on the default again.
     #[test]

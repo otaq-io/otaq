@@ -1,6 +1,6 @@
 // Area 15 · Settings (T-0234): the Settings overlay (⌘,), and the app's sections it draws, one registered component
-// per section id (T-0365 and UX-70 Tools; T-0395 Keyboard shortcuts). App settings
-// has eight topics: Tools, Git & pull requests, Limits & usage, Notifications, Appearance, Keyboard, Data and About.
+// per section id (T-0365 Tools; UX-70 Noyan; T-0395 Keyboard shortcuts). App settings has nine topics: Tools, Noyan,
+// Git & pull requests, Limits & usage, Notifications, Appearance, Keyboard, Data and About.
 // A project's settings are its own page (`project_settings/`).
 import type { ComponentType } from "react";
 
@@ -11,6 +11,7 @@ import { AboutSection } from "./About";
 import { AgentToolsSection, SignInDialog } from "./AgentTools";
 import { GitSection } from "./Git";
 import { KeyboardSection } from "./Keyboard";
+import { NoyanSettingsSection } from "./NoyanSettings";
 import { sectionComponent } from "./Rows";
 import { Settings } from "./Settings";
 import { UsageSection } from "./Usage";
@@ -19,6 +20,7 @@ import "./settings.css";
 /** The sections this screen draws (all of them, some from their own requests). */
 export const GLOBAL: readonly GlobalSection[] = [
   "tools",
+  "noyan",
   "git",
   "agent_limits",
   "usage",
@@ -33,6 +35,7 @@ export const GLOBAL: readonly GlobalSection[] = [
 const OWN: Partial<Record<GlobalSection, ComponentType>> = {
   about: AboutSection,
   tools: AgentToolsSection,
+  noyan: NoyanSettingsSection,
   git: GitSection,
   keyboard_shortcuts: KeyboardSection,
   usage: UsageSection,

@@ -82,7 +82,7 @@ source**: it never checks for updates, a release never replaces it, and Settings
    new tickets start from the box at the bottom of the board ("New ticket, or ask Noyan…").
 3. Optional: pick the model each stage runs on in **Edit flow** (click a stage: **Who does it**; every stage starts
    on its tool's default model, see [Any tool, any model](how-it-works.md#any-tool-any-model)), and the model Noyan
-   starts on in the app's Settings → Tools (the gear at the foot of the rail). The project's own **Settings** (next
+   starts on in the app's Settings → Noyan (the gear at the foot of the rail). The project's own **Settings** (next
    to Board and Files) has its flow, Repository (base branch, delivery, merge check), a **run** command for Session's Run
    (`pnpm dev --port $PORT`, or **Add app** for each app of a monorepo), Workspace (a **setup** command run in every
    new worktree, such as `pnpm install`, and your variables) and Notes for agents (for example "run `cargo test`

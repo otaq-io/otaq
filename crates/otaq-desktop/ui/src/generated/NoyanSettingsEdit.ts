@@ -3,5 +3,6 @@
 /**
  * One change to Noyan starts on, as the field sends it: a model (its effort stays, or moves to the nearest level the
  * new tool offers, UX-75), a pair of "As in your other flows" (both), or an effort (`None`: the tool's own).
+ * `NoyanSettingsEdit` on the page.
  */
-export type ToolsNoyanEdit = { "edit": "model", model: string, } | { "edit": "pair", model: string, effort?: string, } | { "edit": "effort", effort?: string, };
+export type NoyanSettingsEdit = { "edit": "model", model: string, } | { "edit": "pair", model: string, effort?: string, } | { "edit": "effort", effort?: string, };

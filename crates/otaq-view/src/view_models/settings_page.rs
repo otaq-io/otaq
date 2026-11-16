@@ -70,10 +70,14 @@ use crate::view_models::warm_build;
 #[serde(rename_all = "snake_case")]
 #[ts(rename = "GlobalSectionId")]
 pub enum GlobalSection {
-    /// M23, T-0360, UX-65, UX-70 (canvas A-8): the Tools topic, drawn from `agent_tools.view`
-    /// ([`super::agent_tools_page`]): the tools on this Mac, Noyan starts on and where each tool is used. Other
+    /// M23, T-0360, UX-65 (canvas A-8): the Tools topic, drawn from `agent_tools.view`
+    /// ([`super::agent_tools_page`]): the tools on this Mac and where each tool is used (Noyan among them). Other
     /// screens open Settings at this topic by its id, `tools`.
     Tools,
+    /// UX-70 (refined 2026-11-16): the Noyan topic, right after Tools, drawn from `noyan_settings.view`
+    /// ([`super::noyan_settings`]): only "Noyan starts on". Noyan isn't a tool. Other screens open Settings at this
+    /// topic by its id, `noyan`.
+    Noyan,
     /// Git and the pull request providers on this machine, drawn from `settings.git` ([`super::git_settings`]).
     /// Other screens open Settings at this topic by its id, `git`.
     Git,
@@ -582,8 +586,9 @@ pub struct WarmInputs<'a> {
 }
 
 /// The global sections, in nav order.
-const DRAWN: [GlobalSection; 9] = [
+const DRAWN: [GlobalSection; 10] = [
     GlobalSection::Tools,
+    GlobalSection::Noyan,
     GlobalSection::Git,
     GlobalSection::AgentLimits,
     GlobalSection::Usage,
@@ -594,7 +599,7 @@ const DRAWN: [GlobalSection; 9] = [
     GlobalSection::About,
 ];
 
-/// The nav row a global section is drawn under. App settings has eight topics: usage sits on one page with the agent
+/// The nav row a global section is drawn under. App settings has nine topics: usage sits on one page with the agent
 /// limit; every other section is a topic of its own.
 pub fn topic_of(id: GlobalSection) -> GlobalSection {
     match id {
@@ -631,6 +636,7 @@ pub fn nav(sections: &[GlobalSection]) -> Vec<NavRow> {
 fn nav_label(id: GlobalSection) -> (&'static str, IconName) {
     match id {
         GlobalSection::Tools => ("Tools", IconName::Wrench),
+        GlobalSection::Noyan => ("Noyan", IconName::MessagesSquare),
         GlobalSection::Git => ("Git & pull requests", IconName::GitPullRequest),
         GlobalSection::AgentLimits | GlobalSection::Usage => ("Limits & usage", IconName::Gauge),
         GlobalSection::Notifications => ("Notifications", IconName::Bell),
@@ -998,8 +1004,10 @@ pub fn global_page(input: &GlobalInputs) -> Page {
     Page::Global {
         title: "General".into(),
         sections: vec![
-            // Its own view: the tools, Noyan starts on and where they're used ([`super::agent_tools_page`]).
+            // Its own view: the tools and where they're used ([`super::agent_tools_page`]).
             section(GlobalSection::Tools, Some("Tools"), Vec::new()),
+            // Its own view: Noyan starts on ([`super::noyan_settings`]).
+            section(GlobalSection::Noyan, Some("Noyan"), Vec::new()),
             // Its own view: git and the PR providers ([`super::git_settings`]).
             section(GlobalSection::Git, None, Vec::new()),
             agent_limits,
@@ -2384,9 +2392,10 @@ mod tests {
             .unwrap_or_else(|| panic!("no row {field}"))
     }
 
-    /// App settings are about you and your machine: eight topics, no projects in the nav.
+    /// App settings are about you and your machine: nine topics, no projects in the nav. Noyan comes right after
+    /// Tools (UX-70).
     #[test]
-    fn app_settings_has_eight_topics_and_no_projects() {
+    fn app_settings_has_nine_topics_and_no_projects() {
         let sections = global(&GlobalSettings::default());
         let ids: Vec<GlobalSection> = sections.iter().map(|s| s.id).collect();
         assert_eq!(ids, DRAWN);
@@ -2399,6 +2408,7 @@ mod tests {
             labels,
             [
                 "Tools",
+                "Noyan",
                 "Git & pull requests",
                 "Limits & usage",
                 "Notifications",
@@ -2417,21 +2427,32 @@ mod tests {
             v.footnote,
             "Project settings live in each project\u{2019}s Settings tab."
         );
-        // The tools are the Tools topic; usage sits with the agent limit.
+        // The tools are the Tools topic, Noyan starts on the Noyan topic; usage sits with the agent limit.
         let sections_of = |i: usize| {
             let Target::Global { sections, .. } = &v.nav[i].target;
             sections.clone()
         };
         assert_eq!(sections_of(0), [GlobalSection::Tools]);
-        assert_eq!(sections_of(1), [GlobalSection::Git]);
+        assert_eq!(sections_of(1), [GlobalSection::Noyan]);
+        assert_eq!(sections_of(2), [GlobalSection::Git]);
         assert_eq!(
-            sections_of(2),
+            sections_of(3),
             [GlobalSection::AgentLimits, GlobalSection::Usage]
         );
-        // Other screens open Settings at Git & pull requests by its id.
+        // Other screens open Settings at Git & pull requests and at Noyan by their ids.
         assert_eq!(
             serde_json::to_value(GlobalSection::Git).unwrap(),
             serde_json::json!("git")
+        );
+        assert_eq!(
+            serde_json::to_value(GlobalSection::Noyan).unwrap(),
+            serde_json::json!("noyan")
+        );
+        // Nothing in the nav says "agent".
+        assert!(
+            v.nav
+                .iter()
+                .all(|n| !n.label.to_lowercase().contains("agent"))
         );
     }
 
@@ -2765,8 +2786,12 @@ mod tests {
         let Page::Global { sections, .. } = global_page(&input) else {
             unreachable!()
         };
+        let limit = sections
+            .iter()
+            .find(|s| s.id == GlobalSection::AgentLimits)
+            .unwrap();
         assert!(
-            sections[2]
+            limit
                 .note
                 .as_deref()
                 .is_some_and(|n| n.starts_with("Right now:"))
@@ -3153,15 +3178,20 @@ mod tests {
         .unwrap();
         assert_eq!(json["page"]["page"], "global");
         assert_eq!(json["page"]["sections"][0]["id"], "tools");
-        assert_eq!(json["page"]["sections"][1]["id"], "git");
-        assert_eq!(json["page"]["sections"][2]["id"], "agent_limits");
+        assert_eq!(json["page"]["sections"][1]["id"], "noyan");
+        assert_eq!(json["page"]["sections"][2]["id"], "git");
+        assert_eq!(json["page"]["sections"][3]["id"], "agent_limits");
         assert_eq!(
-            json["page"]["sections"][2]["rows"][0]["control"]["kind"],
+            json["page"]["sections"][3]["rows"][0]["control"]["kind"],
             "toggle"
         );
         assert_eq!(
             json["nav"][0]["target"],
             serde_json::json!({ "page": "global", "section": "tools", "sections": ["tools"] })
+        );
+        assert_eq!(
+            json["nav"][1]["target"],
+            serde_json::json!({ "page": "global", "section": "noyan", "sections": ["noyan"] })
         );
         let v: Value = serde_json::from_value(serde_json::json!(true)).unwrap();
         assert_eq!(v, Value::Flag(true));

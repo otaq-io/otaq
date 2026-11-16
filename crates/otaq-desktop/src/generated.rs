@@ -319,7 +319,9 @@ fn export_all(dir: &Path) -> Result<(), ExportError> {
     otaq_view::view_models::agent_tools_page::Page::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::DisconnectDialog::export_all(&cfg)?;
     otaq_view::view_models::agent_tools_page::Gallery::export_all(&cfg)?;
-    otaq_view::view_models::agent_tools_page::NoyanEdit::export_all(&cfg)?;
+    // Settings → Noyan (UX-70): its page and the edit of Noyan starts on.
+    otaq_view::view_models::noyan_settings::Page::export_all(&cfg)?;
+    otaq_view::view_models::noyan_settings::Edit::export_all(&cfg)?;
     crate::api::AgentToolsViewParams::export_all(&cfg)?;
     crate::api::AgentToolsRecheckParams::export_all(&cfg)?;
     crate::api::AgentToolParams::export_all(&cfg)?;

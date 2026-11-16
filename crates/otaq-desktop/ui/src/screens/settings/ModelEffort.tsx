@@ -1,5 +1,5 @@
 // Model and Effort: the one way a model is picked (UX-65, UX-68, UX-75; canvas A-2…A-4). A stage's Who does it in Edit
-// flow draws it; Done's model, Settings → Tools' "Noyan starts on" and the Noyan panel's header draw the same field.
+// flow draws it; Done's model, Settings → Noyan's "Noyan starts on" and the Noyan panel's header draw the same field.
 // The field shows the tool's avatar and "Codex · gpt-5.5"; its menu has "As in your other flows" on top (one click sets
 // model and effort), then each tool set up on this Mac with `default` first, then the tools that aren't set up with
 // Set up…. A model whose tool isn't set up is marked in amber with Set up <Tool> and Pick another model (A-4). Effort

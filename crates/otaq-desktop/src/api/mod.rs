@@ -225,6 +225,7 @@ areas! {
     usage,
     agent_panel,
     noyan_button,
+    noyan_settings,
     new_work,
     agent_tools,
     limits,

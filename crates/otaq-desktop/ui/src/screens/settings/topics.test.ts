@@ -1,9 +1,9 @@
 // @vitest-environment happy-dom
-// App settings is about you and your machine: eight topics in the nav, no projects, a line saying where project
+// App settings is about you and your machine: nine topics in the nav (Noyan right after Tools, UX-70), no projects, a line saying where project
 // settings are; Settings opens at a topic's id (`git`, which the PR dialog and the project's Repository card link to);
 // Git & pull requests shows git and one row per PR provider with its sign-in state, and is drawn at once, each row
 // "Checking…", while the tools check runs.
-import { act, createElement } from "react";
+import { act, createElement, useContext } from "react";
 import { createRoot, type Root } from "react-dom/client";
 import { afterEach, beforeAll, beforeEach, describe, expect, it, vi } from "vitest";
 
@@ -14,6 +14,7 @@ import type { GlobalSectionId } from "../../generated/GlobalSectionId";
 import type { SettingsNavRow } from "../../generated/SettingsNavRow";
 import type { SettingsView } from "../../generated/SettingsView";
 import { request } from "../../tauri";
+import { SettingsContext } from "./context";
 import { GitBody, GitSection } from "./Git";
 import { Settings } from "./Settings";
 
@@ -45,6 +46,7 @@ const topic = (label: string, sections: GlobalSectionId[]): SettingsNavRow => ({
 // The nav `settings_page.rs` sends.
 const NAV: SettingsNavRow[] = [
   topic("Tools", ["tools"]),
+  topic("Noyan", ["noyan"]),
   topic("Git & pull requests", ["git"]),
   topic("Limits & usage", ["agent_limits", "usage"]),
   topic("Notifications", ["notifications"]),
@@ -74,11 +76,33 @@ const VIEW: SettingsView = {
 
 const marker = (id: string) => () => createElement("p", { className: "marker" }, id);
 
+/** Noyan's stand-in: its marker and a Set up button, which opens Tools as Settings → Noyan's Set up <Tool> does. */
+function NoyanMarker() {
+  const settings = useContext(SettingsContext);
+  return createElement(
+    "p",
+    { className: "marker" },
+    "noyan",
+    createElement(
+      "button",
+      {
+        type: "button",
+        className: "set-up",
+        onClick: () => {
+          settings?.openTopic?.("tools");
+        },
+      },
+      "Set up",
+    ),
+  );
+}
+
 const app = registerScreens({
   settings: (a) => {
     a.overlays.register("settings", { Component: Settings });
     for (const row of NAV)
-      for (const id of row.target.sections) a.settings.global.register(id, { Component: marker(id) });
+      for (const id of row.target.sections)
+        a.settings.global.register(id, { Component: id === "noyan" ? NoyanMarker : marker(id) });
   },
 });
 
@@ -120,10 +144,11 @@ async function open(params?: { section?: GlobalSectionId }) {
 const texts = (selector: string) => [...host.querySelectorAll(selector)].map((el) => el.textContent.trim());
 
 describe("app settings", () => {
-  it("lists the eight topics and no projects, with a line saying where project settings are", async () => {
+  it("lists the nine topics and no projects, with a line saying where project settings are", async () => {
     await open();
     expect(texts(".settings-nav-item")).toEqual([
       "Tools",
+      "Noyan",
       "Git & pull requests",
       "Limits & usage",
       "Notifications",
@@ -148,6 +173,17 @@ describe("app settings", () => {
     );
   });
 
+  it("opens at `noyan`: Noyan's page, whose Set up opens Tools", async () => {
+    await open({ section: "noyan" });
+    expect(texts(".settings-header h2")).toEqual(["Noyan"]);
+    act(() => {
+      host.querySelector<HTMLButtonElement>(".set-up")?.click();
+    });
+    expect(texts(".settings-header h2")).toEqual(["Tools"]);
+    expect(texts(".marker")).toEqual(["tools"]);
+    expect(host.querySelector('.settings-nav-item[aria-current="true"]')?.textContent.trim()).toBe("Tools");
+  });
+
   it("each topic opens with its own sections", async () => {
     await open();
     const shown: string[][] = [];
@@ -159,6 +195,7 @@ describe("app settings", () => {
     }
     expect(shown).toEqual([
       ["tools"],
+      ["noyanSet up"],
       ["git"],
       ["agent_limits", "usage"],
       ["notifications"],
