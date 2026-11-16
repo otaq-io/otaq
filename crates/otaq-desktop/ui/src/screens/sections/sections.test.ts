@@ -1,3 +1,5 @@
+// @vitest-environment happy-dom
+// (A report draws its lines as inline Markdown, which needs a document.)
 import { createElement } from "react";
 import { renderToStaticMarkup } from "react-dom/server";
 import { describe, expect, it } from "vitest";

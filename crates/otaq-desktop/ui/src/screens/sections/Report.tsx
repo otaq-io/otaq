@@ -3,12 +3,18 @@
 // notes with their linked keys, and Create ticket on a "Not covered by any ticket" note (the user's click). Drawn in
 // the History tab under a round and on the Files tab next to the agent's summary. Every text comes from Rust
 // (`otaq-view`'s `validation_report.rs`); this keeps only whether it is open and which note is being created.
-import { useState } from "react";
+//
+// Each line is drawn as inline Markdown (tuq 110): the report keeps its structure (findings with their place, CHECKED,
+// NOTES, Create ticket) and only the words of a line get their bold, italic, inline code and links. The keys Rust found
+// in a line stay buttons, inside inline code too ("`SHOP-21`").
+import { createElement, type ReactNode, useMemo, useState } from "react";
 
 import { openTicket, selectProject } from "../../app/selection";
 import { Button } from "../../components";
 import type { ReportSegment } from "../../generated/ReportSegment";
 import type { ValidationReportView } from "../../generated/ValidationReportView";
+import { renderInlineMarkdown } from "../../markdown";
+import { openInBrowser } from "../../markdown/link/url";
 import { request } from "../../tauri";
 import { Icon } from "../../theme/Icon";
 
@@ -19,27 +25,91 @@ export function openKey(key: string): void {
   openTicket(key, "overview");
 }
 
-function Text({ segments }: { segments: readonly ReportSegment[] }) {
+/** The inline elements a line's Markdown draws, drawn as themselves; anything else is a plain span. */
+const INLINE = new Set(["strong", "em", "code", "s", "br"]);
+
+/**
+ * The line's keys as a pattern that finds them as whole words, the way Rust split them out (`segments`): not inside a
+ * longer word ("XSHOP-21", "SHOP-210"), and a sentence's last dot isn't part of one ("SHOP-21.").
+ */
+function keyPattern(segments: readonly ReportSegment[]): RegExp | null {
+  const keys = [...new Set(segments.filter((s) => s.key).map((s) => s.text))];
+  if (keys.length === 0) return null;
+  const alternatives = keys
+    .sort((a, b) => b.length - a.length)
+    .map((k) => k.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"))
+    .join("|");
+  // What comes before a key is matched (group 1) rather than looked behind, which older WebKit can't read.
+  return new RegExp(`(^|[^A-Za-z0-9.-])(${alternatives})(?![A-Za-z0-9-]|\\.+[A-Za-z0-9-])`, "g");
+}
+
+function KeyButton({ text }: { text: string }) {
   return (
-    <>
-      {segments.map((s, i) =>
-        s.key ? (
-          <button
-            type="button"
-            key={`${String(i)}-${s.text}`}
-            className="report-key"
-            onClick={() => {
-              openKey(s.text);
-            }}
-          >
-            {s.text}
-          </button>
-        ) : (
-          <span key={`${String(i)}-${s.text}`}>{s.text}</span>
-        ),
-      )}
-    </>
+    <button
+      type="button"
+      className="report-key"
+      onClick={() => {
+        openKey(text);
+      }}
+    >
+      {text}
+    </button>
   );
+}
+
+/** A text node's words with its keys as buttons. */
+function withKeys(text: string, keys: RegExp | null, at: string): ReactNode[] {
+  if (keys === null) return [text];
+  const out: ReactNode[] = [];
+  let from = 0;
+  for (const match of text.matchAll(keys)) {
+    const key = match[2] ?? "";
+    const start = match.index + (match[1] ?? "").length;
+    if (start > from) out.push(text.slice(from, start));
+    out.push(<KeyButton key={`${at}k${String(start)}`} text={key} />);
+    from = start + key.length;
+  }
+  if (from < text.length) out.push(text.slice(from));
+  return out;
+}
+
+/** A drawn node as React: text with its keys linked (not inside a link), inline elements as themselves. */
+function toReact(node: ChildNode, keys: RegExp | null, at: string): ReactNode {
+  if (node.nodeType === 3) return withKeys(node.textContent ?? "", keys, at);
+  if (!(node instanceof Element)) return null;
+  const tag = node.nodeName.toLowerCase();
+  const inner = (linked: RegExp | null) =>
+    [...node.childNodes].map((c, i) => toReact(c, linked, `${at}.${String(i)}`));
+  if (tag === "a") {
+    const href = node.getAttribute("href") ?? "";
+    return (
+      <a
+        key={at}
+        href={href}
+        rel="noopener noreferrer nofollow"
+        onClick={(e) => {
+          e.preventDefault();
+          openInBrowser(href);
+        }}
+        onAuxClick={(e) => {
+          e.preventDefault();
+        }}
+      >
+        {inner(null)}
+      </a>
+    );
+  }
+  return createElement(INLINE.has(tag) ? tag : "span", { key: at }, ...(tag === "br" ? [] : inner(keys)));
+}
+
+/** A report line: its words drawn as inline Markdown, its keys as buttons. */
+function Text({ segments }: { segments: readonly ReportSegment[] }) {
+  const drawn = useMemo(() => {
+    const keys = keyPattern(segments);
+    const line = segments.map((s) => s.text).join("");
+    return [...renderInlineMarkdown(line, document).childNodes].map((n, i) => toReact(n, keys, String(i)));
+  }, [segments]);
+  return <span className="report-md">{drawn}</span>;
 }
 
 /** The report's lines (no head): a passed one's summary or a failed one's findings, then checks and notes. `ticket` is the ticket the report is about. */

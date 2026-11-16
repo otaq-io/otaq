@@ -479,6 +479,28 @@
   font: 400 11px var(--font-mono);
 }
 
+/* A report line's inline Markdown (tuq 110), in the line's own 12 px: inline code as a description's, a step smaller. */
+.report-md strong {
+  font-weight: 600;
+}
+
+.report-md code {
+  padding: 1px 4px;
+  border-radius: 3px;
+  background: var(--bg-column);
+  font: 400 11px var(--font-mono);
+}
+
+.report-md a {
+  color: var(--accent);
+  text-decoration: none;
+  cursor: pointer;
+}
+
+.report-md a:hover {
+  text-decoration: underline;
+}
+
 .report-key {
   padding: 0;
   border: none;
