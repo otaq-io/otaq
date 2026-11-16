@@ -413,6 +413,7 @@ const withFlows = (page: AgentToolsPage): AgentToolsPage => ({
         pairs: [],
         groups: [],
         missing: null,
+        another: null,
         set_up: "Set up…",
         foot: "",
       },

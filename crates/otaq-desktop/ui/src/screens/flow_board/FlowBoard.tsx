@@ -1268,7 +1268,7 @@ function DeliveryPanel({
               onEdit(effort === null ? { edit: "delivery_effort" } : { edit: "delivery_effort", effort });
             }}
             onSetUp={() => {
-              openOverlay("settings", { section: "agent_tools" });
+              openOverlay("settings", { section: "tools" });
             }}
           />
         </>
