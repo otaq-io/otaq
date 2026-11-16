@@ -1066,7 +1066,14 @@ fn skill_tools(skill: &FoundSkill) -> String {
 /// badge on each. A user's skill's second line is where it lives, the tools that have it, then its description; an
 /// Otaq row's says what it does (Otaq's own words for its shipped skills): every tool has it.
 fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
-    let mut skills: Vec<&FoundSkill> = f.skills.iter().collect();
+    let checked = |skill: &FoundSkill| stage.skill.as_deref() == Some(skill.name.as_str());
+    // Otaq's `check-ticket` is a checker's workflow skill, never a stage's own (decision 113): Otaq starts it before a
+    // check stage's task skill. Listed only on a stage that already names it.
+    let mut skills: Vec<&FoundSkill> = f
+        .skills
+        .iter()
+        .filter(|s| s.name != otaq_core::agent_tools::CHECK_TICKET_SKILL || checked(s))
+        .collect();
     let order = |s: &FoundSkill| match (s.otaq, s.places.first().map(|p| p.scope)) {
         (true, _) => 2,
         (false, Some(SkillScope::Project)) => 1,
@@ -1075,7 +1082,6 @@ fn skill_choices(f: &Facts, stage: &Stage) -> Vec<MenuItem> {
     skills.sort_by_key(|s| (order(s), s.name.to_lowercase()));
     let (otaqs, users): (Vec<&FoundSkill>, Vec<&FoundSkill>) =
         skills.into_iter().partition(|s| s.otaq);
-    let checked = |skill: &FoundSkill| stage.skill.as_deref() == Some(skill.name.as_str());
     let mut items: Vec<MenuItem> = users
         .into_iter()
         .map(|skill| {
@@ -2765,12 +2771,14 @@ mod tests {
         assert_eq!(items[3].0, own("address-review"));
         let otaqs = &picker.items[3..];
         // Otaq's workflow skills and tuq's (decision 104), tuq's as tuq is known to have them, by their namespaced
-        // names, each with the "Otaq" badge.
+        // names, each with the "Otaq" badge. All but `check-ticket`: a checker's workflow skill, never a stage's own
+        // (decision 113).
         assert_eq!(
             otaqs.len(),
-            shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+            shipped::SKILLS.len() - 1 + otaq_core::tuq::KNOWN.len()
         );
         let ids: Vec<&str> = otaqs.iter().map(|i| i.id.as_str()).collect();
+        assert!(!ids.contains(&otaq_core::agent_tools::CHECK_TICKET_SKILL));
         let product_spec = format!("{}:product-spec", otaq_core::tuq::NAMESPACE);
         assert!(
             ids.contains(&own("validate").as_str())
@@ -2797,7 +2805,7 @@ mod tests {
         let picker = &plan_details(&v).skill.as_ref().unwrap().picker;
         assert_eq!(
             picker.items.len(),
-            1 + shipped::SKILLS.len() + otaq_core::tuq::KNOWN.len()
+            1 + shipped::SKILLS.len() - 1 + otaq_core::tuq::KNOWN.len()
         );
         assert!(picker.items[0].header && picker.items[0].mark && !picker.items[0].separated);
         assert!(
@@ -2805,6 +2813,36 @@ mod tests {
                 .iter()
                 .all(|i| !i.disabled && !i.id.is_empty())
         );
+    }
+
+    /// Decision 113: Otaq's `check-ticket` is never offered as a stage's skill (Otaq starts it before a check stage's
+    /// task skill), but a stage that already names it still shows it, checked.
+    #[test]
+    fn check_ticket_shows_only_on_a_stage_that_names_it() {
+        let mut e = env();
+        e.skills = otaq_skills();
+        let shop = shop_web();
+        let check_ticket = otaq_core::agent_tools::CHECK_TICKET_SKILL;
+        let listed = |skill: Option<&str>| {
+            let (file, d) = plan_draft(skill);
+            let d = Draft {
+                proposal: d,
+                ..draft(&file, false)
+            };
+            let v = render(&e, &d, &file, &shop, Some("plan"));
+            plan_details(&v)
+                .skill
+                .as_ref()
+                .unwrap()
+                .picker
+                .items
+                .iter()
+                .find(|i| i.id == check_ticket)
+                .map(|i| i.checked)
+        };
+        assert_eq!(listed(None), None);
+        assert_eq!(listed(Some(otaq_core::own_skill!("validate"))), None);
+        assert_eq!(listed(Some(check_ticket)), Some(true));
     }
 
     /// Decision 108: a personal `validate` is the user's, listed above the "Otaq" group, unmarked, apart from Otaq's

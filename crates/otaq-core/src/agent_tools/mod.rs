@@ -251,6 +251,10 @@ pub struct Detection {
 /// The skill an Agent stage without a skill of its own starts with.
 pub const WORK_TICKET_SKILL: &str = crate::own_skill!("work-ticket");
 
+/// The skill a check stage whose skill isn't Otaq's starts with (decision 113): it gets the context, keeps the checker
+/// read-only and ends with a verdict; the stage's task skill (the user's `team-validate`) is typed after its first turn.
+pub const CHECK_TICKET_SKILL: &str = crate::own_skill!("check-ticket");
+
 /// The skill every Project agent starts with (d0068).
 pub const PROJECT_AGENT_SKILL: &str = crate::own_skill!("noyan");
 

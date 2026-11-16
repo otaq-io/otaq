@@ -126,6 +126,15 @@ mod tests {
             own_name(&format!("{NS}:validate")),
             Some(format!("{NS}-validate"))
         );
+        // A checker's workflow skill too (decision 113): Copilot and OpenCode start `otaq-check-ticket`, and it is
+        // Otaq's own, never a stage's task skill.
+        let check_ticket = crate::agent_tools::CHECK_TICKET_SKILL;
+        assert_eq!(own_name(check_ticket), Some(format!("{NS}-check-ticket")));
+        assert_eq!(super::super::task_skill(Some(check_ticket)), None);
+        assert_eq!(
+            super::super::task_skill(Some("team-validate")),
+            Some("team-validate")
+        );
         // tuq's skills are the user's tuq's, not in the prefixed copy.
         assert_eq!(own_name("tuq:product-spec"), None);
         assert_eq!(own_name("validate"), None);

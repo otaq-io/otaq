@@ -430,6 +430,7 @@ impl Shared {
         {
             let validation = self.validation.clone();
             let plan_limit = self.plan_limit.clone();
+            let deliveries = self.deliveries.clone();
             let (session, ticket_id, signal) = (session.clone(), ticket_id.clone(), signal.clone());
             tokio::spawn(async move {
                 if let Err(e) = validation
@@ -437,6 +438,18 @@ impl Shared {
                     .await
                 {
                     tracing::warn!(session, error = %e, "can't apply the validator's hook");
+                }
+                // Then its check's task skill, if one waits (decision 113). The order matters: typed first, the
+                // same turn end would read as a check that ended with no result. A checker with nothing waiting (Otaq's
+                // own `validate`) is left as it was.
+                if signal.ends_turn()
+                    && deliveries
+                        .pending(&session)
+                        .await
+                        .is_ok_and(|p| !p.is_empty())
+                    && let Err(e) = deliveries.deliver_if_ready(&session).await
+                {
+                    tracing::warn!(session, error = %e, "delivery failed");
                 }
                 if let Signal::LimitReached { hit, resets_at } = &signal {
                     // A check agent held while its round's others run on doesn't stop the ticket (d0130 row 17):

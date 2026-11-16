@@ -26,6 +26,7 @@ pub use crate::naming::{AGENTS_FILE, AGENTS_YAML};
 pub const SKILLS: &[&str] = &[
     "address-review",
     "answer-question",
+    "check-ticket",
     "commit",
     "flow",
     "noyan",

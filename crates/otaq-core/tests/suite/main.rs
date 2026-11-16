@@ -25,6 +25,7 @@ mod caller;
 mod change_note;
 mod changed_since_review;
 mod check_counters;
+mod check_ticket_start;
 mod checkout_skills;
 mod checkpoint;
 mod claude_typing;
