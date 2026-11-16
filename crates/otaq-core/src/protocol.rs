@@ -166,6 +166,11 @@ pub enum Request {
     /// [`Reply::StartupReport`].
     #[serde(rename = "service.startup_report")]
     StartupReport,
+    /// The app opened the after-restart dialog for this start of the service (REC-06): from now on
+    /// [`ServiceStatus::summary_shown`] says so, so a later app doesn't open it again, however long after the start it
+    /// connects. Kept in memory for the service's lifetime. Answered with [`Reply::Ok`].
+    #[serde(rename = "service.summary_shown")]
+    ServiceSummaryShown,
     /// Asks the service to shut down; answered with [`Reply::Ok`] before it stops.
     #[serde(rename = "service.stop")]
     ServiceStop,
@@ -2116,6 +2121,7 @@ impl Request {
             Self::ServiceStop => "service.stop",
             Self::ServiceStopAgents => "service.stop_agents",
             Self::StartupReport => "service.startup_report",
+            Self::ServiceSummaryShown => "service.summary_shown",
             Self::Subscribe(_) => "events.subscribe",
             Self::ToolsCheck => "tools.check",
             Self::GitToolsCheck => "tools.check_git",
@@ -2593,6 +2599,10 @@ pub struct ServiceStatus {
     /// paused projects (PAU-07: theirs wait for Resume).
     #[serde(default)]
     pub interrupted_at_start: u32,
+    /// Whether an app opened the after-restart dialog for this start (`service.summary_shown`, REC-06). `None` from a
+    /// service older than the request: the app then tells a reopen from a restart by how long the service has run.
+    #[serde(default, skip_serializing_if = "Option::is_none")]
+    pub summary_shown: Option<bool>,
     /// The paused projects with their counts (PAU-01, PAU-07; d0112), by name.
     #[serde(default, skip_serializing_if = "Vec::is_empty")]
     pub paused: Vec<crate::agents::pause::ProjectPause>,
@@ -3012,6 +3022,7 @@ mod tests {
         vec![
             Message::request(1, Request::Ping),
             Message::request(2, Request::ServiceStatus),
+            Message::request(2, Request::ServiceSummaryShown),
             Message::request(3, Request::ServiceStop),
             Message::request(6, Request::Subscribe(SubscribeParams::default())),
             Message::request(7, Request::ToolsCheck),
@@ -3184,6 +3195,18 @@ mod tests {
                     .any(|r| r.method() == *m)
             );
         }
+    }
+
+    /// A service older than `service.summary_shown` sends no `summary_shown`: the app reads that as not knowing,
+    /// not as "not shown" (F-D-3).
+    #[test]
+    fn an_older_status_has_no_summary_shown() {
+        let old: ServiceStatus = serde_json::from_value(json!({
+            "pid": 1, "build_id": "old.1", "protocol_version": 13, "started_at": 5, "uptime_secs": 0,
+            "interrupted_at_start": 2
+        }))
+        .unwrap();
+        assert_eq!(old.summary_shown, None);
     }
 
     #[test]

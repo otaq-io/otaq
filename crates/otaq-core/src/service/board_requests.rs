@@ -1709,6 +1709,7 @@ pub(super) async fn handle(
         Request::Ping
         | Request::ServiceStatus
         | Request::StartupReport
+        | Request::ServiceSummaryShown
         | Request::ServiceStop
         | Request::ServiceStopAgents
         | Request::Subscribe(_)

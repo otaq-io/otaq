@@ -25,6 +25,7 @@ pub mod testing;
 use std::fmt;
 use std::io;
 use std::sync::Arc;
+use std::sync::atomic::{AtomicBool, Ordering};
 use std::time::{Duration, Instant};
 
 use tokio::sync::watch;
@@ -262,6 +263,8 @@ struct Shared {
     /// This run, in `service_runs`; a clean stop records its end.
     run: recovery::Run,
     started_at: i64,
+    /// An app opened the after-restart dialog for this start (`service.summary_shown`, REC-06).
+    summary_shown: AtomicBool,
     started: Instant,
     stop: Arc<watch::Sender<bool>>,
     events: EventBus,
@@ -560,6 +563,7 @@ impl Shared {
                     .count(),
             )
             .unwrap_or(u32::MAX),
+            summary_shown: Some(self.summary_shown.load(Ordering::Relaxed)),
             paused: self.pause.paused().await.unwrap_or_else(|e| {
                 tracing::warn!(error = %e, "can't read the paused projects");
                 Vec::new()
@@ -1317,6 +1321,7 @@ impl Service {
             scheduler,
             store,
             started_at: now_ms(),
+            summary_shown: AtomicBool::new(false),
             started: Instant::now(),
             stop: Arc::new(stop),
             events,

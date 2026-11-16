@@ -22,7 +22,7 @@ use otaq_core::agents::limits::ToolLines;
 use otaq_core::agents::pause::{PauseCounts, PauseScope};
 use otaq_core::attention::notify::{Target, open_env_var};
 use otaq_core::attention::os_permission::NotificationsState;
-use otaq_core::client::{Client, Compatibility};
+use otaq_core::client::{Client, ClientError, Compatibility};
 use otaq_core::domain::TicketKey;
 use otaq_core::flow::apply::{FlowEvent, WaitingChange};
 use otaq_core::protocol::{Event, OnboardingState, ProjectParams, Reply, Request, UsageParams};
@@ -224,6 +224,9 @@ struct State {
     /// whether it was disconnected at the last state (REC-06).
     opened_ms: i64,
     summary_for: Option<i64>,
+    /// The service start the dialog was raised for, until the service is told (`service.summary_shown`), so no later
+    /// app opens it again for that start (F-D-3). Only a service that reports `summary_shown` is told.
+    summary_to_tell: Option<i64>,
     connected_once: bool,
     was_disconnected: bool,
     /// A start or restart the user asked for is running.
@@ -286,6 +289,7 @@ impl Notices {
                 limit: Vec::new(),
                 opened_ms,
                 summary_for: None,
+                summary_to_tell: None,
                 connected_once: false,
                 was_disconnected: false,
                 busy: false,
@@ -331,6 +335,24 @@ impl Notices {
         let summarized = self.lock().on_link(link, Instant::now());
         self.publish();
         summarized
+    }
+
+    /// The service start to tell that the after-restart dialog was shown for (`service.summary_shown`), taken once:
+    /// only while connected to that same start. [`Self::summary_not_told`] puts it back when the request didn't
+    /// reach the service.
+    pub fn summary_to_tell(&self) -> Option<i64> {
+        let mut state = self.lock();
+        let start = match &state.link {
+            LinkState::Connected(info) => info.status.started_at,
+            _ => return None,
+        };
+        state.summary_to_tell.take().filter(|s| *s == start)
+    }
+
+    /// `service.summary_shown` for `start` didn't reach the service: the next tick tells it again, if still connected
+    /// to that start.
+    pub fn summary_not_told(&self, start: i64) {
+        self.lock().summary_to_tell.get_or_insert(start);
     }
 
     /// The first-hide note couldn't go out as an OS notification (Otaq's notifications off, or the OS blocks them):
@@ -695,6 +717,9 @@ impl State {
                 // The page opens the after-restart dialog once for this start; no banner.
                 OnConnect::Summary => {
                     self.summary_for = Some(info.status.started_at);
+                    if info.status.summary_shown.is_some() {
+                        self.summary_to_tell = Some(info.status.started_at);
+                    }
                     summarized = true;
                 }
                 OnConnect::Reconnected => {
@@ -886,6 +911,9 @@ async fn follow(
             _ = tick.tick() => {
                 let Some(notices) = weak.upgrade() else { return };
                 let client = clients.borrow().clone();
+                if let Some(client) = client.clone() {
+                    tell_summary_shown(&notices, &client).await;
+                }
                 if usage_due && let Some(client) = client {
                     usage_due = false;
                     let summary = tokio::time::timeout(
@@ -940,6 +968,21 @@ async fn follow(
                 notices.tick();
             }
         }
+    }
+}
+
+/// Tells the service the after-restart dialog was raised for its start (`service.summary_shown`), so a later app
+/// doesn't open it again (F-D-3). Asked again on the next tick when it didn't reach the service; an error from the
+/// service is final.
+async fn tell_summary_shown(notices: &Notices, client: &Client) {
+    let Some(start) = notices.summary_to_tell() else {
+        return;
+    };
+    let told =
+        tokio::time::timeout(USAGE_TIMEOUT, client.request(Request::ServiceSummaryShown)).await;
+    match told {
+        Ok(Ok(_)) | Ok(Err(ClientError::Service(_))) => {}
+        _ => notices.summary_not_told(start),
     }
 }
 
@@ -1333,6 +1376,82 @@ mod tests {
             "the page opens the dialog"
         );
         assert!(!n.on_link(&connected(Compatibility::Same, rebooted)));
+    }
+
+    /// F-D-3: `otaq daemon stop` / `start` from a terminal, the app opened an hour later. The service says no app
+    /// showed the dialog for its start: it opens, and the service is told once.
+    #[test]
+    fn a_service_started_from_a_terminal_gets_the_summary_and_is_told() {
+        let n = notices();
+        let started = OPENED - 3_600_000;
+        let status = ServiceStatus {
+            started_at: started,
+            interrupted_at_start: 1,
+            summary_shown: Some(false),
+            ..Default::default()
+        };
+        assert!(n.on_link(&connected(Compatibility::Same, status.clone())));
+        let view = n.view();
+        assert_eq!(view.summary_for, Some(started), "the page opens the dialog");
+        assert!(toasts(&view).is_empty(), "no Reconnected over the dialog");
+        assert_eq!(n.summary_to_tell(), Some(started));
+        assert_eq!(n.summary_to_tell(), None, "told once");
+        // Not delivered: told again while connected to the same start, not to another.
+        n.summary_not_told(started);
+        assert_eq!(n.summary_to_tell(), Some(started));
+        n.summary_not_told(started);
+        n.on_link(&LinkState::Reconnecting { attempt: 1 });
+        assert_eq!(n.summary_to_tell(), None, "not while disconnected");
+        n.on_link(&connected(
+            Compatibility::Same,
+            ServiceStatus {
+                started_at: OPENED + 5_000,
+                summary_shown: Some(false),
+                ..Default::default()
+            },
+        ));
+        assert_eq!(n.summary_to_tell(), None, "another start");
+
+        // A later app, after the service was told: a quiet reopen.
+        let later = notices();
+        later.on_link(&connected(
+            Compatibility::Same,
+            ServiceStatus {
+                summary_shown: Some(true),
+                ..status
+            },
+        ));
+        let view = later.view();
+        assert_eq!(view.summary_for, None);
+        assert_eq!(toasts(&view), vec![RECONNECTED]);
+    }
+
+    /// A service older than `summary_shown`: today's timing rule, and it isn't sent a request it doesn't know.
+    #[test]
+    fn an_older_service_keeps_the_timing_rule() {
+        let n = notices();
+        let hour_ago = ServiceStatus {
+            started_at: OPENED - 3_600_000,
+            interrupted_at_start: 2,
+            ..Default::default()
+        };
+        assert!(!n.on_link(&connected(Compatibility::ServiceOlder, hour_ago)));
+        assert_eq!(n.view().summary_for, None, "already running: no dialog");
+        assert_eq!(n.summary_to_tell(), None);
+
+        let n = notices();
+        let just_started = ServiceStatus {
+            started_at: OPENED + 1_000,
+            interrupted_at_start: 2,
+            ..Default::default()
+        };
+        assert!(n.on_link(&connected(Compatibility::ServiceOlder, just_started)));
+        assert_eq!(n.view().summary_for, Some(OPENED + 1_000));
+        assert_eq!(
+            n.summary_to_tell(),
+            None,
+            "not told: it doesn't know the request"
+        );
     }
 
     #[test]

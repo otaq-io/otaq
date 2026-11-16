@@ -198,11 +198,32 @@ async fn a_restart_interrupts_tickets_at_work_and_notes_review_tickets() {
         (status.unclean_start, status.interrupted_at_start),
         (false, 3)
     );
+    // No app has shown the after-restart dialog for this start yet, whenever it connects (F-D-3); once one has, the
+    // service says so for the rest of its run.
+    assert_eq!(status.summary_shown, Some(false));
+    assert_eq!(
+        client.request(Request::ServiceSummaryShown).await.unwrap(),
+        Reply::Ok
+    );
+    let Reply::ServiceStatus(status) = client.request(Request::ServiceStatus).await.unwrap() else {
+        panic!("status")
+    };
+    assert_eq!(status.summary_shown, Some(true));
+    drop(client);
 
     // Another restart doesn't note SHOP-3 again or touch Interrupted tickets.
     let w = w.restart().await;
     let report = w.recovery.startup_report();
     assert!(report.interrupted.is_empty() && report.session_ended.is_empty());
+    // A new start: not shown for it yet.
+    let client = otaq_core::client::Client::connect(otaq_core::client::ClientConfig::new(&w.data))
+        .await
+        .unwrap();
+    let Reply::ServiceStatus(status) = client.request(Request::ServiceStatus).await.unwrap() else {
+        panic!("status")
+    };
+    assert_eq!(status.summary_shown, Some(false));
+    drop(client);
     assert_eq!(
         events_of(&w, "SHOP-3", EventKind::SessionEnded).await.len(),
         1
